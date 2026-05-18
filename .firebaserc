@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "telecard-1"
+  },
+  "targets": {
+    "telecard-1": {
+      "hosting": {
+        "store": [
+          "telecard-1"
+        ],
+        "admin": [
+          "telecard-admin-x999com"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
