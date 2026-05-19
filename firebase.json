@@ -1,16 +1,36 @@
 {
-  "hosting": {
-    "public": ".",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "/",
-        "destination": "/store-app/store.html"
-      }
-    ]
-  }
+    "hosting": [
+        {
+              "target": "store",
+                    "public": "store",
+                          "ignore": [
+                                  "firebase.json",
+                                          "**/.*",
+                                                  "**/node_modules/**"
+                                                        ],
+                                                              "rewrites": [
+                                                                      {
+                                                                                "source": "**",
+                                                                                          "destination": "/store.html"
+                                                                                                  }
+                                                                                                        ]
+                                                                                                            },
+                                                                                                                {
+                                                                                                                      "target": "admin",
+                                                                                                                            "public": "admin",
+                                                                                                                                  "ignore": [
+                                                                                                                                          "firebase.json",
+                                                                                                                                                  "**/.*",
+                                                                                                                                                          "**/node_modules/**"
+                                                                                                                                                                ],
+                                                                                                                                                                      "rewrites": [
+                                                                                                                                                                              {
+                                                                                                                                                                                        "source": "**",
+                                                                                                                                                                                                  "destination": "/admin.html"
+                                                                                                                                                                                                          }
+                                                                                                                                                                                                                ]
+                                                                                                                                                                                                                    }
+                                                                                                                                                                                                                      ]
+                                                                                                                                                                                                                      }
+                                                                                                                                                                                                                      
 }
