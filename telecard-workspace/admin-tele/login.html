@@ -1,52 +1,128 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TELE CARD | تسجيل دخول الإدارة</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="admin.css">
+    <style>
+        .spinner { display: none; margin-left: 10px; animation: fa-spin 1s infinite linear; }
+        .btn-loading .spinner { display: inline-block; }
+        .btn-loading #btn-text { opacity: 0.7; }
+        .btn-loading #btn-icon { display: none; }
+    </style>
+</head>
+<body>
+    
+    <script>
+        if (localStorage.getItem('telecard_theme') === 'light') {
+            document.body.classList.add('light-mode');
+        }
+    </script>
+
+    <div class="auth-overlay active">
+        <div class="auth-card">
+            <div class="auth-header">
+                <div class="auth-logo">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
+                <h2>تسجيل الدخول للإدارة</h2>
+                <p>يرجى إدخال بيانات الاعتماد للوصول للوحة القيادة</p>
+            </div>
+            
+            <form id="admin-login-form">
+                <div class="auth-input-group">
+                    <i class="fa-solid fa-envelope"></i>
+                    <input type="email" id="auth-email" placeholder="البريد الإلكتروني" required>
+                </div>
+                <div class="auth-input-group">
+                    <i class="fa-solid fa-lock"></i>
+                    <input type="password" id="auth-password" placeholder="كلمة المرور" required>
+                </div>
+                
+                <div id="auth-error" class="auth-error-msg hide-element">بيانات الدخول غير صحيحة!</div>
+                
+                <button type="submit" class="btn btn-primary auth-submit-btn" id="btn-login">
+                    <i class="fa-solid fa-circle-notch spinner"></i>
+                    <span id="btn-text">دخول آمن</span>
+                    <i id="btn-icon" class="fa-solid fa-arrow-right-to-bracket"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
     <script type="module">
-        // 1. استيراد كائن auth من المحول الخاص بك ودالة تسجيل الدخول الرسمية
         import { auth } from './core/firebaseAdapter.js';
         import { signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
-
-        const loginForm = document.getElementById('admin-login-form');
-        const emailInput = document.getElementById('auth-email');
-        const passInput = document.getElementById('auth-password');
-        const errorMsg = document.getElementById('auth-error');
-        const btnLogin = document.getElementById('btn-login');
-
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
+        
+        // ننتظر حتى يكتمل بناء الصفحة بالكامل قبل تشغيل أي كود لمنع أخطاء الواجهة
+        document.addEventListener('DOMContentLoaded', () => {
             
-            errorMsg.classList.add('hide-element');
-            btnLogin.classList.add('btn-loading');
-            btnLogin.disabled = true;
-
-            const inputEmail = emailInput.value.trim().toLowerCase();
-            const inputPass = passInput.value;
-
-            try {
-                // 2. الاتصال بفايربيز والمصادقة الحقيقية
-                await signInWithEmailAndPassword(auth, inputEmail, inputPass);
-                
-                // 3. عند النجاح، نمنح المتصفح تذكرة المرور المحلية
-                sessionStorage.setItem('telecard_admin_auth', 'true');
-                
-                btnLogin.style.background = "#10b981";
-                document.getElementById('btn-text').innerText = "تم التحقق.. جاري الدخول";
-                
-                // 4. التوجيه إلى لوحة الإدارة (الآن سيستقبلك admin.html ويرحب بك)
-                setTimeout(() => {
-                    window.location.replace('admin.html');
-                }, 800);
-
-            } catch (error) {
-                console.error("Login Error:", error.code, error.message);
-                
-                // 5. معالجة الأخطاء باحترافية
-                if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
-                    errorMsg.innerText = 'البريد الإلكتروني أو كلمة المرور غير صحيحة!';
-                } else {
-                    errorMsg.innerText = 'حدث خطأ أثناء تسجيل الدخول. تأكد من اتصالك بالإنترنت.';
-                }
-                
-                errorMsg.classList.remove('hide-element');
-                btnLogin.classList.remove('btn-loading');
-                btnLogin.disabled = false;
+            const loginForm = document.getElementById('admin-login-form');
+            const emailInput = document.getElementById('auth-email');
+            const passInput = document.getElementById('auth-password');
+            const errorMsg = document.getElementById('auth-error');
+            const btnLogin = document.getElementById('btn-login');
+            
+            // فحص أمان
+            if (!loginForm) {
+                console.error("🚨 خطأ في الواجهة: لم يتم العثور على العنصر الذي يحمل ID 'admin-login-form'.");
+                return;
             }
+            
+            loginForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                errorMsg.classList.add('hide-element');
+                btnLogin.classList.add('btn-loading');
+                btnLogin.disabled = true;
+                
+                const inputEmail = emailInput.value.trim().toLowerCase();
+                const inputPass = passInput.value;
+                
+                try {
+                    // 1. الاتصال بمحرك المصادقة الرسمي لفايربيز
+                    const userCredential = await signInWithEmailAndPassword(auth, inputEmail, inputPass);
+                    const user = userCredential.user;
+                    
+                    // 🛑 2. الحماية الصارمة: التحقق من المعرف الخاص بك (UID)
+                    if (user.uid !== 'E064MQJyn6dhU9mNXZvXItc7VYg2') {
+                        await auth.signOut(); // طرد فوري وإلغاء الجلسة
+                        throw new Error('NotAuthorizedAdmin');
+                    }
+                    
+                    // 3. إصدار تذكرة المرور المحلية لمنع الطرد من admin.html
+                    sessionStorage.setItem('telecard_admin_auth', 'true');
+                    
+                    btnLogin.style.background = "#10b981";
+                    document.getElementById('btn-text').innerText = "تم التحقق.. جاري الدخول";
+                    
+                    // 4. التوجيه بسلام إلى لوحة الإدارة
+                    setTimeout(() => {
+                        window.location.replace('admin.html');
+                    }, 800);
+                    
+                } catch (error) {
+                    console.error("Login Error:", error.code, error.message);
+                    
+                    // 5. معالجة الأخطاء والرسائل
+                    if (error.message === 'NotAuthorizedAdmin') {
+                        errorMsg.innerText = 'عذراً، هذا الحساب لا يملك صلاحيات دخول لوحة الإدارة.';
+                    } else if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+                        errorMsg.innerText = 'البريد الإلكتروني أو كلمة المرور غير صحيحة!';
+                    } else {
+                        errorMsg.innerText = 'حدث خطأ. تأكد من اتصالك بالإنترنت وأن الحساب موجود في فايربيز.';
+                    }
+                    
+                    errorMsg.classList.remove('hide-element');
+                    btnLogin.classList.remove('btn-loading');
+                    btnLogin.disabled = false;
+                }
+            });
         });
     </script>
+    </body>
+    
+    </html>

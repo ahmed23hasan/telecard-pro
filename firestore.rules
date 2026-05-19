@@ -1,12 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // 🛡️ دالة التحقق من الإدارة العليا (بصمة مزدوجة لضمان أمان 100%)
+    // 🛡️ دالة التحقق من الإدارة العليا
     function isMasterAdmin() {
-      return request.auth != null && (request.auth.token.email == 'admin@telecard.pro' || request.auth.uid == '7iKH86pbJlNDQfQ1E0RVb1DQaM72');
+      // تم وضع الـ UID الخاص بك هنا، تأكد أيضاً من تعديل الإيميل إذا لزم الأمر
+      return request.auth != null && (request.auth.token.email == 'admin@telecard.pro' || request.auth.uid == 'E064MQJyn6dhU9mNXZvXItc7VYg2');
     }
-    
+
     // 👤 دالة التحقق من تسجيل دخول العميل
     function isAuthenticated() {
       return request.auth != null;
