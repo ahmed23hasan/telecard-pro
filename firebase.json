@@ -2,7 +2,7 @@
   "hosting": [
     {
       "target": "store",
-      "public": "store",
+      "public": "telecard-workspace/store-app",
       "ignore": [
         "firebase.json",
         "**/.*",
@@ -17,7 +17,7 @@
     },
     {
       "target": "admin",
-      "public": "admin",
+      "public": "telecard-workspace/admin-tele",
       "ignore": [
         "firebase.json",
         "**/.*",
