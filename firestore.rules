@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 🛡️ دالة التحقق من الإدارة العليا (بصمة مزدوجة لضمان أمان 100%)
+    function isMasterAdmin() {
+      return request.auth != null && (request.auth.token.email == 'admin@telecard.pro' || request.auth.uid == '7iKH86pbJlNDQfQ1E0RVb1DQaM72');
+    }
+    
+    // 👤 دالة التحقق من تسجيل دخول العميل
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // ==========================================
+    // 👥 إدارة المستخدمين
+    // ==========================================
+    match /telecard_users/{userId} {
+      allow read: if isAuthenticated(); 
+      allow write: if (isAuthenticated() && request.auth.uid == userId) || isMasterAdmin(); 
+    }
+
+    // ==========================================
+    // 🌐 المجموعات العامة (الكل يقرأ ليعمل المتجر، والمدير فقط يكتب)
+    // ==========================================
+    match /telecard_tiers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_prods/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_cats/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_settings/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_alerts/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_payments/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_banners/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_rates/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_countries/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_offers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+
+    // ==========================================
+    // 🛒 الطلبات والإيداعات (العميل يقرأ/ينشئ طلباته، والمدير يتحكم بالكل)
+    // ==========================================
+    match /telecard_orders/{docId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isMasterAdmin());
+      allow create: if isAuthenticated();
+      allow update, delete: if isMasterAdmin();
+    }
+    
+    match /telecard_deposits/{docId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isMasterAdmin());
+      allow create: if isAuthenticated();
+      allow update, delete: if isMasterAdmin();
+    }
+    
+    match /telecard_coupons/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isMasterAdmin();
+    }
+
+    // ==========================================
+    // 🔒 المجموعات شديدة الحساسية (للمدير فقط)
+    // ==========================================
+    match /telecard_vault/{docId} { allow read, write: if isMasterAdmin(); }
+    match /telecard_admin/{docId} { allow read, write: if isMasterAdmin(); }
+    match /telecard_system/{docId} { allow read, write: if isMasterAdmin(); }
+    match /telecard_logs/{docId} { allow read, write: if isMasterAdmin(); }
+    match /telecard_kyc/{docId} { allow read, write: if isMasterAdmin(); }
+
+    // ==========================================
+    // 🛑 القاعدة الجدارية (لأي مستند غير مذكور أعلاه)
+    // ==========================================
+    match /{document=**} {
+      allow read, write: if isMasterAdmin(); 
+    }
+    
+  }
+}
