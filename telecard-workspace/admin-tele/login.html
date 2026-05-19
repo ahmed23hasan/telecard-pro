@@ -86,13 +86,12 @@
                     // 1. الاتصال بمحرك المصادقة الرسمي لفايربيز
                     const userCredential = await signInWithEmailAndPassword(auth, inputEmail, inputPass);
                     const user = userCredential.user;
-                    
-                    // 🛑 2. الحماية الصارمة: التحقق من المعرف الخاص بك (UID)
-                    if (user.uid !== 'E064MQJyn6dhU9mNXZvXItc7VYg2') {
-                        await auth.signOut(); // طرد فوري وإلغاء الجلسة
-                        throw new Error('NotAuthorizedAdmin');
-                    }
-                    
+                // الحماية الصارمة: التحقق من المعرف الخاص بك (UID)
+if (user.uid !== 'e064MQJyn6dhU9mNXZvXItc7VYg2') {
+    await auth.signOut(); // طرد فوري وإلغاء الجلسة
+    throw new Error('NotAuthorizedAdmin');
+}
+ 
                     // 3. إصدار تذكرة المرور المحلية لمنع الطرد من admin.html
                     sessionStorage.setItem('telecard_admin_auth', 'true');
                     
