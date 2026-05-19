@@ -1,0 +1,339 @@
+// ============================================================================
+// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js)
+// الوظيفة: المنطق التجاري للمنتجات، الأقسام، الدول، وصناديق الأكواد (Vault)
+// ============================================================================
+
+import { AdminData } from '../../adminData.js';
+import { AdminUI } from '../../adminUI.js';
+import { AdminRender } from '../../adminRender.js';
+import { Utils, EventBus } from '../../adminUtils.js';
+import { AppController } from '../../core/appController.js';
+import { TelecardPricingEngine } from '../../adminConfig.js';
+
+export const CatalogController = {
+    tempPackages: [],
+
+    // =========================================================
+    // 📦 1. إدارة المنتجات والأقسام
+    // =========================================================
+    openProductModal: function(id = null) {
+        let strId = id ? String(id) : null;
+        if (!strId && !AppController.currFolder) {
+            EventBus.emit('req-show-toast', {message:'يرجى اختيار قسم أولاً ثم إضافة المنتج داخله.', type:'warning'});
+            return;
+        }
+        AppController.updateState({ tempEditId: strId, tempImg: null });
+        const p = strId ? (AdminData.data.prods || []).find(x => String(x.id) === strId) : null;
+        this.tempPackages = p ? (p.options || []) : [];
+        AppController.updateState({ tempPackages: this.tempPackages });
+        
+        AdminUI?.CatalogUI?.setupProductModal?.(p, AdminData.data.vault || []);
+        EventBus.emit('req-render-prod-config');
+        AdminRender?.renderPkgList?.();
+        this.updatePricePreview();
+        EventBus.emit('req-open-modal', 'prod');
+    },
+
+    updatePricePreview: function() {
+        const type = Utils.getVal('pr-type', 'simple');
+        const cost = parseFloat(Utils.getVal('pr-cost', 0)) || 0;
+        const tiers = AdminData.data.tiers || [];
+        AdminUI?.CatalogUI?.renderPricePreview?.(type, cost, tiers, this.tempPackages, TelecardPricingEngine);
+    },
+
+    saveProd: async function() {
+        const name = Utils.escapeHTML(Utils.getVal('pr-name'));
+        const type = Utils.getVal('pr-type');
+        if (!name) return;
+
+        const hasImg = AdminUI?.CatalogUI?.hasImage?.('pr-img-wrap');
+        const oldImg = AppController.tempEditId ? AdminData.data.prods.find(x => String(x.id) === String(AppController.tempEditId))?.img : null;
+        const finalImg = hasImg ? (AppController.tempImg || oldImg || '') : '';
+        const vaultPoolId = Utils.getVal('pr-vault');
+        const rawCost = parseFloat(Utils.getVal('pr-cost')) || 0;
+
+        if (rawCost <= 0 && type !== 'select') {
+            EventBus.emit('req-show-toast', {message:'لا يمكن أن تكون التكلفة 0', type:'error'});
+            return;
+        }
+
+        let newProd = {
+            id: AppController.tempEditId || String(Date.now()),
+            catId: AppController.currFolder != null ? String(AppController.currFolder) : null,
+            name: name,
+            description: Utils.escapeHTML(Utils.getVal('pr-desc')),
+            type: type,
+            img: finalImg,
+            costPrice: rawCost,
+            vaultPoolId: vaultPoolId,
+            hideGridPrice: Utils.getCheck('pr-hide-price')
+        };
+
+        const l1 = Utils.escapeHTML(Utils.getVal('h-lbl1')) || 'حقل إدخال';
+        const l2 = Utils.escapeHTML(Utils.getVal('h-lbl2')) || 'كلمة المرور';
+
+        if (type === 'simple') {
+            newProd.allowQty = Utils.getCheck('pr-allow-qty');
+            newProd.simpleMax = parseInt(Utils.getVal('pr-simple-max')) || 10;
+        } else if (type === 'single') {
+            newProd.input1Label = l1;
+        } else if (type === 'double') {
+            newProd.input1Label = l1;
+            newProd.input2Label = l2;
+        } else if (type === 'counter') {
+            newProd.minQty = parseInt(Utils.getVal('pr-min')) || 1;
+            newProd.maxQty = parseInt(Utils.getVal('pr-max')) || 100;
+            newProd.input1Label = l1;
+        } else if (type === 'select') {
+            if (this.tempPackages.length === 0) {
+                EventBus.emit('req-show-toast', {message:'أضف خيار واحد على الأقل', type:'warning'});
+                return;
+            }
+            newProd.options = this.tempPackages;
+            newProd.input1Label = l1;
+        }
+
+        const isEdit = !!AppController.tempEditId;
+        if (isEdit) {
+            const idx = AdminData.data.prods.findIndex(x => String(x.id) === String(AppController.tempEditId));
+            if (idx > -1) {
+                newProd.order = AdminData.data.prods[idx].order;
+                AdminData.data.prods[idx] = newProd;
+            }
+        } else {
+            const sameCatProds = AdminData.data.prods.filter(p => String(p.catId) === (AppController.currFolder != null ? String(AppController.currFolder) : null));
+            newProd.order = sameCatProds.length > 0 ? Math.max(...sameCatProds.map(p => Number(p.order) || -1)) + 1 : 0;
+            AdminData.data.prods.push(newProd);
+        }
+
+        await AdminData?.saveProducts?.();
+        AdminData?.loadData?.(true);
+        AppController.finishAction('req-render-prods', null, isEdit ? 'EDIT_PROD' : 'ADD_PROD', `تم ${isEdit ? 'تعديل' : 'إضافة'} منتج: ${name}`, 'تم حفظ المنتج بنجاح');
+    },
+
+    saveCat: async function() {
+        const name = Utils.escapeHTML(Utils.getVal('c-name'));
+        if (!name) return;
+
+        const hasImg = AdminUI?.CatalogUI?.hasImage?.('c-img-wrap');
+        const oldImg = AppController.tempEditId ? AdminData.data.cats.find(c => String(c.id) === String(AppController.tempEditId))?.img : null;
+        const finalImg = hasImg ? (AppController.tempImg || oldImg || '') : '';
+        const isEdit = !!AppController.tempEditId;
+
+        if (isEdit) {
+            const c = AdminData.data.cats.find(x => String(x.id) === String(AppController.tempEditId));
+            if (c) {
+                c.name = name;
+                c.img = finalImg;
+            }
+        } else {
+            const sameParentCats = AdminData.data.cats.filter(c => String(c.parentId) === String(AppController.currFolder));
+            const maxOrder = sameParentCats.length > 0 ? Math.max(...sameParentCats.map(c => Number(c.order) || -1)) + 1 : 0;
+            AdminData.data.cats.push({
+                id: String(Date.now()),
+                name: name,
+                parentId: AppController.currFolder != null ? String(AppController.currFolder) : null,
+                img: finalImg,
+                order: maxOrder
+            });
+        }
+
+        await AdminData?.saveCategories?.();
+        AdminData?.loadData?.(true);
+        AppController.finishAction('req-render-prods', null, isEdit ? 'EDIT_CAT' : 'ADD_CAT', `تم ${isEdit ? 'تعديل' : 'إضافة'} قسم: ${name}`, 'تم حفظ القسم بنجاح');
+    },
+
+    changeGridLayout: async function(cols) {
+        const parsedCols = parseInt(cols) || 2;
+        const folderId = AppController.currFolder;
+        if (!folderId || folderId === 'root') {
+            if (!AdminData.data.settings) AdminData.data.settings = {};
+            AdminData.data.settings.rootLayout = parsedCols;
+            await AdminData?.saveSystemSettings?.();
+        } else {
+            const cat = AdminData.data.cats.find(c => String(c.id) === String(folderId));
+            if (cat) {
+                cat.layout = parsedCols;
+                await AdminData?.saveCategories?.();
+            }
+        }
+        EventBus.emit('req-show-toast', {message:'تم حفظ التخطيط بنجاح', type:'success'});
+        AdminUI?.CatalogUI?.updateGridCssCols?.(parsedCols);
+    },
+
+    addPackage: function() {
+        const name = Utils.escapeHTML(Utils.getVal('pkg-name'));
+        const price = Utils.getVal('pkg-price');
+        if (name && price) {
+            this.tempPackages.push({name, price: parseFloat(price)});
+            AppController.updateState({ tempPackages: this.tempPackages });
+            AdminRender?.renderPkgList?.();
+            AdminUI?.CatalogUI?.clearPackageInputs?.();
+            this.updatePricePreview();
+        }
+    },
+
+    removePkg: function(i) {
+        this.tempPackages.splice(i, 1);
+        AppController.updateState({ tempPackages: this.tempPackages });
+        AdminRender?.renderPkgList?.();
+        this.updatePricePreview();
+    },
+
+    // =========================================================
+    // 🌍 2. إدارة الدول ومناطق الخدمة
+    // =========================================================
+        saveCountry: async function() {
+        const editId = Utils.getVal('country-edit-id');
+        const nameAr = Utils.escapeHTML(Utils.getVal('country-name'));
+        const code = Utils.escapeHTML(Utils.getVal('country-code')).toUpperCase();
+        const flagEmoji = Utils.escapeHTML(Utils.getVal('country-flag'));
+        const dialCode = Utils.escapeHTML(Utils.getVal('country-dial'));
+        const phoneLen = parseInt(Utils.getVal('country-phone-len')) || 10;
+        const isActive = Utils.getCheck('country-active');
+        const isBanned = Utils.getCheck('country-banned');
+
+        if (!nameAr || !code || !dialCode) {
+            EventBus.emit('req-show-toast', { message: 'يرجى تعبئة الحقول الأساسية (الاسم، الكود، النداء)', type: 'error' });
+            return;
+        }
+
+        if (!AdminData.data.countries) AdminData.data.countries = [];
+        if (!editId && AdminData.data.countries.find(c => String(c.id).toUpperCase() === code)) {
+            EventBus.emit('req-show-toast', { message: 'كود الدولة موجود مسبقاً!', type: 'error' });
+            return;
+        }
+
+        // 🌟 الإصلاح الجذري: توحيد هيكل البيانات ليتطابق مع ما يتوقعه محرك الرسم
+        const oldCountry = editId ? AdminData.data.countries.find(c => String(c.id) === String(editId)) : null;
+        
+        const newCountry = { 
+            id: editId || code, 
+            code: code,                    // 1. إضافة كود الدولة صراحة
+            name: nameAr,                  // 2. استخدام name بدلاً من nameAr
+            flag: flagEmoji,               // 3. استخدام flag بدلاً من flagEmoji
+            dialCode: dialCode, 
+            currency: oldCountry ? (oldCountry.currency || 'USD') : 'USD', // 4. الحفاظ على العملة
+            phoneLen: phoneLen, 
+            isActive: isActive, 
+            isBanned: isBanned 
+        };
+
+        if (editId) {
+            const idx = AdminData.data.countries.findIndex(c => String(c.id) === String(editId));
+            if (idx > -1) AdminData.data.countries[idx] = newCountry;
+        } else {
+            AdminData.data.countries.push(newCountry);
+        }
+
+        await AdminData?.saveCountries?.();
+        AppController.finishAction('req-render-countries', null, editId ? 'EDIT_COUNTRY' : 'ADD_COUNTRY', `تم ${editId ? 'تعديل' : 'إضافة'} دولة: ${nameAr}`, 'تم حفظ الدولة بنجاح');
+    },
+        deleteCountry: async function(id) {
+        // 🛡️ جدار الحماية: منع حذف الدولة الأخيرة في النظام
+        if (AdminData.data.countries && AdminData.data.countries.length <= 1) {
+            EventBus.emit('req-show-toast', { message: 'إجراء محظور: يجب أن يحتوي المتجر على دولة واحدة على الأقل لمنع انهيار واجهات الدفع.', type: 'error' });
+            return false; // إيقاف العملية فوراً
+        }
+
+        if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من حذف هذه الدولة نهائياً؟')) {
+            const countryId = String(id);
+            const countryName = AdminData.data.countries.find(c => String(c.id) === countryId)?.name || 'الدولة';
+            
+            AdminData.data.countries = AdminData.data.countries.filter(c => String(c.id) !== countryId);
+            await AdminData?.saveCountries?.();
+            
+            if (AdminData?.addLog) AdminData.addLog('DELETE_COUNTRY', `تم حذف الدولة: ${countryName}`);
+            
+            EventBus.emit('req-render-countries');
+            EventBus.emit('req-show-toast', { message: 'تم حذف الدولة بنجاح', type: 'success' });
+        }
+    },
+
+    // =========================================================
+    // 🏦 3. إدارة صناديق الأكواد (Vault)
+    // =========================================================
+    saveVaultPool: async function() {
+        const id = Utils.getVal('v-pool-id');
+        const name = Utils.escapeHTML(Utils.getVal('v-name'));
+        const alertLimit = Number(Utils.getVal('v-alert-limit', 5)) || 5;
+        const rawText = Utils.getVal('v-codes');
+
+        if (!name) {
+            EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم الصندوق', type: 'error' });
+            return;
+        }
+
+        const lines = rawText.split('\n').map(c => c.trim()).filter(Boolean);
+        let vaultArray = Array.isArray(AdminData.data.vault) ? AdminData.data.vault : [];
+        let poolIndex = vaultArray.findIndex(p => String(p.id) === String(id));
+        let existingPool = poolIndex > -1 ? vaultArray[poolIndex] : null;
+        
+        let retainedCodes = [];
+        let currentAvailableObjects = [];
+
+        if (existingPool && Array.isArray(existingPool.codes)) {
+            existingPool.codes.forEach(c => {
+                if (typeof c === 'object' && (c.status === 'sold' || c.status === 'defective')) {
+                    retainedCodes.push(c);
+                } else if (typeof c === 'object' && c.status === 'available') {
+                    currentAvailableObjects.push(c);
+                } else if (typeof c === 'string') {
+                    currentAvailableObjects.push({ id: 'old_' + Math.random().toString(36).substr(2, 6), text: Utils.escapeHTML(c), status: 'available', addedAt: Date.now() });
+                }
+            });
+        }
+
+        let finalAvailableCodes = lines.map(text => {
+            let existing = currentAvailableObjects.find(c => c.text === text);
+            if (existing) return existing;
+            return { id: 'code_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6), text: Utils.escapeHTML(text), status: 'available', addedAt: Date.now() };
+        });
+
+        const newPool = {
+            id: existingPool ? existingPool.id : 'vpool_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            name: name,
+            alertLimit: alertLimit,
+            codes: [...finalAvailableCodes, ...retainedCodes],
+            updatedAt: Date.now()
+        };
+
+        if (poolIndex > -1) {
+            vaultArray[poolIndex] = newPool;
+        } else {
+            vaultArray.push(newPool);
+        }
+
+        AdminData.data.vault = vaultArray;
+        const isSaved = AdminData ? await AdminData.saveVault() : false;
+
+        if (isSaved) {
+            AppController.finishAction('req-render-vault', null, poolIndex > -1 ? 'EDIT_VAULT' : 'ADD_VAULT', `تم ${poolIndex > -1 ? 'تعديل' : 'إضافة'} صندوق أكواد: ${name}`, 'تم حفظ الصندوق بنجاح');
+        } else {
+            EventBus.emit('req-show-toast', { message: 'حدث خطأ أثناء الحفظ', type: 'error' });
+        }
+    },
+
+    deleteVaultPool: async function(id) {
+        if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من حذف صندوق الأكواد هذا؟ (سيتم حذف جميع الأكواد بداخله)')) {
+            let vaultArray = Array.isArray(AdminData.data.vault) ? AdminData.data.vault : [];
+            const pool = vaultArray.find(v => String(v.id) === String(id));
+            AdminData.data.vault = vaultArray.filter(v => String(v.id) !== String(id));
+            await AdminData?.saveVault?.();
+            if (pool) AdminData?.addLog?.('DELETE_VAULT', `تم حذف صندوق الأكواد: ${pool.name}`);
+            EventBus.emit('req-render-vault');
+            EventBus.emit('req-show-toast', { message: 'تم حذف الصندوق بنجاح', type: 'success' });
+        }
+    },
+
+    viewDefectiveCodes: function(poolId) {
+        const pool = (AdminData.data.vault || []).find(v => String(v.id) === String(poolId));
+        if (!pool) return;
+        const defectiveCodes = (pool.codes || []).filter(c => typeof c === 'object' && c.status === 'defective');
+        if (defectiveCodes.length === 0) {
+            EventBus.emit('req-show-toast', { message: 'لا توجد أكواد تالفة في هذا الصندوق', type: 'info' });
+            return;
+        }
+        AdminUI?.CatalogUI?.renderDefectiveCodesModal?.(pool.name, defectiveCodes);
+    }
+};

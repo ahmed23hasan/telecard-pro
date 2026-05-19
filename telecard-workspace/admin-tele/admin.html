@@ -1,0 +1,2048 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+      <script>
+        // التحقق من الجلسة قبل تحميل أي عنصر في الصفحة
+        if (sessionStorage.getItem('telecard_admin_auth') !== 'true') {
+            window.location.replace('login.html'); // طرد فوري بدون حفظ في سجل المتصفح
+        }
+    </script>
+
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="color-scheme" content="dark light">
+
+    <title>TELE CARD | الإدارة المركزية</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&family=Inter:wght@400;600;700;800;900&family=Roboto:wght@400;500;700;900&family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+     <div id="system-fatal-error" style="display: none; position: fixed; inset: 0; background: #111827; color: #f8fafc; z-index: 999999; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; font-family: 'Cairo', sans-serif;">
+        <i class="fa-solid fa-triangle-exclamation fa-4x" style="color: #ef4444; margin-bottom: 20px;"></i>
+        <h2 style="font-weight: 800; margin-bottom: 10px;">عذراً، تعذر تحميل النظام</h2>
+        <p style="color: #94a3b8; max-width: 400px; margin-bottom: 25px;">يوجد نقص أو خطأ في ملفات النظام الأساسية. يرجى مراجعة مسارات الملفات (Imports) أو تحديث الصفحة.</p>
+        <button type="button" onclick="window.location.reload()" style="padding: 12px 24px; background: #38bdf8; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">تحديث الصفحة</button>
+    </div>
+
+    <div class="loader-overlay" id="loader"><div class="loader"></div><span>جاري المعالجة...</span></div>
+    <div class="sidebar-overlay" id="sb-overlay" data-action="toggle-sidebar"></div>
+
+    <aside class="sidebar" id="sidebar">
+        <div class="sb-profile" data-action="open-modal" data-target="profile">
+            <div class="sb-avatar-wrap"><div class="sb-avatar"><img id="sb-avatar-img"></div></div>
+
+            <div class="sb-name" id="sb-name-txt">المدير العام</div>
+            <span class="sb-role">Owner</span>
+        </div>
+        <div class="nav-menu">
+            <div class="nav-group-title">الرئيسية</div>
+            <div class="nav-item active" data-action="nav" data-target="dash" role="button" tabindex="0">
+                <i class="fa-solid fa-chart-pie"></i> لوحة القيادة
+            </div>
+            <div class="nav-item" data-action="nav" data-target="sales" role="button" tabindex="0">
+                <i class="fa-solid fa-chart-line"></i> إدارة المبيعات
+            </div>
+            <div class="nav-group-title">إدارة الطلبات</div>
+            
+            <div class="nav-item" data-action="nav" data-target="deposits" role="button" tabindex="0">
+                <i class="fa-solid fa-money-bill-transfer"></i> 
+                <div class="sidebar-text-group">
+                    <span>طلبات الايداع</span>
+                    <span id="badge-dep" class="badge-count">0</span>
+                </div>
+            </div>
+            
+            <div class="nav-item" data-action="nav" data-target="orders" role="button" tabindex="0">
+                <i class="fa-solid fa-box-open"></i> 
+                <div class="sidebar-text-group">
+                    <span>طلبات المنتجات</span>
+                    <span id="badge-ord" class="badge-count">0</span>
+                </div>
+            </div>
+        <div class="nav-group-title">المالية والمحافظ</div>
+            <div class="nav-item" data-action="nav" data-target="rates" role="button" tabindex="0">
+                <i class="fa-solid fa-brain"></i> العقل المالي (العملات)
+            </div>
+            <div class="nav-item" data-action="nav" data-target="wallets" role="button" tabindex="0">
+                <i class="fa-solid fa-wallet"></i> إجمالي المحافظ
+            </div>
+            <div class="nav-item" data-action="nav" data-target="payments" role="button" tabindex="0">
+                <i class="fa-solid fa-building-columns"></i> طرق الدفع
+            </div>
+
+            <div class="nav-group-title">إدارة المحتوى</div>
+            <div class="nav-item" data-action="nav" data-target="products" role="button" tabindex="0">
+                <i class="fa-solid fa-cubes"></i> الأقسام والمنتجات
+            </div>
+            <div class="nav-item" data-action="nav" data-target="vault" role="button" tabindex="0">
+                <i class="fa-solid fa-vault"></i> المخزون المركزي 
+            </div>
+            <div class="nav-item" data-action="nav" data-target="coupons" role="button" tabindex="0">
+                <i class="fa-solid fa-tags"></i> الكوبونات والعروض
+            </div>
+            <div class="nav-item" data-action="nav" data-target="ads" role="button" tabindex="0">
+                <i class="fa-solid fa-bullhorn"></i> الهوية والإعلانات
+            </div>
+
+            <div class="nav-group-title">النظام</div>
+                        <div class="nav-item" data-action="nav" data-target="integrations" role="button" tabindex="0">
+                <i class="fa-solid fa-plug"></i> الربط والموردين
+            </div>
+
+            <div class="nav-item" data-action="nav" data-target="logs" role="button" tabindex="0">
+                <i class="fa-solid fa-clipboard-list"></i> سجل النشاطات
+            </div>
+            <div class="nav-item" data-action="nav" data-target="notifs" role="button" tabindex="0">
+                <i class="fa-solid fa-bell"></i> الإشعارات والمنبثقات
+            </div>
+            
+            <div class="nav-item" data-action="nav" data-target="kyc-system" role="button" tabindex="0">
+               <i class="fa-solid fa-shield-halved"></i> 
+               <div class="sidebar-text-group">
+                   <span>نظام التوثيق (KYC)</span>
+                   <span id="nav-kyc-count" class="sidebar-kyc-badge" style="display: none;">0</span>
+               </div>
+            </div>
+
+            <div class="nav-item" data-action="nav" data-target="sys" role="button" tabindex="0">
+                <i class="fa-solid fa-server"></i> النظام وحالة المتجر
+            </div>
+            <div class="nav-item" data-action="nav" data-target="terms" role="button" tabindex="0">
+                <i class="fa-solid fa-file-contract"></i> الشروط والأحكام
+            </div>
+
+            <div class="nav-group-title">إدارة البيانات</div>
+            <div class="nav-item" data-action="nav" data-target="users" role="button" tabindex="0">
+                <i class="fa-solid fa-users"></i> المستخدمون
+            </div>
+            <div class="nav-item" data-action="nav" data-target="tiers" role="button" tabindex="0">
+                <i class="fa-solid fa-crown"></i> المستويات
+            </div>
+            <div class="nav-item" data-action="nav" data-target="countries" role="button" tabindex="0">
+                <i class="fa-solid fa-flag"></i> البلدان
+            </div>
+
+            <div class="nav-group-title">إدارة الملفات</div>
+            <div class="nav-item" data-action="export-data" role="button" tabindex="0">
+                <i class="fa-solid fa-download"></i> حفظ نسخة احتياطية
+            </div>
+            <div class="nav-item" data-action="trigger-click" data-target="restore-file" role="button" tabindex="0">
+    <i class="fa-solid fa-upload"></i> استعادة البيانات
+</div>
+          <input type="file" id="restore-file" hidden accept=".json">
+
+            <div class="nav-item nav-logout" data-action="logout" role="button" tabindex="0">
+    <i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج
+</div>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <header class="header">
+            <div class="header-left">
+                <div class="menu-toggle" data-action="toggle-sidebar"><i class="fa-solid fa-bars"></i></div>
+                <div class="header-title" id="page-title">لوحة القيادة</div>
+            </div>
+
+            <div class="header-actions flex-center-gap">
+                <div class="header-bell" data-action="toggle-theme" title="تبديل المظهر">
+                    <i id="theme-toggle-icon" class="fa-solid fa-moon"></i>
+                </div>
+
+                <div class="header-bell" data-action="scroll-to-alerts" title="الرادار والتنبيهات">
+                    <i class="fa-solid fa-bell"></i>
+                    <span class="bell-badge hide-element" id="global-alert-badge">0</span>
+                </div>
+
+                <div class="head-profile" data-action="open-modal" data-target="profile">
+                    <div class="head-img"><img id="head-avatar"></div>
+
+                    <div class="head-info">
+                        <div id="head-name" class="head-admin-name">المدير</div>
+                        <div class="head-admin-role">Admin</div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="workspace">
+            
+            <div id="view-dash" class="section active">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-chart-pie text-primary"></i> مركز القيادة والتحكم</div>
+                    <button type="button" class="btn btn-ghost" data-action="refresh-dash"><i class="fa-solid fa-rotate"></i> تحديث مباشر</button>
+                </div>
+
+                <div id="dash-capsules">
+                    <div class="skel-section-header" style="margin-top: 0;">
+                        <div class="skeleton-box skel-header-title" style="width: 160px;"></div>
+                        <div class="skeleton-box skel-header-line"></div>
+                    </div>
+                    <div class="skel-grid">
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                    </div>
+
+                    <div class="skel-section-header">
+                        <div class="skeleton-box skel-header-title" style="width: 140px;"></div>
+                        <div class="skeleton-box skel-header-line"></div>
+                    </div>
+                    <div class="skel-grid">
+                        <div class="skeleton-box skel-card" style="grid-column: 1 / -1; height: 95px;"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                    </div>
+
+                    <div class="skel-section-header">
+                        <div class="skeleton-box skel-header-title" style="width: 150px;"></div>
+                        <div class="skeleton-box skel-header-line"></div>
+                    </div>
+                    <div class="skel-grid">
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                    </div>
+
+                    <div class="skel-section-header">
+                        <div class="skeleton-box skel-header-title" style="width: 130px;"></div>
+                        <div class="skeleton-box skel-header-line"></div>
+                    </div>
+                    <div class="skel-grid">
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                    </div>
+                </div>
+
+                <div class="dash-layout-grid mt-15">
+                    <div class="dash-main-col">
+                        <div class="card dash-chart-card mb-15">
+                            <div class="card-header no-border-bottom">
+                                <div class="card-title"><i class="fa-solid fa-chart-line text-success"></i> التدفق المالي والأرباح</div>
+                            </div>
+                            <div id="main-revenue-chart">
+                                <div class="skeleton-box skel-chart-main"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dash-alerts-col">
+                        <div class="card dash-alerts-card">
+                            <div class="card-header no-border-bottom">
+                                <div class="card-title"><i class="fa-solid fa-bell text-warning"></i> الرادار والتنبيهات</div>
+                            </div>
+                            <div class="alerts-container" id="dash-smart-alerts">
+                                <div class="skeleton-box" style="height: 65px; border-radius: 12px; margin-bottom: 10px;"></div>
+                                <div class="skeleton-box" style="height: 65px; border-radius: 12px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div> 
+            </div> 
+            
+            <div id="view-sales" class="section">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-chart-line text-primary"></i> المبيعات</div>
+                    
+                    <div class="header-actions-row">
+                        
+                        <select class="select-micro" data-action="change-sales-range">
+                            <option value="all">كل الأوقات</option>
+                            <option value="7days">آخر 7 أيام</option>
+                            <option value="30days">آخر 30 يوم</option>
+                            <option value="90days">آخر 90 يوم</option>
+                        </select>
+                        
+                        <button type="button" class="btn-compact btn-export" data-action="export-excel" data-type="sales">
+                            <i class="fa-solid fa-file-excel"></i> تصدير </button>
+
+                    </div>
+                </div>
+
+                <div class="sales-super-capsules mb-20" id="sales-executive-summary"></div>
+
+                <div class="card mb-20 sales-card-padded">
+                    <div class="card-title text-primary mb-15"><i class="fa-solid fa-layer-group"></i> الأداء المالي التفصيلي للأقسام</div>
+                    <div class="table-responsive">
+                        <table class="modern-table">
+                            <thead>
+                                <tr>
+                                    <th>اسم القسم</th>
+                                    <th>الطلبات</th>
+                                    <th>الإيرادات (Gross)</th>
+                                    <th>الربح الصافي (Net)</th>
+                                    <th>متوسط الطلب (AOV)</th>
+                                    <th>هامش الربح (Margin)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sales-detailed-cats"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="sales-tables-grid">
+                    <div class="card sales-card-padded">
+                        <div class="card-title text-warning mb-15 text-center"><i class="fa-solid fa-trophy"></i> منصة أبطال المبيعات (Top 3)</div>
+                        <div class="podium-container" id="sales-podium"></div>
+                    </div>
+                    
+                    <div class="card sales-card-padded">
+                        <div class="card-title text-info mb-15"><i class="fa-solid fa-medal"></i> الأداء المالي التفصيلي للمنتجات</div>
+                        <div class="table-responsive">
+                            <table class="modern-table">
+                                <thead>
+                                    <tr>
+                                        <th>المنتج</th>
+                                        <th>المبيعات</th>
+                                        <th>الإيرادات</th>
+                                        <th>الربح الصافي</th>
+                                        <th>نسبة الربح</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sales-rest-prods"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div> 
+                <div class="sales-charts-grid mt-20">
+                    <div class="card dash-chart-card">
+                        <div class="card-header no-border-bottom">
+                            <div class="card-title"><i class="fa-solid fa-chart-area text-success"></i> المبيعات والأرباح (آخر 30 يوم)</div>
+                        </div>
+                        <div id="sales-detailed-chart" class="sales-chart-wrap"></div>
+                    </div>
+                    <div class="card dash-chart-card">
+                        <div class="card-header no-border-bottom">
+                            <div class="card-title"><i class="fa-solid fa-pie-chart text-warning"></i> مصادر الطلبات</div>
+                        </div>
+                        <div id="sales-source-chart" class="sales-chart-wrap"></div>
+                    </div>
+                </div>
+            </div> 
+            
+            <div id="view-tiers" class="section">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-crown text-warning"></i> إدارة المستويات</div>
+                    <button type="button" class="btn btn-primary" data-action="open-tier-edit"><i class="fa-solid fa-plus"></i> مستوى جديد</button>
+                </div>
+                <div class="panel-card mb-15">
+                    <div class="form-group mb-0">
+                        <label class="form-label text-danger"><i class="fa-solid fa-comment-slash"></i> رسالة توقف الترقية التلقائية</label>
+                        <textarea id="setting-tier-paused-msg" class="form-input" rows="2" placeholder="مثال: نظام الترقية متوقف مؤقتاً، يرجى التواصل مع الإدارة..." data-action="auto-save-settings"></textarea>
+                        <small class="text-muted d-block mt-5">ستظهر هذه العبارة للعملاء عند النقر على كبسولة المستوى في حال كان "الانتقال التلقائي" متوقفاً لديهم.</small>
+                    </div>
+                </div>
+
+                <div id="tiers-container" class="tiers-grid"></div>
+            </div> 
+
+            <div id="view-countries" class="section">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-flag text-success"></i> إدارة البلدان ومناطق الخدمة</div>
+                    <button type="button" class="btn btn-primary" data-action="open-country-modal">
+                        <i class="fa-solid fa-plus"></i> إضافة دولة
+                    </button>
+                </div>
+                
+                <div class="alert-info mb-15">
+                    <i class="fa-solid fa-circle-info text-info alert-icon"></i>
+                    <span>الدول المفعلة ستظهر للعملاء في صفحة التسجيل والإعدادات ليتم فرض نداء الهاتف الصحيح وتنسيقه تلقائياً.</span>
+                </div>
+
+                <div class="cards-grid-container mt-15">
+                    <div id="countries-grid" class="dynamic-cards-grid" style="display: grid; gap: 15px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));"></div>
+                </div>
+            </div>
+
+                   <div id="view-deposits" class="section">
+                <div class="card-header no-border-bottom mb-10">
+                    <div class="card-title"><i class="fa-solid fa-money-bill-transfer text-success"></i> إدارة طلبات الإيداع</div>
+                    <div class="header-actions-row">
+                        <button type="button" class="btn-compact btn-export" data-action="export-excel" data-type="deposits"><i class="fa-solid fa-file-excel"></i> تصدير Excel</button>
+                        <button type="button" class="btn-compact btn-refresh" data-action="refresh" data-type="deposits"><i class="fa-solid fa-rotate"></i> تحديث</button>
+                    </div>
+                </div>
+                
+                <div class="main-tabs-header" id="tabs-deposits">
+                    <button type="button" class="main-tab-btn active" data-action="filter-deposits" data-val="all">الكل <span class="tab-count" id="count-dep-all">0</span></button>
+                    <button type="button" class="main-tab-btn tab-warning" data-action="filter-deposits" data-val="pending">بانتظار إجراء <span class="tab-count pulse-badge" id="count-dep-pending">0</span></button>
+                    <button type="button" class="main-tab-btn tab-success" data-action="filter-deposits" data-val="approved">مقبول <span class="tab-count" id="count-dep-approved">0</span></button>
+                    <button type="button" class="main-tab-btn tab-danger" data-action="filter-deposits" data-val="rejected">مرفوض <span class="tab-count" id="count-dep-rejected">0</span></button>
+                    <button type="button" class="main-tab-btn tab-info" data-action="filter-deposits" data-val="refunded">مسترجع <span class="tab-count" id="count-dep-refunded">0</span></button>
+                </div>
+
+                <div class="filter-pro-container">
+                    <div class="filter-input-group">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="search-deposits" placeholder="بحث بمعرف الإيداع، العميل، أو البنك..." data-action="apply-filters" data-section="deposits">
+                    </div>
+
+                    <div class="fp-dates-row">
+                        <div class="custom-field" data-action="open-calendar" data-type="start" data-section="deposits">
+                            <div class="field-content">
+                                <div class="icon-wrapper">
+                                    <i class="fa-regular fa-calendar main-cal"></i>
+                                    <div class="icon-indicator start-icon"><i class="fa-solid fa-arrow-down"></i></div>
+                                </div>
+                                <span class="field-text placeholder-text" id="date-start-deposits">DD/MM/YYYY</span>
+                            </div>
+                        </div>
+
+                        <div class="custom-field" data-action="open-calendar" data-type="end" data-section="deposits">
+                            <div class="field-content">
+                                <div class="icon-wrapper">
+                                    <i class="fa-regular fa-calendar main-cal"></i>
+                                    <div class="icon-indicator end-icon"><i class="fa-solid fa-arrow-up"></i></div>
+                                </div>
+                                <span class="field-text placeholder-text" id="date-end-deposits">DD/MM/YYYY</span>
+                            </div>
+                        </div>
+
+                        <button type="button" class="btn-filter-action click-shrink" data-action="apply-filters" data-section="deposits"><i class="fa-solid fa-filter"></i></button>
+                    </div>
+
+                    <div class="quick-filters-row">
+                        <button type="button" class="qf-btn click-shrink" data-action="quick-date" data-range="today" data-section="deposits">اليوم</button>
+                        <button type="button" class="qf-btn click-shrink" data-action="quick-date" data-range="week" data-section="deposits">آخر 7 أيام</button>
+                        <button type="button" class="qf-btn click-shrink" data-action="quick-date" data-range="month" data-section="deposits">هذا الشهر</button>
+                        <button type="button" class="qf-btn click-shrink" data-action="quick-date" data-range="all" data-section="deposits">الكل</button>
+                    </div>
+                </div>
+                <div id="deposits-container" class="deposit-grid"></div>
+            </div>
+
+            <div id="view-orders" class="section">
+                <div class="card-header no-border-bottom mb-10">
+                    <div class="card-title"><i class="fa-solid fa-box-open text-primary"></i> إدارة طلبات المنتجات</div>
+                    <div class="header-actions-row">
+                        <button type="button" class="btn-compact btn-export" data-action="export-excel" data-type="orders"><i class="fa-solid fa-file-excel"></i> تصدير Excel</button>
+                        <button type="button" class="btn-compact btn-refresh" data-action="refresh" data-type="orders"><i class="fa-solid fa-rotate"></i> تحديث</button>
+                    </div>
+                </div>
+
+                <div class="main-tabs-header" id="tabs-orders">
+                    <button type="button" class="main-tab-btn active" data-action="filter-orders" data-val="all">الكل <span class="tab-count" id="count-ord-all">0</span></button>
+                    <button type="button" class="main-tab-btn tab-warning" data-action="filter-orders" data-val="pending">بانتظار إجراء <span class="tab-count pulse-badge" id="count-ord-pending">0</span></button>
+                    <button type="button" class="main-tab-btn tab-success" data-action="filter-orders" data-val="completed">مكتمل <span class="tab-count" id="count-ord-completed">0</span></button>
+                    <button type="button" class="main-tab-btn tab-danger" data-action="filter-orders" data-val="rejected">مرفوض <span class="tab-count" id="count-ord-rejected">0</span></button>
+                    <button type="button" class="main-tab-btn tab-info" data-action="filter-orders" data-val="refunded">مسترجع <span class="tab-count" id="count-ord-refunded">0</span></button>
+                </div>
+
+                <div class="filter-pro-container">
+                    <div class="filter-input-group">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="search-orders" placeholder="بحث برقم الطلب، العميل، أو المعرف..." data-action="apply-filters" data-section="orders">
+                    </div>
+                    
+                    <div class="fp-dates-row">
+                        <div class="custom-field" data-action="open-calendar" data-type="start" data-section="orders">
+                            <div class="field-content">
+                                <div class="icon-wrapper">
+                                    <i class="fa-regular fa-calendar main-cal"></i>
+                                    <div class="icon-indicator start-icon"><i class="fa-solid fa-arrow-down"></i></div>
+                                </div>
+                                <span class="field-text placeholder-text" id="date-start-orders">DD/MM/YYYY</span>
+                            </div>
+                        </div>
+
+                        <div class="custom-field" data-action="open-calendar" data-type="end" data-section="orders">
+                            <div class="field-content">
+                                <div class="icon-wrapper">
+                                    <i class="fa-regular fa-calendar main-cal"></i>
+                                    <div class="icon-indicator end-icon"><i class="fa-solid fa-arrow-up"></i></div>
+                                </div>
+                                <span class="field-text placeholder-text" id="date-end-orders">DD/MM/YYYY</span>
+                            </div>
+                        </div>
+                        
+                        <button type="button" class="btn-filter-action click-shrink" data-action="apply-filters" data-section="orders"><i class="fa-solid fa-filter"></i></button>
+                    </div>
+
+                    <div class="quick-filters-row">
+                        <button type="button" class="qf-btn click-shrink" data-action="quick-date" data-range="today" data-section="orders">اليوم</button>
+                        <button type="button" class="qf-btn click-shrink" data-action="quick-date" data-range="week" data-section="orders">آخر 7 أيام</button>
+                        <button type="button" class="qf-btn click-shrink" data-action="quick-date" data-range="month" data-section="orders">هذا الشهر</button>
+                        <button type="button" class="qf-btn click-shrink" data-action="quick-date" data-range="all" data-section="orders">الكل</button>
+                    </div>
+                </div>
+
+                <div id="orders-container" class="orders-container"></div>
+            </div>
+
+            <div id="view-users" class="section">
+                <div class="card-header mb-15 no-border-bottom users-toolbar-override">
+                    <div class="card-title"><i class="fa-solid fa-users text-primary"></i> إدارة المستخدمين</div>
+                    <div class="users-toolbar-actions">
+                        <select id="user-sort-type" class="select-micro leader-sort-select" data-action="change-user-sort">
+                            <option value="newest">ترتيب: الأحدث</option>
+                            <option value="spend_all">الأعلى صرفاً (كل الأوقات)</option>
+                            <option value="spend_month">الأعلى صرفاً (هذا الشهر)</option>
+                            <option value="spend_last_month">الأعلى صرفاً (الشهر الماضي)</option>
+                            <option value="orders_all">الأكثر طلباً (كل الأوقات)</option>
+                            <option value="orders_month">الأكثر طلباً (هذا الشهر)</option>
+                            <option value="orders_last_month">الأكثر طلباً (الشهر الماضي)</option>
+                        </select>
+
+                        <button type="button" id="btn-user-sort" class="btn btn-ghost" data-action="toggle-user-sort" title="ترتيب التاريخ (تصاعدي/تنازلي)">
+                            <i class="fa-solid fa-arrow-up"></i><i class="fa-solid fa-arrow-down icon-dimmed"></i>
+                        </button>
+                        <button type="button" class="btn btn-ghost" data-action="refresh" data-type="users" title="تحديث">
+                            <i class="fa-solid fa-rotate"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="filter-pro-container mb-15">
+                    <div class="filter-input-group w-100">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="user-search" placeholder="بحث (ID، اسم مستخدم، هاتف، بريد)..." data-action="search-users">
+                    </div>
+                </div>
+                <div id="users-container" class="users-grid"></div>
+            </div>
+
+            <div id="view-products" class="section">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title" id="prod-bread"><i class="fa-solid fa-cubes text-primary"></i> إدارة الأقسام والمنتجات</div>
+                    <div id="prod-actions"></div>
+                </div>
+
+                <div class="panel-card mb-15">
+                    <div class="setting-item-row flex-between align-items-center">
+                        <div class="setting-text">
+                            <h3 class="fs-14 fw-bold mb-5 text-main">
+                                <i class="fa-solid fa-mobile-screen text-primary icon-me-2"></i> مزامنة التخطيط مع المتجر
+                            </h3>
+                            <p class="fs-12 text-muted m-0">عند التفعيل، سيتم تطبيق عدد الأعمدة المختار هنا على واجهة العملاء فوراً.</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="switch m-0">
+                                <input type="checkbox" id="sync-grid-store" data-action="toggle-grid-sync">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="items-grid" id="prod-grid"></div>
+            </div>
+            
+            <div id="view-vault" class="section">
+                <div class="card-header no-border-bottom mb-10">
+                    <div class="card-title"><i class="fa-solid fa-vault text-warning"></i> خزنة الأكواد المركزية</div>
+                    <button type="button" class="btn btn-primary" data-action="open-vault-modal">
+                        <i class="fa-solid fa-plus"></i> إنشاء صندوق أكواد
+                    </button>
+                </div>
+                <div class="vault-info-banner">
+                    <i class="fa-solid fa-circle-info text-warning"></i> 
+                    قم بإنشاء صناديق (Pools) للأكواد هنا، ثم اذهب لصفحة المنتجات واربط كل منتج بالصندوق المناسب له ليسحب الأكواد منه تلقائياً.
+                </div>
+           
+                <div id="vault-grid" class="items-grid"></div>
+            </div>
+
+            <div id="view-coupons" class="section">
+                <div class="card-header no-border-bottom mb-10">
+               <div class="card-title" id="promo-page-title"><i class="fa-solid fa-tags text-warning"></i> إدارة الكوبونات</div>
+
+                    <div class="header-actions-row">
+                        <button type="button" class="btn-compact btn-primary" id="btn-add-coupon" data-action="open-coupon-modal">
+                            <i class="fa-solid fa-plus"></i> إنشاء كوبون
+                        </button>
+                        <button type="button" class="btn-compact btn-success hide-element" id="btn-add-offer" data-action="open-offer-modal">
+                            <i class="fa-solid fa-bolt"></i> إنشاء حملة تخفيض
+                        </button>
+                    </div>
+                </div>
+
+                <div class="main-tabs-header mb-15" id="tabs-promotions">
+                    <button type="button" class="main-tab-btn active" data-action="switch-promo-tab" data-tab="coupons">الكوبونات <span class="tab-count" id="count-coupons">0</span></button>
+                    <button type="button" class="main-tab-btn tab-success" data-action="switch-promo-tab" data-tab="offers">حملات التخفيض المركزية <span class="tab-count" id="count-offers">0</span></button>
+                </div>
+
+                <div class="alert-info mb-15" id="promo-info-alert">
+                    <i class="fa-solid fa-circle-info text-info alert-icon"></i>
+                    <span id="promo-info-text">الكوبونات تتيح لك تقديم خصم يتم تطبيقه عند الدفع (في السلة) من قبل العميل.</span>
+                </div>
+                
+                <div id="coupons-grid" class="items-grid"></div>
+                <div id="offers-grid" class="items-grid hide-element"></div>
+            </div>
+            <div id="view-ads" class="section">
+                <div class="card mb-15" id="branding-engine-card">
+                    <div class="card-header no-border-bottom">
+                        <h2 class="card-title"><i class="fa-solid fa-store text-primary"></i> محرك الهوية البصرية الشامل</h2>
+                    </div>
+                    
+                    <div class="brand-grid-150 mb-15">
+                        <div class="form-group mb-0">
+                            <label class="form-label text-warning"><i class="fa-solid fa-moon"></i> اللوغو الأساسي (داكن)</label>
+                            <div class="upload-area upload-area-sm" id="store-logo-wrap" data-action="trigger-click" data-target="store-logo-input">
+                                <i class="fa-solid fa-cloud-arrow-up mb-5 upload-icon-gold upload-icon-lg"></i>
+                                <div class="upload-hint-text fs-10">SVG, PNG شفافة</div>
+                                <img id="store-logo-preview" class="hide-element preview-img-sm">
+                                <div class="btn-remove-img" data-action="clear-img" data-preview="store-logo-preview" data-wrap="store-logo-wrap" data-input="store-logo-input"><i class="fa-solid fa-xmark"></i></div>
+                            </div>
+                            <input type="file" id="store-logo-input" class="hide-element" accept="image/svg+xml, image/png, image/webp" data-action="upload-img" data-preview="store-logo-preview" data-wrap="store-logo-wrap">
+                        </div>
+
+                        <div class="form-group mb-0">
+                            <label class="form-label text-info"><i class="fa-solid fa-sun"></i> لوغو الوضع الفاتح / PDF</label>
+                            <div class="upload-area upload-area-sm upload-area-light" id="store-logo-light-wrap" data-action="trigger-click" data-target="store-logo-light-input">
+                                <i class="fa-solid fa-cloud-arrow-up mb-5 text-info upload-icon-lg"></i>
+                                <div class="upload-hint-text fs-10">للفواتير والوضع النهاري</div>
+                                <img id="store-logo-light-preview" class="hide-element preview-img-sm">
+                                <div class="btn-remove-img" data-action="clear-img" data-preview="store-logo-light-preview" data-wrap="store-logo-light-wrap" data-input="store-logo-light-input"><i class="fa-solid fa-xmark"></i></div>
+                            </div>
+                            <input type="file" id="store-logo-light-input" class="hide-element" accept="image/svg+xml, image/png, image/webp" data-action="upload-img" data-preview="store-logo-light-preview" data-wrap="store-logo-light-wrap">
+                        </div>
+
+                        <div class="form-group mb-0">
+                            <label class="form-label text-success"><i class="fa-solid fa-window-maximize"></i> أيقونة المتصفح (Favicon)</label>
+                            <div class="upload-area upload-area-sm" id="store-favicon-wrap" data-action="trigger-click" data-target="store-favicon-input">
+                                <i class="fa-solid fa-cloud-arrow-up mb-5 text-success upload-icon-lg"></i>
+                                <div class="upload-hint-text fs-10">مربعة (PNG, ICO, SVG)</div>
+                                <img id="store-favicon-preview" class="hide-element preview-img-xs">
+                                <div class="btn-remove-img" data-action="clear-img" data-preview="store-favicon-preview" data-wrap="store-favicon-wrap" data-input="store-favicon-input"><i class="fa-solid fa-xmark"></i></div>
+                            </div>
+                            <input type="file" id="store-favicon-input" class="hide-element" accept="image/svg+xml, image/png, image/webp, image/x-icon" data-action="upload-img" data-preview="store-favicon-preview" data-wrap="store-favicon-wrap">
+                        </div>
+                    </div>
+
+                    <div class="form-row-2 flex-gap-15">
+                        <div class="form-group flex-1">
+                            <label class="form-label">اسم المتجر (نص احتياطي أو مرافق للشعار)</label>
+                            <input type="text" id="store-name-input" class="form-input mb-15" placeholder="مثال: تيليكارد برو" data-action="update-brand" data-oninput="update-brand">
+
+                            
+                            <label class="form-label">حجم اللوغو في واجهة المتجر (Scale Control)</label>
+                            <div class="flex-center-gap slider-control-box">
+                                <i class="fa-solid fa-down-left-and-up-right-to-center text-muted"></i>
+                                <input type="range" id="store-logo-size" min="20" max="80" value="36" class="form-input slider-input-clean" data-action="update-brand-size">
+                                <span id="logo-size-val" class="badge-qty badge-fixed-45">36px</span>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group flex-1">
+                            <div class="form-row-2 flex-gap-10 mb-10">
+                                <div class="flex-1">
+                                    <label class="form-label">سماكة النص (Font Weight)</label>
+                                    <select id="store-name-weight" class="form-input" data-action="update-brand">
+                                        <option value="900">عريض جداً (Black)</option>
+                                        <option value="800">عريض (Extra Bold)</option>
+                                        <option value="700">متوسط (Bold)</option>
+                                        <option value="500">عادي (Regular)</option>
+                                    </select>
+                                </div>
+                                <div class="flex-1">
+                                    <label class="form-label">ستايل اللون (Color Style)</label>
+                                    <select id="store-color-type" class="form-input" data-action="update-brand-color">
+                                        <option value="solid">لون موحد (Solid)</option>
+                                        <option value="gradient">تدرج لوني (Gradient)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="flex-center-gap mb-10">
+                                <input type="color" id="store-color-1" class="form-input color-picker-input" value="#ffffff" data-action="update-brand">
+                                <input type="color" id="store-color-2" class="form-input color-picker-input hide-element" value="#FFD700" data-action="update-brand">
+                                <span class="text-muted fs-11">ألوان العلامة التجارية</span>
+                            </div>
+
+                            <div class="switch-row-box p-8-12">
+                                <span class="switch-title" style="font-size: 11px;">إضافة توهج للنص (Text Glow/Shadow)</span>
+                                <label class="switch"><input type="checkbox" id="store-name-shadow" data-action="update-brand"><span class="slider"></span></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="brand-preview-box">
+                        <img id="live-logo-img" src="" class="brand-live-logo hide-element">
+                        <span id="live-name-text" class="brand-live-text"></span>
+                    </div>
+
+                    <button type="button" class="btn btn-primary btn-full mt-15" data-action="save-store-identity">
+                        <i class="fa-solid fa-floppy-disk"></i> حفظ هوية المتجر
+                    </button>
+                </div>
+
+                <div class="card mb-15">
+                    <div class="card-header no-border-bottom mb-15">
+                        <div class="card-title"><i class="fa-solid fa-images text-primary"></i> إدارة اللافتات الإعلانية</div>
+                        <button type="button" class="btn btn-primary" data-action="open-modal" data-target="banner">
+                            <i class="fa-solid fa-plus"></i> إضافة صورة
+                        </button>
+                    </div>
+                    
+                    <div class="items-grid mb-15" id="banner-grid"></div>
+
+                    <div class="ads-settings-divider">
+                        <div class="ads-settings-title"><i class="fa-solid fa-sliders text-warning"></i> إعدادات انتقال اللافتات</div>
+                        <div class="ads-settings-row">
+                            <div class="form-group flex-1 mb-0">
+                                <label class="form-label">مدة العرض (ثواني)</label>
+                                <input type="text" inputmode="decimal" id="slider-time" class="form-input num-en" dir="ltr" lang="en" value="3" data-action="auto-save-settings">
+                            </div>
+                            <div class="form-group flex-1 mb-0">
+                                <label class="form-label">طريقة الانتقال</label>
+                                <select id="slider-transition" class="form-input" data-action="auto-save-settings">
+                                    <option value="fade">تلاشي (Fade)</option>
+                                    <option value="slide">انزلاق أفقي (Slide)</option>
+                                    <option value="slide-vertical">انزلاق عمودي</option>
+                                    <option value="zoom">تكبير/تصغير</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header no-border-bottom mb-15">
+                        <div class="card-title"><i class="fa-solid fa-scroll text-warning"></i> إدارة الشريط الإخباري</div>
+                    </div>
+                    
+                    <div class="ticker-preview mb-15">
+                        <span class="tp-text anim-vertical-normal" id="preview-ticker">معاينة النص...</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">النص المكتوب</label>
+                        <input type="text" id="promo-text" class="form-input" spellcheck="false" placeholder="اكتب إعلانك هنا..." data-action="auto-save-settings" data-oninput="update-ticker-preview">
+
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">نوع وسرعة الحركة</label>
+                        <select id="promo-speed" class="form-input" data-action="auto-save-settings">
+                            <option value="horizontal-slow">أفقي (بطيء جداً)</option>
+                            <option value="horizontal-normal">أفقي (متوسط)</option>
+                            <option value="horizontal-fast">أفقي (سريع)</option>
+                            <option value="vertical-slow">عمودي (بطيء)</option>
+                            <option value="vertical-normal">عمودي (متوسط)</option>
+                            <option value="vertical-fast">عمودي (سريع)</option>
+                            <option value="pulse">نبض (Pulse)</option>
+                            <option value="flash">وميض (Flash)</option>
+                            <option value="static">ثابت (بدون حركة)</option>
+                        </select>
+                    </div>
+
+                    <button type="button" class="btn btn-primary btn-full mt-10" data-action="save-ads-settings">
+                        <i class="fa-solid fa-floppy-disk"></i> حفظ الإعدادات
+                    </button>
+                </div>
+            </div>
+
+            <div id="view-rates" class="section">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-brain text-warning"></i> إدارة أسعار الصرف</div>
+                    <button type="button" class="btn btn-primary" data-action="open-edit-currency"><i class="fa-solid fa-plus"></i> إضافة عملة</button>
+                </div>
+
+                <div class="panel-card mb-15">
+                    <div class="setting-item-row">
+                        <div class="setting-text">
+                            <h3 class="fs-14 fw-bold mb-5"><i class="fa-solid fa-eye text-primary"></i> طريقة عرض العملات في المنصة</h3>
+                            <p class="fs-12 text-muted m-0">اختر كيف تريد أن تظهر المبالغ المالية لك داخل لوحة الإدارة.</p>
+                        </div>
+                        <div class="setting-control">
+                            <select id="setting-curr-display" class="form-input w-100" data-action="change-currency-display">
+                                <option value="symbol">عرض الشعار ($ - € - ₺)</option>
+                                <option value="code">عرض الرمز (USD - EUR - TRY)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-card mb-15">
+                    <div class="setting-item-row flex-between align-items-center">
+                        <div class="setting-text">
+                            <h3 class="fs-14 fw-bold mb-5"><i class="fa-solid fa-store text-success"></i> مزامنة التنسيق مع المتجر</h3>
+                            <p class="fs-12 text-muted m-0">عند التفعيل، سيتم تطبيق نفس خيار التنسيق أعلاه (شعار أو رمز) على واجهة العملاء أيضاً.</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="switch m-0">
+                                <input type="checkbox" id="setting-sync-currency-store" data-action="auto-save-settings">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-card mb-15">
+                    <div class="setting-item-row flex-between align-items-center">
+                        <div class="setting-text">
+                            <h3 class="fs-14 fw-bold mb-5"><i class="fa-solid fa-eye-slash text-danger"></i> كبسولة تبديل العملات في المتجر</h3>
+                            <p class="fs-12 text-muted m-0">إظهار أو إخفاء كبسولة العملات من الهيدر العلوي للعملاء.</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="switch m-0">
+                                <input type="checkbox" id="setting-show-currency" checked data-action="auto-save-settings">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="rates-grid" class="rates-grid-layout"></div>
+            </div>
+
+            <!-- تم جلب قسم المحافظ من الملف الثاني -->
+            <div id="view-wallets" class="section">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-wallet text-success"></i> إدارة المحافظ المالية</div>
+                    <button type="button" class="btn btn-ghost" data-action="refresh" data-type="wallets"><i class="fa-solid fa-rotate"></i> تحديث</button>
+                </div>
+                <div id="wallets-overview-grid" class="wallets-overview-grid"></div>
+            </div>
+
+            <!-- تم جلب قسم بوابات الدفع من الملف الثاني -->
+            <div id="view-payments" class="section">
+                <div class="card-header no-border-bottom mb-10">
+                    <div class="card-title"><i class="fa-solid fa-credit-card text-warning"></i> بوابات الدفع (Payments)</div>
+                    <button type="button" class="btn btn-primary" data-action="open-payment-modal">
+                        <i class="fa-solid fa-plus"></i> إضافة طريقة دفع
+                    </button>
+                </div>
+                <div class="items-grid" id="pay-grid"></div>
+            </div>
+
+            <div id="view-logs" class="section">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-clipboard-list text-primary"></i> مراقبة النظام والنشاطات</div>
+                    <button type="button" class="btn btn-ghost" data-action="refresh" data-type="logs"><i class="fa-solid fa-rotate"></i> تحديث السجل</button>
+                </div>
+
+                <div class="card p-0 overflow-hidden">
+                    <div class="table-responsive">
+                        <table class="modern-table">
+                            <thead>
+                                <tr>
+                                    <th>الوقت والتاريخ</th>
+                                    <th>بواسطة</th>
+                                    <th>العملية</th>
+                                    <th>التفاصيل</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logs-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-notifs" class="section">
+                <div class="card mb-15">
+                    <div class="card-header mb-15 no-border-bottom p-0">
+                        <div class="card-title"><i class="fa-solid fa-bell text-warning"></i> نظام التنبيهات الموحد (Unified Alerts)</div>
+                        <button type="button" class="btn btn-primary btn-no-shrink" data-action="open-alert-modal">
+                            <i class="fa-solid fa-paper-plane"></i> إرسال تنبيه جديد
+                        </button>
+                    </div>
+                    
+                    <div class="alert-info mb-15">
+                        <i class="fa-solid fa-circle-info text-info alert-icon"></i>
+                        <span>يمكنك إرسال إشعارات هادئة (جرس) أو رسائل منبثقة (Popups) للجميع، لمستوى معين، أو لعميل محدد.</span>
+                    </div>
+
+                    <div id="alerts-grid" class="items-grid"></div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-title mb-15"><i class="fa-solid fa-headset text-success"></i> إعدادات الدعم والمساعدة</div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">الرابط أو الرقم (واتساب/تلغرام)</label>
+                        <input type="text" id="supp-link" class="form-input num-en" dir="ltr" lang="en" placeholder="https://t.me/username OR +90555...">
+                    </div>
+                    
+                    <div class="form-group mt-15">
+                        <label class="form-label">اختر الأيقونة</label>
+                        <div class="icon-selector" id="icon-selector">
+                            <div class="is-opt active" data-val="fa-whatsapp" data-action="select-icon"><i class="fa-brands fa-whatsapp"></i></div>
+                            <div class="is-opt" data-val="fa-telegram" data-action="select-icon"><i class="fa-telegram"></i></div>
+                            <div class="is-opt" data-val="fa-headset" data-action="select-icon"><i class="fa-solid fa-headset"></i></div>
+                            <div class="is-opt" data-val="fa-comments" data-action="select-icon"><i class="fa-solid fa-comments"></i></div>
+                            <div class="is-opt" data-val="fa-message" data-action="select-icon"><i class="fa-solid fa-message"></i></div>
+                            <div class="is-opt" data-val="fa-phone" data-action="select-icon"><i class="fa-solid fa-phone"></i></div>
+                            <div class="is-opt" data-val="fa-envelope" data-action="select-icon"><i class="fa-solid fa-envelope"></i></div>
+                            <div class="is-opt" data-val="fa-circle-question" data-action="select-icon"><i class="fa-solid fa-circle-question"></i></div>
+                            <div class="is-opt" data-val="fa-life-ring" data-action="select-icon"><i class="fa-solid fa-life-ring"></i></div>
+                            <div class="is-opt" data-val="fa-handshake" data-action="select-icon"><i class="fa-solid fa-handshake"></i></div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group mt-15">
+                        <label class="form-label">حركة الأيقونة</label>
+                        <div class="animation-selector" id="animation-selector">
+                            <div class="anim-opt" data-val="none" data-action="select-animation"><i class="fa-solid fa-ban"></i><span>بدون حركة</span></div>
+                            <div class="anim-opt" data-val="glow" data-action="select-animation"><i class="fa-solid fa-sparkles"></i><span>وهج</span></div>
+                            <div class="anim-opt" data-val="pulse" data-action="select-animation"><i class="fa-solid fa-circle-radiation"></i><span>نبض</span></div>
+                            <div class="anim-opt" data-val="blink" data-action="select-animation"><i class="fa-solid fa-eye"></i><span>وميض</span></div>
+                            <div class="anim-opt" data-val="bounce" data-action="select-animation"><i class="fa-solid fa-arrow-up"></i><span>نط</span></div>
+                            <div class="anim-opt" data-val="shake" data-action="select-animation"><i class="fa-solid fa-hand"></i><span>اهتزاز</span></div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-full mt-15" data-action="save-support">
+                        <i class="fa-solid fa-floppy-disk"></i> حفظ إعدادات الدعم
+                    </button>
+                </div>
+            </div> 
+
+            <div id="view-kyc-system" class="section">
+                <div class="view-header mb-4">
+                    <h4 class="fw-900"><i class="fa-solid fa-shield-halved text-warning"></i> مركز حماية الهوية (KYC)</h4>
+                    <p class="text-muted">تحكم في شروط الأمان وفرض توثيق الهوية على العملاء.</p>
+                </div>
+                <div id="kyc-dashboard-target"></div>
+            </div>
+
+            <div id="view-sys" class="section">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-server text-danger"></i> إدارة حالة النظام</div>
+                </div>
+                
+                <div class="card maint-card mb-15">
+                    <div class="card-title text-danger mb-15"><i class="fa-solid fa-lock"></i> الإغلاق الشامل (وضع الصيانة)</div>
+                    <div class="maint-alert-box">
+                        <div class="maint-alert-header">
+                            <span class="fw-bold">تفعيل وضع الصيانة الشامل</span>
+                            <label class="switch"><input type="checkbox" id="sys-maint-toggle" data-action="toggle-system" data-type="maint"><span class="slider"></span></label>
+                        </div>
+                        <p class="maint-alert-desc">عند التفعيل، سيتوقف المتجر عن العمل وتظهر رسالة الصيانة للعملاء، ولا يمكن تصفح المنتجات نهائياً.</p>
+                        <input type="text" id="sys-maint-msg" class="form-input mb-15" placeholder="رسالة الصيانة (مثلاً: نعود قريباً...)" data-action="save-system">
+                        
+                        <div class="maint-date-box mt-15">
+                            <label class="form-label">تاريخ انتهاء الصيانة (للعداد التنازلي)</label>
+                            <div class="custom-field w-100" data-action="open-calendar" data-type="maint" data-section="sys" data-time="true">
+                                <div class="field-content">
+                                    <i class="fa-regular fa-calendar text-danger"></i>
+                                    <span class="field-text placeholder-text num-en" id="date-maint-sys" dir="ltr" lang="en">DD/MM/YYYY HH:MM</span>
+                                </div>
+                                <input type="hidden" id="sys-maint">
+                            </div>
+                        </div>
+                    </div> 
+                </div>
+
+                <div class="card maint-card">
+                    <div class="card-title text-warning mb-15"><i class="fa-solid fa-snowflake"></i> تجميد المشتريات والإيداعات (Soft Lock)</div>
+                    <div class="maint-alert-box">
+                        <div class="maint-alert-header">
+                            <span class="fw-bold text-warning">تفعيل تجميد العمليات المالية</span>
+                            <label class="switch"><input type="checkbox" id="sys-freeze-toggle" data-action="toggle-system" data-type="freeze"><span class="slider"></span></label>
+                        </div>
+                        <p class="maint-alert-desc text-muted">عند التفعيل، يبقى المتجر مفتوحاً للتصفح، ولكن سيتم منع النقر على أزرار (شراء، إيداع) وتظهر هذه الرسالة للعميل.</p>
+                        <input type="text" id="sys-freeze-msg" class="form-input" placeholder="رسالة التجميد (مثلاً: نحدث الأسعار حالياً...)" data-action="save-system">
+                    </div>
+                </div>
+            </div>
+            
+            <div id="view-terms" class="section">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-file-contract text-primary"></i> إدارة الشروط والأحكام</div>
+                </div>
+                <div class="card terms-card">
+                    <div class="terms-desc">قم بكتابة الشروط والأحكام الخاصة بمتجرك هنا. يمكنك استخدام المسافات والأسطر المتعددة بحرية، وسيتم عرضها للعميل بنفس التنسيق تماماً.</div>
+                    <div class="form-group"><textarea id="setting-terms-text" class="form-input terms-textarea" placeholder="اكتب شروط المتجر هنا..."></textarea></div>
+                    <button type="button" class="btn btn-primary btn-full btn-terms-save mt-10" data-action="save-terms"><i class="fa-solid fa-floppy-disk"></i> حفظ الشروط والأحكام</button>
+                </div>
+            </div>
+            
+            <div id="view-integrations" class="section">
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-plug text-primary"></i> إدارة الربط والموردين (API)</div>
+                    <button type="button" class="btn btn-primary" data-action="open-add-supplier">
+                        <i class="fa-solid fa-plus"></i> إضافة مورد جديد
+                    </button>
+                </div>
+                
+                <div class="alert-info mb-15">
+                    <i class="fa-solid fa-circle-info text-info alert-icon"></i>
+                    <span>اربط متجرك بموردين خارجيين (مثل منصة سلة، زد، أو API خاص) لسحب المنتجات وتحديث المخزون والأسعار بشكل آلي.</span>
+                </div>
+                
+                <div id="suppliers-grid" class="items-grid"></div>
+            </div>
+            </div>
+            </main>
+    <!-- Modals Overlay -->
+    <div class="modal-overlay" id="m-tier">
+        <div class="modal-content modal-md">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title"><i class="fa-solid fa-crown"></i> إعدادات المستوى</h2>
+            
+            <div class="form-group">
+                <label class="form-label">اسم المستوى</label>
+                <input type="text" id="t-name" class="form-input">
+            </div>
+        <div class="form-group">
+    <label class="form-label">أيقونة الشارة</label>
+    <div class="badge-selector">
+        <div class="badge-opt active" data-action="select-tier-badge" data-val="fa-user" title="مستخدم عادي"><i class="fa-solid fa-user"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-user-tie" title="مستخدم رسمي"><i class="fa-solid fa-user-tie"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-user-astronaut" title="مستخدم فضاء (مميز)"><i class="fa-solid fa-user-astronaut"></i></div>
+        
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-crown" title="تاج"><i class="fa-solid fa-crown"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-gem" title="ألماس"><i class="fa-solid fa-gem"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-medal" title="ميدالية"><i class="fa-solid fa-medal"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-trophy" title="كأس"><i class="fa-solid fa-trophy"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-star" title="نجمة"><i class="fa-solid fa-star"></i></div>
+        
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-bolt" title="طاقة"><i class="fa-solid fa-bolt"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-fire" title="نار"><i class="fa-solid fa-fire"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-rocket" title="صاروخ"><i class="fa-solid fa-rocket"></i></div>
+        
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-briefcase" title="حقيبة أعمال"><i class="fa-solid fa-briefcase"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-handshake" title="شريك"><i class="fa-solid fa-handshake"></i></div>
+        
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-gamepad" title="جيمر (Gamepad)"><i class="fa-solid fa-gamepad"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-dice" title="نرد"><i class="fa-solid fa-dice"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-ghost" title="شبح (محترف)"><i class="fa-solid fa-ghost"></i></div>
+        <div class="badge-opt" data-action="select-tier-badge" data-val="fa-skull" title="جمجمة (خطير)"><i class="fa-solid fa-skull"></i></div>
+    </div>
+    <input type="hidden" id="t-icon" value="fa-user">
+</div>
+
+<div class="tier-compact-grid">
+    <div class="compact-input-group">
+        <label for="t-profit">النسبة %</label>
+        <input type="text" inputmode="decimal" id="t-profit" class="num-en" dir="ltr" lang="en" placeholder="0.0">
+    </div>
+    
+    <div class="compact-input-group">
+        <label for="t-min">القاع ($)</label>
+        <input type="text" inputmode="decimal" id="t-min" class="num-en" dir="ltr" lang="en" placeholder="0.0">
+    </div>
+    
+    <div class="compact-input-group">
+        <label for="t-cond">شرط المبلغ ($)</label>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" id="t-cond" class="num-en" dir="ltr" lang="en" placeholder="0">
+    </div>
+    
+    <div class="compact-input-group">
+        <label for="t-dur">المهلة (أيام)</label>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" id="t-dur" class="num-en" dir="ltr" lang="en" placeholder="0">
+    </div>
+</div>
+            
+            <div class="form-check-inline" data-action="trigger-click" data-target="t-default">
+                <input type="checkbox" id="t-default" data-action="toggle-default-tier">
+                <label for="t-default">تعيين كمستوى افتراضي</label>
+                <i class="fa-solid fa-triangle-exclamation warning-icon"></i>
+            </div>
+
+            <div class="modal-actions-row flex-gap-10 mt-15">
+                <button type="button" class="btn btn-primary flex-1" data-action="save-tier">حفظ</button>
+                <button type="button" class="btn btn-ghost flex-1" data-action="close-modal">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="drawer-overlay" id="deposit-drawer-overlay" data-action="close-drawer" data-type="deposit">
+        <div class="order-drawer" id="deposit-drawer" data-action="ignore-click">
+            <div class="drawer-header">
+                <div class="dh-title-wrap">
+                    <div class="dh-title"><i class="fa-solid fa-money-bill-transfer text-success"></i> تفاصيل الإيداع</div>
+                    <div class="dr-order-stamp num-en" id="drawer-dep-id"></div>
+                </div>
+                <div class="drawer-close" data-action="close-drawer" data-type="deposit"><i class="fa-solid fa-xmark"></i></div>
+            </div>
+            <div class="drawer-scroll-area">
+                <div class="drawer-body" id="drawer-dep-body-content"></div>
+                <div class="drawer-note-area">
+                    <label class="form-label"><i class="fa-solid fa-comment-dots"></i> ملاحظة للعميل (اختياري)</label>
+                    <textarea class="form-input" id="dep-drawer-note" placeholder="اكتب سبب الرفض أو ملاحظة للإيداع..." rows="2"></textarea>
+                </div>
+                <div class="drawer-footer" id="drawer-dep-footer-actions"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="drawer-overlay" id="order-drawer-overlay" data-action="close-drawer" data-type="order">
+        <div class="order-drawer" id="order-drawer" data-action="ignore-click">
+            <div class="drawer-header">
+                <div class="dh-title-wrap">
+                    <div class="dh-title">تفاصيل الطلب</div>
+                    <div class="dr-order-stamp num-en" id="drawer-order-id"></div>
+                </div>
+                <div class="drawer-close" data-action="close-drawer" data-type="order"><i class="fa-solid fa-xmark"></i></div>
+            </div>
+            <div class="drawer-scroll-area">
+                <div class="drawer-body" id="drawer-body-content"></div>
+                <div class="drawer-note-area">
+                    <label class="form-label"><i class="fa-solid fa-comment-dots"></i> ملاحظة للعميل (اختياري)</label>
+                    <textarea class="form-input" id="order-modal-note" placeholder="اكتب سبب الرفض أو رسالة مرفقة مع الطلب..." rows="2"></textarea>
+                </div>
+                <div class="drawer-footer" id="drawer-footer-actions"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-profile">
+        <div class="modal-content">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title"><i class="fa-solid fa-user-tie"></i> الملف الشخصي</h2>
+            
+            <div class="upload-area" id="adm-img-wrap" data-action="trigger-click" data-target="adm-img-file">
+                <div class="btn-remove-img" data-action="clear-img" data-preview="adm-img-prev" data-wrap="adm-img-wrap" data-input="adm-img-file"><i class="fa-solid fa-xmark"></i></div>
+                <i class="fa-solid fa-camera"></i>
+                <input type="file" id="adm-img-file" hidden accept="image/*" data-action="upload-img" data-preview="adm-img-prev" data-wrap="adm-img-wrap">
+                <img id="adm-img-prev"><span>تغيير الصورة</span>
+            </div>
+            
+            <label class="form-label">الاسم</label>
+            <input id="adm-name" class="form-input mb-10">
+            
+            <label class="form-label">البريد الإلكتروني</label>
+            <input id="adm-email" class="form-input mb-10" dir="ltr" lang="en">
+            
+                    
+            <div class="modal-actions-row flex-gap-10 mt-15 pt-15" style="border-top: 1px solid var(--border);">
+                <button type="button" class="btn btn-primary flex-1" data-action="save-admin-profile">
+                    <i class="fa-solid fa-floppy-disk"></i> حفظ التغييرات
+                </button>
+                <button type="button" class="btn btn-red flex-1" data-action="close-modal">إغلاق</button>
+            </div>
+        </div>
+    </div>
+        <div class="modal-overlay" id="m-user-detail">
+        <div class="modal-content ud-modal-pro">
+            <div class="ud-modal-header">
+                <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+                <h2 class="main-title" id="ud-title"><i class="fa-solid fa-address-card"></i> ملف العميل الشامل</h2>
+
+                <div class="ud-tabs-header">
+                    <button type="button" class="ud-tab-btn active" id="tab-btn-overview" data-action="switch-user-tab" data-tab="overview"><i class="fa-solid fa-id-card"></i> نظرة عامة</button>
+                    <button type="button" class="ud-tab-btn" id="tab-btn-wallet" data-action="switch-user-tab" data-tab="wallet"><i class="fa-solid fa-wallet"></i> المحفظة</button>
+                    <button type="button" class="ud-tab-btn" id="tab-btn-orders" data-action="switch-user-tab" data-tab="orders"><i class="fa-solid fa-box-open"></i> الطلبات</button>
+                    <button type="button" class="ud-tab-btn" id="tab-btn-security" data-action="switch-user-tab" data-tab="security"><i class="fa-solid fa-shield-halved"></i> الأمان</button>
+                    <button type="button" class="ud-tab-btn" id="tab-btn-developer" data-action="switch-user-tab" data-tab="developer"><i class="fa-solid fa-code"></i> المطورين</button>
+                </div>
+            </div>
+            
+            <div id="ud-body" class="ud-modal-body"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-user-edit">
+        <div class="modal-content modal-sm">
+            <div class="modal-close-btn" data-action="close-user-edit">
+                <i class="fa-solid fa-xmark"></i>
+            </div>
+            <h2 class="main-title"><i class="fa-solid fa-user-pen"></i> تعديل بيانات العميل</h2>
+            <div id="user-edit-form-container"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-cat">
+        <div class="modal-content">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title" id="cat-modal-title"><i class="fa-solid fa-folder"></i> إدارة القسم</h2>
+            <div class="form-group">
+                <label class="form-label">صورة القسم</label>
+                <div class="upload-area" id="c-img-wrap" data-action="trigger-click" data-target="c-img-input">
+                    <div class="btn-remove-img" data-action="clear-img" data-preview="c-img" data-wrap="c-img-wrap" data-input="c-img-input"><i class="fa-solid fa-xmark"></i></div>
+                    <i class="fa-solid fa-cloud-arrow-up"></i><span>اضغط لرفع صورة</span>
+                    <img id="c-img" class="preview-img">
+                </div>
+                <input type="file" id="c-img-input" hidden accept="image/*" data-action="upload-img" data-preview="c-img" data-wrap="c-img-wrap">
+            </div>
+            <div class="form-group"><label class="form-label">اسم القسم</label><input type="text" id="c-name" class="form-input"></div>
+            <button type="button" class="btn btn-primary btn-full mt-10" data-action="save-cat">حفظ</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-prod">
+        <div class="modal-content modal-lg">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title" id="prod-modal-title"><i class="fa-solid fa-box"></i> إدارة المنتج</h2>
+            <div class="prod-form-grid">
+                <div class="flex-1">
+                    <div class="form-group">
+                        <label class="form-label">صورة المنتج</label>
+                        <div class="upload-area" id="pr-img-wrap" data-action="trigger-click" data-target="pr-img-input">
+                            <div class="btn-remove-img" data-action="clear-img" data-preview="pr-img" data-wrap="pr-img-wrap" data-input="pr-img-input"><i class="fa-solid fa-xmark"></i></div>
+                            <i class="fa-solid fa-cloud-arrow-up"></i><span>اضغط لرفع صورة</span>
+                            <img id="pr-img" class="preview-img">
+                        </div>
+                        <input type="file" id="pr-img-input" hidden accept="image/*" data-action="upload-img" data-preview="pr-img" data-wrap="pr-img-wrap">
+                    </div>
+                    
+                    <div class="form-group"><label class="form-label">اسم المنتج</label><input type="text" id="pr-name" class="form-input" placeholder="اسم المنتج (مثلاً: شدات ببجي)"></div>
+                    <div class="form-group"><label class="form-label">وصف قصير</label><textarea id="pr-desc" class="form-input" rows="2" placeholder="الوصف (موحد لكل الأنواع)"></textarea></div>
+
+                    <div class="form-group">
+                        <label class="form-label">نوع المنتج</label>
+                        <select id="pr-type" class="form-input" data-action="render-prod-config">
+                            <option value="simple">بسيط (كمية فقط)</option><option value="single">حقل واحد (ID)</option><option value="double">حقلين (إيميل/باسورد)</option><option value="counter">عداد (جواهر/شدات)</option><option value="select">قائمة باقات (Select)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group mt-15 vault-link-box">
+                        <label class="form-label"><i class="fa-solid fa-vault text-warning"></i> ربط بصندوق أكواد (تسليم تلقائي)</label>
+                        <select id="pr-vault" class="form-input"><option value="">-- بدون ربط (منتج يدوي) --</option></select>
+                        <small class="text-muted d-block mt-5 fs-11">إذا اخترت صندوقاً، سيتم سحب كود منه وتسليمه للعميل فور اكتمال الدفع.</small>
+                    </div>
+
+                    <div class="settings-box mb-10" style="background: rgba(14, 165, 233, 0.05); border-color: rgba(14, 165, 233, 0.2);">
+                        <label class="form-label text-info"><i class="fa-solid fa-link"></i> الربط التلقائي مع مورد (API)</label>
+                        <div class="form-row-2 flex-gap-10">
+                            <div class="form-group flex-1 mb-0">
+                                <select id="pr-supplier" class="form-input" data-action="toggle-supplier-link">
+                                    <option value="">-- بدون ربط (منتج محلي) --</option>
+                                </select>
+                            </div>
+                            <div class="form-group flex-1 mb-0">
+                                <input type="text" id="pr-supplier-prod-id" class="form-input num-en" dir="ltr" lang="en" placeholder="رقم المنتج عند المورد (ID)">
+                            </div>
+                        </div>
+                        <small class="text-info d-block mt-5 fs-11"><i class="fa-solid fa-circle-info"></i> عند الربط، سيتم قفل حقل "التكلفة" وتحديثه آلياً من المورد.</small>
+                    </div>
+                    <div id="main-price-area" class="settings-box mb-10">
+                        <div class="form-group mb-10">
+                            <label class="form-label text-danger" style="font-size: 13px;"><i class="fa-solid fa-box-open"></i> سعر التكلفة ($) - رأس المال</label>
+                            <input type="text" inputmode="decimal" id="pr-cost" class="form-input num-en text-center" style="font-size: 18px; font-weight: bold; color: var(--text-danger);" dir="ltr" lang="en" placeholder="0.00">
+                        </div>
+                        <div class="switch-row-box p-8-12" style="background: rgba(0,0,0,0.2); border: 1px dashed var(--border-light);">
+                            <div>
+                                <span class="switch-title text-info"><i class="fa-solid fa-eye-slash"></i> إخفاء السعر في الواجهة</span>
+                                <span class="switch-desc">سيظهر السعر فقط عند الدخول لصفحة الشراء</span>
+                            </div>
+                            <label class="switch"><input type="checkbox" id="pr-hide-price"><span class="slider"></span></label>
+                        </div>
+                    </div>
+                    
+                    <div id="qty-area" class="settings-box mb-10 hide-element">
+                        <div class="form-row-2 flex-gap-10">
+                            <div class="flex-1"><label class="form-label">أقل كمية</label><input type="text" inputmode="numeric" pattern="[0-9]*" id="pr-min" class="form-input num-en" dir="ltr" lang="en" value="1"></div>
+                            <div class="flex-1"><label class="form-label">أعلى كمية</label><input type="text" inputmode="numeric" pattern="[0-9]*" id="pr-max" class="form-input num-en" dir="ltr" lang="en" value="10000"></div>
+                        </div>
+                    </div>
+
+                    <div id="simple-options" class="settings-box mb-10 hide-element">
+                        <div class="switch-row-box">
+                            <span class="fs-12 fw-bold">السماح بتحديد الكمية؟</span>
+                            <label class="switch"><input type="checkbox" id="pr-allow-qty" data-action="toggle-simple-qty"><span class="slider"></span></label>
+                        </div>
+                        <div id="simple-qty-limit-box" class="mt-10 hide-element">
+                            <label class="form-label">أقصى كمية مسموحة</label>
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" id="pr-simple-max" class="form-input num-en" dir="ltr" lang="en" value="10">
+                        </div>
+                    </div>
+                    <div id="universal-price-preview" class="mt-15 mb-15"></div>
+
+                    <div id="pkg-area" class="pkg-area-box hide-element">
+                        <div class="pkg-inputs mb-10 flex-gap-10">
+                            <input type="text" id="pkg-name" class="form-input flex-2" placeholder="اسم الباقة">
+                            <input type="text" inputmode="decimal" id="pkg-price" class="form-input num-en flex-1" dir="ltr" lang="en" placeholder="السعر">
+                            <button type="button" class="btn btn-success px-15" data-action="add-package">+</button>
+                        </div>
+                        <div id="pkg-list" class="pkg-list"></div>
+                    </div>
+                </div>
+
+                <div class="mockup-panel" id="preview-area">
+                    <div class="mockup-title">معاينة الحقول (اضغط للتعديل)</div>
+                    <div class="mockup-device">
+                        <div id="mock-container"></div>
+                        <input type="hidden" id="h-lbl1"><input type="hidden" id="h-lbl2">
+                    </div>
+                </div>
+            </div>
+            <button type="button" class="btn btn-primary btn-full mt-15" data-action="save-prod">حفظ المنتج</button>
+        </div>
+    </div>
+    
+    <div class="modal-overlay" id="m-payment">
+        <div class="modal-content modal-xl pay-modal-pro pay-modal-pro-layout">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+
+            <div class="pay-pro-header">
+                <div class="pay-pro-title">
+                    <h2 class="pay-modal-title" id="pay-modal-title"><i class="fa-solid fa-building-columns"></i> تعديل طريقة الدفع</h2>
+                </div>
+            </div>
+            <div class="pay-pro-grid">
+                <div class="pay-pro-card">
+                    <div class="pay-pro-card-head"><i class="fa-solid fa-image"></i> الشعار والمعلومات</div>
+                    <div class="pay-pro-upload" data-action="trigger-click" data-target="pay-img-input">
+                        <div id="pay-img-wrap" class="pay-pro-upload-box">
+                            <div class="btn-remove-img" data-action="clear-img" data-preview="pay-img" data-wrap="pay-img-wrap" data-input="pay-img-input"><i class="fa-solid fa-xmark"></i></div>
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                            <span>رفع شعار الطريقة</span>
+                            <img id="pay-img" class="preview-img">
+                        </div>
+                        <input type="file" id="pay-img-input" hidden accept="image/*" data-action="upload-img" data-preview="pay-img" data-wrap="pay-img-wrap">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">اسم الطريقة</label>
+                        <input type="text" id="pay-name" class="form-input" placeholder="مثال: سيريتل كاش">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">تخصيص النصوص (اختياري)</label>
+                        <input type="text" id="pay-input-placeholder" class="form-input mb-10" placeholder="نص حقل الإدخال (مثال: أدخل مبلغ الإيداع)">
+                        <input type="text" id="pay-wallet-label" class="form-input" placeholder="نص حقل المحفظة (مثال: سيضاف لمحفظتك)">
+                    </div>
+
+                    <div class="pay-pro-switch">
+                        <div>
+                            <div class="title">طلب صورة إشعار التحويل؟</div>
+                            <div class="desc">عند التفعيل سيُطلب من العميل رفع إيصال الدفع.</div>
+                        </div>
+                        <label class="switch"><input type="checkbox" id="pay-req-proof" checked><span class="slider"></span></label>
+                    </div>
+                </div>
+
+                <div class="pay-pro-card">
+                    <div class="pay-pro-card-head"><i class="fa-solid fa-coins"></i> العملات والإعدادات</div>
+                    <div class="pay-pro-currs"></div>
+                    <div id="currency-settings-container" class="pay-pro-settings hide-element">
+                        <div class="pay-pro-settings-head"><i class="fa-solid fa-sliders"></i> إعدادات كل عملة (عمولة / حد أدنى / حد أعلى)</div>
+                        <div id="currency-settings-list" class="pay-settings-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pay-pro-card pay-pro-card-wide">
+                <div class="pay-pro-card-head"><i class="fa-solid fa-file-lines"></i> تفاصيل التحويل للعميل</div>
+                <div class="pay-pro-detail-add">
+                    <label class="form-label detail-lbl">اكتب التفاصيل هنا (سطر واحد أو عدة أسطر):</label>
+                    <textarea id="pay-det-input" class="form-input detail-input" placeholder="مثال: رقم الحساب..."></textarea>
+                    
+                    <div class="pay-det-copy-toggle">
+                        <label class="switch"><input type="checkbox" id="pay-det-copyable" checked><span class="slider"></span></label>
+                        <span class="fs-12 text-white">إظهار زر النسخ لهذا النص في المتجر</span>
+                    </div>
+
+                    <button type="button" class="btn btn-primary detail-btn" data-action="add-pay-detail">
+                        <i class="fa-solid fa-plus"></i> إضافة للقائمة
+                    </button>
+                </div>
+                <div id="pay-det-list" class="pay-detail-list"></div>
+            </div>
+
+            <div class="pay-modal-actions pay-pro-actions pay-actions-divider flex-gap-10">
+                <button type="button" class="btn btn-primary flex-1" data-action="save-pay">حفظ الطريقة</button>
+                <button type="button" class="btn btn-red flex-1" data-action="close-modal">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-banner">
+        <div class="modal-content">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title"><i class="fa-solid fa-image"></i> إضافة لافتة (Banner)</h2>
+            <div class="upload-area" id="ban-img-wrap" data-action="trigger-click" data-target="ban-img-input">
+                <div class="btn-remove-img" data-action="clear-img" data-preview="ban-img" data-wrap="ban-img-wrap" data-input="ban-img-input"><i class="fa-solid fa-xmark"></i></div>
+                <i class="fa-solid fa-cloud-arrow-up"></i><span>اختر صورة</span>
+                <img id="ban-img" class="preview-img">
+            </div>
+            <input type="file" id="ban-img-input" hidden accept="image/*" data-action="upload-img" data-preview="ban-img" data-wrap="ban-img-wrap">
+            
+            <div class="form-group mt-15">
+                <label class="form-label">رابط عند الضغط (اختياري)</label>
+                <input type="text" id="ban-link" class="form-input num-en" dir="ltr" lang="en" placeholder="https://...">
+            </div>
+            <button type="button" class="btn btn-primary btn-full mt-10" data-action="save-banner">إضافة</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-currency">
+        <div class="modal-content currency-modal">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title" id="cur-modal-title"><i class="fa-solid fa-coins"></i> إضافة العملة</h2>
+            <input type="hidden" id="cur-old-code">
+            
+            <div class="form-group">
+                <label class="form-label">رمز العملة (مثال: SAR, EUR, AED)</label>
+                <input type="text" id="cur-code" class="form-input num-en text-upper" dir="ltr" lang="en" placeholder="EUR">
+            </div>
+            <div class="form-group">
+                <label class="form-label">اسم العملة (مثال: يورو)</label>
+                <input type="text" id="cur-name" class="form-input" placeholder="يورو">
+            </div>
+            <div class="form-group">
+                <label class="form-label">شعار العملة (اختياري) (مثال: €, ر.س)</label>
+                <input type="text" id="cur-symbol" class="form-input" placeholder="€">
+            </div>
+            
+            <div class="form-row-2 flex-gap-10 mt-15">
+                <div class="form-group flex-1">
+                    <label class="form-label">سعر البيع<br><small class="text-muted">(مقابل 1 دولار)</small></label>
+                    <input type="text" inputmode="decimal" id="cur-price-rate" class="form-input num-en" dir="ltr" lang="en" placeholder="0.00">
+                </div>
+                <div class="form-group flex-1">
+                    <label class="form-label">سعر الإيداع<br><small class="text-muted">(مقابل 1 دولار)</small></label>
+                    <input type="text" inputmode="decimal" id="cur-dep-rate" class="form-input num-en" dir="ltr" lang="en" placeholder="0.00">
+                </div>
+            </div>
+            <button type="button" class="btn btn-primary btn-full mt-15" data-action="save-currency">حفظ العملة</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-country">
+        <div class="modal-content modal-md">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title" id="country-modal-title"><i class="fa-solid fa-globe"></i> إعدادات الدولة</h2>
+            
+            <input type="hidden" id="country-edit-id">
+            
+            <div class="form-group">
+                <label class="form-label">اسم الدولة (عربي)</label>
+                <input type="text" id="country-name" class="form-input" placeholder="مثال: المملكة العربية السعودية" data-action="detect-country">
+            </div>
+     
+            <div class="form-row-2 flex-gap-10">
+                <div class="form-group flex-1">
+                    <label class="form-label">كود الدولة (ISO 2-letter)</label>
+                    <input type="text" id="country-code" class="form-input num-en text-upper" placeholder="SA, TR, SY, EG" dir="ltr" lang="en" maxlength="2">
+                </div>
+                <div class="form-group flex-1">
+                    <label class="form-label">إيموجي العلم</label>
+                    <input type="text" id="country-flag" class="form-input text-center" placeholder="🇸🇦, 🇹🇷, 🇸🇾">
+                </div>
+            </div>
+
+            <div class="form-row-2 flex-gap-10">
+                <div class="form-group flex-1">
+                    <label class="form-label">نداء الهاتف (Dial Code)</label>
+                    <input type="text" inputmode="text" id="country-dial" class="form-input num-en" placeholder="+966, +90, +963" dir="ltr" lang="en">
+                </div>
+                <div class="form-group flex-1">
+                    <label class="form-label text-warning">طول رقم الهاتف</label>
+                    <input type="text" inputmode="numeric" pattern="[0-9]*" id="country-phone-len" class="form-input num-en" placeholder="مثال: 10 (بدون النداء)" dir="ltr" lang="en">
+                </div>
+            </div>
+            
+            <div class="switch-row-box p-8-12 mt-15">
+                <div>
+                    <span class="switch-title">تفعيل الدولة</span>
+                    <span class="switch-desc">السماح للعملاء بالتسجيل من هذه الدولة</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="country-active" checked><span class="slider"></span></label>
+            </div>
+
+            <div class="switch-row-box box-danger p-8-12 mt-10 mb-15">
+                <div>
+                    <span class="switch-title text-danger"><i class="fa-solid fa-ban"></i> حظر الزيارات (IP Ban)</span>
+                    <span class="switch-desc">منع الزوار من هذه الدولة من فتح الموقع تماماً</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="country-banned"><span class="slider"></span></label>
+            </div>
+
+            <div class="modal-actions-row flex-gap-10">
+                <button type="button" class="btn btn-primary flex-1" data-action="save-country">حفظ الدولة</button>
+                <button type="button" class="btn btn-ghost flex-1" data-action="close-modal">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-vault">
+        <div class="modal-content">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <div class="card-title" id="vault-modal-title">إنشاء صندوق أكواد جديد</div>
+            
+            <input type="hidden" id="v-pool-id">
+
+            <div class="form-group mt-15">
+                <label class="form-label">اسم الصندوق (مثال: أكواد ببجي 60)</label>
+                <input type="text" id="v-name" class="form-input" placeholder="أدخل اسم الصندوق هنا..." required>
+            </div>
+            
+            <div class="form-group mt-15">
+                <label class="form-label text-warning"><i class="fa-solid fa-bell"></i> التنبيه عند نقص المخزون (الحد الأدنى)</label>
+                <input type="text" inputmode="numeric" id="v-alert-limit" class="form-input num-en" dir="ltr" lang="en" value="5" placeholder="مثال: 5">
+                <small class="text-muted d-block mt-5">سيظهر الصندوق باللون البرتقالي عندما يصل عدد الأكواد المتاحة لهذا الرقم.</small>
+            </div>
+
+            <div class="vault-stats-mini mt-15 vault-stats-bg hide-element" id="v-stats-area">
+                <div class="flex-between">
+                    <span class="text-success"><i class="fa-solid fa-check-circle"></i> متاح: <span id="v-stat-avail" class="num-en" dir="ltr" lang="en">0</span></span>
+                    <span class="text-info"><i class="fa-solid fa-cart-shopping"></i> مُباع: <span id="v-stat-sold" class="num-en" dir="ltr" lang="en">0</span></span>
+                </div>
+            </div>
+
+            <div class="form-group mt-15">
+                <label class="form-label text-primary"><i class="fa-solid fa-barcode"></i> الأكواد المتاحة (كود في كل سطر)</label>
+                <textarea id="v-codes" class="form-input vault-textarea num-en" rows="8" placeholder="Code1-XYZ&#10;Code2-ABC" dir="ltr" lang="en"></textarea>
+                <div class="flex-between mt-5">
+                    <small class="text-muted">الأكواد المباعة محفوظة بأمان في الخلفية ولن تظهر هنا.</small>
+                    <small class="text-primary vault-count-text">الأسطر: <span id="v-codes-count" class="num-en" dir="ltr" lang="en">0</span></small>
+                </div>
+            </div>
+            <button type="button" class="btn btn-primary btn-full mt-20" data-action="save-vault">
+                <i class="fa-solid fa-save"></i> حفظ وإغلاق الصندوق
+            </button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-alert">
+        <div class="modal-content modal-md">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title" id="alert-modal-title"><i class="fa-solid fa-paper-plane"></i> إرسال تنبيه جديد</h2>
+            
+            <div class="form-row-2 flex-gap-10">
+                <div class="form-group flex-1">
+                    <label class="form-label">نوع التنبيه</label>
+                    <select id="alert-type" class="form-input" data-action="toggle-alert-adv">
+                        <option value="notification">إشعار جرس (هادئ)</option>
+                        <option value="popup">رسالة منبثقة (Popup)</option>
+                    </select>
+                </div>
+                <div class="form-group flex-1">
+                    <label class="form-label">الاستهداف (لمن؟)</label>
+                    <select id="alert-target-type" class="form-input" data-action="toggle-alert-tgt">
+                        <option value="all">لجميع العملاء</option>
+                        <option value="tier">لمستوى محدد</option>
+                        <option value="user">لعميل محدد (ID)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="popup-advanced-fields" class="hide-element mt-15" style="background: rgba(255,255,255,0.03); padding: 15px; border-radius: 12px; border: 1px dashed var(--border-color);">
+                <div class="form-row-2 flex-gap-10">
+                    <div class="form-group flex-1">
+                        <label class="form-label text-warning"><i class="fa-solid fa-eye"></i> سقف الظهور للعميل</label>
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" id="alert-max-views" class="form-input num-en" value="3" dir="ltr" lang="en">
+                    </div>
+                    <div class="form-group flex-1">
+                        <label class="form-label"><i class="fa-solid fa-ticket"></i> كود الخصم (إن وجد)</label>
+                        <input type="text" id="alert-coupon-code" class="form-input num-en" placeholder="WINTER50" dir="ltr" lang="en">
+                    </div>
+                </div>
+                <div class="form-group mt-10 mb-0">
+                    <label class="form-label"><i class="fa-solid fa-link"></i> رابط التوجيه / الزر (CTA)</label>
+                    <input type="url" id="alert-action-link" class="form-input num-en" placeholder="https://telecard.com/offers" dir="ltr" lang="en">
+                    <small class="text-muted fs-11 mt-5">عند النقر على المنبثقة، سيتم توجيه العميل لهذا الرابط.</small>
+                </div>
+            </div>
+
+            <div id="alert-target-tier-box" class="form-group hide-element mt-10">
+                <label class="form-label">اختر المستوى المستهدف</label>
+                <select id="alert-target-tier" class="form-input"></select>
+            </div>
+            
+            <div id="alert-target-user-box" class="form-group hide-element mt-10">
+                <label class="form-label">رقم العميل (ID)</label>
+                <input type="text" id="alert-target-user" class="form-input num-en" dir="ltr" lang="en" placeholder="مثال: 105">
+            </div>
+
+            <div class="form-group mt-10">
+                <label class="form-label">عنوان الرسالة</label>
+                <input type="text" id="alert-title" class="form-input" placeholder="مثال: تنبيه هام! أو خصم خاص!">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">نص الرسالة</label>
+                <textarea id="alert-body" class="form-input" rows="3" placeholder="اكتب تفاصيل التنبيه أو الإعلان هنا..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">وقت انتهاء الصلاحية (اختياري)</label>
+                <div class="custom-field w-100" data-action="open-calendar" data-type="expiry" data-section="alert" data-time="true">
+                    <div class="field-content">
+                        <i class="fa-regular fa-calendar text-warning"></i>
+                        <span class="field-text placeholder-text num-en" id="date-expiry-alert" dir="ltr" lang="en">DD/MM/YYYY HH:MM</span>
+                    </div>
+                    <input type="hidden" id="alert-expiry">
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-primary btn-full mt-15" data-action="send-alert">
+                <i class="fa-solid fa-paper-plane"></i> إرسال التنبيه
+            </button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-coupon">
+        <div class="modal-content modal-md">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title" id="coupon-modal-title"><i class="fa-solid fa-ticket"></i> إدارة الكوبون</h2>
+
+            <div class="form-group">
+                <label class="form-label">كود الكوبون</label>
+                <div class="flex-gap-10">
+                    <input type="text" id="coupon-code" class="form-input num-en text-upper flex-1" dir="ltr" lang="en" placeholder="مثال: VIP2024">
+                    <button type="button" class="btn btn-warning w-auto" data-action="gen-coupon"><i class="fa-solid fa-shuffle"></i> توليد</button>
+                </div>
+            </div>
+
+            <div class="form-row-2 flex-gap-10">
+                <div class="form-group flex-1">
+                    <label class="form-label">نوع الخصم</label>
+                    <select id="coupon-type" class="form-input">
+                        <option value="percentage">نسبة مئوية (%)</option>
+                        <option value="fixed">مبلغ ثابت ($)</option>
+                    </select>
+                </div>
+                <div class="form-group flex-1">
+                    <label class="form-label">قيمة الخصم</label>
+                    <input type="text" inputmode="decimal" id="coupon-value" class="form-input num-en" dir="ltr" lang="en" placeholder="0">
+                </div>
+            </div>
+
+            <div class="form-row-2 flex-gap-15 mt-10">
+                <div class="form-group flex-1">
+                    <label class="form-label">المستويات المسموح لها</label>
+                    <div id="coupon-target-tiers"></div>
+                    <small class="text-danger d-block mt-5 fw-bold fs-10"><i class="fa-solid fa-circle-exclamation"></i> إجباري: يجب تحديد مستوى واحد على الأقل</small>
+                </div>
+
+                <div class="form-group flex-1">
+                    <div class="flex-between align-items-center mb-5">
+                        <label class="form-label mb-0">المنتجات والأقسام المشمولة</label>
+                        <button type="button" class="btn btn-ghost btn-micro" data-action="toggle-all-tree" data-target="coupon-target-prods">تحديد/إلغاء الكل</button>
+                    </div>
+                    <div id="coupon-target-prods"></div>
+                    <small class="text-danger d-block mt-5 fw-bold fs-10"><i class="fa-solid fa-circle-exclamation"></i> إجباري: يجب تحديد منتج أو قسم واحد على الأقل</small>
+                </div>
+            </div>
+
+            <div class="form-row-2 flex-gap-10 mt-10">
+                <div class="form-group flex-1">
+                    <label class="form-label">تاريخ ووقت الانتهاء (اختياري)</label>
+                    <div class="custom-field w-100" data-action="open-calendar" data-type="expiry" data-section="coupon" data-time="true">
+                        <div class="field-content">
+                            <i class="fa-regular fa-calendar text-warning"></i>
+                            <span class="field-text placeholder-text num-en" id="date-expiry-coupon" dir="ltr" lang="en">DD/MM/YYYY HH:MM</span>
+                        </div>
+                        <input type="hidden" id="coupon-expiry">
+                    </div>
+                </div>
+                <div class="form-group flex-1">
+                    <label class="form-label">الحد الأدنى للطلب ($)</label>
+                    <input type="text" inputmode="decimal" id="coupon-min-order" class="form-input num-en" dir="ltr" lang="en" placeholder="0 = بدون حد">
+                </div>
+            </div>
+
+            <div class="form-row-2 flex-gap-10">
+                <div class="form-group flex-1">
+                    <label class="form-label">الحد الأقصى للاستخدام الكلي</label>
+                    <input type="text" inputmode="numeric" pattern="[0-9]*" id="coupon-max-uses" class="form-input num-en" dir="ltr" lang="en" placeholder="0 = غير محدود">
+                </div>
+                <div class="form-group flex-1">
+                    <label class="form-label">أقصى استخدام للعميل الواحد</label>
+                    <input type="text" inputmode="numeric" pattern="[0-9]*" id="coupon-max-per-user" class="form-input num-en" dir="ltr" lang="en" placeholder="0 = غير محدود">
+                </div>
+            </div>
+
+            <div class="form-group mt-10">
+                <label class="form-label">مخصص لعملاء محددين (معرفاتهم) - اختياري</label>
+                <input type="text" inputmode="text" id="coupon-allowed-users" class="form-input num-en" dir="ltr" lang="en" placeholder="مثال: 123, 456 (مفصول بفاصلة)">
+            </div>
+
+            <div class="switch-row-box p-8-12 mt-10">
+                <div>
+                    <span class="switch-title">حالة الكوبون</span>
+                    <span class="switch-desc">تفعيل أو إيقاف الكوبون مؤقتاً</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="coupon-active" checked><span class="slider"></span></label>
+            </div>
+
+            <div class="modal-actions-row flex-gap-10 mt-15">
+                <button type="button" class="btn btn-primary flex-1" data-action="save-coupon">حفظ الكوبون</button>
+                <button type="button" class="btn btn-ghost flex-1" data-action="close-modal">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="m-offer">
+        <div class="modal-content modal-xl">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title" id="offer-modal-title"><i class="fa-solid fa-bolt"></i> مُنشئ العروض والحملات (Visual Engine)</h2>
+            
+            <input type="hidden" id="offer-id">
+
+            <div class="builder-tabs">
+                <button type="button" class="b-tab-btn active" data-action="builder-tab" data-tab="data"><i class="fa-solid fa-database"></i> 1. البيانات الأساسية</button>
+                <button type="button" class="b-tab-btn" data-action="builder-tab" data-tab="grid"><i class="fa-solid fa-store"></i> 2. تصميم المتجر</button>
+                <button type="button" class="b-tab-btn" data-action="builder-tab" data-tab="story"><i class="fa-solid fa-layer-group"></i> 3. تصميم القصص</button>
+            </div>
+
+            <div id="b-pane-data" class="builder-pane active">
+                <div class="form-group">
+                    <label class="form-label">اسم الحملة (للإدارة وللعميل)</label>
+                    <input type="text" id="offer-name" class="form-input" placeholder="مثال: عروض رمضان، حسم خاص للجملة...">
+                </div>
+
+                <div class="form-row-2 flex-gap-10">
+                    <div class="form-group flex-1">
+                        <label class="form-label">نوع صندوق العرض</label>
+                        <select id="offer-type" class="form-input" data-action="toggle-offer-fields">
+                            <option value="real">تخفيض حقيقي (يُخصم من الربح الفعلي)</option>
+                            <option value="fake">تخفيض وهمي (سعر مشطوب شكلي)</option>
+                            <option value="fixed">سعر ثابت (يلغي نسبة المستوى)</option>
+                            <option value="badge_only">شارة فقط (بدون تغيير السعر)</option>
+                        </select>
+                    </div>
+                    <div class="form-group flex-1" id="offer-value-group">
+                        <label class="form-label" id="offer-value-label">قيمة الخصم</label>
+                        <input type="text" inputmode="decimal" id="offer-value" class="form-input num-en" dir="ltr" lang="en" placeholder="0">
+                    </div>
+                </div>
+
+                <div class="form-row-2 flex-gap-15 mt-10">
+                    <div class="form-group flex-1">
+                        <label class="form-label">المستويات المستهدفة</label>
+                        <div id="offer-target-tiers" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; max-height: 200px; overflow-y: auto;"></div>
+                    </div>
+                    <div class="form-group flex-1">
+                        <div class="flex-between align-items-center mb-5">
+                            <label class="form-label mb-0">المنتجات المشمولة</label>
+                        </div>
+                        <div id="offer-target-prods" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; max-height: 200px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+
+                <div class="form-row-2 flex-gap-10 mt-10">
+                    <div class="form-group flex-1">
+                        <label class="form-label">وقت انتهاء العرض (اختياري)</label>
+                        <div class="custom-field w-100" data-action="open-calendar" data-type="expiry" data-section="offer" data-time="true">
+                            <div class="field-content">
+                                <i class="fa-regular fa-calendar text-warning"></i>
+                                <span class="field-text placeholder-text num-en" id="date-expiry-offer" dir="ltr" lang="en">DD/MM/YYYY HH:MM</span>
+                            </div>
+                            <input type="hidden" id="offer-expiry">
+                        </div>
+                    </div>
+                    <div class="form-group flex-1 switch-row-box mt-15" style="border-color: var(--border);">
+                        <div><span class="switch-title">حالة العرض</span></div>
+                        <label class="switch"><input type="checkbox" id="offer-active" checked><span class="slider"></span></label>
+                    </div>
+                </div>
+            </div>
+
+            <div id="b-pane-grid" class="builder-pane">
+                <div class="ve-workspace">
+                    
+                    <div class="ve-controls">
+                        <div class="form-group mb-10">
+                            <label class="form-label text-primary"><i class="fa-solid fa-pen"></i> النص المكتوب داخل الشارة</label>
+                            <input type="text" id="grid-badge-text" class="form-input" placeholder="مثال: خصم 50% أو HOT" data-action="render-grid-preview">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label"><i class="fa-solid fa-shapes"></i> مكتبة أشكال الشارات (Badges)</label>
+                            <div class="style-selector-grid" id="grid-badge-style-container">
+                                <div class="style-card active" data-val="none" data-action="set-grid-style" data-type="badge">
+                                    <div class="sc-preview" style="background: transparent; border: 1px dashed rgba(255,255,255,0.3);"><i class="fa-solid fa-ban text-muted"></i></div>
+                                    <span class="sc-name">بدون شارة</span>
+                                </div>
+                                <div class="style-card" data-val="badge-base-solid" data-action="set-grid-style" data-type="badge">
+                                    <div class="sc-preview theme-ruby" style="border-radius: 6px;">نص</div>
+                                    <span class="sc-name">كلاسيك صلبة</span>
+                                </div>
+                                <div class="style-card" data-val="badge-base-leaf" data-action="set-grid-style" data-type="badge">
+                                    <div class="sc-preview theme-emerald" style="border-radius: 12px 0 12px 0;">نص</div>
+                                    <span class="sc-name">ورقة شجر</span>
+                                </div>
+                                <div class="style-card" data-val="badge-base-float" data-action="set-grid-style" data-type="badge">
+                                    <div class="sc-preview theme-sapphire" style="border-radius: 20px; border: 2px solid #0f172a;">نص</div>
+                                    <span class="sc-name">فقاعة عائمة</span>
+                                </div>
+                                <div class="style-card" data-val="badge-base-cut" data-action="set-grid-style" data-type="badge">
+                                    <div class="sc-preview theme-gold" style="clip-path: polygon(100% 0, 100% 100%, 50% 80%, 0 100%, 0 0);">نص</div>
+                                    <span class="sc-name">شريط مقصوص</span>
+                                </div>
+                                <div class="style-card" data-val="badge-base-stamp" data-action="set-grid-style" data-type="badge">
+                                    <div class="sc-preview theme-ruby" style="border-radius: 50%; width: 35px; height: 35px; border: 1px dashed #fff; transform: rotate(-15deg);">نص</div>
+                                    <span class="sc-name">ختم مائل</span>
+                                </div>
+                                <div class="style-card" data-val="badge-base-glass" data-action="set-grid-style" data-type="badge">
+                                    <div class="sc-preview" style="border-radius: 20px; background: rgba(255,255,255,0.2); backdrop-filter: blur(4px);">نص</div>
+                                    <span class="sc-name">زجاج مغبش</span>
+                                </div>
+                                <div class="style-card" data-val="badge-base-3d" data-action="set-grid-style" data-type="badge">
+                                    <div class="sc-preview theme-ocean" style="border-radius: 20px; transform: rotate(-5deg); box-shadow: 0 3px 0 #0369a1;">نص</div>
+                                    <span class="sc-name">كبسولة 3D</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row-2 flex-gap-15 mb-15">
+                            <div class="flex-2">
+                                <label class="form-label"><i class="fa-solid fa-palette"></i> لون الشارة (Theme)</label>
+                                <div class="color-swatch-grid" id="grid-color-selectors">
+                                    <div class="color-swatch theme-ruby active" data-color="theme-ruby" data-action="set-grid-color"></div>
+                                    <div class="color-swatch theme-sunset" data-color="theme-sunset" data-action="set-grid-color"></div>
+                                    <div class="color-swatch theme-gold" data-color="theme-gold" data-action="set-grid-color"></div>
+                                    <div class="color-swatch theme-emerald" data-color="theme-emerald" data-action="set-grid-color"></div>
+                                    <div class="color-swatch theme-ocean" data-color="theme-ocean" data-action="set-grid-color"></div>
+                                    <div class="color-swatch theme-sapphire" data-color="theme-sapphire" data-action="set-grid-color"></div>
+                                    <div class="color-swatch theme-amethyst" data-color="theme-amethyst" data-action="set-grid-color"></div>
+                                    <div class="color-swatch theme-carbon" data-color="theme-carbon" data-action="set-grid-color"></div>
+                                </div>
+                            </div>
+                            <div class="flex-1">
+                                <label class="form-label text-center"><i class="fa-solid fa-crosshairs"></i> موقع الشارة</label>
+                                <div class="pos-grid-map" id="grid-badge-pos">
+                                    <div class="pos-dot active" data-pos="pos-tl" data-action="set-grid-pos" data-type="badge"><i class="fa-solid fa-arrow-up-left"></i></div>
+                                    <div class="pos-dot" data-pos="pos-tc" data-action="set-grid-pos" data-type="badge"><i class="fa-solid fa-arrow-up"></i></div>
+                                    <div class="pos-dot" data-pos="pos-tr" data-action="set-grid-pos" data-type="badge"><i class="fa-solid fa-arrow-up-right"></i></div>
+                                    <div class="pos-dot" data-pos="pos-bl" data-action="set-grid-pos" data-type="badge"><i class="fa-solid fa-arrow-down-left"></i></div>
+                                    <div class="pos-dot" data-pos="pos-bc" data-action="set-grid-pos" data-type="badge"><i class="fa-solid fa-arrow-down"></i></div>
+                                    <div class="pos-dot" data-pos="pos-br" data-action="set-grid-pos" data-type="badge"><i class="fa-solid fa-arrow-down-right"></i></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr style="border-color: var(--border); margin: 10px 0;">
+
+                        <div class="form-row-2 flex-gap-15 mb-15">
+                            <div class="flex-2">
+                                <label class="form-label"><i class="fa-solid fa-stopwatch"></i> مكتبة أشكال المؤقت الزمني</label>
+                                <div class="style-selector-grid" id="grid-timer-style-container" style="max-height: 150px; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));">
+                                    <div class="style-card active" data-val="none" data-action="set-grid-style" data-type="timer">
+                                        <div class="sc-preview" style="background: transparent; border: none;"><i class="fa-solid fa-ban text-muted fs-16"></i></div>
+                                        <span class="sc-name">بدون مؤقت</span>
+                                    </div>
+                                    <div class="style-card" data-val="timer-neon-glow" data-action="set-grid-style" data-type="timer">
+                                        <div class="sc-preview" style="background: #0f172a; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 8px;">12:30</div>
+                                        <span class="sc-name">نيون أزرق</span>
+                                    </div>
+                                    <div class="style-card" data-val="timer-bc-pill" data-action="set-grid-style" data-type="timer">
+                                        <div class="sc-preview theme-ruby" style="border-radius: 6px;">12:30</div>
+                                        <span class="sc-name">كبسولة حمراء</span>
+                                    </div>
+                                    <div class="style-card" data-val="timer-digital" data-action="set-grid-style" data-type="timer">
+                                        <div class="sc-preview" style="background: #000; color: #10b981; border: 1px solid #333; font-family: monospace;">12:30</div>
+                                        <span class="sc-name">رقمي (LCD)</span>
+                                    </div>
+                                    <div class="style-card" data-val="timer-minimal" data-action="set-grid-style" data-type="timer">
+                                        <div class="sc-preview" style="background: transparent; border: none; border-bottom: 2px solid #FFD700;">12:30</div>
+                                        <span class="sc-name">خط بسيط</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex-1">
+                                <label class="form-label text-center"><i class="fa-solid fa-crosshairs"></i> موقع المؤقت</label>
+                                <div class="pos-grid-map" id="grid-timer-pos">
+                                    <div class="pos-dot disabled"><i class="fa-solid fa-ban"></i></div>
+                                    <div class="pos-dot" data-pos="pos-tc" data-action="set-grid-pos" data-type="timer"><i class="fa-solid fa-arrow-up"></i></div>
+                                    <div class="pos-dot disabled"><i class="fa-solid fa-ban"></i></div>
+                                    <div class="pos-dot" data-pos="pos-bl" data-action="set-grid-pos" data-type="timer"><i class="fa-solid fa-arrow-down-left"></i></div>
+                                    <div class="pos-dot active" data-pos="pos-bc" data-action="set-grid-pos" data-type="timer"><i class="fa-solid fa-arrow-down"></i></div>
+                                    <div class="pos-dot" data-pos="pos-br" data-action="set-grid-pos" data-type="timer"><i class="fa-solid fa-arrow-down-right"></i></div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="ve-preview-sticky">
+                        <div class="fs-13 fw-bold text-primary mb-15"><i class="fa-solid fa-eye"></i> معاينة على المتجر</div>
+                        <div class="promo-icon-wrapper" id="grid-preview-box" style="width: 150px; height: 150px; border-radius: 12px; background: #1e293b; overflow: visible;">
+                            <div id="grid-live-badge"></div>
+                            <div id="grid-live-timer"></div>
+                            <div class="img-wrap" style="border-radius: 12px;">
+                   <div style="width: 100%; height: 100%; background: linear-gradient(45deg, #1e293b, #334155); display: flex; align-items: center; justify-content: center; color: #64748b;"><i class="fa-solid fa-image fa-2x"></i></div>
+
+                            </div>
+                        </div>
+                        <div id="grid-collision-warning" class="fs-10 text-danger mt-15 fw-bold text-center hide-element">
+                            <i class="fa-solid fa-triangle-exclamation"></i> الشارة والمؤقت متداخلان!
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div id="b-pane-story" class="builder-pane">
+                <div class="switch-row-box mb-15" style="background: rgba(59, 130, 246, 0.08); border-color: rgba(59, 130, 246, 0.3);">
+                    <div>
+                        <span class="switch-title" style="color: #3b82f6;"><i class="fa-solid fa-layer-group"></i> إبراز في شريط الحالات العلوي (Story Bar)</span>
+                    </div>
+                    <label class="switch"><input type="checkbox" id="offer-in-story" data-action="toggle-story-builder"><span class="slider"></span></label>
+                </div>
+
+                <div class="ve-workspace hide-element" id="story-builder-container" style="margin-top: 0;">
+                    
+                    <div class="ve-controls">
+                        
+                        <div id="story-prods-container" class="form-group mb-15">
+                            <label class="form-label text-warning" style="font-size: 13px;"><i class="fa-solid fa-star"></i> اختر المنتجات لتظهر في الستوري</label>
+                            <div id="story-selection-prods" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; max-height: 200px; overflow-y: auto; background: var(--input-bg);"></div>
+                            <small class="text-muted d-block mt-5 fs-11"><i class="fa-solid fa-circle-info"></i> ستظهر هنا فقط المنتجات التي اخترتها في التبويب الأول.</small>
+                        </div>
+
+                        <div class="sb-section">
+                            <div class="sb-title"><i class="fa-solid fa-shapes"></i> شكل أيقونة القصة الأساسية</div>
+                            <div class="sb-grid">
+                                <div class="sb-btn active" data-action="update-story-shape" data-val="shape-square"><i class="fa-solid fa-square" style="border-radius: 4px;"></i><span>مربع حواف</span></div>
+                                <div class="sb-btn" data-action="update-story-shape" data-val="shape-squircle"><i class="fa-solid fa-square" style="border-radius: 14px;"></i><span>مربع آبل</span></div>
+                                <div class="sb-btn" data-action="update-story-shape" data-val="shape-circle"><i class="fa-solid fa-circle"></i><span>دائرة</span></div>
+                                <div class="sb-btn" data-action="update-story-shape" data-val="shape-teardrop"><i class="fa-solid fa-droplet"></i><span>دمعة</span></div>
+                                <div class="sb-btn" data-action="update-story-shape" data-val="shape-leaf"><i class="fa-solid fa-leaf"></i><span>ورقة شجر</span></div>
+                            </div>
+                        </div>
+
+                        <div class="alert-info mt-10">
+                            <i class="fa-solid fa-circle-info alert-icon"></i> 
+                            سيتم تطبيق نفس إعدادات الشارة واللون التي اخترتها في تبويب "تصميم المتجر" تلقائياً هنا للحفاظ على الهوية البصرية.
+                        </div>
+                    </div>
+
+                    <div class="ve-preview-sticky">
+                        <div class="fs-13 fw-bold text-primary mb-15"><i class="fa-solid fa-eye"></i> معاينة الأيقونة العلوية</div>
+                        <div style="display: flex; flex-direction: column; align-items: center;">
+                            <div class="promo-icon-wrapper shape-square" id="sb-preview-icon" style="border-radius: 12px; width: 75px; height: 75px; overflow: visible; border: 2.5px solid var(--primary);">
+                                <div id="sb-preview-badge"></div>
+                                <div id="sb-preview-timer"></div>
+                                <div class="img-wrap shape-square" id="sb-preview-image-box">
+
+                <div id="sb-live-img" style="width: 100%; height: 100%; background: #334155;"></div>
+                </div>
+                            </div>
+                            <div class="fs-11 fw-bold mt-10" style="color:#cbd5e1;" id="sb-live-title">اسم العرض</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="modal-actions-row flex-gap-10 mt-20 pt-15" style="border-top: 1px solid var(--border);">
+                <button type="button" class="btn btn-primary flex-1" data-action="save-offer"><i class="fa-solid fa-shield-check"></i> حفظ الحملة واعتمادها</button>
+                <button type="button" class="btn btn-ghost flex-1" data-action="close-modal">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="iv-overlay" id="global-image-viewer" data-action="close-img-viewer">
+        <div class="iv-close" data-action="close-img-viewer"><i class="fa-solid fa-xmark"></i></div>
+        <img class="iv-img" id="iv-main-img">
+    </div>
+    <div id="toast-container" class="toast-container-fixed"></div>
+        <div class="modal-overlay" id="m-supplier">
+        <div class="modal-content modal-md">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title" id="supplier-modal-title"><i class="fa-solid fa-store"></i> إضافة مورد جديد</h2>
+            
+            <div id="supplier-modal-body">
+                </div>
+        </div>
+    </div>
+
+    <div id="confirm-overlay" class="sys-overlay">
+        <div id="confirm-card" class="sys-dialog-card">
+            <div class="sys-dialog-header">
+                <div class="sys-dialog-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <h3 id="confirm-title" class="sys-dialog-title">تأكيد العملية</h3>
+            </div>
+            <p id="confirm-message" class="sys-dialog-msg"></p>
+            <textarea id="confirm-note" class="form-input hide-element" rows="3" placeholder="أدخل الرد أو سبب الرفض (يُرسل للعميل)"></textarea>
+            <div class="sys-dialog-actions mt-15">
+                <button type="button" id="confirm-cancel" class="btn sys-btn-cancel">إلغاء</button>
+                <button type="button" id="confirm-ok" class="btn sys-btn-ok">نعم، تابع</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="prompt-overlay" class="sys-overlay">
+        <div class="sys-prompt-card">
+            <div class="sys-prompt-header">
+                <div class="sys-prompt-icon"><i class="fa-solid fa-keyboard"></i></div>
+                <h3 id="prompt-title" class="sys-prompt-title">إدخال البيانات</h3>
+            </div>
+            <p id="prompt-message" class="sys-prompt-msg"></p>
+            <input type="text" id="prompt-input" class="form-input sys-prompt-input" placeholder="أدخل القيمة...">
+            <div class="sys-prompt-actions">
+                <button type="button" id="prompt-cancel" class="btn sys-prompt-cancel">إلغاء</button>
+                <button type="button" id="prompt-ok" class="btn btn-primary">تأكيد</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="copy-toast" class="copy-toast-popup">✔</div>
+
+    <div id="cal-modal" class="calendar-modal">
+        <div class="cal-header">
+            <div class="selector-box">
+                <div class="selector-text" id="cal-month-text" data-action="cal-toggle-months">الشهر</div>
+                <div class="arrows-col">
+                    <button type="button" class="mini-btn" data-action="cal-change-month" data-val="1"><i class="fa-solid fa-chevron-up"></i></button>
+                    <button type="button" class="mini-btn" data-action="cal-change-month" data-val="-1"><i class="fa-solid fa-chevron-down"></i></button>
+                </div>
+                <div class="dropdown-list" id="cal-month-list"></div>
+            </div>
+            <div class="selector-box">
+                <div class="selector-text" id="cal-year-text" data-action="cal-toggle-years">السنة</div>
+                <div class="arrows-col">
+                    <button type="button" class="mini-btn" data-action="cal-change-year" data-val="1"><i class="fa-solid fa-chevron-up"></i></button>
+                    <button type="button" class="mini-btn" data-action="cal-change-year" data-val="-1"><i class="fa-solid fa-chevron-down"></i></button>
+                </div>
+                <div class="dropdown-list" id="cal-year-list"></div>
+            </div>
+        </div>
+        <div class="days-grid" id="cal-days-head">
+            <div class="day-head">أحد</div><div class="day-head">إثنين</div><div class="day-head">ثلاثاء</div><div class="day-head">أربعاء</div><div class="day-head">خميس</div><div class="day-head">جمعة</div><div class="day-head">سبت</div>
+        </div>
+        <div class="days-grid" id="cal-days-grid"></div>
+        
+        <div id="cal-time-selector" class="cal-time-picker hide-element">
+            <div class="time-input-group">
+                <input type="text" id="cal-hour" class="time-unit num-en" dir="ltr" lang="en" maxlength="2" placeholder="00" inputmode="numeric">
+                <span class="time-sep">:</span>
+                <input type="text" id="cal-minute" class="time-unit num-en" dir="ltr" lang="en" maxlength="2" placeholder="00" inputmode="numeric">
+            </div>
+            <div class="time-label">نظام 24 ساعة</div>
+        </div>
+
+        <div class="cal-footer">
+            <button type="button" class="btn-action btn-cancel" data-action="cal-clear"><i class="fa-solid fa-trash"></i> مسح</button>
+            <button type="button" class="btn-action btn-confirm" data-action="cal-confirm"><i class="fa-solid fa-check"></i> تأكيد</button>
+        </div>
+    </div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<script>
+    function handleModuleError(event) {
+        if (event && event.message && (event.message.includes('favicon') || event.message.includes('extension'))) {
+            return;
+        }
+
+        console.error("🚨 تفاصيل الخطأ:", event);
+        
+        const loader = document.getElementById('loader');
+        if (loader) loader.style.display = 'none';
+        
+        const errorScreen = document.getElementById('system-fatal-error');
+        if (errorScreen) {
+            errorScreen.style.display = 'flex';
+            
+            const errDesc = errorScreen.querySelector('p');
+            if (errDesc) {
+                const actualError = event.message || (event.error && event.error.message) || 'خطأ برمجي (راجع الكونسول)';
+                errDesc.innerHTML = `السبب: <br><b dir="ltr" style="color: #fca5a5; background: #1e293b; padding: 5px; border-radius: 4px; display: inline-block; margin-top: 8px;">${actualError}</b>`;
+            }
+        }
+    }
+
+    // 🌟 الإصلاح الجذري: اصطياد الأخطاء البرمجية وتجاهل أخطاء الموارد البسيطة
+    window.addEventListener('error', function(e) {
+        // إذا كان الخطأ ناتج عن تأخر تحميل (صورة، خط، ستايل، أو ملف فرعي)
+        // سنتجاهله لكي لا يتوقف المتجر بأكمله بسبب شيء بسيط!
+        if (e.target && (e.target.tagName === 'IMG' || e.target.tagName === 'LINK' || e.target.tagName === 'SCRIPT')) {
+            console.warn('⚠️ تم تجاهل خطأ تأخير في تحميل مورد:', e.target);
+            return; 
+        }
+        handleModuleError(e);
+    }, true);
+
+    // حماية إضافية: منع الشاشة الحمراء من الظهور بسبب أخطاء جلب البيانات (Promises)
+    window.addEventListener('unhandledrejection', function(e) {
+        console.warn('⚠️ خطأ في عملية خلفية تم تجاهله:', e.reason);
+    });
+</script>
+
+<script type="module" id="main-module" src="admin.js"></script>
+
+</body>
+</html>
