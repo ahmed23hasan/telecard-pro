@@ -19,7 +19,7 @@ jobs:
 
       - name: Install Functions Dependencies
         working-directory: ./functions
-        run: npm ci
+        run: npm install
 
       - name: Deploy to Firebase (Hosting, Functions, Firestore Rules)
         uses: w9jds/firebase-action@master
