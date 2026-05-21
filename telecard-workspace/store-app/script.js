@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 المحرك الرئيسي للمتجر (script.js) - المجلد الاحترافي المصلح للسحابة
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: تم الانتقال من نظام (Polling) المكلف إلى (Firestore Listeners) بشكل آمن
+// 🚀 التحديث: تم الانتقال من نظام (Polling) المكلف إلى (Firestore Listeners) بشكل آمن مع سد تسريب الذاكرة
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -13,7 +13,19 @@ import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 
 const ClientSystem = { 
-    isReady: false
+    isReady: false,
+    activeListeners: [], // 🌟 مصفوفة لتخزين دوال الإغلاق للمستمعات الحية
+
+    // 🌟 دالة تنظيف المستمعات لمنع تسريب الذاكرة وتكرار القراءات
+    clearFirebaseListeners: function() {
+        if (this.activeListeners && this.activeListeners.length > 0) {
+            this.activeListeners.forEach(unsubscribe => {
+                if (typeof unsubscribe === 'function') unsubscribe();
+            });
+            this.activeListeners = [];
+            console.log("🧹 تم تنظيف المستمعات السحابية السابقة بنجاح.");
+        }
+    }
 }; 
 
 // 🔗 دمج الوحدات (Facade Pattern) - تجميع آمن للمكونات
@@ -39,10 +51,13 @@ modules.forEach(mod => {
 // ============================================================================
 ClientSystem.initFirebaseListeners = function() {
     console.log("📡 جاري تشغيل مستمعات السحابة الحية (المحمية)...");
+    
+    // 🌟 تنظيف أي استماع سابق قبل بدء استماع جديد
+    this.clearFirebaseListeners();
 
     // 1. الإعدادات والتنبيهات العامة (مسموحة للجميع)
     if (DB_KEYS.SETTINGS) {
-        StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
+        const unsubSettings = StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
             LiveStoreData.settings = data;
             RenderHelpers.init({
                 settings: LiveStoreData.settings || {},
@@ -55,14 +70,16 @@ ClientSystem.initFirebaseListeners = function() {
                 UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
             }
         });
+        this.activeListeners.push(unsubSettings);
     }
 
     if (DB_KEYS.ALERTS) {
-        StoreDB.listenCollection(DB_KEYS.ALERTS, (data) => {
+        const unsubAlerts = StoreDB.listenCollection(DB_KEYS.ALERTS, (data) => {
             LiveStoreData.alerts = data;
             if (UIManager && typeof UIManager.processAndDisplayAlerts === 'function') UIManager.processAndDisplayAlerts();
             if (UIManager && typeof UIManager.updateNotifBadges === 'function') UIManager.updateNotifBadges();
         });
+        this.activeListeners.push(unsubAlerts);
     }
 
     // 2. البيانات الخاصة (تُجلب للعميل المسجل فقط وبناءً على المعرّف الخاص به)
@@ -70,25 +87,29 @@ ClientSystem.initFirebaseListeners = function() {
     if (uid) {
         // جلب ملف العميل الشخصي فقط وليس جدول المستخدمين!
         if (StoreDB.listenDoc) {
-            StoreDB.listenDoc(DB_KEYS.USERS, uid, (userData) => {
+            const unsubUser = StoreDB.listenDoc(DB_KEYS.USERS, uid, (userData) => {
                 if (userData) {
                     LiveStoreData.users = [userData]; // الحفاظ على توافقية المصفوفة للأنظمة القديمة
                     if (DataManager.syncUser) DataManager.syncUser();
                     if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
                 }
             });
+            this.activeListeners.push(unsubUser);
         }
 
         // جلب طلبات وإيداعات العميل فقط عبر فلتر ذكي (Query)
         if (StoreDB.listenQuery) {
-            StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', uid], (data) => {
+            const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', uid], (data) => {
                 LiveStoreData.orders = data;
                 if (UIManager && typeof UIManager.renderOrders === 'function') UIManager.renderOrders();
             });
-            StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', uid], (data) => {
+            this.activeListeners.push(unsubOrders);
+
+            const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', uid], (data) => {
                 LiveStoreData.deposits = data;
                 if (UIManager && typeof UIManager.renderWallet === 'function') UIManager.renderWallet();
             });
+            this.activeListeners.push(unsubDeposits);
         } else {
             console.warn("⚠️ المحول يفتقد لدالة listenQuery، سيتم إيقاف المزامنة الحية للطلبات مؤقتاً.");
         }
@@ -135,9 +156,15 @@ ClientSystem.init = async function() {
         
         if (UIManager.checkSystemStatus && UIManager.checkSystemStatus()) return;
         
-        const savedDisplayCurr = localStorage.getItem('telecard_display_currency');
-        if (savedDisplayCurr) DataManager.selectedCurr = savedDisplayCurr;
-        
+        const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) 
+    ? LiveStoreData.settings.defaultCurrency 
+    : 'USD';
+
+const savedDisplayCurr = localStorage.getItem('telecard_display_currency');
+
+// إعطاء الأولوية للعملة المحفوظة، ثم لعملة العرض الافتراضية التي حددها الأدمن
+DataManager.selectedCurr = savedDisplayCurr || adminDefaultCurrency;
+
         // ⚙️ تهيئة حالة المستخدم والإعدادات
         if(DataManager.initDummyData) DataManager.initDummyData(); // يمكن إزالتها لاحقاً بعد استقرار الفايربيز
         if(DataManager.syncUser) DataManager.syncUser();

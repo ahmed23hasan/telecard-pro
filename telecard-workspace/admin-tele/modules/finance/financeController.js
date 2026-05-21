@@ -1,5 +1,5 @@
 // ============================================================================
-// 🧠 متحكم المالية (modules/finance/financeController.js)
+// 🧠 متحكم المالية (modules/finance/financeController.js) - Cloud Secured ☁️
 // الوظيفة: معالجة العمليات المنطقية (Business Logic) للإيداعات، بوابات الدفع، والعملات.
 // ============================================================================
 
@@ -9,6 +9,8 @@ import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { AppController } from '../../core/appController.js';
 import { normalizeRates } from '../../adminConfig.js';
+import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
 export const FinanceController = {
 
@@ -190,18 +192,57 @@ export const FinanceController = {
         }
     },
 
+    setDefaultDisplayCurrency: async function(code) {
+        if (!code) return;
+        
+        const rates = AdminData.data.rates || [];
+        const isValid = code === 'USD' || rates.some(r => r.code === code);
+        
+        if (!isValid) {
+            EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: العملة غير مسجلة في النظام.', type: 'error' });
+            return;
+        }
+
+        if (!AdminData.data.settings) AdminData.data.settings = {};
+        AdminData.data.settings.defaultCurrency = code;
+        
+        await AdminData?.saveSystemSettings?.();
+        AdminData?.addLog?.('SET_DEFAULT_CURRENCY', `تم تعيين (${code}) كعملة عرض افتراضية للضيوف`);
+        
+        EventBus.emit('req-render-rates');
+        EventBus.emit('req-show-toast', { message: `تم اعتماد (${code}) كعملة العرض الافتراضية للضيوف.`, type: 'success' });
+    },
+
     deleteCurrency: async function(code) {
         if (code === 'USD') return;
+
         const usersUsingIt = (AdminData.data.users || []).some(u => (u.baseCurrency || '').toUpperCase() === code);
         if (usersUsingIt) {
             EventBus.emit('req-show-toast', { message: `لا يمكن حذف عملة ${code} لوجود عملاء يستخدمونها حالياً!`, type: 'error' });
             return;
         }
 
-        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من حذف عملة ${code}؟`)) {
+        const currentDefault = AdminData.data.settings?.defaultCurrency || 'USD';
+        const isDefaultDisplay = currentDefault === code;
+        
+        let confirmMsg = `هل أنت متأكد من حذف عملة ${code}؟`;
+        let confirmTitle = 'تأكيد حذف العملة';
+        
+        if (isDefaultDisplay) {
+            confirmTitle = '⚠️ تحذير: حذف عملة العرض الافتراضية';
+            confirmMsg = `تنبيه هام: عملة (${code}) محددة حالياً كعملة العرض الافتراضية للضيوف في المتجر!\n\nهل تود المتابعة؟\n(في حال الحذف، سيعود المتجر لعرض الأسعار بالعملة الأساسية USD تلقائياً للضيوف).`;
+        }
+
+        if (AdminUI && await AdminUI.showConfirm(confirmMsg, confirmTitle)) {
             let rates = normalizeRates(AdminData.data.rates);
             AdminData.data.rates = rates.filter(c => c.code !== code);
             await AdminData?.saveRates?.();
+            
+            if (isDefaultDisplay) {
+                AdminData.data.settings.defaultCurrency = 'USD';
+                await AdminData?.saveSystemSettings?.();
+            }
+
             AdminData?.addLog?.('DELETE_CURRENCY', `تم حذف عملة: ${code}`);
             EventBus.emit('req-render-rates');
             EventBus.emit('req-show-toast', { message: 'تم حذف العملة بنجاح', type: 'success' });
@@ -209,7 +250,7 @@ export const FinanceController = {
     },
 
     // =========================================================
-    // 🏦 3. معالجة الإيداعات (Deposits Processing)
+    // 🏦 3. معالجة الإيداعات الآمنة (Cloud Protected)
     // =========================================================
     submitDepositReview: async function(action) {
         const reviewId = AdminUI?.FinanceUI?.currentDepositId || null;
@@ -219,62 +260,40 @@ export const FinanceController = {
         if (!dep) return;
 
         const note = Utils.escapeHTML(Utils.getVal('dep-drawer-note'));
-        dep.status = action === 'approve' ? 'approved' : 'rejected';
-        dep.adminNote = note;
-        dep.actionTime = Date.now();
+        const mappedAction = action === 'approve' ? 'approved' : 'rejected';
 
-        if (AdminData.data.system && AdminData.data.system.globalStats) {
-            if (action === 'approve') AdminData.data.system.globalStats.deposits.approved++;
-            if (action === 'reject') AdminData.data.system.globalStats.deposits.rejected++;
-        }
+        // 🌟 إظهار شاشة التحميل (العملية الآن تتم على خوادم جوجل)
+        if (AdminUI && AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري معالجة الإيداع سحابياً...');
 
-        const user = AdminData.data.users.find(u => String(u.id) === String(dep.userId));
+        try {
+            const app = getApp();
+            const functions = getFunctions(app);
+            const processDepositFn = httpsCallable(functions, 'adminProcessDeposit');
 
-        if (action === 'approve' && user) {
-            const feePct = Number(dep.feePct ?? dep.fee ?? 0);
-            const feeType = dep.feeType || 'fee';
-            const feeAmount = Number(dep.amount || 0) * (feePct / 100);
+            // 🚀 إرسال الأمر للسيرفر
+            const result = await processDepositFn({
+                depositId: String(dep.id),
+                action: mappedAction,
+                adminNote: note
+            });
 
-            let netPayCurr = Number(dep.amount || 0);
-            if (feeType === 'bonus') netPayCurr += feeAmount;
-            else netPayCurr -= feeAmount;
-
-            const fxRate = Number(dep.fxRate ?? 1);
-            const netBase = Number((dep.creditedAmount != null) ? dep.creditedAmount : (netPayCurr * fxRate));
-
-            user.walletBalance = (Number(user.walletBalance) || 0) + netBase;
-            user.balance = user.walletBalance;
-        }
-
-        if (user) {
-            let notifTitle = action === 'approve' ? 'اكتمل الإيداع ✅' : 'إيداع مرفوض ❌';
-            let notifMsg = action === 'approve' 
-                ? `تمت إضافة الرصيد لمحفظتك بنجاح. انقر لعرض الإيصال.` 
-                : `تم رفض طلب الإيداع. ${note ? 'السبب: ' + note : 'انقر لمعرفة التفاصيل.'}`;
+            // 🔄 تحديث الواجهة عند نجاح العملية السحابية
+            if (AdminUI && AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+            AdminUI?.FinanceUI?.closeDepositDrawer?.();
             
-            const autoAlert = {
-                id: 'sys_dep_' + Date.now(),
-                title: notifTitle,
-                message: notifMsg,
-                createdAt: Date.now(),
-                type: 'notification',
-                targetType: 'user',
-                targetId: user.id,
-                jumpTarget: 'deposit',
-                jumpId: dep.id
-            };
-            user.inbox = user.inbox || [];
-            user.inbox.push(autoAlert);
+            AppController.finishAction(
+                'req-render-deposits', 
+                null, 
+                `DEPOSIT_${mappedAction.toUpperCase()}`, 
+                `إيداع رقم #${dep.id} بمبلغ ${dep.amount} ${dep.currency} - ${mappedAction === 'approved' ? 'مقبول' : 'مرفوض'}`, 
+                result.data.message || 'تمت العملية بنجاح'
+            );
+
+        } catch (error) {
+            console.error("Cloud Function Error:", error);
+            if (AdminUI && AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+            EventBus.emit('req-show-toast', { message: error.message || 'تعذر معالجة الإيداع. تأكد من اتصالك أو راجع السجل.', type: 'error' });
         }
-
-        await AdminData?.saveDeposits?.();
-        if (user) await AdminData?.saveUsers?.();
-        await AdminData?.saveSystemSettings?.();
-
-        const curTxt = AdminRender?.getCurrencySymbolText?.(dep.currency || 'USD') || (dep.currency || 'USD');
-        AdminUI?.FinanceUI?.closeDepositDrawer?.();
-        
-        AppController.finishAction('req-render-deposits', null, `DEPOSIT_${action.toUpperCase()}`, `إيداع رقم #${dep.id} للعميل ${dep.userName} بمبلغ ${dep.amount} ${curTxt} - ${action === 'approve' ? 'مقبول' : 'مرفوض'}`, action === 'approve' ? 'تم قبول الإيداع وإضافة الرصيد' : 'تم رفض الإيداع');
     },
 
     reEvaluateDeposit: async function(depId) {
@@ -287,9 +306,11 @@ export const FinanceController = {
             return;
         }
 
-        const feePct = Number(dep.feePct ?? dep.fee ?? 0);
+        const feeVal = Number(dep.feePct ?? dep.fee ?? 0);
         const feeType = dep.feeType || 'fee';
-        const feeAmount = Number(dep.amount || 0) * (feePct / 100);
+        const feeUnit = dep.feeUnit || dep.unit || dep.calcMethod || 'percent';
+
+        const feeAmount = Number(dep.feeAmount ?? (feeUnit === 'percent' ? (Number(dep.amount || 0) * (feeVal / 100)) : feeVal));
 
         let netPayCurr = Number(dep.amount || 0);
         if (feeType === 'bonus') netPayCurr += feeAmount;
@@ -318,31 +339,43 @@ export const FinanceController = {
         }
 
         if (AdminUI && await AdminUI.showConfirm(confirmMsg, confirmTitle)) {
-            const prevStatus = dep.status;
-            user.walletBalance = currentBalance - netBase;
-            user.balance = user.walletBalance;
-            dep.status = 'refunded';
-            dep.actionTime = Date.now();
+            
+            // 🌟 إظهار شاشة التحميل
+            if (AdminUI && AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري استرجاع الإيداع سحابياً...');
 
-            if (AdminData.data.system && AdminData.data.system.globalStats) {
-                AdminData.data.system.globalStats.deposits.refunded++;
-                if (prevStatus === 'approved') {
-                    AdminData.data.system.globalStats.deposits.approved = Math.max(0, AdminData.data.system.globalStats.deposits.approved - 1);
-                }
+            try {
+                const app = getApp();
+                const functions = getFunctions(app);
+                const processDepositFn = httpsCallable(functions, 'adminProcessDeposit');
+
+                // 🚀 إرسال الأمر للسيرفر
+                const result = await processDepositFn({
+                    depositId: String(dep.id),
+                    action: 'refunded',
+                    adminNote: 'تم استرجاع الإيداع يدوياً من الإدارة'
+                });
+
+                if (AdminUI && AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+                AdminUI?.FinanceUI?.closeDepositDrawer?.();
+                
+                const curTxt = AdminRender?.getCurrencySymbolText?.(dep.currency || 'USD') || (dep.currency || 'USD');
+                const successLogMsg = isDeduction 
+                    ? `تم إلغاء عملية خصم وإعادة ${Math.abs(dep.amount)} ${curTxt} لرصيد العميل ${dep.userName}` 
+                    : `تم استرجاع إيداع رقم #${dep.id} للعميل ${dep.userName} وتم خصم ${dep.amount} ${curTxt} من رصيده`;
+                
+                AppController.finishAction(
+                    'req-render-deposits', 
+                    null, 
+                    'REFUND_DEPOSIT', 
+                    successLogMsg, 
+                    result.data.message || (isDeduction ? 'تم إلغاء الخصم وإعادة الرصيد للعميل' : 'تم استرجاع الإيداع وتقييد الخصم/الدين على العميل')
+                );
+
+            } catch (error) {
+                console.error("Cloud Function Error:", error);
+                if (AdminUI && AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+                EventBus.emit('req-show-toast', { message: error.message || 'تعذر استرجاع الإيداع. تأكد من اتصالك.', type: 'error' });
             }
-
-            await AdminData?.saveDeposits?.();
-            await AdminData?.saveUsers?.();
-            await AdminData?.saveSystemSettings?.();
-
-            const curTxt = AdminRender?.getCurrencySymbolText?.(dep.currency || 'USD') || (dep.currency || 'USD');
-            AdminUI?.FinanceUI?.closeDepositDrawer?.();
-            
-            const successLogMsg = isDeduction 
-                ? `تم إلغاء عملية خصم وإعادة ${Math.abs(dep.amount)} ${curTxt} لرصيد العميل ${dep.userName}` 
-                : `تم استرجاع إيداع رقم #${dep.id} للعميل ${dep.userName} وتم خصم ${dep.amount} ${curTxt} من رصيده`;
-            
-            AppController.finishAction('req-render-deposits', null, 'REFUND_DEPOSIT', successLogMsg, isDeduction ? 'تم إلغاء الخصم وإعادة الرصيد للعميل' : 'تم استرجاع الإيداع وتقييد الخصم/الدين على العميل');
         }
     }
 };

@@ -1068,9 +1068,16 @@ export const UIFinance = {
                 ${d.receipt ? `<div class="nm-universal-card nm-receipt-card"><img src="${d.receipt}" class="nm-receipt-img" alt="Receipt"></div>` : ''}
             </div>`;
         } else {
-            const orders = LiveStoreData.orders || [];
-            const o = orders.find(x => Number(x.id) === Number(id));
-            if(!o) return;
+                        const orders = LiveStoreData.orders || [];
+            const user = DataManager.user;
+
+            // 🌟 التحقق الصارم: التأكد من أن المستخدم مسجل، وأن الطلب يخصه فعلياً لمنع الوصول غير المصرح به
+            const o = orders.find(x => Number(x.id) === Number(id) && user && Number(x.userId) === Number(user.id));
+
+            if(!o) {
+                if(typeof this.showToast === 'function') this.showToast('لا يمكن العثور على تفاصيل هذا الطلب أو أنك لا تملك صلاحية لعرضه', 'error');
+                return;
+            }
 
             // 🚀 استخراج الرقم القصير للطلب
             const shortOrderId = o.displayId || o.id;
@@ -1091,7 +1098,7 @@ export const UIFinance = {
 
             if (!isFinished) {
                 durationHtml = `<div class="nm-duration-pill"><i class="fa-solid fa-bolt"></i><span class="mx-1">مدة انجاز الطلب: </span><i class="fa-regular fa-clock opacity-90"></i></div>`;
-            } else {
+          } else {
                 let finalEndTime = o.actionTime || o.completedTime || o.updatedAt;
                 if (!finalEndTime && o.status === 'completed' && o.deliveredCode && o.deliveredCode !== 'null') finalEndTime = o.time;
                 let durationStr = finalEndTime ? (Utils.calculateOrderDuration ? Utils.calculateOrderDuration(o.time, finalEndTime) : '---') : 'غير متوفر';

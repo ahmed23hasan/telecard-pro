@@ -1,6 +1,7 @@
 // ============================================================================
 // 🎨 واجهة التوجيه المركزية للـ UI (adminUI.js) - Facade Pattern
 // 🎯 الوظيفة: نقطة عبور (Router) لربط دوال الواجهة بوحدات النظام المعزولة
+// 🌟 التحديث: ربط التعبئة التلقائية للدول بقاعدة البيانات الحية 
 // ============================================================================
 
 import { UIService } from './core/uiService.js';
@@ -255,25 +256,47 @@ export const AdminUI = {
     // 🛠️ 6. أدوات النظام والمعاينات (System Utils & Previews)
     // =========================================================
     
-    detectCountryAutoFill: function(inputVal) {
+    // 🌟 التحديث: استخدام البيانات الحية أولاً، وتوفير الكلمات الدلالية كشبكة أمان
+    detectCountryAutoFill: function(inputVal, dynamicCountriesArray = []) {
         const val = inputVal.trim().toLowerCase();
         if (!val) return;
-        const smartCountriesDB = [
-            { id: "SA", nameAr: "السعودية", flag: "🇸🇦", dial: "+966", len: 9, keys: ["سعودي", "السعودية", "ksa", "saudi"] },
-            { id: "SY", nameAr: "سوريا", flag: "🇸🇾", dial: "+963", len: 9, keys: ["سوري", "سوريا", "syria"] },
-            { id: "TR", nameAr: "تركيا", flag: "🇹🇷", dial: "+90", len: 10, keys: ["تركي", "تركيا", "turkey"] },
-            { id: "EG", nameAr: "مصر", flag: "🇪🇬", dial: "+20", len: 10, keys: ["مصر", "egypt"] },
-            { id: "AE", nameAr: "الإمارات", flag: "🇦🇪", dial: "+971", len: 9, keys: ["امارات", "uae"] },
-            { id: "KW", nameAr: "الكويت", flag: "🇰🇼", dial: "+965", len: 8, keys: ["كويت", "kuwait"] }
-        ];
-        const match = smartCountriesDB.find(c => c.keys.some(k => val.includes(k)));
+        
+        let match = null;
+
+        // 1. البحث في قاعدة البيانات الحية (الديناميكية) أولاً
+        if (dynamicCountriesArray && dynamicCountriesArray.length > 0) {
+            match = dynamicCountriesArray.find(c => 
+                (c.name && c.name.toLowerCase().includes(val)) || 
+                (c.code && c.code.toLowerCase().includes(val))
+            );
+        }
+
+        // 2. استخدام القاموس الدلالي للحالات الشائعة (Fallback)
+        if (!match) {
+            const smartCountriesDB = [
+                { code: "SA", flag: "🇸🇦", dialCode: "+966", keys: ["سعودي", "السعودية", "ksa", "saudi"] },
+                { code: "SY", flag: "🇸🇾", dialCode: "+963", keys: ["سوري", "سوريا", "syria"] },
+                { code: "TR", flag: "🇹🇷", dialCode: "+90", keys: ["تركي", "تركيا", "turkey"] },
+                { code: "EG", flag: "🇪🇬", dialCode: "+20", keys: ["مصر", "egypt"] },
+                { code: "AE", flag: "🇦🇪", dialCode: "+971", keys: ["امارات", "uae"] },
+                { code: "KW", flag: "🇰🇼", dialCode: "+965", keys: ["كويت", "kuwait"] }
+            ];
+            match = smartCountriesDB.find(c => c.keys.some(k => val.includes(k)));
+        }
+
         if (match) {
             const codeEl = document.getElementById('country-code');
             const flagEl = document.getElementById('country-flag');
             const dialEl = document.getElementById('country-dial');
-            if (codeEl && !codeEl.value) codeEl.value = match.id;
-            if (flagEl && !flagEl.value) flagEl.value = match.flag;
-            if (dialEl && !dialEl.value) dialEl.value = match.dial;
+            
+            // قراءة المتغيرات بشكل آمن لتدعم كلاً من (الهيكلية الحية والهيكلية الثابتة)
+            const safeCode = match.code || match.id;
+            const safeFlag = match.flag || match.flagEmoji;
+            const safeDial = match.dialCode || match.dial;
+
+            if (codeEl && !codeEl.value) codeEl.value = safeCode;
+            if (flagEl && !flagEl.value) flagEl.value = safeFlag;
+            if (dialEl && !dialEl.value) dialEl.value = safeDial;
         }
     },
     
@@ -299,23 +322,25 @@ export const AdminUI = {
         if (tBox) tBox.classList.toggle('hide-element', type !== 'tier');
         if (uBox) uBox.classList.toggle('hide-element', type !== 'user');
     },
-scrollToAlerts: function() {
-    // 1. التأكد أولاً أننا في لوحة القيادة (Dashboard)
-    const dashView = document.getElementById('view-dash');
-    if (!dashView.classList.contains('active')) {
-        // إذا لم نكن في الداتشبورد، ننتقل إليها أولاً
-        EventBus.emit('req-navigate', { page: 'dash' });
-    }
-    
-    // 2. التمرير إلى صندوق التنبيهات
-    const alertsBox = document.getElementById('dash-smart-alerts');
-    if (alertsBox) {
-        alertsBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // إضافة وميض بسيط لجذب الانتباه (اختياري)
-        alertsBox.classList.add('highlight-pulse');
-        setTimeout(() => alertsBox.classList.remove('highlight-pulse'), 2000);
-    }
-},
+
+    scrollToAlerts: function() {
+        // 1. التأكد أولاً أننا في لوحة القيادة (Dashboard)
+        const dashView = document.getElementById('view-dash');
+        if (!dashView.classList.contains('active')) {
+            // إذا لم نكن في الداتشبورد، ننتقل إليها أولاً
+            EventBus.emit('req-navigate', { page: 'dash' });
+        }
+        
+        // 2. التمرير إلى صندوق التنبيهات
+        const alertsBox = document.getElementById('dash-smart-alerts');
+        if (alertsBox) {
+            alertsBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // إضافة وميض بسيط لجذب الانتباه (اختياري)
+            alertsBox.classList.add('highlight-pulse');
+            setTimeout(() => alertsBox.classList.remove('highlight-pulse'), 2000);
+        }
+    },
+
     // 🎨 دوال المعاينة الحية للهوية البصرية 
     toggleColorType: function() { 
         const type = document.getElementById('store-color-type')?.value; 

@@ -1,9 +1,9 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (core/financialEngine.js) - Agnostic Core
-// 🎯 الوظيفة: حساب الأسعار، الخصومات، تحويل العملات، والضرائب (للمتجر والإدارة)
+// 💰 المحرك المالي المركزي (Cloud Version - Node.js)
+// 🎯 الوظيفة: حساب الأسعار بأمان تام داخل بيئة السيرفر
 // ============================================================================
 
-export const FinancialEngine = Object.freeze({
+exports.FinancialEngine = Object.freeze({
 
     normalizeRates: function(raw) {
         let rates = Array.isArray(raw) ? raw : [];
@@ -26,7 +26,6 @@ export const FinancialEngine = Object.freeze({
         return Number(finalAmount.toFixed(4));
     },
 
-    // 🚀 المحرك الرياضي المكتمل لحساب الأسعار وجدار الحماية
     calculatePrice: function(params) {
         const { costPrice = 0, tier = null, offer = null, coupon = null } = params;
         const cost = Number(costPrice) || 0;
@@ -34,16 +33,13 @@ export const FinancialEngine = Object.freeze({
         let currentPrice = cost;
         let tierName = null;
 
-        // 1. حساب سعر البيع الأساسي بناءً على مستوى العميل (Tier Profit Margin)
         if (tier) {
             tierName = tier.nameAr || tier.name || 'عضو';
             const profitPercent = Number(tier.profitPercent || tier.profit_percent || 0);
             const minProfitUsd = Number(tier.minProfitUsd || tier.min_profit_usd || 0);
 
-            // حساب الربح كنسبة مئوية من التكلفة
             let profitAdded = cost * (profitPercent / 100);
             
-            // تطبيق الحد الأدنى للربح إذا كانت النسبة المئوية أقل منه
             if (profitAdded < minProfitUsd) {
                 profitAdded = minProfitUsd;
             }
@@ -53,7 +49,6 @@ export const FinancialEngine = Object.freeze({
         const tierPrice = currentPrice;
         const originalPrice = tierPrice;
 
-        // 2. تطبيق خصومات العروض النشطة (Sales & Offers)
         let offerName = null;
         let offerDiscount = 0;
         if (offer && offer.type !== 'fake') {
@@ -67,7 +62,6 @@ export const FinancialEngine = Object.freeze({
             currentPrice -= offerDiscount;
         }
 
-        // 3. تطبيق خصومات الكوبونات (Coupons)
         let couponCode = null;
         let couponDiscount = 0;
         if (coupon) {
@@ -81,14 +75,11 @@ export const FinancialEngine = Object.freeze({
             currentPrice -= couponDiscount;
         }
 
-        // 4. 🛡️ جدار الحماية المالي (Financial Firewall)
-        // يمنع بيع المنتج بخسارة إذا تجاوزت الخصومات سعر التكلفة
         let isFirewallActive = false;
         if (currentPrice < cost) {
             isFirewallActive = true;
-            currentPrice = cost; // إعادة السعر ليكون مساوياً للتكلفة على الأقل
+            currentPrice = cost; 
             
-            // إعادة ضبط قيم الخصومات الظاهرية لكي لا تعطي أرقاماً وهمية للعميل
             const maxAllowedDiscount = originalPrice - cost;
             const totalRequestedDiscount = offerDiscount + couponDiscount;
             
@@ -104,7 +95,6 @@ export const FinancialEngine = Object.freeze({
         const profit = finalPrice - cost;
         const marginPct = cost > 0 ? (profit / cost) * 100 : 0;
 
-        // إرجاع كائن التطابق الكامل الذي تحتاجه واجهات المتجر (Snapshot)
         return {
             cost: Number(cost.toFixed(4)),
             tierPrice: Number(tierPrice.toFixed(4)),

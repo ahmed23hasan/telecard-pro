@@ -84,7 +84,7 @@ export const UICore = {
     // =========================================================
     // 🪟 2. الإدارة المركزية للنوافذ (Modals & Resets)
     // =========================================================
-    openModal: function(modalId) {
+        openModal: function(modalId) {
         const overlay = document.getElementById(`${modalId}-overlay`);
         const modal = document.getElementById(`${modalId}-modal`);
         if (!modal) return;
@@ -100,13 +100,21 @@ export const UICore = {
         modal.classList.add('active');
         if (!this.activeModals.includes(modalId)) this.activeModals.push(modalId);
 
+        // 🌟 المنطق الخاص بنافذة إتمام البيانات
         if (modalId === 'identity') {
             const listTarget = document.getElementById('countries-list-target');
             if (listTarget) listTarget.innerHTML = '<div class="dropdown-item" style="justify-content: center; color: var(--text-muted);">جاري تحميل الدول...</div>';
+            
+            // تحميل الدول (موجود سابقاً)
             if (typeof DataManager.getAdminCountries === 'function') {
                 DataManager.getAdminCountries().then(countries => {
                     if (RenderManager.renderCountryList) RenderManager.renderCountryList(countries);
                 });
+            }
+            
+            // 🌟 الإضافة الجديدة: تحميل قائمة العملات ديناميكياً فور فتح النافذة
+            if (typeof this.loadDynamicCurrenciesForModal === 'function') {
+                this.loadDynamicCurrenciesForModal();
             }
         }
 
@@ -116,7 +124,6 @@ export const UICore = {
             }
         }
     },
-
     closeModal: function(modalId) {
         if (!modalId) { if(typeof this.closePurchaseModal === 'function') this.closePurchaseModal(); return; }
         const overlay = document.getElementById(`${modalId}-overlay`);

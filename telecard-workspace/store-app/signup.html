@@ -91,7 +91,7 @@
             position: relative;
             width: 100%;
             height: 52px;
-            z-index: 10; /* الحقل يكون بالطبقة العليا */
+            z-index: 10;
         }
 
         .input-field {
@@ -113,93 +113,8 @@
         }
         
         .input-field:focus ~ .label, 
-        .input-field:not(:placeholder-shown) ~ .label,
-        .custom-select-wrapper.active .label {
+        .input-field:not(:placeholder-shown) ~ .label {
             top: 0; right: 10px; font-size: 11px; font-weight: 700; color: var(--gold-main); background-color: var(--bg-card); z-index: 5;
-        }
-
-        /* === 🌟 القائمة المنسدلة الاحترافية للعملة 🌟 === */
-        .custom-select-wrapper { cursor: pointer; position: relative; }
-        
-        .custom-select-wrapper.active { z-index: 9999; }
-        
-        .custom-select-wrapper .input-field {
-            padding-left: 45px !important; 
-            padding-right: 15px !important;
-            text-overflow: ellipsis; 
-            white-space: nowrap;
-            overflow: hidden;
-            cursor: pointer;
-        }
-
-        /* === الدمج المتصل النظيف === */
-        .custom-select-wrapper.active .input-field {
-            border-color: var(--gold-main);
-            border-bottom-color: transparent !important; 
-            border-bottom-left-radius: 0;
-            border-bottom-right-radius: 0;
-            box-shadow: none;
-        }
-
-        #currencyDisplay {
-            font-size: 13px !important; 
-            font-weight: 800 !important;
-            color: var(--gold-main) !important;
-        }
-
-        .select-arrow { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--gold-main); z-index: 4; transition: transform 0.3s ease; }
-        .custom-select-wrapper.active .select-arrow { transform: translateY(-50%) rotate(180deg); }
-        
-        /* === شكل القائمة المتصل === */
-        .dropdown-list {
-            position: absolute; 
-            top: 51px; 
-            left: 0; 
-            width: 100%;
-            background: #0a101d; 
-            border: 1px solid var(--gold-main); 
-            border-top: none; 
-            border-radius: 0 0 var(--radius) var(--radius); 
-            box-shadow: 0 20px 40px rgba(0,0,0,0.9); 
-            z-index: 5; 
-            max-height: 200px; 
-            overflow-y: auto;
-            opacity: 0; 
-            visibility: hidden; 
-            transition: opacity 0.2s ease, visibility 0.2s ease; 
-            padding: 6px;
-        }
-        
-        .dropdown-list.show { 
-            opacity: 1; 
-            visibility: visible;
-        }
-        
-        .dropdown-list::-webkit-scrollbar { width: 6px; }
-        .dropdown-list::-webkit-scrollbar-track { background: transparent; }
-        .dropdown-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
-        .dropdown-list::-webkit-scrollbar-thumb:hover { background: rgba(251, 191, 36, 0.3); }
-        
-        .dropdown-item {
-            padding: 8px 12px; color: #fff; font-size: 13px; font-weight: 700; 
-            cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: space-between;
-            border-radius: 8px; margin-bottom: 2px; border: 1px solid transparent;
-        }
-        .dropdown-item:last-child { margin-bottom: 0; }
-        .dropdown-item:hover { 
-            background: rgba(251, 191, 36, 0.08); 
-            border-color: rgba(251, 191, 36, 0.2); 
-            color: var(--gold-main); 
-            transform: translateX(-4px); 
-        }
-
-        .currency-code-badge {
-            background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 6px;
-            font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 800; color: var(--text-gray);
-            transition: 0.2s; letter-spacing: 0.5px; border: 1px solid rgba(255,255,255,0.05);
-        }
-        .dropdown-item:hover .currency-code-badge {
-            background: var(--gold-crystal-grad); color: #000; border-color: transparent;
         }
 
         input::-ms-reveal, input::-ms-clear { display: none !important; }
@@ -306,23 +221,6 @@
                     <div class="error-text" id="emailError"></div>
                 </div>
 
-                <div class="input-group full-width custom-select-wrapper" id="currencyWrapper">
-                    <div class="input-box" onclick="toggleCurrencyDropdown()">
-                        <input type="text" class="input-field" placeholder=" " id="currencyDisplay" readonly>
-                        <input type="hidden" id="currencyValue">
-                        <label class="label">اختر عملة المحفظة</label>
-                        <div class="select-arrow">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-                        </div>
-                    </div>
-                    <div class="dropdown-list" id="currencyList"></div>
-                    <div class="error-text" id="currencyError"></div>
-                    <div class="warning-text">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                        هام: عملة المحفظة لا يمكن تغييرها لاحقاً
-                    </div>
-                </div>
-
                 <div class="input-group full-width">
                     <div class="input-box has-eye">
                         <input type="password" class="input-field num-en" placeholder=" " id="password" maxlength="30">
@@ -361,34 +259,16 @@
         </form>
     </div>
 <script type="module">
-    // 🚀 استيراد مكتبات فايربيز الآمنة (المصادقة Authentication وقاعدة البيانات Firestore)
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getAuth, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-    // 👇 تم إضافة doc, getDoc, setDoc هنا للتعامل مع ملفات المستخدمين الفردية
-    import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    // 🚀 استيراد أدوات فايربيز وقاعدة البيانات من المحول المركزي
+    import { auth, db } from './core/firebaseAdapter.js';
+    import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { collection, query, where, getDocs, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     
     import { DB_KEYS } from './config.js';
     import { StoreDB } from './dataManager.js';
 
-    // 🔑 إعدادات المشروع
-    const firebaseConfig = {
-        apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
-        authDomain: "telecard-1.firebaseapp.com",
-        projectId: "telecard-1",
-        storageBucket: "telecard-1.firebasestorage.app",
-        messagingSenderId: "698672838633",
-        appId: "1:698672838633:web:743c8809615bd8308bfd78"
-    };
-
-    // تهيئة تطبيق فايربيز
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
     const googleProvider = new GoogleAuthProvider();
-    const db = getFirestore(app);
 
-    // =================================================================
-    // 🧠 دالة توليد رقم عرض (Display ID) فريد تماماً من 7 خانات
-    // =================================================================
     async function generateUniqueDisplayId() {
         let isUnique = false;
         let newId = 0;
@@ -417,59 +297,6 @@
         }
 
         return newId;
-    }
-
-    // =================================================================
-    // 🎨 دوال واجهة المستخدم (العملات، التحقق من الباسورد)
-    // =================================================================
-    const currDisplay = document.getElementById('currencyDisplay');
-    const currValue = document.getElementById('currencyValue');
-    const currList = document.getElementById('currencyList');
-    const currWrapper = document.getElementById('currencyWrapper');
-
-    document.addEventListener('DOMContentLoaded', () => { loadDynamicCurrencies(); });
-
-    function toggleCurrencyDropdown() {
-        const isActive = currWrapper.classList.contains('active');
-        if (isActive) closeDropdown();
-        else openDropdown();
-    }
-
-    function openDropdown() { currWrapper.classList.add('active'); currList.classList.add('show'); }
-    function closeDropdown() { currWrapper.classList.remove('active'); currList.classList.remove('show'); }
-
-    document.addEventListener('click', (e) => {
-        if(!e.target.closest('#currencyWrapper')) closeDropdown();
-    });
-
-    async function loadDynamicCurrencies() {
-        currList.innerHTML = '';
-        let rates = [];
-        try {
-            if(StoreDB && typeof StoreDB.getAll === 'function') {
-                rates = await StoreDB.getAll(DB_KEYS.RATES) || [];
-            }
-        } catch(e) { console.warn('لم يتم العثور على قاعدة البيانات للعملات'); }
-
-        if (!rates || rates.length === 0) {
-            rates = [{ code: 'USD', name: 'دولار أمريكي', isBase: true }];
-        }
-        
-        rates.forEach(r => {
-            const item = document.createElement('div');
-            item.className = 'dropdown-item';
-            const dispName = r.name || r.code;
-            item.innerHTML = `<span>${dispName}</span> <span class="currency-code-badge">${r.code}</span>`;
-            
-            item.onclick = (e) => {
-                e.stopPropagation(); 
-                currDisplay.value = `${dispName} (${r.code})`; 
-                currValue.value = r.code; 
-                hideError('currencyDisplay', 'currencyError');
-                closeDropdown();
-            };
-            currList.appendChild(item);
-        });
     }
 
     function togglePass(inputId, el) {
@@ -561,7 +388,7 @@
     }
 
     // =================================================================
-    // 🌐 دالة التسجيل عبر جوجل (تم ترقيع الثغرة وإنشاء البيانات للعميل الجديد)
+    // 🌐 دالة التسجيل عبر جوجل
     // =================================================================
     async function handleGoogleLogin() {
         const btn = document.querySelector('.google-btn');
@@ -574,12 +401,10 @@
             const result = await signInWithPopup(auth, googleProvider);
             const firebaseUser = result.user;
             
-            // التحقق مما إذا كان المستخدم له ملف في قاعدة البيانات (Firestore)
             const userDocRef = doc(db, DB_KEYS.USERS, firebaseUser.uid);
             const userDocSnap = await getDoc(userDocRef);
 
             if (!userDocSnap.exists()) {
-                // حالة مستخدم جديد كلياً
                 btn.innerHTML = 'جاري تهيئة الحساب...';
                 const shortDisplayId = await generateUniqueDisplayId();
 
@@ -597,31 +422,23 @@
                     lastName: lastName,
                     username: finalUsername,
                     email: firebaseUser.email,
-                    baseCurrency: 'USD',
-                    base_currency: 'USD',
+                    currency: null,
+                    phone: null,
+                    country: null,
                     walletBalance: 0,
                     balance: 0,
                     totalSpent: 0,
                     totalDeposit: 0,
-                    tierId: 1, // المستوى الافتراضي المبدئي
+                    tierId: 1, 
                     createdAt: Date.now()
                 };
 
-                // حفظ العميل في السحابة
                 if (StoreDB && typeof StoreDB.set === 'function') {
                     await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, newUser);
                 } else {
                     await setDoc(userDocRef, newUser);
                 }
-                
-                localStorage.setItem('telecard_display_currency', 'USD');
-            } else {
-                // حالة مستخدم قديم له ملف
-                const userData = userDocSnap.data();
-                if (userData.baseCurrency || userData.base_currency) {
-                    localStorage.setItem('telecard_display_currency', userData.baseCurrency || userData.base_currency);
-                }
-            }
+            } 
             
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
             const toast = document.getElementById('successToast');
@@ -637,13 +454,12 @@
     }
 
     // =================================================================
-    // ✍️ دالة التسجيل اليدوي (تم تحديثها بالرقم القصير)
+    // ✍️ دالة التسجيل اليدوي
     // =================================================================
     async function validateAndRegister() {
         const fname = document.getElementById('fname');
         const lname = document.getElementById('lname');
         const email = document.getElementById('email');
-        const curr = document.getElementById('currencyValue'); 
         const pass = document.getElementById('password');
         const confirm = document.getElementById('confirm');
         let isValid = true;
@@ -656,8 +472,6 @@
         
         if(!email.value.trim()) { showError('email', 'emailError', 'هذا الحقل مطلوب'); isValid = false; }
         else if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) { showError('email', 'emailError', 'البريد الإلكتروني غير صالح'); isValid = false; }
-        
-        if(!curr.value) { showError('currencyDisplay', 'currencyError', 'هذا الحقل مطلوب'); isValid = false; }
         
         if(pass.value.trim() === '') {
             passInput.classList.add('input-error');
@@ -683,7 +497,6 @@
             let baseUsername = `${fname.value.trim()}.${lname.value.trim()}`.toLowerCase().replace(/\s+/g, '');
             let finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
 
-            // توليد الرقم القصير
             const shortDisplayId = await generateUniqueDisplayId();
 
             const newUser = {
@@ -693,8 +506,9 @@
                 lastName: lname.value.trim(),
                 username: finalUsername, 
                 email: firebaseUser.email,
-                baseCurrency: curr.value, 
-                base_currency: curr.value, 
+                currency: null, 
+                phone: null,
+                country: null,
                 walletBalance: 0, 
                 balance: 0, 
                 totalSpent: 0,
@@ -708,7 +522,6 @@
             }
 
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
-            localStorage.setItem('telecard_display_currency', curr.value);
 
             document.getElementById('successToast').classList.add('show');
             setTimeout(() => { window.location.href = "store.html"; }, 1500);
@@ -725,8 +538,6 @@
         }
     }
 
-    // 🔗 ربط الدوال بالواجهة
-    window.toggleCurrencyDropdown = toggleCurrencyDropdown;
     window.togglePass = togglePass;
     window.handleGoogleLogin = handleGoogleLogin;
     window.validateAndRegister = validateAndRegister;

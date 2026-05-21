@@ -1776,7 +1776,7 @@ select.leader-sort-select:active {
 
 .ud-btn-full-ghost { width: 100%; font-size: 12px; border: 1px dashed var(--border); margin-top: 10px; }
 /* =========================================================
-   [ 19. إدارة المحافظ والعملات (Wallets Overview) ] 
+   [ 19. إدارة المحافظ والعملات وأسعار الصرف (Finance Overview) ] 
    ========================================================= */
 #wallets-overview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; margin-bottom: 30px; }
 
@@ -1792,6 +1792,7 @@ select.leader-sort-select:active {
 .wallet-card.total-liability .wc-amount { color: var(--text-main); font-size: 32px; }
 .wallet-card.total-liability .wc-amount span { color: var(--ref); font-size: 18px; }
 .wallet-card.total-liability .wc-meta { border-top-color: var(--ref-15); color: var(--ref); }
+
 
 /* ============================================================================
    [ 20. المستويات (Tiers Logic & UI) ] 
@@ -2115,132 +2116,161 @@ select.leader-sort-select:active {
 .rates-grid-layout { 
     display: grid; 
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); 
-    gap: 12px; 
+    gap: 16px; /* زيادة التباعد بين الكروت قليلاً لإراحة العين */
 }
 
 .rate-card-box { 
     display: flex; 
-    align-items: flex-start; /* 🌟 محاذاة للأعلى لضمان بقاء الأزرار في القمة */
+    align-items: flex-start; 
     justify-content: space-between; 
     background: linear-gradient(145deg, var(--info-10), var(--input-bg)); 
     border: 1px solid var(--info-15); 
-    padding: 16px; /* 🌟 حشوة موحدة ومرنة */
+    padding: 16px; /* 🌟 بادينج طبيعي ومتساوٍ افتراضياً لجميع الكروت */
     border-radius: 12px; 
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
     position: relative; 
-    overflow: hidden; 
     min-height: 80px; 
     box-shadow: 0 4px 15px rgba(0,0,0,0.15), inset 0 2px 10px var(--info-10); 
 }
 
-/* 🌟 توحيد المسافات للكرت الأساسي */
+/* 🌟 المساحة الديناميكية: تطبق فقط على عملة العرض لاستيعاب الشارة */
+.rate-card-box.is-default-display {
+    padding-top: 40px; /* دفع المحتوى لأسفل فقط في هذا الكرت */
+    border-color: var(--gold);
+    box-shadow: 0 4px 15px rgba(255, 215, 0, 0.1), inset 0 2px 10px var(--gold-10);
+    background: linear-gradient(145deg, var(--gold-10), var(--input-bg)); 
+}
+
+/* إجبار الدولار (المرساة) على البقاء في المركز الأول دائماً */
 .rate-card-base { 
     background: linear-gradient(145deg, var(--success-15), var(--input-bg)); 
     border: 1px solid var(--success-30); 
-    padding-left: 16px !important; 
     box-shadow: 0 4px 15px rgba(0,0,0,0.15), inset 0 2px 10px var(--success-10); 
+    order: -1; 
 }
-.rate-card-base .rate-actions { display: none !important; }
+
+/* إظهار عمود الإجراءات والنجمة في الدولار */
+.rate-card-base .rate-actions { 
+    display: flex; 
+}
 
 .rate-left-col { 
     display: flex; 
     align-items: flex-start; 
     gap: 12px; 
     flex: 1; 
-    min-width: 0; /* 🌟 ضروري لتقلص النص وعدم تمدد الكرت */
+    min-width: 0; /* ضروري لمنع المحتوى من تجاوز حدود الكرت */
 }
 
-/* 🌟 حماية صندوق النصوص من التمدد ودفع الأزرار */
-.rate-left-col > div:nth-child(2) {
-    flex: 1;
-    min-width: 0;
+.rate-left-col > div:nth-child(2) { 
+    flex: 1; 
+    min-width: 0; 
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 .rate-symbol-box { 
-    width: 42px; 
-    height: 42px; 
+    width: 44px; /* تكبير الأيقونة قليلاً لتناسق أفضل */
+    height: 44px; 
     border-radius: 10px; 
+    flex-shrink: 0;
     background: linear-gradient(135deg, var(--gold-15), var(--gold-10)); 
     border: 1px solid var(--gold-30); 
-    display: flex; 
-    align-items: center; 
-    justify-content: center; 
-    font-size: 18px; 
-    font-weight: 900; 
-    color: var(--gold); 
+    display: flex; align-items: center; justify-content: center; 
+    font-size: 18px; font-weight: 900; color: var(--gold); 
     box-shadow: inset 0 2px 4px var(--glass-border); 
-    flex-shrink: 0; 
 }
 
 .rate-card-base .rate-symbol-box { 
     background: linear-gradient(135deg, var(--success-15), var(--success-10)); 
-    border-color: var(--success-30); 
-    color: var(--success); 
+    border-color: var(--success-30); color: var(--success); 
 }
 
 .rate-name-text { 
-    font-size: 13.5px; 
+    font-size: 14px; 
     font-weight: 800; 
     color: var(--text-main); 
-    margin-bottom: 4px; 
+    margin-bottom: 6px; 
     display: flex; 
     align-items: center; 
     gap: 6px; 
-    line-height: 1;
+    line-height: 1.2; 
     white-space: nowrap; 
     overflow: hidden; 
-    text-overflow: ellipsis; /* 🌟 إذا كان اسم العملة طويلاً، سيتم وضع (...) بدلاً من دفع الأزرار */
+    text-overflow: ellipsis; 
 }
 
 .rate-code-hint { 
-    color: var(--text-muted); 
-    font-size: 11px; 
-    font-weight: 700; 
-    background: var(--glass-bg); 
-    padding: 2px 6px; 
-    border-radius: 4px; 
-    border: 1px solid var(--glass-border); 
-    flex-shrink: 0;
+    color: var(--text-muted); font-size: 11px; font-weight: 700; 
+    background: var(--glass-bg); padding: 2px 6px; border-radius: 4px; 
+    border: 1px solid var(--glass-border); flex-shrink: 0;
 }
 
 .rate-base-badge { 
-    background: linear-gradient(90deg, var(--success), #059669); 
-    color: #fff; 
-    font-size: 9px; 
-    padding: 2px 6px; 
-    border-radius: 4px; 
-    font-weight: 900; 
-    box-shadow: 0 2px 5px var(--success-30); 
-    border: 1px solid #34d399; 
-    flex-shrink: 0;
+    background: linear-gradient(90deg, var(--success), #059669); color: #fff; 
+    font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 800; 
+    box-shadow: 0 2px 5px var(--success-30); border: 1px solid #34d399; flex-shrink: 0;
 }
 
+/* 🌟 التصميم الهندسي لشارة عملة العرض */
+.rate-display-guest-badge {
+    position: absolute;
+    top: 0;
+    right: 20px; /* محاذاة أفضل مع المحتوى الداخلي */
+    background: linear-gradient(180deg, var(--gold-15), var(--gold-10));
+    color: var(--gold);
+    border: 1px solid var(--gold-30);
+    border-top: none;
+    padding: 4px 14px 6px 14px;
+    font-size: 11px;
+    font-weight: 800;
+    border-radius: 0 0 10px 10px; 
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 5;
+    white-space: nowrap;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    backdrop-filter: blur(4px); /* تأثير زجاجي خفيف للشريط */
+}
+
+/* 🌟 الإطار الاحترافي الموحد لحاضنة أسعار الصرف */
 .rate-values-row { 
     font-size: 11px; 
     color: var(--text-muted); 
     font-weight: 700; 
-    display: flex; 
+    display: inline-flex; 
     align-items: center; 
-    gap: 6px; 
-    flex-wrap: wrap; 
-    margin-top: 4px; 
-}
-
-.val-sell { color: var(--danger); font-weight: 900; font-size: 12px; background: var(--danger-10); padding: 2px 6px; border-radius: 6px; border: 1px solid var(--danger-15); }
-.val-buy { color: var(--success); font-weight: 900; font-size: 12px; background: var(--success-10); padding: 2px 6px; border-radius: 6px; border: 1px solid var(--success-15); }
-.rate-usd-hint { font-size: 10px; opacity: 0.5; font-weight: 600; }
-
-/* 🌟 الأزرار في أعلى اليسار بنظام مرن وثابت */
-.rate-actions { 
-    position: static; 
-    display: flex; 
     gap: 8px; 
-    z-index: 10; 
-    flex-shrink: 0; 
-    margin-top: 2px; 
-    margin-inline-start: 12px; 
+    flex-wrap: wrap; /* يمنع خروج الأرقام عن الكرت في الشاشات الصغيرة */
+    margin-top: 4px; 
+    background: rgba(0, 0, 0, 0.03); /* لون خلفية خفيف جداً يبرز الإطار */
+    border: 1px solid var(--glass-border); 
+    padding: 6px 10px; 
+    border-radius: 8px; 
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+    width: fit-content;
 }
 
+.val-sell { color: var(--danger); font-weight: 900; font-size: 12px; background: var(--danger-10); padding: 2px 6px; border-radius: 6px; border: 1px dashed var(--danger-15); }
+.val-buy { color: var(--success); font-weight: 900; font-size: 12px; background: var(--success-10); padding: 2px 6px; border-radius: 6px; border: 1px dashed var(--success-15); }
+.rate-usd-hint { font-size: 10px; opacity: 0.7; font-weight: 600; margin-inline-start: 4px; }
+
+.rate-actions { 
+    display: flex; gap: 8px; z-index: 10; flex-shrink: 0; 
+    align-items: center;
+}
+
+/* أزرار النجمة */
+.btn-rate-star { 
+    background: none; border: none; padding: 6px; font-size: 18px; /* تكبير النجمة لتكون أوضح */
+    cursor: pointer; color: var(--text-muted); 
+    transition: transform 0.2s ease, color 0.2s ease; 
+    display: inline-flex; align-items: center; justify-content: center; 
+}
+.btn-rate-star:hover { transform: scale(1.15); color: var(--gold); }
+.btn-rate-star.active { color: var(--gold); cursor: default; pointer-events: none; transform: none; }
 /* =========================================================
    [ 23. الإشعارات والتحميل (Toasts & Loaders) ] 
    ========================================================= */

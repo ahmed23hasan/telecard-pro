@@ -467,27 +467,32 @@ export const UIAuth = {
         if(typeof this.sfx === 'function') this.sfx('nav');
     },
 
-        saveIdentityData: async function() {
+                saveIdentityData: async function() {
             const countryEl = document.getElementById('selected-country-text');
             const phoneEl = document.getElementById('reg-phone');
+            const currencyEl = document.getElementById('reg-currency'); // 🌟 ربط حقل العملة الجديد
             
             const country = countryEl ? countryEl.innerText : '';
             const phone = phoneEl ? phoneEl.value : '';
+            const currency = currencyEl ? currencyEl.value : ''; // 🌟 استخراج قيمة العملة
             
-            if (!country || country === 'اختر الدولة...' || !phone || phone.trim() === '') {
-                if (typeof this.showToast === 'function') this.showToast('يرجى تعبئة جميع الحقول', 'error');
+            // تحقق صارم يشمل العملة
+            if (!country || country === 'اختر الدولة...' || !phone || phone.trim() === '' || !currency) {
+                if (typeof this.showToast === 'function') this.showToast('يرجى تعبئة جميع الحقول (الدولة، رقم الهاتف، وعملة المحفظة)', 'error');
                 return;
             }
             
-            // إظهار اللودر
             if (typeof this.toggleLoader === 'function') this.toggleLoader(true, 'جاري الحفظ في قاعدة البيانات...');
             
-            // 🌟 ننتظر الرد الحقيقي من فايربيز
             let success = false;
             if (DataManager.updateUserProfile) {
+                // 🌟 إرسال الحزمة المعمارية الكاملة لمرة واحدة
                 success = await DataManager.updateUserProfile({
                     country: country,
                     phone: phone,
+                    currency: currency,           // العملة الموحدة الجديدة
+                    baseCurrency: currency,       // توافق رجعي لضمان عدم انهيار النظام المالي
+                    base_currency: currency,      // توافق رجعي إضافي
                     isVerified: true
                 });
             }
@@ -499,6 +504,9 @@ export const UIAuth = {
                 return;
             }
             
+            // 🌟 تحديث ذاكرة المتصفح ليقوم المحرك المالي باعتماد العملة الجديدة فوراً
+            localStorage.setItem('telecard_display_currency', currency);
+            
             if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
             
             const inputsWrap = document.getElementById('identity-inputs-wrap');
@@ -507,8 +515,39 @@ export const UIAuth = {
             if (inputsWrap) inputsWrap.style.display = 'none';
             if (statusWrap) statusWrap.classList.remove('hide-element');
             if (typeof this.sfx === 'function') this.sfx('success');
+
+            // 🌟 إعادة إنعاش النظام بعد ثانية ونصف لتطبيق التسعير الجديد على المنتجات
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
         },
-        
+
+        // 🌟 الدالة الجديدة: التوليد الديناميكي للعملات من الذاكرة الحية
+        loadDynamicCurrenciesForModal: function() {
+            const currencySelect = document.getElementById('reg-currency');
+            if (!currencySelect) return;
+
+            // جلب العملات المتوفرة من الذاكرة الحية للمتجر (لا حاجة لاتصال جديد بالسحابة)
+            const rates = window.LiveStoreData?.rates || window.DataManager?.rates || [];
+       // تفريغ القائمة ووضع خيار افتراضي بعبارة احترافية
+currencySelect.innerHTML = '<option value="" disabled selected>حدد العملة الدائمة لمحفظتك...</option>';
+     if (rates.length === 0) {
+                // حالة الطوارئ
+                currencySelect.innerHTML += '<option value="USD">دولار أمريكي (USD)</option>';
+                return;
+            }
+
+            // توليد الخيارات
+            rates.forEach(r => {
+                // تجاهل العملات غير الفعالة إذا وجد هذا الحقل
+                if (r.isActive === false) return; 
+                
+                const option = document.createElement('option');
+                option.value = r.code;
+                option.textContent = `${r.name || r.code} (${r.code})`;
+                currencySelect.appendChild(option);
+            });
+        },
         submitKycData: async function() {
             const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
             const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
@@ -697,7 +736,7 @@ export const UIAuth = {
 
                  
                         
-                        openTierInfoModal: async function() {
+                            openTierInfoModal: async function() {
         if(typeof this.resetUI === 'function') this.resetUI();
         if(typeof this.closeSidebar === 'function') this.closeSidebar();
 
@@ -707,7 +746,8 @@ export const UIAuth = {
         const tierData = DataManager.getTierProgress();
         if (!tierData) return;
 
-        const { currentTier, targetNameDisplay, targetThreshold, spent, remainingAmt, percent, remainingDays, isGoalReached, isAutoAdvanceEnabled } = tierData;
+        // 🌟 تم إضافة استخراج isMaxTier للتحكم الذكي بالنصوص
+        const { currentTier, targetNameDisplay, targetThreshold, spent, remainingAmt, percent, remainingDays, isGoalReached, isAutoAdvanceEnabled, isMaxTier } = tierData;
 
         const content = document.getElementById('tier-info-content');
         if (!content) return;
@@ -731,6 +771,14 @@ export const UIAuth = {
         `;
 
         if (isAutoAdvanceEnabled) {
+            // 🌟 معالجة النص بذكاء: التعبير عن نسبة الإنفاق في المستوى الحالي إذا لم يوجد مستوى تالٍ
+            let targetPhraseHtml = '';
+            if (isMaxTier) {
+                targetPhraseHtml = `للحفاظ على باقتك ومميزاتك الحالية.`;
+            } else {
+                targetPhraseHtml = `للوصول لـ <span class="tm-text-highlight text-main">${Utils.escapeHtml(targetNameDisplay)}</span>.`;
+            }
+
             if (isGoalReached) {
                 html += `
                     <div class="tm-top-tier-card" style="border-top-color: ${tierColor};">
@@ -755,7 +803,7 @@ export const UIAuth = {
                         </div>
                         
                         <div class="tm-footer-text">
-                            يتوجب عليك إنفاق <span class="tm-amount-text num-en" dir="ltr">${remainingAmt.toFixed(2)}$</span> إضافية خلال <span class="tm-text-highlight text-warning">${remainingDays} يوماً</span> للوصول لـ <span class="tm-text-highlight text-main">${Utils.escapeHtml(targetNameDisplay)}</span>.
+                            يتوجب عليك إنفاق <span class="tm-amount-text num-en" dir="ltr">${remainingAmt.toFixed(2)}$</span> إضافية خلال <span class="tm-text-highlight text-warning">${remainingDays} يوماً</span> ${targetPhraseHtml}
                         </div>
                     </div>
                 `;
@@ -774,4 +822,5 @@ export const UIAuth = {
 
         if(typeof this.openModal === 'function') this.openModal('tier-info');
     }
+
 };

@@ -1,5 +1,6 @@
 // ============================================================================
 // 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js)
+// 🎯 الوظيفة: إدارة واجهة الموردين والتواصل مع المحرك السحابي (Supplier Engine)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -8,72 +9,145 @@ import { AppController } from '../../core/appController.js';
 
 export const IntegrationsController = {
 
-    // 1. حفظ أو تحديث بيانات المورد
+    // ==========================================
+    // 🛡️ 1. حفظ بيانات المورد (آمن سحابياً)
+    // ==========================================
     saveSupplier: async function(id = null) {
         const name = Utils.getVal('supp-name');
         const type = Utils.getVal('supp-type');
         const baseUrl = Utils.getVal('supp-url');
         const token = Utils.getVal('supp-token');
         const margin = parseFloat(Utils.getVal('supp-margin')) || 0;
-        const autoSync = document.getElementById('supp-auto-sync')?.checked;
+        const autoSyncEl = document.getElementById('supp-auto-sync');
+        const autoSync = autoSyncEl ? autoSyncEl.checked : false;
 
+        // تحقق مبدئي من صحة الإدخال
         if (!name || !baseUrl) {
-            EventBus.emit('req-show-toast', { message: 'يرجى ملء البيانات الأساسية للمورد', type: 'error' });
+            EventBus.emit('req-show-toast', { message: 'يرجى ملء البيانات الأساسية للمورد (الاسم والرابط)', type: 'error' });
             return;
         }
 
-        const supplierData = {
-            id: id || 'supp_' + Date.now(),
-            name, type, baseUrl, token, 
-            defaultMargin: margin,
-            autoSync,
-            isActive: true,
-            importedCount: id ? (this.getSupplier(id)?.importedCount || 0) : 0,
-            lastSync: id ? (this.getSupplier(id)?.lastSync || null) : null
-        };
+        EventBus.emit('req-show-loader', true);
 
-        if (id) {
-            const idx = AdminData.data.suppliers.findIndex(s => String(s.id) === String(id));
-            if (idx > -1) AdminData.data.suppliers[idx] = supplierData;
-        } else {
+        try {
+            // 1. إرسال البيانات للدالة السحابية لتفصل المفتاح عن البيانات وتحفظها بأمان
+            const saveCloud = firebase.functions().httpsCallable('secureSaveSupplier');
+            const response = await saveCloud({ id, name, type, baseUrl, token, defaultMargin: margin, autoSync });
+            
+            // استلام الـ ID النهائي (سواء كان قديماً أو جديداً تم توليده في السحابة)
+            const finalId = response.data.id;
+
+            // 2. تحديث محلي سريع للواجهة (نحن لا نحفظ الـ token محلياً إطلاقاً لأسباب أمنية)
+            const supplierData = { 
+                id: finalId, 
+                name, 
+                type, 
+                baseUrl, 
+                defaultMargin: margin, 
+                autoSync, 
+                isActive: true,
+                importedCount: id ? (this.getSupplier(id)?.importedCount || 0) : 0,
+                lastSync: id ? (this.getSupplier(id)?.lastSync || null) : null
+            };
+
             if (!AdminData.data.suppliers) AdminData.data.suppliers = [];
-            AdminData.data.suppliers.push(supplierData);
-        }
 
-        await AdminData.saveSettings?.(); // حفظ في الذاكرة
-        AppController.finishAction('req-render-integrations', 'modal', id ? 'UPDATE_SUPPLIER' : 'ADD_SUPPLIER', `المورد: ${name}`, 'تم حفظ بيانات المورد بنجاح');
+            if (id) {
+                const idx = AdminData.data.suppliers.findIndex(s => String(s.id) === String(id));
+                if (idx > -1) {
+                    AdminData.data.suppliers[idx] = Object.assign(AdminData.data.suppliers[idx], supplierData);
+                }
+            } else {
+                AdminData.data.suppliers.push(supplierData);
+            }
+
+            // حفظ التحديثات في الذاكرة المحلية
+            if (AdminData.saveSettings) await AdminData.saveSettings();
+
+            AppController.finishAction('req-render-integrations', 'modal', id ? 'UPDATE_SUPPLIER' : 'ADD_SUPPLIER', `المورد: ${name}`, 'تم حفظ بيانات المورد بأمان تام');
+            
+        } catch (error) {
+            console.error("Save Supplier Error:", error);
+            EventBus.emit('req-show-toast', { message: 'حدث خطأ أثناء الاتصال بالسيرفر لحفظ المورد.', type: 'error' });
+        } finally {
+            EventBus.emit('req-show-loader', false);
+        }
     },
 
-    // 2. تفعيل أو تعطيل المورد
+    // ==========================================
+    // ⚡ 2. تفعيل أو تعطيل المورد
+    // ==========================================
     toggleSupplier: async function(id, isChecked) {
         const supp = this.getSupplier(id);
-        if (supp) {
-            supp.isActive = isChecked;
-            await AdminData.saveSettings?.();
-            EventBus.emit('req-show-toast', { 
-                message: isChecked ? `تم تفعيل المورد ${supp.name}` : `تم تعطيل المورد ${supp.name}`, 
-                type: 'info' 
+        if (!supp) return;
+
+        try {
+            // 1. تحديث قاعدة البيانات السحابية مباشرة (لكي يعرف الـ Cron Job أن المورد معطل)
+            await firebase.firestore().collection('telecard_suppliers').doc(String(id)).update({
+                isActive: isChecked,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+
+            // 2. تحديث الحالة المحلية والذاكرة
+            supp.isActive = isChecked;
+            if (AdminData.saveSettings) await AdminData.saveSettings();
+
+            EventBus.emit('req-show-toast', { 
+                message: isChecked ? `تم تفعيل المورد: ${supp.name}` : `تم إيقاف المورد: ${supp.name}`, 
+                type: isChecked ? 'success' : 'info' 
+            });
+
+        } catch (error) {
+            console.error("Toggle Supplier Error:", error);
+            // نظام تراجع (Rollback): إذا فشل الاتصال، نعيد الزر لشكله القديم
+            EventBus.emit('req-show-toast', { message: 'فشل تغيير حالة المورد، يرجى التحقق من الاتصال.', type: 'error' });
+            EventBus.emit('req-render-integrations'); 
         }
     },
 
-    // 3. محاكاة عملية المزامنة (Mock Sync)
+    // ==========================================
+    // 🚀 3. عملية المزامنة السحابية الحقيقية (Cloud Sync)
+    // ==========================================
     syncSupplier: async function(id) {
         const supp = this.getSupplier(id);
         if (!supp) return;
 
+        // لا يمكن مزامنة مورد معطل
+        if (!supp.isActive) {
+            EventBus.emit('req-show-toast', { message: 'لا يمكن مزامنة مورد وهو في حالة "متوقف". يرجى تفعيله أولاً.', type: 'warning' });
+            return;
+        }
+
         EventBus.emit('req-show-loader', true);
-        
-        // محاكاة تأخير الشبكة (2 ثانية)
-        setTimeout(async () => {
-            supp.lastSync = Date.now();
-            supp.importedCount = (supp.importedCount || 0) + Math.floor(Math.random() * 5); // زيادة وهمية للتجربة
-            
-            await AdminData.saveSettings?.();
+
+        try {
+            // استدعاء المزامنة السحابية وإرسال الـ ID فقط! السيرفر سيبحث عن المفتاح السري بأمان.
+            const syncData = firebase.functions().httpsCallable('syncSupplierData');
+            const response = await syncData({ supplierId: id });
+            const result = response.data;
+
+            if (result.success) {
+                // تحديث العدادات والإحصائيات بناءً على رد السيرفر الفعلي
+                supp.lastSync = Date.now(); 
+                supp.importedCount = result.importedCount || 0;
+                
+                if (AdminData.saveSettings) await AdminData.saveSettings();
+                
+                AppController.finishAction('req-render-integrations', null, 'SYNC_SUPPLIER', `مزامنة المورد: ${supp.name}`, result.message);
+            }
+        } catch (error) {
+            console.error("Sync Failed:", error);
+            EventBus.emit('req-show-toast', { 
+                message: error.message || 'فشلت المزامنة. تأكد من صحة الرابط ومفتاح الـ API.', 
+                type: 'error' 
+            });
+        } finally {
             EventBus.emit('req-show-loader', false);
-            AppController.finishAction('req-render-integrations', null, 'SYNC_SUPPLIER', `مزامنة المورد: ${supp.name}`, 'تمت المزامنة وتحديث الأسعار بنجاح');
-        }, 2000);
+        }
     },
 
+    // ==========================================
+    // 🔍 4. دالة مساعدة لجلب المورد من الذاكرة
+    // ==========================================
     getSupplier: (id) => (AdminData.data.suppliers || []).find(s => String(s.id) === String(id))
 };

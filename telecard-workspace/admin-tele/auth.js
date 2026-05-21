@@ -1,24 +1,26 @@
 // ============================================================================
-// 🔐 محرك المصادقة السحابي (auth.js) - ES6 Module
-// الوظيفة: التحقق من هوية المدير عبر Firestore والتوجيه الآمن
+// 🔐 محرك المصادقة السحابي للإدارة (auth.js) - ES6 Module
+// 🎯 الوظيفة: التحقق من هوية المدير عبر Firebase Auth والتوجيه الآمن
 // ============================================================================
 
-import { DB_KEYS } from './adminConfig.js';
-import { FirebaseAdapter } from './core/firebaseAdapter.js';
+import { auth } from './core/firebaseAdapter.js';
+import { signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 
 /**
- * دالة إدارة واجهة أزرار الدخول (UX)
+ * دالة إدارة واجهة أزرار الدخول والتفاعل (UX)
  */
 const setBtnLoading = (isLoading) => {
     const btn = document.getElementById('btn-login');
     const btnText = document.getElementById('btn-text');
     const btnIcon = document.getElementById('btn-icon');
 
+    if (!btn) return;
+
     if (isLoading) {
         btn.disabled = true;
         btn.classList.add('btn-loading');
         if (btnText) btnText.innerText = "جاري التحقق سحابياً...";
-        if (btnIcon) btnIcon.className = "fa-solid fa-circle-notch fa-spin";
+        if (btnIcon) btnIcon.className = "fa-solid fa-circle-notch fa-spin spinner";
     } else {
         btn.disabled = false;
         btn.classList.remove('btn-loading');
@@ -27,64 +29,66 @@ const setBtnLoading = (isLoading) => {
     }
 };
 
+// ننتظر حتى يكتمل بناء الصفحة بالكامل
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('admin-login-form');
+    const emailInput = document.getElementById('auth-email');
+    const passInput = document.getElementById('auth-password');
     const errorMsg = document.getElementById('auth-error');
 
-    if (loginForm) {
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const emailInput = document.getElementById('auth-email');
-            const passInput = document.getElementById('auth-password');
-            const email = emailInput.value.trim().toLowerCase();
-            const password = passInput.value.trim();
+    if (!loginForm) return;
 
-            // 1. تفعيل حالة التحميل
-            setBtnLoading(true);
-            errorMsg.classList.add('hide-element');
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const inputEmail = emailInput.value.trim().toLowerCase();
+        const inputPass = passInput.value;
 
-            try {
-                // 2. جلب بيانات المدير من السحابة (مستند singleton)
-                // نحن نستخدم getById لأن الإدمن دائماً مستند واحد فريد
-                const adminProfile = await FirebaseAdapter.getById(DB_KEYS.ADMIN, 'singleton');
+        // 1. تفعيل حالة التحميل وإخفاء الأخطاء
+        errorMsg.classList.add('hide-element');
+        setBtnLoading(true);
 
-                // 3. منطق التحقق الاحترافي
-                if (adminProfile) {
-                    if (email === adminProfile.email.toLowerCase() && password === adminProfile.pass) {
-                        // ✅ نجاح الدخول
-                        sessionStorage.setItem('telecard_admin_auth', 'true');
-                        
-                        // حفظ لقطة لبروفايل الإدمن للسرعة (اختياري)
-                        localStorage.setItem('telecard_admin_identity', JSON.stringify({
-                            name: adminProfile.name,
-                            img: adminProfile.img
-                        }));
+        try {
+            // 2. الاتصال بمحرك المصادقة الرسمي لفايربيز
+            const userCredential = await signInWithEmailAndPassword(auth, inputEmail, inputPass);
+            const user = userCredential.user;
 
-                        window.location.replace('admin.html');
-                    } else {
-                        throw new Error('Invalid Credentials');
-                    }
-                } else {
-                    // 🚩 Fallback: في حال كانت قاعدة البيانات فارغة تماماً عند أول تشغيل
-                    if (email === 'admin@telecard.pro' && password === '123') {
-                        sessionStorage.setItem('telecard_admin_auth', 'true');
-                        window.location.replace('admin.html');
-                    } else {
-                        throw new Error('No Admin Found');
-                    }
-                }
-
-            } catch (error) {
-                // ❌ فشل الدخول
-                console.error("Auth System Error:", error.message);
-                errorMsg.classList.remove('hide-element');
-                setBtnLoading(false);
-                
-                // إضافة تأثير اهتزاز للنموذج عند الخطأ (UX)
-                loginForm.classList.add('shake-anim');
-                setTimeout(() => loginForm.classList.remove('shake-anim'), 500);
+            // 3. الحماية الصارمة: التحقق من المعرف الخاص بك (Master Admin UID)
+            if (user.uid !== 'e064MQJyn6dhU9mNXZvXItc7VYg2') {
+                await auth.signOut(); // طرد فوري وإلغاء الجلسة
+                throw new Error('NotAuthorizedAdmin');
             }
-        });
-    }
+
+            // 4. نجاح الدخول: إصدار تذكرة المرور المحلية
+            sessionStorage.setItem('telecard_admin_auth', 'true');
+            
+            const btnLogin = document.getElementById('btn-login');
+            btnLogin.style.background = "#10b981";
+            document.getElementById('btn-text').innerText = "تم التحقق.. جاري الدخول";
+            
+            // 5. التوجيه بسلام إلى لوحة الإدارة
+            setTimeout(() => {
+                window.location.replace('admin.html');
+            }, 800);
+
+        } catch (error) {
+            // ❌ معالجة الأخطاء
+            console.error("Login Error:", error.code, error.message);
+            
+            if (error.message === 'NotAuthorizedAdmin') {
+                errorMsg.innerText = 'عذراً، هذا الحساب لا يملك صلاحيات دخول لوحة الإدارة.';
+            } else if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+                errorMsg.innerText = 'البريد الإلكتروني أو كلمة المرور غير صحيحة!';
+            } else {
+                errorMsg.innerText = 'حدث خطأ. تأكد من اتصالك بالإنترنت وأن الحساب موجود في فايربيز.';
+            }
+            
+            errorMsg.classList.remove('hide-element');
+            setBtnLoading(false);
+            
+            // تأثير اهتزاز بصري عند الخطأ
+            loginForm.classList.add('shake-anim');
+            setTimeout(() => loginForm.classList.remove('shake-anim'), 500);
+        }
+    });
 });

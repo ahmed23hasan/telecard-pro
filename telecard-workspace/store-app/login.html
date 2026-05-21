@@ -209,30 +209,15 @@
     </div>
 
 <script type="module">
-    // 🚀 استيراد مكتبات المصادقة وقاعدة البيانات من فايربيز
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getAuth, signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-    // 👇 استيراد أدوات Firestore لفحص وإنشاء ملف العميل إن لم يكن موجوداً
-    import { getFirestore, collection, query, where, getDocs, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    // 🚀 استيراد أدوات فايربيز وقاعدة البيانات من المحول المركزي
+    import { auth, db } from './core/firebaseAdapter.js';
+    import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { collection, query, where, getDocs, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     
     import { DB_KEYS } from './config.js';
     import { StoreDB } from './dataManager.js';
 
-    // 🔑 إعدادات المشروع
-    const firebaseConfig = {
-        apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
-        authDomain: "telecard-1.firebaseapp.com",
-        projectId: "telecard-1",
-        storageBucket: "telecard-1.firebasestorage.app",
-        messagingSenderId: "698672838633",
-        appId: "1:698672838633:web:743c8809615bd8308bfd78"
-    };
-
-    // تهيئة التطبيق والمصادقة وقاعدة البيانات
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
     const googleProvider = new GoogleAuthProvider();
-    const db = getFirestore(app);
 
     // =================================================================
     // 🧠 دالة توليد رقم عرض (Display ID) فريد من 7 خانات (في حال كان العميل جديداً)
@@ -306,7 +291,7 @@
         });
     });
 
-    // === 4. تسجيل الدخول الفعلي عبر جوجل (النسخة المحصنة) ===
+    // === 4. تسجيل الدخول الفعلي عبر جوجل ===
     async function handleGoogleLogin() {
         const btn = document.querySelector('.google-btn');
         const originalText = btn.innerHTML;
@@ -315,16 +300,13 @@
         btn.disabled = true;
         
         try {
-            // أ. المصادقة مع جوجل
             const result = await signInWithPopup(auth, googleProvider);
             const firebaseUser = result.user;
             
-            // ب. التحقق مما إذا كان المستخدم له ملف في قاعدة البيانات (Firestore)
             const userDocRef = doc(db, DB_KEYS.USERS, firebaseUser.uid);
             const userDocSnap = await getDoc(userDocRef);
 
             if (!userDocSnap.exists()) {
-                // 🚀 حالة مستخدم جديد كلياً (يجب إنشاء ملف له)
                 btn.innerHTML = 'جاري تهيئة الحساب...';
                 const shortDisplayId = await generateUniqueDisplayId();
 
@@ -348,11 +330,10 @@
                     balance: 0,
                     totalSpent: 0,
                     totalDeposit: 0,
-                    tierId: 1, // المستوى الافتراضي المبدئي
+                    tierId: 1,
                     createdAt: Date.now()
                 };
 
-                // حفظ العميل في السحابة
                 if (StoreDB && typeof StoreDB.set === 'function') {
                     await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, newUser);
                 } else {
@@ -361,14 +342,12 @@
                 
                 localStorage.setItem('telecard_display_currency', 'USD');
             } else {
-                // 🚀 حالة مستخدم قديم له ملف
                 const userData = userDocSnap.data();
                 if (userData.baseCurrency || userData.base_currency) {
                     localStorage.setItem('telecard_display_currency', userData.baseCurrency || userData.base_currency);
                 }
             }
             
-            // ج. حفظ المعرف في الجلسة وتوجيه العميل
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
             const toast = document.getElementById('successToast');
             if (toast) toast.classList.add('show');
@@ -410,11 +389,9 @@
         btn.disabled = true;
 
         try {
-            // 🚀 مصادقة مشفرة وآمنة تماماً عبر خوادم فايربيز
             const userCredential = await signInWithEmailAndPassword(auth, identifier.value.trim().toLowerCase(), password.value);
             const firebaseUser = userCredential.user;
 
-            // جلب تفضيلات العميل (مثل العملة الأساسية) من Firestore إن وجدت
             let userDoc = null;
             if(StoreDB && typeof StoreDB.getById === 'function') {
                 try {
@@ -422,7 +399,6 @@
                 } catch(e) { console.warn("تعذر جلب تفضيلات العميل"); }
             }
 
-            // 🚀 تسجيل دخول ناجح: حفظ المعرف المشفر فقط
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
             
             if(userDoc && (userDoc.baseCurrency || userDoc.base_currency)) {
@@ -438,7 +414,6 @@
         } catch (error) {
             console.error('Auth Error', error);
             
-            // التقاط الأخطاء وتوجيه رسائل مخصصة باللغة العربية
             if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
                 showError('identifier', 'identifierError', "البريد الإلكتروني أو كلمة المرور غير صحيحة");
             } else if (error.code === 'auth/too-many-requests') {
@@ -453,7 +428,6 @@
         }
     }
 
-    // 🔗 ربط الدوال بالواجهة لتتوافق مع نظام الـ Modules
     window.togglePass = togglePass;
     window.handleGoogleLogin = handleGoogleLogin;
     window.validateLogin = validateLogin;

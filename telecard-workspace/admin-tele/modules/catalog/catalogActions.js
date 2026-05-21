@@ -1,6 +1,6 @@
 // ============================================================================
 // 📦 خريطة مسارات الكتالوج (Catalog Actions Router)
-// 🌟 التحديث: سد ثغرة مسار فتح الأقسام (enter-folder)
+// 🌟 التحديث: سد ثغرة مسار فتح الأقسام (enter-folder) وتمرير البيانات الحية للدول
 // ============================================================================
 
 import { CatalogController } from './catalogController.js';
@@ -64,7 +64,9 @@ export const CatalogActions = {
   
   'open-country-modal': (data) => AdminUI?.CatalogUI?.openCountryModal?.(data.id),
   'save-country': () => CatalogController.saveCountry?.(),
-  'detect-country': (data) => AdminUI?.detectCountryAutoFill?.(data.val),
+  
+  // 🌟 الحل الجذري: تمرير مصفوفة الدول الحية بدلاً من الاعتماد على المصفوفة الثابتة
+  'detect-country': (data) => AdminUI?.detectCountryAutoFill?.(data.val, AdminData.data.countries),
   
   'open-vault-modal': (data) => AdminUI?.CatalogUI?.openVaultModal?.(data.id),
   'save-vault': () => CatalogController.saveVaultPool?.(),

@@ -307,8 +307,17 @@ export const Components = {
     },
 
     // 🌟 Controller النظيف: يعتمد على الأرقام الحقيقية وليس على قراءة الشاشة
-    applyCoupon: function() {
-        if (!DataManager.user || !DataManager.currentProd) return; 
+        applyCoupon: function() {
+        if (!DataManager.currentProd) return; 
+
+        // 🌟 تنبيه الضيف بضرورة تسجيل الدخول لاستخدام الكوبونات بدلاً من التجاهل الصامت
+        if (!DataManager.user) {
+            if (UIManager && typeof UIManager.showToast === 'function') {
+                UIManager.showToast('يرجى تسجيل الدخول أولاً لاستخدام كوبونات الخصم', 'error');
+            }
+            if (UIManager && typeof UIManager.sfx === 'function') UIManager.sfx('error');
+            return;
+        }
         
         if (DataManager.appliedCoupon) { UIManager.showToast('يوجد كوبون مستخدم بالفعل', 'info'); return; }
 
@@ -367,7 +376,6 @@ export const Components = {
 
         UIManager.showToast('تم تطبيق الخصم بنجاح', 'success');
     },
-
     removeCoupon: function() {
         const codeInput = document.getElementById('couponCode');
         

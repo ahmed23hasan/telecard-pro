@@ -28,9 +28,12 @@ export const FinanceActions = {
     'add-pay-detail': () => FinanceController.addPayDetail?.(),
     'remove-pay-detail': (data) => FinanceController.removePayDetail?.(Number(data.index)),
     
-    'toggle-curr-settings': () => AdminUI?.FinanceUI?.toggleCurrencySettings?.(),
+    'toggle-curr-settings': () => AdminUI?.FinanceUI?.toggleCurrencySettings?.(),  
     // --- 3. قسم العملات وأسعار الصرف (Currencies & Rates) ---
     'open-edit-currency': (data) => AdminUI?.FinanceUI?.openEditCurrency?.(data.id || data.code),
+    
+    // 🌟 إضافة هذا السطر الجديد لاستقبال نقرة زر "جعلها عملة العرض"
+    'set-default-display': (data) => FinanceController.setDefaultDisplayCurrency?.(data.code),
     
     // 🔗 توجيه أحداث العملات
     'save-currency': () => FinanceController.saveCurrency?.(),

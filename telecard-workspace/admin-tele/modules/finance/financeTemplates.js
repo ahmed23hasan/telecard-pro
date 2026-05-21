@@ -159,17 +159,51 @@ export const FinanceTemplates = {
                     <button class="btn btn-red btn-xs btn-pay-det-del" data-action="remove-pay-detail" data-index="${i}"><i class="fa-solid fa-trash"></i></button>
                 </div>`,
 
-    rateCard: (c) => `<div id="rate-card-${_esc(c.code)}" class="rate-card-box ${(c.isBase || c.code === 'USD') ? 'rate-card-base' : ''}">
+    // 🌟 [تحديث هندسي] قالب كرت العملة المطور لمنع تشوه النصوص وإبراز أسعار الصرف
+    rateCard: (c, isDefaultDisplay = false) => {
+        const isBase = c.isBase || c.code === 'USD';
+        
+        // شارة عملة العرض - متموضعة بشكل مطلق في الأعلى يميناً (كشريط Ribbon)
+        const displayBadge = isDefaultDisplay 
+            ? `<div class="rate-display-guest-badge"><i class="fa-solid fa-star"></i> عملة العرض للضيوف</div>` 
+            : '';
+
+        // زر النجمة المعزول لتعيين أو تمييز عملة العرض
+        const setDisplayBtn = isDefaultDisplay 
+            ? `<button class="btn-rate-star active" title="هذه هي عملة العرض الحالية للضيوف"><i class="fa-solid fa-star"></i></button>`
+            : `<button class="btn-rate-star" data-action="set-default-display" data-code="${_esc(c.code)}" title="تعيين كعملة عرض افتراضية للضيوف"><i class="fa-regular fa-star"></i></button>`;
+
+        return `<div id="rate-card-${_esc(c.code)}" class="rate-card-box ${isBase ? 'rate-card-base' : ''} ${isDefaultDisplay ? 'is-default-display' : ''}">
+                ${displayBadge}
+                
                 <div class="rate-left-col">
                     <div class="rate-symbol-box" dir="ltr" lang="en">${RenderHelpers.getCurrencySymbolText(c.code)}</div>
-                    <div>
-                        <div class="rate-name-text">${_esc(c.name)} <span class="num-en rate-code-hint" dir="ltr" lang="en">(${_esc(c.code)})</span> ${(c.isBase || c.code === 'USD') ? '<span class="rate-base-badge">المرساة الأساسية</span>' : ''}</div>
-                            <div class="rate-values-row">سعر البيع: <span class="num-en val-sell" dir="ltr" lang="en">${_enNum(c.priceRate)}</span> | سعر الإيداع: <span class="num-en val-buy" dir="ltr" lang="en">${_enNum(c.depRate)}</span> <span class="rate-usd-hint">(مقابل 1 دولار)</span></div>
+                    <div class="rate-info-col">
+                        
+                        <div class="rate-name-text">
+                            ${_esc(c.name)} 
+                            <span class="num-en rate-code-hint" dir="ltr" lang="en">(${_esc(c.code)})</span>
+                            ${isBase ? '<span class="rate-base-badge">المرساة الأساسية</span>' : ''}
                         </div>
-                    </div>
-                    ${!(c.isBase || c.code === 'USD') ? `<div class="rate-actions"><button class="btn btn-ghost btn-rate-edit" data-action="open-edit-currency" data-code="${_esc(c.code)}"><i class="fa-solid fa-pen"></i></button><button class="btn btn-red btn-rate-del" data-action="delete-currency" data-code="${_esc(c.code)}"><i class="fa-solid fa-trash"></i></button></div>` : ''}
-                </div>`,
+                        
+                        <div class="rate-values-row">
+                            <span class="rate-val-group">سعر البيع: <span class="num-en val-sell" dir="ltr" lang="en">${_enNum(c.priceRate)}</span></span>
+                            <span class="rate-val-group">سعر الإيداع: <span class="num-en val-buy" dir="ltr" lang="en">${_enNum(c.depRate)}</span></span>
+                            <span class="rate-usd-hint">(مقابل 1$)</span>
+                        </div>
 
+                    </div>
+                </div>
+                
+                <div class="rate-actions">
+                    ${setDisplayBtn}
+                    ${!isBase ? `
+                        <button class="btn btn-ghost btn-rate-edit" data-action="open-edit-currency" data-code="${_esc(c.code)}" title="تعديل"><i class="fa-solid fa-pen"></i></button>
+                        <button class="btn btn-red btn-rate-del" data-action="delete-currency" data-code="${_esc(c.code)}" title="حذف"><i class="fa-solid fa-trash"></i></button>
+                    ` : ''}
+                </div>
+            </div>`;
+    },
 
     depositReceiptCard: (receiptSrc) => `
         <div class="dr-card dr-receipt-container" data-action="open-img-viewer" data-src="${_esc(receiptSrc)}">

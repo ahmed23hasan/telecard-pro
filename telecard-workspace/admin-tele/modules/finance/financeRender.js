@@ -154,11 +154,18 @@ export const FinanceRender = {
         container.innerHTML = htmlArray.join('');
     },
 
+    // 🌟 التحديث هنا: تمرير isDefaultDisplay للقالب
     renderRates: function() {
         const grid = document.getElementById('rates-grid');
         if(!grid) return;
+        
         const rates = normalizeRates(AdminData.data.rates);
-        grid.innerHTML = rates.map(c => AdminTemplates.rateCard(c)).join('');
+        const defaultDisplayCurr = AdminData.data.settings?.defaultCurrency || 'USD';
+        
+        grid.innerHTML = rates.map(c => {
+            const isDefaultDisplay = (c.code === defaultDisplayCurr);
+            return AdminTemplates.rateCard(c, isDefaultDisplay);
+        }).join('');
     },
 
     renderPaymentList: function() {

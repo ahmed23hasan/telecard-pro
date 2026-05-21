@@ -1,8 +1,11 @@
 // ============================================================================
-// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Pure Model)
+// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Cloud Secured)
 // 🎯 الوظيفة: معالجة البيانات، الحسابات المعقدة، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث: دمج نظام المعرفات القصيرة (displayId) للطلبات والإيداعات
+// 🚀 التحديث: تم نقل العمليات المالية الحساسة (إنشاء الطلب والإيداع) إلى دوال السحابة الآمنة
 // ============================================================================
+
+import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
 import { DB_KEYS, ACTIVE_USER_KEY } from './config.js';
 import { Utils } from './utils.js';
@@ -12,6 +15,7 @@ import { FirebaseAdapter } from './core/firebaseAdapter.js';
 // 🌐 1. البنية التحتية لقاعدة البيانات (Cloud Gateway)
 // ============================================================================
 export const StoreDB = FirebaseAdapter;
+
 // ============================================================================
 // 🧠 2. الذاكرة الحية للمتجر (RAM State) لسرعة التصفح
 // ============================================================================
@@ -25,12 +29,13 @@ export const LiveStoreData = {
     deposits: [], 
     payments: [], 
     tiers: [], 
-    rates: [],   // 🌟 تم تصحيحها هنا لتصبح مصفوفة (Array) بدلاً من كائن (Object)
+    rates: [],
     vault: [], 
     coupons: [], 
     offers: [], 
     alerts: [] 
 };
+
 // ============================================================================
 // 👑 3. الكائن الرئيسي لمدير البيانات (Single Source of Truth)
 // ============================================================================
@@ -46,6 +51,13 @@ export const DataManager = {
     currentReceiptData: null,
     appliedCoupon: null,
 
+    // 🌟 دالة مساعدة لتهيئة واستدعاء دوال السحابة بأمان
+    _getCloudFunction: function(functionName) {
+        const app = getApp();
+        const functions = getFunctions(app);
+        return httpsCallable(functions, functionName);
+    },
+
     // 🌟 حماية العميل وحفظه محلياً بأمان (للجلسة السريعة)
     saveUserLocal: function() {
         if (!this.user) return;
@@ -57,16 +69,15 @@ export const DataManager = {
         } catch (e) { console.error('Storage Quota Error in saveUserLocal:', e); }
     },
 
-    // 🌟 تحديث بيانات العميل (مزامنة حية مع Firestore كمستند مستقل)
-            updateUserProfile: async function(newData) {
-        // 1. تأمين جلب المعرّف الفريد الحقيقي للمستخدم ومنع تضارب المعرفات (id vs uid)
+    // 🌟 تحديث بيانات العميل الشخصية (الاسم، الإعدادات، الخ)
+    updateUserProfile: async function(newData) {
         const uid = this.user?.id || this.user?.uid || localStorage.getItem('telecard_active_user_uid');
         if (!uid) {
-            console.error("🚨 DataManager: تعذّر العثور على المعرّف الفريد للمستخدم (UID)؛ تم إلغاء عملية الحفظ لمنع البيانات التالفة.");
+            console.error("🚨 DataManager: تعذّر العثور على المعرّف الفريد للمستخدم.");
             return false;
         }
 
-        // 2. تحديث البيانات محلياً في الذاكرة الحية (RAM State) فوراً لسرعة استجابة الواجهة
+        // تحديث الرام للسرعة
         this.user = { ...this.user, ...newData };
         
         if (LiveStoreData.users && Array.isArray(LiveStoreData.users)) {
@@ -76,19 +87,15 @@ export const DataManager = {
             }
         }
 
-        // 3. الحفظ الفعلي والآمن في قاعدة بيانات Firebase Firestore مع انتظار رد السيرفر
         try {
-            // استخدام البوابة الشرعية الموحدة واشتراط دمج البيانات (Merge) لمنع مسح الحقول الأخرى
             const success = await StoreDB.set(DB_KEYS.USERS, uid, newData);
-            
             if (success) {
-                console.log(`✅ DataManager: تم تحديث مستند المستخدم [${uid}] بنجاح في السحابة.`);
                 return true;
             } else {
                 throw new Error("Firebase returned false during setDoc");
             }
         } catch (error) {
-            console.error("🚨 DataManager: فشل تحديث بيانات الملف الشخصي في فايربيز:", error);
+            console.error("🚨 DataManager: فشل تحديث بيانات الملف الشخصي:", error);
             return false;
         }
     },
@@ -180,7 +187,7 @@ export const DataManager = {
     },
 
     // ============================================================================
-    // 🧮 4. المحرك الموحد للتسعير (Single Source of Truth Pricing)
+    // 🧮 4. المحرك الموحد للتسعير (يُستخدم لعرض الأسعار للعميل قبل الشراء فقط)
     // ============================================================================
     calculateFinalPrice: function(prod, user, qty, optIdx, appliedCoupon) {
         let q = Math.max(1, Number(qty) || 1);
@@ -246,12 +253,13 @@ export const DataManager = {
     },
 
     getPricingLocal: function(prod, qty, optIdx, appliedCoupon) {
-        if (!prod || !this.user) return null;
+        if (!prod) return null;
         
-        const baseCurrency = (this.user.baseCurrency || this.user.base_currency || 'USD').toUpperCase();
+        const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ? LiveStoreData.settings.defaultCurrency : 'USD';
+        const baseCurrency = this.user ? (this.user.baseCurrency || this.user.base_currency || 'USD').toUpperCase() : adminDefaultCurrency;
         const displayCurrency = (this.selectedCurr || baseCurrency).toUpperCase();
+        
         const rates = this.getRates();
-
         const pricing = this.calculateFinalPrice(prod, this.user, qty, optIdx, appliedCoupon);
 
         const totalLocalBase = Math.ceil(this._safeConvert(pricing.totalUsd, 'USD', baseCurrency, rates, 'pricing') * 100) / 100;
@@ -333,33 +341,27 @@ export const DataManager = {
     },
 
     // ============================================================================
-    // 👤 5. دوال العميل وإدارة المحفظة والطلبات (Cloud Optimized)
+    // 👤 5. دوال العميل وإدارة المحفظة والطلبات (Cloud Secured)
     // ============================================================================
-        logout: function() {
+    logout: function() {
         try {
-            // 🌟 تنظيف الذاكرة بالكامل من معرّفات الدخول
             localStorage.removeItem('telecard_active_user_uid');
             localStorage.removeItem(ACTIVE_USER_KEY);
             localStorage.removeItem('telecard_display_currency');
         } catch(e) { console.warn('logout cleanup error', e); }
         
-        // 🌟 توجيه العميل لصفحة الدخول، واستخدام replace لمنعه من العودة للمتجر بزر "رجوع"
         window.location.replace('login.html');
     },
-        syncUser: function() { 
+
+    syncUser: function() { 
         const users = LiveStoreData.users || [];
-        
-        // 🌟 1. قراءة المعرف السري الذي تم حفظه في صفحة login.html
         const activeUid = localStorage.getItem('telecard_active_user_uid'); 
         
         let me = null;
-        
-        // 🌟 2. البحث عن المستخدم في الرام/قاعدة البيانات
         if(activeUid) {
             me = users.find(u => String(u.id) === String(activeUid));
         }
         
-        // 🌟 3. إذا كان هناك UID مسجل، لكن الحساب غير موجود (تم حذفه من الإدارة مثلاً)
         if (activeUid && !me && users.length > 0) {
             console.warn("⚠️ الحساب لم يعد موجوداً في قاعدة البيانات. جاري تسجيل الخروج...");
             this.logout();
@@ -385,11 +387,12 @@ export const DataManager = {
             this.user = me; 
             this.saveUserLocal(); 
         } else {
-            // 🌟 4. تأكيد حالة الضيف إذا لم يجد شيئاً
             this.user = null;
         }
         
-        let savedCurr = localStorage.getItem('telecard_display_currency') || (this.user?.baseCurrency) || 'USD';
+        const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ? LiveStoreData.settings.defaultCurrency : 'USD';
+        let savedCurr = localStorage.getItem('telecard_display_currency') || (this.user?.baseCurrency) || adminDefaultCurrency;
+
         const settings = LiveStoreData.settings || {};
         const isToggleAllowed = settings.showCurrencyToggle !== false;
 
@@ -401,6 +404,7 @@ export const DataManager = {
         this.selectedCurr = savedCurr;
         return true;
     },
+
     ackAdminMessage: async function() {
         if (!this.user || !this.user.id) return;
         try {
@@ -423,7 +427,9 @@ export const DataManager = {
                 return sum + (val > 0 ? val : 0);
             }, 0);
             
-        this.updateUserProfile({ totalSpent: mySpent, totalDeposit: myDeposits });
+        // لا نحدث السحابة هنا، نكتفي بتحديث الواجهة (العمليات تتم عبر السيرفر)
+        this.user.totalSpent = mySpent;
+        this.user.totalDeposit = myDeposits;
     },
 
     submitPasswordChange: function(currentVal, newVal, confirmVal) {
@@ -442,194 +448,38 @@ export const DataManager = {
         }
     },
 
-    // 🚀 التحديث: توليد وإرسال الرقم القصير displayId للمستندات السحابية
-    confirmPurchase: function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
+    // 🚀 التحديث: دالة الشراء السحابية الآمنة
+    confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
 
-        const pricing = this.calculateFinalPrice(prod, this.user, qty, optIdx, appliedCoupon);
-        const priceUsd = pricing.totalUsd;
-        
-        const baseCurrency = (this.user.baseCurrency || this.user.base_currency || 'USD').toUpperCase();
-        const rates = typeof this.getRates === 'function' ? this.getRates() : null;
-        
-        const priceLocalBase = Math.ceil(this._safeConvert(priceUsd, 'USD', baseCurrency, rates, 'pricing') * 100) / 100;
+        try {
+            const createOrderFn = this._getCloudFunction('createOrder');
+            
+            // تجهيز الطلب وإرساله للخادم (لا نقوم بأي خصم محلي هنا)
+            const requestData = {
+                productId: String(prod.id),
+                qty: Number(qty) || 1,
+                optIdx: optIdx !== null && optIdx !== undefined ? Number(optIdx) : null,
+                finalInputStr: finalInputStr || '---',
+                couponCode: appliedCoupon ? appliedCoupon.code : null
+            };
 
-        if (priceUsd <= 0 && prod.type !== 'select') return { success: false, msg: 'لا يمكن إتمام عملية بسعر 0' };
-        if (this.user.walletBalance < priceLocalBase) return { success: false, msg: 'رصيدك غير كافٍ لإتمام العملية' };
+            const result = await createOrderFn(requestData);
+            const responseData = result.data;
 
-        const currentTier = this.getUserTier(this.user);
-        const tiersList = this.getTiers();
-        
-        let newCycleSpent = this.user.tierCycleSpent;
-        let newCycleStartDate = this.user.tierCycleStartDate;
-        let newTierId = this.user.tierId;
-        let inboxUpdates = [...(this.user.inbox || [])];
+            // السحابة ستقوم بخصم الرصيد، والمستمعات في script.js ستقوم بتحديث الواجهة تلقائياً
+            return {
+                success: true,
+                msg: responseData.message || 'تم إتمام الطلب بنجاح',
+                isAutoDelivered: responseData.isAutoDelivered,
+                deliveredCodeText: responseData.deliveredCode
+            };
 
-        if (currentTier) {
-            const durationDays = Number(currentTier.durationDays || 30);
-            const durationMs = durationDays * 24 * 60 * 60 * 1000;
-            const now = Date.now();
-            
-            if (now - (newCycleStartDate || now) > durationMs) {
-                newCycleSpent = 0;
-                newCycleStartDate = now;
-            }
-            
-            newCycleSpent = (newCycleSpent || 0) + priceLocalBase;
-            
-            const sortedTiers = [...tiersList].sort((a, b) => Number(a.threshold) - Number(b.threshold));
-            const nextTier = sortedTiers.find(t => Number(t.threshold) > Number(currentTier.threshold));
-            
-            const isAutoUpgradeEnabled = LiveStoreData.settings?.autoTierUpgrade ?? true; 
-            
-            if (nextTier && newCycleSpent >= Number(nextTier.threshold) && isAutoUpgradeEnabled) {
-                newTierId = nextTier.id;
-                newCycleSpent = 0;       
-                newCycleStartDate = now; 
-                
-                inboxUpdates.push({
-                    id: 'tier_up_' + now,
-                    title: 'ترقية المستوى! 🎉',
-                    message: `تهانينا! لقد تم ترقية حسابك إلى ${nextTier.name}. استمتع بأسعار وامتيازات أفضل.`,
-                    createdAt: now,
-                    type: 'notification',
-                    targetType: 'user',
-                    targetId: this.user.id
-                });
-            }
+        } catch (error) {
+            console.error("Cloud Function Error (createOrder):", error);
+            // جلب رسالة الخطأ الآتية من السحابة (مثلاً: رصيدك غير كافٍ)
+            return { success: false, msg: error.message || 'حدث خطأ أثناء معالجة الطلب، يرجى المحاولة لاحقاً.' };
         }
-
-        let isAutoDelivered = false;
-        let deliveredCodeText = null;
-        let extractedCodes = [];
-        let vaults = LiveStoreData.vault || [];
-        let poolIndex = -1;
-
-        if (prod.vaultPoolId) {
-            poolIndex = vaults.findIndex(v => String(v.id) === String(prod.vaultPoolId));
-            if (poolIndex > -1 && vaults[poolIndex].codes && vaults[poolIndex].codes.length >= qty) {
-                isAutoDelivered = true;
-            } else {
-                return { success: false, msg: 'عذراً، المنتج غير متوفر بالكمية المطلوبة حالياً' };
-            }
-        }
-        
-        if (isAutoDelivered && poolIndex > -1) {
-            extractedCodes = vaults[poolIndex].codes.splice(0, qty);
-            deliveredCodeText = extractedCodes.map(c => {
-                if (typeof c === 'object' && c !== null) return c.text || c.code || '';
-                return c;
-            }).join(' | ');
-            
-            extractedCodes.forEach(c => { if(typeof c === 'object') c.status = 'sold'; });
-            vaults[poolIndex].codes.push(...extractedCodes); 
-            // 🚀 تحديث السحابة للمستند الفردي الخاص بالخزنة 
-            StoreDB.set(DB_KEYS.VAULT, String(vaults[poolIndex].id), vaults[poolIndex]);
-        }
-
-        if (appliedCoupon) {
-            const coupons = LiveStoreData.coupons || [];
-            const cIdx = coupons.findIndex(c => String(c.id) === String(appliedCoupon.id));
-            if (cIdx !== -1) {
-                coupons[cIdx].usedCount = (coupons[cIdx].usedCount || 0) + 1;
-                if (!coupons[cIdx].usageHistory) coupons[cIdx].usageHistory = {};
-                const userKey = `user_${this.user.id}`;
-                coupons[cIdx].usageHistory[userKey] = (coupons[cIdx].usageHistory[userKey] || 0) + 1;
-                // 🚀 تحديث السحابة للمستند الفردي الخاص بالكوبون
-                StoreDB.set(DB_KEYS.COUPONS, String(coupons[cIdx].id), coupons[cIdx]);
-            }
-        }
-
-        const fxRateUsed = this._safeConvert(1, 'USD', baseCurrency, rates, 'pricing');
-        const originalPriceLocal = Math.ceil(this._safeConvert(pricing.originalTotalUsd, 'USD', baseCurrency, rates, 'pricing') * 100) / 100;
-        const couponDiscountLocal = Math.ceil(this._safeConvert(pricing.couponDiscountUsd, 'USD', baseCurrency, rates, 'pricing') * 100) / 100;
-        const saleDiscountLocal = Math.ceil(this._safeConvert(pricing.saleDiscountUsd, 'USD', baseCurrency, rates, 'pricing') * 100) / 100;
-
-        const uSnap = pricing.unitSnapshot;
-        const totalSnapshot = {
-            costUsd: Number((uSnap.cost * qty).toFixed(4)),
-            tierPriceUsd: Number((uSnap.tierPrice * qty).toFixed(4)), 
-            originalPriceUsd: Number((uSnap.originalPrice * qty).toFixed(4)),
-            finalPriceUsd: Number((uSnap.finalPrice * qty).toFixed(4)),
-            tierName: uSnap.tierName,
-            offerName: uSnap.offerName,
-            offerDiscount: Number((uSnap.offerDiscount * qty).toFixed(4)),
-            couponCode: uSnap.couponCode,
-            couponDiscount: Number((uSnap.couponDiscount * qty).toFixed(4)),
-            totalDiscountVal: Number((uSnap.totalDiscountVal * qty).toFixed(4)),
-            netProfitUsd: Number((uSnap.profit * qty).toFixed(4)),
-            marginPct: uSnap.marginPct, 
-            isFirewallActive: uSnap.isFirewallActive || uSnap.isFirewallTriggered
-        };
-
-        // 🚀 توليد المعرف القصير المكون من 6 أرقام
-        const shortId = Math.floor(100000 + Math.random() * 900000);
-
-        const newOrder = {
-            id: Date.now(),
-            displayId: shortId, // 🚀 إضافة المعرف القصير هنا
-            userId: this.user.id,
-            prodId: prod.id,
-            product: prod.name,
-            price: priceLocalBase,
-            priceCurrency: baseCurrency,
-            pricingSnapshot: totalSnapshot, 
-            originalPrice: originalPriceLocal, 
-            couponDiscount: couponDiscountLocal, 
-            saleDiscount: saleDiscountLocal, 
-            couponCode: appliedCoupon ? appliedCoupon.code : null, 
-            qty: qty,
-            input: finalInputStr,
-            baseUsd: Number(pricing.totalUsd.toFixed(4)),
-            fxRate: Number(fxRateUsed.toFixed(4)),
-            unitCost: pricing.unitCost, 
-            discountValue: pricing.couponDiscountUsd, 
-            status: isAutoDelivered ? 'completed' : 'pending', 
-            deliveredCode: deliveredCodeText, 
-            time: Date.now(),
-            actionTime: isAutoDelivered ? Date.now() : null 
-        };
-
-        // تحديث الرام للسرعة
-        const orders = LiveStoreData.orders || [];
-        orders.push(newOrder);
-        
-        // 🚀 إرسال مستند الطلب المستقل إلى السحابة (بدون مسح الطلبات الأخرى)
-        StoreDB.set(DB_KEYS.ORDERS, String(newOrder.id), newOrder);
-
-        if (isAutoDelivered) {
-            inboxUpdates.push({
-                id: 'sys_' + Date.now(),
-                title: 'اكتمل طلبك بنجاح!',
-                message: `تم تنفيذ طلبك لـ "${prod.name}" بنجاح. يمكنك استلام طلبك الآن.`,
-                createdAt: Date.now(),
-                type: 'notification',
-                targetType: 'user',
-                targetId: this.user.id,
-                jumpTarget: 'order', 
-                jumpId: newOrder.id    
-            });
-        }
-
-        const newWalletBal = this.user.walletBalance - priceLocalBase;
-        const newTotalSpent = (this.user.totalSpent || 0) + priceLocalBase;
-
-        // 🚀 تحديث بيانات العميل (والتي تقوم بدورها بتحديث السحابة تلقائياً)
-        this.updateUserProfile({
-            walletBalance: newWalletBal,
-            balance: newWalletBal,
-            totalSpent: newTotalSpent,
-            tierCycleSpent: newCycleSpent,
-            tierCycleStartDate: newCycleStartDate,
-            tierId: newTierId,
-            inbox: inboxUpdates
-        });
-
-        return {
-            success: true,
-            isAutoDelivered: isAutoDelivered,
-            deliveredCodeText: deliveredCodeText
-        };
     },
 
     calculateDepositFee: function(amount, paymentMethod, payCurr) {
@@ -687,57 +537,32 @@ export const DataManager = {
         };
     },
 
-    // 🚀 التحديث: توليد وإرسال الرقم القصير displayId لإيداعات المحفظة
-    submitBalanceRequest: function(amount, paymentMethod, payCurr, netBase, receiptData) {
+    // 🚀 التحديث: دالة طلب الإيداع السحابية الآمنة
+    submitBalanceRequest: async function(amount, paymentMethod, payCurr, netBase, receiptData) {
         if (!paymentMethod) return { success: false, msg: 'حدث خطأ: لم يتم تحديد طريقة الدفع' };
         if (amount <= 0) return { success: false, msg: 'يرجى إدخال مبلغ صحيح ضمن الحدود المسموحة' };
         if (paymentMethod.reqProof !== false && !receiptData) return { success: false, msg: 'يرجى إرفاق صورة إشعار الدفع أولاً', errType: 'receipt' };
 
-        const baseCurrency = (this.user.baseCurrency || this.user.base_currency || 'USD').toUpperCase();
+        try {
+            const submitDepositFn = this._getCloudFunction('submitBalanceRequest');
+            
+            // إرسال البيانات للسحابة لتتكفل بالتسجيل الآمن
+            const requestData = {
+                amount: Number(amount),
+                paymentMethodName: paymentMethod.name,
+                payCurr: payCurr,
+                netBase: Number(netBase),
+                receiptData: receiptData || null
+            };
 
-        let feePct = 0;
-        if(paymentMethod.currencySettings && paymentMethod.currencySettings[payCurr]) {
-            feePct = parseFloat(paymentMethod.currencySettings[payCurr].fee) || 0;
-        } else {
-            feePct = parseFloat(paymentMethod.fee) || 0;
+            const result = await submitDepositFn(requestData);
+            
+            return { success: true, msg: result.data.message || 'تم إرسال طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة' };
+
+        } catch (error) {
+            console.error("Cloud Function Error (submitBalanceRequest):", error);
+            return { success: false, msg: error.message || 'تعذر إرسال طلب الإيداع، يرجى المحاولة لاحقاً.' };
         }
-
-        const rates = this.getRates();
-        const fxRateUsed = this._safeConvert(1, payCurr, baseCurrency, rates, 'deposit');
-        const usdEquivalent = this._safeConvert(netBase, baseCurrency, 'USD', rates, 'deposit');
-
-        // 🚀 توليد المعرف القصير المكون من 6 أرقام
-        const shortId = Math.floor(100000 + Math.random() * 900000);
-
-        const newDeposit = {
-            id: Date.now(),
-            displayId: shortId, // 🚀 إضافة المعرف القصير هنا
-            userId: this.user.id,
-            method: paymentMethod.name,
-            amount: amount,
-            currency: payCurr,
-            fee: amount * (feePct / 100),
-            feePct: feePct,
-            fees: amount * (feePct / 100),
-            feesPercent: feePct,
-            creditedAmount: netBase,
-            targetCurrency: baseCurrency,
-            baseUsd: Number(usdEquivalent.toFixed(4)),
-            fxRate: Number(fxRateUsed.toFixed(4)),
-            status: 'pending',
-            time: Date.now(),
-            receipt: receiptData || null,
-            receiptImage: receiptData || null 
-        };
-
-        // تحديث الرام للسرعة
-        const deposits = LiveStoreData.deposits || [];
-        deposits.push(newDeposit);
-        
-        // 🚀 إرسال مستند الإيداع المستقل إلى السحابة
-        StoreDB.set(DB_KEYS.DEPOSITS, String(newDeposit.id), newDeposit);
-
-        return { success: true, msg: 'تم إرسال طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة' };
     },
     
     formatDateLocal: function(timestamp) {

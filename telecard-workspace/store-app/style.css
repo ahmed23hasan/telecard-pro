@@ -5522,6 +5522,19 @@ div#sidebar-kyc-container .sb-kyc-banner span {
 .phone-input-container:focus-within { border-color: var(--primary); background: var(--bg-glass-dark); }
 .country-code-label { display: flex; align-items: center; justify-content: center; padding: 0 15px; color: var(--primary); font-weight: 800; font-size: 14px; background: rgba(255, 255, 255, 0.03); border-left: 1px solid var(--border-light); height: 100%; min-width: 65px; user-select: none; }
 .phone-input { flex: 1; background: transparent !important; border: none !important; height: 100%; padding: 0 15px !important; font-size: 16px; color: var(--text-main); text-align: right !important; direction: rtl !important; }
+/* 🌟 الحل الاحترافي لعنصر select (Placeholder Hack) */
+select.lux-input:invalid {
+    color: var(--text-muted); /* لون باهت قبل الاختيار (يعامل كـ Placeholder) */
+}
+
+select.lux-input:valid {
+    color: var(--text-main); /* أبيض ناصع بعد اختيار العملة */
+}
+
+select.lux-input option {
+    color: var(--text-main); /* إجبار الخيارات داخل القائمة لتكون واضحة دائماً */
+    background: var(--bg-modal); /* منع شفافية الخيارات داخل القائمة */
+}
 
 /* --- [ 5. شبكة الرفع والمعاينة لتوثيق الهوية (KYC Upload Grid) ] --- */
 .kyc-upload-grid { 

@@ -969,8 +969,7 @@
             </div>
         </div>
     </div>
-    
-    <div class="pm-overlay" id="identity-overlay" onclick="ClientSystem.closeModal('identity')"></div>
+<div class="pm-overlay" id="identity-overlay" onclick="ClientSystem.closeModal('identity')"></div>
     <div class="modal-sheet bottom-sheet" id="identity-modal">
         <div class="pm-header-std">
             <div class="pm-close-std" onclick="ClientSystem.closeModal('identity')">
@@ -985,12 +984,12 @@
         <div class="pm-scroll-content">
             <div class="profile-lux-card glass-form" id="identity-section">
                 <div id="identity-inputs-wrap">
-                    <div class="identity-info-banner">
+                    <div class="identity-info-banner" style="margin-bottom: 20px;">
                         <i class="fa-solid fa-circle-info"></i>
                         <span>مطلوب لتفعيل المحفظة وإتمام الطلبات.</span>
                     </div>
                     
-                    <div class="input-field-lux country-field-wrapper">
+                    <div class="input-field-lux country-field-wrapper" style="position: relative; z-index: 12;">
                         <label>الدولة</label>     
                         <div class="custom-dropdown-container solid-dropdown" id="country-dropdown">
                             <button type="button" class="dropdown-trigger lux-input" onclick="this.parentElement.classList.toggle('open')">
@@ -1023,8 +1022,18 @@
                             <input type="tel" id="reg-phone" class="lux-input phone-input" placeholder="أدخل رقم هاتفك">
                         </div>
                     </div>
-
-                    <button class="btn-save-lux" onclick="ClientSystem.saveIdentityData()">
+<div class="input-field-lux mb-20" style="position: relative; z-index: 8;">
+    <label>عملة المحفظة الأساسية</label>
+    <select id="reg-currency" class="lux-input" required>
+        <option value="" disabled selected>حدد العملة الدائمة لمحفظتك...</option>
+    </select>
+    
+    <div class="identity-warning-box">
+        <i class="fa-solid fa-circle-exclamation"></i>
+        <span>تنبيه: هذه العملة لا يمكن تغييرها لاحقاً</span>
+    </div>
+</div>
+                    <button class="btn-save-lux" onclick="ClientSystem.saveIdentityData()" style="margin-top: 10px;">
                         حفظ البيانات
                     </button>
                 </div>
@@ -1041,7 +1050,6 @@
             </div>
         </div>
     </div>
-
     <div class="pm-overlay" id="kyc-upload-overlay" onclick="ClientSystem.closeKycModal()"></div>
     <div class="modal-sheet bottom-sheet" id="kyc-upload-modal">
         <div class="pm-header-std">
