@@ -63,10 +63,11 @@ export const CatalogUI = {
       imgEl.classList.remove('hide-element');
       wrapEl.classList.add('has-img');
     } else if (imgEl && wrapEl) {
-      imgEl.src = '';
+      imgEl.removeAttribute('src');
       imgEl.classList.add('hide-element');
       wrapEl.classList.remove('has-img');
     }
+
   },
   
   setupProductModal: function(p, vaultData) {
@@ -106,21 +107,21 @@ export const CatalogUI = {
       imgEl.src = p.img;
       imgEl.classList.remove('hide-element');
       wrapEl.classList.add('has-img');
-    } else if (imgEl && wrapEl) {
-      imgEl.src = '';
+        } else if (imgEl && wrapEl) {
+      imgEl.removeAttribute('src');
       imgEl.classList.add('hide-element');
       wrapEl.classList.remove('has-img');
     }
+
   },
   
-    setupCountryModal: function(country) {
+  setupCountryModal: function(country) {
     const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
     const safeSetCheck = (elId, checked) => { const el = document.getElementById(elId); if (el) el.checked = checked; };
     
     const titleEl = document.getElementById('country-modal-title');
     if (titleEl) titleEl.innerHTML = country ? '<i class="fa-solid fa-globe"></i> تعديل دولة' : '<i class="fa-solid fa-plus"></i> إضافة دولة جديدة';
     
-    // 🌟 التعديل: قراءة البيانات الموحدة مع دعم البيانات القديمة (Fallback)
     safeSetVal('country-edit-id', country ? country.id : '');
     safeSetVal('country-name', country ? (country.name || country.nameAr) : '');
     safeSetVal('country-code', country ? (country.code || country.id) : '');
@@ -134,6 +135,7 @@ export const CatalogUI = {
     safeSetCheck('country-active', country ? country.isActive !== false : true);
     safeSetCheck('country-banned', country ? country.isBanned : false);
   },
+
   setupVaultModal: function(pool) {
     const isEdit = !!pool;
     const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
@@ -241,7 +243,6 @@ export const CatalogUI = {
     el.classList.add('active');
   },
 
-  // 🌟 الدوال المساعدة (Helpers) التي سقطت وتمت إعادتها 
   hasImage: function(wrapperId) {
       const wrap = document.getElementById(wrapperId);
       return wrap ? wrap.classList.contains('has-img') : false;
@@ -260,6 +261,13 @@ export const CatalogUI = {
       });
   },
 
+  // 🌟 إضافة منطق الحقول المنقول من الموجه
+  toggleSimpleQty: function(isChecked) {
+    const limitBox = document.getElementById('simple-qty-limit-box');
+    if (limitBox) limitBox.classList.toggle('hide-element', !isChecked);
+  },
+
+  // 🌟 دالة المعاينة النظيفة بالكلاسات الجديدة
   renderPricePreview: function(type, cost, tiers, pkgs, TelecardPricingEngine) {
       const previewContainer = document.getElementById('universal-price-preview');
       if (!previewContainer) return;
@@ -267,27 +275,59 @@ export const CatalogUI = {
       let html = '<div class="fs-12 fw-bold text-primary mb-10"><i class="fa-solid fa-eye"></i> المعاينة الحية لأسعار المستويات:</div>';
       
       if (type !== 'select') {
-          if (cost <= 0) { previewContainer.innerHTML = '<div class="text-muted fs-11 mt-10" style="padding: 10px; background: rgba(0,0,0,0.03); border-radius: 6px; text-align: center;"><i class="fa-solid fa-calculator"></i> أدخل تكلفة المنتج لرؤية أسعار البيع للعملاء</div>'; return; }
-          html += '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px;">';
+          if (cost <= 0) { 
+              previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-calculator"></i> أدخل تكلفة المنتج لرؤية أسعار البيع للعملاء</div>'; 
+              return; 
+          }
+          
+          html += '<div class="preview-tiers-grid">';
           tiers.forEach(tier => {
               const pricing = TelecardPricingEngine.calculate({ costPrice: cost, tier: tier });
-              html += `<div style="background: var(--bg-card); border: 1px solid var(--border); padding: 8px; border-radius: 6px; text-align: center;"><div style="font-size: 11px; font-weight: bold; color: var(--text-main); margin-bottom: 4px;"><i class="fa-solid ${Utils.escapeHTML(tier.icon || 'fa-user')} text-gold"></i> ${Utils.escapeHTML(tier.name)}</div><div class="num-en text-success fw-bold" dir="ltr">${pricing.finalPrice} $</div><div class="num-en text-muted" style="font-size: 9px;" dir="ltr">ربحك: <span class="text-success">+${pricing.profit}</span> $</div></div>`;
+              html += `
+                  <div class="preview-tier-card text-center">
+                      <div class="fs-11 fw-bold text-main mb-10">
+                          <i class="fa-solid ${Utils.escapeHTML(tier.icon || 'fa-user')} text-gold"></i> ${Utils.escapeHTML(tier.name)}
+                      </div>
+                      <div class="num-en text-success fw-bold" dir="ltr">${pricing.finalPrice} $</div>
+                      <div class="num-en text-muted fs-9" dir="ltr">ربحك: <span class="text-success">+${pricing.profit}</span> $</div>
+                  </div>`;
           });
           html += '</div>';
+          
       } else {
-          if (pkgs.length === 0) { previewContainer.innerHTML = '<div class="text-muted fs-11 mt-10" style="padding: 10px; background: rgba(0,0,0,0.03); border-radius: 6px; text-align: center;"><i class="fa-solid fa-layer-group"></i> أضف باقات بالأسفل لرؤية تسعير كل باقة على حدة</div>'; return; }
-          html += '<div style="display:flex; flex-direction:column; gap: 10px;">';
+          if (pkgs.length === 0) { 
+              previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-layer-group"></i> أضف باقات بالأسفل لرؤية تسعير كل باقة على حدة</div>'; 
+              return; 
+          }
+          
+          html += '<div class="preview-pkg-list">';
           pkgs.forEach((pkg) => {
               const pkgCost = parseFloat(pkg.price) || 0; 
-              let pkgHtml = `<div style="background: var(--bg-card); border: 1px dashed var(--border); padding: 10px; border-radius: 8px;"><div style="display:flex; justify-content:space-between; margin-bottom:8px;"><span class="fw-bold fs-12"><i class="fa-solid fa-box text-info"></i> ${Utils.escapeHTML(pkg.name)}</span><span class="num-en text-danger fs-11" dir="ltr">التكلفة: ${pkgCost}$</span></div><div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px;">`;
+              let pkgHtml = `
+                  <div class="preview-pkg-card">
+                      <div class="preview-pkg-header">
+                          <span class="fw-bold fs-12"><i class="fa-solid fa-box text-info"></i> ${Utils.escapeHTML(pkg.name)}</span>
+                          <span class="num-en text-danger fs-11" dir="ltr">التكلفة: ${pkgCost}$</span>
+                      </div>
+                      <div class="preview-mini-grid">`;
+              
               tiers.forEach(tier => {
                   const pricing = TelecardPricingEngine.calculate({ costPrice: pkgCost, tier: tier });
-                  pkgHtml += `<div style="background: rgba(0,0,0,0.1); padding: 5px; border-radius: 4px; text-align: center;"><div style="font-size: 10px; color: var(--text-main);"><i class="fa-solid ${Utils.escapeHTML(tier.icon || 'fa-user')} text-gold"></i> ${Utils.escapeHTML(tier.name)}</div><div class="num-en text-success fw-bold fs-12" dir="ltr">${pricing.finalPrice}$</div></div>`;
+                  pkgHtml += `
+                          <div class="preview-micro-card text-center">
+                              <div class="fs-10 text-main mb-10">
+                                  <i class="fa-solid ${Utils.escapeHTML(tier.icon || 'fa-user')} text-gold"></i> ${Utils.escapeHTML(tier.name)}
+                              </div>
+                              <div class="num-en text-success fw-bold fs-12" dir="ltr">${pricing.finalPrice}$</div>
+                          </div>`;
               });
-              pkgHtml += `</div></div>`; html += pkgHtml;
+              
+              pkgHtml += `</div></div>`; 
+              html += pkgHtml;
           });
           html += '</div>';
       }
+      
       previewContainer.innerHTML = html;
   },
   
@@ -327,6 +367,18 @@ export const CatalogUI = {
     } else {
       parentCheckbox.checked = false;
       parentCheckbox.indeterminate = true;
+    }
+  },
+
+  // 🌟 إضافة منطق الشجرة المنقول من الموجه
+  toggleAllTree: function(targetId) {
+    const cbs = document.querySelectorAll(`#${targetId} .tree-parent-cb, #${targetId} .tree-child-cb`);
+    if (cbs.length > 0) {
+      const state = !cbs[0].checked;
+      cbs.forEach(cb => { 
+        cb.checked = state;
+        cb.indeterminate = false; 
+      });
     }
   },
 

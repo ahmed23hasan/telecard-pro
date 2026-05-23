@@ -1,6 +1,7 @@
 // ============================================================================
 // 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة
 // 🎯 الوظيفة: أدوات الواجهة المشتركة (الإشعارات، التحميل، النوافذ) بدون أي منطق عمل
+// 🌟 التحديث: دعم محرك الرفع السحابي بالاحتفاظ بـ (File Object) في الذاكرة
 // ============================================================================
 
 import { Utils, EventBus } from '../adminUtils.js';
@@ -9,6 +10,7 @@ import { AdminTemplates } from '../adminTemplates.js';
 export const UIService = {
     _esc: Utils.escapeHTML,
     tempImg: null,
+    tempFile: null, // 🌟 الإضافة الجديدة: للاحتفاظ بملف الصورة الحقيقي للرفع السحابي
 
     // ---------------------------------------------------------
     // 🌓 إدارة الوضع الليلي والنهاري
@@ -225,6 +227,7 @@ export const UIService = {
 
         document.body.style.overflow = ''; // إعادة تفعيل التمرير للشاشة الخلفية
         this.tempImg = null;
+        this.tempFile = null; // 🌟 الإضافة الجديدة: تفريغ الملف عند إغلاق النافذة
         EventBus.emit('modals-closed'); 
         
         // 🌟 الإصلاح الجذري 2: تمت إزالة كود التفريغ العشوائي من هنا.
@@ -269,6 +272,8 @@ export const UIService = {
             setTimeout(() => { const img = document.getElementById('iv-main-img'); if(img) img.src = ''; }, 400);
         }
     },
+    
+    // 🌟 استبدال كود مسح الصورة القديم
     clearImg: function(previewId, wrapperId, inputId, event) {
         if(event) event.stopPropagation();
         const preview = document.getElementById(previewId); const wrapper = document.getElementById(wrapperId); const input = document.getElementById(inputId);
@@ -276,19 +281,26 @@ export const UIService = {
         if (wrapper) wrapper.classList.remove('has-img');
         if (input) input.value = '';
         this.tempImg = null;
+        this.tempFile = null; // 🌟 مسح الملف
         EventBus.emit('image-cleared'); 
     },
+    
+    // 🌟 استبدال كود معالجة رفع الصورة القديم
     handleImageUpload: function(inputElement, previewId, wrapperId) {
         const file = inputElement.files[0];
         if (!file) return;
+        
+        this.tempFile = file; // 🌟 الاحتفاظ بالملف الحقيقي للرفع السحابي لاحقاً
+
         this.processImage(file, (url) => {
-            this.tempImg = url;
+            this.tempImg = url; // Base64 للمعاينة البصرية السريعة فقط
             EventBus.emit('image-uploaded', url); 
             const prevEl = document.getElementById(previewId); const wrapEl = wrapperId ? document.getElementById(wrapperId) : null;
             if (prevEl) { prevEl.src = url; prevEl.classList.remove('hide-element'); }
             if (wrapEl) wrapEl.classList.add('has-img');
         });
     },
+
     processImage: async function(file, callback) {
         if(!file) return;
         this.toggleLoader(true, 'جاري معالجة الصورة...');

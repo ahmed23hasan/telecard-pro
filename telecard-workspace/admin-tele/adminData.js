@@ -356,155 +356,37 @@ export const AdminData = {
         this.data.tiers = [defaultTier]; 
         await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);
     },
-
     // ==========================================
-    // 🌟 العقل المحاسبي المركزي المطور (SSOT)
+    // 🌟 العقل المحاسبي المركزي (تم ترحيله للسحابة لمنع اختناق المتصفح)
+    // ==========================================
+        // ==========================================
+    // 🌟 العقل المحاسبي المركزي (تم ترحيله للسحابة بالكامل)
     // ==========================================
     calculateAllStoreStats: async function() {
-        const users = Array.isArray(this.data.users) ? this.data.users : [];
-        const orders = Array.isArray(this.data.orders) ? this.data.orders : [];
-        const tiers = Array.isArray(this.data.tiers) ? this.data.tiers : [];
-
-        const prodLookup = {};
-        (this.data.prods || []).forEach(p => {
-            prodLookup[p.id] = { catId: p.catId, name: p.name, unitCost: Number(p.costPrice || p.unitCost || 0) };
-        });
-
-        const userTierMap = {};
-        users.forEach(u => { userTierMap[u.id] = String(u.tierId || ''); });
-
-        const globalStats = {
-            financials: { totalRevenue: 0, totalProfit: 0, totalCost: 0 },
-            orders: { total: 0, completed: 0, rejected: 0, refunded: 0, revenue: 0, profit: 0 }, 
-            deposits: { total: 0, approved: 0, rejected: 0, refunded: 0 },
-            tierStats: {}, 
-            promoStats: { totalDiscountAmount: 0, discountedRevenue: 0, totalDiscountedOrders: 0, couponUsageMap: {}, offerUsageMap: {} },
-            daily: {}, 
-            sales: { apiCount: 0, apiCompleted: 0, manualCount: 0, manualCompleted: 0, categories: {}, products: {} }
-        };
-
-        tiers.forEach(t => { globalStats.tierStats[t.id] = { name: t.name, revenue: 0, profit: 0, orderCount: 0 }; });
-
-        const spendMap = {}, monthlySpendMap = {}, countMap = {}, monthlyCountMap = {};
-
-        orders.forEach(o => {
-            globalStats.orders.total++;
-            const pInfo = prodLookup[o.productId] || { catId: 'unknown', name: o.product || 'منتج محذوف', unitCost: 0 };
-            const isApi = (o.isApi === true || o.source === 'api');
+        console.log("🚀 جاري الاتصال بالسحابة لضبط الإحصائيات المركزية...");
+        
+        try {
+            const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js");
+            const functions = getFunctions();
             
-            let exactPriceUsd = Number(o.baseUsd || o.price || 0);
-            let profit = 0, cost = 0, discountAmount = 0;
-            let isMarketingDiscount = false, discountType = null, discountRef = null;
-
-            if (o.pricingSnapshot) {
-                exactPriceUsd = Number(o.pricingSnapshot.finalPriceUsd || o.pricingSnapshot.finalPrice || exactPriceUsd);
-                profit = Number(o.pricingSnapshot.netProfitUsd || o.pricingSnapshot.profit || 0);
-                cost = exactPriceUsd - profit;
-                const dType = o.pricingSnapshot.discountType;
-                if (dType === 'offer' || dType === 'coupon' || o.couponCode) {
-                    discountAmount = Number(o.pricingSnapshot.totalDiscount || o.pricingSnapshot.totalDiscountUsd || 0);
-                    isMarketingDiscount = true; discountType = dType || 'coupon'; discountRef = o.pricingSnapshot.discountRef || o.couponCode || 'عرض';
-                }
-            } else {
-                cost = Number(o.costPrice || (o.unitCost !== undefined ? o.unitCost : pInfo.unitCost)) * Number(o.qty || 1);
-                profit = exactPriceUsd - cost;
-                if (o.couponCode) { isMarketingDiscount = true; discountType = 'coupon'; discountRef = o.couponCode; }
-            }
+            // الاتصال بدالة الصيانة السحابية التي أنشأناها
+            const calculateCloudFn = httpsCallable(functions, 'calculateStoreStatsCloud');
             
-            if (isApi) globalStats.sales.apiCount++; else globalStats.sales.manualCount++;
-
-            if (!globalStats.sales.products[o.productId]) {
-                globalStats.sales.products[o.productId] = { name: pInfo.name, count: 0, revenue: 0, profit: 0, cost: 0, rejected: 0 };
-            }
-            if (!globalStats.sales.categories[pInfo.catId]) {
-                globalStats.sales.categories[pInfo.catId] = { count: 0, revenue: 0, profit: 0, cost: 0 };
-            }
-
-            if (o.status === 'completed') {
-                globalStats.orders.completed++;
-                globalStats.orders.revenue += exactPriceUsd; 
-                globalStats.orders.profit += profit; 
-                
-                globalStats.financials.totalRevenue += exactPriceUsd;
-                globalStats.financials.totalProfit += profit;
-                globalStats.financials.totalCost += cost;
-
-                if (isApi) globalStats.sales.apiCompleted++; else globalStats.sales.manualCompleted++;
-
-                globalStats.sales.products[o.productId].count++;
-                globalStats.sales.products[o.productId].revenue += exactPriceUsd;
-                globalStats.sales.products[o.productId].profit += profit;
-                globalStats.sales.products[o.productId].cost += cost;
-
-                globalStats.sales.categories[pInfo.catId].count++;
-                globalStats.sales.categories[pInfo.catId].revenue += exactPriceUsd;
-                globalStats.sales.categories[pInfo.catId].profit += profit;
-                globalStats.sales.categories[pInfo.catId].cost += cost;
-
-                const d = new Date(o.time || o.date || 0);
-                const dayKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-                const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-
-                if (!globalStats.daily[dayKey]) globalStats.daily[dayKey] = { revenue: 0, profit: 0, cost: 0 };
-                globalStats.daily[dayKey].revenue += exactPriceUsd;
-                globalStats.daily[dayKey].profit += profit;
-                globalStats.daily[dayKey].cost += cost;
-
-                const uTierId = userTierMap[o.userId];
-                if (uTierId && globalStats.tierStats[uTierId]) {
-                    globalStats.tierStats[uTierId].revenue += exactPriceUsd;
-                    globalStats.tierStats[uTierId].profit += profit;
-                    globalStats.tierStats[uTierId].orderCount++;
+            const result = await calculateCloudFn();
+            
+            if (result.data.success) {
+                console.log("✅ السحابة أنهت الحسابات بنجاح.");
+                // إعادة جلب مستند الإحصائيات المحدث فقط لتعكس الواجهة الأرقام الجديدة
+                const sysRef = await FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton');
+                if (sysRef && sysRef.globalStats) {
+                    this.data.system.globalStats = sysRef.globalStats;
                 }
-
-                if (isMarketingDiscount) {
-                    globalStats.promoStats.totalDiscountedOrders++;
-                    globalStats.promoStats.discountedRevenue += exactPriceUsd; 
-                    globalStats.promoStats.totalDiscountAmount += discountAmount;
-                    const code = discountRef || o.couponCode;
-                    if (discountType === 'coupon' || o.couponCode) globalStats.promoStats.couponUsageMap[code] = (globalStats.promoStats.couponUsageMap[code] || 0) + 1;
-                    else globalStats.promoStats.offerUsageMap[discountRef] = (globalStats.promoStats.offerUsageMap[discountRef] || 0) + 1;
-                }
-
-                const uid = String(o.userId);
-                spendMap[uid] = (spendMap[uid] || 0) + exactPriceUsd;
-                if (!monthlySpendMap[uid]) monthlySpendMap[uid] = {};
-                monthlySpendMap[uid][monthKey] = (monthlySpendMap[uid][monthKey] || 0) + exactPriceUsd;
-                countMap[uid] = (countMap[uid] || 0) + 1;
-                if (!monthlyCountMap[uid]) monthlyCountMap[uid] = {};
-                monthlyCountMap[uid][monthKey] = (monthlyCountMap[uid][monthKey] || 0) + 1;
-
-            } else if (o.status === 'rejected') { 
-                globalStats.orders.rejected++; 
-                globalStats.sales.products[o.productId].rejected++; 
-            } else if (o.status === 'refunded' || o.status === 'returned') { 
-                globalStats.orders.refunded++; 
+                return true;
             }
-        });
-
-        (this.data.deposits || []).forEach(d => {
-            globalStats.deposits.total++;
-            if (d.status === 'approved') globalStats.deposits.approved++;
-            else if (d.status === 'rejected') globalStats.deposits.rejected++;
-            else if (d.status === 'refunded') globalStats.deposits.refunded++;
-        });
-
-        if (!this.data.system) this.data.system = {};
-        this.data.system.globalStats = globalStats;
-        await this.saveSystemSettings();
-
-        let usersChanged = false;
-        users.forEach(u => {
-            const uid = String(u.id);
-            const newTotalSpend = spendMap[uid] || 0;
-            const newTotalOrders = countMap[uid] || 0;
-            if (u.totalSpent !== newTotalSpend || u.totalOrdersCount !== newTotalOrders) {
-                u.totalSpent = newTotalSpend; u.totalOrdersCount = newTotalOrders;
-                u.monthlySpent = monthlySpendMap[uid] || {}; u.monthlyOrders = monthlyCountMap[uid] || {};
-                usersChanged = true;
-            }
-        });
-        if (usersChanged) await this.saveUsers();
+        } catch (error) {
+            console.error("❌ فشل الاتصال بالسحابة لحساب الإحصائيات:", error);
+            return false;
+        }
     },
 
     getFilteredSalesStats: function(range = 'all') {

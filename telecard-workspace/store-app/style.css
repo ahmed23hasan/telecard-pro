@@ -354,6 +354,32 @@ input, button, select, textarea, .nav-menu .nav-item, .form-label,
 }
 
 .main-scroll::-webkit-scrollbar, .content-area::-webkit-scrollbar, .grid-layout::-webkit-scrollbar, .pm-scroll-content::-webkit-scrollbar { width: 0px; background: transparent; }
+/* 🌟 تنسيق تنبيه العملة (Identity Warning Box) */
+.identity-warning-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    margin: 15px 0;
+    border-radius: var(--radius-md);
+    /* تنسيق ألوان متناسق مع الثيم */
+    background: var(--warning-bg); 
+    border: 1px solid rgba(var(--warning-rgb), 0.3);
+    color: var(--warning);
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.5;
+}
+
+.identity-warning-box i {
+    font-size: 18px;
+    flex-shrink: 0;
+    color: var(--warning);
+}
+
+.identity-warning-box span {
+    text-align: right;
+}
 
 
 /* =========================================================

@@ -9,6 +9,7 @@ import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { AppController } from '../../core/appController.js';
 import { TelecardPricingEngine } from '../../adminConfig.js';
+import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const CatalogController = {
     tempPackages: [],
@@ -41,7 +42,7 @@ export const CatalogController = {
         AdminUI?.CatalogUI?.renderPricePreview?.(type, cost, tiers, this.tempPackages, TelecardPricingEngine);
     },
 
-    saveProd: async function() {
+        saveProd: async function() {
         const name = Utils.escapeHTML(Utils.getVal('pr-name'));
         const type = Utils.getVal('pr-type');
         
@@ -56,12 +57,23 @@ export const CatalogController = {
             return;
         }
 
-        EventBus.emit('req-show-loader', true); // 🌟 إظهار التحميل لمنع التعديل المزدوج
+        EventBus.emit('req-show-loader', true); 
 
         try {
             const hasImg = AdminUI?.CatalogUI?.hasImage?.('pr-img-wrap');
             const oldImg = AppController.tempEditId ? AdminData.data.prods.find(x => String(x.id) === String(AppController.tempEditId))?.img : null;
-            const finalImg = hasImg ? (AppController.tempImg || oldImg || '') : '';
+            
+            // 🌟 محرك الرفع السحابي لصور المنتجات
+            let finalImg = '';
+            if (hasImg) {
+                if (AdminUI?.tempFile) {
+                    EventBus.emit('req-show-toast', {message:'جاري رفع صورة المنتج للسحابة...', type:'info'});
+                    finalImg = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'products');
+                } else {
+                    finalImg = oldImg || ''; // إبقاء الصورة القديمة إذا لم يتم تغييرها
+                }
+            }
+
             const vaultPoolId = Utils.getVal('pr-vault');
 
             let newProd = {
@@ -115,7 +127,7 @@ export const CatalogController = {
             }
 
             await AdminData?.saveProducts?.();
-            AdminData?.loadData?.(true); // تحديث واجهة العرض
+            AdminData?.loadData?.(true); 
             
             AppController.finishAction('req-render-prods', null, isEdit ? 'EDIT_PROD' : 'ADD_PROD', `تم ${isEdit ? 'تعديل' : 'إضافة'} منتج: ${name}`, 'تم حفظ المنتج بنجاح');
             
@@ -139,7 +151,18 @@ export const CatalogController = {
         try {
             const hasImg = AdminUI?.CatalogUI?.hasImage?.('c-img-wrap');
             const oldImg = AppController.tempEditId ? AdminData.data.cats.find(c => String(c.id) === String(AppController.tempEditId))?.img : null;
-            const finalImg = hasImg ? (AppController.tempImg || oldImg || '') : '';
+            
+            // 🌟 محرك الرفع السحابي لصور الأقسام
+            let finalImg = '';
+            if (hasImg) {
+                if (AdminUI?.tempFile) {
+                    EventBus.emit('req-show-toast', {message:'جاري رفع صورة القسم للسحابة...', type:'info'});
+                    finalImg = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'categories');
+                } else {
+                    finalImg = oldImg || ''; 
+                }
+            }
+
             const isEdit = !!AppController.tempEditId;
 
             if (isEdit) {
@@ -171,6 +194,47 @@ export const CatalogController = {
             EventBus.emit('req-show-loader', false);
         }
     },
+    deleteProduct: async function(id) {
+        if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من حذف هذا المنتج نهائياً؟')) {
+            const prodId = String(id);
+            const prodName = AdminData.data.prods.find(p => String(p.id) === prodId)?.name || 'المنتج';
+            
+            AdminData.data.prods = AdminData.data.prods.filter(p => String(p.id) !== prodId);
+            await AdminData?.saveProducts?.();
+            
+            if (AdminData?.addLog) AdminData.addLog('DELETE_PROD', `تم حذف المنتج: ${prodName}`);
+            
+            EventBus.emit('req-render-prods');
+            EventBus.emit('req-show-toast', { message: 'تم حذف المنتج بنجاح', type: 'success' });
+        }
+    },
+
+    deleteCategory: async function(id) {
+        if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من حذف هذا القسم؟ (سيتم حذف المنتجات والأقسام الفرعية المرتبطة به مباشرة)')) {
+            const catId = String(id);
+            const catName = AdminData.data.cats.find(c => String(c.id) === catId)?.name || 'القسم';
+            
+            // حذف القسم الأساسي
+            AdminData.data.cats = AdminData.data.cats.filter(c => String(c.id) !== catId);
+            // حذف الأقسام الفرعية مباشرة
+            AdminData.data.cats = AdminData.data.cats.filter(c => String(c.parentId) !== catId);
+            // حذف المنتجات داخل القسم
+            AdminData.data.prods = AdminData.data.prods.filter(p => String(p.catId) !== catId);
+            
+            await AdminData?.saveCategories?.();
+            await AdminData?.saveProducts?.();
+            
+            if (AdminData?.addLog) AdminData.addLog('DELETE_CAT', `تم حذف القسم: ${catName} ومحتوياته`);
+            
+            // في حال كنا داخل القسم المحذوف نعود للخلف
+            if (String(AppController.currFolder) === catId) {
+                AppController.updateState({ currFolder: null });
+            }
+            
+            EventBus.emit('req-render-prods');
+            EventBus.emit('req-show-toast', { message: 'تم حذف القسم ومحتوياته بنجاح', type: 'success' });
+        }
+    },
 
     changeGridLayout: async function(cols) {
         const parsedCols = parseInt(cols) || 2;
@@ -188,6 +252,18 @@ export const CatalogController = {
         }
         EventBus.emit('req-show-toast', {message:'تم حفظ التخطيط بنجاح', type:'success'});
         AdminUI?.CatalogUI?.updateGridCssCols?.(parsedCols);
+    },
+
+    toggleGridSync: async function(isChecked) {
+        if (!AdminData.data.settings) AdminData.data.settings = {};
+        AdminData.data.settings.syncGridLayout = isChecked;
+        await AdminData?.saveSystemSettings?.();
+        
+        if (isChecked) {
+            EventBus.emit('req-show-toast', {message: 'تم التفعيل: سيتم تطبيق التخطيط على المتجر', type: 'success'});
+        } else {
+            EventBus.emit('req-show-toast', {message: 'تم الإيقاف: سيعود المتجر للشكل الافتراضي', type: 'info'});
+        }
     },
 
     addPackage: function() {
@@ -210,8 +286,40 @@ export const CatalogController = {
     },
 
     // =========================================================
-    // 🌍 2. إدارة الدول ومناطق الخدمة
+    // 🌍 2. إدارة الدول ومناطق الخدمة والترميم التلقائي
     // =========================================================
+    validateAndHealCountries: async function() {
+        const countries = AdminData.data.countries || [];
+        if(countries.length === 0) return;
+
+        let needsMigration = false;
+        const normalizedCountries = countries.map(c => {
+            if (!c.flag || !c.currency) {
+                needsMigration = true;
+                return {
+                    ...c,
+                    flag: c.flag || '🇸🇦',
+                    currency: c.currency || 'SAR',
+                    dialCode: c.dialCode || '+966',
+                    code: c.code || 'SA'
+                };
+            }
+            return c;
+        });
+
+        if (needsMigration) {
+            console.warn("⚠️ تم اكتشاف بيانات دول قديمة، جاري الترميم التلقائي في السحابة...");
+            AdminData.data.countries = normalizedCountries;
+            try {
+                if (typeof AdminData.saveCountries === 'function') {
+                    await AdminData.saveCountries();
+                }
+            } catch(err) {
+                console.error("فشل الترحيل الصامت:", err);
+            }
+        }
+    },
+
     saveCountry: async function() {
         const editId = Utils.getVal('country-edit-id');
         const nameAr = Utils.escapeHTML(Utils.getVal('country-name'));
@@ -267,7 +375,6 @@ export const CatalogController = {
     },
     
     deleteCountry: async function(id) {
-        // 🛡️ جدار الحماية: منع حذف الدولة الأخيرة في النظام
         if (AdminData.data.countries && AdminData.data.countries.length <= 1) {
             EventBus.emit('req-show-toast', { message: 'إجراء محظور: يجب أن يحتوي المتجر على دولة واحدة على الأقل لمنع انهيار واجهات الدفع.', type: 'error' });
             return false; 

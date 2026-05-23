@@ -1,7 +1,7 @@
 // ============================================================================
 // ⚙️ وحدة الأساسيات والنواة (uiCore.js) - ES6 Module
 // 🎯 الوظيفة: النوافذ، الإشعارات، القائمة الجانبية، النسخ، الثيم، والتوجيه العام
-// 🚀 التحديث: تطبيق مبدأ DRY بشكل صارم وتوحيد دورة حياة إغلاق النوافذ
+// 🚀 التحديث: تفويض الأحداث، تطهير الـ HTML، وحل مشكلة فقدان سياق (Context Loss)
 // ============================================================================
 
 import { DB_KEYS } from '../config.js';           
@@ -10,6 +10,9 @@ import { DataManager, LiveStoreData } from '../dataManager.js';
 import { RenderManager } from '../renderManager.js'; 
 import { Components } from '../components.js';     
 import { RenderHelpers } from '../core/renderHelpers.js'; 
+
+// 🌟 دالة مساعدة للوصول الآمن للمحرك المركزي
+const getSys = () => window.ClientSystem || window.UIManager || {};
 
 export const UICore = {
     activeModals: [],
@@ -27,7 +30,7 @@ export const UICore = {
         const icon = document.getElementById('theme-toggle-icon');
         if (icon) icon.className = isLightMode ? 'fa-solid fa-moon' : 'sun-dots-icon';
         localStorage.setItem('telecard_theme', isLightMode ? 'light' : 'dark');
-        if(typeof this.sfx === 'function') this.sfx('nav');
+        getSys().sfx?.('nav');
     },
 
     applySavedTheme: function() {
@@ -42,12 +45,9 @@ export const UICore = {
         }
     },
 
-    // 🌟 توحيد استخراج اسم المستخدم (DRY Principle)
-        // 🌟 توحيد استخراج اسم المستخدم (مع احترام أولوية الهوية الموثقة)
     _getFullName: function(user) {
         const u = user || DataManager.user || {}; 
 
-        // 🌟 الإصلاح الجذري: فحص حالة (KYC) الحقيقية وليس توثيق الهاتف
         const isKycApproved = (u.kycStatus === 'approved' || u.kycStatus === 'verified');
 
         if (isKycApproved) {
@@ -65,8 +65,8 @@ export const UICore = {
         
         return 'العميل';
     },
-    // 🌟 استدعاء الدالة الموحدة لمنع تكرار الشروط
-        _getTxNameWithID: function(user) {
+
+    _getTxNameWithID: function(user) {
         const u = user || DataManager.user || {}; 
         const namePart = u.username ? `@${u.username}` : this._getFullName(u);
         const displayId = u.displayId || (u.id ? u.id.substring(0, 6) : '---');
@@ -84,7 +84,7 @@ export const UICore = {
     // =========================================================
     // 🪟 2. الإدارة المركزية للنوافذ (Modals & Resets)
     // =========================================================
-        openModal: function(modalId) {
+    openModal: function(modalId) {
         const overlay = document.getElementById(`${modalId}-overlay`);
         const modal = document.getElementById(`${modalId}-modal`);
         if (!modal) return;
@@ -100,38 +100,31 @@ export const UICore = {
         modal.classList.add('active');
         if (!this.activeModals.includes(modalId)) this.activeModals.push(modalId);
 
-        // 🌟 المنطق الخاص بنافذة إتمام البيانات
         if (modalId === 'identity') {
             const listTarget = document.getElementById('countries-list-target');
             if (listTarget) listTarget.innerHTML = '<div class="dropdown-item" style="justify-content: center; color: var(--text-muted);">جاري تحميل الدول...</div>';
             
-            // تحميل الدول (موجود سابقاً)
             if (typeof DataManager.getAdminCountries === 'function') {
                 DataManager.getAdminCountries().then(countries => {
                     if (RenderManager.renderCountryList) RenderManager.renderCountryList(countries);
                 });
             }
             
-            // 🌟 الإضافة الجديدة: تحميل قائمة العملات ديناميكياً فور فتح النافذة
-            if (typeof this.loadDynamicCurrenciesForModal === 'function') {
-                this.loadDynamicCurrenciesForModal();
-            }
+            getSys().loadDynamicCurrenciesForModal?.();
         }
 
         if (modalId === 'kyc-upload') {
-            if (typeof this.prepareKycModalState === 'function') {
-                this.prepareKycModalState();
-            }
+            getSys().prepareKycModalState?.();
         }
     },
+
     closeModal: function(modalId) {
-        if (!modalId) { if(typeof this.closePurchaseModal === 'function') this.closePurchaseModal(); return; }
+        if (!modalId) { getSys().closePurchaseModal?.(); return; }
         const overlay = document.getElementById(`${modalId}-overlay`);
         const modal = document.getElementById(`${modalId}-modal`);
         
         if (modal) {
             modal.classList.remove('active');
-            // 🌟 الإصلاح: نقل إعادة ضبط التمرير هنا ليعمل أينما تم إغلاق النافذة وليس فقط في resetUI
             setTimeout(() => {
                 modal.scrollTop = 0;
                 const innerScrolls = modal.querySelectorAll('.pm-scroll-content, .scrollable, .modal-content, .profile-container, .profile-pass-body, [id$="-list"]');
@@ -143,7 +136,6 @@ export const UICore = {
         
         if (this.activeModals && Array.isArray(this.activeModals)) {
             this.activeModals = this.activeModals.filter(id => id !== modalId);
-            // يتم إرجاع التمرير للشاشة الرئيسية فقط إذا لم يكن هناك نوافذ أخرى أو قائمة مفتوحة
             if (this.activeModals.length === 0 && !document.querySelector('.sidebar.active')) {
                 document.body.classList.remove('no-scroll');
             }
@@ -156,7 +148,6 @@ export const UICore = {
         }
     },
 
-    // 🚀 الإصلاح الجذري: تطبيق DRY والاعتماد على دورة حياة النوافذ الحقيقية
     resetUI: function() {
         const sidebar = document.querySelector('.sidebar') || document.getElementById('cs-menu');
         const sidebarOverlay = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
@@ -164,10 +155,8 @@ export const UICore = {
         if (sidebar) sidebar.classList.remove('active');
         if (sidebarOverlay) sidebarOverlay.classList.remove('active');
 
-        // الاعتماد المباشر على دالة إغلاق النوافذ (مصدر واحد للحقيقة) بدلاً من تكرار الكود
         this.closeAllModals();
 
-        // إغلاق القوائم المنسدلة والعناصر الفرعية
         document.querySelectorAll('.nm-container').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.ct-menu').forEach(el => el.classList.remove('open', 'active'));
         document.querySelectorAll('.custom-dropdown-container').forEach(el => el.classList.remove('open'));
@@ -188,7 +177,6 @@ export const UICore = {
         const searchInputs = ['store-search-input', 'order-search-input', 'wallet-search-input', 'pay-search-input'];
         searchInputs.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 
-        // التحقق الذكي قبل تفعيل التمرير للصفحة
         if (!document.querySelector('.sidebar.active') && this.activeModals.length === 0) {
             document.body.classList.remove('no-scroll');
         }
@@ -216,7 +204,7 @@ export const UICore = {
     },
 
     openTermsModal: function() {
-        if(typeof this.closeSidebar === 'function') this.closeSidebar();
+        getSys().closeSidebar?.();
         const settings = LiveStoreData.settings || {};
         const termsContent = document.getElementById('store-terms-content');
         if (termsContent) termsContent.innerText = settings.terms || 'لا توجد شروط وأحكام مسجلة حالياً.';
@@ -230,8 +218,8 @@ export const UICore = {
         this.resetUI();
         if(DataManager.syncUser) DataManager.syncUser(); 
         
-        if(typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
-        if(typeof this.updateDisplayBalance === 'function') this.updateDisplayBalance();
+        getSys().updateProfileDisplay?.();
+        getSys().updateDisplayBalance?.();
 
         const menu = document.querySelector('.sidebar') || document.getElementById('cs-menu');
         const overlay = document.getElementById('cs-overlay') || document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
@@ -245,14 +233,13 @@ export const UICore = {
             menu.scrollTop = 0;
             this.initSwipeGestures(menu, overlay);
         }
-        if(typeof this.saveDisplayState === 'function') this.saveDisplayState();
+        getSys().saveDisplayState?.();
     },
 
     closeSidebar: function() { 
         const menu = document.querySelector('.sidebar') || document.getElementById('cs-menu');
         const overlay = document.getElementById('cs-overlay') || document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
         
-        // التحقق الذكي قبل الإزالة
         if (this.activeModals.length === 0) {
             document.body.classList.remove('no-scroll');
         }
@@ -260,13 +247,13 @@ export const UICore = {
         if(menu) { menu.classList.remove('active'); menu.style.transform = ''; }
         if(overlay) overlay.classList.remove('active'); 
         this.removeSidebarClickOutsideDetector();
-        if(typeof this.saveDisplayState === 'function') this.saveDisplayState();
+        getSys().saveDisplayState?.();
     },
 
     bindSidebarProfileTriggers: function() {
         const avatarEl = document.getElementById('cs-avatar');
         const nameEl = document.getElementById('cs-name');
-        const handleProfileClick = (e) => { e.preventDefault(); e.stopPropagation(); if(typeof this.openProfileInfo === 'function') this.openProfileInfo(); if(typeof this.sfx === 'function') this.sfx('nav'); };
+        const handleProfileClick = (e) => { e.preventDefault(); e.stopPropagation(); getSys().openProfileInfo?.(); getSys().sfx?.('nav'); };
 
         if (avatarEl && !avatarEl.dataset.eventBound) { avatarEl.addEventListener('click', handleProfileClick); avatarEl.dataset.eventBound = "true"; avatarEl.style.cursor = 'pointer'; }
         if (nameEl && !nameEl.dataset.eventBound) { nameEl.addEventListener('click', handleProfileClick); nameEl.dataset.eventBound = "true"; nameEl.style.cursor = 'pointer'; }
@@ -279,7 +266,7 @@ export const UICore = {
             const overlay = document.getElementById('cs-overlay') || document.getElementById('sidebarOverlay');
             if (!sidebar || !sidebar.classList.contains('active')) return;
             const isClickInsideSidebar = sidebar.contains(event.target);
-            const isClickOnHamburger = event.target.closest('.hamburger') || event.target.closest('[onclick*="openSidebar"]');
+            const isClickOnHamburger = event.target.closest('.hamburger') || event.target.closest('[data-action="open-sidebar"]');
             const isClickOnOverlay = event.target === overlay;
             if (isClickOnOverlay || (!isClickInsideSidebar && !isClickOnHamburger)) this.closeSidebar();
         };
@@ -296,7 +283,7 @@ export const UICore = {
             const sidebar = document.querySelector('.sidebar') || document.getElementById('cs-menu');
             if (!sidebar || !sidebar.classList.contains('active')) return;
             const isClickInsideSidebar = sidebar.contains(event.target);
-            const isClickOnHamburger = event.target.closest('.hamburger') || event.target.closest('[onclick*="openSidebar"]');
+            const isClickOnHamburger = event.target.closest('.hamburger') || event.target.closest('[data-action="open-sidebar"]');
             if (!isClickInsideSidebar && !isClickOnHamburger) {
                 event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation();
                 this.closeSidebar();
@@ -417,11 +404,11 @@ export const UICore = {
     },
 
     navigateHome: function() { this.closeSidebar(); if(RenderManager.renderHome) RenderManager.renderHome(); },
-            openFavorites: function() { 
-        // 🛑 حماية الجدار للضيوف (تطرد الضيف فوراً لصفحة الدخول)
+    
+    openFavorites: function() { 
         if (!DataManager || !DataManager.user) {
-            if(typeof this.showToast === 'function') this.showToast('يجب تسجيل الدخول لعرض مفضلتك', 'error');
-            if(typeof this.sfx === 'function') this.sfx('error');
+            getSys().showToast?.('يجب تسجيل الدخول لعرض مفضلتك', 'error');
+            getSys().sfx?.('error');
             setTimeout(() => { window.location.href = 'login.html'; }, 1500);
             return;
         }
@@ -431,11 +418,11 @@ export const UICore = {
         if(RenderManager.renderFavorites) RenderManager.renderFavorites(); 
     },
 
-    navigateBalance: function() { this.closeSidebar(); if(typeof this.openAddBalance === 'function') this.openAddBalance(); },
-    navigateMyPayments: function() { this.closeSidebar(); if(typeof this.openMyPayments === 'function') this.openMyPayments(); },
-    navigateOrders: function() { this.closeSidebar(); if(typeof this.openOrders === 'function') this.openOrders(); },
-    navigateWallet: function() { this.closeSidebar(); if(typeof this.openWallet === 'function') this.openWallet(); },
-    navigateSettings: function() { this.closeSidebar(); if(typeof this.openSettings === 'function') this.openSettings(); },
+    navigateBalance: function() { this.closeSidebar(); getSys().openAddBalance?.(); },
+    navigateMyPayments: function() { this.closeSidebar(); getSys().openMyPayments?.(); },
+    navigateOrders: function() { this.closeSidebar(); getSys().openOrders?.(); },
+    navigateWallet: function() { this.closeSidebar(); getSys().openWallet?.(); },
+    navigateSettings: function() { this.closeSidebar(); getSys().openSettings?.(); },
 
     openCategory: function(id) {
         if (!this.historyStateSet) {
@@ -492,45 +479,68 @@ export const UICore = {
         if (prevId === 'HOME' || prevId === null) { if(RenderManager.renderHome) RenderManager.renderHome(true); } 
         else { this.currentCategoryId = prevId; if(RenderManager._renderContent) RenderManager._renderContent(prevId); }
     },
+
     openOrders: function() { 
-        // 🛑 حماية الجدار للضيوف
         if (!DataManager || !DataManager.user) {
-            if(typeof this.showToast === 'function') this.showToast('يجب تسجيل الدخول لعرض طلباتك', 'error');
-            if(typeof this.sfx === 'function') this.sfx('error');
+            getSys().showToast?.('يجب تسجيل الدخول لعرض طلباتك', 'error');
+            getSys().sfx?.('error');
             setTimeout(() => { window.location.href = 'login.html'; }, 1500);
             return;
         }
         this.resetUI();
-        if(typeof this.setFilterDefaults === 'function') this.setFilterDefaults('order');
+        getSys().setFilterDefaults?.('order');
         if(RenderManager.renderOrders) RenderManager.renderOrders(); 
         setTimeout(() => { this.openModal('orders'); }, 10);
     },
 
     openWallet: function() { 
-        // 🛑 حماية الجدار للضيوف
         if (!DataManager || !DataManager.user) {
-            if(typeof this.showToast === 'function') this.showToast('يجب تسجيل الدخول لعرض محفظتك', 'error');
-            if(typeof this.sfx === 'function') this.sfx('error');
+            getSys().showToast?.('يجب تسجيل الدخول لعرض محفظتك', 'error');
+            getSys().sfx?.('error');
             setTimeout(() => { window.location.href = 'login.html'; }, 1500);
             return;
         }
         this.resetUI();
-        if(typeof this.setFilterDefaults === 'function') this.setFilterDefaults('wallet'); 
-        if(typeof this.updateDisplayBalance === 'function') this.updateDisplayBalance();
+        getSys().setFilterDefaults?.('wallet'); 
+        getSys().updateDisplayBalance?.();
         if(RenderManager.renderWallet) RenderManager.renderWallet(); 
+
+        this._syncWalletBlur();
+
         setTimeout(() => { this.openModal('wallet'); }, 10);
     },
 
+    _syncWalletBlur: function() {
+        const drawer = document.getElementById('walletStatsDrawer');
+        const walletModal = document.getElementById('wallet-modal');
+        
+        if (!drawer || !walletModal || drawer._hasBlurObserver) return;
+
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((m) => {
+                if (m.attributeName === 'class') {
+                    if (!drawer.classList.contains('active')) {
+                        walletModal.classList.remove('drawer-blur-active');
+                        const arrowBtn = document.querySelector('.detail-arrow'); 
+                        if (arrowBtn) arrowBtn.classList.remove('open');
+                    }
+                }
+            });
+        });
+
+        observer.observe(drawer, { attributes: true, attributeFilter: ['class'] });
+        drawer._hasBlurObserver = true;
+    },
+
     openMyPayments: function() { 
-        // 🛑 حماية الجدار للضيوف
         if (!DataManager || !DataManager.user) {
-            if(typeof this.showToast === 'function') this.showToast('يجب تسجيل الدخول لعرض سجل الدفعات', 'error');
-            if(typeof this.sfx === 'function') this.sfx('error');
+            getSys().showToast?.('يجب تسجيل الدخول لعرض سجل الدفعات', 'error');
+            getSys().sfx?.('error');
             setTimeout(() => { window.location.href = 'login.html'; }, 1500);
             return;
         }
         this.resetUI();
-        if(typeof this.setFilterDefaults === 'function') this.setFilterDefaults('payments');
+        getSys().setFilterDefaults?.('payments');
         if(RenderManager.renderPayments) RenderManager.renderPayments(); 
         setTimeout(() => { this.openModal('mypay'); }, 10);
     },
@@ -546,14 +556,58 @@ export const UICore = {
 
     closeOrders: function() { this._closeAndResetTabs('orders', 'orders', '#orders-tabs .mf-tab'); },
     
-    closeWallet: function() {
+        closeWallet: function() {
+        // 1. استهداف العناصر بذكاء
         const statsDrawer = document.getElementById('walletStatsDrawer');
         const arrowBtn = document.querySelector('.detail-arrow'); 
-        if (statsDrawer) statsDrawer.classList.remove('active'); 
+        const walletModal = document.getElementById('wallet-modal');
+
+        // 2. التنظيف الآمن (Safe Cleanup) - استخدام Optional Chaining إذا كان المتصفح حديثاً أو الفحص التقليدي
+        if (statsDrawer) {
+            statsDrawer.classList.remove('active');
+            // إزالة خصائص الـ CSS المضافة ديناميكياً لضمان عدم وجود تداخل
+            statsDrawer.style.removeProperty('max-height');
+        }
+        
         if (arrowBtn) arrowBtn.classList.remove('open'); 
-        this._closeAndResetTabs('wallet', 'wallet', '#wallet-tabs .mf-tab');
+        
+        if (walletModal) {
+            walletModal.classList.remove('drawer-blur-active');
+            // إعادة ضبط التمرير في المحفظة عند إغلاقها لتكون جاهزة للمرة القادمة
+            walletModal.scrollTop = 0;
+        }
+
+        // 3. إعادة التعيين عبر الدالة المركزية الموحدة
+        if (typeof this._closeAndResetTabs === 'function') {
+            this._closeAndResetTabs('wallet', 'wallet', '#wallet-tabs .mf-tab');
+        }
+
+        // 4. تسجيل العملية في سجل الأحداث (لأغراض التصحيح لاحقاً)
+        console.debug('Wallet drawer closed and state reset.');
     },
-    
+    setupWalletDrawerClickOutside: function() {
+        if (this._walletDrawerListenerBound) return;
+        
+        document.addEventListener('click', (e) => {
+            const drawer = document.getElementById('walletStatsDrawer');
+            const walletModal = document.getElementById('wallet-modal');
+            
+            const isClickOnToggleBtn = e.target.closest('[data-action="toggle-wallet-stats"]');
+            
+            if (drawer && drawer.classList.contains('active')) {
+                if (!drawer.contains(e.target) && !isClickOnToggleBtn) {
+                    drawer.classList.remove('active'); 
+                    if (walletModal) walletModal.classList.remove('drawer-blur-active'); 
+                    
+                    const arrowBtn = document.querySelector('.detail-arrow');
+                    if (arrowBtn) arrowBtn.classList.remove('open'); 
+                }
+            }
+        });
+        
+        this._walletDrawerListenerBound = true;
+    },
+
     closeMyPayments: function() { this._closeAndResetTabs('mypay', 'payments', '#payments-tabs .mf-tab'); },
 
     closeFavorites: function() {
@@ -575,7 +629,7 @@ export const UICore = {
     // 📋 4. العمليات المشتركة والإشعارات (Utilities & Alerts)
     // =========================================================
     copyToClipboard: function(text, element, type = 'default') {
-        if(typeof this.sfx === 'function') this.sfx('nav'); 
+        getSys().sfx?.('nav'); 
         const successVisuals = () => {
             this.showToast('تم النسخ', 'success');
             if (element) { 
@@ -625,9 +679,32 @@ export const UICore = {
     showAdminDirectMessage: function(msgText) {
         if (document.getElementById('admin-direct-msg-popup')) return;
         const safeMsg = Utils.escapeHtml(msgText);
-        const html = `<div id="admin-direct-msg-popup" class="sys-dialog-wrapper"><div class="sys-dialog-overlay"></div><div class="sys-dialog-card"><div class="sys-dialog-header"><div class="sys-dialog-icon"><i class="fa-solid fa-envelope-open-text fa-bounce"></i></div><h3 class="sys-dialog-title">رسالة إدارية هامة</h3></div><div class="sys-dialog-msg-container"><p class="sys-dialog-msg">${safeMsg}</p></div><div class="sys-dialog-actions"><button class="sys-dialog-btn" onclick="ClientSystem.ackAdminMessage(); document.getElementById('admin-direct-msg-popup').remove();">قرأت ذلك، شكراً</button></div></div></div>`;
+        
+        // 🌟 تطهير الـ HTML من onclick واستخدام addEventListener
+        const html = `
+            <div id="admin-direct-msg-popup" class="sys-dialog-wrapper">
+                <div class="sys-dialog-overlay"></div>
+                <div class="sys-dialog-card">
+                    <div class="sys-dialog-header">
+                        <div class="sys-dialog-icon"><i class="fa-solid fa-envelope-open-text fa-bounce"></i></div>
+                        <h3 class="sys-dialog-title">رسالة إدارية هامة</h3>
+                    </div>
+                    <div class="sys-dialog-msg-container">
+                        <p class="sys-dialog-msg">${safeMsg}</p>
+                    </div>
+                    <div class="sys-dialog-actions">
+                        <button id="ack-admin-msg-btn" class="sys-dialog-btn">قرأت ذلك، شكراً</button>
+                    </div>
+                </div>
+            </div>`;
+            
         document.body.insertAdjacentHTML('beforeend', html);
-        if(typeof this.sfx === 'function') this.sfx('success');
+        getSys().sfx?.('success');
+
+        document.getElementById('ack-admin-msg-btn').addEventListener('click', () => {
+            if (DataManager.ackAdminMessage) DataManager.ackAdminMessage();
+            document.getElementById('admin-direct-msg-popup').remove();
+        });
     },
 
     processAndDisplayAlerts: function() {
@@ -663,33 +740,62 @@ export const UICore = {
         let extraHtml = '';
         
         if (alertObj.couponCode) {
-            extraHtml += `<div class="mt-15" style="background: rgba(168, 85, 247, 0.1); border: 1px dashed #a855f7; padding: 12px; border-radius: 12px; text-align: center;"><div style="font-size: 11px; color: #a855f7; margin-bottom: 6px; font-weight: bold;">🎁 كود خصم حصري لك:</div><div style="display: flex; gap: 8px; justify-content: center; align-items: center;"><span class="num-en" style="font-size: 18px; font-weight: 900; color: #fff; letter-spacing: 2px;">${escapeHtml(alertObj.couponCode)}</span><button onclick="navigator.clipboard.writeText('${escapeHtml(alertObj.couponCode)}'); this.innerHTML='<i class=\\'fa-solid fa-check\\'></i>'; setTimeout(()=>this.innerHTML='<i class=\\'fa-solid fa-copy\\'></i>',2000);" style="background: #a855f7; border: none; color: #fff; border-radius: 8px; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s;"><i class="fa-solid fa-copy"></i></button></div></div>`;
+            extraHtml += `<div class="mt-15" style="background: rgba(168, 85, 247, 0.1); border: 1px dashed #a855f7; padding: 12px; border-radius: 12px; text-align: center;">
+                <div style="font-size: 11px; color: #a855f7; margin-bottom: 6px; font-weight: bold;">🎁 كود خصم حصري لك:</div>
+                <div style="display: flex; gap: 8px; justify-content: center; align-items: center;">
+                    <span class="num-en" style="font-size: 18px; font-weight: 900; color: #fff; letter-spacing: 2px;">${escapeHtml(alertObj.couponCode)}</span>
+                    <button id="adv-alert-copy-btn" data-code="${escapeHtml(alertObj.couponCode)}" style="background: #a855f7; border: none; color: #fff; border-radius: 8px; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s;">
+                        <i class="fa-solid fa-copy"></i>
+                    </button>
+                </div>
+            </div>`;
         }
 
         if (alertObj.actionLink) {
             extraHtml += `<a href="${escapeHtml(alertObj.actionLink)}" target="_blank" style="display: block; width: 100%; background: linear-gradient(135deg, #FFD700, #C5A028); color: #000; text-align: center; padding: 12px; border-radius: 10px; font-weight: 900; margin-top: 15px; text-decoration: none; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2); transition: 0.3s;">عرض التفاصيل الآن <i class="fa-solid fa-arrow-left" style="margin-right: 5px;"></i></a>`;
         }
 
-        const modalHtml = `<div id="advanced-alert-modal" class="modal-overlay active" style="z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);"><div class="sys-dialog-card" style="animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1); position: relative; max-width: 400px; width: 90%; background: #111a2b; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 25px;"><div class="sys-dialog-header" style="text-align: center; margin-bottom: 15px;"><div class="sys-dialog-icon" style="width: 50px; height: 50px; margin: 0 auto 15px; background: rgba(255, 215, 0, 0.15); color: #FFD700; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 1px solid #FFD700;"><i class="fa-solid fa-bell"></i></div><h3 class="sys-dialog-title" style="color: #FFD700; font-size: 18px; font-weight: 900; margin: 0;">${escapeHtml(title)}</h3></div><div class="sys-dialog-msg" style="color: #f1f5f9; font-size: 14px; line-height: 1.6; text-align: center; white-space: pre-wrap;">${escapeHtml(message)}</div>${extraHtml}<button id="close-advanced-alert" class="btn btn-ghost" style="width: 100%; margin-top: 20px; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 10px; color: #94a3b8; font-weight: 800; cursor: pointer; background: transparent;">إغلاق النافذة</button></div></div>`;
+        const modalHtml = `
+            <div id="advanced-alert-modal" class="modal-overlay active" style="z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);">
+                <div class="sys-dialog-card" style="animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1); position: relative; max-width: 400px; width: 90%; background: #111a2b; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 25px;">
+                    <div class="sys-dialog-header" style="text-align: center; margin-bottom: 15px;">
+                        <div class="sys-dialog-icon" style="width: 50px; height: 50px; margin: 0 auto 15px; background: rgba(255, 215, 0, 0.15); color: #FFD700; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 1px solid #FFD700;">
+                            <i class="fa-solid fa-bell"></i>
+                        </div>
+                        <h3 class="sys-dialog-title" style="color: #FFD700; font-size: 18px; font-weight: 900; margin: 0;">${escapeHtml(title)}</h3>
+                    </div>
+                    <div class="sys-dialog-msg" style="color: #f1f5f9; font-size: 14px; line-height: 1.6; text-align: center; white-space: pre-wrap;">${escapeHtml(message)}</div>
+                    ${extraHtml}
+                    <button id="close-advanced-alert" class="btn btn-ghost" style="width: 100%; margin-top: 20px; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 10px; color: #94a3b8; font-weight: 800; cursor: pointer; background: transparent;">إغلاق النافذة</button>
+                </div>
+            </div>`;
 
         document.body.insertAdjacentHTML('beforeend', modalHtml);
-        if(typeof this.sfx === 'function') this.sfx('success');
+        getSys().sfx?.('success');
+
+        const copyBtn = document.getElementById('adv-alert-copy-btn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', function() {
+                navigator.clipboard.writeText(this.dataset.code);
+                this.innerHTML = '<i class="fa-solid fa-check"></i>'; 
+                setTimeout(() => this.innerHTML = '<i class="fa-solid fa-copy"></i>', 2000);
+            });
+        }
 
         const closeBtn = document.getElementById('close-advanced-alert');
-        closeBtn.onclick = () => {
+        closeBtn.addEventListener('click', () => {
             const modal = document.getElementById('advanced-alert-modal');
             modal.style.transition = '0.3s ease'; modal.style.opacity = '0'; modal.style.transform = 'scale(0.9)';
             if (DataManager.markAlertAsRead) DataManager.markAlertAsRead(alertObj.id, true, alertObj.maxViews);
             this.updateNotifBadges();
             setTimeout(() => { modal.remove(); if (remainingQueue.length > 0) { setTimeout(() => this.showAdvancedPopup(remainingQueue[0], remainingQueue.slice(1)), 500); } }, 300);
-        };
+        });
     },
 
-        openNotifCenter: function() {
-        // 🛑 حماية الجدار للضيوف (تطرد الضيف فوراً لصفحة الدخول)
+    openNotifCenter: function() {
         if (!DataManager || !DataManager.user) {
-            if(typeof this.showToast === 'function') this.showToast('يجب تسجيل الدخول لعرض إشعاراتك', 'error');
-            if(typeof this.sfx === 'function') this.sfx('error');
+            getSys().showToast?.('يجب تسجيل الدخول لعرض إشعاراتك', 'error');
+            getSys().sfx?.('error');
             setTimeout(() => { window.location.href = 'login.html'; }, 1500);
             return;
         }
@@ -739,17 +845,16 @@ export const UICore = {
             el.className = ''; el.classList.add(type);
             if(icon) { icon.className = type === 'error' ? 'notif-icon fa-solid fa-circle-exclamation' : 'notif-icon fa-solid fa-circle-check'; }
             requestAnimationFrame(() => el.classList.add('active'));
-            if(typeof this.sfx === 'function') this.sfx(type === 'error' ? 'error' : 'success');
+            getSys().sfx?.(type === 'error' ? 'error' : 'success');
             this.notifTimer = setTimeout(() => { el.classList.remove('active'); }, 3000);
         }, 50);
     },
 
-        showToast: function(msg, type = 'info') {
-        // التحليل الذكي للنصوص (Auto-detect)
+    showToast: function(msg, type = 'info') {
         if (type === 'info') {
             if (msg.includes('فشل') || msg.includes('خطأ') || msg.includes('عذراً') || msg.includes('تنبيه') || msg.includes('كاف')) type = 'error';
             if (msg.includes('تم') || msg.includes('نجاح') || msg.includes('شكراً')) type = 'success';
-            if (msg.includes('مراجعة') || msg.includes('انتظار')) type = 'warning'; // 👈 إضافة ذكية للتحذيرات
+            if (msg.includes('مراجعة') || msg.includes('انتظار')) type = 'warning'; 
         }
 
         const oldToast = document.getElementById('toast-warning');
@@ -758,7 +863,7 @@ export const UICore = {
         const notifEl = document.getElementById('custom-notification');
         
         if (notifEl) {
-            notifEl.classList.remove('active', 'success', 'error', 'info', 'warning'); // 👈 أضفنا warning للتنظيف
+            notifEl.classList.remove('active', 'success', 'error', 'info', 'warning'); 
             clearTimeout(this.notifTimer);
             void notifEl.offsetWidth; 
 
@@ -770,7 +875,7 @@ export const UICore = {
                 if (message) message.textContent = msg; 
                 if (title) {
                     if (type === 'error') title.textContent = 'خطأ';
-                    else if (type === 'warning') title.textContent = 'تنبيه'; // 👈 تسمية التحذير
+                    else if (type === 'warning') title.textContent = 'تنبيه'; 
                     else if (type === 'success') title.textContent = 'نجاح';
                     else title.textContent = 'معلومة';
                 }
@@ -779,18 +884,17 @@ export const UICore = {
                 
                 if (icon) { 
                     if (type === 'error') icon.className = 'notif-icon fa-solid fa-circle-xmark';
-                    else if (type === 'warning') icon.className = 'notif-icon fa-solid fa-triangle-exclamation'; // 👈 أيقونة التحذير
+                    else if (type === 'warning') icon.className = 'notif-icon fa-solid fa-triangle-exclamation'; 
                     else if (type === 'success') icon.className = 'notif-icon fa-solid fa-circle-check';
                     else icon.className = 'notif-icon fa-solid fa-circle-info';
                 }
                 
                 notifEl.classList.add('active');
-                if(typeof this.sfx === 'function') this.sfx(type === 'error' ? 'error' : 'success');
+                getSys().sfx?.(type === 'error' ? 'error' : 'success');
                 
                 this.notifTimer = setTimeout(() => { notifEl.classList.remove('active'); }, 3000);
             }, 10);
         } else {
-            // نظام التوست الاحتياطي (Fallback)
             let container = document.querySelector('.custom-toast-container');
             if (!container) {
                 container = document.createElement('div');
@@ -807,7 +911,7 @@ export const UICore = {
             let titleText = 'معلومة';
             if (type === 'success') { iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
             if (type === 'error') { iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
-            if (type === 'warning') { iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } // 👈 إضافة التحذير للتوست الاحتياطي
+            if (type === 'warning') { iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } 
 
             toast.innerHTML = `
                 <i class="fa-solid ${iconClass}"></i>
@@ -818,7 +922,7 @@ export const UICore = {
             `;
             
             container.appendChild(toast);
-            if(typeof this.sfx === 'function') this.sfx(type === 'error' ? 'error' : 'success');
+            getSys().sfx?.(type === 'error' ? 'error' : 'success');
             
             setTimeout(() => {
                 if(toast.parentElement) {
@@ -828,29 +932,45 @@ export const UICore = {
             }, 3000);
         }
     },
-   sfx: function(type) {
-        if(DataManager.prefs && DataManager.prefs.sound === false) return; 
-        try {
-            if(!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if(this.audioCtx.state === 'suspended') { this.audioCtx.resume().catch(() => {}); }
-            const t = this.audioCtx.currentTime; const osc = this.audioCtx.createOscillator(); const gain = this.audioCtx.createGain();
-            osc.connect(gain); gain.connect(this.audioCtx.destination);
-            if (type === 'nav') { osc.type='sine'; osc.frequency.setValueAtTime(1200,t); gain.gain.setValueAtTime(0.05,t); gain.gain.exponentialRampToValueAtTime(0.001,t+0.03); osc.start(t); osc.stop(t+0.03); } 
-            else if (type === 'success') { osc.type='sine'; osc.frequency.setValueAtTime(400,t); osc.frequency.linearRampToValueAtTime(800,t+0.15); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.3); osc.start(t); osc.stop(t+0.3); } 
-            else if (type === 'error') { osc.type='triangle'; osc.frequency.setValueAtTime(150,t); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.2); osc.start(t); osc.stop(t+0.2); }
-        } catch(e) {}
-        try {
-            if (navigator.vibrate && navigator.userActivation && navigator.userActivation.hasBeenActive) {
-                if (type === 'error') { navigator.vibrate([50, 50, 50]); } else if (type === 'success') { navigator.vibrate(50); } else { navigator.vibrate(20); }
-            }
-        } catch(e) {}
-    },
+    
+    sfx: function(type) {
+    if(DataManager.prefs && DataManager.prefs.sound === false) return; 
+    
+    // شرط الاحترافية: عدم بدء الصوت إلا إذا تفاعل المستخدم مسبقاً لمنع تحذيرات الكونسول
+    if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
+
+    try {
+        if(!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if(this.audioCtx.state === 'suspended') { this.audioCtx.resume().catch(() => {}); }
+        
+        const t = this.audioCtx.currentTime; 
+        const osc = this.audioCtx.createOscillator(); 
+        const gain = this.audioCtx.createGain();
+        
+        osc.connect(gain); 
+        gain.connect(this.audioCtx.destination);
+        
+        if (type === 'nav') { osc.type='sine'; osc.frequency.setValueAtTime(1200,t); gain.gain.setValueAtTime(0.05,t); gain.gain.exponentialRampToValueAtTime(0.001,t+0.03); osc.start(t); osc.stop(t+0.03); } 
+        else if (type === 'success') { osc.type='sine'; osc.frequency.setValueAtTime(400,t); osc.frequency.linearRampToValueAtTime(800,t+0.15); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.3); osc.start(t); osc.stop(t+0.3); } 
+        else if (type === 'error') { osc.type='triangle'; osc.frequency.setValueAtTime(150,t); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.2); osc.start(t); osc.stop(t+0.2); }
+    } catch(e) {}
+    
+    try {
+        if (navigator.vibrate && navigator.userActivation && navigator.userActivation.hasBeenActive) {
+            if (type === 'error') { navigator.vibrate([50, 50, 50]); } 
+            else if (type === 'success') { navigator.vibrate(50); } 
+            else { navigator.vibrate(20); }
+        }
+    } catch(e) {}
+},
+
     // =========================================================
     // ⚙️ 5. إعدادات المتجر العامة (General Setup)
     // =========================================================
     applyStoreIdentity: function() {
-        // 🌟 الإصلاح الجذري: قراءة الهوية من كائن system كما يحفظها الآدمن
-        const sys = LiveStoreData.system || {}; 
+        // 🌟 التعديل السحري: تغيير system إلى settings
+const sys = LiveStoreData.settings || {}; 
+
         
         const storeName = (sys.storeName || sys.name || '').trim();
         const logoSize = parseInt(sys.logoSize) || 36;
@@ -866,7 +986,6 @@ export const UICore = {
 
         const isEnglish = /^[A-Za-z0-9]/.test(storeName);
 
-        // إذا كان الاسم فارغاً، نستخدم كلمة 'المتجر' كبديل مؤقت
         const finalStoreName = storeName || 'المتجر';
 
         document.title = `${finalStoreName} | المتجر`;
@@ -912,7 +1031,6 @@ export const UICore = {
 
         const nameHtml = `<div class="brand-text-dynamic">${Utils.safeText(finalStoreName)}</div>`;
         
-        // 🌟 الترتيب: اللوغو ثم الاسم
         const finalHtml = `${logoHtml} ${nameHtml}`;
 
         const targets = ['store-branding-target', 'sidebar-branding-target'];
@@ -941,7 +1059,7 @@ export const UICore = {
             const savedState = localStorage.getItem('telecard_display_state');
             if (savedState) {
                 const displayState = JSON.parse(savedState);
-                if (displayState.userImage && DataManager.user) { DataManager.user.img = displayState.userImage; if(typeof this.loadUserImageAutomatically === 'function') this.loadUserImageAutomatically(); }
+                if (displayState.userImage && DataManager.user) { DataManager.user.img = displayState.userImage; this.loadUserImageAutomatically?.(); }
                 if (displayState.theme && typeof this.setThemePref === 'function') { this.setThemePref(displayState.theme); }
                 if (displayState.sound !== undefined && DataManager.prefs) { DataManager.prefs.sound = displayState.sound; }
                 if (displayState.lastVisit) { const days = Math.floor((Date.now() - displayState.lastVisit) / (1000 * 60 * 60 * 24)); if (days > 7) { this.showToast('مرحباً بعودتك! تم تحديث الواجهة منذ آخر زيارة.'); } }
@@ -988,7 +1106,6 @@ export const UICore = {
             displayDep = Utils.convertViaUSD(rawDep, baseCurrency, displayCurrency, rates, 'deposit');
         }
         
-        // 🌟 الإصلاح: فحص الكائن بطريقة ES6 الصحيحة (RenderHelpers موجود دائماً لأنه تم استدعاؤه)
         const beautifulBalHtml = (RenderHelpers && typeof RenderHelpers.formatMoney === 'function') 
             ? RenderHelpers.formatMoney(displayBal, displayCurrency) 
             : `${Number(displayBal).toFixed(2)} ${displayCurrency}`;
@@ -1045,72 +1162,48 @@ export const UICore = {
         }, intervalMs);
     },
 
-        // =========================================================
-    // 📢 المترجم الموحد للشريط الإخباري (النسخة المطابقة لقاعدة البيانات)
+    // =========================================================
+    // 📢 المترجم الموحد للشريط الإخباري
     // =========================================================
     renderTicker: function() {
         const s = LiveStoreData.settings || {};
         const txtEl = document.getElementById('ticker-text');
         const movingLine = document.querySelector('.ticker-moving-line');
         
-        // 1. حقن النص (المتغير في الملف هو promoText)
         if (txtEl) {
             txtEl.innerText = s.promoText || 'أهلاً وسهلاً بكم في متجرنا';
         }
         
         if (movingLine) {
-            // 2. تنظيف كافة كلاسات الأنيميشن القديمة قبل الإضافة
-            // نحن هنا نمسح أي كلاس يبدأ بـ ticker-anim- لضمان النظافة
             movingLine.className = 'ticker-moving-line'; 
-            
-            // 3. جلب القيمة من قاعدة البيانات (promoAnim)
-            // المتوقع أن تكون: horizontal-fast, vertical-slow, إلخ.
             const animationValue = s.promoAnim || 'horizontal-normal';
-            
-            // 4. دمج البادئة مع القيمة لتطابق كلاسات ملف style.css
-            // النتيجة النهائية: ticker-anim-horizontal-fast
             movingLine.classList.add(`ticker-anim-${animationValue}`);
         }
     },
 
+        // 🌟 تم استبدال الكود الطويل القديم ليعتمد على النواة المركزية
     getFlagUrl: function(curr) {
-        const code = (curr || 'USD').toUpperCase();
-        const countries = LiveStoreData.countries || [];
-        const country = countries.find(c => String(c.id).toUpperCase() === code || (c.currency && String(c.currency).toUpperCase() === code));
-        
-        if (country && country.flagEmoji) {
-            return country.flagEmoji; 
-        }
-
-        const map = {
-            USD: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 741 390'%3E%3Crect width='741' height='390' fill='%23b22234'/%3E%3Cg fill='%23fff'%3E%3Crect y='30' width='741' height='30'/%3E%3Crect y='90' width='741' height='30'/%3E%3Crect y='150' width='741' height='30'/%3E%3Crect y='210' width='741' height='30'/%3E%3Crect y='270' width='741' height='30'/%3E%3Crect y='330' width='741' height='30'/%3E%3C/g%3E%3Crect width='296' height='210' fill='%230b3d91'/%3E%3Cg fill='%23fff' transform='translate(30 21)'%3E%3Cpath id='s' d='M10 0l3.09 9.51h9.99l-8.08 5.87 3.09 9.51-8.1-5.88-8.1 5.88 3.09-9.51-8.08-5.87h9.99z'/%3E%3Cg id='row6'%3E%3Cuse href='%23s'/%3E%3Cuse href='%23s' x='49'/%3E%3Cuse href='%23s' x='98'/%3E%3Cuse href='%23s' x='147'/%3E%3Cuse href='%23s' x='196'/%3E%3Cuse href='%23s' x='245'/%3E%3C/g%3E%3Cg id='row5'%3E%3Cuse href='%23s' x='24.5'/%3E%3Cuse href='%23s' x='73.5'/%3E%3Cuse href='%23s' x='122.5'/%3E%3Cuse href='%23s' x='171.5'/%3E%3Cuse href='%23s' x='220.5'/%3E%3C/g%3E%3Cuse href='%23row6' y='0'/%3E%3Cuse href='%23row5' y='21'/%3E%3Cuse href='%23row6' y='42'/%3E%3Cuse href='%23row5' y='63'/%3E%3Cuse href='%23row6' y='84'/%3E%3Cuse href='%23row5' y='105'/%3E%3Cuse href='%23row6' y='126'/%3E%3Cuse href='%23row5' y='147'/%3E%3Cuse href='%23row6' y='168'/%3E%3C/g%3E%3C/svg%3E",
-            TRY: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 600'%3E%3Crect width='900' height='600' fill='%23e30a17'/%3E%3Ccircle cx='360' cy='300' r='180' fill='%23fff'/%3E%3Ccircle cx='405' cy='300' r='135' fill='%23e30a17'/%3E%3Cpath fill='%23fff' d='M0-1L0.2245-0.309L0.9511-0.309L0.3633 0.118L0.5878 0.809L0 0.3819L-0.5878 0.809L-0.3633 0.118L-0.9511-0.309L-0.2245-0.309Z' transform='translate(540 300) scale(70)'/%3E%3C/svg%3E",
-            SYP: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 600'%3E%3Crect width='900' height='600' fill='%23000000'/%3E%3Crect width='900' height='400' fill='%23ffffff'/%3E%3Crect width='900' height='200' fill='%23007a3d'/%3E%3Cg fill='%23ce1126'%3E%3Cpath d='M0-1L0.2245-0.309L0.9511-0.309L0.3633 0.118L0.5878 0.809L0 0.3819L-0.5878 0.809L-0.3633 0.118L-0.9511-0.309L-0.2245-0.309Z' transform='translate(225 300) scale(70)'/%3E%3Cpath d='M0-1L0.2245-0.309L0.9511-0.309L0.3633 0.118L0.5878 0.809L0 0.3819L-0.5878 0.809L-0.3633 0.118L-0.9511-0.309L-0.2245-0.309Z' transform='translate(450 300) scale(70)'/%3E%3Cpath d='M0-1L0.2245-0.309L0.9511-0.309L0.3633 0.118L0.5878 0.809L0 0.3819L-0.5878 0.809L-0.3633 0.118L-0.9511-0.309L-0.2245-0.309Z' transform='translate(675 300) scale(70)'/%3E%3C/g%3E%3C/svg%3E"
-        };
-
-        return map[code] || "🌍";
+        // استدعاء الدالة من renderHelpers مباشرة
+        return RenderHelpers.getCurrencyFlagUrl(curr);
     },
 
+    // 🌟 تم تنظيف الدالة لتتعامل دائماً مع صور (CDN) لتوحيد المظهر
     setFlagEl: function(el, curr) {
         if(!el) return;
         el.innerHTML = '';
-        const flagData = this.getFlagUrl(curr);
-        const isImageUrl = flagData.startsWith('data:image') || flagData.startsWith('http');
+        const flagUrl = this.getFlagUrl(curr);
 
-        if (isImageUrl) {
-            const img = document.createElement('img');
-            img.className = 'ct-flag';
-            img.alt = curr;
-            img.src = flagData;
-            img.onerror = () => { el.innerHTML = `<span class="ct-flag-emoji">🌍</span>`; };
-            el.appendChild(img);
-        } else {
-            const span = document.createElement('span');
-            span.className = 'ct-flag-emoji';
-            span.innerText = flagData;
-            el.appendChild(span);
-        }
+        const img = document.createElement('img');
+        img.className = 'ct-flag';
+        img.alt = curr;
+        img.src = flagUrl;
+        
+        // في حال فشل تحميل الصورة لسبب ما، نعرض إيموجي احتياطي
+        img.onerror = () => { el.innerHTML = `<span class="ct-flag-emoji">🌍</span>`; };
+        
+        el.appendChild(img);
     },
+
 
     refreshCurrencyMenuFlags: function() {
         document.querySelectorAll('.ct-item').forEach(item => {
@@ -1126,7 +1219,7 @@ export const UICore = {
         localStorage.setItem('telecard_display_currency', DataManager.selectedCurr);
         this.updateDisplayBalance();
         const pm = document.getElementById('purchase-modal');
-        if(pm && pm.classList.contains('active') && this.currentProd) { if(typeof this.updatePriceDisplay === 'function') this.updatePriceDisplay(); }
+        if(pm && pm.classList.contains('active') && this.currentProd) { getSys().updatePriceDisplay?.(); }
         this.updateDisplayCurrencyUI(DataManager.selectedCurr);
     },
 
@@ -1163,7 +1256,7 @@ export const UICore = {
         availableCodes.forEach(code => {
             const isActive = code === selected ? 'active' : '';
             menuHtml += `
-                <div class="ct-item ${isActive}" data-curr="${code}" onclick="ClientSystem.selectDisplayCurrency('${code}')">
+                <div class="ct-item ${isActive}" data-curr="${code}">
                     <div class="ct-flag-box"></div>
                     <span class="ct-name">${code}</span>
                 </div>`;
@@ -1171,6 +1264,18 @@ export const UICore = {
 
         menu.innerHTML = menuHtml;
         this.refreshCurrencyMenuFlags();
+        
+        // 🌟 تطبيق تفويض الأحداث محلياً للمكون (Component-Level Event Delegation)
+        if (!menu.dataset.delegated) {
+            menu.addEventListener('click', (e) => {
+                const item = e.target.closest('.ct-item');
+                if (item) {
+                    const code = item.dataset.curr;
+                    this.selectDisplayCurrency(code);
+                }
+            });
+            menu.dataset.delegated = "true";
+        }
     },
 
     updateDisplayCurrencyUI: function(curr) {
@@ -1213,8 +1318,18 @@ export const UICore = {
                 icon.className = iconClass; wrapper.classList.remove('support-anim-glow', 'support-anim-pulse', 'support-anim-blink', 'support-anim-bounce', 'support-anim-shake');
                 if(supportAnimation !== 'none') wrapper.classList.add(`support-anim-${supportAnimation}`);
                 btn.style.display = 'flex';
-                if(supportLink && supportLink.trim()) { btn.onclick = (e) => { e.stopPropagation(); if(typeof this.sfx === 'function') this.sfx('nav'); this.openSupport(); }; } 
-                else { btn.onclick = (e) => { e.stopPropagation(); }; }
+                
+                // تنظيف المستمعات السابقة في حال تم استدعاء التهيئة مرتين
+                const newBtn = btn.cloneNode(true);
+                btn.replaceWith(newBtn);
+                
+                if(supportLink && supportLink.trim()) { 
+                    newBtn.addEventListener('click', (e) => { 
+                        e.stopPropagation(); getSys().sfx?.('nav'); this.openSupport(); 
+                    }); 
+                } else { 
+                    newBtn.addEventListener('click', (e) => { e.stopPropagation(); }); 
+                }
             }
         };
         processBtn('header-support-btn', 'header-support-icon', 'header-support-icon-wrapper');
@@ -1265,6 +1380,7 @@ export const UICore = {
                 const d = new Date(Number(sys.date)).toLocaleString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                 dateHtml = `<div class="m-date"><i class="fa-regular fa-clock"></i> وقت العودة المتوقع: <span dir="ltr">${d}</span></div>`;
             }
+            
             document.body.innerHTML = `
                 <div class="maintenance-screen">
                     <div class="m-glass-box">
@@ -1272,9 +1388,11 @@ export const UICore = {
                         <h1 class="m-title">المتجر في وضع الصيانة</h1>
                         <p class="m-desc">${Utils.escapeHtml(msg)}</p>
                         ${dateHtml}
-                        <button class="btn btn-primary mt-20" onclick="location.reload()">تحديث الصفحة</button>
+                        <button id="maint-refresh-btn" class="btn btn-primary mt-20">تحديث الصفحة</button>
                     </div>
                 </div>`;
+                
+            document.getElementById('maint-refresh-btn').addEventListener('click', () => location.reload());
             return true;
         }
 

@@ -1,7 +1,7 @@
 // ============================================================================
 // 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - ES6 Module
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
-// 🚀 التحديث: القضاء على تضارب الأعمدة وتوحيد محرك التخطيط الديناميكي (Grid Engine)
+// 🚀 التحديث: تطبيق تفويض الأحداث (Event Delegation) وتحسين أداء DOM Fragments
 // ============================================================================
 
 import { DB_KEYS } from './config.js'; 
@@ -53,7 +53,7 @@ export const RenderManager = {
     // =========================================================
     // 🏠 1. رسم الصفحة الرئيسية (الأقسام الرئيسية)
     // =========================================================
-        renderHome: function(isBackAction = false) {
+    renderHome: function(isBackAction = false) {
         const grid = document.getElementById('store-grid');
         const titleEl = document.getElementById('grid-title');
         
@@ -117,6 +117,10 @@ export const RenderManager = {
                 rootCats.forEach(c => {
                      const div = document.createElement('div');
                      div.className = 'cat-card';
+                     // 🌟 التوجيه الذكي باستخدام data-action
+                     div.setAttribute('data-action', 'open-category');
+                     div.setAttribute('data-id', c.id);
+                     
                      const safeName = Utils.safeText(c.name);
                      
                      const imgHTML = c.img 
@@ -124,11 +128,6 @@ export const RenderManager = {
                         : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
                      
                      div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
-                     div.onclick = (e) => {
-                         e.preventDefault();
-                         UIManager.sfx('nav');
-                         UIManager.openCategory(c.id);
-                     };
                      fragment.appendChild(div);
                 });
 
@@ -153,7 +152,6 @@ export const RenderManager = {
             const settings = (LiveStoreData && LiveStoreData.settings) ? LiveStoreData.settings : {};
             let activeCols = window.innerWidth > 768 ? 4 : 2; // تخطيط CSS الافتراضي كبداية
 
-            // 🌟 خضوع النبضات للقاضي المركزي
             if (settings.syncGridLayout) {
                 activeCols = settings.rootLayout || parseInt(localStorage.getItem('store_layout_cols')) || 2;
                 grid.style.setProperty('--layout-cols', activeCols);
@@ -162,7 +160,6 @@ export const RenderManager = {
             }
 
             let count = activeCols * 3; 
-
             let catSkeletons = '';
             for (let i = 0; i < count; i++) { 
                 catSkeletons += `
@@ -180,9 +177,6 @@ export const RenderManager = {
         }
     },
   
-    // =========================================================
-    // 🧠 النبضات الديناميكية للمنتجات (Skeletons)
-    // =========================================================
     renderProductSkeletons: function(containerId, overrideCount = null) {
         const container = document.getElementById(containerId);
         if (!container) return;
@@ -192,13 +186,10 @@ export const RenderManager = {
         }
 
         const settings = (LiveStoreData && LiveStoreData.settings) ? LiveStoreData.settings : {};
-        let activeCols = window.innerWidth > 768 ? 4 : 2; // تخطيط CSS الافتراضي
+        let activeCols = window.innerWidth > 768 ? 4 : 2; 
 
-        // 🌟 خضوع النبضات للقاضي المركزي
         if (settings.syncGridLayout) {
             activeCols = settings.rootLayout || parseInt(localStorage.getItem('store_layout_cols')) || 2;
-            
-            // قراءة القسم المفتوح حالياً للنبضات
             if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId && LiveStoreData.cats) {
                 const cat = LiveStoreData.cats.find(c => Number(c.id) === Number(UIManager.currentCategoryId));
                 if (cat && cat.layout) activeCols = cat.layout;
@@ -289,7 +280,11 @@ export const RenderManager = {
 
         const div = document.createElement('div'); 
         div.className = 'product-card'; 
+        
+        // 🌟 التوجيه المركزي للاحداث: إضافة data-action ليعالجها script.js
+        div.setAttribute('data-action', 'open-product');
         div.setAttribute('data-id', p.id);
+        
         if (idx !== undefined) div.style.setProperty('--anim-idx', idx);
         
         div.innerHTML = `
@@ -303,22 +298,7 @@ export const RenderManager = {
                 ${priceSectionHtml}
             </div>`;
 
-        let clickTimer = null;
-        div.onclick = (e) => { 
-            e.preventDefault();
-            if (clickTimer === null) {
-                clickTimer = setTimeout(() => { 
-                    clickTimer = null; 
-                    UIManager.sfx('nav'); 
-                    UIManager.openProdModal(p.id); 
-                }, 250); 
-            } else {
-                clearTimeout(clickTimer); 
-                clickTimer = null; 
-                e.stopPropagation(); 
-                UIManager.triggerMagicFavorite(e, p.id);
-            }
-        };
+        // 🌟 تم مسح div.onclick بالكامل للاعتماد على التفويض العام
 
         return div;
     },
@@ -344,7 +324,7 @@ export const RenderManager = {
         });
     },
 
-        renderOfferStories: function(categoryId) {
+    renderOfferStories: function(categoryId) {
         const storiesContainer = document.getElementById('offer-stories-bar');
         if (!storiesContainer) return;
 
@@ -390,7 +370,6 @@ export const RenderManager = {
                     }
                 }
 
-                // 🌟 الحل الاحترافي: فحص وجود الصورة ووضع الأيقونة الافتراضية للقصص لتطابق كروت المنتجات
                 let storyImgHtml = '';
                 if (prod.img) {
                     storyImgHtml = `
@@ -401,8 +380,9 @@ export const RenderManager = {
                     storyImgHtml = `<div class="default-prod-icon" style="display: flex; width: 100%; height: 100%;"><i class="fa-solid fa-box-open"></i></div>`;
                 }
 
+                // 🌟 استخدام data-action
                 storiesHtml += `
-                <div class="story-item clickable" onclick="ClientSystem.openProdModal('${prod.id}')">
+                <div class="story-item clickable" data-action="open-product" data-id="${prod.id}">
                     <div class="story-ring ${shapeClass} ${bColorClass}" style="${shapeStyle}">
                         <div class="story-img-wrapper ${shapeClass}" style="${shapeStyle}">
                             ${storyImgHtml}
@@ -460,6 +440,7 @@ export const RenderManager = {
             const newBtn = backBtn.cloneNode(true); 
             backBtn.parentNode.replaceChild(newBtn, backBtn);
             setTimeout(() => newBtn.classList.add('show'), 10);
+            newBtn.setAttribute('data-action', 'go-back'); // Optional delegation
             newBtn.onclick = (e) => { e.preventDefault(); UIManager._manualGoBack(); };
         }
 
@@ -467,7 +448,6 @@ export const RenderManager = {
             const currentCat = cats.find(c => Number(c.id) === Number(id));
             const catCols = currentCat?.layout || settings.rootLayout || null;
             
-            // 🌟 إرسال تخطيط القسم الحالي للقاضي المركزي
             this._applyGridLayout(grid, settings, catCols);
 
             const fragment = document.createDocumentFragment();
@@ -482,7 +462,8 @@ export const RenderManager = {
                     
                     const div = document.createElement('div'); div.className = 'cat-card';
                     div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
-                    div.onclick = (e) => { e.preventDefault(); UIManager.sfx('nav'); UIManager.openCategory(c.id); };
+                    div.setAttribute('data-action', 'open-category');
+                    div.setAttribute('data-id', c.id);
                     fragment.appendChild(div);
                 });
             }
@@ -523,7 +504,6 @@ export const RenderManager = {
         if(!grid) return;
         grid.innerHTML = ''; 
         
-        // 🌟 تطبيق التخطيط المركزي
         let activeCols = null;
         if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId) {
             const currentCat = (LiveStoreData.cats || []).find(c => Number(c.id) === Number(UIManager.currentCategoryId));
@@ -564,7 +544,8 @@ export const RenderManager = {
             
             const div = document.createElement('div'); div.className = 'cat-card';
             div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
-            div.onclick = (e) => { e.preventDefault(); UIManager.sfx('nav'); UIManager.openCategory(c.id); };
+            div.setAttribute('data-action', 'open-category');
+            div.setAttribute('data-id', c.id);
             fragment.appendChild(div);
         });
 
@@ -577,31 +558,27 @@ export const RenderManager = {
         UIManager.setGridMode(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
         if(Components?.initProductShine) Components.initProductShine();
     },
-    // 🎯 دالة مركزية لجلب عدد الأعمدة المعتمد حالياً في المتجر (تمت إضافتها لحل مشكلة المفضلة والبحث)
+
     _getEffectiveLayoutCols: function() {
         const settings = LiveStoreData.settings || {};
         
-        // 1. الأولوية لتخطيط القسم المفتوح حالياً (إن وجد)
         if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId) {
             const currentCat = (LiveStoreData.cats || []).find(c => Number(c.id) === Number(UIManager.currentCategoryId));
             if (currentCat && currentCat.layout) return currentCat.layout;
         }
 
-        // 2. الأولوية الثانية لإعدادات الأدمن العامة (rootLayout)
         if (settings.rootLayout) return settings.rootLayout;
 
-        // 3. الأولوية الثالثة لما هو محفوظ في ذاكرة المتصفح
         const saved = localStorage.getItem('store_layout_cols');
         if (saved) return parseInt(saved);
 
-        // 4. الحل الأخير: التجاوب مع حجم الشاشة
         return window.innerWidth > 768 ? 4 : 2;
     },
 
     // =========================================================
     // 🌟 نافذة المفضلة الفاخرة (منطقة الحل الجذري)
     // =========================================================
-                renderFavorites: function() {
+    renderFavorites: function() {
         document.body.classList.remove('is-home');
         UIManager.toggleHeroSection(false);
 
@@ -617,11 +594,9 @@ export const RenderManager = {
         grid.style.transform = 'translateY(0)';
         grid.innerHTML = '';
         
-        // 1. إعادة ضبط وضع الشبكة
         UIManager.setGridMode(null);
         UIManager.resetGridScroll();
 
-        // 2. ضبط زر العودة والعنوان
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if(backBtn) {
             backBtn.style.display = 'flex';
@@ -637,29 +612,27 @@ export const RenderManager = {
             gridTitle.classList.add('show-correct-title');
         }
 
-   if (favProds.length === 0) {
-            grid.innerHTML = `
-                <div class="empty-state-v2">
-                    <i class="fa-solid fa-heart-circle-plus"></i>
-                    <h3>مساحتك الخاصة فارغة</h3>
-                    <p>املأها عبر الضغط على القلب في نافذة الشراء، أو عبر ضغطتين متتاليتين على صورة المنتج لوصول أسرع وأسهل لمنتجاتك المفضلة.</p>
-                </div>`;
-            UIManager.setGridMode('grid-prods');
-            return;
-        }
-                
-        // 3. رسم المنتجات
-        const fragment = document.createDocumentFragment();
+if (favProds.length === 0) {
+    grid.innerHTML = `
+        <div class="empty-state-v2">
+            <i class="fa-solid fa-heart-circle-plus"></i>
+            <h3>لا توجد منتجات مفضلة بعد</h3>
+            <p>
+                أضف المنتجات للمفضلة عبر الضغط على أيقونة القلب داخل نافذة الشراء،
+                أو بالنقر مرتين على صورة المنتج.
+            </p>
+        </div>`;
+    
+    UIManager.setGridMode('grid-prods');
+    return;
+}        const fragment = document.createDocumentFragment();
         favProds.forEach((p, idx) => fragment.appendChild(this._createProductCard(p, idx)));
         grid.appendChild(fragment);
         
-        // 4. تفعيل وضع المنتجات
         UIManager.setGridMode('grid-prods');
 
-        // 🌟 5. الحل الجذري (الذكاء الاصطناعي للتخطيط)
         let activeCols = null;
 
-        // بما أن المفضلة ليس لها قسم، نقرأ التخطيط المخصص لأول منتج موجود فيها من قسمه الأصلي!
         if (favProds.length > 0 && LiveStoreData.cats) {
             const firstProdCatId = favProds[0].catId;
             const parentCat = LiveStoreData.cats.find(c => Number(c.id) === Number(firstProdCatId));
@@ -668,12 +641,10 @@ export const RenderManager = {
             }
         }
 
-        // إذا فشل الاستنتاج، نعود للمتغيرات المحفوظة أو الإعدادات العامة
         if (!activeCols || isNaN(activeCols)) {
             activeCols = parseInt(localStorage.getItem('store_layout_cols')) || parseInt(settings.rootLayout) || (window.innerWidth > 768 ? 4 : 2);
         }
 
-        // 6. تطبيق التخطيط باحترام أوامر الأدمن وحقنه في الستايل
         if (settings.syncGridLayout) {
             grid.style.setProperty('--layout-cols', activeCols);
         } else {
@@ -803,11 +774,11 @@ export const RenderManager = {
             }
 
             const jumpType = isDep ? 'deposit' : 'purchase';
-            const clickAction = `onclick="ClientSystem.jumpToTransaction('${tx.id}', '${jumpType}')"`;
             const shortTxId = tx.displayId || tx.id;
 
+            // 🌟 استخدام data-action
             generatedHTML += `
-            <div class="th-card ${cardClass} clickable-tx-card" ${clickAction} title="انقر لعرض التفاصيل">
+            <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
                 <div class="th-icon ${iconColorClass}">
                     <i class="fa-solid ${iconName}"></i>
                 </div>
@@ -853,6 +824,9 @@ export const RenderManager = {
             return;
         }
 
+        // 🌟 استخدام DocumentFragment لتحسين الأداء
+        const fragment = document.createDocumentFragment();
+
         validPayments.forEach(p => {
             const safeName = Utils.escapeHtml(p.name);
             const imgHtml = p.img 
@@ -861,6 +835,10 @@ export const RenderManager = {
             
             const card = document.createElement('div');
             card.className = 'pay-card-select';
+            
+            // 🌟 استخدام data-action
+            card.setAttribute('data-action', 'select-pay');
+            card.setAttribute('data-id', p.id);
             
             card.innerHTML = `
                 <div class="pay-icon-wrapper">
@@ -872,13 +850,10 @@ export const RenderManager = {
                 <i class="fa-solid fa-chevron-left pay-card-arrow"></i>
             `;
             
-            card.onclick = (e) => {
-                e.preventDefault();
-                UIManager.sfx('nav');
-                UIManager.selectPay(p.id);
-            };
-            container.appendChild(card);
+            fragment.appendChild(card);
         });
+        
+        container.appendChild(fragment);
     },
 
     renderPayments: function() {
@@ -908,6 +883,9 @@ export const RenderManager = {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد عمليات</h3></div>`;
             return;
         }
+
+        // 🌟 استخدام DocumentFragment لتحسين الأداء
+        const fragment = document.createDocumentFragment();
 
         myDeposits.forEach(d => {
             const clone = template.content.cloneNode(true);
@@ -948,7 +926,9 @@ export const RenderManager = {
             const shortDepositId = d.displayId || d.id;
             const idEl = clone.querySelector('.ph-id');
             idEl.textContent = '#' + shortDepositId;
-            idEl.onclick = (e) => { e.stopPropagation(); UIManager.copyToClipboard(shortDepositId.toString(), idEl); };
+            // 🌟 استخدام data-action
+            idEl.setAttribute('data-action', 'copy-text');
+            idEl.setAttribute('data-text', shortDepositId.toString());
 
             clone.querySelector('.ph-sender').innerHTML = UIManager._getTxNameWithID(user);
             clone.querySelector('.ph-full-time').textContent = formattedDate;
@@ -961,7 +941,8 @@ export const RenderManager = {
                 }
             }
 
-            header.addEventListener('click', () => card.classList.toggle('is-open'));
+            // 🌟 استخدام data-action للمفتاح الجانبي
+            header.setAttribute('data-action', 'toggle-accordion');
 
             if (d.adminNote?.trim()) {
                 const safeAdminNote = Utils.escapeHtml(d.adminNote);
@@ -976,7 +957,7 @@ export const RenderManager = {
                             <span class="ph-admin-note-title">رسالة من الإدارة:</span>
                             <div class="admin-reply-text">${safeAdminNote}</div>
                         </div>
-                        <button class="reply-copy-btn" onclick="ClientSystem.copyToClipboard('${safeAdminNote.replace(/'/g, "\\'")}', this)">
+                        <button class="reply-copy-btn" data-action="copy-text" data-text="${safeAdminNote.replace(/"/g, '&quot;')}">
                             <i class="fa-regular fa-copy"></i>
                         </button>
                     </div>`;
@@ -986,8 +967,10 @@ export const RenderManager = {
                 if (footerAction) detailsBody.insertBefore(noteDiv, footerAction);
                 else detailsBody.appendChild(noteDiv);
             }
-            list.appendChild(clone);
+            fragment.appendChild(clone);
         });
+        
+        list.appendChild(fragment);
     },
 
     renderOrders: function() {
@@ -1029,6 +1012,9 @@ export const RenderManager = {
             if (rawStr.includes(':')) return [rawStr.split(':').pop().trim()];
             return [rawStr.trim()];
         };
+        
+        // 🌟 استخدام DocumentFragment لتحسين الأداء
+        const fragment = document.createDocumentFragment();
         
         orders.forEach((o, idx) => {
             const status = o.status || 'pending'; 
@@ -1077,8 +1063,12 @@ export const RenderManager = {
             cardElement.className = `oh-card ${isJumped}`.trim();
             cardElement.style.setProperty('--anim-idx', idx);
             
-            const shortOrderId = o.displayId || o.id;
+            // 🌟 التوجيه الذكي باستخدام data-action
+            cardElement.setAttribute('data-action', 'open-detail');
+            cardElement.setAttribute('data-type', 'order');
+            cardElement.setAttribute('data-id', o.id);
 
+            const shortOrderId = o.displayId || o.id;
             let formattedDate = DataManager.formatDateLocal(o.time);
 
             cardElement.innerHTML = `
@@ -1096,9 +1086,10 @@ export const RenderManager = {
                     <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">#${shortOrderId}</span></div>
                 </div>`;
 
-            cardElement.addEventListener('click', () => UIManager.openDetail(null, 'order', o.id));
-            list.appendChild(cardElement);
+            fragment.appendChild(cardElement);
         }); 
+        
+        list.appendChild(fragment);
     }, 
 
     generatePDFReceipt: async function(config) {
@@ -1226,6 +1217,7 @@ export const RenderManager = {
             }
         });
     },
+
     renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;
@@ -1242,15 +1234,16 @@ export const RenderManager = {
         let topBar = unreadCount > 0 ? `
             <div class="nc-top-action-bar">
                 <span>لديك ${unreadCount} إشعار جديد</span>
-                <button class="btn btn-ghost nc-mark-read-btn" onclick="ClientSystem.markAllAlertsRead(); ClientSystem.renderNotifCenterList();">تحديد كمقروء</button>
+                <button class="btn btn-ghost nc-mark-read-btn" data-action="mark-all-alerts-read">تحديد كمقروء</button>
             </div>` : '';
 
         const html = allAlerts.map(alert => {
             const isRead = readIds.includes(String(alert.id));
             const iconClass = (alert.jumpTarget === 'order') ? 'fa-box-open' : 'fa-bullhorn';
             
+            // 🌟 استخدام data-action
             return `
-            <div class="nc-item ${isRead ? '' : 'unread'}" onclick="ClientSystem.markAlertAsRead('${alert.id}'); ClientSystem.renderNotifCenterList();">
+            <div class="nc-item ${isRead ? '' : 'unread'}" data-action="mark-alert-read" data-id="${alert.id}">
                 <div class="nc-icon"><i class="fa-solid ${iconClass}"></i></div>
                 <div class="nc-content">
                     <div class="nc-header"><h4 class="nc-title">${Utils.escapeHtml(alert.title)}</h4></div>
@@ -1273,14 +1266,14 @@ export const RenderManager = {
         }
         
         listTarget.innerHTML = active.map(c => {
-            // 🌟 الحل الجذري: قراءة المعرفات القياسية الجديدة مع دعم القديمة
             const countryName = Utils.escapeHtml(c.name || c.nameAr || 'دولة غير محددة');
             const countryFlag = c.flag || c.flagEmoji || '🌍'; 
             const dialCode = c.dialCode || '';
             const phoneLen = c.phoneLen || 10;
 
+            // 🌟 استخدام data-action
             return `
-            <div class="dropdown-item" onclick="ClientSystem.selectCountry('${countryName}', '${dialCode}', ${phoneLen});">
+            <div class="dropdown-item" data-action="select-country" data-name="${countryName}" data-code="${dialCode}" data-len="${phoneLen}">
                 <span style="margin-left: 8px;">${countryFlag}</span>
                 <span style="flex: 1;">${countryName}</span>
                 <span class="num-en" style="color: var(--text-muted);">${dialCode}</span>

@@ -23,6 +23,7 @@ import { SystemActions } from './systemActions.js';
 // استيراد المتحكمات لمعالجة الحذف
 import { CatalogController } from '../modules/catalog/catalogController.js';
 import { MarketingController } from '../modules/marketing/marketingController.js';
+import { FirebaseAdapter } from './firebaseAdapter.js';
 
 // استيرادات الـ B2B والربط الخارجي
 import { DeveloperActions } from '../modules/developer/developerActions.js';
@@ -346,7 +347,7 @@ export const AppController = {
         AdminUI?.showToast('تم حفظ الشروط بنجاح', 'success'); 
     },
     
-    saveAdminProfile: async function() { 
+        saveAdminProfile: async function() { 
         const name = Utils.escapeHTML(Utils.getVal('adm-name')), 
               email = Utils.escapeHTML(Utils.getVal('adm-email')), 
               pass = Utils.escapeHTML(Utils.getVal('adm-pass')); 
@@ -355,46 +356,49 @@ export const AppController = {
         
         const wrap = document.getElementById('adm-img-wrap'); 
         const hasImg = wrap?.classList.contains('has-img'); 
-        this.data.adminProfile = { name, email, pass, img: hasImg ? (AdminUI?.tempImg || this.data.adminProfile.img || '') : '' }; 
+        
+        // 🌟 محرك الرفع السحابي لصورة الإدمن
+        let finalImg = '';
+        if (hasImg) {
+            if (AdminUI?.tempFile) {
+                AdminUI?.showToast('جاري رفع صورتك الشخصية...', 'info');
+                finalImg = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'admin');
+            } else {
+                finalImg = this.data.adminProfile.img || '';
+            }
+        }
+
+        this.data.adminProfile = { name, email, pass, img: finalImg }; 
         
         await AdminData?.saveAdminProfile?.(); 
         EventBus.emit('req-update-profile-ui'); 
-        AdminUI?.showToast('تم حفظ الملف الشخصي', 'success'); 
+        AdminUI?.showToast('تم حفظ الملف الشخصي بنجاح', 'success'); 
     },
 
-    delItem: async function(type, id) {
+        delItem: async function(type, id) {
         const strId = String(id);
         
-        // التوجيه للمتحكمات المستقلة للتعامل مع الحذف المعقد
+        // 🌟 التوجيه النظيف للمتحكمات المستقلة (Delegation)
         if (type === 'vault') return CatalogController.deleteVaultPool(strId);
+        if (type === 'country') return CatalogController.deleteCountry(strId);
+        if (type === 'cat') return CatalogController.deleteCategory(strId); // 👈 تم الربط هنا
+        if (type === 'prod') return CatalogController.deleteProduct(strId); // 👈 تم الربط هنا
         if (type === 'coupon') return MarketingController.deleteCoupon(strId);
         if (type === 'offer') return MarketingController.deleteOffer(strId);
-        if (type === 'country') return CatalogController.deleteCountry(strId);
         
         let itemName = "عنصر";
-        if (type === 'cat') {
-            const itm = this.data.cats.find(x => String(x.id) === strId); if (itm) itemName = itm.name;
-            this.data.cats = this.data.cats.filter(x => String(x.id) !== strId);
-            this.data.prods = this.data.prods.filter(p => String(p.catId) !== strId);
-            await AdminData.saveProducts(); 
-            await AdminData.saveCategories(); 
-            this.finishAction('req-render-prods', null, `DELETE_CAT`, `تم حذف القسم: ${itemName}`, 'تم حذف القسم بنجاح');
-        } 
-        else if (type === 'prod') {
-            const itm = this.data.prods.find(x => String(x.id) === strId); if (itm) itemName = itm.name;
-            this.data.prods = this.data.prods.filter(x => String(x.id) !== strId);
-            await AdminData.saveProducts(); 
-            this.finishAction('req-render-prods', null, `DELETE_PROD`, `تم حذف المنتج: ${itemName}`, 'تم حذف المنتج بنجاح');
-        } 
-        else if (type === 'pay') {
-            const itm = this.data.payments.find(x => String(x.id) === strId); if (itm) itemName = itm.name;
+        
+        // الأقسام التي لم يتم نقلها لمتحكمات مستقلة بعد (Legacy Logic)
+        if (type === 'pay') {
+            const itm = this.data.payments.find(x => String(x.id) === strId);
+            if (itm) itemName = itm.name;
             this.data.payments = this.data.payments.filter(x => String(x.id) !== strId);
-            await AdminData.savePayments(); 
+            await AdminData.savePayments();
             this.finishAction('req-render-payments', null, `DELETE_PAY`, `تم حذف بوابة الدفع: ${itemName}`, 'تم الحذف بنجاح');
-        } 
+        }
         else if (type === 'banner') {
             this.data.banners = this.data.banners.filter(x => String(x.id) !== strId);
-            await AdminData.saveBanners(); 
+            await AdminData.saveBanners();
             this.finishAction('req-render-banners', null, `DELETE_BANNER`, `تم حذف لافتة إعلانية`, 'تم الحذف بنجاح');
         }
     }

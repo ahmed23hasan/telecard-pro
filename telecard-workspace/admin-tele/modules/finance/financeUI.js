@@ -126,22 +126,21 @@ export const FinanceUI = {
             html += AdminTemplates.currencySettingRow(code, Utils.escapeHTML(displayCode), ft, fu, Utils.escapeHTML(f), Utils.escapeHTML(min), Utils.escapeHTML(max));
         });
         
+                // ... (الجزء العلوي من الدالة كما هو)
         list.innerHTML = html;
 
-        // إعادة تهيئة قيم الـ Selects لأن innerHTML يكسر التحديد أحياناً
-        setTimeout(() => {
-            chkBoxes.forEach(code => {
-                const ftVal = currentInputs[code]?.feeType || (isInitialLoad ? document.getElementById(`pay-feetype-${code}`)?.getAttribute('data-val') : 'fee');
-                const fuVal = currentInputs[code]?.feeUnit || (isInitialLoad ? document.getElementById(`pay-feeunit-${code}`)?.getAttribute('data-val') : 'percent');
-                
-                const typeEl = document.getElementById(`pay-feetype-${code}`);
-                const unitEl = document.getElementById(`pay-feeunit-${code}`);
-                
-                if (typeEl && ftVal) typeEl.value = ftVal;
-                if (unitEl && fuVal) unitEl.value = fuVal;
-            });
-        }, 10);
-    },
+        // 🌟 الإصلاح الاحترافي: التنفيذ المتزامن الفوري (بدون setTimeout)
+        chkBoxes.forEach(code => {
+            const ftVal = currentInputs[code]?.feeType || (isInitialLoad ? document.getElementById(`pay-feetype-${code}`)?.getAttribute('data-val') : 'fee');
+            const fuVal = currentInputs[code]?.feeUnit || (isInitialLoad ? document.getElementById(`pay-feeunit-${code}`)?.getAttribute('data-val') : 'percent');
+            
+            const typeEl = document.getElementById(`pay-feetype-${code}`);
+            const unitEl = document.getElementById(`pay-feeunit-${code}`);
+            
+            if (typeEl && ftVal) typeEl.value = ftVal;
+            if (unitEl && fuVal) unitEl.value = fuVal;
+        });
+    }, // نهاية دالة toggleCurrencySettings
 
     // ========================================================================
     // 📂 إدارة درج الإيداعات (Drawer)

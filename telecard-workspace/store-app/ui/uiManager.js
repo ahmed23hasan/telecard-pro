@@ -35,7 +35,9 @@ export const UIManager = {
     // 🛠️ دمج كافة الدوال من الوحدات الفرعية في كائن واحد (Facade Pattern)
     ...UICore,
     ...UIFinance,
-    ...UIAuth,    // 🌟 دالة اللودر المركزية (تم تنظيفها بالكامل لتعمل مع الستايل الجديد)
+    ...UIAuth,    
+    
+    // 🌟 دالة اللودر المركزية (تم تنظيفها بالكامل لتعمل مع الستايل الجديد)
     toggleLoader: function(show, text = 'جاري المعالجة...') {
         let loader = document.getElementById('global-dynamic-loader');
         
@@ -54,7 +56,7 @@ export const UIManager = {
             textEl.innerText = text;
         }
         
-        // استخدام is-active المتوافقة مع ملف CSS الجديد
+        // استخدام is-active المتوافقة مع ملف CSS الجديد لضمان سلاسة الأنيميشن
         requestAnimationFrame(() => {
             if (show) {
                 loader.classList.add('is-active');
@@ -63,5 +65,4 @@ export const UIManager = {
             }
         });
     }
-
 };

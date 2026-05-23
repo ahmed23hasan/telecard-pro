@@ -1,11 +1,18 @@
 // ============================================================================
 // 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js)
 // 🎯 الوظيفة: إدارة واجهة الموردين والتواصل مع المحرك السحابي (Supplier Engine)
+// 🌟 التحديث: الترقية لـ Firebase v10 Modular SDK لحل مشكلة (firebase is not defined)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { EventBus, Utils } from '../../adminUtils.js';
 import { AppController } from '../../core/appController.js';
+import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
+
+// 🌟 استيراد مكتبات فايربيز الإصدار الحديث (v10)
+import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
+import { doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 export const IntegrationsController = {
 
@@ -30,8 +37,11 @@ export const IntegrationsController = {
         EventBus.emit('req-show-loader', true);
 
         try {
-            // 1. إرسال البيانات للدالة السحابية لتفصل المفتاح عن البيانات وتحفظها بأمان
-            const saveCloud = firebase.functions().httpsCallable('secureSaveSupplier');
+            // 🌟 1. استدعاء الدالة السحابية بالطريقة الحديثة (v10)
+            const app = getApp();
+            const functions = getFunctions(app);
+            const saveCloud = httpsCallable(functions, 'secureSaveSupplier');
+            
             const response = await saveCloud({ id, name, type, baseUrl, token, defaultMargin: margin, autoSync });
             
             // استلام الـ ID النهائي (سواء كان قديماً أو جديداً تم توليده في السحابة)
@@ -82,10 +92,11 @@ export const IntegrationsController = {
         if (!supp) return;
 
         try {
-            // 1. تحديث قاعدة البيانات السحابية مباشرة (لكي يعرف الـ Cron Job أن المورد معطل)
-            await firebase.firestore().collection('telecard_suppliers').doc(String(id)).update({
+            // 🌟 1. تحديث قاعدة البيانات السحابية مباشرة بالطريقة الحديثة (v10)
+            const suppRef = doc(FirebaseAdapter.db, 'telecard_suppliers', String(id));
+            await updateDoc(suppRef, {
                 isActive: isChecked,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                updatedAt: serverTimestamp()
             });
 
             // 2. تحديث الحالة المحلية والذاكرة
@@ -121,8 +132,11 @@ export const IntegrationsController = {
         EventBus.emit('req-show-loader', true);
 
         try {
-            // استدعاء المزامنة السحابية وإرسال الـ ID فقط! السيرفر سيبحث عن المفتاح السري بأمان.
-            const syncData = firebase.functions().httpsCallable('syncSupplierData');
+            // 🌟 استدعاء المزامنة السحابية بالطريقة الحديثة (v10)
+            const app = getApp();
+            const functions = getFunctions(app);
+            const syncData = httpsCallable(functions, 'syncSupplierData');
+            
             const response = await syncData({ supplierId: id });
             const result = response.data;
 

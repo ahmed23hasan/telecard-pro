@@ -80,6 +80,24 @@ export const RenderHelpers = Object.freeze({
     },
 
     /**
+     * 🌍 محرك جلب رابط علم الدولة تلقائياً بناءً على رمز العملة
+     */
+        getCurrencyFlagUrl: function(currCode = 'USD') {
+        // 🌟 إضافة trim() لتنظيف أي مسافات مخفية قد تسبب خطأ في التطابق
+        const code = String(currCode).toUpperCase().trim();
+        
+        const currencyToCountry = {
+            'USD': 'us', 'TRY': 'tr', 'SAR': 'sa', 'AED': 'ae', 
+            'EUR': 'eu', 'SYP': 'sy', 'EGP': 'eg', 'JOD': 'jo',
+            'KWD': 'kw', 'BHD': 'bh', 'QAR': 'qa', 'OMR': 'om',
+            'GBP': 'gb', 'DZD': 'dz', 'MAD': 'ma'
+        };
+        
+        const countryCode = currencyToCountry[code] || 'us'; 
+        return `https://flagcdn.com/w40/${countryCode}.png`;
+    },
+
+    /**
      * 🎨 دالة تنسيق المبالغ المالية الفاخرة
      * 🌟 تم الإصلاح: العزل ثنائي الاتجاه (Bidi Isolation) لحل مشكلة الخط المشطوب
      */

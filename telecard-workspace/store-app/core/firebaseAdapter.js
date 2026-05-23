@@ -1,6 +1,7 @@
 // ============================================================================
 // ☁️ محول فايربيز (core/firebaseAdapter.js) - The Cloud Gateway
-// 🎯 الوظيفة: الاتصال بقاعدة بيانات Firestore والتعامل مع المجموعات والمستندات والـ Auth
+// 🎯 الوظيفة: الاتصال بقاعدة بيانات Firestore والتعامل مع المجموعات والمستندات والـ Auth والـ Storage
+// 🌟 التحديث: دمج محرك تخزين الصور (Firebase Storage) واستخراج الروابط المباشرة
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -9,6 +10,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 // 🌟 استيراد محرك التحقق من الهوية الرسمي
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+// 🌟 استيراد خدمات التخزين السحابي للصور والملفات
+import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 // 🔑 مفاتيح الربط الخاصة بمتجر Telecard (مدمجة لتعمل على المتجر والإدارة معاً بدون مشاكل مسارات)
 const firebaseConfig = {
@@ -24,12 +27,14 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+const storage = getStorage(app); // ☁️ تهيئة محرك التخزين
 
-// تصدير كائن الـ auth لكي تتمكن ملفات الإقلاع من قراءته فوراً
-export { auth, db };
+// تصدير الكائنات لكي تتمكن ملفات الإقلاع الأخرى من قراءتها فوراً
+export { auth, db, storage };
 
 export const FirebaseAdapter = {
     db: db,
+    storage: storage,
 
     // 📥 1. جلب كل البيانات من مجموعة معينة
     async getAll(collectionName) {
@@ -38,7 +43,7 @@ export const FirebaseAdapter = {
             const snapshot = await getDocs(collection(db, collectionName));
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (error) {
-            console.log(`🚨 خطأ في جلب مجموعة [${collectionName}]: ${error.message}`);
+            console.error(`🚨 خطأ في جلب مجموعة [${collectionName}]: ${error.message}`);
             return [];
         }
     },
@@ -51,7 +56,7 @@ export const FirebaseAdapter = {
             const docSnap = await getDoc(docRef);
             return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
         } catch (error) {
-            console.log(`🚨 خطأ في جلب المستند [${docId}]: ${error.message}`);
+            console.error(`🚨 خطأ في جلب المستند [${docId}]: ${error.message}`);
             return null;
         }
     },
@@ -64,7 +69,7 @@ export const FirebaseAdapter = {
             await setDoc(docRef, data, { merge: true });
             return true;
         } catch (error) {
-            console.log(`🚨 خطأ في حفظ المستند [${docId}]: ${error.message}`);
+            console.error(`🚨 خطأ في حفظ المستند [${docId}]: ${error.message}`);
             return false;
         }
     },
@@ -76,7 +81,7 @@ export const FirebaseAdapter = {
             const docRef = await addDoc(collection(db, collectionName), data);
             return docRef.id;
         } catch (error) {
-            console.log(`🚨 خطأ في الإضافة للمجموعة [${collectionName}]: ${error.message}`);
+            console.error(`🚨 خطأ في الإضافة للمجموعة [${collectionName}]: ${error.message}`);
             return null;
         }
     },
@@ -88,7 +93,7 @@ export const FirebaseAdapter = {
             await deleteDoc(doc(db, collectionName, String(docId)));
             return true;
         } catch (error) {
-            console.log(`🚨 خطأ في حذف المستند [${docId}]: ${error.message}`);
+            console.error(`🚨 خطأ في حذف المستند [${docId}]: ${error.message}`);
             return false;
         }
     },
@@ -122,8 +127,34 @@ export const FirebaseAdapter = {
                 callback(arr);
             });
         } catch (error) {
-            console.log(`🚨 خطأ في الاستماع المشروط للمجموعة [${collectionName}]: ${error.message}`);
+            console.error(`🚨 خطأ في الاستماع المشروط للمجموعة [${collectionName}]: ${error.message}`);
             return () => {}; // إرجاع دالة فارغة لتجنب الأخطاء عند إيقاف الاستماع
+        }
+    },
+
+    // ==========================================
+    // ☁️ 9. محرك رفع الصور والملفات (Storage Engine)
+    // ==========================================
+    async uploadImage(file, folderName = 'general') {
+        if (!file) return '';
+        try {
+            // تنظيف اسم الملف من الرموز والمسافات لتجنب أخطاء تشفير الروابط (URL Encoding)
+            const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+            
+            // إنشاء اسم فريد للملف لمنع استبدال الصور المتشابهة ومنع مشاكل الكاش (Cache)
+            const uniqueFileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
+            
+            const storageRef = ref(storage, `${folderName}/${uniqueFileName}`);
+            
+            // رفع الملف إلى السحابة
+            const snapshot = await uploadBytes(storageRef, file);
+            
+            // استخراج الرابط المباشر (Download URL) لتخزينه في Firestore
+            const downloadURL = await getDownloadURL(snapshot.ref);
+            return downloadURL;
+        } catch (error) {
+            console.error("🚨 خطأ في محرك التخزين السحابي (Storage):", error);
+            throw new Error('فشل رفع الصورة إلى السحابة. تأكد من إعدادات Storage Rules.');
         }
     }
 };

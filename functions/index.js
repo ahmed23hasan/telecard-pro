@@ -12,7 +12,6 @@ const db = admin.firestore();
 // 1. التحقق من صلاحيات الإدارة العليا
 const isMasterAdmin = (context) => {
     if (!context.auth) return false;
-    // التحقق بناءً على الإيميل أو المعرف المعتمد في المتجر
     return context.auth.token.email === 'admin@telecard.pro' || context.auth.uid === 'e064MQJyn6dhU9mNXZvXItc7VYg2';
 };
 
@@ -21,7 +20,7 @@ const safeAdd = (a, b) => Number((Number(a) + Number(b)).toFixed(4));
 const safeSub = (a, b) => Math.max(0, Number((Number(a) - Number(b)).toFixed(4)));
 
 // ==========================================
-// 🛒 1. دالة إنشاء الطلبات الآمنة للعملاء (المحرك المالي)
+// 🛒 1. دالة إنشاء الطلبات الآمنة للعملاء (المحرك المالي + العدادات التراكمية)
 // ==========================================
 exports.createOrder = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
@@ -36,6 +35,7 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
         const userRef = db.collection('telecard_users').doc(uid);
         const orderRef = db.collection('telecard_orders').doc(); 
         const productRef = db.collection('telecard_prods').doc(String(productId));
+        const systemRef = db.collection('system').doc('singleton'); // 🌟 مرجع الإحصائيات المركزية
         
         let couponRef = null;
         if (couponCode) {
@@ -165,6 +165,19 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
                 time: admin.firestore.FieldValue.serverTimestamp()
             };
 
+            // 🌟 تحديث الإحصائيات المركزية (التحديث التراكمي الفوري)
+            const statsUpdate = {
+                'globalStats.orders.total': admin.firestore.FieldValue.increment(1)
+            };
+            
+            // إذا كان التسليم فورياً، نضيف الأرباح مباشرة للإحصائيات
+            if (isAutoDelivered) {
+                statsUpdate['globalStats.orders.completed'] = admin.firestore.FieldValue.increment(1);
+                statsUpdate['globalStats.financials.totalRevenue'] = admin.firestore.FieldValue.increment(totalRequired);
+                statsUpdate['globalStats.financials.totalCost'] = admin.firestore.FieldValue.increment(Number((pricingSnapshot.cost * finalQty).toFixed(4)));
+                statsUpdate['globalStats.financials.totalProfit'] = admin.firestore.FieldValue.increment(Number((pricingSnapshot.profit * finalQty).toFixed(4)));
+            }
+
             transaction.update(userRef, {
                 walletBalance: newBalance,
                 balance: newBalance, 
@@ -172,18 +185,23 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
                 tierCycleSpent: newCycleSpent
             });
             transaction.set(orderRef, newOrder);
+            transaction.update(systemRef, statsUpdate); // 🌟 إرسال التحديث للإحصائيات
         });
 
         return { success: true, message: resultMessage, isAutoDelivered: isAutoDelivered, deliveredCode: deliveredCodeText };
-
+        
     } catch (error) {
         console.error("Order Error:", error);
-        throw new functions.https.HttpsError('internal', error.message || 'حدث خطأ أثناء المعالجة.');
+        
+        if (error instanceof functions.https.HttpsError) {
+            throw error;
+        }
+        throw new functions.https.HttpsError('internal', 'حدث خطأ غير متوقع في السيرفر.');
     }
 });
 
 // ==========================================
-// 💰 2. دالة إرسال طلب الإيداع للعملاء
+// 💰 2. دالة إرسال طلب الإيداع للعملاء (مع تحديث العدادات)
 // ==========================================
 exports.submitBalanceRequest = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
@@ -210,6 +228,11 @@ exports.submitBalanceRequest = functions.https.onCall(async (data, context) => {
             receipt: receiptData || null
         });
 
+        // 🌟 زيادة عداد إجمالي الإيداعات
+        await db.collection('system').doc('singleton').update({
+            'globalStats.deposits.total': admin.firestore.FieldValue.increment(1)
+        });
+
         return { success: true, message: 'تم استلام طلب الإيداع وهو قيد المراجعة.' };
     } catch (error) {
         console.error("Deposit Error:", error);
@@ -218,7 +241,7 @@ exports.submitBalanceRequest = functions.https.onCall(async (data, context) => {
 });
 
 // ==========================================
-// 👑 3. [إدارة] دالة معالجة الإيداعات الآمنة
+// 👑 3. [إدارة] دالة معالجة الإيداعات الآمنة (مع تحديث العدادات)
 // ==========================================
 exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك.');
@@ -229,6 +252,7 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
         return await db.runTransaction(async (transaction) => {
             const depRef = db.collection('telecard_deposits').doc(String(depositId));
             const depSnap = await transaction.get(depRef);
+            const systemRef = db.collection('system').doc('singleton'); // 🌟 مرجع الإحصائيات
             
             if (!depSnap.exists) throw new functions.https.HttpsError('not-found', 'الإيداع غير موجود.');
             const depData = depSnap.data();
@@ -236,6 +260,8 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
             if (depData.status !== 'pending') {
                 throw new functions.https.HttpsError('failed-precondition', 'تمت معالجة هذا الإيداع مسبقاً.');
             }
+
+            const statsUpdate = {};
 
             if (action === 'approved') {
                 const userRef = db.collection('telecard_users').doc(String(depData.userId));
@@ -251,6 +277,9 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
                         totalDeposit: safeAdd(userData.totalDeposit || 0, amountToAdd)
                     });
                 }
+                statsUpdate['globalStats.deposits.approved'] = admin.firestore.FieldValue.increment(1);
+            } else if (action === 'rejected') {
+                statsUpdate['globalStats.deposits.rejected'] = admin.firestore.FieldValue.increment(1);
             }
 
             transaction.update(depRef, {
@@ -258,6 +287,10 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
                 adminNote: adminNote || '',
                 actionTime: admin.firestore.FieldValue.serverTimestamp()
             });
+
+            if (Object.keys(statsUpdate).length > 0) {
+                transaction.update(systemRef, statsUpdate); // 🌟 إرسال التحديث للإحصائيات
+            }
 
             return { success: true, message: `تم تحويل حالة الإيداع إلى ${action} بنجاح.` };
         });
@@ -268,14 +301,13 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
 });
 
 // ==========================================
-// 👑 4. [إدارة] دالة معالجة الطلبات الآمنة (مع استرجاع الرصيد والكوبونات)
+// 👑 4. [إدارة] دالة معالجة الطلبات الآمنة (مع استرجاع الرصيد والكوبونات وتحديث العدادات)
 // ==========================================
 exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك.');
 
     const { orderId, action, adminNote } = data;
 
-    // حماية المدخلات
     const validActions = ['completed', 'rejected', 'refunded', 'returned', 'processing'];
     if (!validActions.includes(action)) {
         throw new functions.https.HttpsError('invalid-argument', 'حالة الطلب غير صالحة.');
@@ -285,6 +317,7 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
         return await db.runTransaction(async (transaction) => {
             const orderRef = db.collection('telecard_orders').doc(String(orderId));
             const orderSnap = await transaction.get(orderRef);
+            const systemRef = db.collection('system').doc('singleton'); // 🌟 مرجع الإحصائيات
             
             if (!orderSnap.exists) throw new functions.https.HttpsError('not-found', 'الطلب غير موجود.');
             const orderData = orderSnap.data();
@@ -296,9 +329,30 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
             const isRefundingAction = ['rejected', 'refunded', 'returned'].includes(action);
             const wasAlreadyRefunded = ['rejected', 'refunded', 'returned'].includes(orderData.status);
 
-            // منع تحويل طلب مسترجع إلى مكتمل مرة أخرى
             if (action === 'completed' && wasAlreadyRefunded) {
-                throw new functions.https.HttpsError('failed-precondition', 'لا يمكن إكمال طلب تم رفضه أو استرجاع أمواله مسبقاً. يرجى إنشاء طلب جديد.');
+                throw new functions.https.HttpsError('failed-precondition', 'لا يمكن إكمال طلب تم رفضه أو استرجاع أمواله مسبقاً.');
+            }
+
+            // 🌟 تجهيز تحديث الإحصائيات التراكمية
+            const statsUpdate = {};
+            const exactPriceUsd = Number(orderData.price || 0);
+            const costUsd = orderData.pricingSnapshot ? Number(orderData.pricingSnapshot.costUsd || 0) : 0;
+            const profitUsd = orderData.pricingSnapshot ? Number(orderData.pricingSnapshot.netProfitUsd || 0) : 0;
+
+            if (orderData.status === 'pending' || orderData.status === 'processing') {
+                if (action === 'completed') {
+                    statsUpdate['globalStats.orders.completed'] = admin.firestore.FieldValue.increment(1);
+                    statsUpdate['globalStats.financials.totalRevenue'] = admin.firestore.FieldValue.increment(exactPriceUsd);
+                    statsUpdate['globalStats.financials.totalCost'] = admin.firestore.FieldValue.increment(costUsd);
+                    statsUpdate['globalStats.financials.totalProfit'] = admin.firestore.FieldValue.increment(profitUsd);
+                } else if (action === 'rejected') {
+                    statsUpdate['globalStats.orders.rejected'] = admin.firestore.FieldValue.increment(1);
+                }
+            } else if (orderData.status === 'completed' && ['refunded', 'returned'].includes(action)) {
+                statsUpdate['globalStats.orders.refunded'] = admin.firestore.FieldValue.increment(1);
+                statsUpdate['globalStats.financials.totalRevenue'] = admin.firestore.FieldValue.increment(-exactPriceUsd); // خصم الأرباح والمبيعات
+                statsUpdate['globalStats.financials.totalCost'] = admin.firestore.FieldValue.increment(-costUsd);
+                statsUpdate['globalStats.financials.totalProfit'] = admin.firestore.FieldValue.increment(-profitUsd);
             }
 
             // --- معالجة الاسترجاع المالي واسترجاع الكوبون ---
@@ -308,34 +362,33 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
                 
                 if (userSnap.exists) {
                     const userData = userSnap.data();
-                    const amountToRefund = Number(orderData.price || 0);
-
                     transaction.update(userRef, {
-                        walletBalance: safeAdd(userData.walletBalance || 0, amountToRefund),
-                        balance: safeAdd(userData.balance || 0, amountToRefund),
-                        totalSpent: safeSub(userData.totalSpent || 0, amountToRefund),
-                        tierCycleSpent: safeSub(userData.tierCycleSpent || 0, amountToRefund)
+                        walletBalance: safeAdd(userData.walletBalance || 0, exactPriceUsd),
+                        balance: safeAdd(userData.balance || 0, exactPriceUsd),
+                        totalSpent: safeSub(userData.totalSpent || 0, exactPriceUsd),
+                        tierCycleSpent: safeSub(userData.tierCycleSpent || 0, exactPriceUsd)
                     });
                 }
 
-                // استرجاع استخدام الكوبون للعميل
                 if (orderData.couponCode) {
                     const couponQuery = await db.collection('telecard_coupons').where('code', '==', orderData.couponCode).limit(1).get();
                     if (!couponQuery.empty) {
-                        const couponRef = couponQuery.docs[0].ref;
-                        transaction.update(couponRef, {
+                        transaction.update(couponQuery.docs[0].ref, {
                             usedCount: admin.firestore.FieldValue.increment(-1)
                         });
                     }
                 }
             }
 
-            // تحديث حالة الطلب
             transaction.update(orderRef, {
                 status: action,
                 adminNote: adminNote || '',
                 actionTime: admin.firestore.FieldValue.serverTimestamp()
             });
+
+            if (Object.keys(statsUpdate).length > 0) {
+                transaction.update(systemRef, statsUpdate); // 🌟 إرسال التحديث للإحصائيات
+            }
 
             return { success: true, message: `تم تحديث حالة الطلب إلى ${action} بنجاح.` };
         });
@@ -344,17 +397,77 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('internal', error.message || 'فشلت عملية معالجة الطلب.');
     }
 });
+
 // ==========================================
-// 🔗 ربط وتصدير دوال المطورين والموردين (التحديث الجديد)
+// 🔗 ربط وتصدير دوال المطورين والموردين
 // ==========================================
 const developerApi = require('./developerApi.js');
 const supplierEngine = require('./supplierEngine.js');
 
-// تصدير دوال المطورين (API & Webhooks)
 exports.orderStatusWebhook = developerApi.orderStatusWebhook;
 exports.externalCreateOrder = developerApi.externalCreateOrder;
-
-// تصدير دوال الموردين السحابية
 exports.syncSupplierData = supplierEngine.syncSupplierData;
 exports.scheduledSupplierSync = supplierEngine.scheduledSupplierSync;
 exports.secureSaveSupplier = supplierEngine.secureSaveSupplier;
+
+// ==========================================
+// 📊 دالة الصيانة الشاملة (تُستخدم يدوياً لضبط العدادات عند الحاجة)
+// ==========================================
+exports.calculateStoreStatsCloud = functions.https.onCall(async (data, context) => {
+    if (!isMasterAdmin(context)) {
+        throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك بإعادة حساب إحصائيات المتجر.');
+    }
+
+    try {
+        console.log("جاري إجراء الحساب الشامل للإحصائيات السحابية...");
+        
+        const [ordersSnap, depositsSnap] = await Promise.all([
+            db.collection('telecard_orders').get(),
+            db.collection('telecard_deposits').get()
+        ]);
+
+        const globalStats = {
+            financials: { totalRevenue: 0, totalProfit: 0, totalCost: 0 },
+            orders: { total: 0, completed: 0, rejected: 0, refunded: 0 },
+            deposits: { total: 0, approved: 0, rejected: 0, refunded: 0 }
+        };
+
+        ordersSnap.forEach(doc => {
+            const o = doc.data();
+            globalStats.orders.total++;
+            
+            if (o.status === 'completed') {
+                globalStats.orders.completed++;
+                const exactPriceUsd = Number(o.price || 0);
+                const costUsd = o.pricingSnapshot ? Number(o.pricingSnapshot.costUsd || 0) : 0;
+                const profitUsd = o.pricingSnapshot ? Number(o.pricingSnapshot.netProfitUsd || 0) : 0;
+
+                globalStats.financials.totalRevenue = safeAdd(globalStats.financials.totalRevenue, exactPriceUsd);
+                globalStats.financials.totalCost = safeAdd(globalStats.financials.totalCost, costUsd);
+                globalStats.financials.totalProfit = safeAdd(globalStats.financials.totalProfit, profitUsd);
+            } else if (o.status === 'rejected') {
+                globalStats.orders.rejected++;
+            } else if (o.status === 'refunded' || o.status === 'returned') {
+                globalStats.orders.refunded++;
+            }
+        });
+
+        depositsSnap.forEach(doc => {
+            const d = doc.data();
+            globalStats.deposits.total++;
+            if (d.status === 'approved') globalStats.deposits.approved++;
+            else if (d.status === 'rejected') globalStats.deposits.rejected++;
+            else if (d.status === 'refunded') globalStats.deposits.refunded++;
+        });
+
+        await db.collection('system').doc('singleton').set({ 
+            globalStats: globalStats 
+        }, { merge: true });
+
+        return { success: true, message: 'تم إعادة بناء وضبط الإحصائيات المركزية بنجاح.' };
+
+    } catch (error) {
+        console.error("Stats Calculation Error:", error);
+        throw new functions.https.HttpsError('internal', 'فشل السيرفر في حساب الإحصائيات.');
+    }
+});

@@ -1,37 +1,42 @@
 // ============================================================================
 // 🪪 وحدة الهوية والأمان (uiAuth.js)
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، والإعدادات
-// 🚀 التحديث: تأمين قراءة الـ DOM، إزالة الـ Magic Strings (DRY)، وتحسين الأداء
+// 🚀 التحديث: حل مشكلة فقدان سياق (this) وتطبيق تفويض الأحداث (Event Delegation)
 // ============================================================================
 
 import { Utils } from '../utils.js';                    
 import { DataManager, LiveStoreData } from '../dataManager.js'; 
+import { FirebaseAdapter } from '../core/firebaseAdapter.js';
 
-// 🌟 [إصلاح هندسي] تعريف الثوابت لمنع التكرار (DRY) وسهولة التعديل المستقبلي
 const DEFAULT_AVATAR_URL = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
+
+// 🌟 دالة مساعدة لجلب النظام المركزي (Orchestrator) وحل مشكلة فقدان السياق (Context Loss)
+const getSys = () => window.ClientSystem || {};
 
 export const UIAuth = {
 
-                openProfileInfo: function() {
-        if(typeof this.resetUI === 'function') this.resetUI();
+    // 🌟 ذاكرة مؤقتة للاحتفاظ بملفات الـ KYC قبل رفعها
+    kycFiles: {},
+
+    openProfileInfo: function() {
+        getSys().resetUI?.();
         
         // 🌟 مزامنة حية للبيانات
         if(DataManager.syncUser) DataManager.syncUser();
-        if(typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
+        this.updateProfileDisplay();
 
         if (!DataManager.user) return;
         const user = DataManager.user;
-        const isVerified = (user.kycStatus === 'approved' || user.kycStatus === 'verified'); // 🌟 حالة التوثيق الحقيقية
+        const isVerified = (user.kycStatus === 'approved' || user.kycStatus === 'verified'); 
 
-        // 🌟 [المنطق الجديد] تحديد الاسم: نستخدم الاسم الرسمي الموثق فور توفر الحالة
-        const fullName = typeof this._getFullName === 'function' ? this._getFullName(user) : (user.name || 'العميل');
+        // 🌟 [المنطق الجديد] استخدام الدالة المركزية بشكل آمن عبر getSys()
+        const fullName = getSys()._getFullName ? getSys()._getFullName(user) : (user.name || 'العميل');
         
         const usernameVal = user.username ? `@${user.username}` : '---';
         const countryTxt = user.countryName || user.country || 'غير محدد';
         const emailTxt = (user.email && user.email.trim()) ? user.email : 'غير محدد';
         const phoneTxt = (user.phone && user.phone.trim()) ? user.phone : 'غير محدد';
         
-        // 🌟 عرض الـ ID القصير أو اقتطاع جزء من الـ UID
         const idTxt = user.displayId || (user.id ? user.id.substring(0, 6) : '--');
 
         const displayNameEl = document.getElementById('display-name');
@@ -46,16 +51,15 @@ export const UIAuth = {
         const tierIconBox = document.getElementById('profile-tier-icon-box');
         const sidebarName = document.getElementById('cs-user-name'); 
         
-        // 🌟 تحديث الاسم في اللوحة الجانبية لضمان التطابق التام
         if (sidebarName) sidebarName.textContent = fullName;
 
-        // 🌟 التحكم في وضع التعديل (القلم)
         const editBtnToggle = document.getElementById('profile-edit-toggle');
         if (editBtnToggle) {
-            // إخفاء زر التعديل نهائياً إذا كان الحساب موثقاً
             editBtnToggle.style.display = isVerified ? 'none' : 'flex';
             const icon = editBtnToggle.querySelector('i'); 
             if (icon) icon.className = 'fa-solid fa-pen'; 
+            // 🌟 ربط الزر بتفويض الأحداث بدلاً من المستمع المباشر
+            editBtnToggle.setAttribute('data-action', 'toggle-name-edit');
         }
         
         if (displayNameEl && editNameEl) { 
@@ -68,18 +72,13 @@ export const UIAuth = {
         if(usernameEl) usernameEl.textContent = usernameVal;
         if(emailEl) emailEl.textContent = emailTxt;
 
-        // 🌟 تحديث حقل الهاتف مع التفاعل
         if(phoneEl) {
             phoneEl.innerHTML = `<span dir="ltr">${phoneTxt}</span>`;
             const phoneCard = phoneEl.closest('.info-card-item');
-            if (phoneCard && !phoneCard._boundPhoneClick) {
+            if (phoneCard) {
+                // 🌟 التخلص من onclick واستخدام تفويض الأحداث
                 phoneCard.style.cursor = 'pointer';
-                phoneCard.onclick = () => {
-                    if(typeof this.showToast === 'function') {
-                        this.showToast('هذا الرقم مرتبط بحسابك الأساسي. لتغييره يرجى التواصل مع الدعم الفني.', 'info');
-                    }
-                };
-                phoneCard._boundPhoneClick = true;
+                phoneCard.setAttribute('data-action', 'show-phone-toast');
             }
         }
         
@@ -87,7 +86,6 @@ export const UIAuth = {
         if(idBadge) idBadge.textContent = idTxt;
         if(baseCurrView) { const base = (user.baseCurrency || user.base_currency || 'USD').toUpperCase(); baseCurrView.textContent = base; }
         
-        // 🚀 الحل الاحترافي: استخدام المدير المالي لجلب المستوى بدلاً من البحث اليدوي
         const currentTier = typeof DataManager.getUserTier === 'function' ? DataManager.getUserTier(user) : null;
 
         if (tierView) {
@@ -109,76 +107,93 @@ export const UIAuth = {
         if(imgEl) imgEl.src = currentAvatar;
         if(sidebarAvatar) sidebarAvatar.src = currentAvatar;
         
-        const handleAvatarClick = (e) => {
-            e.stopPropagation();
-            if (DataManager.user && DataManager.user.img && DataManager.user.img !== DEFAULT_AVATAR_URL) {
-                this.toggleAvatarMenu(e);
-            } else {
-                if(fileInput) fileInput.click();
-            }
-        };
-
-        if(imgEl && !imgEl._boundClick) { 
-            imgEl.addEventListener('click', handleAvatarClick); 
-            imgEl.style.cursor = 'pointer'; 
-            imgEl._boundClick = true; 
+        // 🌟 إعطاء صلاحية تفويض الأحداث لخيارات الصور
+        if(imgEl) {
+            imgEl.style.cursor = 'pointer';
+            imgEl.setAttribute('data-action', 'handle-avatar-click');
         }
-        
-        if(cameraBtn && !cameraBtn._boundClick) {
-            cameraBtn.addEventListener('click', handleAvatarClick);
-            cameraBtn._boundClick = true;
+        if(cameraBtn) {
+            cameraBtn.setAttribute('data-action', 'handle-avatar-click');
         }
 
+        // 🌟 مستمع الـ Change يستثنى من الـ Click Delegation ويبقى مكانه هنا
         if(fileInput && !fileInput._boundChange) {
-            fileInput.addEventListener('change', (e) => {
+            fileInput.addEventListener('change', async (e) => {
                 const file = e.target.files && e.target.files[0];
                 if(file) {
                     const reader = new FileReader();
                     reader.onload = (evt) => {
-                        const url = evt.target.result;
-                        if(imgEl) imgEl.src = url; 
-                        if(sidebarAvatar) sidebarAvatar.src = url; 
-                        if (DataManager.updateUserProfile) DataManager.updateUserProfile({ img: url });
+                        const localUrl = evt.target.result;
+                        if(imgEl) imgEl.src = localUrl; 
+                        if(sidebarAvatar) sidebarAvatar.src = localUrl; 
                     };
                     reader.readAsDataURL(file);
+
+                    getSys().showToast?.('جاري رفع الصورة الشخصية...', 'info');
+                    try {
+                        const downloadUrl = await FirebaseAdapter.uploadImage(file, `avatars/${DataManager.user.id}`);
+                        if (DataManager.updateUserProfile) {
+                            await DataManager.updateUserProfile({ img: downloadUrl });
+                        }
+                        getSys().showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
+                    } catch (err) {
+                        console.error("Avatar Upload Error:", err);
+                        getSys().showToast?.('تعذر حفظ الصورة في السحابة', 'error');
+                    }
                 }
             });
             fileInput._boundChange = true;
         }
 
-        // حماية إضافية لحدث النقر
-        if(editBtnToggle && !editBtnToggle._boundClick) {
-            editBtnToggle.addEventListener('click', (e) => {
-             if (DataManager.user.kycStatus === 'approved' || DataManager.user.kycStatus === 'verified') return; 
-
-                e.stopPropagation(); 
-                const icon = editBtnToggle.querySelector('i');
-                const isEditing = !editNameEl.classList.contains('d-none');
-
-                if(isEditing) {
-                    const newName = editNameEl.value.trim();
-                    if(newName) {
-                        const parts = newName.split(' ');
-                        const fName = parts.shift() || 'العميل'; 
-                        const lName = parts.join(' ').trim();
-                        if (DataManager.updateUserProfile) DataManager.updateUserProfile({ name: fName, lastName: lName });
-                    }
-                    displayNameEl.classList.remove('d-none'); editNameEl.classList.add('d-none');
-                    if(icon) icon.className = 'fa-solid fa-pen'; 
-                    if(typeof this.showToast === 'function') this.showToast('تم حفظ الاسم بنجاح', 'success');
-                    this.updateProfileDisplay();
-                } else {
-                    displayNameEl.classList.add('d-none'); editNameEl.classList.remove('d-none');
-                    editNameEl.focus();
-                    if(icon) icon.className = 'fa-solid fa-check'; 
-                }
-            });
-            editBtnToggle._boundClick = true;
-        }
-        
-        if(typeof this.openModal === 'function') this.openModal('profile-info');
+        getSys().openModal?.('profile-info');
     },
-    closeProfileInfo: function() { if(typeof this.closeModal === 'function') this.closeModal('profile-info'); },
+
+    // 🌟 دالة مساعدة معالجة نقرة الأفاتار ليتم استدعاؤها عبر المستمع المركزي
+    handleAvatarClick: function(e) {
+        if(e) e.stopPropagation();
+        if (DataManager.user && DataManager.user.img && DataManager.user.img !== DEFAULT_AVATAR_URL) {
+            this.toggleAvatarMenu(e);
+        } else {
+            const fileInput = document.getElementById('avatar-upload-input');
+            if(fileInput) fileInput.click();
+        }
+    },
+
+    // 🌟 دالة مساعدة لتعديل الاسم ليتم استدعاؤها عبر المستمع المركزي
+    toggleNameEdit: function() {
+        if (!DataManager.user || (DataManager.user.kycStatus === 'approved' || DataManager.user.kycStatus === 'verified')) return;
+
+        const editNameEl = document.getElementById('edit-name-input');
+        const displayNameEl = document.getElementById('display-name');
+        const editBtnToggle = document.getElementById('profile-edit-toggle');
+        const icon = editBtnToggle ? editBtnToggle.querySelector('i') : null;
+
+        if (!editNameEl || !displayNameEl) return;
+        
+        const isEditing = !editNameEl.classList.contains('d-none');
+
+        if(isEditing) {
+            const newName = editNameEl.value.trim();
+            if(newName) {
+                const parts = newName.split(' ');
+                const fName = parts.shift() || 'العميل'; 
+                const lName = parts.join(' ').trim();
+                if (DataManager.updateUserProfile) DataManager.updateUserProfile({ name: fName, lastName: lName });
+            }
+            displayNameEl.classList.remove('d-none'); 
+            editNameEl.classList.add('d-none');
+            if(icon) icon.className = 'fa-solid fa-pen'; 
+            getSys().showToast?.('تم حفظ الاسم بنجاح', 'success');
+            this.updateProfileDisplay();
+        } else {
+            displayNameEl.classList.add('d-none'); 
+            editNameEl.classList.remove('d-none');
+            editNameEl.focus();
+            if(icon) icon.className = 'fa-solid fa-check'; 
+        }
+    },
+
+    closeProfileInfo: function() { getSys().closeModal?.('profile-info'); },
 
     toggleAvatarMenu: function(event) {
         if (event) event.stopPropagation(); 
@@ -186,7 +201,7 @@ export const UIAuth = {
         if (!menu) return;
         
         menu.classList.toggle('active');
-        if (typeof this.sfx === 'function') this.sfx('nav');
+        getSys().sfx?.('nav');
 
         if (menu.classList.contains('active')) {
             const closeMenu = (e) => {
@@ -199,9 +214,8 @@ export const UIAuth = {
         }
     },
 
-                    updateProfileDisplay: function() {
+    updateProfileDisplay: function() {
         try {
-            // 1. جلب العناصر من الواجهة
             const guestCard = document.getElementById('guest-sidebar-card');
             const userCard = document.getElementById('user-sidebar-card');
             const navDeposit = document.getElementById('nav-item-deposit');
@@ -210,11 +224,9 @@ export const UIAuth = {
             const navNotif = document.getElementById('nav-item-notif');
             const logoutBtn = document.getElementById('sidebar-logout-btn');
             
-            // 🌟 جلب صناديق التنبيهات
             const alertCard = document.getElementById('sb-profile-alert');
             const kycContainer = document.getElementById('sidebar-kyc-container');
 
-            // 🌟 2. حالة الضيف (Guest State)
             if (!DataManager || !DataManager.user) {
                 if (guestCard) guestCard.style.display = 'block';
                 if (userCard) userCard.style.display = 'none';
@@ -224,7 +236,6 @@ export const UIAuth = {
                 if (navNotif) navNotif.style.display = 'none';
                 if (logoutBtn) logoutBtn.style.display = 'none';
                 
-                // 🛑 الإخفاء الصارم بالقوة القصوى للضيوف
                 if (alertCard) {
                     alertCard.style.setProperty('display', 'none', 'important');
                     alertCard.classList.add('d-none', 'hide-element');
@@ -236,7 +247,6 @@ export const UIAuth = {
                 return; 
             }
 
-            // 🌟 3. حالة المستخدم المسجل (Auth State)
             if (guestCard) guestCard.style.display = 'none';
             if (userCard) userCard.style.display = 'block';
             if (navDeposit) navDeposit.style.display = 'flex';
@@ -245,9 +255,8 @@ export const UIAuth = {
             if (navNotif) navNotif.style.display = 'flex';
             if (logoutBtn) logoutBtn.style.display = 'flex';
 
-            // 4. طباعة بيانات المستخدم 
             const user = DataManager.user;
-            const fullName = typeof this._getFullName === 'function' ? this._getFullName(user) : user.name;
+            const fullName = getSys()._getFullName ? getSys()._getFullName(user) : user.name;
             
             const nameEl = document.getElementById('cs-name'); 
             const displayNameEl = document.getElementById('display-name'); 
@@ -255,14 +264,11 @@ export const UIAuth = {
             if(nameEl) nameEl.textContent = fullName;
             if(displayNameEl) displayNameEl.textContent = fullName;
 
-            // 🚀 الإصلاح الجذري: الشرط الذكي (إذا كان موثقاً أو يمتلك هاتف ودولة، سيختفي الصندوق للأبد)
             if (alertCard) {
-                // نتحقق من وجود البيانات فعلياً لتجاوز أي تأخير من السيرفر
                 const hasData = (user.phone && user.phone.trim() !== '') && (user.country && user.country !== '');
                 const isIdentityComplete = (user.isVerified === true || String(user.isVerified) === 'true') || hasData;
                 
                 if (isIdentityComplete) {
-                    // استخدام setProperty مع important لكسر حماية الـ CSS
                     alertCard.style.setProperty('display', 'none', 'important');
                     alertCard.classList.add('d-none', 'hide-element');
                 } else {
@@ -278,18 +284,16 @@ export const UIAuth = {
                 sidebarAvatar.src = user.img || defaultImg;
             }
             
-            // تحديث الرقم ليكون الرقم القصير (Display ID)
             const idEl = document.getElementById('cs-id'); 
             if(idEl) idEl.textContent = user.displayId || (user.id ? String(user.id).substring(0, 6) : '---');
             
             this.updateSidebarTier();
-            
-            // تحديث حالة التوثيق KYC
-            if(typeof this.renderKycUI === 'function') this.renderKycUI();
-            if(typeof this.checkKycCelebration === 'function') this.checkKycCelebration();
+            this.renderKycUI();
+            this.checkKycCelebration();
             
         } catch(e) { console.error('Error updating profile display:', e); }
     },
+
     deleteProfileImage: function() {
         if(!DataManager.user) return;
         const imgEl = document.getElementById('profile-img');
@@ -305,22 +309,20 @@ export const UIAuth = {
         if (menu) menu.classList.remove('active');
         
         try {
-            // 🌟 التحديث عبر البوابة الشرعية الموحدة
             if (DataManager.updateUserProfile) {
                 DataManager.updateUserProfile({ img: null });
             }
             localStorage.removeItem('telecard_user_image_' + DataManager.user.id);
-            if(typeof this.showToast === 'function') this.showToast('تم حذف الصورة الشخصية', 'success'); 
-            if(typeof this.sfx === 'function') this.sfx('success'); 
+            getSys().showToast?.('تم حذف الصورة الشخصية', 'success'); 
+            getSys().sfx?.('success'); 
         } catch(e) { 
-            if(typeof this.showToast === 'function') this.showToast('تعذر حذف الصورة', 'error'); 
+            getSys().showToast?.('تعذر حذف الصورة', 'error'); 
         }
     },
 
-            updateSidebarTier: async function() {
+    updateSidebarTier: async function() {
         if (!DataManager.user) return; 
         
-        // 🚀 الحل الاحترافي: توحيد مصدر الحقيقة واستخدام المدير المالي
         const currentTier = typeof DataManager.getUserTier === 'function' ? DataManager.getUserTier(DataManager.user) : null;
         const tierBtn = document.getElementById('sidebar-rank-btn');
         
@@ -334,10 +336,9 @@ export const UIAuth = {
             
             tierBtn.innerHTML = `<i class="${Utils.safeText(iconClass.trim())}"></i> ${Utils.safeText(tierName)}`;
             tierBtn.style.setProperty('--tier-color', tierColor);
-            if(typeof this.hexToRgb === 'function') tierBtn.style.setProperty('--tier-rgb', this.hexToRgb(tierColor));
+            if(getSys().hexToRgb) tierBtn.style.setProperty('--tier-rgb', getSys().hexToRgb(tierColor));
         }
     },
-
 
     loadUserImageAutomatically: function() {
         if(!DataManager.user) return; 
@@ -366,8 +367,8 @@ export const UIAuth = {
         setTimeout(() => { sidebarAvatar.classList.remove('loading'); }, 300);
     },
 
-    openSettings: function() { if(typeof this.resetUI === 'function') this.resetUI(); this.renderSettingsUI(); if(typeof this.openModal === 'function') this.openModal('settings'); },
-    closeSettings: function() { if(typeof this.closeModal === 'function') this.closeModal('settings'); },
+    openSettings: function() { getSys().resetUI?.(); this.renderSettingsUI(); getSys().openModal?.('settings'); },
+    closeSettings: function() { getSys().closeModal?.('settings'); },
 
     renderSettingsUI: function() {
         const prefs = DataManager.prefs || {}; 
@@ -382,8 +383,8 @@ export const UIAuth = {
 
     toggleThemePref: function() {
         const newMode = document.body.classList.contains('light-mode') ? 'dark' : 'light';
-        if(typeof this.setThemePref === 'function') this.setThemePref(newMode);
-        if(typeof this.sfx === 'function') this.sfx('nav');
+        this.setThemePref(newMode);
+        getSys().sfx?.('nav');
     },
 
     setThemePref: function(mode) {
@@ -402,20 +403,20 @@ export const UIAuth = {
 
     toggleSoundPref: function() {
         if (DataManager.prefs) { DataManager.prefs.sound = !DataManager.prefs.sound; if (DataManager.savePrefs) DataManager.savePrefs(); }
-        this.renderSettingsUI(); if(typeof this.sfx === 'function') this.sfx('nav');
+        this.renderSettingsUI(); getSys().sfx?.('nav');
     },
 
-    toggleSecurityPref: function() { if(typeof this.showToast === 'function') this.showToast('قريباً: سيتم تفعيل هذه الميزة في التحديث القادم', 'info'); },
+    toggleSecurityPref: function() { getSys().showToast?.('قريباً: سيتم تفعيل هذه الميزة في التحديث القادم', 'info'); },
 
     openPasswordDialog: function() {
-        if(typeof this.resetUI === 'function') this.resetUI();
+        getSys().resetUI?.();
         const hint = document.getElementById('profile-password-hint');
         if(hint) { hint.textContent = ''; hint.classList.remove('error','success'); }
         ['pass-current','pass-new','pass-confirm'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
-        if(typeof this.openModal === 'function') this.openModal('pass-change'); 
+        getSys().openModal?.('pass-change'); 
     },
 
-    closePasswordDialog: function() { if(typeof this.closeModal === 'function') this.closeModal('pass-change'); },
+    closePasswordDialog: function() { getSys().closeModal?.('pass-change'); },
 
     handlePasswordSubmit: function() {
         const hint = document.getElementById('profile-password-hint');
@@ -436,10 +437,10 @@ export const UIAuth = {
         if (result.success) {
             if(hint) { hint.textContent = result.msg; hint.classList.add('success'); }
             this.closePasswordDialog();
-            if(typeof this.showToast === 'function') this.showToast(result.msg, 'success');
+            getSys().showToast?.(result.msg, 'success');
         } else {
             if(hint) { hint.textContent = result.msg; hint.classList.add('error'); }
-            if(typeof this.showToast === 'function') this.showToast(result.msg, 'error');
+            getSys().showToast?.(result.msg, 'error');
         }
     },
 
@@ -464,138 +465,150 @@ export const UIAuth = {
         if (prefixEl) prefixEl.innerHTML = `<span class="num-en">${prefix}</span>`;
         if (phoneInp) { phoneInp.value = ''; phoneInp.maxLength = phoneLen || 10; phoneInp.placeholder = `أدخل رقم هاتفك`; }
         if (dropdown) dropdown.classList.remove('open');
-        if(typeof this.sfx === 'function') this.sfx('nav');
+        getSys().sfx?.('nav');
     },
 
-                saveIdentityData: async function() {
-            const countryEl = document.getElementById('selected-country-text');
-            const phoneEl = document.getElementById('reg-phone');
-            const currencyEl = document.getElementById('reg-currency'); // 🌟 ربط حقل العملة الجديد
-            
-            const country = countryEl ? countryEl.innerText : '';
-            const phone = phoneEl ? phoneEl.value : '';
-            const currency = currencyEl ? currencyEl.value : ''; // 🌟 استخراج قيمة العملة
-            
-            // تحقق صارم يشمل العملة
-            if (!country || country === 'اختر الدولة...' || !phone || phone.trim() === '' || !currency) {
-                if (typeof this.showToast === 'function') this.showToast('يرجى تعبئة جميع الحقول (الدولة، رقم الهاتف، وعملة المحفظة)', 'error');
-                return;
-            }
-            
-            if (typeof this.toggleLoader === 'function') this.toggleLoader(true, 'جاري الحفظ في قاعدة البيانات...');
-            
-            let success = false;
-            if (DataManager.updateUserProfile) {
-                // 🌟 إرسال الحزمة المعمارية الكاملة لمرة واحدة
-                success = await DataManager.updateUserProfile({
-                    country: country,
-                    phone: phone,
-                    currency: currency,           // العملة الموحدة الجديدة
-                    baseCurrency: currency,       // توافق رجعي لضمان عدم انهيار النظام المالي
-                    base_currency: currency,      // توافق رجعي إضافي
-                    isVerified: true
-                });
-            }
-            
-            if (typeof this.toggleLoader === 'function') this.toggleLoader(false);
-            
-            if (!success) {
-                if (typeof this.showToast === 'function') this.showToast('حدث خطأ في الاتصال بقاعدة البيانات. حاول مجدداً', 'error');
-                return;
-            }
-            
-            // 🌟 تحديث ذاكرة المتصفح ليقوم المحرك المالي باعتماد العملة الجديدة فوراً
-            localStorage.setItem('telecard_display_currency', currency);
-            
-            if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
-            
-            const inputsWrap = document.getElementById('identity-inputs-wrap');
-            const statusWrap = document.getElementById('identity-verified-status');
-            
-            if (inputsWrap) inputsWrap.style.display = 'none';
-            if (statusWrap) statusWrap.classList.remove('hide-element');
-            if (typeof this.sfx === 'function') this.sfx('success');
-
-            // 🌟 إعادة إنعاش النظام بعد ثانية ونصف لتطبيق التسعير الجديد على المنتجات
-            setTimeout(() => {
-                window.location.reload();
-            }, 1500);
-        },
-
-        // 🌟 الدالة الجديدة: التوليد الديناميكي للعملات من الذاكرة الحية
-        loadDynamicCurrenciesForModal: function() {
-            const currencySelect = document.getElementById('reg-currency');
-            if (!currencySelect) return;
-
-            // جلب العملات المتوفرة من الذاكرة الحية للمتجر (لا حاجة لاتصال جديد بالسحابة)
-            const rates = window.LiveStoreData?.rates || window.DataManager?.rates || [];
-       // تفريغ القائمة ووضع خيار افتراضي بعبارة احترافية
-currencySelect.innerHTML = '<option value="" disabled selected>حدد العملة الدائمة لمحفظتك...</option>';
-     if (rates.length === 0) {
-                // حالة الطوارئ
-                currencySelect.innerHTML += '<option value="USD">دولار أمريكي (USD)</option>';
-                return;
-            }
-
-            // توليد الخيارات
-            rates.forEach(r => {
-                // تجاهل العملات غير الفعالة إذا وجد هذا الحقل
-                if (r.isActive === false) return; 
-                
-                const option = document.createElement('option');
-                option.value = r.code;
-                option.textContent = `${r.name || r.code} (${r.code})`;
-                currencySelect.appendChild(option);
+    saveIdentityData: async function() {
+        const countryEl = document.getElementById('selected-country-text');
+        const phoneEl = document.getElementById('reg-phone');
+        const currencyEl = document.getElementById('reg-currency'); 
+        
+        const country = countryEl ? countryEl.innerText : '';
+        const phone = phoneEl ? phoneEl.value : '';
+        const currency = currencyEl ? currencyEl.value : ''; 
+        
+        if (!country || country === 'اختر الدولة...' || !phone || phone.trim() === '' || !currency) {
+            getSys().showToast?.('يرجى تعبئة جميع الحقول (الدولة، رقم الهاتف، وعملة المحفظة)', 'error');
+            return;
+        }
+        
+        getSys().toggleLoader?.(true, 'جاري الحفظ في قاعدة البيانات...');
+        
+        let success = false;
+        if (DataManager.updateUserProfile) {
+            success = await DataManager.updateUserProfile({
+                country: country,
+                phone: phone,
+                currency: currency,
+                baseCurrency: currency,
+                base_currency: currency,
+                isVerified: true
             });
-        },
-        submitKycData: async function() {
-            const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
-            const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
-            const frontImg = document.getElementById('kyc-prev-front')?.src || '';
-            const backImg = document.getElementById('kyc-prev-back')?.src || '';
-            const selfieImg = document.getElementById('kyc-prev-selfie')?.src || '';
+        }
+        
+        getSys().toggleLoader?.(false);
+        
+        if (!success) {
+            getSys().showToast?.('حدث خطأ في الاتصال بقاعدة البيانات. حاول مجدداً', 'error');
+            return;
+        }
+        
+        localStorage.setItem('telecard_display_currency', currency);
+        
+        this.updateProfileDisplay();
+        
+        const inputsWrap = document.getElementById('identity-inputs-wrap');
+        const statusWrap = document.getElementById('identity-verified-status');
+        
+        if (inputsWrap) inputsWrap.style.display = 'none';
+        if (statusWrap) statusWrap.classList.remove('hide-element');
+        getSys().sfx?.('success');
+
+        setTimeout(() => {
+            window.location.reload();
+        }, 1500);
+    },
+
+    loadDynamicCurrenciesForModal: function() {
+        const currencySelect = document.getElementById('reg-currency');
+        if (!currencySelect) return;
+
+        const rates = window.LiveStoreData?.rates || window.DataManager?.rates || [];
+        currencySelect.innerHTML = '<option value="" disabled selected>حدد العملة الدائمة لمحفظتك...</option>';
+        if (rates.length === 0) {
+            currencySelect.innerHTML += '<option value="USD">دولار أمريكي (USD)</option>';
+            return;
+        }
+
+        rates.forEach(r => {
+            if (r.isActive === false) return; 
             
-            const hasValidImg = (src) => src && src.startsWith('data:image');
-            
-            if (!fullName || !idNumber || !hasValidImg(frontImg) || !hasValidImg(backImg) || !hasValidImg(selfieImg)) {
-                if (typeof this.showToast === 'function') this.showToast('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
-                if (typeof this.sfx === 'function') this.sfx('error');
-                return;
-            }
-            
-            if (typeof this.toggleLoader === 'function') this.toggleLoader(true, 'جاري تشفير وإرسال البيانات السحابية...');
-            
-            try {
-                let success = false;
-                if (DataManager.updateUserProfile) {
-                    // 🌟 ننتظر الرد الفعلي من قاعدة البيانات (انتهى عصر الوهم)
-                    success = await DataManager.updateUserProfile({
-                        fullName: fullName,
-                        kycStatus: 'pending',
-                        kycData: {
-                            idNumber: idNumber,
-                            frontImg: frontImg,
-                            backImg: backImg,
-                            selfieImg: selfieImg,
-                            submittedAt: Date.now()
-                        }
-                    });
+            const option = document.createElement('option');
+            option.value = r.code;
+            option.textContent = `${r.name || r.code} (${r.code})`;
+            currencySelect.appendChild(option);
+        });
+    },
+
+    submitKycData: async function() {
+    const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
+    const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
+    
+    this.kycFiles = this.kycFiles || {};
+    const frontFile = this.kycFiles['kyc-prev-front'];
+    const backFile = this.kycFiles['kyc-prev-back'];
+    const selfieFile = this.kycFiles['kyc-prev-selfie'];
+    
+    if (!fullName || !idNumber || !frontFile || !backFile || !selfieFile) {
+        getSys().showToast?.('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
+        getSys().sfx?.('error');
+        return;
+    }
+    
+    getSys().toggleLoader?.(true, 'جاري الرفع الآمن وتشفير البيانات السحابية...');
+    
+    try {
+        const userId = DataManager.user.id || 'unknown_user';
+        
+        // استخدام Promise.allSettled بدلاً من Promise.all
+        const uploadPromises = [
+            FirebaseAdapter.uploadImage(frontFile, `kyc_docs/${userId}_front`),
+            FirebaseAdapter.uploadImage(backFile, `kyc_docs/${userId}_back`),
+            FirebaseAdapter.uploadImage(selfieFile, `kyc_docs/${userId}_selfie`)
+        ];
+
+        const results = await Promise.allSettled(uploadPromises);
+        
+        const failedUploads = results.filter(r => r.status === 'rejected');
+        if (failedUploads.length > 0) {
+            // ملاحظة هندسية: هنا يجب استدعاء دالة سحابية لحذف الملفات التي تم رفعها بنجاح لتنظيف Storage
+            throw new Error("فشل رفع إحدى الصور، يرجى التأكد من جودة الاتصال.");
+        }
+
+        const [frontImgUrl, backImgUrl, selfieImgUrl] = results.map(r => r.value);
+
+        let success = false;
+        if (DataManager.updateUserProfile) {
+            success = await DataManager.updateUserProfile({
+                fullName: fullName,
+                kycStatus: 'pending',
+                kycData: {
+                    idNumber: idNumber,
+                    frontImg: frontImgUrl,
+                    backImg: backImgUrl,
+                    selfieImg: selfieImgUrl,
+                    submittedAt: Date.now()
                 }
-                
-                if (!success) throw new Error("Firebase Update Failed");
-                
-                this.closeKycModal();
-                if (typeof this.showToast === 'function') this.showToast('تم رفع بياناتك بنجاح، يرجى انتظار المراجعة', 'success');
-                if (typeof this.sfx === 'function') this.sfx('success');
-                this.renderKycUI();
-                
-            } catch (e) {
-                console.error('KYC Upload Error:', e);
-                if (typeof this.showToast === 'function') this.showToast('فشل إرسال البيانات لقاعدة البيانات، يرجى المحاولة مجدداً', 'error');
-            } finally {
-                if (typeof this.toggleLoader === 'function') this.toggleLoader(false);
-            }
-        },    renderKycUI: function() {
+            });
+        }
+        
+        if (!success) throw new Error("Firebase Update Failed");
+        
+        this.kycFiles = {};
+
+        this.closeKycModal();
+        getSys().showToast?.('تم رفع بياناتك بنجاح، يرجى انتظار المراجعة', 'success');
+        getSys().sfx?.('success');
+        this.renderKycUI();
+        
+    } catch (e) {
+        console.error('KYC Upload Error:', e);
+        getSys().showToast?.('فشل إرسال البيانات، يرجى التأكد من اتصالك والمحاولة مجدداً', 'error');
+    } finally {
+        getSys().toggleLoader?.(false);
+    }
+},
+    renderKycUI: function() {
         if (!DataManager.user) return;
         const user = DataManager.user;
         const status = user.kycStatus || 'none';
@@ -632,15 +645,16 @@ currencySelect.innerHTML = '<option value="" disabled selected>حدد العمل
             return;
         }
 
+        // 🌟 تطبيق (Event Delegation) باستخدام data-action بدلاً من onclick
         if (status === 'pending') {
             kycContainer.innerHTML = `
-                <div class="sb-kyc-banner kyc-pending" onclick="ClientSystem.openKycStatusModal('pending')">
+                <div class="sb-kyc-banner kyc-pending" data-action="open-kyc-status" data-state="pending">
                     <span><i class="fa-solid fa-hourglass-half"></i> هويتك قيد المراجعة</span>
                     <i class="fa-solid fa-chevron-left"></i>
                 </div>`;
         } else {
             kycContainer.innerHTML = `
-                <div class="sb-kyc-banner kyc-required" onclick="ClientSystem.closeSidebar(); ClientSystem.openModal('kyc-upload')">
+                <div class="sb-kyc-banner kyc-required" data-action="open-kyc-upload">
                     <span><i class="fa-solid fa-shield-halved"></i> التحقق من الهوية (KYC)</span>
                     <i class="fa-solid fa-chevron-left"></i>
                 </div>`;
@@ -662,10 +676,10 @@ currencySelect.innerHTML = '<option value="" disabled selected>حدد العمل
         }
     },
 
-    closeKycModal: function() { if(typeof this.closeModal === 'function') this.closeModal('kyc-upload'); },
+    closeKycModal: function() { getSys().closeModal?.('kyc-upload'); },
     
     openKycStatusModal: function(state) {
-        if(typeof this.closeSidebar === 'function') this.closeSidebar();
+        getSys().closeSidebar?.();
         const content = document.getElementById('kyc-status-content');
         if(!content) return;
         
@@ -674,17 +688,16 @@ currencySelect.innerHTML = '<option value="" disabled selected>حدد العمل
         } else if (state === 'pending') {
             content.innerHTML = `<div class="kyc-status-card text-center"><i class="fa-solid fa-hourglass-half kyc-status-icon pending"></i><h3 class="fw-bold text-main mb-10">جاري مراجعة البيانات</h3><p class="text-muted fs-13 line-height-lg">طلبك الآن على طاولة الإدارة للمراجعة. قد يستغرق الأمر بعض الوقت، سيتم إشعارك فور الانتهاء.</p></div>`;
         }
-        if(typeof this.openModal === 'function') this.openModal('kyc-status');
+        getSys().openModal?.('kyc-status');
     },
-                checkKycCelebration: function() {
+
+    checkKycCelebration: function() {
         const user = DataManager.user;
         if (!user) return;
 
-        // 🌟 الإصلاح الجذري: استخدام حالة KYC الحقيقية كبوصلة للقرار
         const isKycApproved = (user.kycStatus === 'approved' || user.kycStatus === 'verified');
         const celebrationKey = `kyc_celebrated_${user.id}`;
 
-        // الذكاء العكسي: إذا لم يكن الحساب موثقاً بالهوية، نحذف الذاكرة
         if (!isKycApproved) {
             localStorage.removeItem(celebrationKey);
             return;
@@ -695,35 +708,38 @@ currencySelect.innerHTML = '<option value="" disabled selected>حدد العمل
         localStorage.setItem(celebrationKey, 'true');
 
         setTimeout(() => {
-            if(typeof this.openModal === 'function') this.openModal('kyc-celebration');
-            if(typeof this.sfx === 'function') this.sfx('success'); 
+            getSys().openModal?.('kyc-celebration');
+            getSys().sfx?.('success'); 
         }, 1500);
     },
-    closeKycStatusModal: function() { if(typeof this.closeModal === 'function') this.closeModal('kyc-status'); },
+    closeKycStatusModal: function() { getSys().closeModal?.('kyc-status'); },
 
-    // =========================================================
-    // 📸 معالجة وعرض صور توثيق الهوية (KYC Image Handler)
-    // =========================================================
     handleKycImage: function(input, previewId) {
         const file = input.files && input.files[0];
         const parentBox = input.closest('.kyc-upload-box');
         const previewImg = document.getElementById(previewId);
+        
+        this.kycFiles = this.kycFiles || {};
 
         if (!file) {
             if (previewImg) previewImg.src = '';
             if (parentBox) parentBox.classList.remove('has-img');
+            delete this.kycFiles[previewId]; 
             return;
         }
 
         if (!file.type.startsWith('image/')) {
-            if (typeof this.showToast === 'function') this.showToast('عذراً، يجب إرفاق ملف صورة (JPG, PNG)', 'error');
-            if (typeof this.sfx === 'function') this.sfx('error');
+            getSys().showToast?.('عذراً، يجب إرفاق ملف صورة (JPG, PNG)', 'error');
+            getSys().sfx?.('error');
             
             input.value = ''; 
             if (previewImg) previewImg.src = '';
             if (parentBox) parentBox.classList.remove('has-img');
+            delete this.kycFiles[previewId];
             return;
         }
+        
+        this.kycFiles[previewId] = file;
 
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -734,19 +750,15 @@ currencySelect.innerHTML = '<option value="" disabled selected>حدد العمل
         reader.readAsDataURL(file);
     },
 
-                 
-                        
-                            openTierInfoModal: async function() {
-        if(typeof this.resetUI === 'function') this.resetUI();
-        if(typeof this.closeSidebar === 'function') this.closeSidebar();
+    openTierInfoModal: async function() {
+        getSys().resetUI?.();
+        getSys().closeSidebar?.();
 
-        // 🌟 استدعاء المنطق النقي من الـ DataManager بدلاً من حسابه هنا
         if(!DataManager || typeof DataManager.getTierProgress !== 'function') return;
         
         const tierData = DataManager.getTierProgress();
         if (!tierData) return;
 
-        // 🌟 تم إضافة استخراج isMaxTier للتحكم الذكي بالنصوص
         const { currentTier, targetNameDisplay, targetThreshold, spent, remainingAmt, percent, remainingDays, isGoalReached, isAutoAdvanceEnabled, isMaxTier } = tierData;
 
         const content = document.getElementById('tier-info-content');
@@ -771,7 +783,6 @@ currencySelect.innerHTML = '<option value="" disabled selected>حدد العمل
         `;
 
         if (isAutoAdvanceEnabled) {
-            // 🌟 معالجة النص بذكاء: التعبير عن نسبة الإنفاق في المستوى الحالي إذا لم يوجد مستوى تالٍ
             let targetPhraseHtml = '';
             if (isMaxTier) {
                 targetPhraseHtml = `للحفاظ على باقتك ومميزاتك الحالية.`;
@@ -820,7 +831,7 @@ currencySelect.innerHTML = '<option value="" disabled selected>حدد العمل
         html += `</div>`;
         content.innerHTML = html;
 
-        if(typeof this.openModal === 'function') this.openModal('tier-info');
+        getSys().openModal?.('tier-info');
     }
 
 };

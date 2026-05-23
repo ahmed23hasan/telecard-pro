@@ -1,6 +1,6 @@
 // ============================================================================
-// 📦 خريطة مسارات الكتالوج (Catalog Actions Router)
-// 🌟 التحديث: سد ثغرة مسار فتح الأقسام (enter-folder) وتمرير البيانات الحية للدول
+// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - Pure Router 🚦
+// 🌟 التحديث: تفريغ الموجه من أي تعديل مباشر على البيانات أو الـ DOM
 // ============================================================================
 
 import { CatalogController } from './catalogController.js';
@@ -10,9 +10,7 @@ import { AdminRender } from '../../adminRender.js';
 import { AdminData } from '../../adminData.js';
 
 export const CatalogActions = {
-  // 🌟 تمت إضافة هذا المسار لفتح القسم عند النقر عليه
   'enter-folder': (data) => AppController.enter?.(data.enter || data.id),
-  
   'cat-back': () => AppController.back?.(),
   
   'open-cat-modal': (data) => AdminUI?.CatalogUI?.openCategoryModal?.(data.id),
@@ -33,39 +31,22 @@ export const CatalogActions = {
   'toggle-mock-edit': (data) => AdminUI?.CatalogUI?.toggleMockEdit?.(data.val),
   'toggle-drag-edit': (data) => AdminUI?.CatalogUI?.toggleDragEditMode?.(data.originalEvent),
   
-  'toggle-grid-sync': (data) => {
-    if (!AdminData.data.settings) AdminData.data.settings = {};
-    AdminData.data.settings.syncGridLayout = data.element.checked;
-    AdminData.saveSystemSettings();
-    if (data.element.checked) {
-      AdminUI?.showToast?.('تم التفعيل: سيتم تطبيق التخطيط على المتجر', 'success');
-    } else {
-      AdminUI?.showToast?.('تم الإيقاف: سيعود المتجر للشكل الافتراضي', 'info');
-    }
-  },
-  'toggle-simple-qty': (data) => {
-    const limitBox = document.getElementById('simple-qty-limit-box');
-    if (limitBox) limitBox.classList.toggle('hide-element', !data.element.checked);
-  },
+  // 🌟 تم نقل المنطق إلى Controller و UI
+  'toggle-grid-sync': (data) => CatalogController.toggleGridSync?.(data.element.checked),
+  'toggle-simple-qty': (data) => AdminUI?.CatalogUI?.toggleSimpleQty?.(data.element.checked),
   
   'select-icon': (data) => AdminUI?.CatalogUI?.selectIcon?.(data.element),
   'select-animation': (data) => AdminUI?.CatalogUI?.selectAnimation?.(data.element),
   'toggle-tree-node': (data) => AdminUI?.CatalogUI?.toggleTreeNode?.(data.element),
   'tree-parent-check': (data) => AdminUI?.CatalogUI?.handleTreeParentCheck?.(data.element),
   'tree-child-check': (data) => AdminUI?.CatalogUI?.handleTreeChildCheck?.(data.element),
-  'toggle-all-tree': (data) => {
-    const cbs = document.querySelectorAll(`#${data.target} .tree-parent-cb, #${data.target} .tree-child-cb`);
-    if (cbs.length > 0) {
-      const state = !cbs[0].checked;
-      cbs.forEach(cb => { cb.checked = state;
-        cb.indeterminate = false; });
-    }
-  },
+  
+  // 🌟 تم نقل منطق تحديد الشجرة للواجهة (UI)
+  'toggle-all-tree': (data) => AdminUI?.CatalogUI?.toggleAllTree?.(data.target),
   
   'open-country-modal': (data) => AdminUI?.CatalogUI?.openCountryModal?.(data.id),
   'save-country': () => CatalogController.saveCountry?.(),
   
-  // 🌟 الحل الجذري: تمرير مصفوفة الدول الحية بدلاً من الاعتماد على المصفوفة الثابتة
   'detect-country': (data) => AdminUI?.detectCountryAutoFill?.(data.val, AdminData.data.countries),
   
   'open-vault-modal': (data) => AdminUI?.CatalogUI?.openVaultModal?.(data.id),

@@ -161,7 +161,7 @@ export const CatalogRender = {
     },
 
     // =========================================================
-    // 🌍 4. رسم البلدان (Countries) مع الترميم التلقائي
+    // 🌍 4. رسم البلدان (Countries) - (Pure Render)
     // =========================================================
     renderCountries: function() {
         const container = document.getElementById('countries-grid'); 
@@ -173,37 +173,18 @@ export const CatalogRender = {
             return; 
         }
 
-        // 🌟 1. الترميم التلقائي (Auto-Healing & Silent Migration)
-        let needsMigration = false;
-        
-        const normalizedCountries = countries.map(c => {
-            // إذا اكتشف النظام دولة تفتقد للعلم أو العملة، يحددها كبيانات قديمة
-            if (!c.flag || !c.currency) {
-                needsMigration = true;
-                return {
-                    ...c,
-                    flag: c.flag || '🇸🇦',
-                    currency: c.currency || 'SAR',
-                    dialCode: c.dialCode || '+966',
-                    code: c.code || 'SA'
-                };
-            }
-            return c;
-        });
-
-        // 🌟 2. الترحيل الصامت: حفظ التعديلات في السحابة خلف الكواليس دون تعطيل المستخدم
-        if (needsMigration) {
-            console.warn("⚠️ تم اكتشاف بيانات دول قديمة، جاري الترميم التلقائي في السحابة...");
-            AdminData.data.countries = normalizedCountries;
-            
-            if (typeof AdminData.saveCountries === 'function') {
-                // Fire and Forget (حفظ صامت)
-                AdminData.saveCountries().catch(err => console.error("فشل الترحيل الصامت:", err));
-            }
-        }
-
-        // 🌟 3. رسم الكروت بالبيانات المرممة النظيفة
-        container.innerHTML = normalizedCountries.map(c => AdminTemplates.countryCard(c)).join('');
+        // 🌟 رسم الكروت مع ضمان وجود قيم مرئية مؤقتة (Fallback) 
+        // تم نقل منطق الحفظ الفعلي إلى validateAndHealCountries في catalogController
+        container.innerHTML = countries.map(c => {
+            const displayCountry = {
+                ...c,
+                flag: c.flag || '🇸🇦',
+                currency: c.currency || 'SAR',
+                dialCode: c.dialCode || '+966',
+                code: c.code || 'SA'
+            };
+            return AdminTemplates.countryCard(displayCountry);
+        }).join('');
     }
 
 };

@@ -1,7 +1,7 @@
 // ============================================================================
 // 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Cloud Secured)
 // 🎯 الوظيفة: معالجة البيانات، الحسابات المعقدة، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث: تم نقل العمليات المالية الحساسة (إنشاء الطلب والإيداع) إلى دوال السحابة الآمنة
+// 🚀 التحديث: دعم التحديثات غير القابلة للتغيير (Immutable Updates) لتتوافق مع معمارية التجميد
 // ============================================================================
 
 import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -69,7 +69,7 @@ export const DataManager = {
         } catch (e) { console.error('Storage Quota Error in saveUserLocal:', e); }
     },
 
-    // 🌟 تحديث بيانات العميل الشخصية (الاسم، الإعدادات، الخ)
+    // 🌟 تحديث بيانات العميل الشخصية بشكل متوافق مع Object.freeze
     updateUserProfile: async function(newData) {
         const uid = this.user?.id || this.user?.uid || localStorage.getItem('telecard_active_user_uid');
         if (!uid) {
@@ -80,11 +80,15 @@ export const DataManager = {
         // تحديث الرام للسرعة
         this.user = { ...this.user, ...newData };
         
+        // تحديث غير قابل للتغيير (Immutable Update) لمنع اصطدام الحالة
         if (LiveStoreData.users && Array.isArray(LiveStoreData.users)) {
-            const idx = LiveStoreData.users.findIndex(u => String(u.id) === String(uid) || String(u.uid) === String(uid));
-            if (idx > -1) {
-                LiveStoreData.users[idx] = { ...LiveStoreData.users[idx], ...newData };
-            }
+            LiveStoreData.users = Object.freeze(
+                LiveStoreData.users.map(u => 
+                    (String(u.id) === String(uid) || String(u.uid) === String(uid)) 
+                    ? { ...u, ...newData } 
+                    : u
+                )
+            );
         }
 
         try {
@@ -359,7 +363,9 @@ export const DataManager = {
         
         let me = null;
         if(activeUid) {
-            me = users.find(u => String(u.id) === String(activeUid));
+            const foundUser = users.find(u => String(u.id) === String(activeUid));
+            // الاستنساخ العميق الجزئي لتجنب التعديل المباشر على كائن قد تم تجميده في السحابة
+            if (foundUser) me = { ...foundUser };
         }
         
         if (activeUid && !me && users.length > 0) {
@@ -447,15 +453,13 @@ export const DataManager = {
             return { success: false, msg: 'تعذر تحديث كلمة المرور.' };
         }
     },
-
-    // 🚀 التحديث: دالة الشراء السحابية الآمنة
+    // 🚀 التحديث: دالة الشراء السحابية الآمنة مع رسالة الرصيد الاحترافية
     confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
 
         try {
             const createOrderFn = this._getCloudFunction('createOrder');
             
-            // تجهيز الطلب وإرساله للخادم (لا نقوم بأي خصم محلي هنا)
             const requestData = {
                 productId: String(prod.id),
                 qty: Number(qty) || 1,
@@ -467,7 +471,6 @@ export const DataManager = {
             const result = await createOrderFn(requestData);
             const responseData = result.data;
 
-            // السحابة ستقوم بخصم الرصيد، والمستمعات في script.js ستقوم بتحديث الواجهة تلقائياً
             return {
                 success: true,
                 msg: responseData.message || 'تم إتمام الطلب بنجاح',
@@ -477,11 +480,26 @@ export const DataManager = {
 
         } catch (error) {
             console.error("Cloud Function Error (createOrder):", error);
-            // جلب رسالة الخطأ الآتية من السحابة (مثلاً: رصيدك غير كافٍ)
-            return { success: false, msg: error.message || 'حدث خطأ أثناء معالجة الطلب، يرجى المحاولة لاحقاً.' };
+            
+            let finalUserMessage = 'حدث خطأ أثناء معالجة الطلب، يرجى المحاولة لاحقاً.';
+            
+            if (error.details) {
+                finalUserMessage = error.details;
+            } else if (error.message) {
+                // 🌟 تطبيق العبارة الاحترافية الموجهة للعميل عند نقص الرصيد
+                if (error.message.toLowerCase().includes('internal') || error.message.toLowerCase().includes('functions/')) {
+                    finalUserMessage = 'رصيدك غير كافٍ ، يرجى إيداع رصيد أولاً لإتمام العملية.';
+                } else {
+                    finalUserMessage = error.message;
+                }
+            }
+
+            return { 
+                success: false, 
+                msg: finalUserMessage 
+            };
         }
     },
-
     calculateDepositFee: function(amount, paymentMethod, payCurr) {
         if (!paymentMethod) return { isValid: false, msg: 'طريقة دفع مفقودة', netBase: 0, feePct: 0, feeType: 'fee', feeUnit: 'percent' };
         

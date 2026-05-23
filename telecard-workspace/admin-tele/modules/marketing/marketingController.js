@@ -1,6 +1,7 @@
 // ============================================================================
 // 🧠 متحكم التسويق (modules/marketing/marketingController.js)
 // الوظيفة: معالجة العمليات المنطقية للكوبونات، العروض، الإشعارات، وإعدادات البنرات.
+// 🌟 التحديث: ربط البنرات وهوية المتجر بمحرك الرفع السحابي (Firebase Storage)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -8,6 +9,8 @@ import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { AppController } from '../../core/appController.js';
+// 🌟 استدعاء محول السحابة لرفع الصور
+import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const MarketingController = {
 
@@ -446,21 +449,45 @@ export const MarketingController = {
     // 🎨 4. إعدادات الإعلانات والهوية (Ads & Brand)
     // =========================================================
     saveBanner: async function() {
-        if (AppController.tempImg) {
-            if(!AdminData.data.banners) AdminData.data.banners = [];
-            AdminData.data.banners.push({
-                id: String(Date.now()),
-                img: AppController.tempImg,
-                link: Utils.escapeHTML(Utils.getVal('ban-link'))
-            });
-            await AdminData?.saveBanners?.();
-            AppController.finishAction('req-render-banners', null, 'ADD_BANNER', 'تم إضافة بانر إعلاني جديد', null);
+        // 🌟 فحص ما إذا كان هناك ملف صورة حقيقي تم اختياره
+        if (AdminUI?.tempFile || AppController.tempImg) {
+            EventBus.emit('req-show-loader', true); // إظهار التحميل لأن الرفع قد يستغرق ثواني
+            
+            try {
+                let finalImgUrl = '';
+                
+                // 🌟 الرفع السحابي النظيف للبنر الإعلاني
+                if (AdminUI?.tempFile) {
+                    EventBus.emit('req-show-toast', {message: 'جاري رفع البنر الإعلاني للسحابة...', type: 'info'});
+                    finalImgUrl = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'banners');
+                } else {
+                    // كخيار احتياطي إذا كان هناك خطأ في الواجهة وأرسلت Base64
+                    finalImgUrl = AppController.tempImg; 
+                }
+
+                if(!AdminData.data.banners) AdminData.data.banners = [];
+                AdminData.data.banners.push({
+                    id: String(Date.now()),
+                    img: finalImgUrl, // 👈 تخزين الرابط السحابي
+                    link: Utils.escapeHTML(Utils.getVal('ban-link'))
+                });
+                
+                await AdminData?.saveBanners?.();
+                AppController.finishAction('req-render-banners', null, 'ADD_BANNER', 'تم إضافة بانر إعلاني جديد', null);
+                
+            } catch (error) {
+                console.error("Save Banner Error:", error);
+                EventBus.emit('req-show-toast', {message: 'حدث خطأ أثناء رفع البنر', type: 'error'});
+            } finally {
+                EventBus.emit('req-show-loader', false);
+            }
         }
     },
-    saveStoreIdentity: async function() {
-        // تأمين وجود كائن النظام لتجنب الأخطاء
-        if (!AdminData?.data?.system) AdminData.data.system = {};
-        const sys = AdminData.data.system;
+    
+        saveStoreIdentity: async function() {
+        // 🌟 الإصلاح الجذري: توجيه البيانات إلى (settings) بدلاً من (system)
+        if (!AdminData?.data?.settings) AdminData.data.settings = {};
+        const sys = AdminData.data.settings; // 👈 التعديل السحري هنا
         
         // جمع النصوص والإعدادات
         sys.storeName = Utils.escapeHTML(Utils.getVal('store-name-input'));
@@ -471,29 +498,55 @@ export const MarketingController = {
         sys.nameColor2 = Utils.getVal('store-color-2', '#FFD700');
         sys.nameShadow = Utils.getCheck('store-name-shadow');
 
-        // دالة مساعدة لجمع الصور المرفوعة (Base64) من الواجهة
-        const getImgSrc = (id) => {
-            const wrap = document.getElementById(`${id}-wrap`);
-            if (wrap && wrap.classList.contains('has-img')) {
-                return document.getElementById(`${id}-preview`)?.src || '';
+        // دالة مساعدة متقدمة للتعامل مع الرفع السحابي المتعدد لهوية المتجر
+        const processBrandImage = async (inputId, currentUrl) => {
+            const inputEl = document.getElementById(inputId);
+            const wrapEl = document.getElementById(`${inputId}-wrap`);
+            
+            if (wrapEl && !wrapEl.classList.contains('has-img')) return '';
+            
+            if (inputEl && inputEl.files && inputEl.files.length > 0) {
+                const file = inputEl.files[0];
+                return await FirebaseAdapter.uploadImage(file, 'brand');
             }
-            return ''; // إذا تم مسح الصورة نرجع قيمة فارغة
+            
+            return currentUrl || '';
         };
 
-        // جمع الصور
-        sys.storeLogo = getImgSrc('store-logo');
-        sys.storeLogoLight = getImgSrc('store-logo-light');
-        sys.storeFavicon = getImgSrc('store-favicon');
+        EventBus.emit('req-show-loader', true);
 
-        // الحفظ في قاعدة البيانات
-        if (AdminData?.saveSystemSettings) {
-            await AdminData.saveSystemSettings();
+        try {
+            EventBus.emit('req-show-toast', {message: 'جاري تحديث هوية المتجر...', type: 'info'});
+            
+            // رفع الصور الثلاث على التوازي لتسريع العملية
+            const [newLogo, newLogoLight, newFavicon] = await Promise.all([
+                processBrandImage('store-logo', sys.storeLogo),
+                processBrandImage('store-logo-light', sys.storeLogoLight),
+                processBrandImage('store-favicon', sys.storeFavicon)
+            ]);
+
+            // تخزين الروابط السحابية النظيفة
+            sys.storeLogo = newLogo;
+            sys.storeLogoLight = newLogoLight;
+            sys.storeFavicon = newFavicon;
+
+            // الحفظ في قاعدة البيانات (هذه الدالة تحفظ settings و system معاً بأمان)
+            if (AdminData?.saveSystemSettings) {
+                await AdminData.saveSystemSettings();
+            }
+
+            // تسجيل النشاط وإشعار المستخدم
+            if (AdminData?.addLog) AdminData.addLog('UPDATE_BRAND', 'تم تحديث الهوية البصرية للمتجر بنجاح');
+            EventBus.emit('req-show-toast', { message: 'تم حفظ هوية المتجر واعتمادها بنجاح', type: 'success' });
+            
+        } catch (error) {
+            console.error("Save Brand Error:", error);
+            EventBus.emit('req-show-toast', {message: 'حدث خطأ أثناء رفع صور الهوية', type: 'error'});
+        } finally {
+            EventBus.emit('req-show-loader', false);
         }
-
-        // تسجيل النشاط وإشعار المستخدم
-        if (AdminData?.addLog) AdminData.addLog('UPDATE_BRAND', 'تم تحديث الهوية البصرية للمتجر بنجاح');
-        EventBus.emit('req-show-toast', { message: 'تم حفظ هوية المتجر واعتمادها بنجاح', type: 'success' });
     },
+
 
     autoSaveSettings: async function() {
         if (!AdminData?.data?.settings) AdminData.data.settings = {};

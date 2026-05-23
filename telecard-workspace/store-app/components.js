@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - ES6 Module
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديث: إنهاء الـ DOM Scraping، سد تسريب الذاكرة، والاعتماد على DataManager
+// 🚀 التحديث: إنهاء الـ DOM Scraping، سد تسريب الذاكرة، وتطبيق تفويض الأحداث الموضعي
 // ============================================================================
 
 import { DataManager, LiveStoreData } from './dataManager.js';
@@ -13,21 +13,29 @@ import { RenderHelpers } from './core/renderHelpers.js';
 // 1️⃣ إغلاق القوائم المنسدلة عند النقر خارجها (Global Click Listener)
 // =========================================================
 document.addEventListener('click', function(e) {
+    // 1. إغلاق قائمة باقات المنتجات المنسدلة (لا تزال تعمل بشكل مستقل)
     const packageWrapper = document.getElementById('pkg-custom-dropdown');
     if (packageWrapper && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
         packageWrapper.classList.remove('open');
     }
 
+    // 2. إغلاق صندوق إحصائيات المحفظة (النسخة المركزية الموحدة)
     const walletDrawer = document.getElementById('walletStatsDrawer');
-    const detailArrow = document.querySelector('.detail-arrow');
+    // نتحقق من وجوده وأنه مفتوح حالياً
     if (walletDrawer && walletDrawer.classList.contains('active')) {
-        if (!walletDrawer.contains(e.target) && detailArrow && !detailArrow.contains(e.target)) {
-            walletDrawer.classList.remove('active');
-            detailArrow.classList.remove('open');
+        const isClickInsideDrawer = walletDrawer.contains(e.target);
+        // نتحقق من أن النقرة ليست على السهم أو زر الفتح الخاص بالمحفظة
+        const isClickOnToggleButton = e.target.closest('.detail-arrow') || e.target.closest('.wallet-toggle-btn'); 
+
+        if (!isClickInsideDrawer && !isClickOnToggleButton) {
+            // هنا الاستدعاء المركزي: نعتمد على الكائن الموحد
+            const sys = window.ClientSystem || window.UIManager;
+            if (sys && typeof sys.closeWalletStats === 'function') {
+                sys.closeWalletStats(); 
+            }
         }
     }
 });
-
 // =========================================================
 // 2️⃣ نظام التقويم الذكي (Calendar App) - معزول وخالي من تسريب الذاكرة
 // =========================================================
@@ -55,13 +63,32 @@ export const CalendarApp = {
         
         this.buildDropdowns();
         
-        if (this._isInitialized) return; // منع تكرار الأحداث
+        if (this._isInitialized) return; // 🌟 منع تكرار الأحداث
         this._isInitialized = true;
 
-        const btnConfirm = document.getElementById('calBtnConfirm');
-        const btnCancel = document.getElementById('calBtnCancel');
-        if (btnConfirm) btnConfirm.addEventListener('click', (e) => { e.stopPropagation(); this.confirmSelection(); });
-        if (btnCancel) btnCancel.addEventListener('click', (e) => { e.stopPropagation(); this.close(); });
+        // 🌟 تفويض موضعي لشبكة الأيام (يمنع إنشاء 30 مستمع حدث في كل مرة يتم فيها رسم الشهر)
+        const grid = document.getElementById('days-container');
+        if (grid) {
+            grid.addEventListener('click', (e) => {
+                const cell = e.target.closest('.day-cell:not(.empty):not(.disabled-day)');
+                if (cell) {
+                    e.stopPropagation();
+                    this.tempSelectedDate = new Date(this.currYear, this.currMonth, parseInt(cell.innerText));
+                    this.render();
+                }
+            });
+        }
+
+        // 🌟 تفويض أزرار التأكيد والإلغاء
+        if (modal) {
+            modal.addEventListener('click', (e) => {
+                if (e.target.closest('#calBtnConfirm')) {
+                    e.stopPropagation(); this.confirmSelection();
+                } else if (e.target.closest('#calBtnCancel')) {
+                    e.stopPropagation(); this.close();
+                }
+            });
+        }
 
         document.addEventListener('click', (e) => {
             const dateField = e.target.closest('.custom-field');
@@ -136,23 +163,29 @@ export const CalendarApp = {
         document.getElementById('disp-year').innerText = this.currYear;
         const grid = document.getElementById('days-container');
         if(!grid) return;
-        grid.innerHTML = '';
         
-        this.dayNames.forEach(d => { const div = document.createElement('div'); div.className = 'day-head'; div.innerText = d; grid.appendChild(div); });
+        // 🌟 استخدام Fragment لتحسين الأداء
+        grid.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+        
+        this.dayNames.forEach(d => { const div = document.createElement('div'); div.className = 'day-head'; div.innerText = d; fragment.appendChild(div); });
         
         const firstDay = new Date(this.currYear, this.currMonth, 1).getDay();
         const daysInMonth = new Date(this.currYear, this.currMonth + 1, 0).getDate();
-        for(let i=0; i<firstDay; i++) { const e = document.createElement('div'); e.className = 'day-cell empty'; grid.appendChild(e); }
+        for(let i=0; i<firstDay; i++) { const e = document.createElement('div'); e.className = 'day-cell empty'; fragment.appendChild(e); }
+        
         const today = new Date(); today.setHours(0, 0, 0, 0);
         
         for(let d=1; d<=daysInMonth; d++) {
             const cell = document.createElement('div'); cell.className = 'day-cell'; cell.innerText = d;
             if (this.tempSelectedDate && this.tempSelectedDate.getDate() === d && this.tempSelectedDate.getMonth() === this.currMonth && this.tempSelectedDate.getFullYear() === this.currYear) cell.classList.add('selected');
             const cellDate = new Date(this.currYear, this.currMonth, d);
-            if (cellDate > today) { cell.classList.add('disabled-day'); } 
-            else { cell.onclick = (e) => { e.stopPropagation(); this.tempSelectedDate = new Date(this.currYear, this.currMonth, d); this.render(); }; }
-            grid.appendChild(cell);
+            if (cellDate > today) cell.classList.add('disabled-day'); 
+            // تم القضاء على المستمع المباشر (cell.onclick) هنا بفضل الـ Event Delegation في init()
+            fragment.appendChild(cell);
         }
+        
+        grid.appendChild(fragment);
         this.updateHighlights();
     },
 
@@ -168,32 +201,48 @@ export const CalendarApp = {
     formatDate: function(d) { return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`; },
     adjustMonth: function(s) { this.currMonth+=s; if(this.currMonth>11){this.currMonth=0;this.currYear++;} if(this.currMonth<0){this.currMonth=11;this.currYear--;} this.render(); },
     adjustYear: function(s) { this.currYear+=s; this.render(); },
+    
     toggleList: function(id, e) {
         if(e) e.stopPropagation();
         document.querySelectorAll('.dropdown-list').forEach(l => { if(l.id!==id) l.classList.remove('active'); });
         const l = document.getElementById(id); if(l) { l.classList.toggle('active'); if(l.classList.contains('active')) { const s=l.querySelector('.selected'); if(s) s.scrollIntoView({block:'center'}); }}
     },
+    
     buildDropdowns: function() {
         const mL = document.getElementById('list-month'); 
         if(mL) { 
-            mL.innerHTML=''; 
-            this.monthNames.forEach((m,i)=>{ 
-                const d=document.createElement('div'); d.className='list-item'; d.innerText=m; 
-                d.onclick=(e)=>{e.stopPropagation();this.currMonth=i;this.render();mL.classList.remove('active');}; 
-                mL.appendChild(d); 
-            }); 
+            mL.innerHTML = this.monthNames.map((m, i) => `<div class="list-item" data-idx="${i}">${m}</div>`).join('');
+            // 🌟 التفويض الموضعي لخيارات الشهر
+            if (!mL._boundDelegation) {
+                mL.addEventListener('click', (e) => {
+                    const item = e.target.closest('.list-item');
+                    if (item) {
+                        e.stopPropagation(); this.currMonth = parseInt(item.dataset.idx); this.render(); mL.classList.remove('active');
+                    }
+                });
+                mL._boundDelegation = true;
+            }
         }
+        
         const yL = document.getElementById('list-year'); 
         if(yL) { 
-            yL.innerHTML=''; 
             const ty=new Date().getFullYear(); 
-            for(let y=ty-10;y<=ty+10;y++){ 
-                const d=document.createElement('div'); d.className='list-item'; d.innerText=y; 
-                d.onclick=(e)=>{e.stopPropagation();this.currYear=y;this.render();yL.classList.remove('active');}; 
-                yL.appendChild(d); 
+            let yearsHtml = '';
+            for(let y=ty-10;y<=ty+10;y++){ yearsHtml += `<div class="list-item" data-year="${y}">${y}</div>`; }
+            yL.innerHTML = yearsHtml;
+            // 🌟 التفويض الموضعي لخيارات السنة
+            if (!yL._boundDelegation) {
+                yL.addEventListener('click', (e) => {
+                    const item = e.target.closest('.list-item');
+                    if (item) {
+                        e.stopPropagation(); this.currYear = parseInt(item.dataset.year); this.render(); yL.classList.remove('active');
+                    }
+                });
+                yL._boundDelegation = true;
             }
         }
     },
+    
     updateHighlights: function() {
         document.querySelectorAll('#list-month .list-item').forEach((el,i)=>el.classList.toggle('selected',i===this.currMonth));
         document.querySelectorAll('#list-year .list-item').forEach((el)=>el.classList.toggle('selected',parseInt(el.innerText)===this.currYear));
@@ -307,7 +356,7 @@ export const Components = {
     },
 
     // 🌟 Controller النظيف: يعتمد على الأرقام الحقيقية وليس على قراءة الشاشة
-        applyCoupon: function() {
+    applyCoupon: function() {
         if (!DataManager.currentProd) return; 
 
         // 🌟 تنبيه الضيف بضرورة تسجيل الدخول لاستخدام الكوبونات بدلاً من التجاهل الصامت
@@ -376,6 +425,7 @@ export const Components = {
 
         UIManager.showToast('تم تطبيق الخصم بنجاح', 'success');
     },
+
     removeCoupon: function() {
         const codeInput = document.getElementById('couponCode');
         

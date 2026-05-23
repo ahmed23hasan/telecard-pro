@@ -42,6 +42,12 @@
 
 <body class="store-page is-home">
 
+    <script>
+        if (localStorage.getItem('telecard_theme') === 'light') {
+            document.body.classList.add('light-mode');
+        }
+    </script>
+
     <div id="toast-warning" class="toast-warning" style="display: none;"><i class="fa-solid fa-circle-exclamation"></i> تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء</div>
     
     <header class="store-header">

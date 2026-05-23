@@ -1,6 +1,7 @@
 // ============================================================================
 // 🧠 متحكم المالية (modules/finance/financeController.js) - Cloud Secured ☁️
 // الوظيفة: معالجة العمليات المنطقية (Business Logic) للإيداعات، بوابات الدفع، والعملات.
+// 🌟 التحديث: ربط صور بوابات الدفع بمحرك الرفع السحابي (Firebase Storage)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -11,6 +12,8 @@ import { AppController } from '../../core/appController.js';
 import { normalizeRates } from '../../adminConfig.js';
 import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
+// 🌟 استدعاء محول السحابة لرفع الصور
+import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const FinanceController = {
 
@@ -43,35 +46,55 @@ export const FinanceController = {
 
         if (checks.length > 0 && AdminUI && !await AdminUI.showConfirm(summaryMsg, 'تأكيد الحسبة المالية للبوابة')) return;
 
-        const hasImg = AdminUI?.FinanceUI?.hasImage?.('pay-img-wrap');
-        const oldImg = AppController.tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(AppController.tempEditId))?.img : null;
-        const finalImg = hasImg ? (AppController.tempImg || oldImg || '') : '';
+        EventBus.emit('req-show-loader', true); // 🌟 إظهار شاشة التحميل لمنع التكرار
 
-        const existingPay = AppController.tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(AppController.tempEditId)) : null;
-        const currentActiveState = existingPay ? (existingPay.isActive !== false) : true;
+        try {
+            const hasImg = AdminUI?.FinanceUI?.hasImage?.('pay-img-wrap');
+            const oldImg = AppController.tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(AppController.tempEditId))?.img : null;
+            
+            // 🌟 محرك الرفع السحابي لشعارات بوابات الدفع
+            let finalImg = '';
+            if (hasImg) {
+                if (AdminUI?.tempFile) {
+                    EventBus.emit('req-show-toast', {message:'جاري رفع شعار البوابة للسحابة...', type:'info'});
+                    finalImg = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'payments');
+                } else {
+                    finalImg = oldImg || ''; 
+                }
+            }
 
-        const newPay = {
-            id: AppController.tempEditId || String(Date.now()),
-            name: Utils.escapeHTML(Utils.getVal('pay-name')),
-            detailFields: AppController.tempPayDetails || [],
-            currencies: checks.join(',') || 'USD',
-            currencySettings: currSettings,
-            inputPlaceholder: Utils.escapeHTML(Utils.getVal('pay-input-placeholder')),
-            reqProof: Utils.getCheck('pay-req-proof'),
-            img: finalImg,
-            isActive: currentActiveState
-        };
+            const existingPay = AppController.tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(AppController.tempEditId)) : null;
+            const currentActiveState = existingPay ? (existingPay.isActive !== false) : true;
 
-        const isEdit = !!AppController.tempEditId;
-        if (isEdit) {
-            const idx = AdminData.data.payments.findIndex(p => String(p.id) === String(AppController.tempEditId));
-            if (idx > -1) AdminData.data.payments[idx] = newPay;
-        } else {
-            AdminData.data.payments.push(newPay);
+            const newPay = {
+                id: AppController.tempEditId || String(Date.now()),
+                name: Utils.escapeHTML(Utils.getVal('pay-name')),
+                detailFields: AppController.tempPayDetails || [],
+                currencies: checks.join(',') || 'USD',
+                currencySettings: currSettings,
+                inputPlaceholder: Utils.escapeHTML(Utils.getVal('pay-input-placeholder')),
+                reqProof: Utils.getCheck('pay-req-proof'),
+                img: finalImg, // 👈 تخزين الرابط السحابي النظيف
+                isActive: currentActiveState
+            };
+
+            const isEdit = !!AppController.tempEditId;
+            if (isEdit) {
+                const idx = AdminData.data.payments.findIndex(p => String(p.id) === String(AppController.tempEditId));
+                if (idx > -1) AdminData.data.payments[idx] = newPay;
+            } else {
+                AdminData.data.payments.push(newPay);
+            }
+
+            await AdminData?.savePayments?.();
+            AppController.finishAction('req-render-payments', null, isEdit ? 'EDIT_PAYMENT' : 'ADD_PAYMENT', `تم ${isEdit ? 'تعديل' : 'إضافة'} وسيلة الدفع: ${newPay.name}`, 'تم حفظ طريقة الدفع بنجاح');
+            
+        } catch (error) {
+            console.error("Save Payment Error:", error);
+            EventBus.emit('req-show-toast', {message:'حدث خطأ أثناء حفظ البوابة', type:'error'});
+        } finally {
+            EventBus.emit('req-show-loader', false); // 🌟 إخفاء شاشة التحميل دائماً
         }
-
-        await AdminData?.savePayments?.();
-        AppController.finishAction('req-render-payments', null, isEdit ? 'EDIT_PAYMENT' : 'ADD_PAYMENT', `تم ${isEdit ? 'تعديل' : 'إضافة'} وسيلة الدفع: ${newPay.name}`, 'تم حفظ طريقة الدفع بنجاح');
     },
 
     togglePaymentStatus: async function(id, isActive) {
@@ -192,7 +215,7 @@ export const FinanceController = {
         }
     },
 
-    setDefaultDisplayCurrency: async function(code) {
+        setDefaultDisplayCurrency: async function(code) {
         if (!code) return;
         
         const rates = AdminData.data.rates || [];
@@ -203,16 +226,26 @@ export const FinanceController = {
             return;
         }
 
+        // 1. تحديث البيانات في الذاكرة الحية (RAM)
         if (!AdminData.data.settings) AdminData.data.settings = {};
         AdminData.data.settings.defaultCurrency = code;
         
-        await AdminData?.saveSystemSettings?.();
-        AdminData?.addLog?.('SET_DEFAULT_CURRENCY', `تم تعيين (${code}) كعملة عرض افتراضية للضيوف`);
-        
+        // 🌟 2. [التحديث المتفائل]: إعادة رسم الكروت فوراً لتعبئة النجمة دون انتظار السحابة
         EventBus.emit('req-render-rates');
-        EventBus.emit('req-show-toast', { message: `تم اعتماد (${code}) كعملة العرض الافتراضية للضيوف.`, type: 'success' });
+        
+        try {
+            // 3. إرسال الطلب للسحابة للحفظ (هذا سيحدث في الخلفية الآن دون تجميد الواجهة)
+            await AdminData?.saveSystemSettings?.();
+            AdminData?.addLog?.('SET_DEFAULT_CURRENCY', `تم تعيين (${code}) كعملة عرض افتراضية للضيوف`);
+            
+            // 4. إظهار الإشعار بعد نجاح الحفظ السحابي
+            EventBus.emit('req-show-toast', { message: `تم اعتماد (${code}) كعملة العرض الافتراضية للضيوف.`, type: 'success' });
+        } catch (error) {
+            // كود احترافي: في حال فشل السيرفر لسبب ما، نظهر خطأ
+            console.error("Failed to save default currency:", error);
+            EventBus.emit('req-show-toast', { message: 'حدث خطأ في الاتصال أثناء حفظ عملة العرض.', type: 'error' });
+        }
     },
-
     deleteCurrency: async function(code) {
         if (code === 'USD') return;
 

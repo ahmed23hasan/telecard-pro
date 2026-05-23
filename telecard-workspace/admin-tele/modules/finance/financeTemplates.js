@@ -157,33 +157,37 @@ export const FinanceTemplates = {
     payDetailItem: (item, i, text, isCopyable) => `<div class="pay-det-item pay-det-box">
                     <div class="pay-det-text">${_esc(text).replace(/\n/g, '<br>')}${isCopyable ? '<div class="mt-6"><span class="pay-badge-copyable"><i class="fa-solid fa-copy"></i> قابل للنسخ بالمتجر</span></div>' : '<div class="mt-6"><span class="pay-badge-viewonly"><i class="fa-solid fa-eye"></i> عنوان للعرض فقط</span></div>'}</div>
                     <button class="btn btn-red btn-xs btn-pay-det-del" data-action="remove-pay-detail" data-index="${i}"><i class="fa-solid fa-trash"></i></button>
-                </div>`,
-
-    // 🌟 [تحديث هندسي] قالب كرت العملة المطور لمنع تشوه النصوص وإبراز أسعار الصرف
+                </div>`,    // 🌟 [تحديث هندسي] قالب كرت العملة المصلح بالكامل لمنع التضارب وحماية الأبعاد
     rateCard: (c, isDefaultDisplay = false) => {
         const isBase = c.isBase || c.code === 'USD';
         
-        // شارة عملة العرض - متموضعة بشكل مطلق في الأعلى يميناً (كشريط Ribbon)
+        // شارة عملة العرض
         const displayBadge = isDefaultDisplay 
             ? `<div class="rate-display-guest-badge"><i class="fa-solid fa-star"></i> عملة العرض للضيوف</div>` 
             : '';
 
-        // زر النجمة المعزول لتعيين أو تمييز عملة العرض
+        // زر النجمة
         const setDisplayBtn = isDefaultDisplay 
             ? `<button class="btn-rate-star active" title="هذه هي عملة العرض الحالية للضيوف"><i class="fa-solid fa-star"></i></button>`
             : `<button class="btn-rate-star" data-action="set-default-display" data-code="${_esc(c.code)}" title="تعيين كعملة عرض افتراضية للضيوف"><i class="fa-regular fa-star"></i></button>`;
 
+        // رابط العلم
+        const flagUrl = typeof RenderHelpers !== 'undefined' && RenderHelpers.getCurrencyFlagUrl 
+            ? RenderHelpers.getCurrencyFlagUrl(c.code) 
+            : '';
+
         return `<div id="rate-card-${_esc(c.code)}" class="rate-card-box ${isBase ? 'rate-card-base' : ''} ${isDefaultDisplay ? 'is-default-display' : ''}">
                 ${displayBadge}
                 
-                <div class="rate-left-col">
+                <div class="rate-main-wrapper">
                     <div class="rate-symbol-box" dir="ltr" lang="en">${RenderHelpers.getCurrencySymbolText(c.code)}</div>
+                    
                     <div class="rate-info-col">
-                        
-                        <div class="rate-name-text">
-                            ${_esc(c.name)} 
+                        <div class="rate-title-row">
+                            <img src="${flagUrl}" class="rate-flag-mini" alt="${_esc(c.code)}">
+                            <span class="rate-name-text">${_esc(c.name)}</span>
                             <span class="num-en rate-code-hint" dir="ltr" lang="en">(${_esc(c.code)})</span>
-                            ${isBase ? '<span class="rate-base-badge">المرساة الأساسية</span>' : ''}
+                            ${isBase ? '<span class="rate-base-badge">المرساة</span>' : ''}
                         </div>
                         
                         <div class="rate-values-row">
@@ -191,7 +195,6 @@ export const FinanceTemplates = {
                             <span class="rate-val-group">سعر الإيداع: <span class="num-en val-buy" dir="ltr" lang="en">${_enNum(c.depRate)}</span></span>
                             <span class="rate-usd-hint">(مقابل 1$)</span>
                         </div>
-
                     </div>
                 </div>
                 

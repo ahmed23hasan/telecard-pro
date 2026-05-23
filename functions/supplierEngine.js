@@ -123,11 +123,22 @@ const coreSyncLogic = async (supplierId) => {
 // ==========================================
 // 🚀 1. دالة المزامنة اليدوية (من زر لوحة التحكم)
 // ==========================================
+// ==========================================
+// 🚀 1. دالة المزامنة اليدوية (من زر لوحة التحكم)
+// ==========================================
 exports.syncSupplierData = functions.https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح.');
     try {
         const result = await coreSyncLogic(data.supplierId);
-        return { success: true, message: `تم مزامنة ${result.importedCount} منتج. وتم تعطيل ${result.deletedCount} منتج محذوف.` };
+        
+        // 🌟 التعديل السحري: إرسال الأرقام للواجهة الأمامية لكي يرتفع العداد
+        return { 
+            success: true, 
+            message: `تم مزامنة ${result.importedCount} منتج. وتم تعطيل ${result.deletedCount} منتج محذوف.`,
+            importedCount: result.importedCount,
+            deletedCount: result.deletedCount
+        };
+        
     } catch (error) {
         throw new functions.https.HttpsError('internal', error.message);
     }
