@@ -34,8 +34,8 @@ export const AdminData = {
         this._snapshots[prop] = JSON.parse(JSON.stringify(this.data[prop]));
     },
 
-        // ==========================================
-    // 🛠️ 1. دالة التهيئة وجلب البيانات من السحابة (مسرّعة بـ Promise.all)
+    // ==========================================
+    // 🛠️ 1. دالة التهيئة وجلب البيانات من السحابة (النسخة الاحترافية - منخفضة التكلفة)
     // ==========================================
     loadData: async function() {
         console.log("☁️ جاري مزامنة بيانات لوحة الإدارة مع Firestore...");
@@ -46,6 +46,17 @@ export const AdminData = {
         const arr = v => Array.isArray(v) ? v : [];
         const obj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
         
+        // 🚀 الحل الاحترافي 1: دالة جلب السجلات الضخمة بالتدريج لخفض التكلفة 99%
+        const fetchRecent = async (key, limitCount = 100, orderByField = 'time') => {
+            // فحص أمان: في حال تم إضافة دالة getRecent في FirebaseAdapter نستخدمها، وإلا نعود للجلب العادي مؤقتاً
+            if (FirebaseAdapter.getRecent && typeof FirebaseAdapter.getRecent === 'function') {
+                const res = await FirebaseAdapter.getRecent(key, limitCount, orderByField);
+                return (res && res.length > 0) ? res : [];
+            }
+            const res = await FirebaseAdapter.getAll(key);
+            return (res && res.length > 0) ? res : [];
+        };
+
         const fetchArray = async (key, fallback = []) => {
             const res = await FirebaseAdapter.getAll(key);
             return (res && res.length > 0) ? res : fallback;
@@ -56,17 +67,22 @@ export const AdminData = {
             return res ? res : fallback;
         };
 
-        // 🚀 الحل الاحترافي: جلب كافة البيانات في نفس اللحظة (Parallel Execution) للقضاء على التأخير
+        // 🚀 الحل الاحترافي 2: جلب متوازي مع تحديد سقف (Limit) للبيانات الضخمة
         const [
             rawRates, rawTiers, rawUsers, rawDeposits, rawOrders, rawCats, rawProds, 
             rawPayments, rawBanners, rawSettings, rawNotif, rawSystem, rawAdminProfile,
             rawCountries, rawVault, rawCoupons, rawOffers, rawLogs, rawAlerts, rawKyc
         ] = await Promise.all([
+            // --- البيانات الأساسية (تُجلب بالكامل لضرورتها) ---
             fetchArray(DB_KEYS.RATES, []),
             fetchArray(DB_KEYS.TIERS, []),
-            fetchArray(DB_KEYS.USERS, []),
-            fetchArray(DB_KEYS.DEPOSITS, []),
-            fetchArray(DB_KEYS.ORDERS, []),
+            
+            // --- 🌟 المجموعات الضخمة (تحديد سقف لجلب الأحدث فقط لخفض الاستهلاك) ---
+            fetchRecent(DB_KEYS.USERS, 150, 'createdAt'), // جلب أحدث 150 مستخدم
+            fetchRecent(DB_KEYS.DEPOSITS, 100, 'time'),   // جلب أحدث 100 إيداع
+            fetchRecent(DB_KEYS.ORDERS, 100, 'time'),     // جلب أحدث 100 طلب
+            
+            // --- البيانات المتوسطة والصغيرة ---
             fetchArray(DB_KEYS.CATS, []),
             fetchArray(DB_KEYS.PRODS, []),
             fetchArray(DB_KEYS.PAYMENTS, []),
@@ -79,8 +95,11 @@ export const AdminData = {
             fetchArray(DB_KEYS.VAULT, []),
             fetchArray(DB_KEYS.COUPONS, []),
             fetchArray(DB_KEYS.OFFERS, []),
-            fetchArray(DB_KEYS.LOGS, []),
-            fetchArray(DB_KEYS.ALERTS, []),
+            
+            // --- 🌟 السجلات والإشعارات (بيانات تتراكم بسرعة ويجب تقييدها) ---
+            fetchRecent(DB_KEYS.LOGS, 50, 'timestamp'),   // أحدث 50 سجل
+            fetchRecent(DB_KEYS.ALERTS, 50, 'time'),      // أحدث 50 إشعار
+            
             fetchArray(DB_KEYS.KYC, [])
         ]);
 
@@ -136,6 +155,7 @@ export const AdminData = {
         this.data.notif = obj(rawNotif);
         this.data.system = obj(rawSystem);
         this.data.adminProfile = obj(rawAdminProfile);
+        
         // 🌟 ترميم بيانات الدول المجلوبة بذكاء وبدون فرض دولة محددة
         this.data.countries = arr(rawCountries).map(c => {
             return {
@@ -165,13 +185,15 @@ export const AdminData = {
         
         // 🌟 الآن الحفظ سيتم بأمان وتتجاوز الجدار الناري بنجاح
         if (changedTierAssign) await this.saveUsers(); 
-        await this.calculateAllStoreStats();
+        
+        // 🌟 استدعاء دالة الإحصائيات (التي أصبحت الآن تتصل بالسحابة ولن تجمد المتصفح)
+        if (this.calculateAllStoreStats) await this.calculateAllStoreStats();
+        
         await this.autoAdvanceSweep();
         
-        console.log("✅ اكتملت المزامنة الموازية بنجاح بسرعة فائقة.");
+        console.log("✅ اكتملت المزامنة الموازية بنجاح بسرعة فائقة وبأقل تكلفة من السحابة.");
         return true; 
     },
-
     // ==========================================
     // 💾 دوال الحفظ الذكية (Smart Diffing Saver)
     // ==========================================

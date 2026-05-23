@@ -1,8 +1,9 @@
 {
   "name": "telecard-functions",
   "description": "Cloud Functions for Telecard",
-  "engines": {
-    "node": "18"
+"engines": {
+  "node": "20"
+
   },
   "main": "index.js",
   "dependencies": {

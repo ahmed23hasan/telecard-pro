@@ -48,8 +48,8 @@ export const OrdersRender = {
         
         // 🌟 التعديل الجوهري: استخدام النسخ العميق (Deep Copy) لحماية حالة البيانات
         // 🌟 التعديل الجوهري: استخدام النسخ السطحي (Spread Operator) فائق السرعة
+// 🌟 التعديل الجوهري: استخدام النسخ السطحي (Spread Operator) فائق السرعة
 let data = Array.isArray(AdminData.data.orders) ? [...AdminData.data.orders] : [];
-
 
         if(f.search || f.start || f.end) {
             const startD = f.start ? new Date(f.start).setHours(0,0,0,0) : null;
