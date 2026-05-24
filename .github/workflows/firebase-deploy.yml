@@ -15,7 +15,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20' # تم التحديث إلى 20 ليتوافق مع بيئة فايربيز الجديدة
 
       - name: Install Functions Dependencies
         working-directory: ./functions
@@ -24,7 +24,7 @@ jobs:
       - name: Deploy to Firebase (Hosting, Functions, Firestore Rules)
         uses: w9jds/firebase-action@master
         with:
-          args: deploy
+          args: deploy --force # 🌟 تمت إضافة أمر الإجبار هنا لحل مشكلة سياسة التنظيف
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
