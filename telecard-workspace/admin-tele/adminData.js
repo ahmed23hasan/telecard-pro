@@ -384,12 +384,16 @@ export const AdminData = {
         // ==========================================
     // 🌟 العقل المحاسبي المركزي (تم ترحيله للسحابة بالكامل)
     // ==========================================
-    calculateAllStoreStats: async function() {
+        calculateAllStoreStats: async function() {
         console.log("🚀 جاري الاتصال بالسحابة لضبط الإحصائيات المركزية...");
         
         try {
+            // 🌟 الإصلاح: جلب getApp لتعريف المشروع، خاصة عند العمل من Spck Editor (Localhost)
+            const { getApp } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
             const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js");
-            const functions = getFunctions();
+            
+            const app = getApp(); // 👈 تحديد التطبيق الحالي
+            const functions = getFunctions(app); // 👈 ربط الدوال بالتطبيق
             
             // الاتصال بدالة الصيانة السحابية التي أنشأناها
             const calculateCloudFn = httpsCallable(functions, 'calculateStoreStatsCloud');
