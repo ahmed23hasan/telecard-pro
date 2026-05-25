@@ -1,7 +1,7 @@
 // ============================================================================
 // 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Cloud Secured)
 // 🎯 الوظيفة: معالجة البيانات، الحسابات المعقدة، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث: دعم التحديثات غير القابلة للتغيير (Immutable Updates) لتتوافق مع معمارية التجميد
+// 🚀 التحديث: البرمجة الدفاعية (Defensive Logic) لمنع أخطاء التسعير بسبب نصوص قاعدة البيانات
 // ============================================================================
 
 import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -51,14 +51,12 @@ export const DataManager = {
     currentReceiptData: null,
     appliedCoupon: null,
 
-    // 🌟 دالة مساعدة لتهيئة واستدعاء دوال السحابة بأمان
     _getCloudFunction: function(functionName) {
         const app = getApp();
         const functions = getFunctions(app);
         return httpsCallable(functions, functionName);
     },
 
-    // 🌟 حماية العميل وحفظه محلياً بأمان (للجلسة السريعة)
     saveUserLocal: function() {
         if (!this.user) return;
         try {
@@ -69,7 +67,6 @@ export const DataManager = {
         } catch (e) { console.error('Storage Quota Error in saveUserLocal:', e); }
     },
 
-    // 🌟 تحديث بيانات العميل الشخصية بشكل متوافق مع Object.freeze
     updateUserProfile: async function(newData) {
         const uid = this.user?.id || this.user?.uid || localStorage.getItem('telecard_active_user_uid');
         if (!uid) {
@@ -77,10 +74,8 @@ export const DataManager = {
             return false;
         }
 
-        // تحديث الرام للسرعة
         this.user = { ...this.user, ...newData };
         
-        // تحديث غير قابل للتغيير (Immutable Update) لمنع اصطدام الحالة
         if (LiveStoreData.users && Array.isArray(LiveStoreData.users)) {
             LiveStoreData.users = Object.freeze(
                 LiveStoreData.users.map(u => 
@@ -189,7 +184,6 @@ export const DataManager = {
             o.targetProds && o.targetProds.includes(String(prodId))
         );
     },
-
     // ============================================================================
     // 🧮 4. المحرك الموحد للتسعير (يُستخدم لعرض الأسعار للعميل قبل الشراء فقط)
     // ============================================================================
@@ -200,16 +194,26 @@ export const DataManager = {
         let rawUnitCost = 0;
         if (prod.type === 'select' && Array.isArray(prod.options) && prod.options[optIdx]) {
             const opt = prod.options[optIdx];
-            rawUnitCost = Number(opt.price || opt.costPrice || 0);
+            rawUnitCost = Number(opt.costPrice || opt.price || 0);
         } else {
-            rawUnitCost = Number(prod.costPrice || prod.unitCost || prod.price || 0);
+            rawUnitCost = Number(prod.costPrice || prod.price || 0);
         }
 
-        const isFixed = !!(prod.isFixedPrice || prod.is_fixed_price);
-        const fixedUsd = Number(prod.fixedPriceUsd || prod.fixed_price_usd || 0);
-        if (isFixed && fixedUsd > 0) rawUnitCost = fixedUsd; 
-
         const tier = this.getUserTier(user);
+        
+        // 🌟 الإصلاح الدفاعي: التعامل مع الكلمات النصية "true" و"false" بأمان
+        const isFixed = (prod.isFixedPrice === true || String(prod.isFixedPrice).toLowerCase() === 'true' || 
+                         prod.is_fixed_price === true || String(prod.is_fixed_price).toLowerCase() === 'true');
+                         
+        const fixedUsd = Number(prod.fixedPriceUsd || prod.fixed_price_usd || 0);
+        
+        let appliedTier = tier;
+        // 🛡️ الحماية ضد التلاعب: نلغي مستوى العميل فقط إذا كان هناك سعر ثابت صريح أكبر من صفر
+        if (isFixed && fixedUsd > 0) {
+            rawUnitCost = fixedUsd; 
+            appliedTier = null; 
+        }
+
         const activeOffer = this.getActiveOffer(prod.id);
 
         let unitSnapshot = {
@@ -218,12 +222,19 @@ export const DataManager = {
             totalDiscountVal: 0, profit: 0, marginPct: 0, isFirewallActive: false
         };
 
+        // 🛡️ استدعاء المحرك المالي المركزي (SSOT) بأمان
         if (Utils.TelecardPricingEngine && typeof Utils.TelecardPricingEngine.calculate === 'function') {
-            const appliedTier = isFixed ? null : tier; 
             unitSnapshot = Utils.TelecardPricingEngine.calculate({
-                costPrice: rawUnitCost, tier: appliedTier, offer: activeOffer, coupon: appliedCoupon
+                costPrice: rawUnitCost, 
+                tier: appliedTier, 
+                offer: activeOffer, 
+                coupon: appliedCoupon
             });
-        } 
+        } else {
+            console.error("🚨 المحرك المالي غير متاح! تم استخدام التسعير الافتراضي (سعر التكلفة).");
+            // في حالة فشل المحرك المالي، نضع خطأً متعمداً في الربح لكي يلتقطه قاطع التيار في دالة الشراء
+            unitSnapshot.profit = -1; 
+        }
 
         let oldPriceUsd = null;
         if (activeOffer && activeOffer.type === 'fake') {
@@ -243,7 +254,6 @@ export const DataManager = {
             displayOldTotalUsd: oldPriceUsd ? (oldPriceUsd * q) : (unitSnapshot.originalPrice * q)
         };
     },
-
     computeSellingUsd: function(prod, user, qty=1, optIndex=null) {
         const pricing = this.calculateFinalPrice(prod, user, qty, optIndex, null);
         return pricing.totalUsd;
@@ -297,9 +307,9 @@ export const DataManager = {
         const now = Date.now();
         
         if (!coupon) return { valid: false, msg: 'الكود غير صحيح أو غير موجود' };
-        if (!coupon.isActive) return { valid: false, msg: 'عذراً، هذا الكوبون غير فعال حالياً' };
+        if (coupon.isActive === false || String(coupon.isActive) === 'false') return { valid: false, msg: 'عذراً، هذا الكوبون غير فعال حالياً' };
         if (coupon.expiryDate && now > coupon.expiryDate) return { valid: false, msg: 'عذراً، انتهت صلاحية هذا الكوبون' };
-        if (coupon.maxUses > 0 && (coupon.usedCount || 0) >= coupon.maxUses) return { valid: false, msg: 'عذراً، لقد نفذت كمية الاستخدام المسموحة لهذا الكوبون' };
+        if (Number(coupon.maxUses) > 0 && Number(coupon.usedCount || 0) >= Number(coupon.maxUses)) return { valid: false, msg: 'عذراً، لقد نفذت كمية الاستخدام المسموحة لهذا الكوبون' };
         
         if (coupon.targetTiers && Array.isArray(coupon.targetTiers) && coupon.targetTiers.length > 0) {
             const userTier = this.getUserTier(this.user);
@@ -317,15 +327,15 @@ export const DataManager = {
             if (!coupon.allowedUsers.includes(Number(this.user.id))) return { valid: false, msg: 'عذراً، هذا الكوبون مخصص لعملاء محددين' };
         }
         
-        if (coupon.maxPerUser > 0) {
+        if (Number(coupon.maxPerUser) > 0) {
             const userKey = `user_${this.user.id}`;
             const userUsageCount = (coupon.usageHistory && coupon.usageHistory[userKey]) ? coupon.usageHistory[userKey] : 0;
-            if (userUsageCount >= coupon.maxPerUser) return { valid: false, msg: `لقد استنفدت الحد الأقصى لاستخدام هذا الكوبون (${coupon.maxPerUser} مرات)` };
+            if (userUsageCount >= Number(coupon.maxPerUser)) return { valid: false, msg: `لقد استنفدت الحد الأقصى لاستخدام هذا الكوبون (${coupon.maxPerUser} مرات)` };
         }
         
-        if (coupon.minOrder > 0) {
+        if (Number(coupon.minOrder) > 0) {
             const pricing = this.calculateFinalPrice(prod, this.user, qty, optIdx, null);
-            if (pricing.totalUsd < coupon.minOrder) return { valid: false, msg: `عذراً، الحد الأدنى لاستخدام هذا الكوبون هو ${coupon.minOrder}$` };
+            if (pricing.totalUsd < Number(coupon.minOrder)) return { valid: false, msg: `عذراً، الحد الأدنى لاستخدام هذا الكوبون هو ${coupon.minOrder}$` };
         }
 
         return { valid: true, coupon: coupon };
@@ -364,7 +374,6 @@ export const DataManager = {
         let me = null;
         if(activeUid) {
             const foundUser = users.find(u => String(u.id) === String(activeUid));
-            // الاستنساخ العميق الجزئي لتجنب التعديل المباشر على كائن قد تم تجميده في السحابة
             if (foundUser) me = { ...foundUser };
         }
         
@@ -385,9 +394,8 @@ export const DataManager = {
                 me.tierCycleSpent = 0;
             }
 
-            if (me.inbox.length > 30) {
-                me.inbox.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); 
-                me.inbox = me.inbox.slice(0, 30); 
+            if (me.inbox && me.inbox.length > 30) {
+                me.inbox = [...me.inbox].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 30);
             }
 
             this.user = me; 
@@ -433,7 +441,6 @@ export const DataManager = {
                 return sum + (val > 0 ? val : 0);
             }, 0);
             
-        // لا نحدث السحابة هنا، نكتفي بتحديث الواجهة (العمليات تتم عبر السيرفر)
         this.user.totalSpent = mySpent;
         this.user.totalDeposit = myDeposits;
     },
@@ -453,9 +460,26 @@ export const DataManager = {
             return { success: false, msg: 'تعذر تحديث كلمة المرور.' };
         }
     },
-    // 🚀 التحديث: دالة الشراء السحابية الآمنة مع رسالة الرصيد الاحترافية
+
+    // 🚀 التحديث: دالة الشراء السحابية الآمنة مع قاطع التيار (Circuit Breaker) المُصلح
     confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
+
+        // --- 🛡️ إضافة الحظر القطعي (Hard Block) لمنع البيع بدون ربح ---
+        const pricingCheck = this.calculateFinalPrice(prod, this.user, qty, optIdx, appliedCoupon);
+        
+        // 🌟 الإصلاح الدفاعي هنا أيضاً لنطابق نفس أمان دالة الحساب:
+        const isFixed = (prod.isFixedPrice === true || String(prod.isFixedPrice).toLowerCase() === 'true' || 
+                         prod.is_fixed_price === true || String(prod.is_fixed_price).toLowerCase() === 'true');
+
+        if (!isFixed && pricingCheck.unitSnapshot.profit <= 0) {
+            console.error("🚨 تم حظر البيع: النظام حاول البيع بدون تطبيق نسبة ربح المستوى.");
+            return { 
+                success: false, 
+                msg: 'عذراً، تعذر إتمام الطلب لعدم توفر تسعيرة المستوى الخاص بك لهذا المنتج. يرجى التواصل مع الإدارة.' 
+            };
+        }
+        // -------------------------------------------------------------
 
         try {
             const createOrderFn = this._getCloudFunction('createOrder');
@@ -486,7 +510,6 @@ export const DataManager = {
             if (error.details) {
                 finalUserMessage = error.details;
             } else if (error.message) {
-                // 🌟 تطبيق العبارة الاحترافية الموجهة للعميل عند نقص الرصيد
                 if (error.message.toLowerCase().includes('internal') || error.message.toLowerCase().includes('functions/')) {
                     finalUserMessage = 'رصيدك غير كافٍ ، يرجى إيداع رصيد أولاً لإتمام العملية.';
                 } else {
@@ -500,6 +523,7 @@ export const DataManager = {
             };
         }
     },
+
     calculateDepositFee: function(amount, paymentMethod, payCurr) {
         if (!paymentMethod) return { isValid: false, msg: 'طريقة دفع مفقودة', netBase: 0, feePct: 0, feeType: 'fee', feeUnit: 'percent' };
         
@@ -555,7 +579,6 @@ export const DataManager = {
         };
     },
 
-    // 🚀 التحديث: دالة طلب الإيداع السحابية الآمنة
     submitBalanceRequest: async function(amount, paymentMethod, payCurr, netBase, receiptData) {
         if (!paymentMethod) return { success: false, msg: 'حدث خطأ: لم يتم تحديد طريقة الدفع' };
         if (amount <= 0) return { success: false, msg: 'يرجى إدخال مبلغ صحيح ضمن الحدود المسموحة' };
@@ -564,7 +587,6 @@ export const DataManager = {
         try {
             const submitDepositFn = this._getCloudFunction('submitBalanceRequest');
             
-            // إرسال البيانات للسحابة لتتكفل بالتسجيل الآمن
             const requestData = {
                 amount: Number(amount),
                 paymentMethodName: paymentMethod.name,
@@ -619,9 +641,6 @@ export const DataManager = {
         }
     },
 
-    // ============================================================================
-    // 🔔 6. محرك الإشعارات المجرد
-    // ============================================================================
     _isAlertForUser: function(msg, user, now, readIds = []) {
         const type = msg.targetType || msg.target || 'all';
         const tId = msg.targetId || msg.userId || msg.tierId || null;

@@ -1,7 +1,7 @@
 // ============================================================================
 // 💳 وحدة الدفع والمنتجات (uiFinance.js)
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديث: تفويض الأحداث، تحسين أداء DOM، وإلغاء المستمعات الفردية (Event Leaks)
+// 🚀 التحديث: تفويض الأحداث، تحسين أداء DOM، وتطبيق مصدر الحقيقة الوحيد (SSOT)
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -11,7 +11,15 @@ import { RenderHelpers } from '../core/renderHelpers.js';
 import { FirebaseAdapter } from '../core/firebaseAdapter.js';
 
 // 🌟 دالة مساعدة للوصول الآمن للمحرك المركزي وحل مشكلة فقدان السياق
-const getSys = () => window.ClientSystem || window.UIManager || {};
+// ✅ دالة آمنة لجلب النظام تمنع انهيار الواجهة إذا لم يكتمل تحميل script.js
+const getSys = () => {
+    if (window.ClientSystem) return window.ClientSystem;
+    if (window.UIManager) return window.UIManager;
+    
+    console.warn("⚠️ تحذير: تم استدعاء النظام قبل اكتمال الإقلاع.");
+    // إعادة كائن وهمي (Proxy أو Object) بدوال فارغة لمنع أخطاء undefined is not a function
+    return new Proxy({}, { get: () => () => {} }); 
+};
 
 export const UIFinance = {
 
@@ -113,14 +121,13 @@ export const UIFinance = {
         getSys().resetUI?.();
 
         const prods = LiveStoreData.prods || [];
-        this.currentProd = prods.find(p => p.id === id); 
-        
-        if (!this.currentProd) return;
+        DataManager.currentProd = prods.find(p => p.id === id);
+        if (!DataManager.currentProd) return;
 
         const badgeContainer = document.getElementById('pm-badge-container');
         if (badgeContainer) {
             badgeContainer.innerHTML = ''; 
-            const activeOffer = DataManager.getActiveOffer(this.currentProd.id);
+            const activeOffer = DataManager.getActiveOffer(DataManager.currentProd.id);
             
             if (activeOffer?.visualConfig?.grid) {
                 const v = activeOffer.visualConfig.grid;
@@ -133,26 +140,26 @@ export const UIFinance = {
                             ${Utils.escapeHtml(v.badgeText)}
                         </div>`;
                 }
-            } else if (this.currentProd.badgeText) {
+            } else if (DataManager.currentProd.badgeText) {
                 badgeContainer.innerHTML = `
-                    <div class="offer-badge-base prod-badge badge-${this.currentProd.badgeColor || 'red'}" 
+                    <div class="offer-badge-base prod-badge badge-${DataManager.currentProd.badgeColor || 'red'}" 
                          style="position: relative; top: 0; right: 0; width: fit-content; margin-bottom: 5px;">
-                        ${Utils.safeText(this.currentProd.badgeText)}
+                        ${Utils.safeText(DataManager.currentProd.badgeText)}
                     </div>`;
             }
         }
 
-        this.currentProd.basePriceUsd = this.currentProd.basePriceUsd || this.currentProd.price || this.currentProd.unitPrice || 0;
-        if (Array.isArray(this.currentProd.options)) {
-            this.currentProd.options = this.currentProd.options.map(o => ({ ...o, basePriceUsd: o.basePriceUsd || o.price || 0 }));
+        DataManager.currentProd.basePriceUsd = DataManager.currentProd.basePriceUsd || DataManager.currentProd.price || DataManager.currentProd.unitPrice || 0;
+        if (Array.isArray(DataManager.currentProd.options)) {
+            DataManager.currentProd.options = DataManager.currentProd.options.map(o => ({ ...o, basePriceUsd: o.basePriceUsd || o.price || 0 }));
         }
 
         const nameEl = document.getElementById('pm-name');
-        if(nameEl) nameEl.innerText = this.currentProd.name;
+        if(nameEl) nameEl.innerText = DataManager.currentProd.name;
         
         const favBtn = document.getElementById('pm-fav-btn');
         if (favBtn) {
-            const isFav = DataManager.isFavorite ? DataManager.isFavorite(this.currentProd.id) : false;
+            const isFav = DataManager.isFavorite ? DataManager.isFavorite(DataManager.currentProd.id) : false;
             favBtn.classList.toggle('active', isFav);
             const favIcon = favBtn.querySelector('i');
             if (favIcon) favIcon.className = isFav ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
@@ -160,8 +167,8 @@ export const UIFinance = {
         
         const descBox = document.getElementById('pm-desc-container');
         if (descBox) {
-            if (this.currentProd.description) {
-                descBox.innerHTML = `<i class="fa-solid fa-circle-info"></i> ${Utils.escapeHtml(this.currentProd.description)}`;
+            if (DataManager.currentProd.description) {
+                descBox.innerHTML = `<i class="fa-solid fa-circle-info"></i> ${Utils.escapeHtml(DataManager.currentProd.description)}`;
                 descBox.style.display = 'block';
             } else descBox.style.display = 'none';
         }
@@ -181,20 +188,19 @@ export const UIFinance = {
             return `<div class="floating-group"><input type="text" id="${inpId}" class="floating-input" placeholder=" " autocomplete="off"><label class="floating-label">${safeLbl}</label></div>`;
         };
 
-        // 🌟 تطبيق DOM Optimization: تجميع الـ HTML بدلاً من innerHTML +=
         let inputHtml = '';
 
-        if (this.currentProd.type === 'double') {
-            inputHtml += createInput('pm-inp-1', this.currentProd.input1Label);
-            inputHtml += createInput('pm-inp-2', this.currentProd.input2Label);
-        } else if (['single', 'counter'].includes(this.currentProd.type)) { 
-            inputHtml += createInput('pm-inp-1', this.currentProd.input1Label);
-        } else if (this.currentProd.type === 'simple' && this.currentProd.allowQty) {
+        if (DataManager.currentProd.type === 'double') {
+            inputHtml += createInput('pm-inp-1', DataManager.currentProd.input1Label);
+            inputHtml += createInput('pm-inp-2', DataManager.currentProd.input2Label);
+        } else if (['single', 'counter'].includes(DataManager.currentProd.type)) { 
+            inputHtml += createInput('pm-inp-1', DataManager.currentProd.input1Label);
+        } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) {
             simpleQtyBox.style.display = 'block';
             const sQty = document.getElementById('simple-qty-val');
             if(sQty) sQty.value = 1;
-        } else if (this.currentProd.type === 'select') {
-            inputHtml += createInput('pm-inp-1', this.currentProd.input1Label);
+        } else if (DataManager.currentProd.type === 'select') {
+            inputHtml += createInput('pm-inp-1', DataManager.currentProd.input1Label);
             staOps.style.display = 'block';
             
             const sel = document.getElementById('pm-pack');
@@ -205,10 +211,9 @@ export const UIFinance = {
             if (sel && menu && dropdownContainer) {
                 dropdownContainer.classList.remove('open'); 
                 
-                // 🌟 استخدام DocumentFragment لتحسين الأداء ومنع تسريب الذاكرة
                 let selHtml = '';
                 const frag = document.createDocumentFragment();
-                const options = this.currentProd.options || [];
+                const options = DataManager.currentProd.options || [];
 
                 options.forEach((pkg, idx) => {
                     selHtml += `<option value="${idx}">${Utils.escapeHtml(pkg.name)}</option>`;
@@ -224,7 +229,6 @@ export const UIFinance = {
                 menu.innerHTML = '';
                 menu.appendChild(frag);
 
-                // 🌟 تفويض موضعي لعمليات النقر داخل القائمة (Local Event Delegation)
                 if(!menu._boundClick) {
                     menu.addEventListener('click', (e) => {
                         const item = e.target.closest('.dropdown-item');
@@ -254,7 +258,7 @@ export const UIFinance = {
 
         getSys().openModal?.('purchase');
 
-        if (this.currentProd.type === 'counter') {
+        if (DataManager.currentProd.type === 'counter') {
             const dOps = document.getElementById('pm-dynamic-ops');
             if (dOps) {
                 dOps.classList.add('pm-ops-visible'); dOps.style.display = 'block'; 
@@ -265,10 +269,9 @@ export const UIFinance = {
                     </div>`; 
 
                 const qInp = document.getElementById('pm-qty');
-                let minQ = parseInt(this.currentProd.minQty) || 1;
+                let minQ = parseInt(DataManager.currentProd.minQty) || 1;
                 qInp.value = minQ; 
                 
-                // هنا مستمعات Input و Blur آمنة لأن الـ dOps.innerHTML يعيد البناء ويدمر المستمعات القديمة
                 qInp.addEventListener('input', (e) => {
                     e.target.value = e.target.value.replace(/[^0-9]/g, '');
                     this.updatePriceDisplay(); 
@@ -294,12 +297,14 @@ export const UIFinance = {
             if(grid) { grid.style.opacity = '1'; grid.style.transform = 'translateY(0)'; grid.style.filter = 'none'; }
         }
 
-        if (this.currentProd) {
+        if (DataManager.currentProd) {
+            const targetProdName = DataManager.currentProd.name; 
+            
             setTimeout(() => {
                 const cards = document.querySelectorAll('.product-card');
                 cards.forEach(card => {
                     const nameEl = card.querySelector('.product-name');
-                    if (nameEl && nameEl.innerText.trim() === this.currentProd.name) {
+                    if (nameEl && nameEl.innerText.trim() === targetProdName) {
                         if (typeof card.triggerShine === 'function') {
                             card.triggerShine();
                         }
@@ -307,14 +312,16 @@ export const UIFinance = {
                 });
             }, 300);
         }
+
+        DataManager.currentProd = null;
     },
 
     updateSimpleQty: function(change) {
         let el = document.getElementById('simple-qty-val');
-        if (!el || !this.currentProd) return;
+        if (!el || !DataManager.currentProd) return;
         let val = parseInt(el.value);
-        let max = this.currentProd.simpleMax || 10;
-        let min = this.currentProd.minQty || 1; 
+        let max = DataManager.currentProd.simpleMax || 10;
+        let min = DataManager.currentProd.minQty || 1; 
         let newVal = val + change;
 
         if (newVal > max) { getSys().sfx?.('error'); getSys().showQtyError?.(`تجاوزت الحد المسموح (${max})`); return; }
@@ -336,7 +343,7 @@ export const UIFinance = {
     },
 
     resetCouponUI: function() {
-        this.appliedCoupon = null; 
+        DataManager.appliedCoupon = null; 
         const cInput = document.getElementById('couponCode'), cMsg = document.getElementById('couponMsg');
         const btnApply = document.getElementById('btnApply'), clearIcon = document.getElementById('clearIcon');
         const pasteIcon = document.getElementById('pasteIcon'), priceBox = document.getElementById('priceBox');
@@ -356,26 +363,26 @@ export const UIFinance = {
     closePurchaseSuccess: function() { getSys().closeModal?.('purchase-success'); },
 
     updatePriceDisplay: function() {
-        if (!this.currentProd) return;
+        if (!DataManager.currentProd) return;
         
         let qty = 1; 
         let optIdx = null;
 
-        if (this.currentProd.type === 'counter') { 
+        if (DataManager.currentProd.type === 'counter') { 
             qty = parseFloat(document.getElementById('pm-qty')?.value) || 1; 
         } 
-        else if (this.currentProd.type === 'select') { 
+        else if (DataManager.currentProd.type === 'select') { 
             const selEl = document.getElementById('pm-pack'); 
             optIdx = selEl ? Number(selEl.value) : 0; 
         } 
-        else if (this.currentProd.type === 'simple' && this.currentProd.allowQty) { 
+        else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
             const qtyEl = document.getElementById('simple-qty-val'); 
             qty = qtyEl ? (parseInt(qtyEl.value) || 1) : 1; 
         }
 
         if (!DataManager || typeof DataManager.getPricingLocal !== 'function') return;
 
-        const result = DataManager.getPricingLocal(this.currentProd, qty, optIdx, this.appliedCoupon);
+        const result = DataManager.getPricingLocal(DataManager.currentProd, qty, optIdx, DataManager.appliedCoupon);
         if (!result) return;
 
         const unitInput = document.getElementById('pm-price-unit');
@@ -391,15 +398,10 @@ export const UIFinance = {
             else totalInput.innerHTML = beautifulTotalHtml; 
         }
 
-        const oldPriceLabel = document.getElementById('pm-price');
-        if (oldPriceLabel && oldPriceLabel.tagName !== 'INPUT') {
-            oldPriceLabel.innerHTML = beautifulTotalHtml;
-        }
-
-        const currPriceEl = document.querySelector('.current-price');
-        const oldPriceEl = document.querySelector('.old-price');
+                // استهداف العناصر عبر الـ ID مباشرة لضمان أعلى سرعة أداء في المتصفح
+        const currPriceEl = document.getElementById('pm-price');
+        const oldPriceEl = document.getElementById('oldPriceDisplay');
         const priceBox = document.getElementById('priceBox');
-
         if (result.hasDiscount) {
             if (priceBox) priceBox.classList.add('active');
             if (oldPriceEl) {
@@ -414,13 +416,9 @@ export const UIFinance = {
         }
     },
 
-            // =========================================================
-    // 🚀 معالج عملية الشراء المطور (Async Purchase Submission)
-    // =========================================================
-    handlePurchaseSubmit: async function() { // 👈 1. تحويل الدالة إلى async لتستمع للسيرفر
-        if (!this.currentProd) return;
+    handlePurchaseSubmit: async function() { 
+        if (!DataManager.currentProd) return;
         
-        // 🛡️ التحقق من الهوية وحالة النظام لحظر الثغرات
         if (!this._validateKycAndSystem('purchase')) return;
         
         const inp1El = document.getElementById('pm-inp-1');
@@ -453,26 +451,26 @@ export const UIFinance = {
         const inp1 = inp1El ? inp1El.value.trim() : ''; 
         const inp2 = inp2El ? inp2El.value.trim() : '';
 
-        if(this.currentProd.type === 'double') { 
-            finalInputStr = `${this.currentProd.input1Label}: ${inp1} | ${this.currentProd.input2Label}: ${inp2}`; 
+        if(DataManager.currentProd.type === 'double') { 
+            finalInputStr = `${DataManager.currentProd.input1Label}: ${inp1} | ${DataManager.currentProd.input2Label}: ${inp2}`; 
             if(!inp1) { showInlineError(inp1El, 'يرجى ملء الحقل الأول'); isValid = false; inp1El.focus(); }
             if(!inp2) { if(inp2El) { showInlineError(inp2El, 'يرجى ملء الحقل الثاني'); if(isValid) inp2El.focus(); isValid = false; } }
-        } else if (this.currentProd.type === 'simple') { 
+        } else if (DataManager.currentProd.type === 'simple') { 
             finalInputStr = ""; 
         } else { 
             finalInputStr = inp1; 
             if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); } 
         }
 
-        if (this.currentProd.type === 'counter') { 
+        if (DataManager.currentProd.type === 'counter') { 
             qty = parseFloat(document.getElementById('pm-qty')?.value) || 1; 
-        } else if (this.currentProd.type === 'select') { 
+        } else if (DataManager.currentProd.type === 'select') { 
             const selEl = document.getElementById('pm-pack'); 
             optIdx = selEl ? Number(selEl.value) : 0; 
             qty = 1; 
-        } else if (this.currentProd.type === 'simple' && this.currentProd.allowQty) { 
+        } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
             qty = parseInt(qtyEl?.value) || 1; 
-            const max = this.currentProd.simpleMax || 10; 
+            const max = DataManager.currentProd.simpleMax || 10; 
             if(qty > max) { showInlineError(qtyEl.parentNode, `أقصى كمية هي ${max}`); isValid = false; qtyEl.focus(); } 
         }
 
@@ -480,16 +478,13 @@ export const UIFinance = {
 
         if(!DataManager || typeof DataManager.confirmPurchase !== 'function') return;
 
-        // 👈 2. تشغيل شاشة التحميل لمنع استغلال تكرار النقر وتجميد الأزرار مؤقتاً
-        if (getSys().toggleLoader) {
-            getSys().toggleLoader(true, 'جاري فحص الحساب وإتمام الطلب...');
+        if (typeof window.ClientSystem !== 'undefined' && window.ClientSystem.toggleLoader) {
+            window.ClientSystem.toggleLoader(true, 'جاري فحص الحساب وإتمام الطلب...');
         }
 
         try {
-            // 👈 3. استخدام await الإجبارية لاستخراج الرد الفعلي من قاعدة البيانات السحابية
-            const result = await DataManager.confirmPurchase(this.currentProd, qty, optIdx, finalInputStr, this.appliedCoupon);
+            const result = await DataManager.confirmPurchase(DataManager.currentProd, qty, optIdx, finalInputStr, DataManager.appliedCoupon);
 
-            // 👈 4. إغلاق اللودر فور استقبال استجابة الخادم
             if (getSys().toggleLoader) getSys().toggleLoader(false);
 
             if (result.success) {
@@ -530,7 +525,6 @@ export const UIFinance = {
                     }
                 }, 150);
             } else {
-                // 👈 5. استقبال النص الحقيقي للخطأ القادم من فايربيز وعرضه في الـ Toast الاحترافي
                 getSys().showToast?.(result.msg || 'عذراً، رصيدك الحالي غير كافٍ لإتمام عملية الشراء.', 'error'); 
                 keepKeyboardOpen();
             }
@@ -602,7 +596,6 @@ export const UIFinance = {
         const createSmartLine = (text, canCopy) => {
             const safeText = Utils.escapeHtml(String(text));
             if (canCopy) {
-                // 🌟 استخدام data-action لدمجها مع المستمع المركزي تلقائياً
                 return `
                 <div class="smart-copy-line is-copyable" data-action="copy-text" data-text="${safeText}">
                     <div style="display: flex; flex-direction: column; justify-content: center; text-align: right; width: 100%;">
@@ -706,6 +699,7 @@ export const UIFinance = {
                         <input type="number" id="bal-amount" class="bal-input-new num-en" placeholder="0.00" inputmode="decimal">
                         <label class="bal-floating-label">أدخل مبلغ للإيداع</label>
                     </div>
+                    
                     <span id="bal-amount-error" class="bal-error-text-new d-none"></span>
                     <div class="bal-input-field-new" id="bal-net-wrap">
                         <span class="bal-input-currency-new" id="bal-net-curr">${baseCurr}</span>
@@ -726,8 +720,7 @@ export const UIFinance = {
                 </button>
          </div>
         `;
-        
-        // 🌟 تطبيق تفويض الأحداث على الحاوية الأب (section) لتقليل المستمعات في الذاكرة
+
         if (!section._boundDelegation) {
             section.addEventListener('input', (e) => {
                 if (e.target.id === 'bal-amount') {
@@ -741,10 +734,22 @@ export const UIFinance = {
                 if (uploadBox) document.getElementById('bal-file')?.click();
                 
                 const currTrigger = e.target.closest('.micro-currency-trigger');
-                if (currTrigger && !isSingleCurrency) currTrigger.parentElement.classList.toggle('open');
+                if (currTrigger) {
+                    // ✅ فحص ديناميكي لعنصر القائمة بدلاً من المتغير المحتجز (Closure Fix)
+                    const list = currTrigger.parentElement.querySelector('.dropdown-menu');
+                    if (list && list.style.display !== 'none') {
+                        currTrigger.parentElement.classList.toggle('open');
+                    }
+                }
                 
                 const currItem = e.target.closest('.dropdown-item');
-                if (currItem) this.changeDepositCurrency(currItem.dataset.curr);
+                if (currItem) {
+                    const newCurrency = currItem.dataset.curr;
+                    this.changeDepositCurrency(newCurrency);
+                    
+                    const dropWrap = e.target.closest('.split-dropdown');
+                    if (dropWrap) dropWrap.classList.remove('open');
+                }
             });
             
             section.addEventListener('change', (e) => {
@@ -759,7 +764,6 @@ export const UIFinance = {
         this.calcFee();
         getSys().sfx?.('nav');
     },
-
     backToPayMethods: function() {
         const modal = document.getElementById('balance-modal');
         if (!modal) return;
@@ -787,16 +791,29 @@ export const UIFinance = {
         getSys().sfx?.('nav');
     },
 
-    _toggleBalHeaderBtn: function(mode) {
+        _toggleBalHeaderBtn: function(mode) {
         const actionBtn = document.querySelector('#balance-modal .pm-close-std') || document.getElementById('bal-action-btn');
         const titleEl = document.querySelector('#balance-modal .title-badge') || document.querySelector('#balance-modal .pm-title-badge');
         
         if (actionBtn) {
             actionBtn.dataset.mode = mode;
+            
+            // ✅ الإصلاح 1: إزالة الحدث المدمج في الـ HTML لمنع إغلاق النافذة الإجباري
+            if (actionBtn.hasAttribute('onclick')) {
+                actionBtn.removeAttribute('onclick');
+            }
+
             if (!actionBtn._boundBalClose) {
-                actionBtn.addEventListener('click', () => {
-                    if (actionBtn.dataset.mode === 'back') this.backToPayMethods();
-                    else this.closeBalanceModal();
+                actionBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    // ✅ الإصلاح 2: إيقاف أي مستمعات أحداث أخرى (Global Listeners) من التدخل
+                    e.stopImmediatePropagation(); 
+
+                    if (actionBtn.dataset.mode === 'back') {
+                        this.backToPayMethods();
+                    } else {
+                        this.closeBalanceModal();
+                    }
                 });
                 actionBtn._boundBalClose = true;
             }
@@ -876,6 +893,7 @@ export const UIFinance = {
         const payCurr = (this.currentPayCurrency || '').toUpperCase();
         
         if (typeof DataManager.calculateDepositFee !== 'function') return;
+        
         const result = DataManager.calculateDepositFee(amount, this.currentPayment, payCurr);
 
         const errorBox = document.getElementById('bal-amount-error');
@@ -884,17 +902,27 @@ export const UIFinance = {
         const netWrap = document.getElementById('bal-net-wrap');
         const limitsBar = document.getElementById('bal-limits-bar');
 
-        if (limitsBar) {
-            const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) 
-                      ? this.currentPayment.currencySettings[payCurr] 
-                      : this.currentPayment;
+        const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) 
+                  ? this.currentPayment.currencySettings[payCurr] 
+                  : this.currentPayment;
 
-            const minVal = parseFloat(s.min) || 0;
-            const maxVal = parseFloat(s.max) || 0;
-            const feeVal = parseFloat(s.fee) || 0;
-            const feeType = s.feeType || 'fee';
-            const feeUnit = s.feeUnit || s.unit || 'percent';
-            
+        const minVal = parseFloat(s.min) || 0;
+        const maxVal = parseFloat(s.max) || 0;
+        const feeVal = parseFloat(s.fee) || 0;
+        const feeType = s.feeType || 'fee';
+        const feeUnit = s.feeUnit || s.unit || 'percent';
+
+        if (amount > 0) {
+            if (minVal > 0 && amount < minVal) {
+                result.isValid = false;
+                result.msg = `الحد الأدنى للإيداع هو ${minVal}`;
+            } else if (maxVal > 0 && amount > maxVal) {
+                result.isValid = false;
+                result.msg = `الحد الأعلى للإيداع هو ${maxVal}`;
+            }
+        }
+        
+        if (limitsBar) {
             let itemsHtml = [];
             if (feeVal > 0) {
                 const isFixed = (feeUnit === 'fixed' || feeUnit === 'amount');
@@ -944,15 +972,20 @@ export const UIFinance = {
         if (!result.isValid) {
             input.classList.toggle('input-invalid', amount > 0);
             if (errorBox) { 
-                errorBox.innerText = (amount > 0) ? result.msg : ''; 
+                errorBox.innerHTML = (amount > 0) ? `<i class="fa-solid fa-circle-exclamation"></i> ${result.msg}` : ''; 
                 errorBox.style.display = (amount > 0 && result.msg) ? 'block' : 'none'; 
+                errorBox.classList.remove('d-none');
             }
             if (submitBtn) submitBtn.disabled = true; 
             if (netDisplay) netDisplay.innerText = "0.00";
             if (netWrap) netWrap.classList.remove('has-value');
-        } else {
+        } 
+        else {
             input.classList.remove('input-invalid');
-            if (errorBox) errorBox.style.display = 'none';
+            if (errorBox) {
+                errorBox.style.display = 'none';
+                errorBox.classList.add('d-none');
+            }
             if (submitBtn) submitBtn.disabled = false;
             
             this.pendingDepositNetBase = result.netBase;
@@ -1048,18 +1081,16 @@ export const UIFinance = {
         if(img) img.src = '';
     },
 
-        
-        toggleWalletStats: function(btn) {
+    toggleWalletStats: function(btn) {
         const drawer = document.getElementById('walletStatsDrawer');
         if (!drawer) return;
         
-        // التحقق من الحالة الحالية
         const isActive = drawer.classList.contains('active');
         
         if (isActive) {
-            this.closeWalletStats(); // هنا نضمن أن دالة الإغلاق تنظف كل شيء (الغباش، السهم، الكلاسات)
+            this.closeWalletStats(); 
         } else {
-            this.openWalletStats(btn); // دالة مخصصة للفتح
+            this.openWalletStats(btn); 
         }
     },
 
@@ -1072,22 +1103,21 @@ export const UIFinance = {
         if (btn) btn.classList.add('open');
         if (walletModal) walletModal.classList.add('drawer-blur-active');
         
-        // تشغيل الصوت
         if (typeof this.sfx === 'function') this.sfx('nav');
     },
 
     closeWalletStats: function() {
-    const drawer = document.getElementById('walletStatsDrawer');
-    const walletModal = document.getElementById('wallet-modal');
-    
-    // الحل الجذري: البحث عن السهم داخل نافذة المحفظة حصراً وليس في كل المستند
-    const arrowBtn = walletModal ? walletModal.querySelector('.detail-arrow') : null;
+        const drawer = document.getElementById('walletStatsDrawer');
+        const walletModal = document.getElementById('wallet-modal');
+        
+        const arrowBtn = walletModal ? walletModal.querySelector('.detail-arrow') : null;
 
-    if (drawer) drawer.classList.remove('active');
-    if (arrowBtn) arrowBtn.classList.remove('open');
+        if (drawer) drawer.classList.remove('active');
+        if (arrowBtn) arrowBtn.classList.remove('open');
+        
+        if (walletModal) walletModal.classList.remove('drawer-blur-active');
+    },
     
-    if (walletModal) walletModal.classList.remove('drawer-blur-active');
-},
     openDetail: function(e, type, id) {
         getSys().resetUI?.();
         const modal = document.getElementById('tx-detail-modal'); 
@@ -1096,16 +1126,16 @@ export const UIFinance = {
         const fmtDateFull = (ts) => new Date(ts).toLocaleString('en-GB');
         
         const formatInputData = (str) => { 
-    if(!str || str === '---') return '<span class="num-en">---</span>'; 
-    if(str.includes('|')) { 
-        const parts = str.split('|').map(s => s.split(':').pop().trim());
-        return `<div class="nm-input-stack">
-                  ${parts.map(p => `<span class="num-en nm-input-capsule">${Utils.escapeHtml(p)}</span>`).join('')}
-                </div>`;
-    } 
-    let singleVal = str.includes(':') ? str.split(':').pop().trim() : str; 
-    return `<span class="num-en nm-input-capsule">${Utils.escapeHtml(singleVal)}</span>`; 
-};
+            if(!str || str === '---') return '<span class="num-en">---</span>'; 
+            if(str.includes('|')) { 
+                const parts = str.split('|').map(s => s.split(':').pop().trim());
+                return `<div class="nm-input-stack">
+                          ${parts.map(p => `<span class="num-en nm-input-capsule">${Utils.escapeHtml(p)}</span>`).join('')}
+                        </div>`;
+            } 
+            let singleVal = str.includes(':') ? str.split(':').pop().trim() : str; 
+            return `<span class="num-en nm-input-capsule">${Utils.escapeHtml(singleVal)}</span>`; 
+        };
         let html = '';
 
         if(type === 'deposit') {
@@ -1221,7 +1251,7 @@ export const UIFinance = {
 
             if (!isFinished) {
                 durationHtml = `<div class="nm-duration-pill"><i class="fa-solid fa-bolt"></i><span class="mx-1">مدة انجاز الطلب: </span><i class="fa-regular fa-clock opacity-90"></i></div>`;
-          } else {
+            } else {
                 let finalEndTime = o.actionTime || o.completedTime || o.updatedAt;
                 if (!finalEndTime && o.status === 'completed' && o.deliveredCode && o.deliveredCode !== 'null') finalEndTime = o.time;
                 let durationStr = finalEndTime ? (Utils.calculateOrderDuration ? Utils.calculateOrderDuration(o.time, finalEndTime) : '---') : 'غير متوفر';
@@ -1359,7 +1389,6 @@ export const UIFinance = {
         if(content) {
             content.innerHTML = html; 
 
-            // 🌟 تفويض أحداث موضعي للنافذة لتقليل المستمعات في الذاكرة
             if (!content._boundDetailDelegation) {
                 content.addEventListener('click', (e) => {
                     const pdfBtn = e.target.closest('#export-order-pdf-btn');
@@ -1376,7 +1405,7 @@ export const UIFinance = {
 
     toggleFavoriteFromModal: function() {
         const SYS = window.ClientSystem || window.DataManager;
-        if (!this.currentProd || !SYS) return;
+        if (!DataManager.currentProd || !SYS) return;
 
         if (!SYS.user) {
             getSys().showToast?.('يجب تسجيل الدخول لإضافة المنتجات للمفضلة', 'error');
@@ -1385,8 +1414,8 @@ export const UIFinance = {
             return;
         }
         
-        const wasFavorite = SYS.isFavorite ? SYS.isFavorite(this.currentProd.id) : false;
-        if (SYS.toggleFavorite) SYS.toggleFavorite(this.currentProd.id);
+        const wasFavorite = SYS.isFavorite ? SYS.isFavorite(DataManager.currentProd.id) : false;
+        if (SYS.toggleFavorite) SYS.toggleFavorite(DataManager.currentProd.id);
         
         const btn = document.getElementById('pm-fav-btn');
         if (btn) {

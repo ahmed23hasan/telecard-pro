@@ -74,7 +74,7 @@
              </div>
 
              <div class="action-btn theme-toggle-btn" onclick="ClientSystem.toggleTheme()" title="تبديل الوضع">
-                   <i id="theme-toggle-icon" class="sun-dots-icon"></i>
+                   <i id="theme-toggle-icon"class="sun-dots-icon"></i>
              </div>
         </div>
         
@@ -631,10 +631,11 @@
                     <div class="coupon-input-wrapper">
                         <div class="relative-input-container">
                             <input type="text" class="c-input" id="couponCode" aria-label="كود الخصم" placeholder="أدخل الكود" oninput="ClientSystem.checkInputState()" autocomplete="off">
-                            <i class="fa-solid fa-circle-xmark icon-action clear-icon" id="clearIcon" onclick="ClientSystem.removeCoupon()"></i>
+                            <i class="fa-solid fa-circle-xmark icon-action clear-icon" id="clearIcon" data-action="remove-coupon"></i>
                             <i class="fa-regular fa-paste icon-action paste-icon" id="pasteIcon" onclick="ClientSystem.pasteText()"></i>
                         </div>
-                        <button class="c-btn" id="btnApply" onclick="ClientSystem.applyCoupon()">تطبيق</button>
+                        <button class="c-btn" id="btnApply" data-action="apply-coupon">تطبيق</button>
+
                     </div>
                     <div class="coupon-msg-box" id="couponMsg"></div>
                 </div>
@@ -1140,7 +1141,7 @@
             <div class="pm-header-std">
                 <div class="pm-close-std" onclick="ClientSystem.closeNotifCenter()"><i class="fa-solid fa-xmark"></i></div>
                 <div class="header-center">
-                    <span class="title-badge"><i class="fa-solid fa-bell"></i> صندوق الإشعارات</span>
+                    <span class="title3-badge"><i class="fa-solid fa-bell"></i> صندوق الإشعارات</span>
                 </div>
                 <div class="pm-header-spacer"></div>
             </div>

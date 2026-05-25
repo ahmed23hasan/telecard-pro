@@ -147,7 +147,19 @@ export const AdminData = {
         this.data.deposits = arr(rawDeposits);
         this.data.orders = arr(rawOrders);
         this.data.cats = arr(rawCats);
-        this.data.prods = arr(rawProds);
+        
+        // 🌟 تطهير ومعايرة بيانات المنتجات (Sanitization) لمنع أخطاء الـ Type Coercion
+        this.data.prods = arr(rawProds).map(p => {
+            const isFixed = p.isFixedPrice === true || p.isFixedPrice === 'true' || p.is_fixed_price === true || p.is_fixed_price === 'true';
+            return {
+                ...p,
+                isFixedPrice: isFixed,
+                costPrice: Number(p.costPrice || p.cost_price || 0),
+                price: Number(p.price || 0),
+                fixedPriceUsd: Number(p.fixedPriceUsd || p.fixed_price_usd || 0)
+            };
+        });
+
         this.data.payments = arr(rawPayments).map(p => { return { ...p, currencies: normalizeCurrencyList(p.currencies).join(',') }; });
         this.data.banners = arr(rawBanners);
         this.data.settings = obj(rawSettings);
@@ -171,8 +183,32 @@ export const AdminData = {
         if(this.data.countries.length === 0) await this.seedDefaultCountries();
 
         this.data.vault = arr(rawVault);
-        this.data.coupons = arr(rawCoupons);
-        this.data.offers = arr(rawOffers);
+        
+        // 🌟 فلتر تطهير ومعايرة الكوبونات (Coupons Normalization)
+        this.data.coupons = arr(rawCoupons).map(c => ({
+            ...c,
+            isActive: c.isActive === true || c.isActive === 'true' || c.is_active === true,
+            value: Number(c.value || 0),
+            minOrder: Number(c.minOrder || 0),
+            maxUses: Number(c.maxUses || 0),
+            usedCount: Number(c.usedCount || 0),
+            maxPerUser: Number(c.maxPerUser || 0),
+            expiryDate: c.expiryDate ? Number(c.expiryDate) : null,
+            targetProds: Array.isArray(c.targetProds) ? c.targetProds : [],
+            targetTiers: Array.isArray(c.targetTiers) ? c.targetTiers : [],
+            allowedUsers: Array.isArray(c.allowedUsers) ? c.allowedUsers : []
+        }));
+
+        // 🌟 فلتر تطهير ومعايرة العروض (Offers Normalization)
+        this.data.offers = arr(rawOffers).map(o => ({
+            ...o,
+            isActive: o.isActive === true || o.isActive === 'true',
+            value: Number(o.value || 0),
+            expiryDate: o.expiryDate ? Number(o.expiryDate) : null,
+            targetProds: Array.isArray(o.targetProds) ? o.targetProds : [],
+            visualConfig: (o.visualConfig && typeof o.visualConfig === 'object') ? o.visualConfig : {}
+        }));
+
         this.data.logs = arr(rawLogs);
         this.data.alerts = arr(rawAlerts);
         this.data.kyc = arr(rawKyc);

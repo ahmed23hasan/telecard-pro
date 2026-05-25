@@ -29,9 +29,9 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
 
     try {
         const userRef = db.collection('telecard_users').doc(uid);
-        const orderRef = db.collection('telecard_orders').doc(); 
         const productRef = db.collection('telecard_prods').doc(String(productId));
         const systemRef = db.collection('system').doc('singleton');
+        const countersRef = db.collection('system').doc('counters'); // 🌟 مرجع المحرك التسلسلي
         
         let couponRef = null;
         if (couponCode) {
@@ -57,10 +57,11 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
 
         await db.runTransaction(async (transaction) => {
             // ----------------------------------------------------
-            // 📥 1. منطقة القراءة فقط (READS ZONE) - يمنع الكتابة هنا
+            // 📥 1. منطقة القراءة فقط (READS ZONE)
             // ----------------------------------------------------
             const userSnap = await transaction.get(userRef);
             const productSnap = await transaction.get(productRef);
+            const countersSnap = await transaction.get(countersRef); // 🌟 قراءة العداد الذري
             let couponSnap = couponRef ? await transaction.get(couponRef) : null;
 
             if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'المستخدم غير موجود.');
@@ -79,8 +80,16 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
             let vaultRef = null;
             if (product.vaultPoolId) {
                 vaultRef = db.collection('telecard_vault').doc(String(product.vaultPoolId));
-                vaultSnap = await transaction.get(vaultRef); // 🌟 نقلنا قراءة الخزنة للأعلى للامتثال للقوانين
+                vaultSnap = await transaction.get(vaultRef); 
             }
+
+            // 🌟 1.1 استخراج وتوليد الرقم التسلسلي النقي للطلب
+            let currentOrderCount = 100001; // الرقم الابتدائي لبداية المشروع
+            if (countersSnap.exists && countersSnap.data().orders_counter) {
+                currentOrderCount = countersSnap.data().orders_counter + 1;
+            }
+            const cleanOrderId = String(currentOrderCount);
+            const orderRef = db.collection('telecard_orders').doc(cleanOrderId); // استخدام الرقم الجديد كآيدي صريح
 
             // ----------------------------------------------------
             // 🧠 2. منطقة الحسابات والمنطق (LOGIC ZONE)
@@ -129,10 +138,10 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
             const newBalance = safeSub(currentBalance, totalRequired);
             const newTotalSpent = safeAdd(userData.totalSpent || 0, totalRequired);
             const newCycleSpent = safeAdd(userData.tierCycleSpent || 0, totalRequired); 
-            const shortId = Math.floor(100000 + Math.random() * 900000);
 
             const newOrder = {
-                id: orderRef.id, displayId: shortId, userId: uid, prodId: productId, product: product.name,
+                id: cleanOrderId, displayId: cleanOrderId, // توحيد الآيدي التسلسلي النقي
+                userId: uid, prodId: productId, product: product.name,
                 price: totalRequired, qty: finalQty, input: finalInputStr || '---',
                 status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText,
                 couponCode: pricingSnapshot.couponCode || null,
@@ -149,7 +158,7 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
                     netProfitUsd: Number((pricingSnapshot.profit * finalQty).toFixed(4)), marginPct: pricingSnapshot.marginPct,
                     isFirewallActive: pricingSnapshot.isFirewallActive
                 },
-                time: admin.firestore.FieldValue.serverTimestamp()
+                time: admin.firestore.FieldValue.serverTimestamp() // 🌟 ختم السيرفر الزمني
             };
 
             const statsUpdate = { 'globalStats.orders.total': admin.firestore.FieldValue.increment(1) };
@@ -161,7 +170,7 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
             }
 
             // ----------------------------------------------------
-            // 💾 3. منطقة الكتابة فقط (WRITES ZONE) - نُفذت بالترتيب
+            // 💾 3. منطقة الكتابة فقط (WRITES ZONE)
             // ----------------------------------------------------
             if (pricingSnapshot.couponCode && couponRef && couponData) {
                 transaction.update(couponRef, { usedCount: admin.firestore.FieldValue.increment(1) });
@@ -171,7 +180,8 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
             }
             transaction.update(userRef, { walletBalance: newBalance, balance: newBalance, totalSpent: newTotalSpent, tierCycleSpent: newCycleSpent });
             transaction.set(orderRef, newOrder);
-            transaction.set(systemRef, statsUpdate, { merge: true }); // 🌟 استخدام set مع merge للحماية
+            transaction.set(systemRef, statsUpdate, { merge: true }); 
+            transaction.set(countersRef, { orders_counter: currentOrderCount }, { merge: true }); // 🌟 تحديث العداد
         });
 
         return { success: true, message: resultMessage, isAutoDelivered: isAutoDelivered, deliveredCode: deliveredCodeText };
@@ -195,19 +205,36 @@ exports.submitBalanceRequest = functions.https.onCall(async (data, context) => {
     if (amount <= 0) throw new functions.https.HttpsError('invalid-argument', 'المبلغ المدخل غير صالح.');
 
     try {
-        const depositRef = db.collection('telecard_deposits').doc();
-        const shortId = Math.floor(100000 + Math.random() * 900000);
+        const countersRef = db.collection('system').doc('counters');
+        const systemRef = db.collection('system').doc('singleton');
+        
+        await db.runTransaction(async (transaction) => {
+            const countersSnap = await transaction.get(countersRef);
+            
+            // 🌟 استخراج وتوليد الرقم التسلسلي النقي للإيداع
+            let currentDepositCount = 500001; // بداية تسلسل الإيداعات
+            if (countersSnap.exists && countersSnap.data().deposits_counter) {
+                currentDepositCount = countersSnap.data().deposits_counter + 1;
+            }
+            const cleanDepositId = String(currentDepositCount);
+            const depositRef = db.collection('telecard_deposits').doc(cleanDepositId);
 
-        await depositRef.set({
-            id: depositRef.id, displayId: shortId, userId: uid, method: paymentMethodName,
-            amount: Number(amount), currency: payCurr, creditedAmount: Number(netBase),
-            status: 'pending', time: admin.firestore.FieldValue.serverTimestamp(), receipt: receiptData || null
+            transaction.set(countersRef, { deposits_counter: currentDepositCount }, { merge: true });
+
+            transaction.set(depositRef, {
+                id: cleanDepositId, displayId: cleanDepositId, // توحيد الآيدي التسلسلي النقي
+                userId: uid, method: paymentMethodName,
+                amount: Number(amount), currency: payCurr, creditedAmount: Number(netBase),
+                status: 'pending', 
+                time: admin.firestore.FieldValue.serverTimestamp(), // 🌟 الختم الزمني المشفر للسيرفر
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                receipt: receiptData || null
+            });
+
+            transaction.set(systemRef, {
+                'globalStats.deposits.total': admin.firestore.FieldValue.increment(1)
+            }, { merge: true });
         });
-
-        // 🌟 استخدام set مع merge للحماية
-        await db.collection('system').doc('singleton').set({
-            'globalStats.deposits.total': admin.firestore.FieldValue.increment(1)
-        }, { merge: true });
 
         return { success: true, message: 'تم استلام طلب الإيداع وهو قيد المراجعة.' };
     } catch (error) {
@@ -239,7 +266,7 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
             let userSnap = null;
             if (action === 'approved') {
                 userRef = db.collection('telecard_users').doc(String(depData.userId));
-                userSnap = await transaction.get(userRef); // 🌟 القراءة قبل أي كتابة
+                userSnap = await transaction.get(userRef); 
             }
 
             const statsUpdate = {};
@@ -312,7 +339,6 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
                 userSnap = await transaction.get(userRef);
 
                 if (orderData.couponCode) {
-                    // 🌟 نقل جلب الكوبون هنا قبل أي عملية تحديث (Update) للحفاظ على سلامة الترانزاكشن
                     const couponQuery = await db.collection('telecard_coupons').where('code', '==', orderData.couponCode).limit(1).get();
                     if (!couponQuery.empty) couponRef = couponQuery.docs[0].ref;
                 }

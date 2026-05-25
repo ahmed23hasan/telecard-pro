@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ محول فايربيز (core/firebaseAdapter.js) - The Cloud Gateway
+// ☁️ محول فايربيز (core/firebaseAdapter.js) - The Unified Cloud Gateway
 // 🎯 الوظيفة: الاتصال بقاعدة بيانات Firestore والتعامل مع المجموعات والمستندات والـ Auth والـ Storage
-// 🌟 التحديث: إضافة محرك الجلب الجزئي (Pagination) لخفض التكلفة، ودمج التخزين السحابي
+// 🌟 التحديث: دمج محرك الجلب الجزئي (Pagination) + رفع الصور بالأسماء المخصصة (Overwrite)
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -155,16 +155,17 @@ export const FirebaseAdapter = {
     // ==========================================
     // ☁️ 10. محرك رفع الصور والملفات (Storage Engine)
     // ==========================================
-    async uploadImage(file, folderName = 'general') {
+    // ✅ تم دمج ميزة (customFileName) للكتابة فوق الملفات القديمة
+    async uploadImage(file, folderName = 'general', customFileName = null) {
         if (!file) return '';
         try {
             // تنظيف اسم الملف من الرموز والمسافات لتجنب أخطاء تشفير الروابط (URL Encoding)
             const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
             
-            // إنشاء اسم فريد للملف لمنع استبدال الصور المتشابهة ومنع مشاكل الكاش (Cache)
-            const uniqueFileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
+            // إذا تم تمرير اسم مخصص نستخدمه، وإلا نولد اسماً عشوائياً فريداً
+            const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
             
-            const storageRef = ref(storage, `${folderName}/${uniqueFileName}`);
+            const storageRef = ref(storage, `${folderName}/${finalFileName}`);
             
             // رفع الملف إلى السحابة
             const snapshot = await uploadBytes(storageRef, file);

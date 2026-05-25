@@ -24,9 +24,7 @@ export const FinancialEngine = Object.freeze({
         const inUSD = amt / (fromRate || 1);
         const finalAmount = inUSD * (toRate || 1);
         return Number(finalAmount.toFixed(4));
-    },
-
-    // 🚀 المحرك الرياضي المكتمل لحساب الأسعار وجدار الحماية
+    },    // 🚀 المحرك الرياضي المكتمل لحساب الأسعار وجدار الحماية
     calculatePrice: function(params) {
         const { costPrice = 0, tier = null, offer = null, coupon = null } = params;
         const cost = Number(costPrice) || 0;
@@ -34,31 +32,55 @@ export const FinancialEngine = Object.freeze({
         let currentPrice = cost;
         let tierName = null;
 
-        // 1. حساب سعر البيع الأساسي بناءً على مستوى العميل (Tier Profit Margin)
-        if (tier) {
-            tierName = tier.nameAr || tier.name || 'عضو';
-            const profitPercent = Number(tier.profitPercent || tier.profit_percent || 0);
-            const minProfitUsd = Number(tier.minProfitUsd || tier.min_profit_usd || 0);
+        // 🛡️ دالة مساعدة لانتزاع الأرقام الصافية بقوة من أي نص (تتجاهل الرموز مثل % أو $ أو المسافات)
+        const extractNum = (val) => {
+            if (val === undefined || val === null || val === '') return 0;
+            // إزالة أي شيء ليس رقماً أو نقطة عشرية
+            const cleanStr = String(val).replace(/[^0-9.-]/g, '');
+            const num = parseFloat(cleanStr);
+            return isNaN(num) ? 0 : num;
+        };
 
-            // حساب الربح كنسبة مئوية من التكلفة
-            let profitAdded = cost * (profitPercent / 100);
+        // 1. حساب سعر البيع الأساسي بناءً على مستوى العميل (Tier Profit Margin)
+        if (tier && typeof tier === 'object') {
+            tierName = tier.nameAr || tier.name || tier.id || 'عضو';
             
-            // تطبيق الحد الأدنى للربح إذا كانت النسبة المئوية أقل منه
-            if (profitAdded < minProfitUsd) {
-                profitAdded = minProfitUsd;
+            // 🛡️ مسح شامل لكل المفاتيح المحتملة + التنظيف الإجباري باستخدام extractNum
+            const profitPercent = extractNum(
+                tier.profitPercent ?? tier.profit_percent ?? 
+                tier.profitMargin ?? tier.profit_margin ?? 
+                tier.profit ?? tier.margin ?? tier.percentage ?? 0
+            );
+            
+            const minProfitUsd = extractNum(
+                tier.minProfitUsd ?? tier.min_profit_usd ?? 
+                tier.minProfit ?? tier.min_profit ?? tier.minUsd ?? 0
+            );
+
+            if (profitPercent > 0 || minProfitUsd > 0) {
+                // حساب الربح كنسبة مئوية من التكلفة
+                let profitAdded = cost * (profitPercent / 100);
+                
+                // تطبيق الحد الأدنى للربح إذا كانت النسبة المئوية أقل منه
+                if (profitAdded < minProfitUsd) {
+                    profitAdded = minProfitUsd;
+                }
+                currentPrice += profitAdded;
+            } else {
+                // طباعة القيم الأصلية الخام في الكونسول لتسهيل التتبع إذا استمرت المشكلة
+                console.warn(`⚠️ المحرك المالي: مستوى العميل [${tierName}] قرأ نسبة الربح كـ 0. (القيم الخام: نسبة='${tier.profit_percent || tier.profitPercent}', حد أدنى='${tier.min_profit_usd || tier.minProfitUsd}')`);
             }
-            currentPrice += profitAdded;
         }
 
         const tierPrice = currentPrice;
         const originalPrice = tierPrice;
 
-        // 2. تطبيق خصومات العروض النشطة (Sales & Offers)
+        // 2. تطبيق خصومات العروض النشطة (Sales & Offers) - تم إضافة extractNum للحماية
         let offerName = null;
         let offerDiscount = 0;
         if (offer && offer.type !== 'fake') {
             offerName = offer.name;
-            const val = Number(offer.value || 0);
+            const val = extractNum(offer.value);
             if (offer.type === 'percentage') {
                 offerDiscount = originalPrice * (val / 100);
             } else if (offer.type === 'fixed' || offer.type === 'amount') {
@@ -67,12 +89,12 @@ export const FinancialEngine = Object.freeze({
             currentPrice -= offerDiscount;
         }
 
-        // 3. تطبيق خصومات الكوبونات (Coupons)
+        // 3. تطبيق خصومات الكوبونات (Coupons) - تم إضافة extractNum للحماية
         let couponCode = null;
         let couponDiscount = 0;
         if (coupon) {
             couponCode = coupon.code;
-            const val = Number(coupon.value || 0);
+            const val = extractNum(coupon.value);
             if (coupon.type === 'percentage') {
                 couponDiscount = currentPrice * (val / 100);
             } else if (coupon.type === 'fixed' || coupon.type === 'amount') {

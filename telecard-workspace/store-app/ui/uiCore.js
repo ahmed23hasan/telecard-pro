@@ -12,7 +12,15 @@ import { Components } from '../components.js';
 import { RenderHelpers } from '../core/renderHelpers.js'; 
 
 // 🌟 دالة مساعدة للوصول الآمن للمحرك المركزي
-const getSys = () => window.ClientSystem || window.UIManager || {};
+// ✅ دالة آمنة لجلب النظام تمنع انهيار الواجهة إذا لم يكتمل تحميل script.js
+const getSys = () => {
+    if (window.ClientSystem) return window.ClientSystem;
+    if (window.UIManager) return window.UIManager;
+    
+    console.warn("⚠️ تحذير: تم استدعاء النظام قبل اكتمال الإقلاع.");
+    // إعادة كائن وهمي (Proxy أو Object) بدوال فارغة لمنع أخطاء undefined is not a function
+    return new Proxy({}, { get: () => () => {} }); 
+};
 
 export const UICore = {
     activeModals: [],
@@ -1054,19 +1062,29 @@ const sys = LiveStoreData.settings || {};
         try { localStorage.setItem('telecard_display_state', JSON.stringify(displayState)); } catch (e) {}
     },
 
-    restoreDisplayState: function() {
+        restoreDisplayState: function() {
         try {
             const savedState = localStorage.getItem('telecard_display_state');
             if (savedState) {
                 const displayState = JSON.parse(savedState);
-                if (displayState.userImage && DataManager.user) { DataManager.user.img = displayState.userImage; this.loadUserImageAutomatically?.(); }
+                
+                // ✅ الاحترافية هنا: استنساخ الكائن باستخدام Spread Operator لمنع خطأ التجميد (Mutation Error)
+                if (displayState.userImage && DataManager.user) { 
+                    DataManager.user = { ...DataManager.user, img: displayState.userImage }; 
+                    if (typeof this.loadUserImageAutomatically === 'function') this.loadUserImageAutomatically(); 
+                }
+                
                 if (displayState.theme && typeof this.setThemePref === 'function') { this.setThemePref(displayState.theme); }
                 if (displayState.sound !== undefined && DataManager.prefs) { DataManager.prefs.sound = displayState.sound; }
-                if (displayState.lastVisit) { const days = Math.floor((Date.now() - displayState.lastVisit) / (1000 * 60 * 60 * 24)); if (days > 7) { this.showToast('مرحباً بعودتك! تم تحديث الواجهة منذ آخر زيارة.'); } }
+                if (displayState.lastVisit) { 
+                    const days = Math.floor((Date.now() - displayState.lastVisit) / (1000 * 60 * 60 * 24)); 
+                    if (days > 7) { this.showToast('مرحباً بعودتك! تم تحديث الواجهة منذ آخر زيارة.'); } 
+                }
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error('Error restoring display state:', e);
+        }
     },
-
     applyFontSettings: function() {
         const s = LiveStoreData.settings || {};
         const family = s.fontFamily || "'Cairo', sans-serif";

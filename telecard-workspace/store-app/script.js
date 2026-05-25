@@ -26,7 +26,6 @@ const ClientSystem = {
             console.log("🧹 تم تنظيف المستمعات السحابية السابقة بنجاح.");
         }
     },
-
     // ============================================================================
     // 🎯 نظام تفويض الأحداث المركزي (Global Event Delegation)
     // ============================================================================
@@ -74,9 +73,34 @@ const ClientSystem = {
                     break;
 
                 // 💳 أحداث الدفع والمحفظة
+                case 'select-pay':
+                    if(typeof this.selectPay === 'function') this.selectPay(id);
+                    break;
+                    
                 case 'submit-balance':
                     const currency = target.getAttribute('data-curr');
                     if(typeof this.handleBalanceSubmit === 'function') this.handleBalanceSubmit(currency);
+                    break;
+
+                // 🎟️ أحداث الكوبونات
+                case 'apply-coupon':
+                    if(typeof this.applyCoupon === 'function') this.applyCoupon();
+                    break;
+                    
+                case 'remove-coupon':
+                    if(typeof this.removeCoupon === 'function') this.removeCoupon();
+                    break;
+
+                // ⚙️ أحداث القوائم المنسدلة (كبسولة العملات وغيرها) - 🌟 التحديث الجديد
+                case 'toggle-dropdown':
+                    // البحث عن العنصر الحاوي للقائمة لفتحه أو إغلاقه
+                    const dropWrapper = target.closest('.custom-dropdown') || target.parentElement;
+                    if (dropWrapper) dropWrapper.classList.toggle('open');
+                    break;
+
+                case 'select-dropdown-item':
+                    // عند اختيار عنصر من الكبسولة (مثل العملة)
+                    if(typeof this.selectDropdownItem === 'function') this.selectDropdownItem(target);
                     break;
 
                 // ⚙️ أحداث النظام والواجهة
@@ -163,7 +187,6 @@ modules.forEach(mod => {
         }
     });
 });
-
 // ============================================================================
 // 🔄 محرك المزامنة الحي (Real-time Firebase Sync Engine) - النسخة الآمنة
 // ============================================================================
@@ -266,7 +289,8 @@ ClientSystem.init = async function() {
         if (StoreDB) {
             try {
                 // 🚨 تم إزالة 'VAULT' من هنا نهائياً لحماية الأكواد السرية!
-                const staticKeys = ['CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES'];
+                const staticKeys = ['CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
+
                 
                 const fetchPromises = staticKeys.map(k => StoreDB.getAll(DB_KEYS[k]));
                 const results = await Promise.all(fetchPromises);

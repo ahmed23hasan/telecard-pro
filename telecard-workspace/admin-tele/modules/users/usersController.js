@@ -262,7 +262,7 @@ export const UsersController = {
     // =========================================================
     // 👑 3. إدارة المستويات (Tiers)
     // =========================================================
-        saveTier: async function() {
+      saveTier: async function() {
         const name = Utils.escapeHTML(Utils.getVal('t-name', ''));
         const icon = Utils.escapeHTML(Utils.getVal('t-icon', 'fa-user'));
         const profit = Number(Utils.getVal('t-profit', 0));
@@ -276,7 +276,7 @@ export const UsersController = {
             return;
         }
 
-        // 🛡️ الجدار الأمني المحدث: منع نسبة الربح الصفرية والسالبة باحترافية
+        // 🛡️ منع نسبة الربح الصفرية والسالبة
         if (profit <= 0) {
             EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: لا يمكن تعيين نسبة ربح 0% أو أقل لحماية أرباح المتجر.', type: 'error' });
             return;
@@ -287,28 +287,41 @@ export const UsersController = {
             return;
         }
 
-        const tiers = Array.isArray(AdminData.data.tiers) ? AdminData.data.tiers : [];
+        // أخذ نسخة من المستويات للعمل عليها
+        const tiers = Array.isArray(AdminData.data.tiers) ? [...AdminData.data.tiers] : [];
         const isEdit = !!AppController.tempEditId;
+        let targetId = null;
 
         if (isEdit) {
-            const idx = tiers.findIndex(x => String(x.id) === String(AppController.tempEditId));
+            targetId = String(AppController.tempEditId);
+            const idx = tiers.findIndex(x => String(x.id) === targetId);
             if (idx > -1) {
                 tiers[idx] = { ...tiers[idx], name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef };
             }
         } else {
             const nextId = (tiers.length ? Math.max(...tiers.map(x => Number(x.id)||0)) : 0) + 1;
+            targetId = String(nextId);
             tiers.push({
-                id: String(nextId),
+                id: targetId,
                 name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef, autoAdvance: true
             });
         }
 
+        // 🛡️ التحديث الاحترافي: الاعتماد على ID بدلاً من الاسم لمنع تضارب الأسماء المتشابهة
         if (isDef) {
             tiers.forEach(x => {
-                x.isDefault = (String(x.name) === String(name));
+                x.isDefault = (String(x.id) === targetId);
             });
         }
 
+        // 🛑 سد الفجوة التي اكتشفتها: منع حفظ النظام بدون أي مستوى افتراضي
+        const hasDefault = tiers.some(t => t.isDefault === true);
+        if (!hasDefault && tiers.length > 0) {
+            EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: يجب أن يحتوي النظام على مستوى افتراضي واحد على الأقل.', type: 'error' });
+            return; // إيقاف العملية وعدم الحفظ
+        }
+
+        // إذا نجحت كل الفحوصات الأمنية، نحفظ البيانات في السحابة
         AdminData.data.tiers = tiers;
         await AdminData?.saveTiers?.();
         AppController.finishAction('req-render-tiers', null, isEdit ? 'EDIT_TIER' : 'ADD_TIER', `تم ${isEdit ? 'تعديل' : 'إضافة'} مستوى التسعير: ${name}`, 'تم حفظ المستوى بنجاح');
@@ -410,9 +423,22 @@ export const UsersController = {
         }
     },
 
-    confirmTierSelection: function() {
-        if (!AppController.selectedUserId || !AppController.selectedTierId) return;
-        this.updateUserTier(AppController.selectedUserId, AppController.selectedTierId);
+        confirmTierSelection: function() {
+        // 🛡️ استخدام المتغيرات المحلية بدلاً من AppController
+        if (!this.selectedUserId || !this.selectedTierId) {
+            EventBus.emit('req-show-toast', { message: 'يرجى تحديد مستوى من القائمة أولاً', type: 'error' });
+            return;
+        }
+
+        // تنفيذ التحديث وحفظه في السحابة
+        this.updateUserTier(this.selectedUserId, this.selectedTierId);
+        
+        // إغلاق النافذة
         AdminUI?.UsersUI?.closeTierSelection?.();
+        
+        // تفريغ الذاكرة لمنع تداخل العمليات مستقبلاً
+        this.selectedUserId = null;
+        this.selectedTierId = null;
     }
+
 };

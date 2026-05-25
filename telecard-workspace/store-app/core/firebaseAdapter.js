@@ -1,12 +1,12 @@
 // ============================================================================
-// ☁️ محول فايربيز (core/firebaseAdapter.js) - The Cloud Gateway
+// ☁️ محول فايربيز (core/firebaseAdapter.js) - The Unified Cloud Gateway
 // 🎯 الوظيفة: الاتصال بقاعدة بيانات Firestore والتعامل مع المجموعات والمستندات والـ Auth والـ Storage
-// 🌟 التحديث: دمج محرك تخزين الصور (Firebase Storage) واستخراج الروابط المباشرة
+// 🌟 التحديث: دمج محرك الجلب الجزئي (Pagination) + رفع الصور بالأسماء المخصصة (Overwrite)
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
-    getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where
+    getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 // 🌟 استيراد محرك التحقق من الهوية الرسمي
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
@@ -48,7 +48,27 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 📄 2. جلب مستند واحد محدد
+    // 📥 2. [التحديث الاحترافي] جلب أحدث البيانات بحد معين (لخفض تكلفة فايربيز - Pagination)
+    async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
+        try {
+            if (!collectionName) throw new Error("اسم المجموعة (Collection Name) غير معرّف!");
+            
+            // إنشاء استعلام يجلب البيانات مرتبة تنازلياً ويقتطع العدد المطلوب فقط
+            const q = query(
+                collection(db, collectionName), 
+                orderBy(orderByField, 'desc'), 
+                limit(limitCount)
+            );
+            
+            const snapshot = await getDocs(q);
+            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        } catch (error) {
+            console.error(`🚨 خطأ في جلب أحدث بيانات [${collectionName}]: ${error.message}`);
+            return [];
+        }
+    },
+
+    // 📄 3. جلب مستند واحد محدد
     async getById(collectionName, docId) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
@@ -61,7 +81,7 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 💾 3. حفظ أو تحديث مستند بـ ID محدد
+    // 💾 4. حفظ أو تحديث مستند بـ ID محدد
     async set(collectionName, docId, data) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
@@ -74,7 +94,7 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ➕ 4. إضافة مستند جديد
+    // ➕ 5. إضافة مستند جديد
     async add(collectionName, data) {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
@@ -86,7 +106,7 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 🗑️ 5. حذف مستند
+    // 🗑️ 6. حذف مستند
     async delete(collectionName, docId) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
@@ -98,7 +118,7 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 📡 6. الاستماع الحي (Real-time) للمجموعة بالكامل
+    // 📡 7. الاستماع الحي (Real-time) للمجموعة بالكامل
     listenCollection(collectionName, callback) {
         return onSnapshot(collection(db, collectionName), (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -106,7 +126,7 @@ export const FirebaseAdapter = {
         });
     },
 
-    // 📡 7. الاستماع الحي لمستند واحد فقط (ضرورية لملف العميل)
+    // 📡 8. الاستماع الحي لمستند واحد فقط (ضرورية لملف العميل)
     listenDoc(collectionName, docId, callback) {
         return onSnapshot(doc(db, collectionName, String(docId)), (snapshot) => {
             if (snapshot.exists()) {
@@ -117,7 +137,7 @@ export const FirebaseAdapter = {
         });
     },
 
-    // 📡 8. الاستماع الحي بفلتر ذكي (ضرورية لطلبات وإيداعات العميل فقط)
+    // 📡 9. الاستماع الحي بفلتر ذكي (ضرورية لطلبات وإيداعات العميل فقط)
     listenQuery(collectionName, condition, callback) {
         try {
             const q = query(collection(db, collectionName), where(condition[0], condition[1], condition[2]));
@@ -133,18 +153,19 @@ export const FirebaseAdapter = {
     },
 
     // ==========================================
-    // ☁️ 9. محرك رفع الصور والملفات (Storage Engine)
+    // ☁️ 10. محرك رفع الصور والملفات (Storage Engine)
     // ==========================================
-    async uploadImage(file, folderName = 'general') {
+    // ✅ تم دمج ميزة (customFileName) للكتابة فوق الملفات القديمة
+    async uploadImage(file, folderName = 'general', customFileName = null) {
         if (!file) return '';
         try {
             // تنظيف اسم الملف من الرموز والمسافات لتجنب أخطاء تشفير الروابط (URL Encoding)
             const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
             
-            // إنشاء اسم فريد للملف لمنع استبدال الصور المتشابهة ومنع مشاكل الكاش (Cache)
-            const uniqueFileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
+            // إذا تم تمرير اسم مخصص نستخدمه، وإلا نولد اسماً عشوائياً فريداً
+            const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
             
-            const storageRef = ref(storage, `${folderName}/${uniqueFileName}`);
+            const storageRef = ref(storage, `${folderName}/${finalFileName}`);
             
             // رفع الملف إلى السحابة
             const snapshot = await uploadBytes(storageRef, file);

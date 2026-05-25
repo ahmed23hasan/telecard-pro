@@ -1,5 +1,6 @@
 // ============================================================================
 // 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js)
+// 🚀 التحديث: دمج المترجم الزمني، منع التكرار البصري للآيدي، وتأمين الـ HTML
 // ============================================================================
 import { AdminData } from '../../adminData.js';
 import { Utils } from '../../adminUtils.js';
@@ -8,6 +9,14 @@ import { RenderHelpers } from '../../core/renderHelpers.js';
 const _esc = Utils.escapeHTML;
 const _enNum = Utils.enNum;
 const _fmtDate = Utils.formatDate;
+
+// 🌟 المترجم الزمني الذكي: يفك تشفير كائنات السحابة (Firestore Timestamp) إلى وقت مقروء
+const _safeTime = (ts) => {
+    if (!ts) return null;
+    if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
+    if (ts.seconds) return ts.seconds * 1000; 
+    return ts; 
+};
 
 export const FinanceTemplates = {
     emptyDeposits: () => `<div class="empty-state"><i class="fa-solid fa-money-bill-transfer"></i><span>لا توجد إيداعات تطابق الفلتر أو التبويب الحالي</span></div>`,
@@ -20,9 +29,20 @@ export const FinanceTemplates = {
         const localCurr = (d.currency || '').toUpperCase().replace('$', 'USD');
         const target = (targetCurr || 'USD').toUpperCase().replace('$', 'USD');
         
+        // 🌟 استخراج الوقت بأمان تام عبر المترجم الزمني
+        const rawTime = d.time || d.createdAt;
+        const parsedTime = _safeTime(rawTime);
+        const timeHtml = parsedTime ? _fmtDate(parsedTime) : '---';
+
         // 🌟 جلب العميل للحصول على الرقم القصير
         const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(d.userId)) || {};
         const shortId = userRec.displayId || (d.userId ? String(d.userId).substring(0, 6) : '---');
+
+        // 🌟 الفحص الذكي لمنع تكرار الآيدي إذا كان الاسم غير متوفر
+        const isIdAsName = String(userName).trim() === String(shortId).trim() || String(userName).trim() === String(d.userId).trim();
+        const clientIdentityHtml = isIdAsName 
+            ? `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="uid-capsule copyable-admin" title="انقر لنسخ رقم العميل" data-action="copy-text" data-copy-text="${_esc(shortId)}"><i class="fa-solid fa-hashtag"></i>${_esc(shortId)}</span></div>`
+            : `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="user-name-text">${_esc(userName)}</span> <span class="uid-capsule copyable-admin" title="انقر لنسخ رقم العميل" data-action="copy-text" data-copy-text="${_esc(shortId)}"><i class="fa-solid fa-hashtag"></i>${_esc(shortId)}</span></div>`;
 
         // 🌟 المحرك البصري المالي للكرت (يعكس الأثر الفعلي على المحفظة)
         const absNetBase = Math.abs(netBase);
@@ -37,7 +57,6 @@ export const FinanceTemplates = {
             sign = (netBase < 0) ? '-' : '+';
             priceColor = (netBase < 0) ? 'text-danger' : 'text-success';
         } else {
-            // معلق أو مرفوض (يُظهر النية الأصلية)
             sign = (netBase < 0) ? '-' : '+';
             priceColor = isRej ? 'text-muted' : 'text-warning';
         }
@@ -51,7 +70,7 @@ export const FinanceTemplates = {
 
         return `<div id="deposit-card-${_esc(d.id)}" class="o-card ${cardCls} ${(isRej || isRef) ? 'locked' : ''}" data-status="${exactStatus}" data-action="open-deposit-drawer" data-id="${_esc(d.id)}">
                     <div class="corner-tag-id num-en copyable-admin" dir="ltr" lang="en" title="انقر لنسخ رقم الإيداع" data-action="copy-text" data-copy-text="${_esc(d.id)}">#${_esc(d.id)}</div>
-                    <div class="corner-tag-time num-en" dir="ltr" lang="en"><i class="fa-regular fa-clock"></i> ${d.time ? _fmtDate(d.time) : '---'}</div>
+                    <div class="corner-tag-time num-en" dir="ltr" lang="en"><i class="fa-regular fa-clock"></i> ${timeHtml}</div>
                     
                     <div class="o-card-header-row">
                         ${d.methodLogo ? `<img src="${_esc(d.methodLogo)}" class="o-card-img zoomable-img" draggable="false" data-action="open-img-viewer" data-src="${_esc(d.methodLogo)}">` : `<div class="o-card-img-fallback"><i class="fa-solid fa-building-columns"></i></div>`}
@@ -59,7 +78,7 @@ export const FinanceTemplates = {
                         <div class="o-card-content">
                             <div class="o-card-title">${d.network ? `${_esc(bankName)} • ${_esc(d.network)}` : _esc(bankName)}</div>
                             <div class="o-card-meta">
-                                <div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="user-name-text">${_esc(userName)}</span> <span class="uid-capsule copyable-admin" title="انقر لنسخ رقم العميل" data-action="copy-text" data-copy-text="${_esc(shortId)}"><i class="fa-solid fa-hashtag"></i>${_esc(shortId)}</span></div>
+                                ${clientIdentityHtml}
                                 <div class="flex-center-gap">
                                     ${d.receipt ? `<button type="button" class="btn-receipt-mini" title="عرض الإيصال" data-action="open-img-viewer" data-src="${_esc(d.receipt)}"><i class="fa-solid fa-file-invoice-dollar"></i></button>` : ''}
                                     <span class="o-card-price num-en" dir="ltr" lang="en">${dualAmountHtml}</span>
@@ -82,12 +101,11 @@ export const FinanceTemplates = {
                     <div class="wc-meta"><i class="fa-solid fa-shield-halved"></i> إجمالي السيولة المطلوبة لتغطية أرصدة العملاء</div>
                 </div>`,
 
-        currencySettingRow: (code, displayCode, oldFeeType, oldFeeUnit, oldFee, oldMin, oldMax) => `
+    currencySettingRow: (code, displayCode, oldFeeType, oldFeeUnit, oldFee, oldMin, oldMax) => `
         <div class="curr-setting-row" id="curr-setting-${_esc(code)}">
             <div class="curr-setting-title">إعدادات عملة ${_esc(code)} <span class="text-muted fs-11 num-en" dir="ltr">(${_esc(displayCode)})</span></div>
             
             <div class="curr-setting-inputs">
-                
                 <div class="form-group mb-0">
                     <label class="form-label curr-setting-lbl">النوع</label>
                     <select id="pay-feetype-${_esc(code)}" class="form-input num-en" dir="rtl">
@@ -118,7 +136,6 @@ export const FinanceTemplates = {
                     <label class="form-label curr-setting-lbl">حد أعلى</label>
                     <input type="text" inputmode="decimal" id="pay-max-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldMax)}" placeholder="0.00">
                 </div>
-
             </div>
         </div>`,
 
@@ -157,21 +174,19 @@ export const FinanceTemplates = {
     payDetailItem: (item, i, text, isCopyable) => `<div class="pay-det-item pay-det-box">
                     <div class="pay-det-text">${_esc(text).replace(/\n/g, '<br>')}${isCopyable ? '<div class="mt-6"><span class="pay-badge-copyable"><i class="fa-solid fa-copy"></i> قابل للنسخ بالمتجر</span></div>' : '<div class="mt-6"><span class="pay-badge-viewonly"><i class="fa-solid fa-eye"></i> عنوان للعرض فقط</span></div>'}</div>
                     <button class="btn btn-red btn-xs btn-pay-det-del" data-action="remove-pay-detail" data-index="${i}"><i class="fa-solid fa-trash"></i></button>
-                </div>`,    // 🌟 [تحديث هندسي] قالب كرت العملة المصلح بالكامل لمنع التضارب وحماية الأبعاد
+                </div>`,    
+
     rateCard: (c, isDefaultDisplay = false) => {
         const isBase = c.isBase || c.code === 'USD';
         
-        // شارة عملة العرض
         const displayBadge = isDefaultDisplay 
             ? `<div class="rate-display-guest-badge"><i class="fa-solid fa-star"></i> عملة العرض للضيوف</div>` 
             : '';
 
-        // زر النجمة
         const setDisplayBtn = isDefaultDisplay 
             ? `<button class="btn-rate-star active" title="هذه هي عملة العرض الحالية للضيوف"><i class="fa-solid fa-star"></i></button>`
             : `<button class="btn-rate-star" data-action="set-default-display" data-code="${_esc(c.code)}" title="تعيين كعملة عرض افتراضية للضيوف"><i class="fa-regular fa-star"></i></button>`;
 
-        // رابط العلم
         const flagUrl = typeof RenderHelpers !== 'undefined' && RenderHelpers.getCurrencyFlagUrl 
             ? RenderHelpers.getCurrencyFlagUrl(c.code) 
             : '';
@@ -215,13 +230,19 @@ export const FinanceTemplates = {
             <div class="dr-receipt-hint"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لتكبير الإيصال</div>
         </div>`,
         
-    depositDrawerBody: (data) => `
-        <div class="dr-card dr-client" data-action="view-user" data-id="${data.userId}">
+    depositDrawerBody: (data) => {
+        // 🌟 الفحص الذكي لمنع تكرار عرض الآيدي داخل الدرج أيضاً
+        const isIdAsNameDrawer = String(data.displayUser).trim() === String(data.userDisplayId).trim() || String(data.displayUser).trim() === String(data.userId).trim();
+        const drawerIdentityHtml = isIdAsNameDrawer
+            ? `<span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`
+            : `<span class="dr-client-name">${_esc(data.displayUser)}</span><span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`;
+
+        return `
+        <div class="dr-card dr-client" data-action="view-user" data-id="${_esc(data.userId)}">
             <div class="dr-client-left">
                 ${data.avatarHtml}
                 <div>
-                    <span class="dr-client-name">${data.displayUser}</span>
-                    <span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${data.userDisplayId}"><i class="fa-solid fa-hashtag"></i>${data.userDisplayId}</span>
+                    ${drawerIdentityHtml}
                 </div>
             </div>
             <i class="fa-solid fa-chevron-left dr-client-icon"></i>
@@ -231,63 +252,64 @@ export const FinanceTemplates = {
             <div class="dr-prod-header">
                 ${data.bankImgHtml}
                 <div>
-                    <div class="dr-prod-name">${data.bankName}</div>
-                    ${data.network ? `<div class="dr-network-lbl"><i class="fa-solid fa-network-wired"></i> الشبكة: ${data.network}</div>` : ''}
+                    <div class="dr-prod-name">${_esc(data.bankName)}</div>
+                    ${data.network ? `<div class="dr-network-lbl"><i class="fa-solid fa-network-wired"></i> الشبكة: ${_esc(data.network)}</div>` : ''}
                 </div>
             </div>
             
             <div class="dr-receipt-box">
                 <div class="dr-receipt-row">
                     <span class="dr-receipt-lbl"><i class="fa-solid fa-money-bill-wave"></i> المبلغ المدخل</span>
-                    <span class="dr-receipt-val num-en" dir="ltr" lang="en">${data.amountTxt}</span>
+                    <span class="dr-receipt-val num-en" dir="ltr" lang="en">${_esc(data.amountTxt)}</span>
                 </div>
                 <div class="dr-receipt-row">
                     <span class="dr-receipt-lbl">
-                        <i class="fa-solid ${data.feeIcon} ${data.feeColorClass}"></i> ${data.feeLabel} 
-                        <span class="num-en fs-12 ${data.feeColorClass} fee-pct-spacing" dir="ltr" lang="en">${data.feePctTxt || ''}</span>
+                        <i class="fa-solid ${_esc(data.feeIcon)} ${_esc(data.feeColorClass)}"></i> ${_esc(data.feeLabel)} 
+                        <span class="num-en fs-12 ${_esc(data.feeColorClass)} fee-pct-spacing" dir="ltr" lang="en">${_esc(data.feePctTxt || '')}</span>
                     </span>
-                    <span class="dr-receipt-val ${data.feeColorClass} ${data.feeNumClass}" dir="ltr" lang="en">${data.feeStr}</span>
+                    <span class="dr-receipt-val ${_esc(data.feeColorClass)} ${_esc(data.feeNumClass)}" dir="ltr" lang="en">${_esc(data.feeStr)}</span>
                 </div>
-                <div class="dr-receipt-row ${data.netBgClass || 'highlight-success'}">
-                    <span class="dr-receipt-lbl ${data.netColorClass || 'text-success'}"><i class="fa-solid fa-sack-dollar"></i> صافي الأثر المالي</span>
-                    <span class="dr-receipt-val price ${data.netColorClass || 'text-success'} num-en" dir="ltr" lang="en">${data.netBaseTxt}</span>
+                <div class="dr-receipt-row ${_esc(data.netBgClass || 'highlight-success')}">
+                    <span class="dr-receipt-lbl ${_esc(data.netColorClass || 'text-success')}"><i class="fa-solid fa-sack-dollar"></i> صافي الأثر المالي</span>
+                    <span class="dr-receipt-val price ${_esc(data.netColorClass || 'text-success')} num-en" dir="ltr" lang="en">${_esc(data.netBaseTxt)}</span>
                 </div>
                 <div class="dr-receipt-row">
                     <span class="dr-receipt-lbl"><i class="fa-solid fa-calculator text-warning"></i> سعر الصرف</span>
-                    <span class="dr-receipt-val num-en text-warning" dir="ltr" lang="en">${data.fxStr}</span>
+                    <span class="dr-receipt-val num-en text-warning" dir="ltr" lang="en">${_esc(data.fxStr)}</span>
                 </div>
                 <div class="dr-receipt-row">
                     <span class="dr-receipt-lbl"><i class="fa-solid fa-circle-info"></i> الحالة</span>
-                    <span class="oh-status ${data.statusClass}">${data.sText}</span>
+                    <span class="oh-status ${_esc(data.statusClass)}">${_esc(data.sText)}</span>
                 </div>
                 <div class="dr-receipt-row">
                     <span class="dr-receipt-lbl"><i class="fa-regular fa-clock"></i> الوقت</span>
-                    <span class="dr-receipt-val num-en" dir="ltr" lang="en">${data.dateTxt}</span>
+                    <span class="dr-receipt-val num-en" dir="ltr" lang="en">${_esc(data.dateTxt)}</span>
                 </div>
             </div>
         </div>
         ${data.receiptHtml}
-        ${data.replyHtml}`,
+        ${data.replyHtml}`;
+    },
 
     depositDrawerFooter: (status, depId, isDeduction = false) => {
         if (status === 'pending') {
             return `
-            <button class="btn btn-green" data-action="submit-deposit" data-type="approve" data-id="${depId}">
+            <button class="btn btn-green" data-action="submit-deposit" data-type="approve" data-id="${_esc(depId)}">
                 <i class="fa-solid fa-check"></i> قبول واعتماد
             </button>
-            <button class="btn btn-red" data-action="submit-deposit" data-type="reject" data-id="${depId}">
+            <button class="btn btn-red" data-action="submit-deposit" data-type="reject" data-id="${_esc(depId)}">
                 <i class="fa-solid fa-xmark"></i> رفض
             </button>`;
         } 
         else if (status === 'approved') {
             if (isDeduction) {
                 return `
-                <button class="btn btn-green" data-action="reevaluate-deposit" data-id="${depId}">
+                <button class="btn btn-green" data-action="reevaluate-deposit" data-id="${_esc(depId)}">
                     <i class="fa-solid fa-rotate-left"></i> إلغاء عملية الخصم (إعادة الرصيد)
                 </button>`;
             } else {
                 return `
-                <button class="btn btn-refund-sky" data-action="reevaluate-deposit" data-id="${depId}">
+                <button class="btn btn-refund-sky" data-action="reevaluate-deposit" data-id="${_esc(depId)}">
                     <i class="fa-solid fa-rotate-left"></i> استرجاع وخصم الرصيد
                 </button>`;
             }

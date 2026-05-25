@@ -46,6 +46,9 @@ export const OrdersController = {
             adminNote: note
         });
 
+        // 🌟 الإصلاح الجذري (Optimistic Update): تحديث الحالة محلياً في الذاكرة فوراً
+        o.status = mappedAction;
+
         // 3. إنهاء العملية وتحديث الواجهة بعد نجاح السيرفر
         if (AdminUI && AdminUI.toggleLoader) AdminUI.toggleLoader(false);
         AdminUI?.OrdersUI?.closeOrderDrawer?.();

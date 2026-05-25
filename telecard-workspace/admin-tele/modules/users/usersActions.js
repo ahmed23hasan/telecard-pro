@@ -38,9 +38,23 @@ export const UsersActions = {
     'select-tier-badge': (data) => AdminUI?.UsersUI?.selectTierBadge?.(data.element, data.val),
     'toggle-default-tier': (data) => AdminUI?.UsersUI?.toggleDefaultTierSecure?.(data.element),
     'toggle-tier-auto': (data) => UsersController.toggleTierAutoFor?.(data.id, data.element.checked),
-    'change-tier': (data) => AdminUI?.UsersUI?.showTierSelection?.(data.id),
-    'select-tier-option': (data) => AdminUI?.UsersUI?.selectTierOption?.(data.element),
-    'close-tier-selection': () => AdminUI?.UsersUI?.closeTierSelection?.(),
+    
+    // 🌟 التحديث الاحترافي لحفظ حالة الـ IDs قبل فتح النافذة وعند الاختيار
+    'change-tier': (data) => {
+        UsersController.selectedUserId = data.id; 
+        UsersController.selectedTierId = null;    
+        AdminUI?.UsersUI?.showTierSelection?.(data.id);
+    },
+    'select-tier-option': (data) => {
+        UsersController.selectedTierId = data.element.dataset.tierId; 
+        AdminUI?.UsersUI?.selectTierOption?.(data.element);
+    },
+    'close-tier-selection': () => {
+        UsersController.selectedUserId = null;
+        UsersController.selectedTierId = null;
+        AdminUI?.UsersUI?.closeTierSelection?.();
+    },
+    
     'confirm-tier-selection': () => UsersController.confirmTierSelection?.(),
     'open-tier-users': (data) => AdminUI?.UsersUI?.openTierUsers?.(data.id),
     'back-to-tiers': () => AdminUI?.UsersUI?.backToTiers?.(),

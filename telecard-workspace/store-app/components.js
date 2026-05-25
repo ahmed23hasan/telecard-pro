@@ -21,14 +21,11 @@ document.addEventListener('click', function(e) {
 
     // 2. إغلاق صندوق إحصائيات المحفظة (النسخة المركزية الموحدة)
     const walletDrawer = document.getElementById('walletStatsDrawer');
-    // نتحقق من وجوده وأنه مفتوح حالياً
     if (walletDrawer && walletDrawer.classList.contains('active')) {
         const isClickInsideDrawer = walletDrawer.contains(e.target);
-        // نتحقق من أن النقرة ليست على السهم أو زر الفتح الخاص بالمحفظة
         const isClickOnToggleButton = e.target.closest('.detail-arrow') || e.target.closest('.wallet-toggle-btn'); 
 
         if (!isClickInsideDrawer && !isClickOnToggleButton) {
-            // هنا الاستدعاء المركزي: نعتمد على الكائن الموحد
             const sys = window.ClientSystem || window.UIManager;
             if (sys && typeof sys.closeWalletStats === 'function') {
                 sys.closeWalletStats(); 
@@ -36,8 +33,9 @@ document.addEventListener('click', function(e) {
         }
     }
 });
+
 // =========================================================
-// 2️⃣ نظام التقويم الذكي (Calendar App) - معزول وخالي من تسريب الذاكرة
+// 2️⃣ نظام التقويم الذكي (Calendar App)
 // =========================================================
 export const CalendarApp = {
     monthNames: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
@@ -46,7 +44,7 @@ export const CalendarApp = {
     currMonth: new Date().getMonth(),
     activeInputId: null,
     tempSelectedDate: null, 
-    _isInitialized: false, // 🌟 قفل الحماية من تكرار الـ Event Listeners
+    _isInitialized: false, 
 
     init: function() {
         const modal = document.getElementById('cal-modal');
@@ -63,10 +61,9 @@ export const CalendarApp = {
         
         this.buildDropdowns();
         
-        if (this._isInitialized) return; // 🌟 منع تكرار الأحداث
+        if (this._isInitialized) return;
         this._isInitialized = true;
 
-        // 🌟 تفويض موضعي لشبكة الأيام (يمنع إنشاء 30 مستمع حدث في كل مرة يتم فيها رسم الشهر)
         const grid = document.getElementById('days-container');
         if (grid) {
             grid.addEventListener('click', (e) => {
@@ -79,7 +76,6 @@ export const CalendarApp = {
             });
         }
 
-        // 🌟 تفويض أزرار التأكيد والإلغاء
         if (modal) {
             modal.addEventListener('click', (e) => {
                 if (e.target.closest('#calBtnConfirm')) {
@@ -164,7 +160,6 @@ export const CalendarApp = {
         const grid = document.getElementById('days-container');
         if(!grid) return;
         
-        // 🌟 استخدام Fragment لتحسين الأداء
         grid.innerHTML = '';
         const fragment = document.createDocumentFragment();
         
@@ -181,7 +176,6 @@ export const CalendarApp = {
             if (this.tempSelectedDate && this.tempSelectedDate.getDate() === d && this.tempSelectedDate.getMonth() === this.currMonth && this.tempSelectedDate.getFullYear() === this.currYear) cell.classList.add('selected');
             const cellDate = new Date(this.currYear, this.currMonth, d);
             if (cellDate > today) cell.classList.add('disabled-day'); 
-            // تم القضاء على المستمع المباشر (cell.onclick) هنا بفضل الـ Event Delegation في init()
             fragment.appendChild(cell);
         }
         
@@ -212,7 +206,6 @@ export const CalendarApp = {
         const mL = document.getElementById('list-month'); 
         if(mL) { 
             mL.innerHTML = this.monthNames.map((m, i) => `<div class="list-item" data-idx="${i}">${m}</div>`).join('');
-            // 🌟 التفويض الموضعي لخيارات الشهر
             if (!mL._boundDelegation) {
                 mL.addEventListener('click', (e) => {
                     const item = e.target.closest('.list-item');
@@ -230,7 +223,6 @@ export const CalendarApp = {
             let yearsHtml = '';
             for(let y=ty-10;y<=ty+10;y++){ yearsHtml += `<div class="list-item" data-year="${y}">${y}</div>`; }
             yL.innerHTML = yearsHtml;
-            // 🌟 التفويض الموضعي لخيارات السنة
             if (!yL._boundDelegation) {
                 yL.addEventListener('click', (e) => {
                     const item = e.target.closest('.list-item');
@@ -254,9 +246,8 @@ export const CalendarApp = {
 // =========================================================
 export const Components = {
     priceTicker: null,
-    _navObserver: null, // 🌟 تأمين مراقب الواجهة لمنع تسريب الذاكرة
+    _navObserver: null, 
 
-    // 🌟 دالة نقية لاستخراج الكمية والباقة بعيداً عن تكرار الشروط
     _getCurrentSelection: function() {
         let qty = 1; let optIdx = null;
         if (!DataManager.currentProd) return { qty, optIdx };
@@ -272,7 +263,6 @@ export const Components = {
         return { qty, optIdx };
     },
 
-    // 🌟 تأثير اللمعان للمنتجات
     initProductShine: function() {
         const cards = document.querySelectorAll('.product-card');
         
@@ -299,7 +289,6 @@ export const Components = {
         });
     },
 
-    // 🌟 محرك الأنيميشن المالي المستقل
     animatePriceChange: function(startVal, endVal, currency) {
         const el = document.getElementById('pm-price');
         if (!el) return;
@@ -314,7 +303,6 @@ export const Components = {
             const easeProgress = 1 - Math.pow(1 - progress, 3);
             const currentVal = startVal + (endVal - startVal) * easeProgress;
             
-            // استخدام innerHTML و RenderHelpers للحفاظ على التنسيق البصري الفاخر
             el.innerHTML = RenderHelpers.formatMoney(currentVal, currency);
             
             if (progress < 1) { 
@@ -336,12 +324,21 @@ export const Components = {
     checkInputState: function() {
         const codeInput = document.getElementById('couponCode');
         const pasteIcon = document.getElementById('pasteIcon');
+        const clearIcon = document.getElementById('clearIcon');
+        
         if (!codeInput || !pasteIcon) return;
-        if (codeInput.value.trim().length > 0) pasteIcon.classList.add('hide-element');
-        else pasteIcon.classList.remove('hide-element');
+        
+        if (codeInput.value.trim().length > 0) {
+            pasteIcon.style.display = 'none';
+            if (clearIcon && !codeInput.disabled) clearIcon.style.display = 'block';
+        } else {
+            pasteIcon.style.display = 'block';
+            if (clearIcon) clearIcon.style.display = 'none';
+        }
     },
 
     pasteText: async function() {
+        const sys = window.ClientSystem || window.UIManager;
         const codeInput = document.getElementById('couponCode');
         if (!codeInput) return;
         try {
@@ -350,25 +347,31 @@ export const Components = {
                 codeInput.value = text;
                 this.checkInputState(); 
                 codeInput.focus();
-                UIManager.showToast('تم إدراج الكوبون', 'success');
+                if (sys && sys.showToast) sys.showToast('تم إدراج الكوبون', 'success');
             }
-        } catch (err) { UIManager.showToast('يرجى السماح باللصق', 'error'); }
+        } catch (err) { 
+            if (sys && sys.showToast) sys.showToast('يرجى السماح باللصق', 'error'); 
+        }
     },
 
-    // 🌟 Controller النظيف: يعتمد على الأرقام الحقيقية وليس على قراءة الشاشة
+    // =========================================================
+    // 🌟 1. دالة تطبيق الكوبون (الحل الجذري للسعر وجدار الحماية)
+    // =========================================================
     applyCoupon: function() {
         if (!DataManager.currentProd) return; 
 
-        // 🌟 تنبيه الضيف بضرورة تسجيل الدخول لاستخدام الكوبونات بدلاً من التجاهل الصامت
+        const sys = window.ClientSystem || window.UIManager; 
+
         if (!DataManager.user) {
-            if (UIManager && typeof UIManager.showToast === 'function') {
-                UIManager.showToast('يرجى تسجيل الدخول أولاً لاستخدام كوبونات الخصم', 'error');
-            }
-            if (UIManager && typeof UIManager.sfx === 'function') UIManager.sfx('error');
+            if (sys && sys.showToast) sys.showToast('يرجى تسجيل الدخول أولاً لاستخدام كوبونات الخصم', 'error');
+            if (sys && sys.sfx) sys.sfx('error');
             return;
         }
         
-        if (DataManager.appliedCoupon) { UIManager.showToast('يوجد كوبون مستخدم بالفعل', 'info'); return; }
+        if (DataManager.appliedCoupon || (sys && sys.appliedCoupon)) { 
+            if (sys && sys.showToast) sys.showToast('يوجد كوبون مستخدم بالفعل', 'info'); 
+            return; 
+        }
 
         const codeInput = document.getElementById('couponCode');
         const msgBox = document.getElementById('couponMsg');
@@ -380,77 +383,102 @@ export const Components = {
         const code = codeInput.value.toUpperCase().trim();
 
         if (!code) {
-            if(msgBox) { msgBox.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> يرجى إدخال الكود`; msgBox.className = 'coupon-msg-box error'; msgBox.classList.remove('hide-element'); }
+            if(msgBox) { msgBox.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> يرجى إدخال الكود`; msgBox.className = 'coupon-msg-box error'; msgBox.style.display = 'block'; }
             return;
         }
 
         const selection = this._getCurrentSelection();
+        
+        // 1. التحقق من صلاحية الكوبون برمجياً
         const result = DataManager.validateCoupon(code, DataManager.currentProd, selection.qty, selection.optIdx);
 
         if (!result.valid) {
             if(msgBox) { 
                 msgBox.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> ${Utils.escapeHtml(result.msg)}`; 
                 msgBox.className = 'coupon-msg-box error'; 
-                msgBox.classList.remove('hide-element'); 
-                setTimeout(() => { msgBox.classList.add('hide-element'); }, 4000); 
+                msgBox.style.display = 'block'; 
+                setTimeout(() => { msgBox.style.display = 'none'; }, 4000); 
             }
-            UIManager.showToast(result.msg, 'error');
-            if(UIManager.sfx) UIManager.sfx('error');
+            if(sys && sys.showToast) sys.showToast(result.msg, 'error');
+            if(sys && sys.sfx) sys.sfx('error');
             return;
         }
 
-        // 🌟 استخراج السعر بأمان من العقل المركزي قبل تطبيق الكوبون
-        const prePricing = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, null);
-        const startVal = prePricing ? prePricing.totalLocalBase : 0;
+        // --- 🛡️ 2. الفحص الاستباقي (Dry Run) لجدار الحماية المالي ---
+        // محاكاة السعر مع الكوبون لاكتشاف ما إذا كان المحرك المالي سيمنع الخصم
+        const pricingCheck = DataManager.calculateFinalPrice(DataManager.currentProd, DataManager.user, selection.qty, selection.optIdx, result.coupon);
 
+        if (pricingCheck.unitSnapshot.isFirewallActive && pricingCheck.unitSnapshot.couponDiscount === 0) {
+            if(msgBox) { 
+                msgBox.innerHTML = `<i class="fa-solid fa-circle-info"></i> عذراً، هذا المنتج متاح بأفضل سعر ممكن ولا يمكن تخفيضه أكثر.`; 
+                msgBox.className = 'coupon-msg-box error'; 
+                msgBox.style.display = 'block'; 
+                setTimeout(() => { msgBox.style.display = 'none'; }, 5000); 
+            }
+            if(sys && sys.showToast) sys.showToast('السعر الحالي هو أفضل سعر متاح ولا يدعم خصماً إضافياً', 'warning');
+            if(sys && sys.sfx) sys.sfx('error');
+            return; 
+        }
+        // -------------------------------------------------------------
+
+        // 🌟 3. مزامنة حالة الكوبون مع العقل المركزي للمتجر
         DataManager.appliedCoupon = result.coupon; 
-        UIManager.updatePriceDisplay(); 
+        if (sys) sys.appliedCoupon = result.coupon;
+        if (sys) sys.currentCoupon = result.coupon; 
         
-        // 🌟 استخراج السعر بعد تطبيق الكوبون
-        const postPricing = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, DataManager.appliedCoupon);
-        const endVal = postPricing ? postPricing.totalLocalBase : 0;
+        // 🌟 4. تحديث الواجهة لشطب السعر اللحظي
+        if (sys && sys.updatePriceDisplay) sys.updatePriceDisplay(); 
         
-        const currency = (DataManager.selectedCurr || DataManager.user.baseCurrency || 'USD');
-
-        this.animatePriceChange(startVal, endVal, currency);
-        if(UIManager.sfx) UIManager.sfx('success');
+        if(sys && sys.sfx) sys.sfx('success');
 
         const discountText = result.coupon.type === 'percentage' ? `${result.coupon.value}%` : `${result.coupon.value}$`;
-        if(msgBox) { msgBox.innerHTML = `<i class="fa-solid fa-check"></i> تم تطبيق خصم ${discountText}!`; msgBox.className = 'coupon-msg-box success'; msgBox.classList.remove('hide-element'); }
+        if(msgBox) { msgBox.innerHTML = `<i class="fa-solid fa-check"></i> تم تطبيق خصم ${discountText}!`; msgBox.className = 'coupon-msg-box success'; msgBox.style.display = 'block'; }
         
         codeInput.disabled = true; 
         if(btnApply) { btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
-        if(pasteIcon) pasteIcon.classList.add('hide-element'); 
-        if(clearIcon) clearIcon.classList.remove('hide-element'); 
+        
+        if(pasteIcon) pasteIcon.style.display = 'none'; 
+        if(clearIcon) clearIcon.style.display = 'block'; 
 
-        UIManager.showToast('تم تطبيق الخصم بنجاح', 'success');
+        if(sys && sys.showToast) sys.showToast('تم تطبيق الخصم بنجاح', 'success');
     },
 
+    // =========================================================
+    // 🌟 2. دالة إزالة الكوبون (إصلاح الإغلاق والإشعار)
+    // =========================================================
     removeCoupon: function() {
+        const sys = window.ClientSystem || window.UIManager;
         const codeInput = document.getElementById('couponCode');
+        const msgBox = document.getElementById('couponMsg');
+        const btnApply = document.getElementById('btnApply');
         
-        const selection = this._getCurrentSelection();
-        
-        // 🌟 استخراج السعر بأمان قبل الإزالة
-        const prePricing = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, DataManager.appliedCoupon);
-        const startVal = prePricing ? prePricing.totalLocalBase : 0;
-
-        if (UIManager.resetCouponUI) UIManager.resetCouponUI();
+        // مسح الكوبون من الذاكرة لكي يرجع السعر لأصله
         DataManager.appliedCoupon = null; 
+        if (sys) sys.appliedCoupon = null;
+        if (sys) sys.currentCoupon = null;
         
-        UIManager.updatePriceDisplay(); 
+        // 🌟 تحديث الواجهة مباشرة (لإزالة خط الشطب واسترجاع السعر الأصلي)
+        if (sys && sys.updatePriceDisplay) sys.updatePriceDisplay(); 
         
-        // 🌟 استخراج السعر بعد الإزالة
-        const postPricing = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, null);
-        const endVal = postPricing ? postPricing.totalLocalBase : 0;
-        
-        const currency = (DataManager.selectedCurr || DataManager.user.baseCurrency || 'USD');
-
-        this.animatePriceChange(startVal, endVal, currency);
+        // 🌟 تفريغ الحقل فقط وعدم استدعاء دالة الإغلاق الشاملة
         if (codeInput) {
+            codeInput.value = '';
             codeInput.disabled = false;
             codeInput.focus();
         }
+
+        if (btnApply) {
+            btnApply.disabled = false;
+            btnApply.classList.remove('btn-disabled');
+        }
+        
+        if (msgBox) msgBox.style.display = 'none';
+        
+        this.checkInputState(); // تحديث الأيقونات
+
+        // 🌟 إظهار الإشعار المطلوب
+        if(sys && sys.showToast) sys.showToast('تم إزالة الكوبون بنجاح', 'info');
+        if(sys && sys.sfx) sys.sfx('nav');
     },
 
     initBottomNavSync: function() {
@@ -470,7 +498,6 @@ export const Components = {
 
         const gridTitle = document.getElementById('grid-title'); 
         if (gridTitle) {
-            // 🌟 إصلاح تسريب الذاكرة (Memory Leak): فصل المراقب القديم قبل إنشاء واحد جديد
             if (this._navObserver) {
                 this._navObserver.disconnect();
             }
@@ -479,7 +506,6 @@ export const Components = {
         }
 
         navIcons.forEach(icon => {
-            // إضافة الحماية من تكرار ربط الأحداث (Event Listener Duplication)
             if (icon.dataset.navBound) return;
             icon.dataset.navBound = '1';
             

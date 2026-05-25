@@ -11,7 +11,15 @@ import { FirebaseAdapter } from '../core/firebaseAdapter.js';
 const DEFAULT_AVATAR_URL = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
 
 // 🌟 دالة مساعدة لجلب النظام المركزي (Orchestrator) وحل مشكلة فقدان السياق (Context Loss)
-const getSys = () => window.ClientSystem || {};
+// ✅ دالة آمنة لجلب النظام تمنع انهيار الواجهة إذا لم يكتمل تحميل script.js
+const getSys = () => {
+    if (window.ClientSystem) return window.ClientSystem;
+    if (window.UIManager) return window.UIManager;
+    
+    console.warn("⚠️ تحذير: تم استدعاء النظام قبل اكتمال الإقلاع.");
+    // إعادة كائن وهمي (Proxy أو Object) بدوال فارغة لمنع أخطاء undefined is not a function
+    return new Proxy({}, { get: () => () => {} }); 
+};
 
 export const UIAuth = {
 
@@ -129,12 +137,15 @@ export const UIAuth = {
                     };
                     reader.readAsDataURL(file);
 
-                    getSys().showToast?.('جاري رفع الصورة الشخصية...', 'info');
+                        getSys().showToast?.('جاري رفع الصورة الشخصية...', 'info');
                     try {
-                        const downloadUrl = await FirebaseAdapter.uploadImage(file, `avatars/${DataManager.user.id}`);
+                        // استخدام الاسم المخصص للكتابة فوق الصورة القديمة
+                        const downloadUrl = await FirebaseAdapter.uploadImage(file, 'avatars', `avatar_${DataManager.user.id}.jpg`);               
+                        
                         if (DataManager.updateUserProfile) {
                             await DataManager.updateUserProfile({ img: downloadUrl });
                         }
+                        
                         getSys().showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
                     } catch (err) {
                         console.error("Avatar Upload Error:", err);
@@ -147,10 +158,8 @@ export const UIAuth = {
 
         getSys().openModal?.('profile-info');
     },
-
-    // 🌟 دالة مساعدة معالجة نقرة الأفاتار ليتم استدعاؤها عبر المستمع المركزي
     handleAvatarClick: function(e) {
-        if(e) e.stopPropagation();
+        // ✅ تمت إزالة e.stopPropagation() لكي لا نكسر تفويض الأحداث المركزي
         if (DataManager.user && DataManager.user.img && DataManager.user.img !== DEFAULT_AVATAR_URL) {
             this.toggleAvatarMenu(e);
         } else {
@@ -159,40 +168,24 @@ export const UIAuth = {
         }
     },
 
-    // 🌟 دالة مساعدة لتعديل الاسم ليتم استدعاؤها عبر المستمع المركزي
-    toggleNameEdit: function() {
-        if (!DataManager.user || (DataManager.user.kycStatus === 'approved' || DataManager.user.kycStatus === 'verified')) return;
-
-        const editNameEl = document.getElementById('edit-name-input');
-        const displayNameEl = document.getElementById('display-name');
-        const editBtnToggle = document.getElementById('profile-edit-toggle');
-        const icon = editBtnToggle ? editBtnToggle.querySelector('i') : null;
-
-        if (!editNameEl || !displayNameEl) return;
+    toggleAvatarMenu: function(event) {
+        const menu = document.getElementById('avatar-action-menu');
+        if (!menu) return;
         
-        const isEditing = !editNameEl.classList.contains('d-none');
+        menu.classList.toggle('active');
+        getSys().sfx?.('nav');
 
-        if(isEditing) {
-            const newName = editNameEl.value.trim();
-            if(newName) {
-                const parts = newName.split(' ');
-                const fName = parts.shift() || 'العميل'; 
-                const lName = parts.join(' ').trim();
-                if (DataManager.updateUserProfile) DataManager.updateUserProfile({ name: fName, lastName: lName });
-            }
-            displayNameEl.classList.remove('d-none'); 
-            editNameEl.classList.add('d-none');
-            if(icon) icon.className = 'fa-solid fa-pen'; 
-            getSys().showToast?.('تم حفظ الاسم بنجاح', 'success');
-            this.updateProfileDisplay();
-        } else {
-            displayNameEl.classList.add('d-none'); 
-            editNameEl.classList.remove('d-none');
-            editNameEl.focus();
-            if(icon) icon.className = 'fa-solid fa-check'; 
+        if (menu.classList.contains('active')) {
+            const closeMenu = (e) => {
+                if (!menu.contains(e.target) && !e.target.closest('#avatar-menu-trigger') && !e.target.closest('#profile-img')) {
+                    menu.classList.remove('active');
+                    document.removeEventListener('click', closeMenu);
+                }
+            };
+            // ✅ استخدام setTimeout بـ 10 ملي ثانية لمنع إغلاق القائمة فوراً بنفس النقرة التي فتحتها
+            setTimeout(() => document.addEventListener('click', closeMenu), 10);
         }
     },
-
     closeProfileInfo: function() { getSys().closeModal?.('profile-info'); },
 
     toggleAvatarMenu: function(event) {
@@ -562,9 +555,10 @@ export const UIAuth = {
         
         // استخدام Promise.allSettled بدلاً من Promise.all
         const uploadPromises = [
-            FirebaseAdapter.uploadImage(frontFile, `kyc_docs/${userId}_front`),
-            FirebaseAdapter.uploadImage(backFile, `kyc_docs/${userId}_back`),
-            FirebaseAdapter.uploadImage(selfieFile, `kyc_docs/${userId}_selfie`)
+            // ✅ تمرير اسم المجلد مفصولاً عن اسم الملف ليتم تطبيق التحديث الاحترافي
+            FirebaseAdapter.uploadImage(frontFile, 'kyc_docs', `${userId}_front.jpg`),
+            FirebaseAdapter.uploadImage(backFile, 'kyc_docs', `${userId}_back.jpg`),
+            FirebaseAdapter.uploadImage(selfieFile, 'kyc_docs', `${userId}_selfie.jpg`)
         ];
 
         const results = await Promise.allSettled(uploadPromises);
@@ -575,6 +569,7 @@ export const UIAuth = {
             throw new Error("فشل رفع إحدى الصور، يرجى التأكد من جودة الاتصال.");
         }
 
+        // بما أننا تأكدنا من عدم وجود failedUploads، يمكننا استخراج الروابط بأمان
         const [frontImgUrl, backImgUrl, selfieImgUrl] = results.map(r => r.value);
 
         let success = false;

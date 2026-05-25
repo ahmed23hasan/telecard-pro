@@ -47,9 +47,10 @@ export const DB_KEYS = Object.freeze({
 // 🎯 الوظيفة: توجيه الطلبات للمحرك المركزي دون كسر الملفات التي تستدعيها من هنا
 // ============================================================================
 
-export const normalizeRates = FinancialEngine.normalizeRates;
+// 🌟 الحل: استخدام bind لتثبيت السياق (this) ومنع انهيار المحرك
+export const normalizeRates = FinancialEngine.normalizeRates.bind(FinancialEngine);
 
-export const convertViaUSD = FinancialEngine.convertViaUSD;
+export const convertViaUSD = FinancialEngine.convertViaUSD.bind(FinancialEngine);
 
 // ============================================================================
 // ⚖️ المحرك المالي المركزي (Telecard Pricing Engine)
