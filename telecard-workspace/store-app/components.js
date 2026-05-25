@@ -10,31 +10,6 @@ import { Utils } from './utils.js';
 import { RenderHelpers } from './core/renderHelpers.js'; 
 
 // =========================================================
-// 1️⃣ إغلاق القوائم المنسدلة عند النقر خارجها (Global Click Listener)
-// =========================================================
-document.addEventListener('click', function(e) {
-    // 1. إغلاق قائمة باقات المنتجات المنسدلة (لا تزال تعمل بشكل مستقل)
-    const packageWrapper = document.getElementById('pkg-custom-dropdown');
-    if (packageWrapper && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
-        packageWrapper.classList.remove('open');
-    }
-
-    // 2. إغلاق صندوق إحصائيات المحفظة (النسخة المركزية الموحدة)
-    const walletDrawer = document.getElementById('walletStatsDrawer');
-    if (walletDrawer && walletDrawer.classList.contains('active')) {
-        const isClickInsideDrawer = walletDrawer.contains(e.target);
-        const isClickOnToggleButton = e.target.closest('.detail-arrow') || e.target.closest('.wallet-toggle-btn'); 
-
-        if (!isClickInsideDrawer && !isClickOnToggleButton) {
-            const sys = window.ClientSystem || window.UIManager;
-            if (sys && typeof sys.closeWalletStats === 'function') {
-                sys.closeWalletStats(); 
-            }
-        }
-    }
-});
-
-// =========================================================
 // 2️⃣ نظام التقويم الذكي (Calendar App)
 // =========================================================
 export const CalendarApp = {

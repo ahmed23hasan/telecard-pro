@@ -75,6 +75,18 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
             const tierRef = db.collection('telecard_tiers').doc(tierId);
             const tierSnap = await transaction.get(tierRef);
             const userTier = tierSnap.exists ? tierSnap.data() : null;
+            // 🛡️ فحص صلاحية التوقيت سحابياً (Server-side Time Trust)
+            const serverNow = Date.now(); // في بيئة السحابة، هذا يمثل توقيت سيرفرات جوجل الموثوق
+            
+            // التأكد من صلاحية العرض سحابياً (إبطاله إذا انتهى)
+            if (activeOffer && activeOffer.expiryDate && activeOffer.expiryDate < serverNow) {
+                activeOffer = null; 
+            }
+
+            // التأكد من صلاحية الكوبون سحابياً (إيقاف العملية إذا انتهى)
+            if (couponData && couponData.expiryDate && couponData.expiryDate < serverNow) {
+                throw new functions.https.HttpsError('failed-precondition', 'عذراً، انتهت صلاحية هذا الكوبون.');
+            }
 
             let vaultSnap = null;
             let vaultRef = null;
@@ -98,7 +110,12 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
             if (product.type === 'select' && Array.isArray(product.options) && product.options[optIdx]) {
                 rawUnitCost = Number(product.options[optIdx].price || product.options[optIdx].costPrice || 0);
             }
-            const isFixed = !!(product.isFixedPrice || product.is_fixed_price);
+            // حماية دفاعية لضمان قراءة القيمة المنطقية بشكل صحيح حتى لو خُزنت كنص
+const isFixed = (
+    product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true' || 
+    product.is_fixed_price === true || String(product.is_fixed_price).toLowerCase() === 'true'
+);
+
             if (isFixed) {
                 const fixedUsd = Number(product.fixedPriceUsd || product.fixed_price_usd || 0);
                 if (fixedUsd > 0) rawUnitCost = fixedUsd;
@@ -467,4 +484,15 @@ exports.calculateStoreStatsCloud = functions.https.onCall(async (data, context) 
         console.error("Stats Calculation Error:", error);
         throw new functions.https.HttpsError('internal', 'فشل السيرفر في حساب الإحصائيات.');
     }
+});
+// ==========================================
+// ⏱️ دالة جلب توقيت السيرفر المركزي (Server Time Provider)
+// ==========================================
+exports.getServerTime = functions.https.onCall((data, context) => {
+    // هذه الدالة تعيد التوقيت العالمي (UTC) الدقيق لسيرفرات جوجل
+    // سيستخدمها المتجر في الواجهة الأمامية لمزامنة عداداته وعروضه
+    return {
+        success: true,
+        serverTime: Date.now() 
+    };
 });

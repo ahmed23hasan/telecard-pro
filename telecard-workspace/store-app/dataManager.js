@@ -1,7 +1,7 @@
 // ============================================================================
 // 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Cloud Secured)
 // 🎯 الوظيفة: معالجة البيانات، الحسابات المعقدة، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث: البرمجة الدفاعية (Defensive Logic) لمنع أخطاء التسعير بسبب نصوص قاعدة البيانات
+// 🚀 التحديث: دمج التوقيت السحابي المتزامن، والبرمجة الدفاعية لمنع التلاعب
 // ============================================================================
 
 import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -40,6 +40,12 @@ export const LiveStoreData = {
 // 👑 3. الكائن الرئيسي لمدير البيانات (Single Source of Truth)
 // ============================================================================
 export const DataManager = {
+    // ⏱️ مزامن التوقيت السحابي
+    serverTimeOffset: 0,
+    getNow: function() {
+        return Date.now() + this.serverTimeOffset;
+    },
+
     user: null,
     prefs: { sound: true, theme: 'dark', security2fa: false, favs: [] },
     favs: new Set(),
@@ -148,8 +154,8 @@ export const DataManager = {
         
         const durationDays = Number(currentTier.durationDays || currentTier.duration_days || 30);
         const durationMs = durationDays * 24 * 60 * 60 * 1000;
-        const cycleStart = Number(this.user.tierCycleStartDate || Date.now());
-        const remainingDays = Math.max(0, Math.ceil((durationMs - (Date.now() - cycleStart)) / (1000 * 60 * 60 * 24)));
+        const cycleStart = Number(this.user.tierCycleStartDate || this.getNow()); // 🌟 تطبيق التوقيت المتزامن
+        const remainingDays = Math.max(0, Math.ceil((durationMs - (this.getNow() - cycleStart)) / (1000 * 60 * 60 * 24))); // 🌟 التوقيت المتزامن
 
         const nextTier = sortedTiers.find(t => Number(t.threshold || 0) > Number(currentTier.threshold || 0));
         
@@ -178,12 +184,13 @@ export const DataManager = {
 
     getActiveOffer: function(prodId) {
         const offers = LiveStoreData.offers || [];
-        const now = Date.now();
+        const now = this.getNow(); // 🌟 تطبيق التوقيت المتزامن
         return offers.find(o => 
             o.isActive && (!o.expiryDate || o.expiryDate > now) && 
             o.targetProds && o.targetProds.includes(String(prodId))
         );
     },
+
     // ============================================================================
     // 🧮 4. المحرك الموحد للتسعير (يُستخدم لعرض الأسعار للعميل قبل الشراء فقط)
     // ============================================================================
@@ -201,14 +208,13 @@ export const DataManager = {
 
         const tier = this.getUserTier(user);
         
-        // 🌟 الإصلاح الدفاعي: التعامل مع الكلمات النصية "true" و"false" بأمان
+        // 🌟 الإصلاح الدفاعي
         const isFixed = (prod.isFixedPrice === true || String(prod.isFixedPrice).toLowerCase() === 'true' || 
                          prod.is_fixed_price === true || String(prod.is_fixed_price).toLowerCase() === 'true');
                          
         const fixedUsd = Number(prod.fixedPriceUsd || prod.fixed_price_usd || 0);
         
         let appliedTier = tier;
-        // 🛡️ الحماية ضد التلاعب: نلغي مستوى العميل فقط إذا كان هناك سعر ثابت صريح أكبر من صفر
         if (isFixed && fixedUsd > 0) {
             rawUnitCost = fixedUsd; 
             appliedTier = null; 
@@ -222,7 +228,6 @@ export const DataManager = {
             totalDiscountVal: 0, profit: 0, marginPct: 0, isFirewallActive: false
         };
 
-        // 🛡️ استدعاء المحرك المالي المركزي (SSOT) بأمان
         if (Utils.TelecardPricingEngine && typeof Utils.TelecardPricingEngine.calculate === 'function') {
             unitSnapshot = Utils.TelecardPricingEngine.calculate({
                 costPrice: rawUnitCost, 
@@ -232,7 +237,6 @@ export const DataManager = {
             });
         } else {
             console.error("🚨 المحرك المالي غير متاح! تم استخدام التسعير الافتراضي (سعر التكلفة).");
-            // في حالة فشل المحرك المالي، نضع خطأً متعمداً في الربح لكي يلتقطه قاطع التيار في دالة الشراء
             unitSnapshot.profit = -1; 
         }
 
@@ -304,7 +308,7 @@ export const DataManager = {
         
         const coupons = LiveStoreData.coupons || [];
         const coupon = coupons.find(c => c.code.toUpperCase() === code.toUpperCase());
-        const now = Date.now();
+        const now = this.getNow(); // 🌟 تطبيق التوقيت المتزامن
         
         if (!coupon) return { valid: false, msg: 'الكود غير صحيح أو غير موجود' };
         if (coupon.isActive === false || String(coupon.isActive) === 'false') return { valid: false, msg: 'عذراً، هذا الكوبون غير فعال حالياً' };
@@ -377,10 +381,16 @@ export const DataManager = {
             if (foundUser) me = { ...foundUser };
         }
         
-        if (activeUid && !me && users.length > 0) {
-            console.warn("⚠️ الحساب لم يعد موجوداً في قاعدة البيانات. جاري تسجيل الخروج...");
-            this.logout();
-            return false; 
+        const isSystemBooted = window.ClientSystem && window.ClientSystem.isReady;
+        
+        if (activeUid && !me) {
+            if (users.length > 0 && isSystemBooted) {
+                console.warn("⚠️ الحساب لم يعد موجوداً في قاعدة البيانات المركزية. جاري تسجيل الخروج...");
+                this.logout();
+                return false;
+            } else {
+                return true; 
+            }
         }
         
         if(me) {
@@ -390,7 +400,7 @@ export const DataManager = {
             me.inbox = me.inbox || []; 
 
             if (me.tierCycleStartDate === undefined) {
-                me.tierCycleStartDate = Date.now();
+                me.tierCycleStartDate = this.getNow(); // 🌟 تطبيق التوقيت المتزامن
                 me.tierCycleSpent = 0;
             }
 
@@ -461,14 +471,11 @@ export const DataManager = {
         }
     },
 
-    // 🚀 التحديث: دالة الشراء السحابية الآمنة مع قاطع التيار (Circuit Breaker) المُصلح
     confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
 
-        // --- 🛡️ إضافة الحظر القطعي (Hard Block) لمنع البيع بدون ربح ---
         const pricingCheck = this.calculateFinalPrice(prod, this.user, qty, optIdx, appliedCoupon);
         
-        // 🌟 الإصلاح الدفاعي هنا أيضاً لنطابق نفس أمان دالة الحساب:
         const isFixed = (prod.isFixedPrice === true || String(prod.isFixedPrice).toLowerCase() === 'true' || 
                          prod.is_fixed_price === true || String(prod.is_fixed_price).toLowerCase() === 'true');
 
@@ -479,7 +486,6 @@ export const DataManager = {
                 msg: 'عذراً، تعذر إتمام الطلب لعدم توفر تسعيرة المستوى الخاص بك لهذا المنتج. يرجى التواصل مع الإدارة.' 
             };
         }
-        // -------------------------------------------------------------
 
         try {
             const createOrderFn = this._getCloudFunction('createOrder');
@@ -605,9 +611,21 @@ export const DataManager = {
         }
     },
     
+    // 🌟 المترجم الزمني الذكي
+    _safeTime: function(ts) {
+        if (!ts) return null;
+        if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
+        if (ts.seconds) return ts.seconds * 1000; 
+        return ts; 
+    },
+
     formatDateLocal: function(timestamp) {
-        if (!timestamp) return '---';
-        const dateObj = new Date(timestamp);
+        const safeMs = this._safeTime(timestamp);
+        if (!safeMs) return '---';
+        
+        const dateObj = new Date(safeMs);
+        if (isNaN(dateObj.getTime())) return '---'; 
+
         const dateStr = dateObj.toLocaleDateString('en-GB'); 
         const timeStr = dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
         return `${dateStr} | ${timeStr}`;
@@ -664,7 +682,7 @@ export const DataManager = {
         const allAlerts = [...globalAlerts, ...inboxAlerts];
 
         const readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String);
-        const now = Date.now();
+        const now = this.getNow(); // 🌟 تطبيق التوقيت المتزامن
 
         return allAlerts.filter(msg => {
             if (!this._isAlertForUser(msg, user, now, readIds)) return false;
@@ -685,7 +703,7 @@ export const DataManager = {
         const globalAlerts = LiveStoreData.alerts || [];
         const inboxAlerts = user.inbox || [];
         const allAlerts = [...globalAlerts, ...inboxAlerts];
-        const now = Date.now();
+        const now = this.getNow(); // 🌟 تطبيق التوقيت المتزامن
 
         return allAlerts.filter(msg => {
             return this._isAlertForUser(msg, user, now, []);

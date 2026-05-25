@@ -303,11 +303,13 @@ export const RenderManager = {
         return div;
     },
 
-    updateStoreTimers: function() {
+        updateStoreTimers: function() {
         const timers = document.querySelectorAll('.live-countdown');
         if (timers.length === 0) return;
         
-        const now = Date.now();
+        // 🌟 استخدام الوقت السحابي المتزامن بدلاً من توقيت جهاز العميل
+        const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
+        
         timers.forEach(el => {
             const expire = Number(el.dataset.expire);
             if (!expire) return;
@@ -328,7 +330,9 @@ export const RenderManager = {
         const storiesContainer = document.getElementById('offer-stories-bar');
         if (!storiesContainer) return;
 
-        const now = Date.now();
+        // 🌟 استخدام الوقت السحابي المتزامن
+        const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
+        
         const activeOffers = (LiveStoreData.offers || []).filter(o => o.isActive && o.visualConfig?.storyEnabled && (!o.expiryDate || o.expiryDate > now));
 
         if (activeOffers.length === 0) {
@@ -403,7 +407,6 @@ export const RenderManager = {
             storiesContainer.style.display = 'none';
         }
     },
-
     _getCategoryName: function(id) {
         try {
             const target = (LiveStoreData.cats || []).find(c => Number(c.id) === Number(id));
@@ -664,7 +667,7 @@ if (favProds.length === 0) {
         if (icon) icon.className = isFav ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
     },
 
-    renderWallet: function() {
+        renderWallet: function() {
         DataManager.updateWalletStats();
         
         const filterData = Utils.getSearchAndDateFilters('wallet', 'wallet');
@@ -681,19 +684,22 @@ if (favProds.length === 0) {
         const deps = LiveStoreData.deposits || [];
         const ords = LiveStoreData.orders || [];
 
+        // 🌟 المترجم الزمني المحلي الآمن
+        const getTime = (item) => DataManager._safeTime ? DataManager._safeTime(item.time || item.createdAt) : (item.time || item.createdAt);
+
         const deposits = deps.filter(d => Number(d.userId) === Number(user.id))
             .map(d => {
                 const credited = d.creditedAmount !== undefined ? Number(d.creditedAmount) : Number(d.amount || 0);
                 return {
                     ...d, type: 'deposit', amountVal: Math.abs(credited),
                     amountCurrency: d.targetCurrency || walletCurr,
-                    searchKey: `شحن deposit ${credited} #${d.id}`,
+                    searchKey: `شحن deposit ${credited} #${d.displayId || d.id}`,
                     isDeduction: credited < 0
                 };
             });
         
         const orders = ords.filter(o => Number(o.userId) === Number(user.id))
-            .map(o => ({...o, type: 'purchase', amountVal: Number(o.price || 0), amountCurrency: o.priceCurrency || walletCurr, searchKey: `شراء purchase ${o.product} ${o.price} #${o.id}`}));
+            .map(o => ({...o, type: 'purchase', amountVal: Number(o.price || 0), amountCurrency: o.priceCurrency || walletCurr, searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id}`}));
 
         let allTransactions = [...deposits, ...orders];
         
@@ -703,7 +709,8 @@ if (favProds.length === 0) {
         const depDisp = document.getElementById('wallet-total-deposit');
         if(depDisp) depDisp.innerHTML = RenderHelpers.formatMoney(user.totalDeposit || 0, walletCurr);
 
-        allTransactions.sort((a, b) => a.time - b.time);
+        // 🌟 تطبيق المترجم الزمني للفرز التصاعدي (مهم جداً لبناء الرصيد التراكمي بشكل صحيح)
+        allTransactions.sort((a, b) => getTime(a) - getTime(b));
 
         let historySum = 0;
         allTransactions.forEach(tx => {
@@ -731,15 +738,20 @@ if (favProds.length === 0) {
         if(filters.wallet !== 'all') finalView = finalView.filter(t => t.type === filters.wallet);
         
         if(q) finalView = finalView.filter(t => t.searchKey.toLowerCase().includes(q));
-        if(tStart) finalView = finalView.filter(t => t.time >= tStart);
-        if(tEnd) finalView = finalView.filter(t => t.time <= tEnd);
+        
+        // 🌟 تطبيق المترجم الزمني على الفلترة
+        if(tStart) finalView = finalView.filter(t => getTime(t) >= tStart);
+        if(tEnd) finalView = finalView.filter(t => getTime(t) <= tEnd);
+        
         if (!q && !dStart && !dEnd) finalView = finalView.slice(0, 15);
 
         let generatedHTML = '';
         finalView.forEach(tx => {
             const isDep = tx.type === 'deposit';
             let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
-            let formattedDate = DataManager.formatDateLocal ? DataManager.formatDateLocal(tx.time) : new Date(tx.time).toLocaleDateString();
+            
+            // 🌟 استخدام الوقت الآمن للتهيئة
+            let formattedDate = DataManager.formatDateLocal(tx.time || tx.createdAt);
 
             if (isDep) {
                 if (tx.status === 'approved') {
@@ -774,9 +786,10 @@ if (favProds.length === 0) {
             }
 
             const jumpType = isDep ? 'deposit' : 'purchase';
+            
+            // 🌟 استخدام الآيدي التسلسلي النقي بدون أي Substring
             const shortTxId = tx.displayId || tx.id;
 
-            // 🌟 استخدام data-action
             generatedHTML += `
             <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
                 <div class="th-icon ${iconColorClass}">
@@ -809,7 +822,6 @@ if (favProds.length === 0) {
      
         list.innerHTML = generatedHTML;
     },
-
     renderPayMethods: function() {
         const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container') || document.querySelector('.bal-methods-grid') || document.getElementById('pay-methods-list');
         if (!container) return;
@@ -856,7 +868,7 @@ if (favProds.length === 0) {
         container.appendChild(fragment);
     },
 
-    renderPayments: function() {
+        renderPayments: function() {
         const list = document.getElementById('mypay-list');
         const template = document.getElementById('payment-card-template');
         if(!list || !template) return;
@@ -869,14 +881,20 @@ if (favProds.length === 0) {
         const allDeposits = LiveStoreData.deposits || [];
         let myDeposits = allDeposits.filter(d => Number(d.userId) === Number(user.id));
 
+        // 🌟 المترجم الزمني المحلي الآمن (لمنع خطأ NaN عند قراءة وقت فايربيز)
+        const getTime = (item) => DataManager._safeTime ? DataManager._safeTime(item.time || item.createdAt) : (item.time || item.createdAt);
+
         const filters = DataManager.filters || { payments: 'all' };
         if (filters.payments !== 'all') myDeposits = myDeposits.filter(d => d.status === filters.payments);
         
         if (q) myDeposits = myDeposits.filter(d => d.id.toString().includes(q) || d.method?.toLowerCase().includes(q));
-        if (tStart) myDeposits = myDeposits.filter(d => d.time >= tStart);
-        if (tEnd) myDeposits = myDeposits.filter(d => d.time <= tEnd);
+        
+        // 🌟 تطبيق المترجم الزمني على الفلترة والفرز
+        if (tStart) myDeposits = myDeposits.filter(d => getTime(d) >= tStart);
+        if (tEnd) myDeposits = myDeposits.filter(d => getTime(d) <= tEnd);
 
-        myDeposits.sort((a,b) => b.time - a.time);
+        myDeposits.sort((a,b) => getTime(b) - getTime(a));
+        
         list.innerHTML = '';
 
         if (myDeposits.length === 0) {
@@ -884,7 +902,6 @@ if (favProds.length === 0) {
             return;
         }
 
-        // 🌟 استخدام DocumentFragment لتحسين الأداء
         const fragment = document.createDocumentFragment();
 
         myDeposits.forEach(d => {
@@ -919,14 +936,16 @@ if (favProds.length === 0) {
             
             clone.querySelector('.ph-fee-pct').textContent = `(${feesPct}%)`;
 
-            let formattedDate = DataManager.formatDateLocal ? DataManager.formatDateLocal(d.time) : new Date(d.time).toLocaleDateString();
+            // 🌟 استخدام الوقت الآمن للتهيئة (لا تعتمد على Date.now محلي)
+            let formattedDate = DataManager.formatDateLocal(d.time || d.createdAt);
             const miniDateEl = clone.querySelector('.ph-date-mini');
             if(miniDateEl) miniDateEl.innerHTML = formattedDate.replace(' | ', ' <span class="date-sep">|</span> ');
 
+            // 🌟 استخدام الآيدي التسلسلي النقي بدون أي Substring
             const shortDepositId = d.displayId || d.id;
             const idEl = clone.querySelector('.ph-id');
             idEl.textContent = '#' + shortDepositId;
-            // 🌟 استخدام data-action
+            
             idEl.setAttribute('data-action', 'copy-text');
             idEl.setAttribute('data-text', shortDepositId.toString());
 
@@ -941,7 +960,6 @@ if (favProds.length === 0) {
                 }
             }
 
-            // 🌟 استخدام data-action للمفتاح الجانبي
             header.setAttribute('data-action', 'toggle-accordion');
 
             if (d.adminNote?.trim()) {
@@ -973,7 +991,7 @@ if (favProds.length === 0) {
         list.appendChild(fragment);
     },
 
-    renderOrders: function() {
+        renderOrders: function() {
         if (typeof window.updateBottomNavState === 'function') window.updateBottomNavState('orders');
 
         const filterData = Utils.getSearchAndDateFilters('order', 'order');
@@ -988,16 +1006,22 @@ if (favProds.length === 0) {
         const allOrders = LiveStoreData.orders || [];
         const prods = LiveStoreData.prods || [];
 
+        // 🌟 المترجم الزمني المحلي الآمن للفرز والفلترة
+        const getTime = (item) => DataManager._safeTime ? DataManager._safeTime(item.time || item.createdAt) : (item.time || item.createdAt);
+
         let orders = allOrders.filter(o => Number(o.userId) === Number(user.id));
 
         const filters = DataManager.filters || { orders: 'all' };
         if (filters.orders !== 'all') orders = orders.filter(o => o.status === filters.orders);
         
         if (q) orders = orders.filter(o => o.id.toString().includes(q) || o.product?.toLowerCase().includes(q)); 
-        if (tStart) orders = orders.filter(o => o.time >= tStart);
-        if (tEnd) orders = orders.filter(o => o.time <= tEnd);
+        // 🌟 تطبيق المترجم الزمني على الفلترة
+        if (tStart) orders = orders.filter(o => getTime(o) >= tStart);
+        if (tEnd) orders = orders.filter(o => getTime(o) <= tEnd);
 
-        orders.sort((a, b) => b.time - a.time);
+        // 🌟 تطبيق المترجم الزمني على الفرز (لمنع خطأ NaN)
+        orders.sort((a, b) => getTime(b) - getTime(a));
+        
         if (!q && !dStart && !dEnd) orders = orders.slice(0, 15);
 
         if (orders.length === 0) {
@@ -1013,7 +1037,6 @@ if (favProds.length === 0) {
             return [rawStr.trim()];
         };
         
-        // 🌟 استخدام DocumentFragment لتحسين الأداء
         const fragment = document.createDocumentFragment();
         
         orders.forEach((o, idx) => {
@@ -1063,13 +1086,13 @@ if (favProds.length === 0) {
             cardElement.className = `oh-card ${isJumped}`.trim();
             cardElement.style.setProperty('--anim-idx', idx);
             
-            // 🌟 التوجيه الذكي باستخدام data-action
             cardElement.setAttribute('data-action', 'open-detail');
             cardElement.setAttribute('data-type', 'order');
             cardElement.setAttribute('data-id', o.id);
 
+            // 🌟 استخدام الآيدي التسلسلي النقي والوقت الآمن
             const shortOrderId = o.displayId || o.id;
-            let formattedDate = DataManager.formatDateLocal(o.time);
+            let formattedDate = DataManager.formatDateLocal(o.time || o.createdAt);
 
             cardElement.innerHTML = `
                 <div class="oh-right">
@@ -1090,8 +1113,7 @@ if (favProds.length === 0) {
         }); 
         
         list.appendChild(fragment);
-    }, 
-
+    },
     generatePDFReceipt: async function(config) {
         const printContainer = document.createElement('div');
         printContainer.id = 'pdf-export-container'; 

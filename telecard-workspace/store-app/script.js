@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 المحرك الرئيسي للمتجر (script.js) - المجلد الاحترافي المصلح للسحابة
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: إضافة تفويض الأحداث المركزي (Event Delegation) ومنع تضارب حالة البيانات (Race Conditions)
+// 🚀 التحديث: إضافة تفويض الأحداث المركزي، منع التضارب، وإصلاح الأقواس (Syntax)
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -26,15 +26,38 @@ const ClientSystem = {
             console.log("🧹 تم تنظيف المستمعات السحابية السابقة بنجاح.");
         }
     },
+
     // ============================================================================
     // 🎯 نظام تفويض الأحداث المركزي (Global Event Delegation)
     // ============================================================================
     initGlobalListeners: function() {
-        // 🌟 متغيرات تتبع النقر المزدوج (Double Click Tracker)
+        // 🌟 1. مدير النقرات خارج العناصر المركزية (Click-Outside Manager)
+        // نستخدم (true) لتفعيل الـ Capturing Phase والتقاط الحدث قبل أي stopPropagation
+        document.addEventListener('click', (e) => {
+            // إغلاق باقات المنتجات المنسدلة
+            const packageWrapper = document.getElementById('pkg-custom-dropdown');
+            if (packageWrapper && packageWrapper.classList.contains('open') && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
+                packageWrapper.classList.remove('open');
+            }
+
+            // إغلاق صندوق إحصائيات المحفظة
+            const walletDrawer = document.getElementById('walletStatsDrawer');
+            if (walletDrawer && walletDrawer.classList.contains('active')) {
+                const isClickInsideDrawer = walletDrawer.contains(e.target);
+                const isClickOnToggleButton = e.target.closest('.detail-arrow') || e.target.closest('.wallet-toggle-btn') || e.target.closest('[data-action="toggle-wallet-stats"]'); 
+                
+                if (!isClickInsideDrawer && !isClickOnToggleButton) {
+                    if (typeof this.closeWalletStats === 'function') this.closeWalletStats(); 
+                }
+            }
+        }, true); 
+
+        // 🌟 2. متغيرات تتبع النقر المزدوج (Double Click Tracker)
         let lastClickTime = 0;
         let lastClickTarget = null;
         let clickTimeout = null;
 
+        // 🌟 3. المعالج المركزي لأحداث (data-action)
         document.body.addEventListener('click', (e) => {
             const target = e.target.closest('[data-action]');
             
@@ -82,6 +105,20 @@ const ClientSystem = {
                     if(typeof this.handleBalanceSubmit === 'function') this.handleBalanceSubmit(currency);
                     break;
 
+                case 'toggle-wallet-stats': 
+                    if(typeof this.toggleWalletStats === 'function') this.toggleWalletStats(target);
+                    break;
+
+                case 'jump-transaction': 
+                    const type = target.getAttribute('data-type');
+                    if(typeof this.jumpToTransaction === 'function') this.jumpToTransaction(id, type);
+                    break;
+
+                case 'open-detail': 
+                    const txType = target.getAttribute('data-type');
+                    if(typeof this.openDetail === 'function') this.openDetail(e, txType, id);
+                    break;
+
                 // 🎟️ أحداث الكوبونات
                 case 'apply-coupon':
                     if(typeof this.applyCoupon === 'function') this.applyCoupon();
@@ -91,15 +128,13 @@ const ClientSystem = {
                     if(typeof this.removeCoupon === 'function') this.removeCoupon();
                     break;
 
-                // ⚙️ أحداث القوائم المنسدلة (كبسولة العملات وغيرها) - 🌟 التحديث الجديد
+                // ⚙️ أحداث القوائم المنسدلة (كبسولة العملات وغيرها)
                 case 'toggle-dropdown':
-                    // البحث عن العنصر الحاوي للقائمة لفتحه أو إغلاقه
                     const dropWrapper = target.closest('.custom-dropdown') || target.parentElement;
                     if (dropWrapper) dropWrapper.classList.toggle('open');
                     break;
 
                 case 'select-dropdown-item':
-                    // عند اختيار عنصر من الكبسولة (مثل العملة)
                     if(typeof this.selectDropdownItem === 'function') this.selectDropdownItem(target);
                     break;
 
@@ -121,17 +156,13 @@ const ClientSystem = {
                     if(typeof this.openFavorites === 'function') this.openFavorites();
                     break;
 
-                // 🪪 أحداث الهوية والملف الشخصي (uiAuth Integration)
+                // 🪪 أحداث الهوية والملف الشخصي
                 case 'select-country':
                     e.preventDefault();
                     const name = target.getAttribute('data-name');
                     const code = target.getAttribute('data-code');
                     const len = target.getAttribute('data-len');
-                    
-                    // 🌟 استدعاء الدالة المسؤولة عن الاختيار الموحد من ملف uiAuth.js
-                    if(typeof this.selectCountry === 'function') {
-                        this.selectCountry(name, code, len);
-                    }
+                    if(typeof this.selectCountry === 'function') this.selectCountry(name, code, len);
                     break;
 
                 case 'show-phone-toast':
@@ -167,10 +198,12 @@ const ClientSystem = {
                     break;
             }
         });
-    }
-}; 
+    } // 🌟 إغلاق دالة initGlobalListeners
+}; // 🌟 إغلاق كائن ClientSystem بالكامل (هنا كان الخلل!)
 
+// ============================================================================
 // 🔗 دمج الوحدات (Facade Pattern) - تجميع آمن للمكونات
+// ============================================================================
 const modules = [DataManager, UIManager, RenderManager, Components, Utils];
 modules.forEach(mod => {
     if (!mod) return;
@@ -187,19 +220,18 @@ modules.forEach(mod => {
         }
     });
 });
+
 // ============================================================================
 // 🔄 محرك المزامنة الحي (Real-time Firebase Sync Engine) - النسخة الآمنة
 // ============================================================================
 ClientSystem.initFirebaseListeners = function() {
     console.log("📡 جاري تشغيل مستمعات السحابة الحية (المحمية)...");
     
-    // 🌟 تنظيف أي استماع سابق قبل بدء استماع جديد
     this.clearFirebaseListeners();
 
     // 1. الإعدادات والتنبيهات العامة (مسموحة للجميع)
     if (DB_KEYS.SETTINGS) {
         const unsubSettings = StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
-            // 🌟 الإصلاح الأول: تحويل المصفوفة إلى كائن نقي لتتمكن الدوال من قراءته
             LiveStoreData.settings = Array.isArray(data) ? (data[0] || {}) : (data || {});
             
             RenderHelpers.init({
@@ -214,7 +246,6 @@ ClientSystem.initFirebaseListeners = function() {
                 UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
             }
 
-            // 🌟 الإصلاح الثاني والذهبي: إجبار الواجهة على تحديث اللوغو والاسم فور وصول البيانات من السحابة!
             if (UIManager && typeof UIManager.applyStoreIdentity === 'function') {
                 UIManager.applyStoreIdentity();
             }
@@ -224,7 +255,7 @@ ClientSystem.initFirebaseListeners = function() {
 
     if (DB_KEYS.ALERTS) {
         const unsubAlerts = StoreDB.listenCollection(DB_KEYS.ALERTS, (data) => {
-            LiveStoreData.alerts = Object.freeze([...data]); // تجميد البيانات
+            LiveStoreData.alerts = Object.freeze([...data]); 
             requestAnimationFrame(() => {
                 if (UIManager && typeof UIManager.processAndDisplayAlerts === 'function') UIManager.processAndDisplayAlerts();
                 if (UIManager && typeof UIManager.updateNotifBadges === 'function') UIManager.updateNotifBadges();
@@ -236,7 +267,6 @@ ClientSystem.initFirebaseListeners = function() {
     // 2. البيانات الخاصة (تُجلب للعميل المسجل فقط وبناءً على المعرّف الخاص به)
     const uid = localStorage.getItem('telecard_active_user_uid');
     if (uid) {
-        // جلب ملف العميل الشخصي فقط وليس جدول المستخدمين!
         if (StoreDB.listenDoc) {
             const unsubUser = StoreDB.listenDoc(DB_KEYS.USERS, uid, (userData) => {
                 if (userData) {
@@ -250,13 +280,9 @@ ClientSystem.initFirebaseListeners = function() {
             this.activeListeners.push(unsubUser);
         }
 
-        // جلب طلبات وإيداعات العميل فقط عبر فلتر ذكي (Query)
         if (StoreDB.listenQuery) {
             const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', uid], (data) => {
-                // 🌟 تجميد المصفوفة لمنع تضارب البيانات أثناء الرسم (Race Condition Fix)
                 LiveStoreData.orders = Object.freeze([...data]);
-                
-                // 🌟 جدولة عملية الرسم لتمشي بسلاسة مع المتصفح
                 requestAnimationFrame(() => {
                     if (UIManager && typeof UIManager.renderOrders === 'function') UIManager.renderOrders();
                 });
@@ -285,22 +311,19 @@ ClientSystem.init = async function() {
 
         if(typeof UIManager.applySavedTheme === 'function') UIManager.applySavedTheme();
         
-        // 📥 1. التحميل الأولي للبيانات الثابتة (يتم مرة واحدة لتوفير التكلفة)
+        // 📥 1. التحميل الأولي للبيانات الثابتة
         if (StoreDB) {
             try {
-                // 🚨 تم إزالة 'VAULT' من هنا نهائياً لحماية الأكواد السرية!
                 const staticKeys = ['CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
-
                 
                 const fetchPromises = staticKeys.map(k => StoreDB.getAll(DB_KEYS[k]));
                 const results = await Promise.all(fetchPromises);
                 
                 staticKeys.forEach((keyName, i) => {
                     const property = keyName.toLowerCase(); 
-                    LiveStoreData[property] = Object.freeze([...(results[i] || [])]); // تطبيق التجميد للبيانات الثابتة أيضاً
+                    LiveStoreData[property] = Object.freeze([...(results[i] || [])]); 
                 });
 
-                // ✅ حقن البيانات فوراً للمحرك المالي قبل بدء رسم الواجهة
                 RenderHelpers.init({
                     settings: LiveStoreData.settings || {},
                     rates: LiveStoreData.rates || [],
@@ -313,6 +336,20 @@ ClientSystem.init = async function() {
                 console.error("❌ فشل تحميل البيانات الحيوية من السحابة:", error); 
             }
         }
+
+        // ⏱️ 2. مزامنة التوقيت السحابي (Time Sync)
+        try {
+            if (DataManager && typeof DataManager._getCloudFunction === 'function') {
+                const getServerTimeFn = DataManager._getCloudFunction('getServerTime');
+                const timeRes = await getServerTimeFn();
+                const serverMs = timeRes.data.serverTime;
+                DataManager.serverTimeOffset = serverMs - Date.now();
+                console.log(`⏱️ تمت مزامنة التوقيت السحابي بنجاح. الفارق: ${DataManager.serverTimeOffset}ms`);
+            }
+        } catch (timeErr) {
+            console.warn("⚠️ تعذر مزامنة التوقيت مع السيرفر، سيتم الاعتماد على الوقت المحلي كإجراء احتياطي.");
+            DataManager.serverTimeOffset = 0;
+        }
         
         if (UIManager.checkSystemStatus && UIManager.checkSystemStatus()) return;
         
@@ -322,7 +359,6 @@ ClientSystem.init = async function() {
 
         const savedDisplayCurr = localStorage.getItem('telecard_display_currency');
 
-        // إعطاء الأولوية للعملة المحفوظة، ثم لعملة العرض الافتراضية التي حددها الأدمن
         DataManager.selectedCurr = savedDisplayCurr || adminDefaultCurrency;
 
         // ⚙️ تهيئة حالة المستخدم والإعدادات
