@@ -1,7 +1,7 @@
 // ============================================================================
 // 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - ES6 Module
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
-// 🚀 التحديث: تطبيق تفويض الأحداث (Event Delegation) وتحسين أداء DOM Fragments
+// 🚀 التحديث: ملف كامل غير مختصر مع إصلاح مطابقة الـ UID السحابية
 // ============================================================================
 
 import { DB_KEYS } from './config.js'; 
@@ -10,6 +10,13 @@ import { DataManager, LiveStoreData, StoreDB } from './dataManager.js';
 import { UIManager } from './ui/uiManager.js'; 
 import { Components } from './components.js'; 
 import { RenderHelpers } from './core/renderHelpers.js'; 
+
+const _safeTime = (ts) => {
+    if (!ts) return null;
+    if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
+    if (ts.seconds) return ts.seconds * 1000; 
+    return ts; 
+};
 
 export const RenderManager = {
     highlightId: null,
@@ -33,18 +40,14 @@ export const RenderManager = {
         return posMap[posStr] || posStr || defaultPos;
     },
 
-    // 🌟 القاضي المركزي: الدالة الوحيدة المسؤولة عن تخطيط الأعمدة في المتجر بالكامل
     _applyGridLayout: function(gridElement, settings = {}, overrideCols = null) {
         if (!gridElement) return;
         
-        // هل الأدمن قام بتفعيل التخطيط المخصص (تزامن الشبكة)؟
         if (settings.syncGridLayout) {
-            // نأخذ تخطيط القسم (إن وجد)، أو التخطيط العام، أو الافتراضي (2)
             const cols = overrideCols || settings.rootLayout || 2;
             gridElement.style.setProperty('--layout-cols', cols);
-            localStorage.setItem('store_layout_cols', cols); // حفظه لتستخدمه النبضات فوراً
+            localStorage.setItem('store_layout_cols', cols); 
         } else {
-            // إذا كان التخطيط المخصص مغلقاً من الإدارة، نمسح المتغير ليأخذ المتصفح تخطيط CSS الافتراضي (الذي يعطي 4 للكمبيوتر و 2 للجوال)
             gridElement.style.removeProperty('--layout-cols');
             localStorage.removeItem('store_layout_cols');
         }
@@ -87,7 +90,6 @@ export const RenderManager = {
             if(grid) {
                 grid.innerHTML = '';
                 UIManager.setGridMode('grid-cats');
-                // 🌟 توحيد القرار: نمرر null لتعتمد الرئيسية دائماً على التخطيط العام للمتجر
                 this._applyGridLayout(grid, settings, null);
             }
 
@@ -100,10 +102,8 @@ export const RenderManager = {
             }
 
             const fragment = document.createDocumentFragment();
-            // 🌟 استخراج الأقسام الأساسية لفحص عددها
             const rootCats = cats.filter(c => !c.parentId).sort((a,b) => (a.order||0)-(b.order||0));
             
-            // 🌟 إضافة حالة الفراغ الذكية للصفحة الرئيسية
             if (rootCats.length === 0) {
                 if (grid) {
                     grid.innerHTML = `
@@ -117,7 +117,6 @@ export const RenderManager = {
                 rootCats.forEach(c => {
                      const div = document.createElement('div');
                      div.className = 'cat-card';
-                     // 🌟 التوجيه الذكي باستخدام data-action
                      div.setAttribute('data-action', 'open-category');
                      div.setAttribute('data-id', c.id);
                      
@@ -139,9 +138,6 @@ export const RenderManager = {
         }, 500); 
     },
 
-    // =========================================================
-    // 🧠 النبضات الديناميكية للأقسام (Skeletons)
-    // =========================================================
     renderHomeSkeletons: function() {
         const grid = document.getElementById('store-grid');
         if (grid) {
@@ -150,7 +146,7 @@ export const RenderManager = {
             }
 
             const settings = (LiveStoreData && LiveStoreData.settings) ? LiveStoreData.settings : {};
-            let activeCols = window.innerWidth > 768 ? 4 : 2; // تخطيط CSS الافتراضي كبداية
+            let activeCols = window.innerWidth > 768 ? 4 : 2; 
 
             if (settings.syncGridLayout) {
                 activeCols = settings.rootLayout || parseInt(localStorage.getItem('store_layout_cols')) || 2;
@@ -216,9 +212,6 @@ export const RenderManager = {
         container.innerHTML = skeletonsHTML;
     },
 
-    // =========================================================
-    // 🚀 المولد المركزي لكروت المنتجات 
-    // =========================================================
     _createProductCard: function(p, idx) {
         const rates = DataManager.getRates();
         const displayCurrency = DataManager.selectedCurr || 'USD';
@@ -281,7 +274,6 @@ export const RenderManager = {
         const div = document.createElement('div'); 
         div.className = 'product-card'; 
         
-        // 🌟 التوجيه المركزي للاحداث: إضافة data-action ليعالجها script.js
         div.setAttribute('data-action', 'open-product');
         div.setAttribute('data-id', p.id);
         
@@ -298,16 +290,13 @@ export const RenderManager = {
                 ${priceSectionHtml}
             </div>`;
 
-        // 🌟 تم مسح div.onclick بالكامل للاعتماد على التفويض العام
-
         return div;
     },
 
-        updateStoreTimers: function() {
+    updateStoreTimers: function() {
         const timers = document.querySelectorAll('.live-countdown');
         if (timers.length === 0) return;
         
-        // 🌟 استخدام الوقت السحابي المتزامن بدلاً من توقيت جهاز العميل
         const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
         
         timers.forEach(el => {
@@ -330,7 +319,6 @@ export const RenderManager = {
         const storiesContainer = document.getElementById('offer-stories-bar');
         if (!storiesContainer) return;
 
-        // 🌟 استخدام الوقت السحابي المتزامن
         const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
         
         const activeOffers = (LiveStoreData.offers || []).filter(o => o.isActive && o.visualConfig?.storyEnabled && (!o.expiryDate || o.expiryDate > now));
@@ -384,7 +372,6 @@ export const RenderManager = {
                     storyImgHtml = `<div class="default-prod-icon" style="display: flex; width: 100%; height: 100%;"><i class="fa-solid fa-box-open"></i></div>`;
                 }
 
-                // 🌟 استخدام data-action
                 storiesHtml += `
                 <div class="story-item clickable" data-action="open-product" data-id="${prod.id}">
                     <div class="story-ring ${shapeClass} ${bColorClass}" style="${shapeStyle}">
@@ -407,6 +394,7 @@ export const RenderManager = {
             storiesContainer.style.display = 'none';
         }
     },
+    
     _getCategoryName: function(id) {
         try {
             const target = (LiveStoreData.cats || []).find(c => Number(c.id) === Number(id));
@@ -443,7 +431,7 @@ export const RenderManager = {
             const newBtn = backBtn.cloneNode(true); 
             backBtn.parentNode.replaceChild(newBtn, backBtn);
             setTimeout(() => newBtn.classList.add('show'), 10);
-            newBtn.setAttribute('data-action', 'go-back'); // Optional delegation
+            newBtn.setAttribute('data-action', 'go-back');
             newBtn.onclick = (e) => { e.preventDefault(); UIManager._manualGoBack(); };
         }
 
@@ -579,7 +567,7 @@ export const RenderManager = {
     },
 
     // =========================================================
-    // 🌟 نافذة المفضلة الفاخرة (منطقة الحل الجذري)
+    // 🌟 نافذة المفضلة الفاخرة
     // =========================================================
     renderFavorites: function() {
         document.body.classList.remove('is-home');
@@ -615,20 +603,19 @@ export const RenderManager = {
             gridTitle.classList.add('show-correct-title');
         }
 
-if (favProds.length === 0) {
-    grid.innerHTML = `
-        <div class="empty-state-v2">
-            <i class="fa-solid fa-heart-circle-plus"></i>
-            <h3>لا توجد منتجات مفضلة بعد</h3>
-            <p>
-                أضف المنتجات للمفضلة عبر الضغط على أيقونة القلب داخل نافذة الشراء،
-                أو بالنقر مرتين على صورة المنتج.
-            </p>
-        </div>`;
-    
-    UIManager.setGridMode('grid-prods');
-    return;
-}        const fragment = document.createDocumentFragment();
+        if (favProds.length === 0) {
+            grid.innerHTML = `
+                <div class="empty-state-v2">
+                    <i class="fa-solid fa-heart-circle-plus"></i>
+                    <h3>لا توجد منتجات مفضلة بعد</h3>
+                    <p>أضف المنتجات للمفضلة عبر الضغط على أيقونة القلب داخل نافذة الشراء، أو بالنقر مرتين على صورة المنتج.</p>
+                </div>`;
+            
+            UIManager.setGridMode('grid-prods');
+            return;
+        }        
+        
+        const fragment = document.createDocumentFragment();
         favProds.forEach((p, idx) => fragment.appendChild(this._createProductCard(p, idx)));
         grid.appendChild(fragment);
         
@@ -667,8 +654,13 @@ if (favProds.length === 0) {
         if (icon) icon.className = isFav ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
     },
 
-        renderWallet: function() {
-        DataManager.updateWalletStats();
+    // ========================================================================
+    // 💳 المحفظة والإيداعات والطلبات (تم الإصلاح لمنع تجميد النظام)
+    // ========================================================================
+    renderWallet: function() {
+        if (typeof DataManager.updateWalletStats === 'function') {
+            DataManager.updateWalletStats();
+        }
         
         const filterData = Utils.getSearchAndDateFilters('wallet', 'wallet');
         if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
@@ -680,26 +672,28 @@ if (favProds.length === 0) {
 
         const user = DataManager.user || { id: 0, balance: 0, totalSpent: 0, totalDeposit: 0, baseCurrency: 'USD' };
         const walletCurr = (user.baseCurrency || user.base_currency || 'USD').toUpperCase();
+        const uid = localStorage.getItem('telecard_active_user_uid') || String(user.id);
         
         const deps = LiveStoreData.deposits || [];
         const ords = LiveStoreData.orders || [];
 
-        // 🌟 المترجم الزمني المحلي الآمن
-        const getTime = (item) => DataManager._safeTime ? DataManager._safeTime(item.time || item.createdAt) : (item.time || item.createdAt);
+        const getTime = (item) => _safeTime(item.time || item.createdAt);
 
-        const deposits = deps.filter(d => Number(d.userId) === Number(user.id))
-            .map(d => {
-                const credited = d.creditedAmount !== undefined ? Number(d.creditedAmount) : Number(d.amount || 0);
-                return {
-                    ...d, type: 'deposit', amountVal: Math.abs(credited),
-                    amountCurrency: d.targetCurrency || walletCurr,
-                    searchKey: `شحن deposit ${credited} #${d.displayId || d.id}`,
-                    isDeduction: credited < 0
-                };
-            });
+        // ✅ تم إصلاح الـ Syntax القاتل وحذف الفاصلة المنقوطة
+        const deposits = deps.filter(d => String(d.userId) === String(uid)).map(d => {
+            const credited = d.creditedAmount !== undefined ? Number(d.creditedAmount) : Number(d.amount || 0);
+            return {
+                ...d, type: 'deposit', amountVal: Math.abs(credited),
+                amountCurrency: d.targetCurrency || walletCurr,
+                searchKey: `شحن deposit ${credited} #${d.displayId || d.id}`,
+                isDeduction: credited < 0
+            };
+        });
         
-        const orders = ords.filter(o => Number(o.userId) === Number(user.id))
-            .map(o => ({...o, type: 'purchase', amountVal: Number(o.price || 0), amountCurrency: o.priceCurrency || walletCurr, searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id}`}));
+        // ✅ استخدام uid السحابي بدلاً من الأرقام
+        const orders = ords.filter(o => String(o.userId) === String(uid)).map(o => ({
+            ...o, type: 'purchase', amountVal: Number(o.price || 0), amountCurrency: o.priceCurrency || walletCurr, searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id}`
+        }));
 
         let allTransactions = [...deposits, ...orders];
         
@@ -709,12 +703,11 @@ if (favProds.length === 0) {
         const depDisp = document.getElementById('wallet-total-deposit');
         if(depDisp) depDisp.innerHTML = RenderHelpers.formatMoney(user.totalDeposit || 0, walletCurr);
 
-        // 🌟 تطبيق المترجم الزمني للفرز التصاعدي (مهم جداً لبناء الرصيد التراكمي بشكل صحيح)
         allTransactions.sort((a, b) => getTime(a) - getTime(b));
 
         let historySum = 0;
         allTransactions.forEach(tx => {
-            let amt = parseFloat(tx.amountVal);
+            let amt = parseFloat(tx.amountVal) || 0;
             if (tx.type === 'deposit' && tx.status === 'approved') {
                 if (tx.isDeduction) historySum -= amt; else historySum += amt;
             } else if (tx.type === 'purchase' && !['rejected', 'refunded', 'returned'].includes(tx.status)) {
@@ -724,7 +717,7 @@ if (favProds.length === 0) {
 
         let currentRunningBalance = (Number(user.balance) || 0) - historySum;
         const processedList = allTransactions.map(tx => {
-            let amount = parseFloat(tx.amountVal);
+            let amount = parseFloat(tx.amountVal) || 0;
             if (tx.type === 'deposit' && tx.status === 'approved') {
                 if (tx.isDeduction) currentRunningBalance -= amount; else currentRunningBalance += amount;
             } else if (tx.type === 'purchase' && !['rejected', 'refunded', 'returned'].includes(tx.status)) {
@@ -739,7 +732,6 @@ if (favProds.length === 0) {
         
         if(q) finalView = finalView.filter(t => t.searchKey.toLowerCase().includes(q));
         
-        // 🌟 تطبيق المترجم الزمني على الفلترة
         if(tStart) finalView = finalView.filter(t => getTime(t) >= tStart);
         if(tEnd) finalView = finalView.filter(t => getTime(t) <= tEnd);
         
@@ -750,8 +742,7 @@ if (favProds.length === 0) {
             const isDep = tx.type === 'deposit';
             let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
             
-            // 🌟 استخدام الوقت الآمن للتهيئة
-            let formattedDate = DataManager.formatDateLocal(tx.time || tx.createdAt);
+            let formattedDate = DataManager.formatDateLocal ? DataManager.formatDateLocal(tx.time || tx.createdAt) : '---';
 
             if (isDep) {
                 if (tx.status === 'approved') {
@@ -786,8 +777,6 @@ if (favProds.length === 0) {
             }
 
             const jumpType = isDep ? 'deposit' : 'purchase';
-            
-            // 🌟 استخدام الآيدي التسلسلي النقي بدون أي Substring
             const shortTxId = tx.displayId || tx.id;
 
             generatedHTML += `
@@ -822,6 +811,7 @@ if (favProds.length === 0) {
      
         list.innerHTML = generatedHTML;
     },
+
     renderPayMethods: function() {
         const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container') || document.querySelector('.bal-methods-grid') || document.getElementById('pay-methods-list');
         if (!container) return;
@@ -836,7 +826,6 @@ if (favProds.length === 0) {
             return;
         }
 
-        // 🌟 استخدام DocumentFragment لتحسين الأداء
         const fragment = document.createDocumentFragment();
 
         validPayments.forEach(p => {
@@ -848,7 +837,6 @@ if (favProds.length === 0) {
             const card = document.createElement('div');
             card.className = 'pay-card-select';
             
-            // 🌟 استخدام data-action
             card.setAttribute('data-action', 'select-pay');
             card.setAttribute('data-id', p.id);
             
@@ -868,7 +856,7 @@ if (favProds.length === 0) {
         container.appendChild(fragment);
     },
 
-        renderPayments: function() {
+    renderPayments: function() {
         const list = document.getElementById('mypay-list');
         const template = document.getElementById('payment-card-template');
         if(!list || !template) return;
@@ -877,19 +865,20 @@ if (favProds.length === 0) {
         if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
 
+        const uid = localStorage.getItem('telecard_active_user_uid');
         const user = DataManager.user || { id: 0 };
         const allDeposits = LiveStoreData.deposits || [];
-        let myDeposits = allDeposits.filter(d => Number(d.userId) === Number(user.id));
+        
+        // ✅ استخدام uid السحابي
+        let myDeposits = allDeposits.filter(d => String(d.userId) === String(uid));
 
-        // 🌟 المترجم الزمني المحلي الآمن (لمنع خطأ NaN عند قراءة وقت فايربيز)
-        const getTime = (item) => DataManager._safeTime ? DataManager._safeTime(item.time || item.createdAt) : (item.time || item.createdAt);
+        const getTime = (item) => _safeTime(item.time || item.createdAt);
 
         const filters = DataManager.filters || { payments: 'all' };
         if (filters.payments !== 'all') myDeposits = myDeposits.filter(d => d.status === filters.payments);
         
         if (q) myDeposits = myDeposits.filter(d => d.id.toString().includes(q) || d.method?.toLowerCase().includes(q));
         
-        // 🌟 تطبيق المترجم الزمني على الفلترة والفرز
         if (tStart) myDeposits = myDeposits.filter(d => getTime(d) >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => getTime(d) <= tEnd);
 
@@ -936,12 +925,10 @@ if (favProds.length === 0) {
             
             clone.querySelector('.ph-fee-pct').textContent = `(${feesPct}%)`;
 
-            // 🌟 استخدام الوقت الآمن للتهيئة (لا تعتمد على Date.now محلي)
-            let formattedDate = DataManager.formatDateLocal(d.time || d.createdAt);
+            let formattedDate = DataManager.formatDateLocal ? DataManager.formatDateLocal(d.time || d.createdAt) : '---';
             const miniDateEl = clone.querySelector('.ph-date-mini');
             if(miniDateEl) miniDateEl.innerHTML = formattedDate.replace(' | ', ' <span class="date-sep">|</span> ');
 
-            // 🌟 استخدام الآيدي التسلسلي النقي بدون أي Substring
             const shortDepositId = d.displayId || d.id;
             const idEl = clone.querySelector('.ph-id');
             idEl.textContent = '#' + shortDepositId;
@@ -949,15 +936,12 @@ if (favProds.length === 0) {
             idEl.setAttribute('data-action', 'copy-text');
             idEl.setAttribute('data-text', shortDepositId.toString());
 
-            clone.querySelector('.ph-sender').innerHTML = UIManager._getTxNameWithID(user);
+            clone.querySelector('.ph-sender').innerHTML = (UIManager && UIManager._getTxNameWithID) ? UIManager._getTxNameWithID(user) : 'العميل';
             clone.querySelector('.ph-full-time').textContent = formattedDate;
 
             if(d.receiptImage || d.receipt){
                 const imgBox = clone.querySelector('.ph-receipt-img-box');
-                if(imgBox) {
-                    imgBox.style.display = 'block';
-                    imgBox.querySelector('img').src = Utils.escapeHtml(d.receiptImage || d.receipt);
-                }
+                if(imgBox) { imgBox.style.display = 'block'; imgBox.querySelector('img').src = Utils.escapeHtml(d.receiptImage || d.receipt); }
             }
 
             header.setAttribute('data-action', 'toggle-accordion');
@@ -965,25 +949,12 @@ if (favProds.length === 0) {
             if (d.adminNote?.trim()) {
                 const safeAdminNote = Utils.escapeHtml(d.adminNote);
                 const noteStateClass = d.status === 'rejected' ? 'note-rejected' : (['approved', 'completed'].includes(d.status) ? 'note-approved' : '');
-                
                 const noteDiv = document.createElement('div');
                 noteDiv.className = `ph-admin-note ${noteStateClass}`;
-                noteDiv.innerHTML = `
-                    <i class="fa-solid fa-headset"></i>
-                    <div class="ph-admin-note-content">
-                        <div style="flex: 1;">
-                            <span class="ph-admin-note-title">رسالة من الإدارة:</span>
-                            <div class="admin-reply-text">${safeAdminNote}</div>
-                        </div>
-                        <button class="reply-copy-btn" data-action="copy-text" data-text="${safeAdminNote.replace(/"/g, '&quot;')}">
-                            <i class="fa-regular fa-copy"></i>
-                        </button>
-                    </div>`;
-                
+                noteDiv.innerHTML = `<i class="fa-solid fa-headset"></i><div class="ph-admin-note-content"><div style="flex: 1;"><span class="ph-admin-note-title">رسالة من الإدارة:</span><div class="admin-reply-text">${safeAdminNote}</div></div><button class="reply-copy-btn" data-action="copy-text" data-text="${safeAdminNote.replace(/"/g, '&quot;')}"><i class="fa-regular fa-copy"></i></button></div>`;
                 const detailsBody = clone.querySelector('.ph-details-body') || card;
                 const footerAction = clone.querySelector('.ph-footer-action');
-                if (footerAction) detailsBody.insertBefore(noteDiv, footerAction);
-                else detailsBody.appendChild(noteDiv);
+                if (footerAction) detailsBody.insertBefore(noteDiv, footerAction); else detailsBody.appendChild(noteDiv);
             }
             fragment.appendChild(clone);
         });
@@ -991,7 +962,7 @@ if (favProds.length === 0) {
         list.appendChild(fragment);
     },
 
-        renderOrders: function() {
+    renderOrders: function() {
         if (typeof window.updateBottomNavState === 'function') window.updateBottomNavState('orders');
 
         const filterData = Utils.getSearchAndDateFilters('order', 'order');
@@ -1002,24 +973,23 @@ if (favProds.length === 0) {
         if (!list) return;
         list.innerHTML = '';
         
-        const user = DataManager.user || { id: 0 };
+        const uid = localStorage.getItem('telecard_active_user_uid');
         const allOrders = LiveStoreData.orders || [];
         const prods = LiveStoreData.prods || [];
 
-        // 🌟 المترجم الزمني المحلي الآمن للفرز والفلترة
-        const getTime = (item) => DataManager._safeTime ? DataManager._safeTime(item.time || item.createdAt) : (item.time || item.createdAt);
+        const getTime = (item) => _safeTime(item.time || item.createdAt);
 
-        let orders = allOrders.filter(o => Number(o.userId) === Number(user.id));
+        // ✅ استخدام uid السحابي
+        let orders = allOrders.filter(o => String(o.userId) === String(uid));
 
         const filters = DataManager.filters || { orders: 'all' };
         if (filters.orders !== 'all') orders = orders.filter(o => o.status === filters.orders);
         
         if (q) orders = orders.filter(o => o.id.toString().includes(q) || o.product?.toLowerCase().includes(q)); 
-        // 🌟 تطبيق المترجم الزمني على الفلترة
+        
         if (tStart) orders = orders.filter(o => getTime(o) >= tStart);
         if (tEnd) orders = orders.filter(o => getTime(o) <= tEnd);
 
-        // 🌟 تطبيق المترجم الزمني على الفرز (لمنع خطأ NaN)
         orders.sort((a, b) => getTime(b) - getTime(a));
         
         if (!q && !dStart && !dEnd) orders = orders.slice(0, 15);
@@ -1068,39 +1038,29 @@ if (favProds.length === 0) {
             if (totalDiscLocal > 0) {
                 const isCombo  = (cDiscountLocal > 0 && oDiscountLocal > 0);
                 const isCoupon = cDiscountLocal > 0;
-
                 const colorClass = isCombo ? 'badge-combo' : (isCoupon ? 'badge-coupon' : 'badge-sale');
                 const discIcon   = isCombo ? 'fa-gift'      : (isCoupon ? 'fa-ticket' : 'fa-tag');
                 const discText   = isCombo ? 'توفير مضاعف' : (isCoupon ? 'كوبون' : 'تخفيض');
 
-                discountBadgeHtml = `
-                    <div class="oh-discount-badge ${colorClass}">
-                        <i class="fa-solid ${discIcon}"></i> 
-                        <span>${discText}</span>
-                        <span class="num-en">(-${RenderHelpers.formatMoney(totalDiscLocal, displayCurr)})</span>
-                    </div>`;
+                discountBadgeHtml = `<div class="oh-discount-badge ${colorClass}"><i class="fa-solid ${discIcon}"></i> <span>${discText}</span><span class="num-en">(-${RenderHelpers.formatMoney(totalDiscLocal, displayCurr)})</span></div>`;
             }
 
             const cardElement = document.createElement('div');
             const isJumped = (this.highlightId && String(o.id) === String(this.highlightId)) ? 'jump-highlight' : '';
             cardElement.className = `oh-card ${isJumped}`.trim();
             cardElement.style.setProperty('--anim-idx', idx);
-            
             cardElement.setAttribute('data-action', 'open-detail');
             cardElement.setAttribute('data-type', 'order');
             cardElement.setAttribute('data-id', o.id);
 
-            // 🌟 استخدام الآيدي التسلسلي النقي والوقت الآمن
             const shortOrderId = o.displayId || o.id;
-            let formattedDate = DataManager.formatDateLocal(o.time || o.createdAt);
+            let formattedDate = DataManager.formatDateLocal ? DataManager.formatDateLocal(o.time || o.createdAt) : '---';
 
             cardElement.innerHTML = `
                 <div class="oh-right">
                     ${discountBadgeHtml} 
                     <div class="oh-title">${Utils.escapeHtml(productName)}</div> 
-                    <div class="oh-inputs-stack">
-                        ${inputRows.map(row => `<div class="oh-input-line num-en">${Utils.escapeHtml(row)}</div>`).join('')}
-                    </div>
+                    <div class="oh-inputs-stack">${inputRows.map(row => `<div class="oh-input-line num-en">${Utils.escapeHtml(row)}</div>`).join('')}</div>
                     <div class="oh-date-time num-en">${formattedDate}</div>
                 </div>
                 <div class="oh-left">
@@ -1114,6 +1074,7 @@ if (favProds.length === 0) {
         
         list.appendChild(fragment);
     },
+
     generatePDFReceipt: async function(config) {
         const printContainer = document.createElement('div');
         printContainer.id = 'pdf-export-container'; 
@@ -1198,7 +1159,7 @@ if (favProds.length === 0) {
     },
     
     exportReceipt: function(orderId) {
-        const o = (LiveStoreData.orders || []).find(x => Number(x.id) === Number(orderId) || String(x.id) === String(orderId));
+        const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
         if(!o) return;
 
         const finalDisplayId = o.displayId || o.id;
@@ -1207,9 +1168,8 @@ if (favProds.length === 0) {
         this.generatePDFReceipt({
             type: 'order', filename: `Order_${finalDisplayId}.pdf`,
             data: {
-                id: o.id, 
-                displayId: finalDisplayId,
-                userName: UIManager._getFullName?.(DataManager.user) || 'العميل',
+                id: o.id, displayId: finalDisplayId,
+                userName: (typeof UIManager !== 'undefined' && UIManager._getFullName) ? UIManager._getFullName(DataManager.user) : 'العميل',
                 userDisplayId: userShortId,
                 status: o.status, product: o.product, price: o.price, priceCurrency: o.priceCurrency,
                 qty: o.qty || 1, input: o.input || '---', dateTime: DataManager.formatDateLocal(o.time),
@@ -1219,7 +1179,7 @@ if (favProds.length === 0) {
     },
 
     exportPaymentReceipt: function(depositId) {
-        const d = (LiveStoreData.deposits || []).find(x => Number(x.id) === Number(depositId) || String(x.id) === String(depositId));
+        const d = (LiveStoreData.deposits || []).find(x => String(x.id) === String(depositId));
         if(!d) return;
 
         const finalDisplayId = d.displayId || d.id;
@@ -1228,11 +1188,9 @@ if (favProds.length === 0) {
         this.generatePDFReceipt({
             type: 'deposit', filename: `Deposit_${finalDisplayId}.pdf`,
             data: {
-                id: d.id, 
-                displayId: finalDisplayId,
+                id: d.id, displayId: finalDisplayId,
                 userName: (typeof UIManager !== 'undefined' && UIManager._getFullName) ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
-                userDisplayId: userShortId,
-                method: d.method || '---',
+                userDisplayId: userShortId, method: d.method || '---',
                 amount: d.amount, currency: d.currency, feePercent: d.feesPercent || 0,
                 feeVal: d.fees || 0, netVal: d.creditedAmount || d.amount,
                 targetCurrency: d.targetCurrency || 'USD', dateTime: DataManager.formatDateLocal(d.time)
@@ -1263,7 +1221,6 @@ if (favProds.length === 0) {
             const isRead = readIds.includes(String(alert.id));
             const iconClass = (alert.jumpTarget === 'order') ? 'fa-box-open' : 'fa-bullhorn';
             
-            // 🌟 استخدام data-action
             return `
             <div class="nc-item ${isRead ? '' : 'unread'}" data-action="mark-alert-read" data-id="${alert.id}">
                 <div class="nc-icon"><i class="fa-solid ${iconClass}"></i></div>
@@ -1293,7 +1250,6 @@ if (favProds.length === 0) {
             const dialCode = c.dialCode || '';
             const phoneLen = c.phoneLen || 10;
 
-            // 🌟 استخدام data-action
             return `
             <div class="dropdown-item" data-action="select-country" data-name="${countryName}" data-code="${dialCode}" data-len="${phoneLen}">
                 <span style="margin-left: 8px;">${countryFlag}</span>

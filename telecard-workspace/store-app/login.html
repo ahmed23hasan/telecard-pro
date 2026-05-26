@@ -292,6 +292,7 @@
     });
 
     // === 4. تسجيل الدخول الفعلي عبر جوجل ===
+      // === 4. تسجيل الدخول الفعلي عبر جوجل (النسخة المصلحة) ===
     async function handleGoogleLogin() {
         const btn = document.querySelector('.google-btn');
         const originalText = btn.innerHTML;
@@ -330,7 +331,7 @@
                     balance: 0,
                     totalSpent: 0,
                     totalDeposit: 0,
-                    tierId: 1,
+                    tierId: "", // 🌟 الإصلاح الجذري: ترك المعرف فارغاً ليتولى النظام تعيين المستوى الافتراضي (عادي) بشكل ديناميكي
                     createdAt: Date.now()
                 };
 
@@ -349,15 +350,27 @@
             }
             
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
-            const toast = document.getElementById('successToast');
-            if (toast) toast.classList.add('show');
-            setTimeout(() => { window.location.href = "store.html"; }, 1500);
+            
+            // 🌟 الإصلاح: إعطاء العميل استجابة بصرية بنجاح العملية بدلاً من التوست المفقود
+            btn.style.background = "var(--success-green, #10b981)";
+            btn.style.color = "#fff";
+            btn.style.border = "none";
+            btn.innerHTML = "تم تسجيل الدخول بنجاح ✔";
+            
+            setTimeout(() => { window.location.href = "store.html"; }, 1000);
             
         } catch (error) {
             console.error("Google Auth Error:", error);
             btn.innerHTML = originalText;
             btn.style.opacity = '1';
             btn.disabled = false;
+            
+            // 🌟 الإصلاح: إظهار الخطأ للعميل ليعرف ماذا حدث
+            if (error.code === 'auth/popup-closed-by-user') {
+                showError('identifier', 'identifierError', "تم إغلاق نافذة الدخول قبل إتمام العملية.");
+            } else {
+                showError('identifier', 'identifierError', "تعذر تسجيل الدخول بواسطة جوجل. تأكد من اتصالك.");
+            }
         }
     }
 

@@ -136,7 +136,6 @@ export const FirebaseAdapter = {
             }
         });
     },
-
     // 📡 9. الاستماع الحي بفلتر ذكي (ضرورية لطلبات وإيداعات العميل فقط)
     listenQuery(collectionName, condition, callback) {
         try {
@@ -145,10 +144,13 @@ export const FirebaseAdapter = {
                 const arr = [];
                 snapshot.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
                 callback(arr);
+            }, (error) => {
+                // 🌟 الإصلاح: التقاط الأخطاء الصامتة (مثل نقص الـ Index أو رفض قواعد الأمان)
+                console.error(`🚨 تم رفض أو فشل الاستماع للمجموعة [${collectionName}]:`, error.message);
             });
         } catch (error) {
-            console.error(`🚨 خطأ في الاستماع المشروط للمجموعة [${collectionName}]: ${error.message}`);
-            return () => {}; // إرجاع دالة فارغة لتجنب الأخطاء عند إيقاف الاستماع
+            console.error(`🚨 خطأ في بناء استعلام المجموعة [${collectionName}]: ${error.message}`);
+            return () => {}; 
         }
     },
 

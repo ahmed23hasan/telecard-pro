@@ -1,7 +1,7 @@
 // ============================================================================
 // 💳 وحدة الدفع والمنتجات (uiFinance.js)
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديث: تفويض الأحداث، تحسين أداء DOM، وتطبيق مصدر الحقيقة الوحيد (SSOT)
+// 🚀 التحديث: إزالة أخطاء الـ Number() واستخدام String() للمطابقة السحابية
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -10,14 +10,11 @@ import { RenderManager } from '../renderManager.js';
 import { RenderHelpers } from '../core/renderHelpers.js';
 import { FirebaseAdapter } from '../core/firebaseAdapter.js';
 
-// 🌟 دالة مساعدة للوصول الآمن للمحرك المركزي وحل مشكلة فقدان السياق
-// ✅ دالة آمنة لجلب النظام تمنع انهيار الواجهة إذا لم يكتمل تحميل script.js
 const getSys = () => {
     if (window.ClientSystem) return window.ClientSystem;
     if (window.UIManager) return window.UIManager;
     
     console.warn("⚠️ تحذير: تم استدعاء النظام قبل اكتمال الإقلاع.");
-    // إعادة كائن وهمي (Proxy أو Object) بدوال فارغة لمنع أخطاء undefined is not a function
     return new Proxy({}, { get: () => () => {} }); 
 };
 
@@ -121,7 +118,8 @@ export const UIFinance = {
         getSys().resetUI?.();
 
         const prods = LiveStoreData.prods || [];
-        DataManager.currentProd = prods.find(p => p.id === id);
+        // 🌟 استخدام String بدلاً من المماثلة المباشرة لمنع الأخطاء
+        DataManager.currentProd = prods.find(p => String(p.id) === String(id));
         if (!DataManager.currentProd) return;
 
         const badgeContainer = document.getElementById('pm-badge-container');
@@ -398,7 +396,6 @@ export const UIFinance = {
             else totalInput.innerHTML = beautifulTotalHtml; 
         }
 
-                // استهداف العناصر عبر الـ ID مباشرة لضمان أعلى سرعة أداء في المتصفح
         const currPriceEl = document.getElementById('pm-price');
         const oldPriceEl = document.getElementById('oldPriceDisplay');
         const priceBox = document.getElementById('priceBox');
@@ -574,7 +571,8 @@ export const UIFinance = {
         const payments = LiveStoreData.payments || [];
         const modal = document.getElementById('balance-modal');
         
-        this.currentPayment = payments.find(p => Number(p.id) === Number(id));
+        // 🌟 استخدام String للمطابقة الآمنة
+        this.currentPayment = payments.find(p => String(p.id) === String(id));
         if (!this.currentPayment || !modal) return;
         
         modal.classList.add('is-step-2');
@@ -735,7 +733,6 @@ export const UIFinance = {
                 
                 const currTrigger = e.target.closest('.micro-currency-trigger');
                 if (currTrigger) {
-                    // ✅ فحص ديناميكي لعنصر القائمة بدلاً من المتغير المحتجز (Closure Fix)
                     const list = currTrigger.parentElement.querySelector('.dropdown-menu');
                     if (list && list.style.display !== 'none') {
                         currTrigger.parentElement.classList.toggle('open');
@@ -798,7 +795,6 @@ export const UIFinance = {
         if (actionBtn) {
             actionBtn.dataset.mode = mode;
             
-            // ✅ الإصلاح 1: إزالة الحدث المدمج في الـ HTML لمنع إغلاق النافذة الإجباري
             if (actionBtn.hasAttribute('onclick')) {
                 actionBtn.removeAttribute('onclick');
             }
@@ -806,7 +802,6 @@ export const UIFinance = {
             if (!actionBtn._boundBalClose) {
                 actionBtn.addEventListener('click', (e) => {
                     e.preventDefault();
-                    // ✅ الإصلاح 2: إيقاف أي مستمعات أحداث أخرى (Global Listeners) من التدخل
                     e.stopImmediatePropagation(); 
 
                     if (actionBtn.dataset.mode === 'back') {
@@ -1140,7 +1135,8 @@ export const UIFinance = {
 
         if(type === 'deposit') {
             const deposits = LiveStoreData.deposits || [];
-            const d = deposits.find(x => Number(x.id) === Number(id));
+            // 🌟 استخدام String للمطابقة الآمنة
+            const d = deposits.find(x => String(x.id) === String(id));
             if(!d) return;
 
             const shortDepositId = d.displayId || d.id;
@@ -1226,7 +1222,8 @@ export const UIFinance = {
             const orders = LiveStoreData.orders || [];
             const user = DataManager.user;
 
-            const o = orders.find(x => Number(x.id) === Number(id) && user && Number(x.userId) === Number(user.id));
+            // 🌟 استخدام String للمطابقة الآمنة
+            const o = orders.find(x => String(x.id) === String(id) && user && String(x.userId) === String(user.id));
 
             if(!o) {
                 getSys().showToast?.('لا يمكن العثور على تفاصيل هذا الطلب أو أنك لا تملك صلاحية لعرضه', 'error');

@@ -436,16 +436,18 @@ export const DataManager = {
         } catch(e) { console.error("Failed to acknowledge message", e); }
     },
 
-    updateWalletStats: function() {
+        updateWalletStats: function() {
         if(!this.user) return;
         const allOrders = LiveStoreData.orders || [];
+        
+        // 🌟 الإصلاح: استخدام String بدلاً من Number لمقارنة UID فايربيز
         const mySpent = allOrders
-            .filter(o => Number(o.userId) === Number(this.user.id) && o.status !== 'rejected' && o.status !== 'refunded')
+            .filter(o => String(o.userId) === String(this.user.id) && o.status !== 'rejected' && o.status !== 'refunded')
             .reduce((sum, order) => sum + Number(order.price || 0), 0);
             
         const allDeposits = LiveStoreData.deposits || [];
         const myDeposits = allDeposits
-            .filter(d => Number(d.userId) === Number(this.user.id) && d.status === 'approved')
+            .filter(d => String(d.userId) === String(this.user.id) && d.status === 'approved')
             .reduce((sum, dep) => {
                 const val = dep.creditedAmount !== undefined ? Number(dep.creditedAmount) : Number(dep.amount || 0);
                 return sum + (val > 0 ? val : 0);
