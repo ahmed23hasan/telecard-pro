@@ -1,7 +1,7 @@
 // ============================================================================
 // 💰 محرك رسم المالية (modules/finance/financeRender.js)
 // 🎯 الوظيفة: رسم الإيداعات، بوابات الدفع، المحافظ، والعملات، وتصديرها
-// 🚀 التحديث: تأمين الفلترة والفرز وتصدير الإكسل باستخدام المترجم الزمني المركزي
+// 🚀 التحديث: تأمين الفلترة والفرز وتصدير الإكسل باستخدام المترجم الزمني المركزي ومحرك المعرفات
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -210,9 +210,9 @@ export const FinanceRender = {
             // دالة التنظيف للحماية من ثغرات الإكسل وتنظيف الفواصل
             const sanitizeCSV = (str) => { let c = String(str).replace(/,/g, " "); if (/^[=@+-]/.test(c)) c = "'" + c; return c; };
 
-            // 🌟 التحديث: جلب بيانات العميل لاستخراج الرقم القصير والاسم
+            // 🌟 التحديث: جلب بيانات العميل واستخراج الرقم القصير باستخدام المحرك المركزي
             const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
-            const displayId = userRec && userRec.displayId ? userRec.displayId : 'غير متوفر';
+            const displayId = RenderHelpers.formatUserId(userRec);
             const customerName = sanitizeCSV(userRec ? (userRec.name || d.userName) : (d.userName || d.userId));
 
             const method = sanitizeCSV(d.method || d.methodName || 'إيداع غير محدد');
@@ -220,7 +220,10 @@ export const FinanceRender = {
             const curr = sanitizeCSV((d.currency || 'USD').toUpperCase());
             const status = d.status === 'approved' ? 'مقبول' : (d.status === 'rejected' ? 'مرفوض' : (d.status === 'refunded' ? 'مسترجع' : d.status));
             
-            csvContent += `${d.id},${dateStr},${customerName},${displayId},${method},${amount},${curr},${status}\n`;
+            // 🌟 التحديث: تنسيق رقم الإيداع
+            const formattedDepositId = RenderHelpers.formatDepositId(d);
+            
+            csvContent += `${formattedDepositId},${dateStr},${customerName},${displayId},${method},${amount},${curr},${status}\n`;
         });
         
         const filename = `Deposits_Report_${new Date().toISOString().split('T')[0]}.csv`;

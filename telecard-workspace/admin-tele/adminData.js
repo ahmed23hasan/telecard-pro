@@ -1,12 +1,13 @@
 // ============================================================================
 // 🗄️ مدير البيانات (adminData.js) - بنية ES Modules نقية 100% ☁️
 // 🎯 الوظيفة: إدارة حالة البيانات، الحسابات المركزية (SSOT)، وتوفير الفلاتر الذكية
-// 🌟 التحديث: محرك Smart Diffing للاتصال بـ Firebase Firestore بتكلفة شبه صفرية
+// 🌟 التحديث: محرك Smart Diffing للاتصال بـ Firebase، ودمج المنسق المركزي للمعرفات
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
 import { Utils } from './adminUtils.js'; 
 import { FirebaseAdapter } from './core/firebaseAdapter.js';
+import { RenderHelpers } from './core/renderHelpers.js';
 
 export const AdminData = {
     // 🌟 راية الأمان (Data Loss Firewall): تمنع مسح السحابة بالخطأ
@@ -379,15 +380,15 @@ export const AdminData = {
     },
 
     // 🌟 الحل الاحترافي لتأسيس السحابة: حقن مباشر لتجاوز الجدار الناري 
-        seedDefaultCountries: async function() {
+    seedDefaultCountries: async function() {
         console.warn("⚠️ جاري تأسيس بنية الدول في السحابة...");
         const defaultCountry = {
             id: 'COUNTRY_' + Utils.generateID(),
             name: 'السعودية',       
             code: 'SA',
             dialCode: '+966',
-            flag: '🇸🇦',          // 🌟 الحقل المفقود الذي تم إضافته
-            currency: 'SAR',     // 🌟 الحقل المفقود الذي تم إضافته
+            flag: '🇸🇦',          
+            currency: 'SAR',     
             isActive: true,
             createdAt: Date.now()
         };
@@ -414,13 +415,11 @@ export const AdminData = {
         this.data.tiers = [defaultTier]; 
         await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);
     },
+
     // ==========================================
-    // 🌟 العقل المحاسبي المركزي (تم ترحيله للسحابة لمنع اختناق المتصفح)
-    // ==========================================
-        // ==========================================
     // 🌟 العقل المحاسبي المركزي (تم ترحيله للسحابة بالكامل)
     // ==========================================
-        calculateAllStoreStats: async function() {
+    calculateAllStoreStats: async function() {
         console.log("🚀 جاري الاتصال بالسحابة لضبط الإحصائيات المركزية...");
         
         try {
@@ -594,10 +593,10 @@ export const AdminData = {
 
         let lbKey = leaderboardPeriod === 'this_month' ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` : (leaderboardPeriod === 'last_month' ? `${new Date(now.getFullYear(), now.getMonth()-1).getFullYear()}-${String(new Date(now.getFullYear(), now.getMonth()-1).getMonth()+1).padStart(2,'0')}` : '');
         
-        // 🌟 الإصلاح الجذري لمعرف العميل: تحويل الـ id إلى String لضمان عمل دالة substring
+        // 🌟 التحديث: استخدام المنسق المركزي بدلاً من القص اليدوي
         let leaderboard = (d.users || []).map(u => ({ 
             id: u.id, 
-            displayId: u.displayId || (u.id ? String(u.id).substring(0, 6) : '---'),
+            displayId: RenderHelpers.formatUserId(u),
             name: u.username ? `@${u.username}` : (u.fullName || 'مستخدم جديد'), 
             img: u.img || null, 
             spent: leaderboardPeriod === 'all' ? (Number(u.totalSpent) || 0) : (Number(u.monthlySpent?.[lbKey]) || 0), 

@@ -1,10 +1,11 @@
 // ============================================================================
 // 👥 محرك رسم المستخدمين (modules/users/usersRender.js)
+// 🚀 التحديث: تأمين الفرز السحابي وتوحيد التواريخ عبر المنسق المركزي (SSOT)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminTemplates } from '../../adminTemplates.js';
-import { EventBus, Utils } from '../../adminUtils.js'; // 🌟 تم إضافة Utils هنا
+import { EventBus, Utils } from '../../adminUtils.js'; 
 import { RenderHelpers } from '../../core/renderHelpers.js';
 import { UsersTemplates } from './usersTemplates.js'; 
 
@@ -26,13 +27,14 @@ export const UsersRender = {
 
         let users = Array.isArray(AdminData.data.users) ? [...AdminData.data.users] : [];
         if(!users.length) { wrap.innerHTML = UsersTemplates.emptyUsers(); return; }
+        
         // 1. تطبيق فلتر البحث
         const term = (this.state.userSearch || '').toLowerCase();
         if(term) {
             users = users.filter(u => 
                 String(u.id||'').toLowerCase().includes(term) || 
                 String(u.displayId||'').toLowerCase().includes(term) || 
-                String(u.fullName || u.name || '').toLowerCase().includes(term) || // 👈 السطر المفقود للبحث بالاسم!
+                String(u.fullName || u.name || '').toLowerCase().includes(term) || 
                 String(u.username||'').toLowerCase().includes(term) || 
                 String(u.phone||'').includes(term) || 
                 String(u.email||'').includes(term)
@@ -46,7 +48,7 @@ export const UsersRender = {
         const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         const lastMonthKey = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
-        // 3. الترتيب الذكي (Sorting Logic) المرتبط بالمايسترو
+        // 3. الترتيب الذكي (Sorting Logic) المحمي بالمترجم الزمني
         const sortCat = this.state.userSortCategory || 'newest';
         const isAsc = this.state.sortUsers === 'asc';
         const sortDir = isAsc ? 1 : -1;
@@ -55,8 +57,9 @@ export const UsersRender = {
             let valA = 0, valB = 0;
 
             if (sortCat === 'newest') {
-                valA = Number(a.time || a.joinDate || a.createdAt || 0);
-                valB = Number(b.time || b.joinDate || b.createdAt || 0);
+                // 🌟 استخدام المترجم المركزي لمنع انهيار الترتيب بسبب Timestamp
+                valA = RenderHelpers.parseTime(a.time || a.joinDate || a.createdAt);
+                valB = RenderHelpers.parseTime(b.time || b.joinDate || b.createdAt);
             } 
             else if (sortCat === 'spend_all') {
                 valA = Number(a.totalSpent || 0);
@@ -84,7 +87,7 @@ export const UsersRender = {
             }
 
             if (valA === valB) {
-                return (Number(b.time || b.createdAt || 0) - Number(a.time || a.createdAt || 0));
+                return (RenderHelpers.parseTime(b.time || b.createdAt) - RenderHelpers.parseTime(a.time || a.createdAt));
             }
             return (valA - valB) * sortDir;
         });
@@ -106,17 +109,20 @@ export const UsersRender = {
         
         const bal = Number(u.walletBalance ?? u.balance ?? 0) || 0;
         
-        // 🌟 الإصلاح: استخدام Utils.escapeHTML و Utils.formatDate
         const safeCurrency = Utils.escapeHTML(u.baseCurrency || 'USD');
         const rawName = RenderHelpers._getExplicitName(u);
-        const joinDate = (u.joinDate || u.createdAt || u.date) ? Utils.formatDate(u.joinDate || u.createdAt || u.date) : 'غير متوفر';
+        
+        // 🌟 استبدال Utils.formatDate القديمة بالمنسق الآمن لتوحيد الواجهة
+        const joinDate = (u.joinDate || u.createdAt || u.date) ? RenderHelpers.formatSafeDate(u.joinDate || u.createdAt || u.date) : 'غير متوفر';
 
         const tiers = AdminData.data.tiers || [];
         const userTier = tiers.find(t => String(t.id) === String(u.tierId));
         const tierName = userTier ? Utils.escapeHTML(userTier.name) : 'عادي (افتراضي)';
 
         const userAllOrders = (AdminData.data.orders || []).filter(o => String(o.userId) === String(id));
-        const lastOrders = [...userAllOrders].sort((a, b) => new Date(b.date || b.time || 0) - new Date(a.date || a.time || 0)).slice(0, 5); 
+        
+        // 🌟 حماية ترتيب آخر الطلبات للعميل باستخدام parseTime
+        const lastOrders = [...userAllOrders].sort((a, b) => RenderHelpers.parseTime(b.date || b.time) - RenderHelpers.parseTime(a.date || a.time)).slice(0, 5); 
             
         let ordersHtml = lastOrders.length === 0 ? UsersTemplates.emptyUserOrders() : lastOrders.map(o => UsersTemplates.userOrderItem(o)).join('') + UsersTemplates.userOrdersBtn(id);
         const uiData = { bal, safeCurrency, rawName, joinDate, tierName, totalOrdersCount: userAllOrders.length, totalSpent: Number(u.totalSpent || 0) };
@@ -153,7 +159,6 @@ export const UsersRender = {
         const tiers = Array.isArray(AdminData.data.tiers) ? AdminData.data.tiers : [];
         if(tiers.length === 0) { cont.innerHTML = ''; return; }
         
-        // 🌟 استدعاء الإحصائيات المركزية الدقيقة (إيرادات وأرباح كل مستوى)
         const gStats = AdminData.data.system?.globalStats?.tierStats || {};
         
         const userCounts = tiers.reduce((acc, t) => { 
@@ -161,7 +166,6 @@ export const UsersRender = {
             return acc; 
         }, {});
         
-        // 🌟 تمرير tStats إلى القالب
         cont.innerHTML = tiers.map(t => {
             const tStats = gStats[t.id] || { profit: 0, revenue: 0, orderCount: 0 };
             return UsersTemplates.tierCard(t, userCounts[t.id] || 0, tStats);
@@ -189,10 +193,8 @@ export const UsersRender = {
         if(tier) {
             document.getElementById('tier-name').textContent = tier.name;
             const iconBox = document.querySelector('.tier-info-card .tic-icon-box i');
-            // 🌟 الإصلاح: استخدام Utils.escapeHTML للأيقونة أيضاً
             if(iconBox) iconBox.className = `fa-solid ${Utils.escapeHTML(tier.icon||'fa-user')}`;
             
-            // 🌟 تمرير الأرباح للشريط العلوي لصفحة العملاء
             const gStats = AdminData.data.system?.globalStats?.tierStats || {};
             const tStats = gStats[tier.id] || { profit: 0, revenue: 0 };
             
@@ -217,20 +219,19 @@ export const UsersRender = {
         if(!container) return;
         if(!list.length){ container.innerHTML = UsersTemplates.emptyTierUsers(); return; }
 
-        // 🌟 1. جلب وترتيب كل المستويات لمعرفة "المستوى التالي" (تطابق مع المتجر)
         const allTiers = AdminData.data.tiers || [];
         const sortedTiers = [...allTiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
 
         const htmlArray = list.map(u => {
             let spent = Number(u.tierCycleSpent || 0);
-            let cycleStart = Number(u.tierCycleStartDate || now);
             
-            // إذا اكتشف الأدمن أن مدة العميل منتهية، يتم عرض 0 مباشرة
+            // 🌟 تأمين الوقت باستخدام المترجم المركزي
+            let cycleStart = RenderHelpers.parseTime(u.tierCycleStartDate || now);
+            
             if (now - cycleStart > durationMs) {
                 spent = 0;
             }
 
-            // 🌟 2. البحث عن المستوى التالي
             const nextTier = sortedTiers.find(t => Number(t.threshold || 0) > Number(tier.threshold || 0));
             
             let targetThreshold = 0;
@@ -242,13 +243,12 @@ export const UsersRender = {
                 nextTierName = nextTier.name;
             } else {
                 targetThreshold = Number(tier.threshold || 0);
-                if (targetThreshold <= 0) targetThreshold = 500; // حماية برمجية
+                if (targetThreshold <= 0) targetThreshold = 500; 
                 if (spent >= targetThreshold) {
                     isTopTier = true; 
                 }
             }
 
-            // 🌟 3. المعادلة الموحدة للنسبة المئوية (كالموجودة في المتجر تماماً)
             let pct = 0;
             if (targetThreshold > 0) {
                 pct = Math.min(100, Math.max(0, (spent / targetThreshold) * 100));
@@ -256,7 +256,6 @@ export const UsersRender = {
                 pct = 100;
             }
             
-            // 🌟 4. تمرير كائن tier بالكامل للقالب لنأخذ منه اللون والأيقونة والرسالة 
             return UsersTemplates.tierUserCard(u, spent, targetThreshold, pct, isTopTier, nextTierName, tier);
         });
         
@@ -264,7 +263,6 @@ export const UsersRender = {
         container.innerHTML = html + `<div class="tier-users-table">${htmlArray.join('')}</div>`;
     },
 
-    // 🌟 دالة رسم التوثيق المحدثة بالكامل
     renderKycSystem: function() {
         const target = document.getElementById('kyc-dashboard-target');
         if (!target) return;
@@ -278,7 +276,6 @@ export const UsersRender = {
 
         let requestsHtml = '';
         if (pendingRequests.length > 0) {
-            // 🌟 استدعاء القوالب الجديدة
             const searchHtml = UsersTemplates.kycSearchBox ? UsersTemplates.kycSearchBox() : '';
             const headerHtml = UsersTemplates.kycPendingHeader ? UsersTemplates.kycPendingHeader(pendingRequests.length) : `<h6 class="mb-3 fw-bold text-warning"><i class="fa-solid fa-file-shield"></i> طلبات بانتظار المراجعة (${pendingRequests.length})</h6>`;
             

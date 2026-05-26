@@ -1,7 +1,7 @@
 // ============================================================================
 // 📦 قوالب الطلبات (modules/orders/ordersTemplates.js)
 // 🎯 الوظيفة: توليد الـ HTML بنظام الهيكلة المرنة (Flexbox) وبدون ترقيعات
-// 🚀 التحديث: الاعتماد على المنسق الزمني المركزي، منع التكرار البصري للآيدي، والتغليف الأمني
+// 🚀 التحديث: الاعتماد الكامل على محرك المُعرّفات والتواريخ المركزي (SSOT)
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -21,13 +21,13 @@ export const OrdersTemplates = {
         const lockCls = (isRej || isRef) ? 'locked' : '';
         const qty = o.qty || 1;
 
-        // 🌟 استخراج وتنسيق الوقت بأمان تام عبر المنسق المركزي (SSOT)
+        // 🌟 استخراج وتنسيق الوقت بأمان تام عبر المنسق المركزي
         const rawTime = o.time || o.createdAt;
         const timeHtml = RenderHelpers.formatSafeDate(rawTime);
 
-        // 🌟 جلب العميل للحصول على الرقم القصير
+        // 🌟 جلب العميل واستخراج الرقم القصير الآمن عبر المحرك المركزي (SSOT)
         const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(o.userId)) || {};
-        const shortId = userRec.displayId || (o.userId ? String(o.userId).substring(0, 6) : '---');
+        const shortId = RenderHelpers.formatUserId(userRec);
 
         // 🌟 الفحص الذكي لمنع تكرار الآيدي إذا كان الاسم غير متوفر
         const isIdAsName = String(userName).trim() === String(shortId).trim() || String(userName).trim() === String(o.userId).trim();
@@ -70,9 +70,12 @@ export const OrdersTemplates = {
             finalPriceHtml = `<span class="single-price ${priceColor}">${sign} ${RenderHelpers.formatMoney(absPrice, cCode, 2)}</span>`;
         }
 
+        // 🌟 تنسيق رقم الطلب مركزياً لحماية الواجهة من الآيديات الطويلة لفايربيز
+        const orderIdHtml = RenderHelpers.formatOrderId(o);
+
         return `
         <div id="order-card-${_esc(o.id)}" class="o-card ${cardCls} ${lockCls}" data-status="${exactStatus}" data-action="open-order-drawer" data-id="${_esc(o.id)}">
-            <div class="corner-tag-id num-en copyable-admin" dir="ltr" lang="en" title="انقر لنسخ رقم الطلب" data-action="copy-text" data-copy-text="${_esc(o.id)}">#ORD_${_esc(o.id)}</div>
+            <div class="corner-tag-id num-en copyable-admin" dir="ltr" lang="en" title="انقر لنسخ رقم الطلب" data-action="copy-text" data-copy-text="${_esc(o.id)}">#${orderIdHtml}</div>
             
             <div class="corner-tag-time num-en" dir="ltr" lang="en"><i class="fa-regular fa-clock"></i> ${timeHtml}</div>
             
@@ -94,14 +97,18 @@ export const OrdersTemplates = {
     // 📦 قوالب درج الطلبات (Order Drawer Templates)
     // =========================================================
 
-    orderDrawerHeader: (orderId) => `
+    orderDrawerHeader: (orderId) => {
+        // 🌟 تنسيق رقم الطلب داخل شريط الدرج علوياً عبر المحرك المركزي
+        const formattedOrderId = RenderHelpers.formatOrderId(orderId);
+        return `
         <div class="dh-title-wrap">
             <div class="dh-title">تفاصيل الطلب</div>
-            <div class="dr-order-stamp num-en copyable-admin" dir="ltr" lang="en" data-action="copy-text" data-copy-text="${_esc(orderId)}">#${_esc(orderId)}</div>
+            <div class="dr-order-stamp num-en copyable-admin" dir="ltr" lang="en" data-action="copy-text" data-copy-text="${_esc(orderId)}">#${formattedOrderId}</div>
         </div>
         <div class="drawer-close" data-action="close-drawer" data-type="order">
             <i class="fa-solid fa-xmark"></i>
-        </div>`,
+        </div>`;
+    },
         
     drawerAvatar: (imgSrc, firstLetter) => imgSrc 
         ? `<img src="${_esc(imgSrc)}" class="dr-avatar dr-avatar-fit zoomable-img" data-action="open-img-viewer" data-src="${_esc(imgSrc)}">` 
@@ -245,7 +252,7 @@ export const OrdersTemplates = {
 
         const cleanPriceTxt = data.priceTxt ? data.priceTxt.replace(/[-+]/g, '').trim() : '';
 
-        // 🌟 الفحص الذكي لمنع تكرار عرض الآيدي داخل الدرج
+        // 🌟 الفحص الذكي لمنع تكرار عرض الآيدي داخل الدرج الجانبي
         const isIdAsNameDrawer = String(data.displayUser).trim() === String(data.userDisplayId).trim() || String(data.displayUser).trim() === String(data.userId).trim();
         const drawerIdentityHtml = isIdAsNameDrawer
             ? `<span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`

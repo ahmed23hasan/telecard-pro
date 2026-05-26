@@ -1,7 +1,7 @@
 // ============================================================================
 // 📦 محرك رسم الطلبات (modules/orders/ordersRender.js)
 // 🎯 الوظيفة: التكفل برسم قوائم الطلبات، الفلترة، والتحميل التدريجي وتصدير الإكسل
-// 🚀 التحديث: تأمين الفلترة والفرز وتصدير الإكسل باستخدام المترجم الزمني المركزي
+// 🚀 التحديث: حماية التقارير المحاسبية بربط التصدير بالمعرفات والتواريخ المركزية
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -14,7 +14,6 @@ export const OrdersRender = {
     tabState: 'all',
     filters: {},
 
-    // استقبال التحديثات من المايسترو
     initListeners: function() {
         EventBus.on('state-update', (newState) => {
             if(newState.filters && newState.filters.orders) this.filters = newState.filters.orders;
@@ -46,8 +45,6 @@ export const OrdersRender = {
         if(!list) return;
         
         const f = this.filters || {};
-        
-        // 🌟 التعديل الجوهري: استخدام النسخ السطحي (Spread Operator) لحماية حالة البيانات
         let data = Array.isArray(AdminData.data.orders) ? [...AdminData.data.orders] : [];
 
         if(f.search || f.start || f.end) {
@@ -57,17 +54,15 @@ export const OrdersRender = {
                 let mS = true, mD = true;
                 if(f.search) {
                     const s = String(f.search).toLowerCase();
-                    // 🌟 التحديث الذكي: جلب العميل لمطابقة البحث مع الرقم القصير (displayId)
                     const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
                     const dId = userRec && userRec.displayId ? String(userRec.displayId).toLowerCase() : '';
                     
                     mS = String(o.id).includes(s) || 
                          (o.product && String(o.product).toLowerCase().includes(s)) || 
                          (o.userName && String(o.userName).toLowerCase().includes(s)) ||
-                         dId.includes(s); // 👈 إضافة البحث بالرقم القصير
+                         dId.includes(s); 
                 }
                 
-                // 🌟 استخدام المترجم الزمني المركزي لحماية المقارنة
                 const itemTime = RenderHelpers.parseTime(o.time || o.createdAt);
                 if(startD && itemTime < startD) mD = false;
                 if(endD && itemTime > endD) mD = false;
@@ -103,7 +98,6 @@ export const OrdersRender = {
             const isB_ActionNeeded = (b.status === 'pending' || b.status === 'processing') ? 1 : 0;
             if (isA_ActionNeeded !== isB_ActionNeeded) return isB_ActionNeeded - isA_ActionNeeded; 
             
-            // 🌟 استخدام المترجم الزمني لضمان فرز دقيق وخالٍ من الأخطاء
             const timeA = RenderHelpers.parseTime(a.time || a.createdAt);
             const timeB = RenderHelpers.parseTime(b.time || b.createdAt);
             return timeB - timeA;
@@ -166,17 +160,17 @@ export const OrdersRender = {
             EventBus.emit('req-show-toast', { message: "لا توجد طلبات لتصديرها", type: "error" }); return; 
         }
 
-        // 🌟 التحديث: إضافة عمود "المعرف القصير" ليكون التقرير احترافياً
         let csvContent = "\uFEFFرقم الطلب,التاريخ,اسم العميل,المعرف القصير,المنتج,الكمية,السعر الاجمالي($),التكلفة($),الربح($),المصدر,الحالة\n";
         
         dataToExport.forEach(o => {
-            // 🌟 استخدام المنسق الزمني المركزي للتقرير
+            // 🌟 استخدام المنسق الموحد لضمان ثبات التواريخ داخل ملف الإكسل
             const dateStr = RenderHelpers.formatSafeDate(o.time || o.createdAt);
             const sanitizeCSV = (str) => { let c = String(str).replace(/,/g, " "); if (/^[=@+-]/.test(c)) c = "'" + c; return c; };
 
-            // 🌟 التحديث: جلب بيانات العميل لاستخراج الرقم القصير والاسم
             const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
-            const displayId = userRec && userRec.displayId ? userRec.displayId : 'غير متوفر';
+            
+            // 🌟 استدعاء المنسق المركزي لطباعة المعرف المحاسبي الموحد داخل التقرير
+            const displayId = RenderHelpers.formatUserId(userRec);
             const customerName = sanitizeCSV(userRec ? (userRec.name || o.userName) : (o.userName || o.userId));
 
             const product = sanitizeCSV(o.product || 'منتج غير معروف');

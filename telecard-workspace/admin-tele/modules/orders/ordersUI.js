@@ -1,13 +1,14 @@
 // ============================================================================
 // 📦 وحدة الطلبات (modules/orders/ordersUI.js)
 // 🎯 الوظيفة: إدارة واجهات ونوافذ الطلبات (معزولة بالكامل عن باقي النظام)
+// 🚀 التحديث: الاعتماد الكامل على النواة المركزية للتواريخ والأرقام (SSOT)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminTemplates } from '../../adminTemplates.js';
 import { Utils, EventBus } from '../../adminUtils.js';
-import { UIService } from '../../core/uiService.js'; // 🌟 النواة المرئية
-import { RenderHelpers } from '../../core/renderHelpers.js'; // 🌟 تمت إضافة الاستدعاء هنا
+import { UIService } from '../../core/uiService.js'; 
+import { RenderHelpers } from '../../core/renderHelpers.js'; 
 
 export const OrdersUI = {
     currentOrderId: null,
@@ -43,7 +44,6 @@ export const OrdersUI = {
             noteInput.onfocus = function() {
                 const drawerContainer = document.querySelector('.order-drawer');
                 if(drawerContainer) drawerContainer.classList.add('typing-mode');
-                // 🌟 الإصلاح الجذري: تغيير smooth إلى auto و block إلى nearest لمنع التضارب مع أنيميشن الكيبورد
                 setTimeout(() => { this.scrollIntoView({ behavior: 'auto', block: 'nearest' }); }, 300); 
             };
             noteInput.onblur = function() {
@@ -56,10 +56,11 @@ export const OrdersUI = {
             else noteWrapper.classList.add('hide-element');
         }
 
-        headerContent.innerHTML = AdminTemplates.orderDrawerHeader(Utils.escapeHTML(order.id));
+        // 🌟 تمرير الـ ID للقالب وسيقوم القالب بتنسيقه عبر المحرك المركزي
+        headerContent.innerHTML = AdminTemplates.orderDrawerHeader(order.id);
         
         const user = (AdminData.data.users || []).find(u => String(u.id) === String(order.userId)) || {};
-        const displayUser = Utils.escapeHTML(user.fullName || user.name || user.username || 'مستخدم');
+        const displayUser = Utils.escapeHTML(user.fullName || user.name || user.username || 'مستخدم جديد');
         const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
 
         const avatarHtml = AdminTemplates.drawerAvatar(user.img ? Utils.escapeHTML(user.img) : null, firstLetter);
@@ -82,7 +83,6 @@ export const OrdersUI = {
         if (order.pricingSnapshot && AdminTemplates.financialSnapshotBlock) {
             financialSnapshotHtml = AdminTemplates.financialSnapshotBlock(order.pricingSnapshot, order.status);
         } else {
-            // 🌟 تنظيف المبلغ من الإشارات، حيث سيتولى القالب الجديد مسؤولية وضع الـ (+ / -) بصرياً
             const absPrice = Math.abs(order.price || 0);
             priceTxt = RenderHelpers.formatMoney(absPrice, cCode, 2);
             
@@ -114,39 +114,37 @@ export const OrdersUI = {
             }
         }
 
-        const dateObj = order.time ? new Date(order.time) : new Date();
-        const dateTxt = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' | ' + dateObj.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+        // 🌟 استخدام المنسق الزمني المركزي (SSOT) للتواريخ بدلاً من دوال المتصفح الأصلية
+        const dateTxt = RenderHelpers.formatSafeDate(order.time || order.createdAt);
         
-        const statusDict = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع' };
+        const statusDict = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع', returned:'مسترجع' };
         const sText = statusDict[order.status] || order.status;
         const statusClass = order.status; 
 
         let durationHtml = '';
-        const startTime = order.time || order.createdAt;
-        const endTime = order.actionTime || order.updatedAt || order.completedAt; 
+        
+        // 🌟 استخدام المترجم الزمني لضمان حساب دقيق للمدة (حتى لو كانت البيانات Timestamp)
+        const startTime = RenderHelpers.parseTime(order.time || order.createdAt);
+        const endTime = RenderHelpers.parseTime(order.actionTime || order.updatedAt || order.completedAt); 
 
-        if ((order.status === 'completed' || order.status === 'rejected' || order.status === 'refunded') && startTime && endTime) {
-            const startObj = new Date(startTime);
-            const endObj = new Date(endTime);
-            if (!isNaN(startObj.getTime()) && !isNaN(endObj.getTime())) {
-                const diffMs = endObj.getTime() - startObj.getTime();
-                if (diffMs >= 0) {
-                    const diffMins = Math.floor(diffMs / 60000);
-                    const diffHours = Math.floor(diffMins / 60);
-                    const diffDays = Math.floor(diffHours / 24);
-                    let durationTxt = ''; 
-                    
-                    if (diffDays > 0) durationTxt = `${Utils.enNum(diffDays)} Day & ${Utils.enNum(diffHours % 24)} Hr`;
-                    else if (diffHours > 0) durationTxt = `${Utils.enNum(diffHours)} Hr & ${Utils.enNum(diffMins % 60)} Min`;
-                    else if (diffMins > 0) durationTxt = `${Utils.enNum(diffMins)} Min`;
-                    else durationTxt = `${Utils.enNum(Math.floor(diffMs / 1000))} Sec`; 
-                    
-                    durationHtml = AdminTemplates.orderDurationRow(durationTxt);
-                }
+        if ((order.status === 'completed' || order.status === 'rejected' || order.status === 'refunded' || order.status === 'returned') && startTime && endTime) {
+            const diffMs = endTime - startTime;
+            if (diffMs >= 0) {
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMins / 60);
+                const diffDays = Math.floor(diffHours / 24);
+                let durationTxt = ''; 
+                
+                if (diffDays > 0) durationTxt = `${Utils.enNum(diffDays)} Day & ${Utils.enNum(diffHours % 24)} Hr`;
+                else if (diffHours > 0) durationTxt = `${Utils.enNum(diffHours)} Hr & ${Utils.enNum(diffMins % 60)} Min`;
+                else if (diffMins > 0) durationTxt = `${Utils.enNum(diffMins)} Min`;
+                else durationTxt = `${Utils.enNum(Math.floor(diffMs / 1000))} Sec`; 
+                
+                durationHtml = AdminTemplates.orderDurationRow(durationTxt);
             }
         }
 
-                const rawInputs = (order.input || '').trim().split('|').map(p=>p.trim()).filter(Boolean);
+        const rawInputs = (order.input || '').trim().split('|').map(p=>p.trim()).filter(Boolean);
         let inputsCardHtml = ''; 
         if (rawInputs.length > 0) {
             const parsedInputs = rawInputs.map(p => {
@@ -177,13 +175,12 @@ export const OrdersUI = {
         const baseCurrText = RenderHelpers.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText('USD') : 'USD';
         const fxRateStr = order.fxRate ? `1 ${baseCurrText} = ${RenderHelpers.formatMoney(order.fxRate, cCode, 4)}` : null;
 
-        // 🌟 استخراج العميل والرقم القصير لتمريره للدرج
-        const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(order.userId)) || {};
-        const shortId = userRec.displayId || (order.userId ? String(order.userId).substring(0, 6) : '---');
+        // 🌟 استخراج الرقم القصير مركزياً لضمان الحماية ضد الانهيارات وتوحيد الطول
+        const shortId = RenderHelpers.formatUserId(userRec) || RenderHelpers.formatUserId(order.userId);
 
         bodyContent.innerHTML = AdminTemplates.orderDrawerBody({
             userId: Utils.escapeHTML(order.userId || '--'),
-            userDisplayId: Utils.escapeHTML(shortId), // 🌟 تمرير الرقم القصير هنا
+            userDisplayId: Utils.escapeHTML(shortId), 
             displayUser, avatarHtml, imgHtml, prodName, 
             qty: Utils.enNum(qty), priceTxt, exactPriceTxt, unitCostTxt, statusClass, sText, dateTxt,
             durationHtml, fxRateStr, inputsCardHtml, codeHtml, replyHtml,

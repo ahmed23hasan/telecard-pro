@@ -54,48 +54,44 @@ export const RenderHelpers = Object.freeze({
             useGrouping: false // تمنع فواصل الألوف للقيم البرمجية الصافية
         });
     },
-
     // ============================================================================
     // 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (ID Formatter Engine)
     // ============================================================================
 
     /**
      * 👤 المنسق المركزي لأرقام العملاء (User ID)
-     * يعالج الكائن أو النص المباشر ويقص المعرف الطويل للحماية وسهولة القراءة
      */
     formatUserId: function(userObj) {
         if (!userObj) return '---';
         const rawId = typeof userObj === 'object' ? (userObj.displayId || userObj.id || '') : userObj;
         if (!rawId) return '---';
         
+        // ضمان ألا يتجاوز الرقم 6 خانات (لتوحيد الشكل)
         return String(rawId).substring(0, 6).toUpperCase();
     },
 
     /**
      * 📦 المنسق المركزي لأرقام الطلبات (Order ID)
-     * يطبع المعرف الرقمي الصافي القادم من السيرفر ويضيف البادئة التجميلية
      */
     formatOrderId: function(orderObj, withPrefix = true) {
         if (!orderObj) return '---';
-        const rawId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
+        // إذا لم يجد displayId، سيأخذ أول 8 أحرف من الـ id العادي لحماية الواجهة من التشوه
+        const rawId = typeof orderObj === 'object' ? (orderObj.displayId || String(orderObj.id || '').substring(0, 8)) : String(orderObj).substring(0, 8);
         if (!rawId) return '---';
 
-        return withPrefix ? `ORD-${rawId}` : String(rawId);
+        return withPrefix ? `ORD-${rawId.toUpperCase()}` : rawId.toUpperCase();
     },
 
     /**
-     * 💳 المنسق المركزي لأرقام العمليات والإيداعات (Transaction/Deposit ID)
-     */
-        /**
      * 💳 المنسق المركزي لأرقام الإيداعات (Deposit ID)
-     * يطبع المعرف الرقمي ويضيف البادئة التجميلية للإيداعات
      */
     formatDepositId: function(depObj, withPrefix = true) {
         if (!depObj) return '---';
-        const rawId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
+        // حماية القص للـ ID الطويل
+        const rawId = typeof depObj === 'object' ? (depObj.displayId || String(depObj.id || '').substring(0, 8)) : String(depObj).substring(0, 8);
         if (!rawId) return '---';
 
-        return withPrefix ? `DEP-${rawId}` : String(rawId);
+        return withPrefix ? `DEP-${rawId.toUpperCase()}` : rawId.toUpperCase();
     },
 
     // ============================================================================

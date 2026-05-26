@@ -24,9 +24,9 @@ export const FinanceTemplates = {
         const rawTime = d.time || d.createdAt;
         const timeHtml = RenderHelpers.formatSafeDate(rawTime);
 
-        // 🌟 جلب العميل للحصول على الرقم القصير
+        // 🌟 جلب العميل للحصول على الرقم القصير عبر الدالة المركزية
         const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(d.userId)) || {};
-        const shortId = userRec.displayId || (d.userId ? String(d.userId).substring(0, 6) : '---');
+        const shortId = RenderHelpers.formatUserId(userRec);
 
         // 🌟 الفحص الذكي لمنع تكرار الآيدي إذا كان الاسم غير متوفر
         const isIdAsName = String(userName).trim() === String(shortId).trim() || String(userName).trim() === String(d.userId).trim();
@@ -58,8 +58,10 @@ export const FinanceTemplates = {
             dualAmountHtml = `<span class="single-price ${priceColor}">${sign} ${RenderHelpers.formatMoney(absNetBase, target, 2)}</span>`;
         }
 
+        const formattedDepositId = RenderHelpers.formatDepositId(d);
+
         return `<div id="deposit-card-${_esc(d.id)}" class="o-card ${cardCls} ${(isRej || isRef) ? 'locked' : ''}" data-status="${exactStatus}" data-action="open-deposit-drawer" data-id="${_esc(d.id)}">
-                    <div class="corner-tag-id num-en copyable-admin" dir="ltr" lang="en" title="انقر لنسخ رقم الإيداع" data-action="copy-text" data-copy-text="${_esc(d.id)}">#${_esc(d.id)}</div>
+                    <div class="corner-tag-id num-en copyable-admin" dir="ltr" lang="en" title="انقر لنسخ رقم الإيداع" data-action="copy-text" data-copy-text="${formattedDepositId}">${formattedDepositId}</div>
                     <div class="corner-tag-time num-en" dir="ltr" lang="en"><i class="fa-regular fa-clock"></i> ${timeHtml}</div>
                     
                     <div class="o-card-header-row">

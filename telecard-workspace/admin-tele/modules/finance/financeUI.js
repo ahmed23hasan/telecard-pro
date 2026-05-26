@@ -1,6 +1,7 @@
 // ============================================================================
 // 💰 وحدة المالية والإيداعات (modules/finance/financeUI.js)
 // 🎯 الوظيفة: إدارة واجهات الإيداعات وإعدادات العملات وبوابات الدفع
+// 🚀 التحديث: إزالة التواريخ المحلية وربط درج الإيداعات بالمنسق الزمني المركزي
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -84,7 +85,6 @@ export const FinanceUI = {
         if(chkBoxes.length > 0) container.classList.remove('hide-element');
         else container.classList.add('hide-element');
 
-        // 🌟 الإصلاح الذكي للحفاظ على القيم أثناء التبديل
         const currentInputs = {};
         if (!isInitialLoad) {
             list.querySelectorAll('.currency-setting-row').forEach(row => {
@@ -104,19 +104,17 @@ export const FinanceUI = {
         chkBoxes.forEach(code => {
             let ft = 'fee', fu = 'percent', f = '', min = '', max = '';
             
-            // 1. جلب القيم الموجودة في الـ HTML (لو العميل يكتب حالياً)
             if (currentInputs[code]) {
                 ft = currentInputs[code].feeType; fu = currentInputs[code].feeUnit;
                 f = currentInputs[code].fee; min = currentInputs[code].min; max = currentInputs[code].max;
             } 
-            // 2. إذا لم يكن يكتب، اجلبها من قاعدة البيانات (فقط عند التهيئة الأولى)
             else if (isInitialLoad && this.currentEditPaymentId && AdminData?.data?.payments) {
                 const pay = AdminData.data.payments.find(p => String(p.id) === String(this.currentEditPaymentId));
                 if (pay && pay.currencySettings && pay.currencySettings[code]) {
                     const s = pay.currencySettings[code];
                     ft = s.feeType || 'fee'; fu = s.feeUnit || s.unit || 'percent';
                     f = s.fee || ''; min = s.min || ''; max = s.max || '';
-                } else if (pay && pay.currencies && pay.currencies.includes(code)) { // التوافق مع القديم
+                } else if (pay && pay.currencies && pay.currencies.includes(code)) { 
                     ft = pay.feeType || 'fee'; fu = pay.feeUnit || pay.unit || 'percent';
                     f = pay.fee || ''; min = pay.min || ''; max = pay.max || '';
                 }
@@ -126,10 +124,8 @@ export const FinanceUI = {
             html += AdminTemplates.currencySettingRow(code, Utils.escapeHTML(displayCode), ft, fu, Utils.escapeHTML(f), Utils.escapeHTML(min), Utils.escapeHTML(max));
         });
         
-                // ... (الجزء العلوي من الدالة كما هو)
         list.innerHTML = html;
 
-        // 🌟 الإصلاح الاحترافي: التنفيذ المتزامن الفوري (بدون setTimeout)
         chkBoxes.forEach(code => {
             const ftVal = currentInputs[code]?.feeType || (isInitialLoad ? document.getElementById(`pay-feetype-${code}`)?.getAttribute('data-val') : 'fee');
             const fuVal = currentInputs[code]?.feeUnit || (isInitialLoad ? document.getElementById(`pay-feeunit-${code}`)?.getAttribute('data-val') : 'percent');
@@ -140,13 +136,13 @@ export const FinanceUI = {
             if (typeEl && ftVal) typeEl.value = ftVal;
             if (unitEl && fuVal) unitEl.value = fuVal;
         });
-    }, // نهاية دالة toggleCurrencySettings
+    },
 
     // ========================================================================
     // 📂 إدارة درج الإيداعات (Drawer)
     // ========================================================================
 
-        openDepositDrawer: function(depositId) {
+    openDepositDrawer: function(depositId) {
         let dep = null;
         if(AdminData && AdminData.data && AdminData.data.deposits) {
             dep = AdminData.data.deposits.find(d => String(d.id) === String(depositId));
@@ -185,18 +181,18 @@ export const FinanceUI = {
         }
 
         if(idBadge) {
-            idBadge.innerText = `#${dep.id}`;
+            const formattedDepId = RenderHelpers.formatDepositId(dep);
+            idBadge.innerText = formattedDepId;
             idBadge.classList.add('copyable-admin');
             idBadge.title = "انقر لنسخ المعرف";
-            idBadge.onclick = function(e) { UIService.copyText(dep.id, e, this); };
+            idBadge.onclick = function(e) { UIService.copyText(formattedDepId, e, this); };
         }
 
         const user = (AdminData.data.users || []).find(u => String(u.id) === String(dep.userId)) || {};
         const displayUser = Utils.escapeHTML(user.fullName || user.name || user.username || 'مستخدم');
         const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
 
-        // 🌟 استخراج العميل والرقم القصير لتمريره للدرج
-        const shortId = user.displayId || (dep.userId ? String(dep.userId).substring(0, 6) : '---');
+        const shortId = RenderHelpers.formatUserId(user);
 
         const avatarHtml = AdminTemplates.drawerAvatar(user.img ? Utils.escapeHTML(user.img) : null, firstLetter);
 
@@ -220,8 +216,8 @@ export const FinanceUI = {
         const fxRate = Number(dep.fxRate ?? 1);
         const netBase = Number((dep.creditedAmount !== undefined && dep.creditedAmount !== null) ? dep.creditedAmount : (netPayCurr * fxRate));
 
-        const dateObj = dep.time ? new Date(dep.time) : new Date();
-        const dateTxt = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' | ' + dateObj.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+        // 🌟 التحديث هنا: استخدام المنسق الزمني المركزي للدرج لضمان الحماية وتوحيد العرض
+        const dateTxt = RenderHelpers.formatSafeDate(dep.time || dep.createdAt);
         
         const statusDict = { pending:'قيد المراجعة', approved:'مكتمل (تمت العملية)', rejected:'مرفوض', refunded:'تم استرجاع/إلغاء العملية' };
         const sText = statusDict[dep.status] || dep.status;
@@ -292,7 +288,7 @@ export const FinanceUI = {
 
         bodyContent.innerHTML = AdminTemplates.depositDrawerBody({
             userId: Utils.escapeHTML(dep.userId || '--'),
-            userDisplayId: Utils.escapeHTML(shortId), // 🌟 تمرير الرقم القصير هنا
+            userDisplayId: Utils.escapeHTML(shortId),
             displayUser, avatarHtml, bankImgHtml, bankName,
             network: dep.network ? Utils.escapeHTML(dep.network) : null,
             amountTxt: RenderHelpers.formatMoney(Math.abs(dep.amount || 0), payCurr, 2),

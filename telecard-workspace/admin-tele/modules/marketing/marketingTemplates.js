@@ -1,7 +1,7 @@
 // ============================================================================
 // 📢 قوالب التسويق والعروض (modules/marketing/marketingTemplates.js)
 // 🎯 الوظيفة: توليد الـ HTML بنظام المجموعات العمودية لضمان ثبات الأزرار
-// 🚀 التحديث: الربط الشامل بالمنسق الزمني المركزي (SSOT)
+// 🚀 التحديث: تطهير الملف بالكامل من دوال القص المحلية والتواريخ المباشرة (100% SSOT)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js'; 
@@ -159,8 +159,11 @@ export const MarketingTemplates = {
         } 
         else if (alert.targetType === 'user') { 
             targetText = `عميل مخصص`; targetIcon = 'fa-user text-info'; 
-            const targetUser = (AdminData.data.users || []).find(u => String(u.id) === String(alert.targetId)) || {};
-            const dId = targetUser.displayId || (alert.targetId ? String(alert.targetId).substring(0,6) : '---');
+            
+            // 🌟 استخدام المنسق المركزي لجلب واستخراج هوية العميل بصيغة موحدة
+            const targetUser = (AdminData.data.users || []).find(u => String(u.id) === String(alert.targetId));
+            const dId = targetUser ? RenderHelpers.formatUserId(targetUser) : RenderHelpers.formatUserId(alert.targetId);
+            
             targetIdHtml = `<span class="num-en text-warning copyable-admin" data-action="copy-text" data-copy-text="${_esc(dId)}" dir="ltr" title="نسخ رقم العميل">#${_esc(dId)}</span>`;
         }
 
