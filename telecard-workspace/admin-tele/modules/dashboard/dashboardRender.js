@@ -1,6 +1,7 @@
 // ============================================================================
 // 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js)
 // 🎯 الوظيفة: رسم الإحصائيات الرئيسية، التنبيهات السريعة، وسجل النشاطات (Logs) فقط
+// 🚀 التحديث: ربط سجل النشاطات (Logs) بالمنسق الزمني المركزي (SSOT)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -194,7 +195,6 @@ export const DashboardRender = {
 
         let html = '';
         logs.forEach(log => {
-            const dateObj = new Date(log.timestamp);
             let badgeClass = 'badge-default';
             const action = log.action.toUpperCase();
             
@@ -211,8 +211,11 @@ export const DashboardRender = {
                 badgeClass = 'badge-info bg-info-10 text-info border-info-15'; 
             }
 
+            // 🌟 استخدام المنسق المركزي لضمان نفس شكل التواريخ في كامل النظام
+            const safeDateTime = RenderHelpers.formatSafeDate(log.timestamp);
+
             html += `<tr>
-                <td><div class="log-date-cell"><span class="d-date num-en" dir="ltr">${dateObj.toLocaleDateString('en-GB')}</span><span class="d-time num-en" dir="ltr">${dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute:'2-digit', hour12: false })}</span></div></td>
+                <td><div class="log-date-cell"><span class="d-date num-en" dir="ltr">${safeDateTime}</span></div></td>
                 <td><div class="log-user-cell"><i class="fa-solid fa-user-shield text-primary"></i> <span>${RenderHelpers._esc(log.admin)}</span></div></td>
                 <td><span class="log-action-badge num-en ${badgeClass}" dir="ltr" style="padding: 4px 10px; border-radius: 6px; border-width: 1px; border-style: solid; font-size: 11px;">${RenderHelpers._esc(action)}</span></td>
                 <td class="log-details-cell">${RenderHelpers._esc(log.details)}</td>

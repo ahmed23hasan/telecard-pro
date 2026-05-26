@@ -2,7 +2,7 @@
 // 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers)
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core - Zero Dependencies)
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث: توافق رجعي كامل، دعم الرقم القصير (displayId)، وعزل ثنائي الاتجاه (Bidi)
+// 🌟 التحديث: توحيد مصدر الحقيقة الزمني (SSOT) بدمج المترجم والمنسق المركزي
 // ============================================================================
 
 // متغير خاص بالوحدة (Module-level Private Variable)
@@ -82,7 +82,7 @@ export const RenderHelpers = Object.freeze({
     /**
      * 🌍 محرك جلب رابط علم الدولة تلقائياً بناءً على رمز العملة
      */
-        getCurrencyFlagUrl: function(currCode = 'USD') {
+    getCurrencyFlagUrl: function(currCode = 'USD') {
         // 🌟 إضافة trim() لتنظيف أي مسافات مخفية قد تسبب خطأ في التطابق
         const code = String(currCode).toUpperCase().trim();
         
@@ -169,5 +169,37 @@ export const RenderHelpers = Object.freeze({
         const safeName = this._esc(activeOffer.name);
             
         return `<span class="promo-badge b-success icon-ms-2 badge-micro" title="مشمول في عرض: ${safeName}"><i class="fa-solid fa-bolt"></i> عرض نشط</span>`;
+    },
+
+    /**
+     * ⏱️ المحرك الزمني المركزي (يفك تشفير أي تاريخ من السحابة)
+     * 🎯 SSOT: يعالج كائنات Firestore Timestamps والأرقام والنصوص دون انهيار الصبغة
+     */
+    parseTime: function(ts) {
+        if (!ts) return 0;
+        if (typeof ts === 'number') return ts;
+        if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
+        if (ts.seconds) return ts.seconds * 1000; 
+        if (typeof ts === 'string') {
+            const parsed = new Date(ts).getTime();
+            return isNaN(parsed) ? 0 : parsed;
+        }
+        return 0; 
+    },
+
+    /**
+     * 📅 المنسق الزمني الموحد (يطبع التاريخ بشكل محاسبي أنيق ومقروء)
+     * 🎯 SSOT: يتم استدعاؤه في قوائم المتجر ودرج الإدارة لمنع تضارب عروض الأوقات
+     */
+    formatSafeDate: function(ts) {
+        const timeMs = this.parseTime(ts);
+        if (!timeMs) return '---';
+        
+        const dateObj = new Date(timeMs);
+        if (isNaN(dateObj.getTime())) return '---'; 
+
+        const dateStr = dateObj.toLocaleDateString('en-GB'); 
+        const timeStr = dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        return `${dateStr} | ${timeStr}`;
     }
 });

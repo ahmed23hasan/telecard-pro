@@ -1,7 +1,7 @@
 // ============================================================================
 // 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Cloud Secured)
 // 🎯 الوظيفة: معالجة البيانات، الحسابات المعقدة، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث: دمج التوقيت السحابي المتزامن، والبرمجة الدفاعية لمنع التلاعب
+// 🚀 التحديث: دمج التوقيت السحابي المتزامن، وتوحيد المترجم الزمني المركزي (SSOT)
 // ============================================================================
 
 import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -10,6 +10,7 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
 import { DB_KEYS, ACTIVE_USER_KEY } from './config.js';
 import { Utils } from './utils.js';
 import { FirebaseAdapter } from './core/firebaseAdapter.js';
+import { RenderHelpers } from './core/renderHelpers.js'; // 🌟 النواة المركزية للرسم والوقت
 
 // ============================================================================
 // 🌐 1. البنية التحتية لقاعدة البيانات (Cloud Gateway)
@@ -613,24 +614,12 @@ export const DataManager = {
         }
     },
     
-    // 🌟 المترجم الزمني الذكي
-    _safeTime: function(ts) {
-        if (!ts) return null;
-        if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
-        if (ts.seconds) return ts.seconds * 1000; 
-        return ts; 
-    },
-
+    // 🌟 توجيه التنسيق الزمني للنواة المركزية
     formatDateLocal: function(timestamp) {
-        const safeMs = this._safeTime(timestamp);
-        if (!safeMs) return '---';
-        
-        const dateObj = new Date(safeMs);
-        if (isNaN(dateObj.getTime())) return '---'; 
-
-        const dateStr = dateObj.toLocaleDateString('en-GB'); 
-        const timeStr = dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-        return `${dateStr} | ${timeStr}`;
+        if (typeof RenderHelpers !== 'undefined' && RenderHelpers.formatSafeDate) {
+            return RenderHelpers.formatSafeDate(timestamp);
+        }
+        return '---';
     },
 
     isFavorite: function(id) {

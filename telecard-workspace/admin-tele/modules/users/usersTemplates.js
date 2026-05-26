@@ -1,6 +1,7 @@
 // ============================================================================
 // 👥 قوالب المستخدمين والتوثيق (modules/users/usersTemplates.js)
 // 🎯 الوظيفة: توليد الـ HTML النقي المدمج بالبيانات (Data Binding)
+// 🚀 التحديث: إزالة الاعتمادية على التواريخ المحلية وتأمين النوافذ عبر (SSOT)
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -9,7 +10,6 @@ import { AdminData } from '../../adminData.js';
 
 const _esc = Utils.escapeHTML;
 const _enNum = Utils.enNum;
-const _fmtDate = Utils.formatDate;
 
 const _getIcon = (iconStr, defaultIcon = 'fa-user') => {
     let raw = (iconStr || defaultIcon).trim();
@@ -73,7 +73,7 @@ export const UsersTemplates = {
     emptyUserOrders: () => `<div class="ud-empty-state"><i class="fa-solid fa-box-open"></i><span>لا توجد طلبات سابقة لهذا العميل.</span></div>`,
     userOrderItem: (o) => {
         const sText = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع' }[o.status] || o.status;
-        return `<div class="ud-order-item" data-status="${_esc(o.status || 'refunded')}"><div><div class="ud-order-id num-en" dir="ltr" lang="en">#${_esc(o.id)}</div><div class="ud-order-date num-en" dir="ltr" lang="en">${(o.time || o.date) ? _fmtDate(o.time || o.date) : '---'}</div></div><div class="text-left"><div class="ud-order-price num-en" dir="ltr" lang="en">${RenderHelpers.formatMoney(o.price || 0, o.currency || 'USD', 2)}</div><span class="status-badge ${o.status || 'refunded'}">${sText}</span></div></div>`;
+        return `<div class="ud-order-item" data-status="${_esc(o.status || 'refunded')}"><div><div class="ud-order-id num-en" dir="ltr" lang="en">#${_esc(o.id)}</div><div class="ud-order-date num-en" dir="ltr" lang="en">${(o.time || o.date) ? RenderHelpers.formatSafeDate(o.time || o.date) : '---'}</div></div><div class="text-left"><div class="ud-order-price num-en" dir="ltr" lang="en">${RenderHelpers.formatMoney(o.price || 0, o.currency || 'USD', 2)}</div><span class="status-badge ${o.status || 'refunded'}">${sText}</span></div></div>`;
     },
     userOrdersBtn: (id) => `<button class="btn btn-ghost ud-btn-full-ghost" data-action="nav-to-user-orders" data-id="${_esc(id)}">الذهاب لسجل الطلبات الكامل <i class="fa-solid fa-arrow-left"></i></button>`,
 

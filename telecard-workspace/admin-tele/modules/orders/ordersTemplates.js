@@ -1,7 +1,7 @@
 // ============================================================================
 // 📦 قوالب الطلبات (modules/orders/ordersTemplates.js)
 // 🎯 الوظيفة: توليد الـ HTML بنظام الهيكلة المرنة (Flexbox) وبدون ترقيعات
-// 🚀 التحديث: إضافة مترجم زمني + منع تكرار الآيدي بصرياً + التغليف الأمني
+// 🚀 التحديث: الاعتماد على المنسق الزمني المركزي، منع التكرار البصري للآيدي، والتغليف الأمني
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -10,15 +10,6 @@ import { AdminData } from '../../adminData.js';
 
 const _esc = Utils.escapeHTML;
 const _enNum = Utils.enNum;
-const _fmtDate = Utils.formatDate;
-
-// 🌟 المترجم الزمني الذكي: يفك تشفير كائنات السحابة (Firestore Timestamp) إلى وقت مقروء
-const _safeTime = (ts) => {
-    if (!ts) return null;
-    if (typeof ts.toDate === 'function') return ts.toDate().getTime(); // إذا كان كائن جاهز
-    if (ts.seconds) return ts.seconds * 1000; // إذا كان كائن خام
-    return ts; // إذا كان رقماً عادياً (مثل الإيداعات)
-};
 
 export const OrdersTemplates = {
     emptyOrders: () => `<div class="empty-state"><i class="fa-solid fa-box-open"></i><span>لا توجد طلبات تطابق الفلتر أو التبويب الحالي</span></div>`,
@@ -30,10 +21,9 @@ export const OrdersTemplates = {
         const lockCls = (isRej || isRef) ? 'locked' : '';
         const qty = o.qty || 1;
 
-        // 🌟 استخراج الوقت بأمان تام عبر المترجم الزمني
+        // 🌟 استخراج وتنسيق الوقت بأمان تام عبر المنسق المركزي (SSOT)
         const rawTime = o.time || o.createdAt;
-        const parsedTime = _safeTime(rawTime);
-        const timeHtml = parsedTime ? _fmtDate(parsedTime) : '---';
+        const timeHtml = RenderHelpers.formatSafeDate(rawTime);
 
         // 🌟 جلب العميل للحصول على الرقم القصير
         const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(o.userId)) || {};

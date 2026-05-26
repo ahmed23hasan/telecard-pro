@@ -1,6 +1,7 @@
 // ============================================================================
 // 💰 محرك رسم المالية (modules/finance/financeRender.js)
 // 🎯 الوظيفة: رسم الإيداعات، بوابات الدفع، المحافظ، والعملات، وتصديرها
+// 🚀 التحديث: تأمين الفلترة والفرز وتصدير الإكسل باستخدام المترجم الزمني المركزي
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -61,10 +62,14 @@ export const FinanceRender = {
                     
                     mS = String(d.id).toLowerCase().includes(s) || 
                          String(d.userName).toLowerCase().includes(s) ||
-                         dId.includes(s); // 👈 إضافة البحث بالرقم القصير هنا
+                         dId.includes(s); // 👈 البحث بالرقم القصير
                 }
-                if(startD && d.time < startD) mD = false;
-                if(endD && d.time > endD) mD = false;
+                
+                // 🌟 استخدام المترجم الزمني المركزي لحماية المقارنة
+                const itemTime = RenderHelpers.parseTime(d.time || d.createdAt);
+                if(startD && itemTime < startD) mD = false;
+                if(endD && itemTime > endD) mD = false;
+                
                 return mS && mD;
             });
         }
@@ -85,7 +90,11 @@ export const FinanceRender = {
             const isA_Pending = (a.status === 'pending') ? 1 : 0;
             const isB_Pending = (b.status === 'pending') ? 1 : 0;
             if (isA_Pending !== isB_Pending) return isB_Pending - isA_Pending; 
-            return (b.time || 0) - (a.time || 0);
+            
+            // 🌟 استخدام المترجم الزمني لضمان فرز دقيق وخالٍ من الأخطاء
+            const timeA = RenderHelpers.parseTime(a.time || a.createdAt);
+            const timeB = RenderHelpers.parseTime(b.time || b.createdAt);
+            return timeB - timeA;
         });
 
         if(!data.length) { 
@@ -154,7 +163,6 @@ export const FinanceRender = {
         container.innerHTML = htmlArray.join('');
     },
 
-    // 🌟 التحديث هنا: تمرير isDefaultDisplay للقالب
     renderRates: function() {
         const grid = document.getElementById('rates-grid');
         if(!grid) return;
@@ -196,7 +204,8 @@ export const FinanceRender = {
         let csvContent = "\uFEFFرقم الإيداع,التاريخ,اسم العميل,المعرف القصير,البنك/الطريقة,المبلغ,العملة,الحالة\n";
         
         dataToExport.forEach(d => {
-            const dateStr = Utils.formatDate(d.time);
+            // 🌟 استخدام المنسق الزمني المركزي للتقرير
+            const dateStr = RenderHelpers.formatSafeDate(d.time || d.createdAt);
             
             // دالة التنظيف للحماية من ثغرات الإكسل وتنظيف الفواصل
             const sanitizeCSV = (str) => { let c = String(str).replace(/,/g, " "); if (/^[=@+-]/.test(c)) c = "'" + c; return c; };

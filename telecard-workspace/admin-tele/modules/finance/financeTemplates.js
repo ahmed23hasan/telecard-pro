@@ -1,6 +1,6 @@
 // ============================================================================
 // 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js)
-// 🚀 التحديث: دمج المترجم الزمني، منع التكرار البصري للآيدي، وتأمين الـ HTML
+// 🚀 التحديث: دمج المترجم الزمني المركزي، منع التكرار البصري، وتأمين الـ HTML
 // ============================================================================
 import { AdminData } from '../../adminData.js';
 import { Utils } from '../../adminUtils.js';
@@ -8,15 +8,6 @@ import { RenderHelpers } from '../../core/renderHelpers.js';
 
 const _esc = Utils.escapeHTML;
 const _enNum = Utils.enNum;
-const _fmtDate = Utils.formatDate;
-
-// 🌟 المترجم الزمني الذكي: يفك تشفير كائنات السحابة (Firestore Timestamp) إلى وقت مقروء
-const _safeTime = (ts) => {
-    if (!ts) return null;
-    if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
-    if (ts.seconds) return ts.seconds * 1000; 
-    return ts; 
-};
 
 export const FinanceTemplates = {
     emptyDeposits: () => `<div class="empty-state"><i class="fa-solid fa-money-bill-transfer"></i><span>لا توجد إيداعات تطابق الفلتر أو التبويب الحالي</span></div>`,
@@ -29,10 +20,9 @@ export const FinanceTemplates = {
         const localCurr = (d.currency || '').toUpperCase().replace('$', 'USD');
         const target = (targetCurr || 'USD').toUpperCase().replace('$', 'USD');
         
-        // 🌟 استخراج الوقت بأمان تام عبر المترجم الزمني
+        // 🌟 استخراج وتنسيق الوقت بأمان تام عبر المنسق المركزي (SSOT)
         const rawTime = d.time || d.createdAt;
-        const parsedTime = _safeTime(rawTime);
-        const timeHtml = parsedTime ? _fmtDate(parsedTime) : '---';
+        const timeHtml = RenderHelpers.formatSafeDate(rawTime);
 
         // 🌟 جلب العميل للحصول على الرقم القصير
         const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(d.userId)) || {};
@@ -237,6 +227,7 @@ export const FinanceTemplates = {
             ? `<span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`
             : `<span class="dr-client-name">${_esc(data.displayUser)}</span><span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`;
 
+        // 🌟 إزالة _esc عن المتغيرات المالية لمنع تحول أكواد HTML (العملة) إلى نصوص عادية
         return `
         <div class="dr-card dr-client" data-action="view-user" data-id="${_esc(data.userId)}">
             <div class="dr-client-left">
@@ -260,22 +251,22 @@ export const FinanceTemplates = {
             <div class="dr-receipt-box">
                 <div class="dr-receipt-row">
                     <span class="dr-receipt-lbl"><i class="fa-solid fa-money-bill-wave"></i> المبلغ المدخل</span>
-                    <span class="dr-receipt-val num-en" dir="ltr" lang="en">${_esc(data.amountTxt)}</span>
+                    <span class="dr-receipt-val num-en" dir="ltr" lang="en">${data.amountTxt}</span>
                 </div>
                 <div class="dr-receipt-row">
                     <span class="dr-receipt-lbl">
                         <i class="fa-solid ${_esc(data.feeIcon)} ${_esc(data.feeColorClass)}"></i> ${_esc(data.feeLabel)} 
                         <span class="num-en fs-12 ${_esc(data.feeColorClass)} fee-pct-spacing" dir="ltr" lang="en">${_esc(data.feePctTxt || '')}</span>
                     </span>
-                    <span class="dr-receipt-val ${_esc(data.feeColorClass)} ${_esc(data.feeNumClass)}" dir="ltr" lang="en">${_esc(data.feeStr)}</span>
+                    <span class="dr-receipt-val ${_esc(data.feeColorClass)} ${_esc(data.feeNumClass)}" dir="ltr" lang="en">${data.feeStr}</span>
                 </div>
                 <div class="dr-receipt-row ${_esc(data.netBgClass || 'highlight-success')}">
                     <span class="dr-receipt-lbl ${_esc(data.netColorClass || 'text-success')}"><i class="fa-solid fa-sack-dollar"></i> صافي الأثر المالي</span>
-                    <span class="dr-receipt-val price ${_esc(data.netColorClass || 'text-success')} num-en" dir="ltr" lang="en">${_esc(data.netBaseTxt)}</span>
+                    <span class="dr-receipt-val price ${_esc(data.netColorClass || 'text-success')} num-en" dir="ltr" lang="en">${data.netBaseTxt}</span>
                 </div>
                 <div class="dr-receipt-row">
                     <span class="dr-receipt-lbl"><i class="fa-solid fa-calculator text-warning"></i> سعر الصرف</span>
-                    <span class="dr-receipt-val num-en text-warning" dir="ltr" lang="en">${_esc(data.fxStr)}</span>
+                    <span class="dr-receipt-val num-en text-warning" dir="ltr" lang="en">${data.fxStr}</span>
                 </div>
                 <div class="dr-receipt-row">
                     <span class="dr-receipt-lbl"><i class="fa-solid fa-circle-info"></i> الحالة</span>

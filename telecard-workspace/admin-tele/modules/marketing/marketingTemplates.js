@@ -1,14 +1,15 @@
 // ============================================================================
 // 📢 قوالب التسويق والعروض (modules/marketing/marketingTemplates.js)
 // 🎯 الوظيفة: توليد الـ HTML بنظام المجموعات العمودية لضمان ثبات الأزرار
+// 🚀 التحديث: الربط الشامل بالمنسق الزمني المركزي (SSOT)
 // ============================================================================
 
-import { AdminData } from '../../adminData.js'; // 🌟 جلب قاعدة البيانات للرقم القصير
+import { AdminData } from '../../adminData.js'; 
 import { Utils } from '../../adminUtils.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
+
 const _esc = Utils.escapeHTML;
 const _enNum = Utils.enNum;
-const _fmtDate = Utils.formatDate;
 
 export const MarketingTemplates = {
     emptyCoupons: () => `<div class="empty-state"><i class="fa-solid fa-ticket-simple"></i><p>لا يوجد أي كوبونات حالياً. اضغط على إنشاء للبدء!</p></div>`,
@@ -64,7 +65,7 @@ export const MarketingTemplates = {
                 <div class="promo-col"><span class="promo-lbl">الحد الأدنى للطلب</span><span class="promo-val num-en" dir="ltr" lang="en">${coupon.minOrder > 0 ? RenderHelpers.formatMoney(coupon.minOrder, 'USD', 2) : '∞'}</span></div>
             </div>
             <div class="promo-meta">
-                <span class="text-muted fs-11"><i class="fa-regular fa-clock"></i> ينتهي: <span class="num-en" dir="ltr" lang="en">${coupon.expiryDate ? new Date(coupon.expiryDate).toLocaleDateString('en-GB') : '∞'}</span></span>
+                <span class="text-muted fs-11"><i class="fa-regular fa-clock"></i> ينتهي: <span class="num-en" dir="ltr" lang="en">${coupon.expiryDate ? RenderHelpers.formatSafeDate(coupon.expiryDate) : '∞'}</span></span>
                 ${statusHtml}
             </div>
         </div>`;
@@ -88,7 +89,6 @@ export const MarketingTemplates = {
         let visualBadgeHtml = '<span class="text-muted">بدون شارة</span>';
         if (o.visualConfig && o.visualConfig.grid && o.visualConfig.grid.badgeStyle !== 'none') {
             const v = o.visualConfig.grid;
-            // 🌟 الإضافة السحرية: ترجمة اسم اللون القديم إلى كلاس الستايل الجديد المضيء
             const mappedColorClass = String(v.badgeColor).replace('theme-ruby', 'badge-red')
                                                          .replace('theme-sapphire', 'badge-blue')
                                                          .replace('theme-emerald', 'badge-green')
@@ -137,7 +137,7 @@ export const MarketingTemplates = {
                 <div class="promo-col"><span class="promo-lbl">المنتجات المشمولة</span><span class="promo-val num-en" dir="ltr" lang="en">${prodsCount}</span></div>
             </div>
             <div class="promo-meta">
-                <span class="text-muted fs-11"><i class="fa-regular fa-clock"></i> ينتهي: <span class="num-en" dir="ltr" lang="en">${o.expiryDate ? new Date(o.expiryDate).toLocaleDateString('en-GB') : '∞'}</span></span>
+                <span class="text-muted fs-11"><i class="fa-regular fa-clock"></i> ينتهي: <span class="num-en" dir="ltr" lang="en">${o.expiryDate ? RenderHelpers.formatSafeDate(o.expiryDate) : '∞'}</span></span>
                 ${statusHtml}
             </div>
         </div>`;
@@ -159,7 +159,6 @@ export const MarketingTemplates = {
         } 
         else if (alert.targetType === 'user') { 
             targetText = `عميل مخصص`; targetIcon = 'fa-user text-info'; 
-            // 🌟 جلب الرقم القصير وعرضه للإدمن بدلاً من الطويل
             const targetUser = (AdminData.data.users || []).find(u => String(u.id) === String(alert.targetId)) || {};
             const dId = targetUser.displayId || (alert.targetId ? String(alert.targetId).substring(0,6) : '---');
             targetIdHtml = `<span class="num-en text-warning copyable-admin" data-action="copy-text" data-copy-text="${_esc(dId)}" dir="ltr" title="نسخ رقم العميل">#${_esc(dId)}</span>`;
@@ -192,14 +191,14 @@ export const MarketingTemplates = {
 
             <div class="promo-details-grid">
                 <div class="promo-col"><span class="promo-lbl">الاستهداف</span><span class="promo-val fw-bold"><i class="fa-solid ${targetIcon} icon-me-2"></i> ${targetText} ${targetIdHtml}</span></div>
-                <div class="promo-col"><span class="promo-lbl">تاريخ الإنشاء</span><span class="promo-val num-en" dir="ltr" lang="en">${alert.createdAt ? _fmtDate(alert.createdAt) : '---'}</span></div>
+                <div class="promo-col"><span class="promo-lbl">تاريخ الإنشاء</span><span class="promo-val num-en" dir="ltr" lang="en">${alert.createdAt ? RenderHelpers.formatSafeDate(alert.createdAt) : '---'}</span></div>
             </div>
             <div class="promo-details-grid">
                 <div class="promo-col w-100"><span class="promo-lbl">نص الرسالة</span><span class="promo-val text-muted">${_esc(alert.message)}</span></div>
             </div>
             ${extraPopupDetails}
             <div class="promo-meta mt-10">
-                <span class="text-muted fs-11"><i class="fa-regular fa-clock"></i> ينتهي: <span class="num-en" dir="ltr" lang="en">${alert.expiresAt ? new Date(alert.expiresAt).toLocaleDateString('en-GB') : '∞'}</span></span>
+                <span class="text-muted fs-11"><i class="fa-regular fa-clock"></i> ينتهي: <span class="num-en" dir="ltr" lang="en">${alert.expiresAt ? RenderHelpers.formatSafeDate(alert.expiresAt) : '∞'}</span></span>
                 ${statusHtml}
             </div>
         </div>`;

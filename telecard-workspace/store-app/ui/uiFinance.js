@@ -1,7 +1,7 @@
 // ============================================================================
 // 💳 وحدة الدفع والمنتجات (uiFinance.js)
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديث: إزالة أخطاء الـ Number() واستخدام String() للمطابقة السحابية
+// 🚀 التحديث: إزالة أخطاء الـ Number()، استخدام String للمطابقة، وربط التواريخ بالدالة المركزية
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -118,7 +118,6 @@ export const UIFinance = {
         getSys().resetUI?.();
 
         const prods = LiveStoreData.prods || [];
-        // 🌟 استخدام String بدلاً من المماثلة المباشرة لمنع الأخطاء
         DataManager.currentProd = prods.find(p => String(p.id) === String(id));
         if (!DataManager.currentProd) return;
 
@@ -571,7 +570,6 @@ export const UIFinance = {
         const payments = LiveStoreData.payments || [];
         const modal = document.getElementById('balance-modal');
         
-        // 🌟 استخدام String للمطابقة الآمنة
         this.currentPayment = payments.find(p => String(p.id) === String(id));
         if (!this.currentPayment || !modal) return;
         
@@ -1118,8 +1116,6 @@ export const UIFinance = {
         const modal = document.getElementById('tx-detail-modal'); 
         const content = document.getElementById('tx-detail-content');
         
-        const fmtDateFull = (ts) => new Date(ts).toLocaleString('en-GB');
-        
         const formatInputData = (str) => { 
             if(!str || str === '---') return '<span class="num-en">---</span>'; 
             if(str.includes('|')) { 
@@ -1135,7 +1131,6 @@ export const UIFinance = {
 
         if(type === 'deposit') {
             const deposits = LiveStoreData.deposits || [];
-            // 🌟 استخدام String للمطابقة الآمنة
             const d = deposits.find(x => String(x.id) === String(id));
             if(!d) return;
 
@@ -1211,7 +1206,7 @@ export const UIFinance = {
                         
                         <div class="nm-row-compact">
                             <span class="nm-label"><i class="fa-solid fa-calendar"></i> التاريخ</span>
-                            <span class="nm-val num-en">${fmtDateFull(d.time)}</span>
+                            <span class="nm-val num-en">${RenderHelpers.formatSafeDate(d.time)}</span>
                         </div>
                     </div>
                 </div>
@@ -1222,7 +1217,6 @@ export const UIFinance = {
             const orders = LiveStoreData.orders || [];
             const user = DataManager.user;
 
-            // 🌟 استخدام String للمطابقة الآمنة
             const o = orders.find(x => String(x.id) === String(id) && user && String(x.userId) === String(user.id));
 
             if(!o) {
@@ -1239,7 +1233,7 @@ export const UIFinance = {
             else if (o.status === 'rejected') { stTxt = 'مرفوض'; stClass = 'rejected'; stIcon = 'fa-circle-xmark'; } 
             else if (isRet) { stTxt = 'مسترجع'; stClass = 'returned'; stIcon = 'fa-rotate-left'; }
             
-            let dateTimeDisplay = typeof DataManager !== 'undefined' && typeof DataManager.formatDateLocal === 'function' ? DataManager.formatDateLocal(o.time) : fmtDateFull(o.time);
+            let dateTimeDisplay = RenderHelpers.formatSafeDate(o.time);
             let finalInputVal = formatInputData(o.input);
             let displayQty = o.qty ? o.qty : 1;
             

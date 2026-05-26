@@ -1,7 +1,7 @@
 // ============================================================================
 // 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - ES6 Module
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
-// 🚀 التحديث: ملف كامل غير مختصر مع إصلاح مطابقة الـ UID السحابية
+// 🚀 التحديث: تطبيق معمارية (SSOT) وتوحيد قراءة وتنسيق التواريخ عبر RenderHelpers
 // ============================================================================
 
 import { DB_KEYS } from './config.js'; 
@@ -10,13 +10,6 @@ import { DataManager, LiveStoreData, StoreDB } from './dataManager.js';
 import { UIManager } from './ui/uiManager.js'; 
 import { Components } from './components.js'; 
 import { RenderHelpers } from './core/renderHelpers.js'; 
-
-const _safeTime = (ts) => {
-    if (!ts) return null;
-    if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
-    if (ts.seconds) return ts.seconds * 1000; 
-    return ts; 
-};
 
 export const RenderManager = {
     highlightId: null,
@@ -677,7 +670,7 @@ export const RenderManager = {
         const deps = LiveStoreData.deposits || [];
         const ords = LiveStoreData.orders || [];
 
-        const getTime = (item) => _safeTime(item.time || item.createdAt);
+        const getTime = (item) => RenderHelpers.parseTime(item.time || item.createdAt);
 
         // ✅ تم إصلاح الـ Syntax القاتل وحذف الفاصلة المنقوطة
         const deposits = deps.filter(d => String(d.userId) === String(uid)).map(d => {
@@ -742,7 +735,7 @@ export const RenderManager = {
             const isDep = tx.type === 'deposit';
             let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
             
-            let formattedDate = DataManager.formatDateLocal ? DataManager.formatDateLocal(tx.time || tx.createdAt) : '---';
+            let formattedDate = RenderHelpers.formatSafeDate(tx.time || tx.createdAt);
 
             if (isDep) {
                 if (tx.status === 'approved') {
@@ -872,7 +865,7 @@ export const RenderManager = {
         // ✅ استخدام uid السحابي
         let myDeposits = allDeposits.filter(d => String(d.userId) === String(uid));
 
-        const getTime = (item) => _safeTime(item.time || item.createdAt);
+        const getTime = (item) => RenderHelpers.parseTime(item.time || item.createdAt);
 
         const filters = DataManager.filters || { payments: 'all' };
         if (filters.payments !== 'all') myDeposits = myDeposits.filter(d => d.status === filters.payments);
@@ -925,7 +918,7 @@ export const RenderManager = {
             
             clone.querySelector('.ph-fee-pct').textContent = `(${feesPct}%)`;
 
-            let formattedDate = DataManager.formatDateLocal ? DataManager.formatDateLocal(d.time || d.createdAt) : '---';
+            let formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
             const miniDateEl = clone.querySelector('.ph-date-mini');
             if(miniDateEl) miniDateEl.innerHTML = formattedDate.replace(' | ', ' <span class="date-sep">|</span> ');
 
@@ -977,7 +970,7 @@ export const RenderManager = {
         const allOrders = LiveStoreData.orders || [];
         const prods = LiveStoreData.prods || [];
 
-        const getTime = (item) => _safeTime(item.time || item.createdAt);
+        const getTime = (item) => RenderHelpers.parseTime(item.time || item.createdAt);
 
         // ✅ استخدام uid السحابي
         let orders = allOrders.filter(o => String(o.userId) === String(uid));
@@ -1054,7 +1047,7 @@ export const RenderManager = {
             cardElement.setAttribute('data-id', o.id);
 
             const shortOrderId = o.displayId || o.id;
-            let formattedDate = DataManager.formatDateLocal ? DataManager.formatDateLocal(o.time || o.createdAt) : '---';
+            let formattedDate = RenderHelpers.formatSafeDate(o.time || o.createdAt);
 
             cardElement.innerHTML = `
                 <div class="oh-right">
@@ -1172,7 +1165,7 @@ export const RenderManager = {
                 userName: (typeof UIManager !== 'undefined' && UIManager._getFullName) ? UIManager._getFullName(DataManager.user) : 'العميل',
                 userDisplayId: userShortId,
                 status: o.status, product: o.product, price: o.price, priceCurrency: o.priceCurrency,
-                qty: o.qty || 1, input: o.input || '---', dateTime: DataManager.formatDateLocal(o.time),
+                qty: o.qty || 1, input: o.input || '---', dateTime: RenderHelpers.formatSafeDate(o.time),
                 code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null
             }
         });
@@ -1193,7 +1186,7 @@ export const RenderManager = {
                 userDisplayId: userShortId, method: d.method || '---',
                 amount: d.amount, currency: d.currency, feePercent: d.feesPercent || 0,
                 feeVal: d.fees || 0, netVal: d.creditedAmount || d.amount,
-                targetCurrency: d.targetCurrency || 'USD', dateTime: DataManager.formatDateLocal(d.time)
+                targetCurrency: d.targetCurrency || 'USD', dateTime: RenderHelpers.formatSafeDate(d.time)
             }
         });
     },

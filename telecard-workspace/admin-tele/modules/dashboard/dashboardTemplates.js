@@ -1,5 +1,6 @@
 // ============================================================================
 // 📊 قوالب لوحة القيادة والمبيعات (modules/dashboard/dashboardTemplates.js)
+// 🚀 التحديث: تنظيف الكود والربط المباشر مع محرك التواريخ المركزي (SSOT)
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -7,7 +8,7 @@ import { RenderHelpers } from '../../core/renderHelpers.js';
 
 const _esc = Utils.escapeHTML;
 const _enNum = Utils.enNum;
-const _fmtDate = Utils.formatDate;
+// تم حذف المتغير _fmtDate للحفاظ على المركزية
 
 export const DashboardTemplates = {
     dashEmptyWallets: () => `<div class="dash-circ-card" data-action="nav" data-target="wallets"><div class="circ-icon bg-warning"><i class="fa-solid fa-wallet"></i></div><div class="circ-data"><h3 class="num-en text-warning">0</h3><span>لا توجد أرصدة للعملاء</span></div></div>`,
@@ -125,5 +126,6 @@ export const DashboardTemplates = {
     
     dashEmptyAlerts: () => `<div class="empty-alert text-muted"><i class="fa-solid fa-check-circle"></i> النظام مستقر، لا توجد تنبيهات.</div>`,
     
-    dashAlertItem: (a) => `<div class="smart-alert-item ${a.type === 'danger' ? 'alert-danger' : (a.type === 'warning' ? 'alert-warning' : (a.type === 'security' ? 'alert-security' : (a.type === 'success' ? 'alert-success' : 'alert-info')))} ${a.action ? 'clickable' : ''}" ${a.action || ''}><div class="alert-content-wrap"><i class="fa-solid ${a.icon}"></i> <span>${a.text}</span></div><div class="alert-time num-en" dir="ltr" lang="en"><i class="fa-regular fa-clock"></i> ${_fmtDate(a.time)}</div></div>`
+    // 🌟 التحديث هنا: استخدام المنسق الزمني المركزي للبيانات
+    dashAlertItem: (a) => `<div class="smart-alert-item ${a.type === 'danger' ? 'alert-danger' : (a.type === 'warning' ? 'alert-warning' : (a.type === 'security' ? 'alert-security' : (a.type === 'success' ? 'alert-success' : 'alert-info')))} ${a.action ? 'clickable' : ''}" ${a.action || ''}><div class="alert-content-wrap"><i class="fa-solid ${a.icon}"></i> <span>${a.text}</span></div><div class="alert-time num-en" dir="ltr" lang="en"><i class="fa-regular fa-clock"></i> ${RenderHelpers.formatSafeDate(a.time)}</div></div>`
 };

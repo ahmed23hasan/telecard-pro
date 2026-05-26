@@ -1,6 +1,7 @@
 // ============================================================================
 // 📦 محرك رسم الطلبات (modules/orders/ordersRender.js)
 // 🎯 الوظيفة: التكفل برسم قوائم الطلبات، الفلترة، والتحميل التدريجي وتصدير الإكسل
+// 🚀 التحديث: تأمين الفلترة والفرز وتصدير الإكسل باستخدام المترجم الزمني المركزي
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -46,10 +47,8 @@ export const OrdersRender = {
         
         const f = this.filters || {};
         
-        // 🌟 التعديل الجوهري: استخدام النسخ العميق (Deep Copy) لحماية حالة البيانات
-        // 🌟 التعديل الجوهري: استخدام النسخ السطحي (Spread Operator) فائق السرعة
-// 🌟 التعديل الجوهري: استخدام النسخ السطحي (Spread Operator) فائق السرعة
-let data = Array.isArray(AdminData.data.orders) ? [...AdminData.data.orders] : [];
+        // 🌟 التعديل الجوهري: استخدام النسخ السطحي (Spread Operator) لحماية حالة البيانات
+        let data = Array.isArray(AdminData.data.orders) ? [...AdminData.data.orders] : [];
 
         if(f.search || f.start || f.end) {
             const startD = f.start ? new Date(f.start).setHours(0,0,0,0) : null;
@@ -65,10 +64,14 @@ let data = Array.isArray(AdminData.data.orders) ? [...AdminData.data.orders] : [
                     mS = String(o.id).includes(s) || 
                          (o.product && String(o.product).toLowerCase().includes(s)) || 
                          (o.userName && String(o.userName).toLowerCase().includes(s)) ||
-                         dId.includes(s); // 👈 إضافة البحث بالرقم القصير هنا
+                         dId.includes(s); // 👈 إضافة البحث بالرقم القصير
                 }
-                if(startD && o.time < startD) mD = false;
-                if(endD && o.time > endD) mD = false;
+                
+                // 🌟 استخدام المترجم الزمني المركزي لحماية المقارنة
+                const itemTime = RenderHelpers.parseTime(o.time || o.createdAt);
+                if(startD && itemTime < startD) mD = false;
+                if(endD && itemTime > endD) mD = false;
+                
                 return mS && mD;
             });
         }
@@ -99,7 +102,11 @@ let data = Array.isArray(AdminData.data.orders) ? [...AdminData.data.orders] : [
             const isA_ActionNeeded = (a.status === 'pending' || a.status === 'processing') ? 1 : 0;
             const isB_ActionNeeded = (b.status === 'pending' || b.status === 'processing') ? 1 : 0;
             if (isA_ActionNeeded !== isB_ActionNeeded) return isB_ActionNeeded - isA_ActionNeeded; 
-            return (b.time || 0) - (a.time || 0);
+            
+            // 🌟 استخدام المترجم الزمني لضمان فرز دقيق وخالٍ من الأخطاء
+            const timeA = RenderHelpers.parseTime(a.time || a.createdAt);
+            const timeB = RenderHelpers.parseTime(b.time || b.createdAt);
+            return timeB - timeA;
         });
 
         if(!data.length) { 
@@ -163,7 +170,8 @@ let data = Array.isArray(AdminData.data.orders) ? [...AdminData.data.orders] : [
         let csvContent = "\uFEFFرقم الطلب,التاريخ,اسم العميل,المعرف القصير,المنتج,الكمية,السعر الاجمالي($),التكلفة($),الربح($),المصدر,الحالة\n";
         
         dataToExport.forEach(o => {
-            const dateStr = Utils.formatDate(o.time || o.date);
+            // 🌟 استخدام المنسق الزمني المركزي للتقرير
+            const dateStr = RenderHelpers.formatSafeDate(o.time || o.createdAt);
             const sanitizeCSV = (str) => { let c = String(str).replace(/,/g, " "); if (/^[=@+-]/.test(c)) c = "'" + c; return c; };
 
             // 🌟 التحديث: جلب بيانات العميل لاستخراج الرقم القصير والاسم

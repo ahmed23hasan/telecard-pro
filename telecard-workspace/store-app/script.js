@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 المحرك الرئيسي للمتجر (script.js) - المجلد الاحترافي المصلح للسحابة
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: حل أخطاء (Type Mismatch) ومنع تعارض قواعد أمان فايربيز
+// 🚀 التحديث: توحيد مصدر الحقيقة الزمني (SSOT) وتطهير الاستعلامات السحابية
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -12,19 +12,14 @@ import { RenderManager } from './renderManager.js';
 import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 
-// 🌟 مُطهر البيانات السحابية (ينظف الأوقات قبل دخولها للذاكرة الحية)
+// 🌟 مُطهر البيانات السحابية (يعتمد على النواة المركزية RenderHelpers لفك تشفير الوقت)
 const _normalizeDataTime = (dataArray) => {
     if (!Array.isArray(dataArray)) return dataArray;
     return dataArray.map(item => {
         let normalizedItem = { ...item };
-        if (normalizedItem.time) {
-            if (typeof normalizedItem.time.toDate === 'function') normalizedItem.time = normalizedItem.time.toDate().getTime();
-            else if (normalizedItem.time.seconds) normalizedItem.time = normalizedItem.time.seconds * 1000;
-        }
-        if (normalizedItem.createdAt) {
-            if (typeof normalizedItem.createdAt.toDate === 'function') normalizedItem.createdAt = normalizedItem.createdAt.toDate().getTime();
-            else if (normalizedItem.createdAt.seconds) normalizedItem.createdAt = normalizedItem.createdAt.seconds * 1000;
-        }
+        if (normalizedItem.time) normalizedItem.time = RenderHelpers.parseTime(normalizedItem.time);
+        if (normalizedItem.createdAt) normalizedItem.createdAt = RenderHelpers.parseTime(normalizedItem.createdAt);
+        if (normalizedItem.actionTime) normalizedItem.actionTime = RenderHelpers.parseTime(normalizedItem.actionTime);
         return normalizedItem;
     });
 };
@@ -220,26 +215,53 @@ modules.forEach(mod => {
     });
 });
 
+// ============================================================================
+// 🔄 محرك المزامنة الحي (Real-time Firebase Sync Engine)
+// ============================================================================
 ClientSystem.initFirebaseListeners = function() {
     console.log("📡 جاري تشغيل مستمعات السحابة الحية (المحمية)...");
     this.clearFirebaseListeners();
 
-    // ... (كود الـ SETTINGS و ALERTS يبقى كما هو) ...
+    if (DB_KEYS.SETTINGS) {
+        const unsubSettings = StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
+            LiveStoreData.settings = Array.isArray(data) ? (data[0] || {}) : (data || {});
+            
+            RenderHelpers.init({
+                settings: LiveStoreData.settings || {},
+                rates: LiveStoreData.rates || [],
+                offers: LiveStoreData.offers || [],
+                isStore: true
+            });
+            
+            if (DataManager.syncUser) DataManager.syncUser();
+            if (UIManager && typeof UIManager.updateDisplayCurrencyUI === 'function') {
+                UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
+            }
+
+            if (UIManager && typeof UIManager.applyStoreIdentity === 'function') {
+                UIManager.applyStoreIdentity();
+            }
+        });
+        this.activeListeners.push(unsubSettings);
+    }
+
+    if (DB_KEYS.ALERTS) {
+        const unsubAlerts = StoreDB.listenCollection(DB_KEYS.ALERTS, (data) => {
+            LiveStoreData.alerts = Object.freeze(_normalizeDataTime([...data])); 
+            requestAnimationFrame(() => {
+                if (UIManager && typeof UIManager.processAndDisplayAlerts === 'function') UIManager.processAndDisplayAlerts();
+                if (UIManager && typeof UIManager.updateNotifBadges === 'function') UIManager.updateNotifBadges();
+            });
+        });
+        this.activeListeners.push(unsubAlerts);
+    }
 
     const uidStr = localStorage.getItem('telecard_active_user_uid');
     
-    // 🕵️‍♂️ نقطة التفتيش 1: هل المتجر يعرف من هو العميل؟
-    console.log("🕵️‍♂️ [تحقيق 1] معرف العميل الحالي في المتصفح:", uidStr);
-    
     if (uidStr) {
-        const uidNum = Number(uidStr);
-        const queryUids = isNaN(uidNum) ? [uidStr] : [uidStr, uidNum];
-
         if (StoreDB.listenDoc) {
+            // المعرف الخاص بالمستند (Doc ID) يجب أن يكون نصاً
             const unsubUser = StoreDB.listenDoc(DB_KEYS.USERS, String(uidStr), (userData) => {
-                // 🕵️‍♂️ نقطة التفتيش 2: هل بيانات العميل (بما فيها الرصيد) تصل من السحابة؟
-                console.log("🕵️‍♂️ [تحقيق 2] بيانات العميل القادمة من السحابة:", userData);
-                
                 if (userData) {
                     LiveStoreData.users = Object.freeze([userData]); 
                     requestAnimationFrame(() => {
@@ -252,9 +274,8 @@ ClientSystem.initFirebaseListeners = function() {
         }
 
         if (StoreDB.listenQuery) {
-            // 🕵️‍♂️ نقطة التفتيش 3: ماذا ترد السحابة عندما نطلب الطلبات؟
-            const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', 'in', queryUids], (data) => {
-                console.log("🕵️‍♂️ [تحقيق 3] الطلبات المجلوبة من فايربيز:", data);
+            // 🌟 استخدام String(uidStr) مباشرة بعد إثبات أن السحابة تحفظه كنص
+            const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], (data) => {
                 LiveStoreData.orders = Object.freeze(_normalizeDataTime([...data]));
                 requestAnimationFrame(() => {
                     if (RenderManager && typeof RenderManager.renderOrders === 'function') RenderManager.renderOrders();
@@ -262,9 +283,7 @@ ClientSystem.initFirebaseListeners = function() {
             });
             this.activeListeners.push(unsubOrders);
 
-            // 🕵️‍♂️ نقطة التفتيش 4: ماذا ترد السحابة عندما نطلب الإيداعات؟
-            const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', 'in', queryUids], (data) => {
-                console.log("🕵️‍♂️ [تحقيق 4] الإيداعات المجلوبة من فايربيز:", data);
+            const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], (data) => {
                 LiveStoreData.deposits = Object.freeze(_normalizeDataTime([...data]));
                 requestAnimationFrame(() => {
                     if (RenderManager && typeof RenderManager.renderWallet === 'function') RenderManager.renderWallet();
@@ -275,6 +294,7 @@ ClientSystem.initFirebaseListeners = function() {
         }
     }
 };
+
 // ============================================================================
 // 🚀 نقطة الإقلاع المركزية للنظام (Bootstrapper)
 // ============================================================================
