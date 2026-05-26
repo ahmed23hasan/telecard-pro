@@ -2,10 +2,9 @@
 // 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers)
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core - Zero Dependencies)
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث: توحيد مصدر الحقيقة الزمني (SSOT) بدمج المترجم والمنسق المركزي
+// 🌟 التحديث: توحيد مصدر الحقيقة الزمني (SSOT) ومحرك معالجة المُعرّفات (IDs)
 // ============================================================================
 
-// متغير خاص بالوحدة (Module-level Private Variable)
 let _injectedSource = null;
 
 export const RenderHelpers = Object.freeze({
@@ -56,6 +55,49 @@ export const RenderHelpers = Object.freeze({
         });
     },
 
+    // ============================================================================
+    // 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (ID Formatter Engine)
+    // ============================================================================
+
+    /**
+     * 👤 المنسق المركزي لأرقام العملاء (User ID)
+     * يعالج الكائن أو النص المباشر ويقص المعرف الطويل للحماية وسهولة القراءة
+     */
+    formatUserId: function(userObj) {
+        if (!userObj) return '---';
+        const rawId = typeof userObj === 'object' ? (userObj.displayId || userObj.id || '') : userObj;
+        if (!rawId) return '---';
+        
+        return String(rawId).substring(0, 6).toUpperCase();
+    },
+
+    /**
+     * 📦 المنسق المركزي لأرقام الطلبات (Order ID)
+     * يطبع المعرف الرقمي الصافي القادم من السيرفر ويضيف البادئة التجميلية
+     */
+    formatOrderId: function(orderObj, withPrefix = true) {
+        if (!orderObj) return '---';
+        const rawId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
+        if (!rawId) return '---';
+
+        return withPrefix ? `ORD-${rawId}` : String(rawId);
+    },
+
+    /**
+     * 💳 المنسق المركزي لأرقام العمليات والإيداعات (Transaction/Deposit ID)
+     */
+    formatTxId: function(txObj, withPrefix = true) {
+        if (!txObj) return '---';
+        const rawId = typeof txObj === 'object' ? (txObj.displayId || txObj.id || '') : txObj;
+        if (!rawId) return '---';
+
+        return withPrefix ? `TX-${rawId}` : String(rawId);
+    },
+
+    // ============================================================================
+    // 💰 المحركات المالية والعملات
+    // ============================================================================
+
     /**
      * 💰 المحرك المركزي لجلب نص العملة (شعار أو رمز)
      */
@@ -83,7 +125,6 @@ export const RenderHelpers = Object.freeze({
      * 🌍 محرك جلب رابط علم الدولة تلقائياً بناءً على رمز العملة
      */
     getCurrencyFlagUrl: function(currCode = 'USD') {
-        // 🌟 إضافة trim() لتنظيف أي مسافات مخفية قد تسبب خطأ في التطابق
         const code = String(currCode).toUpperCase().trim();
         
         const currencyToCountry = {
@@ -99,7 +140,7 @@ export const RenderHelpers = Object.freeze({
 
     /**
      * 🎨 دالة تنسيق المبالغ المالية الفاخرة
-     * 🌟 تم الإصلاح: العزل ثنائي الاتجاه (Bidi Isolation) لحل مشكلة الخط المشطوب
+     * 🌟 العزل ثنائي الاتجاه (Bidi Isolation) لحل مشكلة الخط المشطوب
      */
     formatMoney: function(amount, currencyCode = 'USD', decimals = 2) {
         const num = Number(amount) || 0;
@@ -113,19 +154,22 @@ export const RenderHelpers = Object.freeze({
         const isLongText = displayCur.trim().length > 2 || /[A-Za-z]/.test(displayCur);
         const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
         
-        // استخدام وسم <bdi> لعزل الرقم عن العملة ومنع انزياح الخط المشطوب
         return `<span class="money-pro"><bdi class="num-en money-val">${formattedNum}</bdi><bdi class="cur-symbol ${symbolClass}">${displayCur}</bdi></span>`;
     },
 
+    // ============================================================================
+    // 👥 محركات أسماء المستخدمين والشارات
+    // ============================================================================
+
     /**
      * 🆔 جلب الاسم الظاهر للمستخدم (مخصص للطلبات والإيداعات والعمليات)
-     * 🌟 التحديث: دمج الرقم القصير (displayId) لتعريف العميل بدقة في الجداول
+     * 🌟 التحديث: دمج الرقم القصير المركزي (formatUserId) لتعريف العميل بدقة في الجداول
      */
     _getTxName: function(u) {
         if (!u) return 'مستخدم جديد';
         
-        // استخراج الرقم القصير أو أول 6 خانات كبديل
-        const shortId = u.displayId || (u.id ? String(u.id).substring(0, 6) : '');
+        // استخراج الرقم القصير من المحرك المركزي مباشرة لمنع التكرار والترقيع الموضعي
+        const shortId = this.formatUserId(u);
         
         const f = u.firstName || u.first_name || u.name || '';
         const l = u.lastName || u.last_name || '';
@@ -134,7 +178,7 @@ export const RenderHelpers = Object.freeze({
         if (!fullName) fullName = 'مستخدم جديد';
         
         // إرجاع الاسم متبوعاً بالرقم لتسهيل البحث والمطابقة على الإدارة
-        return shortId ? `${fullName} (#${shortId})` : fullName;
+        return shortId && shortId !== '---' ? `${fullName} (#${shortId})` : fullName;
     },
 
     /**
@@ -146,7 +190,6 @@ export const RenderHelpers = Object.freeze({
         const l = u.lastName || u.last_name || '';
         const fullName = (f + ' ' + l).trim();
         
-        // إرجاع الاسم الكامل، وإذا كان فارغاً يتم استخدام المعرف كبديل
         return fullName || u.username || 'مستخدم غير معروف';
     },
 
@@ -170,6 +213,10 @@ export const RenderHelpers = Object.freeze({
             
         return `<span class="promo-badge b-success icon-ms-2 badge-micro" title="مشمول في عرض: ${safeName}"><i class="fa-solid fa-bolt"></i> عرض نشط</span>`;
     },
+
+    // ============================================================================
+    // ⏱️ المحرك الزمني المركزي
+    // ============================================================================
 
     /**
      * ⏱️ المحرك الزمني المركزي (يفك تشفير أي تاريخ من السحابة)
