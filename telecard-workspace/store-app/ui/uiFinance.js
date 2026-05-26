@@ -1134,7 +1134,8 @@ export const UIFinance = {
             const d = deposits.find(x => String(x.id) === String(id));
             if(!d) return;
 
-            const shortDepositId = d.displayId || d.id;
+            const shortDepositId = RenderHelpers.formatDepositId(d);
+
 
             let stClass = 'pending'; let stTxt = d.status === 'pending' ? 'قيد المراجعة' : d.status; let stIcon = 'fa-clock';
             if(d.status === 'approved') { stClass = 'completed'; stTxt = 'مقبول'; stIcon = 'fa-check-circle'; }
@@ -1224,7 +1225,8 @@ export const UIFinance = {
                 return;
             }
 
-            const shortOrderId = o.displayId || o.id;
+            const shortOrderId = RenderHelpers.formatOrderId(o);
+
 
             const isRet = (o.status === 'refunded' || o.status === 'returned');
             let stTxt = 'قيد التنفيذ'; let stClass = 'pending'; let stIcon = 'fa-clock';
@@ -1350,7 +1352,8 @@ export const UIFinance = {
                         <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${shortOrderId}">
                             <span class="nm-label" style="pointer-events: none;"><i class="fa-solid fa-hashtag"></i> رقم الطلب (ID)</span>
                             <div class="nm-val scl-text" dir="ltr" style="pointer-events: none;">
-                                <span class="num-en">#${shortOrderId}</span>
+                                <span class="num-en">${shortOrderId}</span>
+
                                 <i class="fa-regular fa-copy scl-icon"></i>
                             </div>
                         </div>

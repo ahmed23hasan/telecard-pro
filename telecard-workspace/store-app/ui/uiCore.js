@@ -77,7 +77,8 @@ export const UICore = {
     _getTxNameWithID: function(user) {
         const u = user || DataManager.user || {}; 
         const namePart = u.username ? `@${u.username}` : this._getFullName(u);
-        const displayId = u.displayId || (u.id ? u.id.substring(0, 6) : '---');
+        const displayId = RenderHelpers.formatUserId(u);
+
 
         return `
             <div class="tx-name-wrapper">

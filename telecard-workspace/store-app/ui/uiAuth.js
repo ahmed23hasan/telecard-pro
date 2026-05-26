@@ -7,6 +7,7 @@
 import { Utils } from '../utils.js';                    
 import { DataManager, LiveStoreData } from '../dataManager.js'; 
 import { FirebaseAdapter } from '../core/firebaseAdapter.js';
+import { RenderHelpers } from '../core/renderHelpers.js';
 
 const DEFAULT_AVATAR_URL = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
 
@@ -45,7 +46,8 @@ export const UIAuth = {
         const emailTxt = (user.email && user.email.trim()) ? user.email : 'غير محدد';
         const phoneTxt = (user.phone && user.phone.trim()) ? user.phone : 'غير محدد';
         
-        const idTxt = user.displayId || (user.id ? user.id.substring(0, 6) : '--');
+        const idTxt = RenderHelpers.formatUserId(user);
+
 
         const displayNameEl = document.getElementById('display-name');
         const editNameEl = document.getElementById('edit-name-input');
@@ -278,8 +280,8 @@ export const UIAuth = {
             }
             
             const idEl = document.getElementById('cs-id'); 
-            if(idEl) idEl.textContent = user.displayId || (user.id ? String(user.id).substring(0, 6) : '---');
-            
+if(idEl) idEl.textContent = RenderHelpers.formatUserId(user);
+         
             this.updateSidebarTier();
             this.renderKycUI();
             this.checkKycCelebration();

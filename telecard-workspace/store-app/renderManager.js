@@ -770,7 +770,7 @@ export const RenderManager = {
             }
 
             const jumpType = isDep ? 'deposit' : 'purchase';
-            const shortTxId = tx.displayId || tx.id;
+const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
 
             generatedHTML += `
             <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
@@ -789,7 +789,8 @@ export const RenderManager = {
                     </div>
 
                     <div class="th-amount-col">
-                        <span class="th-order num-en">#${shortTxId}</span>
+                        <span class="th-order num-en">${shortTxId}</span>
+
                         <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal, tx.amountCurrency)}</div>
                         ${balanceAfterHtml}
                     </div>
@@ -922,13 +923,11 @@ export const RenderManager = {
             const miniDateEl = clone.querySelector('.ph-date-mini');
             if(miniDateEl) miniDateEl.innerHTML = formattedDate.replace(' | ', ' <span class="date-sep">|</span> ');
 
-            const shortDepositId = d.displayId || d.id;
-            const idEl = clone.querySelector('.ph-id');
-            idEl.textContent = '#' + shortDepositId;
-            
-            idEl.setAttribute('data-action', 'copy-text');
-            idEl.setAttribute('data-text', shortDepositId.toString());
-
+            const shortDepositId = RenderHelpers.formatDepositId(d);
+const idEl = clone.querySelector('.ph-id');
+idEl.textContent = shortDepositId;
+    idEl.setAttribute('data-action', 'copy-text');
+            idEl.setAttribute('data-text', shortDepositId);
             clone.querySelector('.ph-sender').innerHTML = (UIManager && UIManager._getTxNameWithID) ? UIManager._getTxNameWithID(user) : 'العميل';
             clone.querySelector('.ph-full-time').textContent = formattedDate;
 
@@ -1046,7 +1045,8 @@ export const RenderManager = {
             cardElement.setAttribute('data-type', 'order');
             cardElement.setAttribute('data-id', o.id);
 
-            const shortOrderId = o.displayId || o.id;
+            const shortOrderId = RenderHelpers.formatOrderId(o);
+
             let formattedDate = RenderHelpers.formatSafeDate(o.time || o.createdAt);
 
             cardElement.innerHTML = `
@@ -1059,7 +1059,8 @@ export const RenderManager = {
                 <div class="oh-left">
                     <div class="oh-status-box"><span class="oh-status ${statusClass}">${statusLabel}</span></div>
                     <div class="oh-price-box" dir="ltr"><div class="oh-amount">${amountHtml}</div>${qtyHtml}</div>
-                    <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">#${shortOrderId}</span></div>
+                    <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${shortOrderId}</span>
+</div>
                 </div>`;
 
             fragment.appendChild(cardElement);
@@ -1068,7 +1069,7 @@ export const RenderManager = {
         list.appendChild(fragment);
     },
 
-    generatePDFReceipt: async function(config) {
+        generatePDFReceipt: async function(config) {
         const printContainer = document.createElement('div');
         printContainer.id = 'pdf-export-container'; 
 
@@ -1089,12 +1090,12 @@ export const RenderManager = {
             <div class="receipt-diamond" dir="rtl">
                 <div class="header">
                     <div>${brandHTML}</div>
-                    <div style="text-align: left;"><div class="doc-title">إيصال إيداع</div><div class="doc-id">#${config.data.displayId}</div></div>
+                    <div style="text-align: left;"><div class="doc-title">إيصال إيداع</div><div class="doc-id">${config.data.displayId}</div></div>
                 </div>
                 <div class="body">
                     <div class="info-grid">
                         <div class="grid-item"><span class="label">اسم المرسل</span><span class="value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                        <div class="grid-item"><span class="label">رقم العميل</span><span class="value en">#${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
+                        <div class="grid-item"><span class="label">رقم العميل</span><span class="value en">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
                         <div class="grid-item"><span class="label">طريقة الدفع</span><span class="value">${Utils.escapeHtml(config.data.method)}</span></div>
                         <div class="grid-item"><span class="label">إجمالي المبلغ</span><span class="value">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
                         <div class="grid-item"><span class="label">العمولة (${config.data.feePercent}%)</span><span class="value">-${RenderHelpers.formatMoney(config.data.feeVal, config.data.currency)}</span></div>
@@ -1111,12 +1112,12 @@ export const RenderManager = {
             <div class="receipt-diamond" dir="rtl">
                 <div class="header">
                     <div>${brandHTML}</div>
-                    <div style="text-align: left;"><div class="doc-title">إيصال بيع منتج</div><div class="doc-id">#${config.data.displayId}</div></div>
+                    <div style="text-align: left;"><div class="doc-title">إيصال بيع منتج</div><div class="doc-id">${config.data.displayId}</div></div>
                 </div>
                 <div class="body">
                     <div class="info-grid">
                         <div class="grid-item"><span class="label">اسم العميل</span><span class="value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                        <div class="grid-item"><span class="label">رقم العميل</span><span class="value en">#${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
+                        <div class="grid-item"><span class="label">رقم العميل</span><span class="value en">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
                         <div class="grid-item"><span class="label">حالة الطلب</span><span class="value">${Utils.escapeHtml(config.data.status)}</span></div>
                         <div class="grid-item"><span class="label">المنتج</span><span class="value">${Utils.escapeHtml(config.data.product)}</span></div>
                         <div class="grid-item"><span class="label">السعر الإجمالي</span><span class="value">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</span></div>
@@ -1150,13 +1151,13 @@ export const RenderManager = {
             printContainer.remove();
         }
     },
-    
-    exportReceipt: function(orderId) {
+        exportReceipt: function(orderId) {
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
         if(!o) return;
 
-        const finalDisplayId = o.displayId || o.id;
-        const userShortId = DataManager.user?.displayId || DataManager.user?.id || '---';
+        // 🌟 استخدام المحرك المركزي لتوحيد الآيدي للطلب والعميل
+        const finalDisplayId = RenderHelpers.formatOrderId(o);
+        const userShortId = RenderHelpers.formatUserId(DataManager.user);
 
         this.generatePDFReceipt({
             type: 'order', filename: `Order_${finalDisplayId}.pdf`,
@@ -1175,8 +1176,9 @@ export const RenderManager = {
         const d = (LiveStoreData.deposits || []).find(x => String(x.id) === String(depositId));
         if(!d) return;
 
-        const finalDisplayId = d.displayId || d.id;
-        const userShortId = DataManager.user?.displayId || DataManager.user?.id || '---';
+        // 🌟 استخدام المحرك المركزي لتوحيد الآيدي للإيداع والعميل
+        const finalDisplayId = RenderHelpers.formatDepositId(d);
+        const userShortId = RenderHelpers.formatUserId(DataManager.user);
 
         this.generatePDFReceipt({
             type: 'deposit', filename: `Deposit_${finalDisplayId}.pdf`,
@@ -1190,7 +1192,6 @@ export const RenderManager = {
             }
         });
     },
-
     renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;

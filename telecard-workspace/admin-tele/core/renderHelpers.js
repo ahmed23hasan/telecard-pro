@@ -86,12 +86,16 @@ export const RenderHelpers = Object.freeze({
     /**
      * 💳 المنسق المركزي لأرقام العمليات والإيداعات (Transaction/Deposit ID)
      */
-    formatTxId: function(txObj, withPrefix = true) {
-        if (!txObj) return '---';
-        const rawId = typeof txObj === 'object' ? (txObj.displayId || txObj.id || '') : txObj;
+        /**
+     * 💳 المنسق المركزي لأرقام الإيداعات (Deposit ID)
+     * يطبع المعرف الرقمي ويضيف البادئة التجميلية للإيداعات
+     */
+    formatDepositId: function(depObj, withPrefix = true) {
+        if (!depObj) return '---';
+        const rawId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
         if (!rawId) return '---';
 
-        return withPrefix ? `TX-${rawId}` : String(rawId);
+        return withPrefix ? `DEP-${rawId}` : String(rawId);
     },
 
     // ============================================================================
