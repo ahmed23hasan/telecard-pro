@@ -68,7 +68,7 @@ export const CatalogController = {
             if (hasImg) {
                 if (AdminUI?.tempFile) {
                     EventBus.emit('req-show-toast', {message:'جاري رفع صورة المنتج للسحابة...', type:'info'});
-                    finalImg = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'products');
+                    finalImg = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'products', null, oldImg);
                 } else {
                     finalImg = oldImg || ''; // إبقاء الصورة القديمة إذا لم يتم تغييرها
                 }
@@ -197,45 +197,64 @@ export const CatalogController = {
     deleteProduct: async function(id) {
         if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من حذف هذا المنتج نهائياً؟')) {
             const prodId = String(id);
-            const prodName = AdminData.data.prods.find(p => String(p.id) === prodId)?.name || 'المنتج';
+            const prod = AdminData.data.prods.find(p => String(p.id) === prodId);
+            const prodName = prod?.name || 'المنتج';
             
+            // 🌟 1. التنظيف السحابي العميق: مسح الصورة نهائياً لتوفير المساحة وتجنب التراكم (Ghost files)
+            if (prod && prod.img && typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                try { await FirebaseAdapter.deleteImageByUrl(prod.img); } catch (e) { console.warn("Ghost image caught on product."); }
+            }
+            
+            // 2. الحذف المنطقي وتحديث البيانات
             AdminData.data.prods = AdminData.data.prods.filter(p => String(p.id) !== prodId);
             await AdminData?.saveProducts?.();
             
             if (AdminData?.addLog) AdminData.addLog('DELETE_PROD', `تم حذف المنتج: ${prodName}`);
             
             EventBus.emit('req-render-prods');
-            EventBus.emit('req-show-toast', { message: 'تم حذف المنتج بنجاح', type: 'success' });
+            EventBus.emit('req-show-toast', { message: 'تم حذف المنتج بنجاح وتوفير المساحة السحابية', type: 'success' });
         }
     },
-
+    
     deleteCategory: async function(id) {
         if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من حذف هذا القسم؟ (سيتم حذف المنتجات والأقسام الفرعية المرتبطة به مباشرة)')) {
             const catId = String(id);
-            const catName = AdminData.data.cats.find(c => String(c.id) === catId)?.name || 'القسم';
+            const categoryToDelete = AdminData.data.cats.find(c => String(c.id) === catId);
+            const catName = categoryToDelete?.name || 'القسم';
             
-            // حذف القسم الأساسي
-            AdminData.data.cats = AdminData.data.cats.filter(c => String(c.id) !== catId);
-            // حذف الأقسام الفرعية مباشرة
-            AdminData.data.cats = AdminData.data.cats.filter(c => String(c.parentId) !== catId);
-            // حذف المنتجات داخل القسم
-            AdminData.data.prods = AdminData.data.prods.filter(p => String(p.catId) !== catId);
+            const childCatsIds = AdminData.data.cats.filter(c => String(c.parentId) === catId).map(c => String(c.id));
+            const childCatsObjects = AdminData.data.cats.filter(c => String(c.parentId) === catId);
+            const affectedProds = AdminData.data.prods.filter(p => String(p.catId) === catId || childCatsIds.includes(String(p.catId)));
+            
+            // 🌟 1. الرادار الماسح: حصد كل صور (القسم نفسه + الأقسام الفرعية + جميع منتجاتها المعلقة بها)
+            const imagesToBurn = [];
+            if (categoryToDelete?.img) imagesToBurn.push(categoryToDelete.img);
+            childCatsObjects.forEach(c => { if (c.img) imagesToBurn.push(c.img); });
+            affectedProds.forEach(p => { if (p.img) imagesToBurn.push(p.img); });
+            
+            // 🌟 2. توجيه ضربة جوية سحابية واحدة لحرق كافة هذه الصور بسباق مهام غير مرئي (Concurrent Cleanup)
+            if (imagesToBurn.length > 0 && typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                Promise.allSettled(imagesToBurn.map(imgUrl => FirebaseAdapter.deleteImageByUrl(imgUrl)));
+                console.log(`🧹 جاري محو ${imagesToBurn.length} ملف شبح سحابياً بالخلفية...`);
+            }
+            
+            // 3. مسح الأقسام الفرعية والقسم الأب والمنتجات محلياً من السجل (المهمة التي قمت بتطويرها بنجاح)
+            AdminData.data.cats = AdminData.data.cats.filter(c => String(c.parentId) !== catId && String(c.id) !== catId);
+            AdminData.data.prods = AdminData.data.prods.filter(p => String(p.catId) !== catId && !childCatsIds.includes(String(p.catId)));
             
             await AdminData?.saveCategories?.();
             await AdminData?.saveProducts?.();
             
-            if (AdminData?.addLog) AdminData.addLog('DELETE_CAT', `تم حذف القسم: ${catName} ومحتوياته`);
+            if (AdminData?.addLog) AdminData.addLog('DELETE_CAT', `تم حذف القسم: ${catName} ومحتوياته وتنظيف مرفقاتهم.`);
             
-            // في حال كنا داخل القسم المحذوف نعود للخلف
             if (String(AppController.currFolder) === catId) {
                 AppController.updateState({ currFolder: null });
             }
             
             EventBus.emit('req-render-prods');
-            EventBus.emit('req-show-toast', { message: 'تم حذف القسم ومحتوياته بنجاح', type: 'success' });
+            EventBus.emit('req-show-toast', { message: 'تم تفريغ القسم وإبادة صوره सحаبياً بنجاح!', type: 'success' });
         }
     },
-
     changeGridLayout: async function(cols) {
         const parsedCols = parseInt(cols) || 2;
         const folderId = AppController.currFolder;

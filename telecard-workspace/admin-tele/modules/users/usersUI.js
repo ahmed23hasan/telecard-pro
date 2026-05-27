@@ -293,7 +293,4 @@ export const UsersUI = {
         this.tempKycConfig = null;
     },
 
-    handleKycAction: function(userId, action) {
-        EventBus.emit('req-kyc-decision', { userId, action });
-    }
-};
+    };

@@ -72,7 +72,8 @@ export const IntegrationsController = {
             }
 
             // حفظ التحديثات في الذاكرة المحلية
-            if (AdminData.saveSettings) await AdminData.saveSettings();
+            if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
+
 
             AppController.finishAction('req-render-integrations', 'modal', id ? 'UPDATE_SUPPLIER' : 'ADD_SUPPLIER', `المورد: ${name}`, 'تم حفظ بيانات المورد بأمان تام');
             

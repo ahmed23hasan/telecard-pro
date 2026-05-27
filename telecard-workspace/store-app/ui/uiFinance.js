@@ -1,7 +1,7 @@
 // ============================================================================
 // 💳 وحدة الدفع والمنتجات (uiFinance.js)
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديث: إزالة أخطاء الـ Number()، استخدام String للمطابقة، وربط التواريخ بالدالة المركزية
+// 🚀 التحديث: تفريغ عدادات "عرض المزيد" عند تغيير التبويبات للحفاظ على الأداء
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -30,6 +30,9 @@ export const UIFinance = {
         
         if (!DataManager.filters) DataManager.filters = { orders:'all', wallet:'all', payments:'all' };
         DataManager.filters[filterKey] = filterValue;
+        
+        // 🌟 تصفير عداد عرض المزيد ليعود إلى 15 عند التبديل بين التبويبات
+        if (RenderManager.limits) RenderManager.limits[filterKey] = 15;
         
         if (RenderManager[renderFuncName]) RenderManager[renderFuncName]();
     },

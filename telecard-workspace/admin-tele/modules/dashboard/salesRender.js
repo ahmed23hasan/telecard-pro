@@ -178,12 +178,11 @@ export const SalesRender = {
         const globalStats = AdminData.data.system?.globalStats;
         if (globalStats) this.renderCharts(globalStats);
     },
-
-    /**
+/**
      * رسم المخططات البيانية (ApexCharts)
      */
     renderCharts: function(stats) {
-        if (typeof ApexCharts === 'undefined') return;
+        if (typeof window.ApexCharts === 'undefined') return;
         const isLight = document.body.classList.contains('light-mode');
         const themeMode = isLight ? 'light' : 'dark';
         const textColor = isLight ? '#64748b' : '#94a3b8';
@@ -191,25 +190,22 @@ export const SalesRender = {
         // المخطط التفصيلي (إيرادات/أرباح)
         const detailedChartEl = document.querySelector('#sales-detailed-chart');
         if (detailedChartEl) {
-            detailedChartEl.innerHTML = ''; 
             const dates = [], revenues = [], profits = [];
             for (let i = 29; i >= 0; i--) {
                 const d = new Date(); d.setDate(d.getDate() - i);
                 const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
                 dates.push(`${d.getDate()} ${d.toLocaleString('ar-EG', { month: 'short' })}`);
-                revenues.push((stats.daily[key]?.revenue || 0).toFixed(2));
-                profits.push((stats.daily[key]?.profit || 0).toFixed(2));
+                
+                // إضافة ?. للحماية في حال لم يكن اليوم يحتوي على طلبات لمنع الخطأ
+                revenues.push((stats.daily && stats.daily[key]?.revenue ? stats.daily[key].revenue : 0).toFixed(2));
+                profits.push((stats.daily && stats.daily[key]?.profit ? stats.daily[key].profit : 0).toFixed(2));
             }
 
-            // 🌟 الإصلاح: إضافة window. قبل المخطط
-            new window.ApexCharts(detailedChartEl, {
+            const areaOptions = {
                 chart: { type: 'area', height: 320, toolbar: { show: false }, background: 'transparent', fontFamily: 'Cairo' },
                 theme: { mode: themeMode },
                 colors: ['#38bdf8', '#10b981'],
-                
-                // 🌟 الإصلاح: إيقاف المربعات المتداخلة من فوق الخطوط
                 dataLabels: { enabled: false }, 
-                
                 series: [{ name: 'الإيرادات', data: revenues }, { name: 'الأرباح', data: profits }],
                 stroke: { curve: 'smooth', width: 2 },
                 fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.05 } },
@@ -217,26 +213,40 @@ export const SalesRender = {
                 yaxis: { labels: { style: { colors: textColor }, formatter: (v) => '$' + v } },
                 grid: { borderColor: isLight ? '#e2e8f0' : '#1e293b', strokeDashArray: 4 },
                 legend: { position: 'top', horizontalAlign: 'right' }
-            }).render();
+            };
+
+            // 🌟 تنظيف الذاكرة (Anti Memory Leak)
+            if (this._detailedChartInst) {
+                try { this._detailedChartInst.destroy(); } catch(e){}
+            }
+            detailedChartEl.innerHTML = ''; 
+            this._detailedChartInst = new window.ApexCharts(detailedChartEl, areaOptions);
+            this._detailedChartInst.render();
         }
 
         // مخطط المصادر
         const sourceChartEl = document.querySelector('#sales-source-chart');
         if (sourceChartEl) {
-            sourceChartEl.innerHTML = '';
-            
-            // 🌟 الإصلاح: إضافة window. قبل المخطط
-            new window.ApexCharts(sourceChartEl, {
+            const donutOptions = {
                 chart: { type: 'donut', height: 320, background: 'transparent' },
-                series: [stats.sales.manualCompleted || 0, stats.sales.apiCompleted || 0],
+                // 🌟 حماية من الانهيار باستخدام ?. إذا كانت sales غير موجودة بعد
+                series: [stats.sales?.manualCompleted || 0, stats.sales?.apiCompleted || 0],
                 labels: ['طلب يدوي', 'طلب API'],
                 colors: ['#f59e0b', '#8b5cf6'],
                 theme: { mode: themeMode },
                 plotOptions: { donut: { size: '75%' } },
                 legend: { position: 'bottom' }
-            }).render();
+            };
+
+            // 🌟 تنظيف الذاكرة (Anti Memory Leak) للمخطط الدائري
+            if (this._sourceChartInst) {
+                try { this._sourceChartInst.destroy(); } catch(e){}
+            }
+            sourceChartEl.innerHTML = '';
+            this._sourceChartInst = new window.ApexCharts(sourceChartEl, donutOptions);
+            this._sourceChartInst.render();
         }
-    },
+    }, // 👈👈 הפاصلة المنقذة تمت إضافتها بشكل سليم هنا لتعريف الحدث الذي يليها
 
     /**
      * 🌟 محرك تصدير تقارير المبيعات إلى Excel (CSV)

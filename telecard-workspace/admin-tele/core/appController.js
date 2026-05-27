@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 الموجه المركزي للنظام (core/appController.js) - Master Orchestrator
 // الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🌟 التحديث: سد ثغرات الـ EventBus المفقودة وبرمجة دالة finishAction المركزية
+// 🌟 التحديث: سد ثغرات التخزين للصور المحذوفة + تنظيف ارتباط الأحداث المركزية
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -27,14 +27,14 @@ import { FirebaseAdapter } from './firebaseAdapter.js';
 
 // استيرادات الـ B2B والربط الخارجي
 import { DeveloperActions } from '../modules/developer/developerActions.js';
-import { IntegrationsActions } from '../modules/integrations/integrationsActions.js'; // 👈 إضافة مسارات الموردين هنا
+import { IntegrationsActions } from '../modules/integrations/integrationsActions.js';
 
 // 🌟 منع التداخل الدائري (Lazy Evaluation)
 const getSystemRouters = () => ({
     ...OrdersActions, ...FinanceActions, ...UsersActions, 
     ...CatalogActions, ...MarketingActions, ...SystemActions,
     ...DeveloperActions,
-    ...IntegrationsActions // 👈 دمج وحدة الموردين مع الموجه المركزي
+    ...IntegrationsActions 
 });
 
 export const AppController = {
@@ -53,7 +53,7 @@ export const AppController = {
         EventBus.emit('state-update', newState);
     },
 
-        init: async function() {
+    init: async function() {
         if (this.isInitialized) return; 
         try {
             AdminUI?.initTheme?.();
@@ -117,16 +117,15 @@ export const AppController = {
     },
     
     logoutAdmin: function() { 
-    sessionStorage.removeItem('telecard_admin_auth'); 
-    window.location.replace('login.html'); 
-},
+        sessionStorage.removeItem('telecard_admin_auth'); 
+        window.location.replace('login.html'); 
+    },
 
-    
-        setupEventBusListeners: function() {
+    setupEventBusListeners: function() {
         EventBus.on('req-logout', () => this.logoutAdmin());
         EventBus.on('req-save-system', () => this.saveSystem());
         EventBus.on('req-save-admin-profile', () => this.saveAdminProfile());
-
+        
         // 🌟 الاستماع للأحداث الجديدة من SystemActions لفك الارتباط الدائري
         EventBus.on('req-navigate-filter', (data) => this.navWithFilter?.(data.section, data.status));
         EventBus.on('req-refresh', (data) => this.refresh?.(data.type));
@@ -136,9 +135,9 @@ export const AppController = {
         EventBus.on('req-delete-item', (data) => this.delItem?.(data.type, data.id));
         EventBus.on('req-apply-filters', (data) => this.applyFilters?.(data.section));
         EventBus.on('req-quick-date', (data) => this.setQuickDateFilter?.(data.range, data.section));
-
+        
         EventBus.on('action-triggered', async (data) => {
-            const routers = getSystemRouters(); 
+            const routers = getSystemRouters();
             if (routers[data.action]) await routers[data.action](data);
             else console.warn(`⚠️ حدث غير مبرمج في النظام: ${data.action}`);
         });
@@ -146,13 +145,23 @@ export const AppController = {
         EventBus.on('req-navigate', (data) => this.nav?.(data.page, data.btnEl));
         EventBus.on('req-show-toast', (data) => AdminUI?.showToast?.(data.message, data.type || 'success'));
         EventBus.on('modals-closed', () => this.updateState({ tempEditId: null, tempPackages: [], tempPayDetails: [] }));
-
+        
         EventBus.on('req-open-modal', (modalId) => AdminUI?.openModal?.(modalId));
         EventBus.on('set-temp-edit-id', (id) => this.updateState({ tempEditId: id !== null ? String(id) : null }));
         
         EventBus.on('tier-option-selected', (tierId) => this.updateState({ selectedTierId: tierId }));
+        
+        // 🌟 استقبال حدث تعديل الـ KYC من واجهة المستخدم وحفظه في السحابة فوراً
+        EventBus.on('req-save-kyc-config', async (newKycConfig) => {
+            if (!AdminData.data.settings) AdminData.data.settings = {};
+            AdminData.data.settings.kycConfig = newKycConfig;
+            
+            await AdminData.saveSystemSettings();
+            AdminUI?.showToast('تم اعتماد إعدادات التوثيق وحفظ الأمان بنجاح!', 'success');
+        });
     },
-    // 🌟 دالة إنهاء العمليات الموحدة (تم إضافتها لتلبية احتياجات المتحكمات الفرعية)
+
+    // 🌟 دالة إنهاء العمليات الموحدة 
     finishAction: function(renderEvent, modalId, logAction, logDetails, toastMsg, toastType = 'success') {
         // 1. إغلاق النافذة
         if (modalId) AdminUI?.closeModal?.(modalId);
@@ -184,23 +193,16 @@ export const AppController = {
     // ==========================================
     // 🔍 محرك الفلاتر والبحث (الفلترة الذكية)
     // ==========================================
-    
     applyFilters: function(section) {
-        // 1. تأمين كائن الفلاتر في الـ State
         if (!this.filters) this.filters = {};
         if (!this.filters[section]) this.filters[section] = { search: '', start: null, end: null };
 
-        // 2. جلب النص من مربع البحث (يعتمد على معرفات الإدخال القياسية)
         const searchInput = document.getElementById(`${section}-search-input`) || document.getElementById(`search-${section}`);
         const searchVal = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
-        // 3. تحديث الفلتر
         this.filters[section].search = searchVal;
-        
-        // 4. تعميم التحديث على مستوى النظام (سيتم التقاطه من محركات الرسم)
         this.updateState({ filters: this.filters });
         
-        // 5. إعادة رسم القسم المطلوب
         if (section === 'orders') EventBus.emit('req-render-orders');
         else if (section === 'deposits') EventBus.emit('req-render-deposits');
     },
@@ -212,37 +214,30 @@ export const AppController = {
         let start = null, end = null;
         const now = new Date();
         
-        // 1. حساب النطاق الزمني باحترافية
         if (range === 'today') {
             start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-            end = start + 86399999; // نهاية اليوم (23:59:59)
+            end = start + 86399999;
         } else if (range === 'week') {
             start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).getTime();
             end = now.getTime();
         } else if (range === 'month') {
             start = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).getTime();
             end = now.getTime();
-        } // حالة 'all' تبقي القيم null وتجلب كل شيء
+        } 
         
-        // 2. تطبيق التواريخ
         this.filters[section].start = start;
         this.filters[section].end = end;
-        
-        // 3. تعميم التحديث (State Mutation)
         this.updateState({ filters: this.filters });
         
-        // 4. تحديث الشكل البصري للأزرار لتبدو نشطة (UX)
         document.querySelectorAll(`.qf-btn[data-section="${section}"]`).forEach(btn => {
             btn.classList.remove('active', 'border-gold', 'text-gold');
         });
         const activeBtn = document.querySelector(`.qf-btn[data-section="${section}"][data-range="${range}"]`);
         if (activeBtn) activeBtn.classList.add('active', 'border-gold', 'text-gold');
         
-        // 5. مسح تواريخ التقويم المخصصة (إن وجدت) لكي لا تتعارض مع الفلتر السريع
         const calText = document.getElementById(`date-filter-${section}`);
         if(calText) { calText.innerText = 'DD/MM/YYYY'; calText.classList.add('placeholder-text'); calText.closest('.custom-field')?.classList.remove('active'); }
 
-        // 6. إعادة رسم القسم
         if (section === 'orders') EventBus.emit('req-render-orders');
         else if (section === 'deposits') EventBus.emit('req-render-deposits');
     },
@@ -252,18 +247,17 @@ export const AppController = {
         setTimeout(() => AdminRender?.filterByTab?.(section, status), 100);
     },
 
-            nav: async function(id, el) {
+    nav: async function(id, el) {
         // 1. إغلاق القائمة الجانبية في الشاشات الصغيرة فوراً
         if (window.innerWidth < 992) { AdminUI?.closeSidebar?.(); }
         
         // 2. تنظيف الفلاتر
         this.clearAllSearchAndFilters();
         
-        // 🌟 3. التبديل البصري اللحظي الفوري (أهم خطوة للسرعة)
+        // 3. التبديل البصري اللحظي
         AdminUI?.switchSystemView?.(id);
         
-        // 🌟 4. فصل مسار المعالجة الرئيسي باستخدام معيار requestAnimationFrame
-        // لضمان استجابة الواجهة فوراً وعدم تجميدها أثناء رسم البيانات الثقيلة
+        // 4. فصل المعالجة لمنع تجميد الشاشة
         requestAnimationFrame(() => {
             if (['rates', 'tiers', 'ads', 'sys', 'terms'].includes(id)) { 
                 AdminUI?.setupSettingsViews?.(id, this.data); 
@@ -283,6 +277,7 @@ export const AppController = {
             
         }); 
     },
+    
     refresh: async function(type) {
         await AdminData?.loadData?.(true);
         const refreshMap = { 'deposits': 'req-render-deposits', 'orders': 'req-render-orders', 'users': 'req-render-users', 'products': 'req-render-prods', 'logs': 'req-render-logs', 'wallets': 'req-render-wallets' };
@@ -305,13 +300,13 @@ export const AppController = {
     },
 
     // ==========================================
-    // ⚙️ إعدادات النظام العامة
+    // ⚙️ إعدادات النظام العامة والحذف
     // ==========================================
-            saveSystem: async function() { 
+    saveSystem: async function() { 
         if (!this.data.system) this.data.system = {}; 
         
         this.data.system = { 
-            ...this.data.system, // 👈 هذا السطر السحري يمنع مسح اللوغو واسم المتجر
+            ...this.data.system,
             maint: Utils.getCheck('sys-maint-toggle'), 
             msg: Utils.escapeHTML(Utils.getVal('sys-maint-msg')), 
             date: Utils.getVal('sys-maint'), 
@@ -347,7 +342,7 @@ export const AppController = {
         AdminUI?.showToast('تم حفظ الشروط بنجاح', 'success'); 
     },
     
-        saveAdminProfile: async function() { 
+    saveAdminProfile: async function() { 
         const name = Utils.escapeHTML(Utils.getVal('adm-name')), 
               email = Utils.escapeHTML(Utils.getVal('adm-email')), 
               pass = Utils.escapeHTML(Utils.getVal('adm-pass')); 
@@ -357,7 +352,6 @@ export const AppController = {
         const wrap = document.getElementById('adm-img-wrap'); 
         const hasImg = wrap?.classList.contains('has-img'); 
         
-        // 🌟 محرك الرفع السحابي لصورة الإدمن
         let finalImg = '';
         if (hasImg) {
             if (AdminUI?.tempFile) {
@@ -375,28 +369,38 @@ export const AppController = {
         AdminUI?.showToast('تم حفظ الملف الشخصي بنجاح', 'success'); 
     },
 
-        delItem: async function(type, id) {
+    delItem: async function(type, id) {
         const strId = String(id);
         
-        // 🌟 التوجيه النظيف للمتحكمات المستقلة (Delegation)
+        // توجيه عمليات الحذف الحديثة والمجزأة
         if (type === 'vault') return CatalogController.deleteVaultPool(strId);
         if (type === 'country') return CatalogController.deleteCountry(strId);
-        if (type === 'cat') return CatalogController.deleteCategory(strId); // 👈 تم الربط هنا
-        if (type === 'prod') return CatalogController.deleteProduct(strId); // 👈 تم الربط هنا
+        if (type === 'cat') return CatalogController.deleteCategory(strId); 
+        if (type === 'prod') return CatalogController.deleteProduct(strId); 
         if (type === 'coupon') return MarketingController.deleteCoupon(strId);
         if (type === 'offer') return MarketingController.deleteOffer(strId);
         
         let itemName = "عنصر";
         
-        // الأقسام التي لم يتم نقلها لمتحكمات مستقلة بعد (Legacy Logic)
+        // مسح القديم + 🌟 [الجديد]: التخلص السحابي من الملف المرفق لتوفير مساحة في الـ Storage
         if (type === 'pay') {
             const itm = this.data.payments.find(x => String(x.id) === strId);
-            if (itm) itemName = itm.name;
+            if (itm) {
+                itemName = itm.name;
+                // مسح الصورة سحابياً إذا وُجدت لمنع ترك ملفات شبحية معلقة
+                if (itm.img && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                    try { await FirebaseAdapter.deleteImageByUrl(itm.img); } catch(e){ console.warn("تعذر مسح الصورة السحابية القديمة للبنك."); }
+                }
+            }
             this.data.payments = this.data.payments.filter(x => String(x.id) !== strId);
             await AdminData.savePayments();
             this.finishAction('req-render-payments', null, `DELETE_PAY`, `تم حذف بوابة الدفع: ${itemName}`, 'تم الحذف بنجاح');
         }
         else if (type === 'banner') {
+            const bnr = this.data.banners.find(x => String(x.id) === strId);
+            if (bnr && bnr.img && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                try { await FirebaseAdapter.deleteImageByUrl(bnr.img); } catch(e){ console.warn("تعذر مسح بانر قديم."); }
+            }
             this.data.banners = this.data.banners.filter(x => String(x.id) !== strId);
             await AdminData.saveBanners();
             this.finishAction('req-render-banners', null, `DELETE_BANNER`, `تم حذف لافتة إعلانية`, 'تم الحذف بنجاح');

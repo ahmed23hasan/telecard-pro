@@ -1,7 +1,7 @@
 // ============================================================================
 // 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - ES6 Module
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
-// 🚀 التحديث: تطبيق معمارية (SSOT) وتوحيد قراءة وتنسيق التواريخ عبر RenderHelpers
+// 🚀 التحديث: إضافة زر "عرض المزيد" المركزي (Pagination) ونظام حماية تكرار الإيداعات (Pending Lock)
 // ============================================================================
 
 import { DB_KEYS } from './config.js'; 
@@ -13,6 +13,13 @@ import { RenderHelpers } from './core/renderHelpers.js';
 
 export const RenderManager = {
     highlightId: null,
+    
+    // 🌟 عداد عرض العناصر (Pagination Limits)
+    limits: {
+        wallet: 15,
+        orders: 15,
+        payments: 15
+    },
 
     // =========================================================
     // 🛠️ دوال مساعدة داخلية (Private Helpers)
@@ -648,7 +655,7 @@ export const RenderManager = {
     },
 
     // ========================================================================
-    // 💳 المحفظة والإيداعات والطلبات (تم الإصلاح لمنع تجميد النظام)
+    // 💳 المحفظة والإيداعات والطلبات (تم إضافة زر Pagination المركزي)
     // ========================================================================
     renderWallet: function() {
         if (typeof DataManager.updateWalletStats === 'function') {
@@ -672,7 +679,6 @@ export const RenderManager = {
 
         const getTime = (item) => RenderHelpers.parseTime(item.time || item.createdAt);
 
-        // ✅ تم إصلاح الـ Syntax القاتل وحذف الفاصلة المنقوطة
         const deposits = deps.filter(d => String(d.userId) === String(uid)).map(d => {
             const credited = d.creditedAmount !== undefined ? Number(d.creditedAmount) : Number(d.amount || 0);
             return {
@@ -683,7 +689,6 @@ export const RenderManager = {
             };
         });
         
-        // ✅ استخدام uid السحابي بدلاً من الأرقام
         const orders = ords.filter(o => String(o.userId) === String(uid)).map(o => ({
             ...o, type: 'purchase', amountVal: Number(o.price || 0), amountCurrency: o.priceCurrency || walletCurr, searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id}`
         }));
@@ -728,7 +733,8 @@ export const RenderManager = {
         if(tStart) finalView = finalView.filter(t => getTime(t) >= tStart);
         if(tEnd) finalView = finalView.filter(t => getTime(t) <= tEnd);
         
-        if (!q && !dStart && !dEnd) finalView = finalView.slice(0, 15);
+        const totalWalletCount = finalView.length;
+        if (!q && !dStart && !dEnd) finalView = finalView.slice(0, this.limits.wallet);
 
         let generatedHTML = '';
         finalView.forEach(tx => {
@@ -770,7 +776,7 @@ export const RenderManager = {
             }
 
             const jumpType = isDep ? 'deposit' : 'purchase';
-const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
+            const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
 
             generatedHTML += `
             <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
@@ -804,8 +810,23 @@ const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.form
         }
      
         list.innerHTML = generatedHTML;
+
+        // 🌟 زر تحميل المزيد (Pagination) لمعاملات المحفظة
+        if (!q && !dStart && !dEnd && totalWalletCount > this.limits.wallet) {
+            const loadMoreBtn = document.createElement('div');
+            loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
+            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد (${totalWalletCount - this.limits.wallet})</button>`;
+            loadMoreBtn.querySelector('button').onclick = () => {
+                this.limits.wallet += 15;
+                this.renderWallet();
+            };
+            list.appendChild(loadMoreBtn);
+        }
     },
 
+    // ========================================================================
+    // 🌟 حماية تكرار الإيداعات (Pending Lock) في بوابات الدفع
+    // ========================================================================
     renderPayMethods: function() {
         const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container') || document.querySelector('.bal-methods-grid') || document.getElementById('pay-methods-list');
         if (!container) return;
@@ -820,29 +841,64 @@ const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.form
             return;
         }
 
+        // 🌟 استخراج العمليات المعلقة للعميل لمنع التكرار (Anti-Spam Pending Lock)
+        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? DataManager.user.id : null);
+        const allDeposits = LiveStoreData.deposits || [];
+        const pendingMethodKeys = allDeposits
+            .filter(d => String(d.userId) === String(uid) && d.status === 'pending')
+            .map(d => String(d.methodId || d.method).toLowerCase());
+
         const fragment = document.createDocumentFragment();
 
         validPayments.forEach(p => {
             const safeName = Utils.escapeHtml(p.name);
+            const pIdStr = String(p.id).toLowerCase();
+            const pNameStr = String(p.name).toLowerCase();
+            
+            // الفحص الاستباقي: هل البوابة محظورة بسبب وجود طلب معلق؟
+            const isLocked = pendingMethodKeys.includes(pIdStr) || pendingMethodKeys.includes(pNameStr);
+
             const imgHtml = p.img 
                 ? `<img src="${Utils.escapeHtml(p.img)}" class="pay-icon-img" alt="${safeName}" onerror="this.parentElement.innerHTML='<div class=\\'pay-icon-default\\'><i class=\\'fa-solid fa-building-columns\\'></i></div>'">` 
                 : `<div class="pay-icon-default"><i class="fa-solid fa-building-columns"></i></div>`;
             
             const card = document.createElement('div');
-            card.className = 'pay-card-select';
             
-            card.setAttribute('data-action', 'select-pay');
-            card.setAttribute('data-id', p.id);
-            
-            card.innerHTML = `
-                <div class="pay-icon-wrapper">
-                    ${imgHtml}
-                </div>
-                <div class="pay-card-content">
-                    <h3 class="pay-card-name">${safeName}</h3>
-                </div>
-                <i class="fa-solid fa-chevron-left pay-card-arrow"></i>
-            `;
+            if (isLocked) {
+                // 🔒 تصميم الكارت المقفل (Locked UI)
+                card.className = 'pay-card-select method-locked';
+                card.style.opacity = '0.65';
+                card.innerHTML = `
+                    <div class="pay-icon-wrapper" style="filter: grayscale(100%);">
+                        ${imgHtml}
+                    </div>
+                    <div class="pay-card-content">
+                        <h3 class="pay-card-name" style="color: var(--text-muted);">${safeName}</h3>
+                        <span style="display:block; font-size:11px; color:var(--warning); margin-top:4px;"><i class="fa-solid fa-hourglass-half"></i> لديك طلب قيد المعالجة بهذه الطريقة</span>
+                    </div>
+                    <i class="fa-solid fa-lock pay-card-arrow" style="color: var(--text-muted);"></i>
+                `;
+                // نزع صلاحية الفتح واستبدالها بإشعار تنبيهي
+                card.onclick = () => {
+                    if (window.UIManager && window.UIManager.showToast) {
+                        window.UIManager.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة، يرجى الانتظار حتى يتم قبوله أو رفضه.', 'warning');
+                    }
+                };
+            } else {
+                // ✅ تصميم الكارت الطبيعي المتاح للضغط
+                card.className = 'pay-card-select';
+                card.setAttribute('data-action', 'select-pay');
+                card.setAttribute('data-id', p.id);
+                card.innerHTML = `
+                    <div class="pay-icon-wrapper">
+                        ${imgHtml}
+                    </div>
+                    <div class="pay-card-content">
+                        <h3 class="pay-card-name">${safeName}</h3>
+                    </div>
+                    <i class="fa-solid fa-chevron-left pay-card-arrow"></i>
+                `;
+            }
             
             fragment.appendChild(card);
         });
@@ -863,7 +919,6 @@ const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.form
         const user = DataManager.user || { id: 0 };
         const allDeposits = LiveStoreData.deposits || [];
         
-        // ✅ استخدام uid السحابي
         let myDeposits = allDeposits.filter(d => String(d.userId) === String(uid));
 
         const getTime = (item) => RenderHelpers.parseTime(item.time || item.createdAt);
@@ -878,6 +933,9 @@ const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.form
 
         myDeposits.sort((a,b) => getTime(b) - getTime(a));
         
+        const totalPaymentsCount = myDeposits.length;
+        if (!q && !dStart && !dEnd) myDeposits = myDeposits.slice(0, this.limits.payments);
+
         list.innerHTML = '';
 
         if (myDeposits.length === 0) {
@@ -924,9 +982,9 @@ const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.form
             if(miniDateEl) miniDateEl.innerHTML = formattedDate.replace(' | ', ' <span class="date-sep">|</span> ');
 
             const shortDepositId = RenderHelpers.formatDepositId(d);
-const idEl = clone.querySelector('.ph-id');
-idEl.textContent = shortDepositId;
-    idEl.setAttribute('data-action', 'copy-text');
+            const idEl = clone.querySelector('.ph-id');
+            idEl.textContent = shortDepositId;
+            idEl.setAttribute('data-action', 'copy-text');
             idEl.setAttribute('data-text', shortDepositId);
             clone.querySelector('.ph-sender').innerHTML = (UIManager && UIManager._getTxNameWithID) ? UIManager._getTxNameWithID(user) : 'العميل';
             clone.querySelector('.ph-full-time').textContent = formattedDate;
@@ -951,6 +1009,18 @@ idEl.textContent = shortDepositId;
             fragment.appendChild(clone);
         });
         
+        // 🌟 زر تحميل المزيد (Pagination) لسجل الإيداعات
+        if (!q && !dStart && !dEnd && totalPaymentsCount > this.limits.payments) {
+            const loadMoreBtn = document.createElement('div');
+            loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
+            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد (${totalPaymentsCount - this.limits.payments})</button>`;
+            loadMoreBtn.querySelector('button').onclick = () => {
+                this.limits.payments += 15;
+                this.renderPayments();
+            };
+            fragment.appendChild(loadMoreBtn);
+        }
+
         list.appendChild(fragment);
     },
 
@@ -971,7 +1041,6 @@ idEl.textContent = shortDepositId;
 
         const getTime = (item) => RenderHelpers.parseTime(item.time || item.createdAt);
 
-        // ✅ استخدام uid السحابي
         let orders = allOrders.filter(o => String(o.userId) === String(uid));
 
         const filters = DataManager.filters || { orders: 'all' };
@@ -984,7 +1053,8 @@ idEl.textContent = shortDepositId;
 
         orders.sort((a, b) => getTime(b) - getTime(a));
         
-        if (!q && !dStart && !dEnd) orders = orders.slice(0, 15);
+        const totalOrdersCount = orders.length;
+        if (!q && !dStart && !dEnd) orders = orders.slice(0, this.limits.orders);
 
         if (orders.length === 0) {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد طلبات</h3></div>`;
@@ -1059,17 +1129,28 @@ idEl.textContent = shortDepositId;
                 <div class="oh-left">
                     <div class="oh-status-box"><span class="oh-status ${statusClass}">${statusLabel}</span></div>
                     <div class="oh-price-box" dir="ltr"><div class="oh-amount">${amountHtml}</div>${qtyHtml}</div>
-                    <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${shortOrderId}</span>
-</div>
+                    <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${shortOrderId}</span></div>
                 </div>`;
 
             fragment.appendChild(cardElement);
         }); 
         
+        // 🌟 زر تحميل المزيد (Pagination) لسجل الطلبات
+        if (!q && !dStart && !dEnd && totalOrdersCount > this.limits.orders) {
+            const loadMoreBtn = document.createElement('div');
+            loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
+            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد (${totalOrdersCount - this.limits.orders})</button>`;
+            loadMoreBtn.querySelector('button').onclick = () => {
+                this.limits.orders += 15;
+                this.renderOrders();
+            };
+            fragment.appendChild(loadMoreBtn);
+        }
+
         list.appendChild(fragment);
     },
 
-        generatePDFReceipt: async function(config) {
+    generatePDFReceipt: async function(config) {
         const printContainer = document.createElement('div');
         printContainer.id = 'pdf-export-container'; 
 
@@ -1155,7 +1236,6 @@ idEl.textContent = shortDepositId;
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
         if(!o) return;
 
-        // 🌟 استخدام المحرك المركزي لتوحيد الآيدي للطلب والعميل
         const finalDisplayId = RenderHelpers.formatOrderId(o);
         const userShortId = RenderHelpers.formatUserId(DataManager.user);
 
@@ -1176,7 +1256,6 @@ idEl.textContent = shortDepositId;
         const d = (LiveStoreData.deposits || []).find(x => String(x.id) === String(depositId));
         if(!d) return;
 
-        // 🌟 استخدام المحرك المركزي لتوحيد الآيدي للإيداع والعميل
         const finalDisplayId = RenderHelpers.formatDepositId(d);
         const userShortId = RenderHelpers.formatUserId(DataManager.user);
 
@@ -1192,6 +1271,7 @@ idEl.textContent = shortDepositId;
             }
         });
     },
+    
     renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;

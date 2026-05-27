@@ -263,70 +263,78 @@ export const UsersController = {
     // 👑 3. إدارة المستويات (Tiers)
     // =========================================================
       saveTier: async function() {
-        const name = Utils.escapeHTML(Utils.getVal('t-name', ''));
-        const icon = Utils.escapeHTML(Utils.getVal('t-icon', 'fa-user'));
-        const profit = Number(Utils.getVal('t-profit', 0));
-        const minP = Number(Utils.getVal('t-min', 0));
-        const cond = Number(Utils.getVal('t-cond', 0));
-        const dur = Number(Utils.getVal('t-dur', 0));
-        const isDef = Utils.getCheck('t-default');
-
-        if (!name) {
-            EventBus.emit('req-show-toast', { message: 'أدخل اسم المستوى', type: 'error' });
-            return;
+    const name = Utils.escapeHTML(Utils.getVal('t-name', ''));
+    const icon = Utils.escapeHTML(Utils.getVal('t-icon', 'fa-user'));
+    const profit = Number(Utils.getVal('t-profit', 0));
+    const minP = Number(Utils.getVal('t-min', 0));
+    const cond = Number(Utils.getVal('t-cond', 0));
+    const dur = Number(Utils.getVal('t-dur', 0));
+    const isDef = Utils.getCheck('t-default');
+    
+    if (!name) {
+        EventBus.emit('req-show-toast', { message: 'أدخل اسم المستوى', type: 'error' });
+        return;
+    }
+    
+    // 🛡️ منع نسبة الربح الصفرية والسالبة
+    if (profit <= 0) {
+        EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: لا يمكن تعيين نسبة ربح 0% أو أقل لحماية أرباح المتجر.', type: 'error' });
+        return;
+    }
+    
+    if (minP < 0) {
+        EventBus.emit('req-show-toast', { message: 'قاع الربح (Min Profit) لا يمكن أن يكون سالباً.', type: 'error' });
+        return;
+    }
+    
+    // أخذ نسخة من المستويات للعمل عليها
+    const tiers = Array.isArray(AdminData.data.tiers) ? [...AdminData.data.tiers] : [];
+    const isEdit = !!AppController.tempEditId;
+    let targetId = null;
+    
+    if (isEdit) {
+        targetId = String(AppController.tempEditId);
+        const idx = tiers.findIndex(x => String(x.id) === targetId);
+        if (idx > -1) {
+            tiers[idx] = { ...tiers[idx], name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef };
         }
-
-        // 🛡️ منع نسبة الربح الصفرية والسالبة
-        if (profit <= 0) {
-            EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: لا يمكن تعيين نسبة ربح 0% أو أقل لحماية أرباح المتجر.', type: 'error' });
-            return;
-        }
+    } else {
+        // 🌟 [الإصلاح الجذري]: التخلص من محرك Max الفاشل في قراءة النصوص، واستخدام مولّد النظام النظيف
+        targetId = 'TIER_' + Utils.generateID();
         
-        if (minP < 0) {
-            EventBus.emit('req-show-toast', { message: 'قاع الربح (Min Profit) لا يمكن أن يكون سالباً.', type: 'error' });
-            return;
-        }
-
-        // أخذ نسخة من المستويات للعمل عليها
-        const tiers = Array.isArray(AdminData.data.tiers) ? [...AdminData.data.tiers] : [];
-        const isEdit = !!AppController.tempEditId;
-        let targetId = null;
-
-        if (isEdit) {
-            targetId = String(AppController.tempEditId);
-            const idx = tiers.findIndex(x => String(x.id) === targetId);
-            if (idx > -1) {
-                tiers[idx] = { ...tiers[idx], name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef };
-            }
-        } else {
-            const nextId = (tiers.length ? Math.max(...tiers.map(x => Number(x.id)||0)) : 0) + 1;
-            targetId = String(nextId);
-            tiers.push({
-                id: targetId,
-                name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef, autoAdvance: true
-            });
-        }
-
-        // 🛡️ التحديث الاحترافي: الاعتماد على ID بدلاً من الاسم لمنع تضارب الأسماء المتشابهة
-        if (isDef) {
-            tiers.forEach(x => {
-                x.isDefault = (String(x.id) === targetId);
-            });
-        }
-
-        // 🛑 سد الفجوة التي اكتشفتها: منع حفظ النظام بدون أي مستوى افتراضي
-        const hasDefault = tiers.some(t => t.isDefault === true);
-        if (!hasDefault && tiers.length > 0) {
-            EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: يجب أن يحتوي النظام على مستوى افتراضي واحد على الأقل.', type: 'error' });
-            return; // إيقاف العملية وعدم الحفظ
-        }
-
-        // إذا نجحت كل الفحوصات الأمنية، نحفظ البيانات في السحابة
-        AdminData.data.tiers = tiers;
-        await AdminData?.saveTiers?.();
-        AppController.finishAction('req-render-tiers', null, isEdit ? 'EDIT_TIER' : 'ADD_TIER', `تم ${isEdit ? 'تعديل' : 'إضافة'} مستوى التسعير: ${name}`, 'تم حفظ المستوى بنجاح');
-    },
-    toggleTierAutoFor: async function(id, on) {
+        tiers.push({
+            id: targetId,
+            name,
+            icon,
+            profit_percent: profit,
+            min_profit_usd: minP,
+            threshold: cond,
+            duration_days: dur,
+            isDefault: isDef,
+            autoAdvance: true
+        });
+    }
+    
+    // 🛡️ التحديث الاحترافي: الاعتماد على ID بدلاً من الاسم لمنع تضارب الأسماء المتشابهة
+    if (isDef) {
+        tiers.forEach(x => {
+            x.isDefault = (String(x.id) === targetId);
+        });
+    }
+    
+    // 🛑 سد الفجوة التي اكتشفتها: منع حفظ النظام بدون أي مستوى افتراضي
+    const hasDefault = tiers.some(t => t.isDefault === true);
+    if (!hasDefault && tiers.length > 0) {
+        EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: يجب أن يحتوي النظام على مستوى افتراضي واحد على الأقل.', type: 'error' });
+        return; // إيقاف العملية وعدم الحفظ
+    }
+    
+    // إذا نجحت كل الفحوصات الأمنية، نحفظ البيانات في السحابة
+    AdminData.data.tiers = tiers;
+    await AdminData?.saveTiers?.();
+    AppController.finishAction('req-render-tiers', null, isEdit ? 'EDIT_TIER' : 'ADD_TIER', `تم ${isEdit ? 'تعديل' : 'إضافة'} مستوى التسعير: ${name}`, 'تم حفظ المستوى بنجاح');
+},
+toggleTierAutoFor: async function(id, on) {
         const tiers = Array.isArray(AdminData.data.tiers) ? AdminData.data.tiers : [];
         const idx = tiers.findIndex(x => String(x.id) === String(id));
         if (idx > -1) {

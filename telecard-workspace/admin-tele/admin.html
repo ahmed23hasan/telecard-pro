@@ -1,13 +1,45 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-      <script>
-        // التحقق من الجلسة قبل تحميل أي عنصر في الصفحة
-        if (sessionStorage.getItem('telecard_admin_auth') !== 'true') {
-            window.location.replace('login.html'); // طرد فوري بدون حفظ في سجل المتصفح
-        }
-    </script>
+<script src="https://cdn.jsdelivr.net/npm/eruda"></script>
 
+<script type="module">
+    // تشغيل الكونسول
+    eruda.init();
+
+    async function bootApp() {
+        try {
+            const moduleUrl = './admin.js?bypassCache=' + Date.now();
+            console.log("🚀 جاري محاولة إقلاع النظام ديناميكياً...");
+            await import(moduleUrl);
+        } catch (error) {
+            console.error("🚨 [القبض على المجرم]:", error);
+            
+            // 🌟 السحر هنا: فتح الكونسول تلقائياً فور حدوث الخطأ!
+            eruda.show();
+            
+            // ⏳ تأخير ظهور الشاشة الحمراء لمدة 10 ثوانٍ لكي تتصفح الكونسول براحتك
+            setTimeout(() => {
+                const loader = document.getElementById('loader');
+                if (loader) loader.style.display = 'none';
+                
+                const errorScreen = document.getElementById('system-fatal-error');
+                const errDesc = errorScreen ? errorScreen.querySelector('p') : null;
+                
+                if (errorScreen && errDesc) {
+                    errorScreen.style.display = 'flex';
+                    errDesc.innerHTML = `<b dir="ltr" style="color: #fca5a5; background: #1e293b; padding: 15px; border-radius: 8px; display: block; margin-top: 15px; text-align: left; font-family: monospace; font-size: 14px;">
+                        سبب الانهيار المكتوم:<br><br>
+                        ${error.message}<br><br>
+                        <span style="color:#fbbf24">الملف المفقود موجود في الكونسول الذي فُتح لك للتو! ابحث عن ملف باللون الأحمر 404</span>
+                    </b>`;
+                }
+            }, 10000); // 10000 مللي ثانية = 10 ثواني
+        }
+    }
+
+    bootApp();
+</script>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -2001,15 +2033,13 @@
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-
 <script>
     function handleModuleError(event) {
+        // تجاهل أخطاء الأيقونات وإضافات المتصفح
         if (event && event.message && (event.message.includes('favicon') || event.message.includes('extension'))) {
             return;
         }
 
-        console.error("🚨 تفاصيل الخطأ:", event);
-        
         const loader = document.getElementById('loader');
         if (loader) loader.style.display = 'none';
         
@@ -2019,38 +2049,42 @@
             
             const errDesc = errorScreen.querySelector('p');
             if (errDesc) {
-                const actualError = event.message || (event.error && event.error.message) || 'خطأ برمجي (راجع الكونسول)';
-                errDesc.innerHTML = `السبب: <br><b dir="ltr" style="color: #fca5a5; background: #1e293b; padding: 5px; border-radius: 4px; display: inline-block; margin-top: 8px;">${actualError}</b>`;
+                let actualError = 'خطأ برمجي غير معروف';
+                let fileInfo = '';
+
+                // التقاط الأخطاء العادية (Syntax, Reference, Type)
+                if (event instanceof ErrorEvent) {
+                    actualError = event.message || 'خطأ في الكود';
+                    if (event.filename) {
+                        // استخراج اسم الملف فقط لسهولة القراءة
+                        let shortFile = event.filename.split('/').pop();
+                        fileInfo = `<br><br><span style="color:#fbbf24">الملف: ${shortFile}</span> <br><span style="color:#38bdf8">السطر: ${event.lineno}</span>`;
+                    }
+                } 
+                // التقاط أخطاء الوعود الخلفية (Promises, Network, Firebase)
+                else if (event instanceof PromiseRejectionEvent) {
+                    actualError = event.reason ? (event.reason.message || event.reason) : 'Promise Rejected';
+                    fileInfo = '<br><br><span style="color:#fbbf24">النوع: خطأ في جلب البيانات أو الاتصال (Promise)</span>';
+                } 
+                // التقاط أي صيغة أخرى
+                else {
+                    actualError = event.message || (event.error && event.error.message) || actualError;
+                }
+
+                // طباعة الخطأ بتنسيق كونسول واضح
+                errDesc.innerHTML = `<b dir="ltr" style="color: #fca5a5; background: #1e293b; padding: 15px; border-radius: 8px; display: block; margin-top: 15px; text-align: left; font-family: monospace; font-size: 14px; max-width: 100%; word-wrap: break-word; line-height: 1.6; border: 1px solid #475569;">${actualError} ${fileInfo}</b>`;
             }
         }
     }
 
-    // 🌟 الإصلاح الجذري: اصطياد الأخطاء البرمجية وتجاهل أخطاء الموارد البسيطة
-    window.addEventListener('error', function(e) {
-        // إذا كان الخطأ ناتج عن تأخر تحميل (صورة، خط، ستايل، أو ملف فرعي)
-        // سنتجاهله لكي لا يتوقف المتجر بأكمله بسبب شيء بسيط!
-        if (e.target && (e.target.tagName === 'IMG' || e.target.tagName === 'LINK' || e.target.tagName === 'SCRIPT')) {
-            console.warn('⚠️ تم تجاهل خطأ تأخير في تحميل مورد:', e.target);
-            return; 
-        }
-        handleModuleError(e);
-    }, true);
-<script>
-    window.addEventListener('unhandledrejection', function(e) {
-        // منع المتصفح من إيقاف تنفيذ باقي الأكواد
-        e.preventDefault(); 
-        
-        let errorMsg = e.reason ? (e.reason.message || e.reason) : 'خطأ غير معروف';
-        console.warn('🛡️ [نظام الحماية] تم احتواء خطأ خلفي بنجاح:', errorMsg);
-        
-        // مساعدة برمجية: إذا كان الخطأ متعلقاً بالشبكة أو الكاش
-        if (String(errorMsg).includes('Failed to fetch') || String(errorMsg).includes('NetworkError')) {
-            console.warn('📡 ملاحظة: فشل اتصال بالشبكة. قد يكون السبب: كاش متصفح قديم، أو إضافة حجب إعلانات (AdBlocker)، أو انقطاع مؤقت في الإنترنت.');
-        }
-    });
+    // تفعيل الرادار المتقدم
+    window.addEventListener('error', handleModuleError, true);
+    window.addEventListener('unhandledrejection', handleModuleError);
 </script>
 
-<script type="module" id="main-module" src="admin.js?v=2.0"></script>
+
+
 
 </body>
+
 </html>

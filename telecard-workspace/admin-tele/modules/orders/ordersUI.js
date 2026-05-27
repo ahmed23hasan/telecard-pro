@@ -176,7 +176,7 @@ export const OrdersUI = {
         const fxRateStr = order.fxRate ? `1 ${baseCurrText} = ${RenderHelpers.formatMoney(order.fxRate, cCode, 4)}` : null;
 
         // 🌟 استخراج الرقم القصير مركزياً لضمان الحماية ضد الانهيارات وتوحيد الطول
-        const shortId = RenderHelpers.formatUserId(userRec) || RenderHelpers.formatUserId(order.userId);
+        const shortId = RenderHelpers.formatUserId(user) || RenderHelpers.formatUserId(order.userId);
 
         bodyContent.innerHTML = AdminTemplates.orderDrawerBody({
             userId: Utils.escapeHTML(order.userId || '--'),

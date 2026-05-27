@@ -136,7 +136,7 @@ export const DashboardRender = {
         }
     },
 
-    // =========================================================
+// =========================================================
     // 📊 2. رسم المخطط البياني الرئيسي للوحة القيادة
     // =========================================================
     renderMainChart: function() {
@@ -162,7 +162,6 @@ export const DashboardRender = {
         const daysNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
         const categories = last7Days.map(d => daysNames[d.getDay()]);
 
-        chartDiv.innerHTML = ""; 
         const isLightMode = document.body.classList.contains('light-mode');
         const themeMode = isLightMode ? 'light' : 'dark';
         const currText = RenderHelpers.getCurrencySymbolText('USD');
@@ -178,10 +177,16 @@ export const DashboardRender = {
             grid: { borderColor: isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)', strokeDashArray: 4 },
             theme: { mode: themeMode }, tooltip: { theme: themeMode }
         };
-        new window.ApexCharts(chartDiv, options).render();
-    },
 
-    // =========================================================
+        // 🌟 [الإصلاح المعماري]: تدمير المخطط القديم لمنع تسرب الذاكرة (Memory Leak)
+        if (this._mainChartInst) {
+            try { this._mainChartInst.destroy(); } catch (e) {}
+        }
+        
+        chartDiv.innerHTML = '';
+        this._mainChartInst = new window.ApexCharts(chartDiv, options);
+        this._mainChartInst.render();
+    },    // =========================================================
     // 📝 3. رسم سجل النشاطات (System Logs)
     // =========================================================
     renderLogs: function() {

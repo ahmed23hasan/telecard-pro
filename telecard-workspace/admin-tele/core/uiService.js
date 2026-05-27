@@ -181,16 +181,24 @@ export const UIService = {
     // ---------------------------------------------------------
     // 🗔 النوافذ، التحميل، والصور
     // ---------------------------------------------------------
-    toggleLoader: function(show, text = 'جاري المعالجة...') {
-        const loader = document.getElementById('loader');
-        if (loader) {
-            const textSpan = loader.querySelector('span');
-            if (textSpan && text) textSpan.innerText = text;
-            if (show) loader.classList.add('active'); else loader.classList.remove('active');
+    // 🗔 النوافذ، التحميل، والصور
+// ---------------------------------------------------------
+toggleLoader: function(show, text = 'جاري المعالجة...') {
+    const loader = document.getElementById('loader');
+    if (loader) {
+        const textSpan = loader.querySelector('span');
+        if (textSpan && text) textSpan.innerText = text;
+        
+        if (show) {
+            loader.style.display = 'flex';
+            loader.classList.add('active');
+        } else {
+            loader.classList.remove('active');
+            // السطر السحري: إخفاء حقيقي لشاشة التجميد
+            setTimeout(() => { if (loader) loader.style.display = 'none'; }, 200);
         }
-    },
-
-    // 🌟 دالة فتح النوافذ المطورة والمصلحة
+    }
+},    // 🌟 دالة فتح النوافذ المطورة والمصلحة
     openModal: function(id) { 
         if (window.innerWidth < 992 && typeof this.closeSidebar === 'function') this.closeSidebar();
         

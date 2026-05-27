@@ -1,9 +1,9 @@
 // ============================================================================
 // 🚀 نقطة الإقلاع المركزية (admin.js) - The Cloud Master Entry Point
 // 🎯 الوظيفة: الربط النهائي، حقن التبعيات، إدارة دورة حياة التطبيق ومراقبة الاتصال
+// 🌟 التحديث: تفعيل الرادار المتقدم (Boot Tracer) + زر الإغلاق القسري للودر
 // ============================================================================
 
-// 🌟 التحديث الحاسم: استيراد auth المهيأ والجاهز من المحول الخاص بنا
 import { auth } from './core/firebaseAdapter.js';
 import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 
@@ -16,47 +16,33 @@ import { EventBus } from './adminUtils.js';
 
 /**
  * 🛠️ 1. نظام تفويض الأحداث الموحد (Global Event Delegation)
- * يسمح للنظام بالاستماع لكل العناصر التي تحمل وسم [data-action] 
- * دون الحاجة لتعريف مستمعات أحداث مكررة.
  */
 const bindDelegatedEvents = () => {
     document.addEventListener('click', (e) => {
         const target = e.target.closest('[data-action]');
         if (!target) return;
         
-        // 🌟 منع القوائم المنسدلة والحقول النصية من إرسال أوامر بمجرد النقر عليها
         if (target.tagName === 'SELECT' || (target.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit'].includes(target.type))) {
-            return; 
+            return;
         }
         
         const action = target.dataset.action;
         const data = { ...target.dataset, element: target, originalEvent: e };
         
-        // منع السلوك الافتراضي للروابط
         if (target.tagName === 'A' || target.tagName === 'BUTTON') e.preventDefault();
-        
-        // إرسال الحدث للموجه المركزي
         EventBus.emit('action-triggered', { action, ...data });
     });
     
-    // الاستماع لتغييرات المدخلات (مثل فلاتر البحث)
     document.addEventListener('input', (e) => {
         const target = e.target.closest('[data-oninput]');
         if (!target) return;
-        
-        const action = target.dataset.oninput;
-        EventBus.emit('action-triggered', { action, val: target.value, element: target });
+        EventBus.emit('action-triggered', { action: target.dataset.oninput, val: target.value, element: target });
     });
     
-    // الاستماع لتغيير القوائم المنسدلة ومدخلات الملفات
     document.addEventListener('change', (e) => {
         const target = e.target.closest('[data-onchange], select[data-action], input[type="file"][data-action]');
         if (!target) return;
-        
-        const action = target.dataset.onchange || target.dataset.action;
-        const data = { ...target.dataset, element: target, originalEvent: e, val: target.value };
-        
-        EventBus.emit('action-triggered', { action, ...data });
+        EventBus.emit('action-triggered', { action: target.dataset.onchange || target.dataset.action, ...target.dataset, element: target, originalEvent: e, val: target.value });
     });
 };
 
@@ -64,24 +50,21 @@ const bindDelegatedEvents = () => {
  * 🛡️ 2. الحمايات العالمية ومراقب السحابة (Cloud Protections & Watchdog)
  */
 const initGlobalProtections = () => {
-    // منع سحب الصور للحفاظ على شكل الواجهة
     document.addEventListener('dragstart', (e) => {
         if (e.target.tagName === 'IMG') e.preventDefault();
     });
     
-    // حماية الخروج أثناء وجود عمليات حفظ معلقة
     window.onbeforeunload = () => {
         if (document.body.classList.contains('is-saving')) return "هناك تعديلات سحابية لم تُحفظ بعد، هل تريد الخروج؟";
     };
-
-    // 📡 مراقب حالة الاتصال بالإنترنت (Network Watchdog) - ضروري لـ Firebase
+    
     window.addEventListener('offline', () => {
         console.warn("⚠️ انقطع الاتصال بالإنترنت!");
         if (typeof AdminUI !== 'undefined' && AdminUI.showToast) {
             AdminUI.showToast('انقطع الاتصال بالإنترنت! يرجى عدم إجراء تعديلات حتى تعود الشبكة.', 'error', 5000);
         }
     });
-
+    
     window.addEventListener('online', () => {
         console.log("✅ عاد الاتصال بالإنترنت.");
         if (typeof AdminUI !== 'undefined' && AdminUI.showToast) {
@@ -107,16 +90,29 @@ const injectAntiStickyCSS = () => {
  */
 const startApp = async () => {
     try {
-        console.log("⏳ جاري تهيئة البنية التحتية للنظام السحابي...");
-
-        // 🌟 أ. كشف الكائنات للنطاق العالمي (Global Context)
+        console.log("🟢 1. بدأ تشغيل سكربت الإقلاع (startApp)...");
+        
+        // 🛡️ زر الإيقاف القسري (Failsafe Kill Switch)
+        setTimeout(() => {
+            const loader = document.getElementById('loader') || document.getElementById('loading-screen');
+            if (loader && (loader.classList.contains('active') || loader.style.display !== 'none')) {
+                console.error("🚨 طوارئ: تم إيقاف اللودر قسرياً بعد 12 ثانية من التعليق.");
+                loader.classList.remove('active');
+                loader.style.display = 'none';
+                if (typeof AdminUI !== 'undefined' && AdminUI.showToast) {
+                    AdminUI.showToast('تأخر استجابة السيرفر، يرجى تحديث الصفحة أو فحص الكونسول.', 'error', 8000);
+                }
+            }
+        }, 12000);
+        
         window.AdminCalendar = AdminCalendar;
         window.BackupSystem = BackupSystem;
         window.AdminApp = AppController;
         window.AdminData = AdminData;
         window.AdminUI = AdminUI;
         
-        // 🌟 ب. حقن محرك الرسم بالبيانات (Dependency Injection)
+        console.log("🟢 2. تم حقن الكائنات العالمية (Global Objects).");
+        
         RenderHelpers.init({
             get settings() { return AdminData.data?.settings || {}; },
             get rates() { return AdminData.data?.rates || []; },
@@ -124,39 +120,35 @@ const startApp = async () => {
             isStore: false
         });
         
-        // 🌟 ج. تهيئة البنية التحتية للواجهة والأحداث المفوضة
         injectAntiStickyCSS();
         initGlobalProtections();
         bindDelegatedEvents();
         
-        // 🌟 د. المراقبة الأمنية المتزامنة بالأسلوب الحديث (Modular Auth Watchdog)
-        // لقد قمنا بحذف السطر القديم (const auth = getAuth()) لأننا استوردنا auth من المحول مباشرة
+        console.log("🟢 3. جاري الاتصال بـ Firebase Auth للتحقق من الجلسة...");
         
-        // الانتظار المشروط حتى يمنحنا جدار الحماية الإشارة الخضراء بالتحقق من هوية المتصل
         onAuthStateChanged(auth, async (user) => {
+            console.log("🟢 4. استجابة Firebase Auth وصلت! المستخدم موجود؟", !!user);
+            
             if (user) {
-                console.log("🔒 تم تأكيد الهوية الرقمية للمدير بنجاح. فتح بوابات المزامنة...");
+                console.log("🟢 5. تم تأكيد الهوية. بدء جلب البيانات (AppController.init)...");
                 
-                // تشغيل الموجه المركزي بأمان كامل الآن
                 if (AppController && typeof AppController.init === 'function') {
                     await AppController.init();
+                    console.log("🟢 6. اكتمل AppController.init بنجاح!");
+                } else {
+                    console.error("❌ خطأ: AppController غير موجود أو لا يحتوي على دالة init!");
                 }
                 
-                console.log("%c🚀 Telecard Admin: Cloud System Bootstrapped Successfully", "color: #10b981; font-weight: bold;");
             } else {
-                console.warn("🚨 لم يتم العثور على جلسة اتصال نشطة للمدير، جاري إعادة التوجيه الفوري لمنع التسريب المحاسبي.");
-                // توجيه المستخدم المجهول لصفحة تسجيل الدخول فوراً
-                window.location.replace("login.html"); 
-
+                console.warn("🚨 لم يتم العثور على جلسة اتصال نشطة للمدير، جاري التوجيه الفوري لمنع التسريب المحاسبي.");
+                window.location.replace("login.html");
             }
         });
         
-     } catch (error) {
-        // 🌟 استخراج النص الصافي للخطأ لمنع كونسول المتصفح (Spck Editor) من الانهيار
+    } catch (error) {
         const actualErrorMsg = error.message || error.toString();
         console.error("🚨 خطأ حرج في إقلاع النظام السحابي:", actualErrorMsg);
         
-        // محاولة إنقاذ الواجهة: إخفاء شاشة التحميل
         if (typeof AdminUI !== 'undefined' && AdminUI.toggleLoader) {
             AdminUI.toggleLoader(false);
         }
@@ -167,7 +159,6 @@ const startApp = async () => {
             setTimeout(() => loader.style.display = 'none', 300);
         }
         
-        // تنبيه بوجود مشكلة وعرض الخطأ الحقيقي مباشرة على الشاشة
         const alertMsg = "فشل الإقلاع: " + actualErrorMsg;
         if (typeof AdminUI !== 'undefined' && AdminUI.showToast) {
             AdminUI.showToast(alertMsg, 'error', 6000);
@@ -175,7 +166,6 @@ const startApp = async () => {
             alert(alertMsg);
         }
         
-        // إظهار شاشة الخطأ الحمراء إن وجدت في HTML
         const errorScreen = document.getElementById('system-fatal-error');
         if (errorScreen) {
             errorScreen.style.display = 'flex';

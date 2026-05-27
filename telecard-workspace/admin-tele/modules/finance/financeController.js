@@ -128,24 +128,6 @@ export const FinanceController = {
         }
     },
 
-    // =========================================================
-    // 💱 2. إدارة أسعار الصرف (Currencies & Rates)
-    // =========================================================
-    saveRates: async function() {
-        AdminData.data.rates = normalizeRates({
-            pricing: {
-                USD_TRY: parseFloat(Utils.getVal('r-price-usd-try', 35)),
-                USD_SYP: parseFloat(Utils.getVal('r-price-usd-syp', 15500))
-            },
-            deposit: {
-                USD_TRY: parseFloat(Utils.getVal('r-dep-usd-try', 34)),
-                USD_SYP: parseFloat(Utils.getVal('r-dep-usd-syp', 15000))
-            }
-        });
-        await AdminData?.saveRates?.();
-        AppController.finishAction(null, null, 'UPDATE_RATES', `تم تحديث أسعار الصرف للعملات`, 'تم حفظ أسعار الصرف بنجاح');
-    },
-
     changeCurrencyDisplay: async function(val) {
         if (!AdminData.data.settings) AdminData.data.settings = {};
         AdminData.data.settings.currencyDisplay = val;

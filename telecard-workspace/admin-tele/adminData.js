@@ -1,7 +1,7 @@
 // ============================================================================
 // 🗄️ مدير البيانات (adminData.js) - بنية ES Modules نقية 100% ☁️
 // 🎯 الوظيفة: إدارة حالة البيانات، الحسابات المركزية (SSOT)، وتوفير الفلاتر الذكية
-// 🌟 التحديث: محرك Smart Diffing للاتصال بـ Firebase، ودمج المنسق المركزي للمعرفات
+// 🌟 التحديث: حل مشكلة التعليق الصامت (Hanging Promises) + تأمين السحابة ضد المسح
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -10,7 +10,7 @@ import { FirebaseAdapter } from './core/firebaseAdapter.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 
 export const AdminData = {
-    // 🌟 راية الأمان (Data Loss Firewall): تمنع مسح السحابة بالخطأ
+    // 🌟 راية الأمان (Data Loss Firewall): تمنع مسح السحابة بالخطأ في حال فشل الجلب
     isCloudSyncSuccessful: false,
 
     // ==========================================
@@ -36,20 +36,20 @@ export const AdminData = {
     },
 
     // ==========================================
-    // 🛠️ 1. دالة التهيئة وجلب البيانات من السحابة (النسخة الاحترافية - منخفضة التكلفة)
+    // 🛠️ 1. دالة التهيئة وجلب البيانات من السحابة (النسخة الاحترافية والمحمية)
     // ==========================================
     loadData: async function() {
         console.log("☁️ جاري مزامنة بيانات لوحة الإدارة مع Firestore...");
         
         // إغلاق صمام الأمان عند بدء الجلب
         this.isCloudSyncSuccessful = false;
+        let hasCriticalFailure = false; // 👈 سيتغير إذا فشل أي جدول
         
         const arr = v => Array.isArray(v) ? v : [];
         const obj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
         
-        // 🚀 الحل الاحترافي 1: دالة جلب السجلات الضخمة بالتدريج لخفض التكلفة 99%
+        // دوال الجلب المساعدة
         const fetchRecent = async (key, limitCount = 100, orderByField = 'time') => {
-            // فحص أمان: في حال تم إضافة دالة getRecent في FirebaseAdapter نستخدمها، وإلا نعود للجلب العادي مؤقتاً
             if (FirebaseAdapter.getRecent && typeof FirebaseAdapter.getRecent === 'function') {
                 const res = await FirebaseAdapter.getRecent(key, limitCount, orderByField);
                 return (res && res.length > 0) ? res : [];
@@ -68,22 +68,13 @@ export const AdminData = {
             return res ? res : fallback;
         };
 
-        // 🚀 الحل الاحترافي 2: جلب متوازي مع تحديد سقف (Limit) للبيانات الضخمة
-        const [
-            rawRates, rawTiers, rawUsers, rawDeposits, rawOrders, rawCats, rawProds, 
-            rawPayments, rawBanners, rawSettings, rawNotif, rawSystem, rawAdminProfile,
-            rawCountries, rawVault, rawCoupons, rawOffers, rawLogs, rawAlerts, rawKyc
-        ] = await Promise.all([
-            // --- البيانات الأساسية (تُجلب بالكامل لضرورتها) ---
+        // 🚀 مصفوفة الوعود (Promises) تم تجهيزها لسباق آمن
+        const fetchPromises = [
             fetchArray(DB_KEYS.RATES, []),
             fetchArray(DB_KEYS.TIERS, []),
-            
-            // --- 🌟 المجموعات الضخمة (تحديد سقف لجلب الأحدث فقط لخفض الاستهلاك) ---
-            fetchRecent(DB_KEYS.USERS, 150, 'createdAt'), // جلب أحدث 150 مستخدم
-            fetchRecent(DB_KEYS.DEPOSITS, 100, 'time'),   // جلب أحدث 100 إيداع
-            fetchRecent(DB_KEYS.ORDERS, 100, 'time'),     // جلب أحدث 100 طلب
-            
-            // --- البيانات المتوسطة والصغيرة ---
+            fetchRecent(DB_KEYS.USERS, 150, 'createdAt'),
+            fetchRecent(DB_KEYS.DEPOSITS, 100, 'time'),
+            fetchRecent(DB_KEYS.ORDERS, 100, 'time'),
             fetchArray(DB_KEYS.CATS, []),
             fetchArray(DB_KEYS.PRODS, []),
             fetchArray(DB_KEYS.PAYMENTS, []),
@@ -96,13 +87,38 @@ export const AdminData = {
             fetchArray(DB_KEYS.VAULT, []),
             fetchArray(DB_KEYS.COUPONS, []),
             fetchArray(DB_KEYS.OFFERS, []),
-            
-            // --- 🌟 السجلات والإشعارات (بيانات تتراكم بسرعة ويجب تقييدها) ---
-            fetchRecent(DB_KEYS.LOGS, 50, 'timestamp'),   // أحدث 50 سجل
-            fetchRecent(DB_KEYS.ALERTS, 50, 'time'),      // أحدث 50 إشعار
-            
+            fetchRecent(DB_KEYS.LOGS, 50, 'timestamp'),
+            fetchRecent(DB_KEYS.ALERTS, 50, 'time'),
             fetchArray(DB_KEYS.KYC, [])
-        ]);
+        ];
+
+        // مصفوفة الأسماء للطباعة الدقيقة عند الخطأ
+        const collectionNames = [
+            'RATES', 'TIERS', 'USERS', 'DEPOSITS', 'ORDERS', 'CATS', 'PRODS', 'PAYMENTS', 'BANNERS',
+            'SETTINGS', 'POPUP', 'SYSTEM', 'ADMIN', 'COUNTRIES', 'VAULT', 'COUPONS', 'OFFERS', 'LOGS', 'ALERTS', 'KYC'
+        ];
+
+        // 🚀 الجلب المتوازي الآمن: تغليف كل طلب بـ catch لمنع التعليق الصامت
+        const [
+            rawRates, rawTiers, rawUsers, rawDeposits, rawOrders, rawCats, rawProds, 
+            rawPayments, rawBanners, rawSettings, rawNotif, rawSystem, rawAdminProfile,
+            rawCountries, rawVault, rawCoupons, rawOffers, rawLogs, rawAlerts, rawKyc
+        ] = await Promise.all(fetchPromises.map((p, index) => 
+            p.catch(e => {
+                console.error(`❌ فشل جلب الجدول [${collectionNames[index]}]:`, e.message);
+                hasCriticalFailure = true; // رفع حالة التأهب: لا تحفظ البيانات لاحقاً!
+                const isObject = ['SETTINGS', 'POPUP', 'SYSTEM', 'ADMIN'].includes(collectionNames[index]);
+                return isObject ? {} : [];
+            })
+        ));
+
+        // 🛑 إذا كان هناك فشل حرج، نوقف الإقلاع هنا لحماية السحابة
+        if (hasCriticalFailure) {
+            console.error("⛔ جدار الحماية: تم إيقاف المزامنة لحماية البيانات السحابية من المسح بالخطأ.");
+            throw new Error("فشل في جلب بعض الجداول الأساسية من Firebase. راجع الكونسول لمعرفة الجدول المعطوب.");
+        }
+
+        console.log("✅ تمت الاستجابة من فايربيز لجميع الطلبات!");
 
         // 🚀 معالجة البيانات وتنقيتها فور وصولها معاً
         const availableRates = normalizeRates(rawRates);
@@ -149,7 +165,7 @@ export const AdminData = {
         this.data.orders = arr(rawOrders);
         this.data.cats = arr(rawCats);
         
-        // 🌟 تطهير ومعايرة بيانات المنتجات (Sanitization) لمنع أخطاء الـ Type Coercion
+        // 🌟 تطهير ومعايرة بيانات المنتجات
         this.data.prods = arr(rawProds).map(p => {
             const isFixed = p.isFixedPrice === true || p.isFixedPrice === 'true' || p.is_fixed_price === true || p.is_fixed_price === 'true';
             return {
@@ -169,7 +185,7 @@ export const AdminData = {
         this.data.system = obj(rawSystem);
         this.data.adminProfile = obj(rawAdminProfile);
         
-        // 🌟 ترميم بيانات الدول المجلوبة بذكاء وبدون فرض دولة محددة
+        // 🌟 ترميم بيانات الدول المجلوبة بذكاء
         this.data.countries = arr(rawCountries).map(c => {
             return {
                 ...c,
@@ -185,7 +201,7 @@ export const AdminData = {
 
         this.data.vault = arr(rawVault);
         
-        // 🌟 فلتر تطهير ومعايرة الكوبونات (Coupons Normalization)
+        // 🌟 فلتر تطهير ومعايرة الكوبونات
         this.data.coupons = arr(rawCoupons).map(c => ({
             ...c,
             isActive: c.isActive === true || c.isActive === 'true' || c.is_active === true,
@@ -200,7 +216,7 @@ export const AdminData = {
             allowedUsers: Array.isArray(c.allowedUsers) ? c.allowedUsers : []
         }));
 
-        // 🌟 فلتر تطهير ومعايرة العروض (Offers Normalization)
+        // 🌟 فلتر تطهير ومعايرة العروض
         this.data.offers = arr(rawOffers).map(o => ({
             ...o,
             isActive: o.isActive === true || o.isActive === 'true',
@@ -217,13 +233,11 @@ export const AdminData = {
         // أخذ لقطة لكل البيانات لتشغيل محرك الـ Smart Diffing
         Object.keys(this.data).forEach(prop => this._updateSnapshot(prop));
 
-        // 🌟 فتح صمام الأمان: السحابة تمت قراءتها بنجاح وبشكل كامل
+        // 🌟 فتح صمام الأمان: السحابة تمت قراءتها بنجاح وبشكل كامل دون أخطاء
         this.isCloudSyncSuccessful = true;
         
-        // 🌟 الآن الحفظ سيتم بأمان وتتجاوز الجدار الناري بنجاح
         if (changedTierAssign) await this.saveUsers(); 
         
-        // 🌟 استدعاء دالة الإحصائيات (التي أصبحت الآن تتصل بالسحابة ولن تجمد المتصفح)
         if (this.calculateAllStoreStats) await this.calculateAllStoreStats();
         
         await this.autoAdvanceSweep();
@@ -231,12 +245,13 @@ export const AdminData = {
         console.log("✅ اكتملت المزامنة الموازية بنجاح بسرعة فائقة وبأقل تكلفة من السحابة.");
         return true; 
     },
+
     // ==========================================
     // 💾 دوال الحفظ الذكية (Smart Diffing Saver)
     // ==========================================
     saveCollection: async function(key, prop) {
         try {
-            // 🌟 الجدار الناري: منع الحفظ إذا لم تكتمل دورة الجلب الأساسية بنجاح
+            // 🌟 الجدار الناري: يمنع الحفظ وحذف الجداول إذا لم يكتمل الجلب
             if (!this.isCloudSyncSuccessful) {
                 console.error(`⛔ تم حظر عملية حفظ (${prop}): لم تكتمل المزامنة الأساسية، إجراء وقائي لمنع فقدان البيانات.`);
                 return false;
@@ -379,7 +394,6 @@ export const AdminData = {
         });
     },
 
-    // 🌟 الحل الاحترافي لتأسيس السحابة: حقن مباشر لتجاوز الجدار الناري 
     seedDefaultCountries: async function() {
         console.warn("⚠️ جاري تأسيس بنية الدول في السحابة...");
         const defaultCountry = {
@@ -416,28 +430,22 @@ export const AdminData = {
         await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);
     },
 
-    // ==========================================
-    // 🌟 العقل المحاسبي المركزي (تم ترحيله للسحابة بالكامل)
-    // ==========================================
     calculateAllStoreStats: async function() {
         console.log("🚀 جاري الاتصال بالسحابة لضبط الإحصائيات المركزية...");
         
         try {
-            // 🌟 الإصلاح: جلب getApp لتعريف المشروع، خاصة عند العمل من Spck Editor (Localhost)
             const { getApp } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
             const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js");
             
-            const app = getApp(); // 👈 تحديد التطبيق الحالي
-            const functions = getFunctions(app); // 👈 ربط الدوال بالتطبيق
+            const app = getApp(); 
+            const functions = getFunctions(app); 
             
-            // الاتصال بدالة الصيانة السحابية التي أنشأناها
             const calculateCloudFn = httpsCallable(functions, 'calculateStoreStatsCloud');
             
             const result = await calculateCloudFn();
             
             if (result.data.success) {
                 console.log("✅ السحابة أنهت الحسابات بنجاح.");
-                // إعادة جلب مستند الإحصائيات المحدث فقط لتعكس الواجهة الأرقام الجديدة
                 const sysRef = await FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton');
                 if (sysRef && sysRef.globalStats) {
                     this.data.system.globalStats = sysRef.globalStats;
@@ -593,7 +601,6 @@ export const AdminData = {
 
         let lbKey = leaderboardPeriod === 'this_month' ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` : (leaderboardPeriod === 'last_month' ? `${new Date(now.getFullYear(), now.getMonth()-1).getFullYear()}-${String(new Date(now.getFullYear(), now.getMonth()-1).getMonth()+1).padStart(2,'0')}` : '');
         
-        // 🌟 التحديث: استخدام المنسق المركزي بدلاً من القص اليدوي
         let leaderboard = (d.users || []).map(u => ({ 
             id: u.id, 
             displayId: RenderHelpers.formatUserId(u),
