@@ -32,9 +32,8 @@ const ProviderAdapters = {
         }));
     }
 };
-
 // ==========================================
-// 🧠 النواة المركزية للمزامنة (تُستخدم يدوياً وآلياً)
+// 🧠 النواة المركزية للمزامنة (تم التحديث لدعم الشحن المجزأ +500 منتج)
 // ==========================================
 const coreSyncLogic = async (supplierId) => {
     const suppRef = db.collection('telecard_suppliers').doc(String(supplierId));
@@ -42,10 +41,8 @@ const coreSyncLogic = async (supplierId) => {
     
     if (!suppSnap.exists) throw new Error('المورد غير موجود.');
     const supplier = suppSnap.data();
-    
     if (!supplier.isActive) throw new Error('المورد معطل حالياً.');
 
-    // 🛡️ الأمان: جلب المفتاح السري من المسار المعزول
     const secretSnap = await suppRef.collection('secrets').doc('api').get();
     const token = secretSnap.exists ? secretSnap.data().token : null;
     if (!token) throw new Error('لا يوجد مفتاح ربط سري لهذا المورد.');
@@ -53,73 +50,76 @@ const coreSyncLogic = async (supplierId) => {
     const fetchAdapter = ProviderAdapters[supplier.type];
     if (!fetchAdapter) throw new Error('نوع المورد غير مدعوم.');
 
-    // جلب البيانات من المورد
     const normalizedProducts = await fetchAdapter(supplier.baseUrl, token);
-    const batch = db.batch();
-    
     const fetchedIds = new Set();
     let importedCount = 0;
     const defaultMargin = Number(supplier.defaultMargin || 0);
 
-    // 1. معالجة المنتجات القادمة وتحديثها
+    // 🌟 مصفوفة الدفعات الضخمة (Batches Array) لمنع اصطدام حاجز الـ 500
+    let batches = [];
+    let currentBatch = db.batch();
+    let operationCount = 0;
+
+    const commitAndReset = () => {
+        batches.push(currentBatch.commit());
+        currentBatch = db.batch();
+        operationCount = 0;
+    };
+
     normalizedProducts.forEach(prod => {
         const safeId = `ext_${supplierId}_${prod.externalId}`;
         const vaultId = `vault_${safeId}`;
         fetchedIds.add(safeId);
         
         const finalPrice = Number((prod.cost + (prod.cost * (defaultMargin / 100))).toFixed(4));
-
         const prodRef = db.collection('telecard_prods').doc(safeId);
-        batch.set(prodRef, {
-            id: safeId,
-            name: prod.name,
-            costPrice: prod.cost,
-            price: finalPrice,
-            supplierId: supplierId,
-            vaultPoolId: vaultId,
-            isExternal: true,
-            isAvailable: true, // إعادة تفعيله إذا كان محذوفاً وعاد
+        
+        currentBatch.set(prodRef, {
+            id: safeId, name: prod.name, costPrice: prod.cost, price: finalPrice,
+            supplierId: supplierId, vaultPoolId: vaultId,
+            isExternal: true, isAvailable: true,
             lastSync: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
+        operationCount++;
+        if (operationCount >= 450) commitAndReset(); // أمان أعلى (تفادى سقف 500)
 
         if (prod.codes && prod.codes.length > 0) {
             const vaultRef = db.collection('telecard_vault').doc(vaultId);
-            batch.set(vaultRef, {
-                id: vaultId,
-                supplierId: supplierId,
-                codes: prod.codes,
+            currentBatch.set(vaultRef, {
+                id: vaultId, supplierId: supplierId, codes: prod.codes,
                 lastSync: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
+            operationCount++;
+            if (operationCount >= 450) commitAndReset();
         }
         importedCount++;
     });
 
-    // 2. 🗑️ معالجة المنتجات المحذوفة (Orphan Handling)
-    // البحث عن كل منتجات هذا المورد في متجرنا
     const existingProdsSnap = await db.collection('telecard_prods').where('supplierId', '==', supplierId).get();
     let deletedCount = 0;
 
     existingProdsSnap.forEach(doc => {
         if (!fetchedIds.has(doc.id)) {
-            // هذا المنتج لم يعد يأتي من المورد، يجب تعطيله
-            batch.update(doc.ref, { 
+            currentBatch.update(doc.ref, { 
                 isAvailable: false, 
                 syncNote: 'تم حذفه أو إخفاؤه من قبل المورد' 
             });
+            operationCount++;
             deletedCount++;
+            if (operationCount >= 450) commitAndReset();
         }
     });
 
-    // تحديث إحصائيات المورد
-    batch.update(suppRef, { 
+    currentBatch.update(suppRef, { 
         lastSync: admin.firestore.FieldValue.serverTimestamp(),
         importedCount: importedCount 
     });
 
-    await batch.commit();
+    batches.push(currentBatch.commit());
+    await Promise.all(batches); // تنفيذ كافة الدفعات بشكل تزامني صاروخي
+
     return { importedCount, deletedCount };
 };
-
 // ==========================================
 // 🚀 1. دالة المزامنة اليدوية (من زر لوحة التحكم)
 // ==========================================

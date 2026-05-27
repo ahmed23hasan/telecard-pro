@@ -11,9 +11,11 @@ const db = admin.firestore();
 
 const isMasterAdmin = (context) => {
     if (!context.auth) return false;
+    // التأكد التام من السماح لأهم الحسابات التشغيلية
     return context.auth.token.email === 'admin@telecard.pro' || context.auth.uid === 'e064MQJyn6dhU9mNXZvXItc7VYg2';
 };
 
+// عمليات حسابية حذرة للمحافظة على أمان فواصل الأعشار للأموال (Fintech Safety)
 const safeAdd = (a, b) => Number((Number(a) + Number(b)).toFixed(4));
 const safeSub = (a, b) => Math.max(0, Number((Number(a) - Number(b)).toFixed(4)));
 
@@ -30,8 +32,10 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
     try {
         const userRef = db.collection('telecard_users').doc(uid);
         const productRef = db.collection('telecard_prods').doc(String(productId));
-        const systemRef = db.collection('system').doc('singleton');
-        const countersRef = db.collection('system').doc('counters'); // 🌟 مرجع المحرك التسلسلي
+        
+        // 🌟 [إصلاح مركزي قاتل]: استبدال (system) بمسارها الحقيقي بالمشروع (telecard_system) لمنع التسريب المحاسبي لعداد الأصفار
+        const systemRef = db.collection('telecard_system').doc('singleton');
+        const countersRef = db.collection('telecard_system').doc('counters'); 
         
         let couponRef = null;
         if (couponCode) {
@@ -57,11 +61,11 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
 
         await db.runTransaction(async (transaction) => {
             // ----------------------------------------------------
-            // 📥 1. منطقة القراءة فقط (READS ZONE)
+            // 📥 1. منطقة القراءة فقط (READS ZONE) - Safe execution area
             // ----------------------------------------------------
             const userSnap = await transaction.get(userRef);
             const productSnap = await transaction.get(productRef);
-            const countersSnap = await transaction.get(countersRef); // 🌟 قراءة العداد الذري
+            const countersSnap = await transaction.get(countersRef); // 🌟 קراءة العداد الدقيق السحابي
             let couponSnap = couponRef ? await transaction.get(couponRef) : null;
 
             if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'المستخدم غير موجود.');
@@ -75,15 +79,14 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
             const tierRef = db.collection('telecard_tiers').doc(tierId);
             const tierSnap = await transaction.get(tierRef);
             const userTier = tierSnap.exists ? tierSnap.data() : null;
-            // 🛡️ فحص صلاحية التوقيت سحابياً (Server-side Time Trust)
-            const serverNow = Date.now(); // في بيئة السحابة، هذا يمثل توقيت سيرفرات جوجل الموثوق
             
-            // التأكد من صلاحية العرض سحابياً (إبطاله إذا انتهى)
+            // 🛡️ فحص صلاحية التوقيت سحابياً (Server-side Time Trust)
+            const serverNow = Date.now(); 
+            
             if (activeOffer && activeOffer.expiryDate && activeOffer.expiryDate < serverNow) {
                 activeOffer = null; 
             }
 
-            // التأكد من صلاحية الكوبون سحابياً (إيقاف العملية إذا انتهى)
             if (couponData && couponData.expiryDate && couponData.expiryDate < serverNow) {
                 throw new functions.https.HttpsError('failed-precondition', 'عذراً، انتهت صلاحية هذا الكوبون.');
             }
@@ -95,13 +98,13 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
                 vaultSnap = await transaction.get(vaultRef); 
             }
 
-            // 🌟 1.1 استخراج وتوليد الرقم التسلسلي النقي للطلب
-            let currentOrderCount = 100001; // الرقم الابتدائي لبداية المشروع
+            // 🌟 1.1 استخراج وتوليد الرقم التسلسلي النقي للطلب (نهاية التوليد العشوائي المدمر)
+            let currentOrderCount = 100001; 
             if (countersSnap.exists && countersSnap.data().orders_counter) {
                 currentOrderCount = countersSnap.data().orders_counter + 1;
             }
             const cleanOrderId = String(currentOrderCount);
-            const orderRef = db.collection('telecard_orders').doc(cleanOrderId); // استخدام الرقم الجديد كآيدي صريح
+            const orderRef = db.collection('telecard_orders').doc(cleanOrderId); 
 
             // ----------------------------------------------------
             // 🧠 2. منطقة الحسابات والمنطق (LOGIC ZONE)
@@ -110,17 +113,18 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
             if (product.type === 'select' && Array.isArray(product.options) && product.options[optIdx]) {
                 rawUnitCost = Number(product.options[optIdx].price || product.options[optIdx].costPrice || 0);
             }
-            // حماية دفاعية لضمان قراءة القيمة المنطقية بشكل صحيح حتى لو خُزنت كنص
-const isFixed = (
-    product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true' || 
-    product.is_fixed_price === true || String(product.is_fixed_price).toLowerCase() === 'true'
-);
+            
+            const isFixed = (
+                product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true' || 
+                product.is_fixed_price === true || String(product.is_fixed_price).toLowerCase() === 'true'
+            );
 
             if (isFixed) {
                 const fixedUsd = Number(product.fixedPriceUsd || product.fixed_price_usd || 0);
                 if (fixedUsd > 0) rawUnitCost = fixedUsd;
             }
 
+            // الربط الصارم بالمحرك المالي
             const pricingSnapshot = FinancialEngine.calculatePrice({
                 costPrice: rawUnitCost, tier: isFixed ? null : userTier, offer: activeOffer, coupon: couponData
             });
@@ -156,8 +160,9 @@ const isFixed = (
             const newTotalSpent = safeAdd(userData.totalSpent || 0, totalRequired);
             const newCycleSpent = safeAdd(userData.tierCycleSpent || 0, totalRequired); 
 
+            // دمج الخاتم الخاص بتقرير الـ SSOT وحل الصفر الكارثي للـ Pricing Snapshot
             const newOrder = {
-                id: cleanOrderId, displayId: cleanOrderId, // توحيد الآيدي التسلسلي النقي
+                id: cleanOrderId, displayId: cleanOrderId, 
                 userId: uid, prodId: productId, product: product.name,
                 price: totalRequired, qty: finalQty, input: finalInputStr || '---',
                 status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText,
@@ -175,7 +180,7 @@ const isFixed = (
                     netProfitUsd: Number((pricingSnapshot.profit * finalQty).toFixed(4)), marginPct: pricingSnapshot.marginPct,
                     isFirewallActive: pricingSnapshot.isFirewallActive
                 },
-                time: admin.firestore.FieldValue.serverTimestamp() // 🌟 ختم السيرفر الزمني
+                time: admin.firestore.FieldValue.serverTimestamp()
             };
 
             const statsUpdate = { 'globalStats.orders.total': admin.firestore.FieldValue.increment(1) };
@@ -198,7 +203,7 @@ const isFixed = (
             transaction.update(userRef, { walletBalance: newBalance, balance: newBalance, totalSpent: newTotalSpent, tierCycleSpent: newCycleSpent });
             transaction.set(orderRef, newOrder);
             transaction.set(systemRef, statsUpdate, { merge: true }); 
-            transaction.set(countersRef, { orders_counter: currentOrderCount }, { merge: true }); // 🌟 تحديث العداد
+            transaction.set(countersRef, { orders_counter: currentOrderCount }, { merge: true });
         });
 
         return { success: true, message: resultMessage, isAutoDelivered: isAutoDelivered, deliveredCode: deliveredCodeText };
@@ -222,14 +227,15 @@ exports.submitBalanceRequest = functions.https.onCall(async (data, context) => {
     if (amount <= 0) throw new functions.https.HttpsError('invalid-argument', 'المبلغ المدخل غير صالح.');
 
     try {
-        const countersRef = db.collection('system').doc('counters');
-        const systemRef = db.collection('system').doc('singleton');
+        // 🌟 إصلاح المرجع للرقم الحقيقي الصحيح (telecard_system)
+        const countersRef = db.collection('telecard_system').doc('counters');
+        const systemRef = db.collection('telecard_system').doc('singleton');
         
         await db.runTransaction(async (transaction) => {
             const countersSnap = await transaction.get(countersRef);
             
-            // 🌟 استخراج وتوليد الرقم التسلسلي النقي للإيداع
-            let currentDepositCount = 500001; // بداية تسلسل الإيداعات
+            // التسلسل الدقيق لأرقام الإيداعات
+            let currentDepositCount = 500001; 
             if (countersSnap.exists && countersSnap.data().deposits_counter) {
                 currentDepositCount = countersSnap.data().deposits_counter + 1;
             }
@@ -239,11 +245,11 @@ exports.submitBalanceRequest = functions.https.onCall(async (data, context) => {
             transaction.set(countersRef, { deposits_counter: currentDepositCount }, { merge: true });
 
             transaction.set(depositRef, {
-                id: cleanDepositId, displayId: cleanDepositId, // توحيد الآيدي التسلسلي النقي
+                id: cleanDepositId, displayId: cleanDepositId, 
                 userId: uid, method: paymentMethodName,
                 amount: Number(amount), currency: payCurr, creditedAmount: Number(netBase),
                 status: 'pending', 
-                time: admin.firestore.FieldValue.serverTimestamp(), // 🌟 الختم الزمني المشفر للسيرفر
+                time: admin.firestore.FieldValue.serverTimestamp(),
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 receipt: receiptData || null
             });
@@ -272,7 +278,9 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
         return await db.runTransaction(async (transaction) => {
             const depRef = db.collection('telecard_deposits').doc(String(depositId));
             const depSnap = await transaction.get(depRef);
-            const systemRef = db.collection('system').doc('singleton');
+            
+            // 🌟 إصلاح المرجع للوحدة الخاصة بالإدارة لحساب سيولة المحافظ والأرباح
+            const systemRef = db.collection('telecard_system').doc('singleton');
             
             if (!depSnap.exists) throw new functions.https.HttpsError('not-found', 'الإيداع غير موجود.');
             const depData = depSnap.data();
@@ -328,12 +336,11 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
 
     try {
         return await db.runTransaction(async (transaction) => {
-            // ----------------------------------------------------
-            // 📥 1. منطقة القراءة (READS)
-            // ----------------------------------------------------
             const orderRef = db.collection('telecard_orders').doc(String(orderId));
             const orderSnap = await transaction.get(orderRef);
-            const systemRef = db.collection('system').doc('singleton');
+            
+            // 🌟 إصلاح المرجع 
+            const systemRef = db.collection('telecard_system').doc('singleton');
             
             if (!orderSnap.exists) throw new functions.https.HttpsError('not-found', 'الطلب غير موجود.');
             const orderData = orderSnap.data();
@@ -361,14 +368,12 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
                 }
             }
 
-            // ----------------------------------------------------
-            // 🧠 2. منطقة المنطق (LOGIC)
-            // ----------------------------------------------------
             const statsUpdate = {};
             const exactPriceUsd = Number(orderData.price || 0);
             const costUsd = orderData.pricingSnapshot ? Number(orderData.pricingSnapshot.costUsd || 0) : 0;
             const profitUsd = orderData.pricingSnapshot ? Number(orderData.pricingSnapshot.netProfitUsd || 0) : 0;
 
+            // إعلاء مبيعات وفوائد النظام العظيم، يتم إضافة العمليات المرفوضة وإزالتها للحفاظ على شفافية الداشبورد 📈
             if (orderData.status === 'pending' || orderData.status === 'processing') {
                 if (action === 'completed') {
                     statsUpdate['globalStats.orders.completed'] = admin.firestore.FieldValue.increment(1);
@@ -385,9 +390,6 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
                 statsUpdate['globalStats.financials.totalProfit'] = admin.firestore.FieldValue.increment(-profitUsd);
             }
 
-            // ----------------------------------------------------
-            // 💾 3. منطقة الكتابة (WRITES)
-            // ----------------------------------------------------
             if (isRefundingAction && !wasAlreadyRefunded) {
                 if (userSnap && userSnap.exists) {
                     const userData = userSnap.data();
@@ -446,7 +448,8 @@ exports.calculateStoreStatsCloud = functions.https.onCall(async (data, context) 
         const globalStats = {
             financials: { totalRevenue: 0, totalProfit: 0, totalCost: 0 },
             orders: { total: 0, completed: 0, rejected: 0, refunded: 0 },
-            deposits: { total: 0, approved: 0, rejected: 0, refunded: 0 }
+            deposits: { total: 0, approved: 0, rejected: 0, refunded: 0 },
+            daily: {} // نضيف قالب الأيام إن احتجنا في المستقبل للبناء الداخلي
         };
 
         ordersSnap.forEach(doc => {
@@ -477,7 +480,8 @@ exports.calculateStoreStatsCloud = functions.https.onCall(async (data, context) 
             else if (d.status === 'refunded') globalStats.deposits.refunded++;
         });
 
-        await db.collection('system').doc('singleton').set({ globalStats: globalStats }, { merge: true });
+        // 🌟 إصلاح المرجع للجدول الصحيح للصيانة أيضاً (telecard_system)
+        await db.collection('telecard_system').doc('singleton').set({ globalStats: globalStats }, { merge: true });
         return { success: true, message: 'تم إعادة بناء وضبط الإحصائيات المركزية بنجاح.' };
 
     } catch (error) {
@@ -485,12 +489,12 @@ exports.calculateStoreStatsCloud = functions.https.onCall(async (data, context) 
         throw new functions.https.HttpsError('internal', 'فشل السيرفر في حساب الإحصائيات.');
     }
 });
+
 // ==========================================
 // ⏱️ دالة جلب توقيت السيرفر المركزي (Server Time Provider)
 // ==========================================
 exports.getServerTime = functions.https.onCall((data, context) => {
-    // هذه الدالة تعيد التوقيت العالمي (UTC) الدقيق لسيرفرات جوجل
-    // سيستخدمها المتجر في الواجهة الأمامية لمزامنة عداداته وعروضه
+    // تعيد التوقيت العالمي لضمان التزامن للمتجر
     return {
         success: true,
         serverTime: Date.now() 

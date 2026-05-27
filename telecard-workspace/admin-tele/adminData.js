@@ -583,21 +583,51 @@ export const AdminData = {
         const d = this.data;
         const now = new Date();
         const nowTime = now.getTime();
-        const gStats = d.system?.globalStats || { financials: { totalRevenue: 0, totalProfit: 0, totalCost: 0 }, orders: { total: 0, completed: 0, rejected: 0, refunded: 0 }, promoStats: { totalDiscountAmount: 0, discountedRevenue: 0, totalDiscountedOrders: 0, couponUsageMap: {}, offerUsageMap: {} }, tierStats: {} };
 
-        let active = 0, restricted = 0, banned = 0, bip = 0;
-        (d.users || []).forEach(u => { if (u.isIpBanned) bip++; if (u.isBanned) banned++; else if (u.isRestricted) restricted++; else active++; });
-
+        // 🛡️ التحديث الجذري هنا: حماية كاملة لسحب الـ Global Stats وحل نقص الـ Properties
+        const sysDoc = d.system || {};
+        const rawGStats = sysDoc.globalStats || {};
+        
         const stats = {
-            financials: gStats.financials, orders: gStats.orders, deposits: gStats.deposits, tierStats: gStats.tierStats || {},
-            users: { total: (d.users || []).length, active, restricted, banned, bannedIps: bip, topThreeSpenders: [], mostActiveUser: null },
+            financials: rawGStats.financials || { totalRevenue: 0, totalProfit: 0, totalCost: 0 },
+            orders: rawGStats.orders || { total: 0, completed: 0, rejected: 0, refunded: 0 },
+            deposits: rawGStats.deposits || { total: 0, approved: 0, rejected: 0, refunded: 0 },
+            tierStats: rawGStats.tierStats || {},
+            users: { total: (d.users || []).length, active: 0, restricted: 0, banned: 0, bannedIps: 0, topThreeSpenders: [], mostActiveUser: null },
             walletsData: this.getWalletsLiquidity(),
-            promoStats: { totalDiscountAmount: gStats.promoStats?.totalDiscountAmount || 0, discountedRevenue: gStats.promoStats?.discountedRevenue || 0, totalDiscountedOrders: gStats.promoStats?.totalDiscountedOrders || 0, topCoupon: 'لا يوجد', topOffer: 'لا يوجد' },
-            alerts: []
+            promoStats: rawGStats.promoStats || { totalDiscountAmount: 0, discountedRevenue: 0, totalDiscountedOrders: 0, couponUsageMap: {}, offerUsageMap: {}, topCoupon: 'لا يوجد', topOffer: 'لا يوجد' },
+            alerts: [],
+            daily: {} // 🌟 مصفوفة الأيام تم حلها لتشتغل המخططات بثبات محلي
         };
 
-        let topC = 0; const cMap = gStats.promoStats?.couponUsageMap || {}; for (let c in cMap) { if (cMap[c] > topC) { topC = cMap[c]; stats.promoStats.topCoupon = c; } }
-        let topO = 0; const oMap = gStats.promoStats?.offerUsageMap || {}; for (let o in oMap) { if (oMap[o] > oMap[topO] || !topO) { topO = oMap[o]; stats.promoStats.topOffer = o; } }
+        // إحصائيات المستخدمين الصغرى
+        (d.users || []).forEach(u => { 
+            if (u.isIpBanned) stats.users.bannedIps++; 
+            if (u.isBanned) stats.users.banned++; 
+            else if (u.isRestricted) stats.users.restricted++; 
+            else stats.users.active++; 
+        });
+
+        // 🌟 بناء الديناميكية المحلية للأيام (Last 30 Days Live Fallback): لمنع أعطال الشارت وجلب دقة استثنائية!
+        const ordersForCharts = (d.orders || []).filter(o => o.status === 'completed');
+        ordersForCharts.forEach(o => {
+            const timeMs = RenderHelpers.parseTime(o.time || o.createdAt || nowTime);
+            const dateObj = new Date(timeMs);
+            const dKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+            
+            if (!stats.daily[dKey]) stats.daily[dKey] = { revenue: 0, profit: 0, cost: 0 };
+            
+            const pricing = o.pricingSnapshot;
+            const rev = Number(pricing?.finalPriceUsd || pricing?.finalPrice || o.baseUsd || o.price || 0);
+            const prof = Number(pricing?.netProfitUsd || pricing?.profit || 0);
+            
+            stats.daily[dKey].revenue += rev;
+            stats.daily[dKey].profit += prof;
+        });
+
+        // ترتيبات لوحة المتصدرين (الـ Podium)
+        let topC = 0; const cMap = stats.promoStats.couponUsageMap || {}; for (let c in cMap) { if (cMap[c] > topC) { topC = cMap[c]; stats.promoStats.topCoupon = c; } }
+        let topO = 0; const oMap = stats.promoStats.offerUsageMap || {}; for (let o in oMap) { if (oMap[o] > oMap[topO] || !topO) { topO = oMap[o]; stats.promoStats.topOffer = o; } }
 
         let lbKey = leaderboardPeriod === 'this_month' ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` : (leaderboardPeriod === 'last_month' ? `${new Date(now.getFullYear(), now.getMonth()-1).getFullYear()}-${String(new Date(now.getFullYear(), now.getMonth()-1).getMonth()+1).padStart(2,'0')}` : '');
         
@@ -613,14 +643,15 @@ export const AdminData = {
         stats.users.topThreeSpenders = leaderboard.filter(u => u.spent > 0).sort((a,b) => b.spent - a.spent).slice(0,3);
         stats.users.mostActiveUser = leaderboard.filter(u => u.count > 0).sort((a,b) => b.count - a.count)[0] || null;
 
+        // التنبيهات المضمنة للرادار الذكي (Alerts Engine)
         const twoDays = nowTime - 172800000;
-        (d.orders || []).filter(o => o.status === 'completed' && o.couponCode && (o.time || 0) > twoDays).forEach(o => { stats.alerts.push({ id: 'coupon_used', code: o.couponCode, user: o.userName || 'عميل', orderId: o.id, time: o.time }); });
+        (d.orders || []).filter(o => o.status === 'completed' && o.couponCode && RenderHelpers.parseTime(o.time || o.createdAt) > twoDays).forEach(o => { stats.alerts.push({ id: 'coupon_used', code: o.couponCode, user: o.userName || 'عميل', orderId: o.id, time: o.time || o.createdAt }); });
         (d.vault || []).forEach(p => { let av = (p.codes || []).filter(c => typeof c === 'string' || c.status === 'available').length; if (av === 0) stats.alerts.push({ id: 'vault_empty', poolId: p.id, poolName: p.name }); else if (av <= (p.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolId: p.id, poolName: p.name, count: av }); });
         (d.offers || []).filter(o => o.isActive && o.expiryDate && (o.expiryDate - nowTime) < 259200000).forEach(o => stats.alerts.push({ id: 'offer_expiring', name: o.name, time: o.expiryDate }));
 
         if (d.users?.length > 0) stats.alerts.push({ id: 'security_stable' });
-        stats.alerts.sort((a, b) => (b.time || nowTime) - (a.time || nowTime));
+        stats.alerts.sort((a, b) => RenderHelpers.parseTime(b.time || nowTime) - RenderHelpers.parseTime(a.time || nowTime));
+        
         return stats;
     }
-
 };
