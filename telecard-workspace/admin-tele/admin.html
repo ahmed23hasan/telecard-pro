@@ -2035,14 +2035,22 @@
         }
         handleModuleError(e);
     }, true);
-
-    // حماية إضافية: منع الشاشة الحمراء من الظهور بسبب أخطاء جلب البيانات (Promises)
+<script>
     window.addEventListener('unhandledrejection', function(e) {
-        console.warn('⚠️ خطأ في عملية خلفية تم تجاهله:', e.reason);
+        // منع المتصفح من إيقاف تنفيذ باقي الأكواد
+        e.preventDefault(); 
+        
+        let errorMsg = e.reason ? (e.reason.message || e.reason) : 'خطأ غير معروف';
+        console.warn('🛡️ [نظام الحماية] تم احتواء خطأ خلفي بنجاح:', errorMsg);
+        
+        // مساعدة برمجية: إذا كان الخطأ متعلقاً بالشبكة أو الكاش
+        if (String(errorMsg).includes('Failed to fetch') || String(errorMsg).includes('NetworkError')) {
+            console.warn('📡 ملاحظة: فشل اتصال بالشبكة. قد يكون السبب: كاش متصفح قديم، أو إضافة حجب إعلانات (AdBlocker)، أو انقطاع مؤقت في الإنترنت.');
+        }
     });
 </script>
 
-<script type="module" id="main-module" src="admin.js"></script>
+<script type="module" id="main-module" src="admin.js?v=2.0"></script>
 
 </body>
 </html>
