@@ -88,8 +88,8 @@ export const DashboardTemplates = {
         return `
             <div class="dash-group-header"><h4><i class="fa-solid fa-money-bill-trend-up text-gold"></i> النبض المالي</h4><div class="group-line"></div></div>
             <div class="dash-circ-grid">
-                <div class="dash-circ-card cap-profit" data-action="nav-with-filter" data-section="orders" data-status="completed"><div class="circ-icon bg-gold"><i class="fa-solid fa-sack-dollar"></i></div><div class="circ-data"><h3 class="num-en text-gold" dir="ltr" lang="en">${RenderHelpers.formatMoney(stats.orders.profit, 'USD', 2)}</h3><span>صافي الأرباح</span></div></div>
-                <div class="dash-circ-card" data-action="nav-with-filter" data-section="orders" data-status="completed"><div class="circ-icon bg-primary"><i class="fa-solid fa-chart-line"></i></div><div class="circ-data"><h3 class="num-en text-primary" dir="ltr" lang="en">${RenderHelpers.formatMoney(stats.orders.revenue, 'USD', 2)}</h3><span>إجمالي المبيعات</span></div></div>
+                <div class="dash-circ-card cap-profit" data-action="nav-with-filter" data-section="orders" data-status="completed"><div class="circ-icon bg-gold"><i class="fa-solid fa-sack-dollar"></i></div><div class="circ-data"><h3 class="num-en text-gold" dir="ltr" lang="en">${RenderHelpers.formatMoney(stats.financials.totalProfit, 'USD', 2)}</h3><span>صافي الأرباح</span></div></div>
+                <div class="dash-circ-card" data-action="nav-with-filter" data-section="orders" data-status="completed"><div class="circ-icon bg-primary"><i class="fa-solid fa-chart-line"></i></div><div class="circ-data"><h3 class="num-en text-primary" dir="ltr" lang="en">${RenderHelpers.formatMoney(stats.financials.totalRevenue, 'USD', 2)}</h3><span>إجمالي المبيعات</span></div></div>
             </div>
             
             <div class="dash-group-header"><h4><i class="fa-solid fa-vault text-success"></i> سيولة المحافظ</h4><div class="group-line"></div></div>
