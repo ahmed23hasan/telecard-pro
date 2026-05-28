@@ -267,64 +267,104 @@ exports.submitBalanceRequest = functions.https.onCall(async (data, context) => {
 });
 
 // ==========================================
-// 👑 3. [إدارة] دالة معالجة الإيداعات الآمنة
+// 👑 3. [إدارة] دالة معالجة الإيداعات الآمنة (المطورة - تدعم الاسترجاع)
 // ==========================================
 exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك.');
-
-    const { depositId, action, adminNote } = data; 
-
+    
+    const { depositId, action, adminNote } = data;
+    const validActions = ['approved', 'rejected', 'refunded'];
+    
+    if (!validActions.includes(action)) {
+        throw new functions.https.HttpsError('invalid-argument', 'حالة الإيداع المطلوبة غير صالحة.');
+    }
+    
     try {
         return await db.runTransaction(async (transaction) => {
             const depRef = db.collection('telecard_deposits').doc(String(depositId));
             const depSnap = await transaction.get(depRef);
             
-            // 🌟 إصلاح المرجع للوحدة الخاصة بالإدارة لحساب سيولة المحافظ والأرباح
             const systemRef = db.collection('telecard_system').doc('singleton');
             
             if (!depSnap.exists) throw new functions.https.HttpsError('not-found', 'الإيداع غير موجود.');
             const depData = depSnap.data();
-
-            if (depData.status !== 'pending') throw new functions.https.HttpsError('failed-precondition', 'تمت معالجة هذا الإيداع مسبقاً.');
-
+            
+            // 🛡️ 1. الجدار الأمني لتوجيه الحالات (State Machine Firewall)
+            if (depData.status === action) {
+                throw new functions.https.HttpsError('failed-precondition', 'الإيداع يمتلك هذه الحالة بالفعل.');
+            }
+            
+            if (action === 'refunded' && depData.status !== 'approved') {
+                throw new functions.https.HttpsError('failed-precondition', 'لا يمكن استرجاع إيداع إلا إذا كان مقبولاً (مودعاً) مسبقاً.');
+            }
+            
+            if ((action === 'approved' || action === 'rejected') && depData.status !== 'pending') {
+                throw new functions.https.HttpsError('failed-precondition', 'تمت معالجة هذا الإيداع مسبقاً.');
+            }
+            
+            // 📥 2. جلب بيانات العميل (فقط إذا كنا سنضيف أو نسحب رصيداً)
             let userRef = null;
             let userSnap = null;
-            if (action === 'approved') {
+            if (action === 'approved' || action === 'refunded') {
                 userRef = db.collection('telecard_users').doc(String(depData.userId));
-                userSnap = await transaction.get(userRef); 
+                userSnap = await transaction.get(userRef);
             }
-
+            
             const statsUpdate = {};
+            const amountToProcess = Number(depData.creditedAmount || depData.amount || 0);
+            
+            // 🧠 3. المنطق المالي (Financial Logic)
             if (action === 'approved') {
                 if (userSnap && userSnap.exists) {
                     const userData = userSnap.data();
-                    const amountToAdd = Number(depData.creditedAmount || depData.amount || 0);
                     transaction.update(userRef, {
-                        walletBalance: safeAdd(userData.walletBalance || 0, amountToAdd),
-                        balance: safeAdd(userData.balance || 0, amountToAdd),
-                        totalDeposit: safeAdd(userData.totalDeposit || 0, amountToAdd)
+                        walletBalance: safeAdd(userData.walletBalance || 0, amountToProcess),
+                        balance: safeAdd(userData.balance || 0, amountToProcess),
+                        totalDeposit: safeAdd(userData.totalDeposit || 0, amountToProcess)
                     });
                 }
                 statsUpdate['globalStats.deposits.approved'] = admin.firestore.FieldValue.increment(1);
+                
             } else if (action === 'rejected') {
                 statsUpdate['globalStats.deposits.rejected'] = admin.firestore.FieldValue.increment(1);
+                
+            } else if (action === 'refunded') {
+                // 🔄 عملية الاسترجاع العكسية (Reverse Ledger)
+                if (userSnap && userSnap.exists) {
+                    const userData = userSnap.data();
+                    // نستخدم الطرح المباشر (بدون safeSub) لكي نسمح للرصيد بالنزول للسالب كـ (دين) في حال قام العميل بصرف الأموال قبل الاسترجاع.
+                    const newWalletBal = Number((Number(userData.walletBalance || 0) - amountToProcess).toFixed(4));
+                    const newBalance = Number((Number(userData.balance || 0) - amountToProcess).toFixed(4));
+                    
+                    transaction.update(userRef, {
+                        walletBalance: newWalletBal,
+                        balance: newBalance,
+                        totalDeposit: safeSub(userData.totalDeposit || 0, amountToProcess)
+                    });
+                }
+                // تعديل إحصائيات لوحة القيادة (نقل الإيداع من مقبول إلى مسترجع)
+                statsUpdate['globalStats.deposits.approved'] = admin.firestore.FieldValue.increment(-1);
+                statsUpdate['globalStats.deposits.refunded'] = admin.firestore.FieldValue.increment(1);
             }
-
-            transaction.update(depRef, { status: action, adminNote: adminNote || '', actionTime: admin.firestore.FieldValue.serverTimestamp() });
+            
+            // 💾 4. حفظ التحديثات النهائية
+            transaction.update(depRef, {
+                status: action,
+                adminNote: adminNote || '',
+                actionTime: admin.firestore.FieldValue.serverTimestamp()
+            });
             
             if (Object.keys(statsUpdate).length > 0) {
                 transaction.set(systemRef, statsUpdate, { merge: true });
             }
-
+            
             return { success: true, message: `تم تحويل حالة الإيداع إلى ${action} بنجاح.` };
         });
     } catch (error) {
         console.error("Admin Deposit Error:", error);
         throw new functions.https.HttpsError('internal', error.message || 'فشلت عملية معالجة الإيداع.');
     }
-});
-
-// ==========================================
+});// ==========================================
 // 👑 4. [إدارة] دالة معالجة الطلبات الآمنة (مع استرجاع الرصيد والكوبونات)
 // ==========================================
 exports.adminProcessOrder = functions.https.onCall(async (data, context) => {

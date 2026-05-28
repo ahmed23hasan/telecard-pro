@@ -164,26 +164,20 @@ export const RenderHelpers = Object.freeze({
     // ============================================================================
     // 👥 محركات أسماء المستخدمين والشارات
     // ============================================================================
-
-    /**
-     * 🆔 جلب الاسم الظاهر للمستخدم (مخصص للطلبات والإيداعات والعمليات)
-     * 🌟 التحديث: دمج الرقم القصير المركزي (formatUserId) لتعريف العميل بدقة في الجداول
-     */
-    _getTxName: function(u) {
-        if (!u) return 'مستخدم جديد';
-        
-        // استخراج الرقم القصير من المحرك المركزي مباشرة لمنع التكرار والترقيع الموضعي
-        const shortId = this.formatUserId(u);
-        
-        const f = u.firstName || u.first_name || u.name || '';
-        const l = u.lastName || u.last_name || '';
-        let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
-        
-        if (!fullName) fullName = 'مستخدم جديد';
-        
-        // إرجاع الاسم متبوعاً بالرقم لتسهيل البحث والمطابقة على الإدارة
-        return shortId && shortId !== '---' ? `${fullName} (#${shortId})` : fullName;
-    },
+/**
+ * 🆔 جلب الاسم الظاهر للمستخدم (مخصص للطلبات والإيداعات والعمليات)
+ * 🌟 [الإصلاح المعماري]: تم إزالة دمج الـ ID بين أقواس لمنع التكرار (Redundancy)
+ * لأن واجهات UI (القوالب) أصبحت تمتلك كبسولات تفاعلية مستقلة لعرض الرقم.
+ */
+_getTxName: function(u) {
+    if (!u) return 'مستخدم جديد';
+    
+    const f = u.firstName || u.first_name || u.name || '';
+    const l = u.lastName || u.last_name || '';
+    let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
+    
+    return fullName ? fullName : 'مستخدم جديد';
+},
 
     /**
      * 🆔 جلب الاسم الصريح للمستخدم (الاسم الأول والأخير صافي للملف الشخصي)

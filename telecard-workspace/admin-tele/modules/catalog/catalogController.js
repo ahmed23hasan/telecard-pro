@@ -42,7 +42,7 @@ export const CatalogController = {
         AdminUI?.CatalogUI?.renderPricePreview?.(type, cost, tiers, this.tempPackages, TelecardPricingEngine);
     },
 
-        saveProd: async function() {
+    saveProd: async function() {
         const name = Utils.escapeHTML(Utils.getVal('pr-name'));
         const type = Utils.getVal('pr-type');
         
@@ -63,12 +63,15 @@ export const CatalogController = {
             const hasImg = AdminUI?.CatalogUI?.hasImage?.('pr-img-wrap');
             const oldImg = AppController.tempEditId ? AdminData.data.prods.find(x => String(x.id) === String(AppController.tempEditId))?.img : null;
             
-            // 🌟 محرك الرفع السحابي لصور المنتجات
+            // 🌟 محرك الرفع السحابي لصور المنتجات (تم الإصلاح بسحب الملف من الـ DOM مباشرة)
             let finalImg = '';
             if (hasImg) {
-                if (AdminUI?.tempFile) {
+                const fileInput = document.getElementById('pr-img-input');
+                const fileToUpload = fileInput?.files?.[0];
+
+                if (fileToUpload) {
                     EventBus.emit('req-show-toast', {message:'جاري رفع صورة المنتج للسحابة...', type:'info'});
-                    finalImg = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'products', null, oldImg);
+                    finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'products', null, oldImg);
                 } else {
                     finalImg = oldImg || ''; // إبقاء الصورة القديمة إذا لم يتم تغييرها
                 }
@@ -133,7 +136,7 @@ export const CatalogController = {
             
         } catch (error) {
             console.error("Save Product Error:", error);
-            EventBus.emit('req-show-toast', {message:'حدث خطأ أثناء حفظ المنتج', type:'error'});
+            EventBus.emit('req-show-toast', {message:'فشل الحفظ: ' + (error.message || 'خطأ غير معروف'), type:'error'});
         } finally {
             EventBus.emit('req-show-loader', false);
         }
@@ -152,12 +155,15 @@ export const CatalogController = {
             const hasImg = AdminUI?.CatalogUI?.hasImage?.('c-img-wrap');
             const oldImg = AppController.tempEditId ? AdminData.data.cats.find(c => String(c.id) === String(AppController.tempEditId))?.img : null;
             
-            // 🌟 محرك الرفع السحابي لصور الأقسام
+            // 🌟 محرك الرفع السحابي لصور الأقسام (تم الإصلاح بسحب الملف من الـ DOM مباشرة)
             let finalImg = '';
             if (hasImg) {
-                if (AdminUI?.tempFile) {
+                const fileInput = document.getElementById('c-img-input');
+                const fileToUpload = fileInput?.files?.[0];
+
+                if (fileToUpload) {
                     EventBus.emit('req-show-toast', {message:'جاري رفع صورة القسم للسحابة...', type:'info'});
-                    finalImg = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'categories');
+                    finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'categories', null, oldImg);
                 } else {
                     finalImg = oldImg || ''; 
                 }
@@ -189,7 +195,7 @@ export const CatalogController = {
             AppController.finishAction('req-render-prods', null, isEdit ? 'EDIT_CAT' : 'ADD_CAT', `تم ${isEdit ? 'تعديل' : 'إضافة'} قسم: ${name}`, 'تم حفظ القسم بنجاح');
         } catch (error) {
             console.error("Save Category Error:", error);
-            EventBus.emit('req-show-toast', {message:'حدث خطأ أثناء حفظ القسم', type:'error'});
+            EventBus.emit('req-show-toast', {message:'فشل الحفظ: ' + (error.message || 'خطأ غير معروف'), type:'error'});
         } finally {
             EventBus.emit('req-show-loader', false);
         }
