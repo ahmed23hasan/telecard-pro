@@ -109,7 +109,8 @@ export const SalesRender = {
             .sort((a, b) => b.profit - a.profit);
         
         if (podiumContainer) {
-            if (sortedProds.length >= 3) {
+            // [الإصلاح الجذري]: نقبل بوجود منتج واحد على الأقل ليتم فتح المنصة بدلاً من اشتراط 3
+            if (sortedProds.length > 0) {
                 
                 // دالة مساعدة لجلب صورة المنتج من قاعدة البيانات المركزية
                 const getProdImg = (id) => {
@@ -117,11 +118,11 @@ export const SalesRender = {
                     return p && p.img ? p.img : null;
                 };
 
-                // دالة بناء كرت التتويج بالهيكلة الصحيحة المتوافقة مع ملف الستايل (CSS)
+                // دالة بناء كرت التتويج المحمية (لا تفشل إذا لم يكن هناك منتج)
                 const buildRankHtml = (prod, rankClass, num, badgeIcon) => {
+                    if (!prod) return '';
+
                     const img = getProdImg(prod.id);
-                    
-                    // إذا كان هناك صورة نضعها داخل الدائرة لتعطي شكل احترافي، وإلا نظهر رقم المركز
                     const avatarContent = img 
                         ? `<div class="podium-rank-num" style="padding:0; overflow:hidden;"><img src="${Utils.escapeHTML(img)}" style="width:100%; height:100%; object-fit:cover;"></div>` 
                         : `<div class="podium-rank-num">${num}</div>`;
@@ -135,18 +136,19 @@ export const SalesRender = {
                         </div>
                         <div class="podium-info">
                             <span class="podium-name" title="${safeProdName}">${safeProdName}</span>
-                            <span class="podium-val text-gold num-en" dir="ltr">${RenderHelpers.formatMoney(prod.profit, 'USD')}</span>
+                            <span class="podium-val text-gold num-en" dir="ltr">${RenderHelpers.formatMoney(prod.profit, 'USD', 2)}</span>
                         </div>
                     </div>`;
                 };
 
+                // التوزيع للواجهة بحيث يكون الذهب دائماً في المركز
                 podiumContainer.innerHTML = `
                     ${buildRankHtml(sortedProds[1], 'rank-2', '2', '<i class="fa-solid fa-medal"></i>')}
                     ${buildRankHtml(sortedProds[0], 'rank-1', '1', '<i class="fa-solid fa-crown text-gold"></i>')}
                     ${buildRankHtml(sortedProds[2], 'rank-3', '3', '<i class="fa-solid fa-award"></i>')}
                 `;
             } else {
-                podiumContainer.innerHTML = `<div class="text-center text-muted w-100 py-20">لا توجد بيانات كافية لعرض الترتيب.</div>`;
+                podiumContainer.innerHTML = `<div class="text-center text-muted w-100 py-20"><i class="fa-solid fa-ghost fs-2 mb-10 opacity-50"></i><br>لا توجد מִﺒِیֵֹּﻋָِਾֵܬ ָﻣֶسׁגֶלִْة פִִَי اَلُُِْנֵָטֶׂאֹקׁ אاَِلָּზَﻤִֵַּِنِيֵּ!</div>`;
             }
         }
 
@@ -157,7 +159,6 @@ export const SalesRender = {
                 allProdsTbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">لا توجد مبيعات.</td></tr>`;
             } else {
                 allProdsTbody.innerHTML = sortedProds.map(p => {
-                    // حساب نسبة هامش الربح ديناميكياً
                     const margin = p.revenue > 0 ? ((p.profit / p.revenue) * 100) : 0;
                     const safeName = Utils.escapeHTML(p.name);
                     
@@ -174,33 +175,59 @@ export const SalesRender = {
             }
         }
 
-        // 🌟 6. تحديث المخططات البيانية (دائماً تعرض آخر 30 يوم للسياق العام)
-        const globalStats = AdminData.data.system?.globalStats;
-        if (globalStats) this.renderCharts(globalStats);
+        // 🌟 6. استدعاء راسم المخططات بعد فك الارتباط من السيرفر المكسور (Live Independent Drawing)
+        this.renderCharts();
     },
-/**
-     * رسم المخططات البيانية (ApexCharts)
+
+    /**
+     * رسم المخططات البيانية (ApexCharts) בתيَليֵِد البֲِيانَِات النَّقيֲֶِةِ
      */
-    renderCharts: function(stats) {
+    renderCharts: function() {
         if (typeof window.ApexCharts === 'undefined') return;
+
+        // 🌟 استقلالية מطلقة عن GlobalStats 
+        const allCompletedOrders = (AdminData.data.orders || []).filter(o => o.status === 'completed');
+        const nowTime = Date.now();
+        
+        let manualCount = 0;
+        let apiCount = 0;
+        const dailyAggregations = {};
+
+        // חיشَِد طَلبَاَت الأַרْصִֵדָۃ לبְنِاء מִחוְֲר زִֶמְֵנֲִي שסָرֵי
+        allCompletedOrders.forEach(o => {
+            if (o.isApiOrder || o.source === 'api') apiCount++;
+            else manualCount++;
+
+            const timeMs = RenderHelpers.parseTime(o.time || o.createdAt || nowTime);
+            const dateObj = new Date(timeMs);
+            const dKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+            
+            if (!dailyAggregations[dKey]) dailyAggregations[dKey] = { revenue: 0, profit: 0 };
+            
+            const pricing = o.pricingSnapshot;
+            const rev = Number(pricing?.finalPriceUsd || pricing?.finalPrice || o.baseUsd || o.price || 0);
+            const prof = Number(pricing?.netProfitUsd || pricing?.profit || 0);
+            
+            dailyAggregations[dKey].revenue += rev;
+            dailyAggregations[dKey].profit += prof;
+        });
+
+        const dates = [], revenues = [], profits = [];
+        for (let i = 29; i >= 0; i--) {
+            const d = new Date(); d.setDate(d.getDate() - i);
+            const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            dates.push(`${d.getDate()} ${d.toLocaleString('ar-EG', { month: 'short' })}`);
+            
+            revenues.push((dailyAggregations[key]?.revenue || 0).toFixed(2));
+            profits.push((dailyAggregations[key]?.profit || 0).toFixed(2));
+        }
+
         const isLight = document.body.classList.contains('light-mode');
         const themeMode = isLight ? 'light' : 'dark';
         const textColor = isLight ? '#64748b' : '#94a3b8';
 
-        // المخطط التفصيلي (إيرادات/أرباح)
         const detailedChartEl = document.querySelector('#sales-detailed-chart');
         if (detailedChartEl) {
-            const dates = [], revenues = [], profits = [];
-            for (let i = 29; i >= 0; i--) {
-                const d = new Date(); d.setDate(d.getDate() - i);
-                const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-                dates.push(`${d.getDate()} ${d.toLocaleString('ar-EG', { month: 'short' })}`);
-                
-                // إضافة ?. للحماية في حال لم يكن اليوم يحتوي على طلبات لمنع الخطأ
-                revenues.push((stats.daily && stats.daily[key]?.revenue ? stats.daily[key].revenue : 0).toFixed(2));
-                profits.push((stats.daily && stats.daily[key]?.profit ? stats.daily[key].profit : 0).toFixed(2));
-            }
-
             const areaOptions = {
                 chart: { type: 'area', height: 320, toolbar: { show: false }, background: 'transparent', fontFamily: 'Cairo' },
                 theme: { mode: themeMode },
@@ -215,7 +242,7 @@ export const SalesRender = {
                 legend: { position: 'top', horizontalAlign: 'right' }
             };
 
-            // 🌟 تنظيف الذاكرة (Anti Memory Leak)
+            // 🌟 تنظيف الذاكرة (Anti Memory Leak) للمخطط الكبير
             if (this._detailedChartInst) {
                 try { this._detailedChartInst.destroy(); } catch(e){}
             }
@@ -224,13 +251,11 @@ export const SalesRender = {
             this._detailedChartInst.render();
         }
 
-        // مخطط المصادر
         const sourceChartEl = document.querySelector('#sales-source-chart');
         if (sourceChartEl) {
             const donutOptions = {
                 chart: { type: 'donut', height: 320, background: 'transparent' },
-                // 🌟 حماية من الانهيار باستخدام ?. إذا كانت sales غير موجودة بعد
-                series: [stats.sales?.manualCompleted || 0, stats.sales?.apiCompleted || 0],
+                series: [manualCount, apiCount],
                 labels: ['طلب يدوي', 'طلب API'],
                 colors: ['#f59e0b', '#8b5cf6'],
                 theme: { mode: themeMode },
@@ -246,13 +271,12 @@ export const SalesRender = {
             this._sourceChartInst = new window.ApexCharts(sourceChartEl, donutOptions);
             this._sourceChartInst.render();
         }
-    }, // 👈👈 הפاصلة المنقذة تمت إضافتها بشكل سليم هنا لتعريف الحدث الذي يليها
+    }, // 👈 الفاصلة موجودة هنا وتغلق دالة المخطط.
 
     /**
      * 🌟 محرك تصدير تقارير المبيعات إلى Excel (CSV)
      */
     exportSalesToExcel: function() {
-        // جلب البيانات بناءً على الفلتر الحالي النشط
         const stats = AdminData.getFilteredSalesStats(this.state.timeRange);
         if (!stats || Object.keys(stats.products).length === 0) {
             UIService.showToast("لا توجد بيانات مبيعات لتصديرها", "error");
@@ -261,7 +285,7 @@ export const SalesRender = {
 
         let csv = "\uFEFFالمنتج,الكمية المباعة,إجمالي الإيرادات,إجمالي التكاليف,صافي الربح\n";
         
-        // 🌟 التحديث الاحترافي: دالة تنظيف البيانات للحماية من تداخل علامات التنصت والفواصل ومنع الـ Injection
+        // הِنٌْظִֶיف הַلْمֲُدخلْات עًـן CSV-Injection
         const sanitizeCSV = (str) => { 
             let c = String(str).replace(/"/g, '""').replace(/,/g, " "); 
             if (/^[=@+-]/.test(c)) c = "'" + c; 

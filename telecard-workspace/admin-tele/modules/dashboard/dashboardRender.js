@@ -98,8 +98,12 @@ export const DashboardRender = {
             alertsCont.innerHTML = (!stats.alerts || stats.alerts.length === 0) ? AdminTemplates.dashEmptyAlerts() : stats.alerts.map(a => buildAlertHtml(a)).join('');
         }
 
+        // ... (نهاية دالة renderDashboard السابقة)
+        
         this.updateTopBellBadge(stats);
-        if(typeof this.renderMainChart === 'function') this.renderMainChart();
+        
+        // 🌟 الإصلاح هنا: تمرير الكائن stats המتطور والمجهز لمحرك المخطط
+        if(typeof this.renderMainChart === 'function') this.renderMainChart(stats);
     },
 
     updateTopBellBadge: function(stats) {
@@ -136,23 +140,24 @@ export const DashboardRender = {
         }
     },
 
-// =========================================================
+    // =========================================================
     // 📊 2. رسم المخطط البياني الرئيسي للوحة القيادة
     // =========================================================
-    renderMainChart: function() {
+    renderMainChart: function(stats) { // 🌟 استلام الكائن המُحסَّن כארגומנט
         const chartDiv = document.querySelector("#main-revenue-chart");
         if (!chartDiv || typeof window.ApexCharts === 'undefined') return;
 
-        const gStats = (AdminData.data.system && AdminData.data.system.globalStats) ? AdminData.data.system.globalStats : null;
         const last7Days = [], salesData = [], profitData = [];
         
         for (let i = 6; i >= 0; i--) {
             const d = new Date(); d.setDate(d.getDate() - i);
             const dayKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
             last7Days.push(d);
-            if (gStats && gStats.daily[dayKey]) { 
-                salesData.push(gStats.daily[dayKey].revenue || 0); 
-                profitData.push(gStats.daily[dayKey].profit || 0); 
+            
+            // 🌟 الربط مع المصفوفة المحلية الآمنة التي בניناها (بدل הסيرفر المعطل)
+            if (stats && stats.daily && stats.daily[dayKey]) { 
+                salesData.push((stats.daily[dayKey].revenue || 0).toFixed(2)); 
+                profitData.push((stats.daily[dayKey].profit || 0).toFixed(2)); 
             } else { 
                 salesData.push(0); 
                 profitData.push(0); 
@@ -178,7 +183,7 @@ export const DashboardRender = {
             theme: { mode: themeMode }, tooltip: { theme: themeMode }
         };
 
-        // 🌟 [الإصلاح المعماري]: تدمير المخطط القديم لمنع تسرب الذاكرة (Memory Leak)
+        // 🌟 منع تسريب الذاكرة والتجميد
         if (this._mainChartInst) {
             try { this._mainChartInst.destroy(); } catch (e) {}
         }
@@ -186,7 +191,9 @@ export const DashboardRender = {
         chartDiv.innerHTML = '';
         this._mainChartInst = new window.ApexCharts(chartDiv, options);
         this._mainChartInst.render();
-    },    // =========================================================
+    },
+
+    // =========================================================
     // 📝 3. رسم سجل النشاطات (System Logs)
     // =========================================================
     renderLogs: function() {
@@ -216,7 +223,6 @@ export const DashboardRender = {
                 badgeClass = 'badge-info bg-info-10 text-info border-info-15'; 
             }
 
-            // 🌟 استخدام المنسق المركزي لضمان نفس شكل التواريخ في كامل النظام
             const safeDateTime = RenderHelpers.formatSafeDate(log.timestamp);
 
             html += `<tr>

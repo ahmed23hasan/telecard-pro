@@ -1,7 +1,7 @@
 // ============================================================================
 // 💰 وحدة المالية والإيداعات (modules/finance/financeUI.js)
 // 🎯 الوظيفة: إدارة واجهات الإيداعات وإعدادات العملات وبوابات الدفع
-// 🚀 التحديث: إزالة التواريخ المحلية وربط درج الإيداعات بالمنسق الزمني المركزي
+// 🚀 التحديث: تأمين صارم ضد أخطاء الـ Null والـ Undefined لمنع كراش المتصفح
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -20,15 +20,17 @@ export const FinanceUI = {
 
     openEditCurrency: function(id = null) {
         EventBus.emit('set-temp-edit-id', id);
-        const cur = id ? (AdminData.data.rates || []).find(r => r.code === id) : null;
+        // 🌟 حماية من المصفوفات التي قد تحتوي على عناصر Null
+        const cur = id ? (AdminData?.data?.rates || []).find(r => r && r.code === id) : null;
         this.setupCurrencyModal(cur);
         EventBus.emit('req-open-modal', 'currency');
     },
 
     openPaymentModal: function(id = null) {
         EventBus.emit('set-temp-edit-id', id);
-        const pay = id ? (AdminData.data.payments || []).find(p => String(p.id) === String(id)) : null;
-        const rates = AdminData.data.rates || [];
+        // 🌟 حماية من المصفوفات المفرغة لتجنب خطأ Cannot read properties of null (reading 'id')
+        const pay = id ? (AdminData?.data?.payments || []).find(p => p && String(p.id) === String(id)) : null;
+        const rates = AdminData?.data?.rates || [];
         this.setupPaymentModal(pay, rates);
         EventBus.emit('req-open-modal', 'payment');
     },
@@ -38,33 +40,71 @@ export const FinanceUI = {
     // ========================================================================
 
     setupPaymentModal: function(p, rates) {
-        const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
-        document.getElementById('pay-modal-title').innerText = p ? 'تعديل طريقة الدفع' : 'إضافة طريقة دفع';
-        safeSetVal('pay-name', p ? p.name : '');
-        safeSetVal('pay-input-placeholder', p ? (p.depositLabel || p.inputPlaceholder || '') : '');
-        if(document.getElementById('pay-req-proof')) document.getElementById('pay-req-proof').checked = p ? (p.reqProof !== false) : true; 
+        const safeSetVal = (elId, val) => {
+            const el = document.getElementById(elId);
+            if (el) el.value = val || '';
+        };
         
-        const curArr = (p && p.currencies) ? p.currencies.split(',').map(c=>c.trim().toUpperCase()) : [];
+        const titleEl = document.getElementById('pay-modal-title');
+        if (titleEl) titleEl.innerText = p ? 'تعديل طريقة الدفع' : 'إضافة طريقة دفع';
+        
+        safeSetVal('pay-name', p?.name || '');
+        safeSetVal('pay-input-placeholder', p?.depositLabel || p?.inputPlaceholder || '');
+        
+        const proofChk = document.getElementById('pay-req-proof');
+        if (proofChk) proofChk.checked = p ? (p.reqProof !== false) : true;
+        
+        const curArr = (p && p.currencies && typeof p.currencies === 'string') ?
+            p.currencies.split(',').map(c => c.trim().toUpperCase()) :
+            [];
+        
         const curSet = new Set(curArr);
-        const chkContainer = document.querySelector('.pay-pro-currs'); 
+        const chkContainer = document.querySelector('.pay-pro-currs');
         
-        if (chkContainer) {
+        if (chkContainer && Array.isArray(rates)) {
             chkContainer.innerHTML = rates.map(r => {
+                // 🌟 حماية ضد كائنات العملة الفارغة
+                if (!r) return '';
+                
                 const displayCode = r.symbol || r.code;
-                return `<label class="pay-pro-chip"><input type="checkbox" class="pay-curr-chk" value="${r.code}" ${curSet.has(r.code) || (!p && r.code === 'USD') ? 'checked' : ''} data-action="toggle-currency-settings"><span>${r.name} (${displayCode})</span></label>`;
+                const isChecked = curSet.has(r.code) || (!p && r.code === 'USD');
+                
+                // 🌟 التغليف الإجباري (String Coercion) قبل دالة الهروب لمنع خطأ replace is not a function
+                const safeCode = r.code != null ? String(r.code) : '';
+                const safeName = r.name != null ? String(r.name) : '';
+                const safeDisplayCode = displayCode != null ? String(displayCode) : '';
+
+                return `<label class="pay-pro-chip">
+                            <input type="checkbox" class="pay-curr-chk" value="${Utils.escapeHTML(safeCode)}" ${isChecked ? 'checked' : ''} data-action="toggle-currency-settings">
+                            <span>${Utils.escapeHTML(safeName)} (${Utils.escapeHTML(safeDisplayCode)})</span>
+                        </label>`;
             }).join('');
         }
         
-        this.toggleCurrencySettings(p ? p.id : null, true); // إجبار إعادة التهيئة
-
-        const imgEl = document.getElementById('pay-img'); const wrapEl = document.getElementById('pay-img-wrap');
-        if (p && p.img && imgEl && wrapEl) { imgEl.src = p.img; imgEl.classList.remove('hide-element'); wrapEl.classList.add('has-img'); } 
-        else if (imgEl && wrapEl) { imgEl.src = ''; imgEl.classList.add('hide-element'); wrapEl.classList.remove('has-img'); }
+        this.toggleCurrencySettings(p?.id || null, true);
+        
+        const imgEl = document.getElementById('pay-img');
+        const wrapEl = document.getElementById('pay-img-wrap');
+        
+        if (imgEl && wrapEl) {
+            if (p?.img) {
+                imgEl.src = p.img;
+                imgEl.classList.remove('hide-element');
+                wrapEl.classList.add('has-img');
+            } else {
+                imgEl.src = '';
+                imgEl.classList.add('hide-element');
+                wrapEl.classList.remove('has-img');
+            }
+        }
     },
 
     setupCurrencyModal: function(cur) {
-        const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
-        document.getElementById('cur-modal-title').innerText = cur ? 'تعديل عملة' : 'إضافة عملة جديدة'; 
+        const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val || ''; };
+        
+        const titleEl = document.getElementById('cur-modal-title');
+        if (titleEl) titleEl.innerText = cur ? 'تعديل عملة' : 'إضافة عملة جديدة'; 
+        
         safeSetVal('cur-old-code', cur ? cur.code : ''); 
         safeSetVal('cur-code', cur ? cur.code : ''); 
         safeSetVal('cur-name', cur ? cur.name : ''); 
@@ -109,19 +149,35 @@ export const FinanceUI = {
                 f = currentInputs[code].fee; min = currentInputs[code].min; max = currentInputs[code].max;
             } 
             else if (isInitialLoad && this.currentEditPaymentId && AdminData?.data?.payments) {
-                const pay = AdminData.data.payments.find(p => String(p.id) === String(this.currentEditPaymentId));
+                // 🌟 حماية البحث الداخلي من عناصر المصفوفة الفارغة
+                const pay = AdminData.data.payments.find(p => p && String(p.id) === String(this.currentEditPaymentId));
                 if (pay && pay.currencySettings && pay.currencySettings[code]) {
                     const s = pay.currencySettings[code];
                     ft = s.feeType || 'fee'; fu = s.feeUnit || s.unit || 'percent';
-                    f = s.fee || ''; min = s.min || ''; max = s.max || '';
-                } else if (pay && pay.currencies && pay.currencies.includes(code)) { 
+                    f = s.fee ?? ''; min = s.min ?? ''; max = s.max ?? '';
+                } else if (pay && pay.currencies && typeof pay.currencies === 'string' && pay.currencies.includes(code)) { 
                     ft = pay.feeType || 'fee'; fu = pay.feeUnit || pay.unit || 'percent';
-                    f = pay.fee || ''; min = pay.min || ''; max = pay.max || '';
+                    f = pay.fee ?? ''; min = pay.min ?? ''; max = pay.max ?? '';
                 }
             }
             
             const displayCode = RenderHelpers.getCurrencySymbolText(code); 
-            html += AdminTemplates.currencySettingRow(code, Utils.escapeHTML(displayCode), ft, fu, Utils.escapeHTML(f), Utils.escapeHTML(min), Utils.escapeHTML(max));
+            
+            // 🌟 التغليف الآمن للنصوص
+            const safeDisplayCode = displayCode != null ? String(displayCode) : '';
+            const safeF = f != null ? String(f) : '';
+            const safeMin = min != null ? String(min) : '';
+            const safeMax = max != null ? String(max) : '';
+
+            html += AdminTemplates.currencySettingRow(
+                code, 
+                Utils.escapeHTML(safeDisplayCode), 
+                ft, 
+                fu, 
+                Utils.escapeHTML(safeF), 
+                Utils.escapeHTML(safeMin), 
+                Utils.escapeHTML(safeMax)
+            );
         });
         
         list.innerHTML = html;
@@ -145,7 +201,8 @@ export const FinanceUI = {
     openDepositDrawer: function(depositId) {
         let dep = null;
         if(AdminData && AdminData.data && AdminData.data.deposits) {
-            dep = AdminData.data.deposits.find(d => String(d.id) === String(depositId));
+            // 🌟 حماية إضافية للدرج أيضاً
+            dep = AdminData.data.deposits.find(d => d && String(d.id) === String(depositId));
         }
         if(!dep) return;
 
@@ -188,7 +245,7 @@ export const FinanceUI = {
             idBadge.onclick = function(e) { UIService.copyText(formattedDepId, e, this); };
         }
 
-        const user = (AdminData.data.users || []).find(u => String(u.id) === String(dep.userId)) || {};
+        const user = (AdminData.data.users || []).find(u => u && String(u.id) === String(dep.userId)) || {};
         const displayUser = Utils.escapeHTML(user.fullName || user.name || user.username || 'مستخدم');
         const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
 
@@ -216,7 +273,6 @@ export const FinanceUI = {
         const fxRate = Number(dep.fxRate ?? 1);
         const netBase = Number((dep.creditedAmount !== undefined && dep.creditedAmount !== null) ? dep.creditedAmount : (netPayCurr * fxRate));
 
-        // 🌟 التحديث هنا: استخدام المنسق الزمني المركزي للدرج لضمان الحماية وتوحيد العرض
         const dateTxt = RenderHelpers.formatSafeDate(dep.time || dep.createdAt);
         
         const statusDict = { pending:'قيد المراجعة', approved:'مكتمل (تمت العملية)', rejected:'مرفوض', refunded:'تم استرجاع/إلغاء العملية' };

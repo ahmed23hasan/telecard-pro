@@ -584,7 +584,6 @@ export const AdminData = {
         const now = new Date();
         const nowTime = now.getTime();
 
-        // 🛡️ التحديث الجذري هنا: حماية كاملة لسحب الـ Global Stats وحل نقص الـ Properties
         const sysDoc = d.system || {};
         const rawGStats = sysDoc.globalStats || {};
         
@@ -597,7 +596,7 @@ export const AdminData = {
             walletsData: this.getWalletsLiquidity(),
             promoStats: rawGStats.promoStats || { totalDiscountAmount: 0, discountedRevenue: 0, totalDiscountedOrders: 0, couponUsageMap: {}, offerUsageMap: {}, topCoupon: 'لا يوجد', topOffer: 'لا يوجد' },
             alerts: [],
-            daily: {} // 🌟 مصفوفة الأيام تم حلها لتشتغل המخططات بثبات محلي
+            daily: {} 
         };
 
         // إحصائيات المستخدمين الصغرى
@@ -608,8 +607,12 @@ export const AdminData = {
             else stats.users.active++; 
         });
 
-        // 🌟 بناء الديناميكية المحلية للأيام (Last 30 Days Live Fallback): لمنع أعطال الشارت وجلب دقة استثنائية!
+        // 🌟 بناء الديناميكية المحلية للمخططات والمتصدرين
         const ordersForCharts = (d.orders || []).filter(o => o.status === 'completed');
+        
+        // 🚀 المُتتبّع الحي الذكي للطلبات: يجمع كم طلب قام به כל عميل ليرد على الشاشة فوراً
+        const userLiveOrderCounts = {};
+
         ordersForCharts.forEach(o => {
             const timeMs = RenderHelpers.parseTime(o.time || o.createdAt || nowTime);
             const dateObj = new Date(timeMs);
@@ -623,9 +626,14 @@ export const AdminData = {
             
             stats.daily[dKey].revenue += rev;
             stats.daily[dKey].profit += prof;
+
+            // 🚀 إضافة رصيد نشاط لهذا العميل المعين
+            if (o.userId) {
+                userLiveOrderCounts[o.userId] = (userLiveOrderCounts[o.userId] || 0) + 1;
+            }
         });
 
-        // ترتيبات لوحة المتصدرين (الـ Podium)
+        // ترتيبات التخفيضات 
         let topC = 0; const cMap = stats.promoStats.couponUsageMap || {}; for (let c in cMap) { if (cMap[c] > topC) { topC = cMap[c]; stats.promoStats.topCoupon = c; } }
         let topO = 0; const oMap = stats.promoStats.offerUsageMap || {}; for (let o in oMap) { if (oMap[o] > oMap[topO] || !topO) { topO = oMap[o]; stats.promoStats.topOffer = o; } }
 
@@ -637,13 +645,13 @@ export const AdminData = {
             name: u.username ? `@${u.username}` : (u.fullName || 'مستخدم جديد'), 
             img: u.img || null, 
             spent: leaderboardPeriod === 'all' ? (Number(u.totalSpent) || 0) : (Number(u.monthlySpent?.[lbKey]) || 0), 
-            count: leaderboardPeriod === 'all' ? (Number(u.totalOrdersCount) || 0) : (Number(u.monthlyOrders?.[lbKey]) || 0) 
+            count: userLiveOrderCounts[u.id] || 0 // 🚀 قراءة نشاط العميل من الآلة الحاسبة المباشرة!
         }));
         
         stats.users.topThreeSpenders = leaderboard.filter(u => u.spent > 0).sort((a,b) => b.spent - a.spent).slice(0,3);
         stats.users.mostActiveUser = leaderboard.filter(u => u.count > 0).sort((a,b) => b.count - a.count)[0] || null;
 
-        // التنبيهات المضمنة للرادار الذكي (Alerts Engine)
+        // التنبيهات المضمنة للرادار الذكي
         const twoDays = nowTime - 172800000;
         (d.orders || []).filter(o => o.status === 'completed' && o.couponCode && RenderHelpers.parseTime(o.time || o.createdAt) > twoDays).forEach(o => { stats.alerts.push({ id: 'coupon_used', code: o.couponCode, user: o.userName || 'عميل', orderId: o.id, time: o.time || o.createdAt }); });
         (d.vault || []).forEach(p => { let av = (p.codes || []).filter(c => typeof c === 'string' || c.status === 'available').length; if (av === 0) stats.alerts.push({ id: 'vault_empty', poolId: p.id, poolName: p.name }); else if (av <= (p.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolId: p.id, poolName: p.name, count: av }); });
