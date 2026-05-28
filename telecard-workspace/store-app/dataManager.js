@@ -438,37 +438,18 @@ export const DataManager = {
     },
 
         updateWalletStats: function() {
+    // 🌟 [الإصلاح المعماري الجذري]: إيقاف المحاسب المحلي (Client-side calculation)
+    // الاعتماد 100% على الأرقام الموزونة القادمة من السيرفر (Server-side Ledger)
+    // لأن السيرفر الآن يقوم بحسابها بدقة متناهية مع كل عملية شراء أو إيداع، 
+    // ومحاولة جمعها محلياً ستؤدي لأخطاء إذا تم حذف كرت إيداع قديم.
+    
     if (!this.user) return;
     
-    const allOrders = LiveStoreData.orders || [];
-    const allDeposits = LiveStoreData.deposits || [];
+    // فقط نتأكد من أن القيم موجودة كأرقام لكي لا تنهار الواجهة
+    this.user.totalSpent = Number(this.user.totalSpent || 0);
+    this.user.totalDeposit = Number(this.user.totalDeposit || 0);
     
-    // 1. حساب الأموال الصادرة (المشتريات الفعلية)
-    let mySpent = allOrders
-        .filter(o => String(o.userId) === String(this.user.id) && o.status !== 'rejected' && o.status !== 'refunded' && o.status !== 'returned')
-        .reduce((sum, order) => sum + Number(order.price || 0), 0);
-    
-    // 2. حساب الأموال الواردة (والخصومات الإدارية)
-    let myDeposits = 0;
-    
-    allDeposits
-        .filter(d => String(d.userId) === String(this.user.id) && d.status === 'approved')
-        .forEach(dep => {
-            const val = dep.creditedAmount !== undefined ? Number(dep.creditedAmount) : Number(dep.amount || 0);
-            
-            if (val > 0) {
-                // إذا كان إيداعاً حقيقياً أو إضافة رصيد من الإدارة (أموال واردة)
-                myDeposits += val;
-            } else if (val < 0) {
-                // 🚨 الحل المحاسبي: "خصم الرصيد من الإدارة" (قيمة سالبة) يُعتبر "أموال صادرة"
-                // لذا نضيفه بقيمته المطلقة إلى خانة (المشتريات / المسحوبات) ليتوازن الميزان!
-                mySpent += Math.abs(val);
-            }
-        });
-    
-    // 3. تحديث بيانات العرض للعميل لكي تتطابق الكبسولات الثلاث بشكل مثالي
-    this.user.totalSpent = mySpent;
-    this.user.totalDeposit = myDeposits;
+    // تم مسح حلقة التكرار (Loop) التي كانت تجمع الكروت وتدمر الأرقام القادمة من الداتابيس!
 },
 submitPasswordChange: function(currentVal, newVal, confirmVal) {
         if(!newVal || newVal.length < 4) return { success: false, msg: 'الرجاء إدخال كلمة مرور لا تقل عن 4 أحرف.' };
