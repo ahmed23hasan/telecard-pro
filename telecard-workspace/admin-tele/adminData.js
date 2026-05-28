@@ -431,33 +431,34 @@ export const AdminData = {
     },
 
     calculateAllStoreStats: async function() {
-        console.log("🚀 جاري الاتصال بالسحابة لضبط الإحصائيات المركزية...");
+    console.log("🚀 جاري الاتصال بالسحابة لضبط الإحصائيات المركزية...");
+    
+    try {
+        const { getApp } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
+        const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js");
         
-        try {
-            const { getApp } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
-            const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js");
-            
-            const app = getApp(); 
-            const functions = getFunctions(app); 
-            
-            const calculateCloudFn = httpsCallable(functions, 'calculateStoreStatsCloud');
-            
-            const result = await calculateCloudFn();
-            
-            if (result.data.success) {
-                console.log("✅ السحابة أنهت الحسابات بنجاح.");
-                const sysRef = await FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton');
-                if (sysRef && sysRef.globalStats) {
-                    this.data.system.globalStats = sysRef.globalStats;
-                }
-                return true;
+        const app = getApp();
+        
+        // 🌟 [الإصلاح المعماري]: توجيه الصيانة التلقائية للإحصائيات نحو منطقة السيرفر us-east1 لحل الـ CORS وتجنب الـ Failed to fetch
+        const functions = getFunctions(app, 'us-east1');
+        
+        const calculateCloudFn = httpsCallable(functions, 'calculateStoreStatsCloud');
+        
+        const result = await calculateCloudFn();
+        
+        if (result.data.success) {
+            console.log("✅ السحابة أنهت الحسابات بنجاح.");
+            const sysRef = await FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton');
+            if (sysRef && sysRef.globalStats) {
+                this.data.system.globalStats = sysRef.globalStats;
             }
-        } catch (error) {
-            console.error("❌ فشل الاتصال بالسحابة لحساب الإحصائيات:", error);
-            return false;
+            return true;
         }
-    },
-
+    } catch (error) {
+        console.error("❌ فشل الاتصال بالسحابة لحساب الإحصائيات:", error);
+        return false;
+    }
+},
     getFilteredSalesStats: function(range = 'all') {
         const orders = (this.data.orders || []).filter(o => o.status === 'completed');
         const now = Date.now();
