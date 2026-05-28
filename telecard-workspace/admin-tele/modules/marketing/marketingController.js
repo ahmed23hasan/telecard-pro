@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 متحكم التسويق (modules/marketing/marketingController.js)
 // الوظيفة: معالجة العمليات المنطقية للكوبونات، العروض، الإشعارات، وإعدادات البنرات.
-// 🌟 التحديث: ربط البنرات وهوية المتجر بمحرك الرفع السحابي (Firebase Storage)
+// 🌟 التحديث الفعلي: سحب الصور الصارم من الـ DOM + التحديث المتفائل (السرعة الصفرية) 
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -9,7 +9,6 @@ import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { AppController } from '../../core/appController.js';
-// 🌟 استدعاء محول السحابة لرفع الصور
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const MarketingController = {
@@ -203,22 +202,43 @@ export const MarketingController = {
 
     deleteOffer: async function(id) {
         if (!AdminData.data.offers) return;
+        if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من حذف هذه الحملة نهائياً؟')) return;
+        
         const offer = AdminData.data.offers.find(o => String(o.id) === String(id));
+        
+        // 🌟 السرعة الصفرية: حذف من الشاشة فوراً
         AdminData.data.offers = AdminData.data.offers.filter(o => String(o.id) !== String(id));
-        await AdminData?.saveOffers?.();
-        if (offer) AdminData?.addLog?.('DELETE_OFFER', `تم حذف حملة التخفيض: ${offer.name}`);
         EventBus.emit('req-render-offers');
-        EventBus.emit('req-show-toast', {message:'تم حذف الحملة نهائياً', type:'success'});
+        EventBus.emit('req-show-toast', {message:'جاري الحذف...', type:'info'});
+        
+        // 🚀 الحفظ السحابي في الخلفية
+        try {
+            await AdminData?.saveOffers?.();
+            if (offer) AdminData?.addLog?.('DELETE_OFFER', `تم حذف حملة التخفيض: ${offer.name}`);
+            EventBus.emit('req-show-toast', {message:'تم الحذف بنجاح', type:'success'});
+        } catch(e) {
+            AdminData.data.offers.push(offer); // Rollback
+            EventBus.emit('req-render-offers');
+        }
     },
 
     toggleOfferStatus: async function(id, isActive) {
         const offer = AdminData.data.offers.find(o => String(o.id) === String(id));
         if (offer) {
+            // 🌟 السرعة الصفرية (Optimistic UI)
             offer.isActive = isActive;
-            await AdminData?.saveOffers?.();
-            AdminData?.addLog?.('TOGGLE_OFFER', `تم ${isActive ? 'تفعيل' : 'إيقاف'} العرض: ${offer.name}`);
             EventBus.emit('req-render-offers');
-            EventBus.emit('req-show-toast', { message: isActive ? 'تم تفعيل العرض' : 'تم إيقاف العرض مؤقتاً', type: isActive ? 'success' : 'warning' });
+            
+            // 🚀 الحفظ بصمت في الخلفية
+            try {
+                await AdminData?.saveOffers?.();
+                AdminData?.addLog?.('TOGGLE_OFFER', `تم ${isActive ? 'تفعيل' : 'إيقاف'} العرض: ${offer.name}`);
+                EventBus.emit('req-show-toast', { message: isActive ? 'تم تفعيل العرض' : 'تم إيقاف العرض مؤقتاً', type: isActive ? 'success' : 'warning' });
+            } catch(e) {
+                offer.isActive = !isActive; // Rollback
+                EventBus.emit('req-render-offers');
+                EventBus.emit('req-show-toast', { message: 'فشل الاتصال، تم التراجع.', type: 'error' });
+            }
         }
     },
 
@@ -309,26 +329,43 @@ export const MarketingController = {
     },
 
     deleteCoupon: async function(id) {
-        if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من حذف هذا الكوبون نهائياً؟')) return;
         if (!AdminData.data.coupons) return;
+        if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من حذف هذا الكوبون نهائياً؟')) return;
         
         const coupon = AdminData.data.coupons.find(c => String(c.id) === String(id));
-        AdminData.data.coupons = AdminData.data.coupons.filter(c => String(c.id) !== String(id));
-        await AdminData?.saveCoupons?.();
         
-        if (coupon) AdminData?.addLog?.('DELETE_COUPON', `تم حذف الكوبون: ${coupon.code}`);
-        EventBus.emit('req-show-toast', { message: 'تم حذف الكوبون', type: 'success' });
+        // 🌟 السرعة الصفرية: حذف من الشاشة
+        AdminData.data.coupons = AdminData.data.coupons.filter(c => String(c.id) !== String(id));
         EventBus.emit('req-render-coupons');
+        EventBus.emit('req-show-toast', { message: 'جاري الحذف...', type: 'info' });
+
+        // 🚀 حفظ في الخلفية
+        try {
+            await AdminData?.saveCoupons?.();
+            if (coupon) AdminData?.addLog?.('DELETE_COUPON', `تم حذف الكوبون: ${coupon.code}`);
+            EventBus.emit('req-show-toast', { message: 'تم الحذف بنجاح', type: 'success' });
+        } catch(e) {
+            AdminData.data.coupons.push(coupon); // Rollback
+            EventBus.emit('req-render-coupons');
+        }
     },
 
     toggleCouponStatus: async function(id, isActive) {
         const coupon = AdminData.data.coupons.find(c => String(c.id) === String(id));
         if (coupon) {
+            // 🌟 السرعة الصفرية
             coupon.isActive = isActive;
-            await AdminData?.saveCoupons?.();
-            AdminData?.addLog?.('TOGGLE_COUPON', `تم ${isActive ? 'تفعيل' : 'إيقاف'} الكوبون: ${coupon.code}`);
             EventBus.emit('req-render-coupons');
-            EventBus.emit('req-show-toast', { message: isActive ? 'تم تفعيل الكوبون' : 'تم إيقاف الكوبون مؤقتاً', type: isActive ? 'success' : 'warning' });
+            
+            try {
+                await AdminData?.saveCoupons?.();
+                AdminData?.addLog?.('TOGGLE_COUPON', `تم ${isActive ? 'تفعيل' : 'إيقاف'} الكوبون: ${coupon.code}`);
+                EventBus.emit('req-show-toast', { message: isActive ? 'تم تفعيل الكوبون' : 'تم إيقاف الكوبون مؤقتاً', type: isActive ? 'success' : 'warning' });
+            } catch(e) {
+                coupon.isActive = !isActive; // Rollback
+                EventBus.emit('req-render-coupons');
+                EventBus.emit('req-show-toast', { message: 'فشل الاتصال، تم التراجع.', type: 'error' });
+            }
         }
     },
 
@@ -352,7 +389,7 @@ export const MarketingController = {
             return;
         }
 
-                let targetId = null;
+        let targetId = null;
         if (targetType === 'tier') {
             targetId = Utils.getVal('alert-target-tier');
         } else if (targetType === 'user') {
@@ -361,17 +398,15 @@ export const MarketingController = {
                 EventBus.emit('req-show-toast', { message: 'يرجى إدخال رقم العميل', type: 'error' });
                 return;
             }
-            // 🌟 البحث الذكي بالرقم القصير أو الطويل
             const userExists = (AdminData.data.users || []).find(u => String(u.id) === String(inputVal) || String(u.displayId) === String(inputVal));
             
             if (!userExists) {
                 EventBus.emit('req-show-toast', { message: 'العميل غير موجود في قاعدة البيانات', type: 'error' });
                 return;
             }
-            targetId = userExists.id; // 🌟 حفظ الرقم الطويل حصراً لضمان سلامة قاعدة البيانات
+            targetId = userExists.id; 
         }
         
-
         const isPopup = (type === 'popup');
         const maxViewsInput = Utils.getVal('alert-max-views', '3');
         const actionLinkInput = Utils.getVal('alert-action-link');
@@ -392,56 +427,69 @@ export const MarketingController = {
             couponCode: isPopup && couponInput ? Utils.escapeHTML(couponInput) : ''
         };
 
-        if (targetType === 'user') {
-            const users = AdminData.data.users || [];
-            const userIndex = users.findIndex(u => String(u.id) === String(targetId));
-            if (userIndex !== -1) {
-                if (!users[userIndex].inbox) users[userIndex].inbox = [];
-                users[userIndex].inbox.push(newAlert);
-                await AdminData.saveUsers();
-                if(AdminData.addLog) AdminData.addLog('SEND_ALERT', `إرسال ${isPopup ? 'رسالة منبثقة' : 'إشعار'} لعميل محدد (#${targetId})`);
-            }
-        } else {
-            if (!AdminData.data.alerts) AdminData.data.alerts = [];
-            AdminData.data.alerts.push(newAlert);
-            await AdminData.saveAlerts();
-            if(AdminData.addLog) AdminData.addLog('SEND_ALERT', `إرسال ${isPopup ? 'رسالة منبثقة' : 'إشعار'} باستهداف: ${targetType === 'all' ? 'الجميع' : 'مستوى ' + targetId}`);
-        }
+        EventBus.emit('req-show-loader', true); // تحميل لأن إرسال تنبيه قد يستهدف مستخدمين كثر
 
-        AppController.finishAction('req-render-alerts', null, null, null, 'تم إرسال التنبيه بنجاح!');
+        try {
+            if (targetType === 'user') {
+                const users = AdminData.data.users || [];
+                const userIndex = users.findIndex(u => String(u.id) === String(targetId));
+                if (userIndex !== -1) {
+                    if (!users[userIndex].inbox) users[userIndex].inbox = [];
+                    users[userIndex].inbox.push(newAlert);
+                    await AdminData.saveUsers();
+                    if(AdminData.addLog) AdminData.addLog('SEND_ALERT', `إرسال ${isPopup ? 'رسالة منبثقة' : 'إشعار'} لعميل محدد (#${targetId})`);
+                }
+            } else {
+                if (!AdminData.data.alerts) AdminData.data.alerts = [];
+                AdminData.data.alerts.push(newAlert);
+                await AdminData.saveAlerts();
+                if(AdminData.addLog) AdminData.addLog('SEND_ALERT', `إرسال ${isPopup ? 'رسالة منبثقة' : 'إشعار'} باستهداف: ${targetType === 'all' ? 'الجميع' : 'مستوى ' + targetId}`);
+            }
+
+            AppController.finishAction('req-render-alerts', null, null, null, 'تم إرسال التنبيه بنجاح!');
+        } finally {
+            EventBus.emit('req-show-loader', false);
+        }
     },
 
     deleteAlert: async function(id) {
         if (!AdminData) return;
         let isDeleted = false;
         
+        // 🌟 السرعة الصفرية (نحذف مؤقتاً من المصفوفات المحلية)
+        let alertBackup = null;
         if (AdminData.data.alerts) {
-            const initialLength = AdminData.data.alerts.length;
+            alertBackup = [...AdminData.data.alerts];
             AdminData.data.alerts = AdminData.data.alerts.filter(a => a.id !== id);
-            if (AdminData.data.alerts.length !== initialLength) {
-                await AdminData.saveAlerts();
-                isDeleted = true;
-            }
         }
         
-        if (!isDeleted && AdminData.data.users) {
-            let userUpdated = false;
-            AdminData.data.users.forEach(u => {
-                if (u.inbox && u.inbox.some(a => a.id === id)) {
-                    u.inbox = u.inbox.filter(a => a.id !== id);
-                    userUpdated = true;
-                }
-            });
-            if (userUpdated) {
-                await AdminData.saveUsers();
-                isDeleted = true;
+        EventBus.emit('req-render-alerts');
+        EventBus.emit('req-show-toast', { message: 'جاري الحذف...', type: 'info' });
+
+        try {
+            // حفظ الحذف سحابياً
+            await AdminData.saveAlerts();
+            isDeleted = true;
+            
+            // تنظيف صناديق المستخدمين (إن وجد)
+            if (AdminData.data.users) {
+                let userUpdated = false;
+                AdminData.data.users.forEach(u => {
+                    if (u.inbox && u.inbox.some(a => a.id === id)) {
+                        u.inbox = u.inbox.filter(a => a.id !== id);
+                        userUpdated = true;
+                    }
+                });
+                if (userUpdated) await AdminData.saveUsers();
             }
-        }
-        
-        if (isDeleted) {
+            
             if(AdminData.addLog) AdminData.addLog('DELETE_ALERT', `تم حذف التنبيه: ${id}`);
-            EventBus.emit('req-show-toast', { message: 'تم حذف التنبيه بنجاح', type: 'success' });
+            EventBus.emit('req-show-toast', { message: 'تم الحذف بنجاح', type: 'success' });
+            
+        } catch(e) {
+            if (alertBackup) AdminData.data.alerts = alertBackup; // Rollback
             EventBus.emit('req-render-alerts');
+            EventBus.emit('req-show-toast', { message: 'فشل الحذف، تم التراجع', type: 'error' });
         }
     },
 
@@ -449,47 +497,43 @@ export const MarketingController = {
     // 🎨 4. إعدادات الإعلانات والهوية (Ads & Brand)
     // =========================================================
     saveBanner: async function() {
-        // 🌟 فحص ما إذا كان هناك ملف صورة حقيقي تم اختياره
-        if (AdminUI?.tempFile || AppController.tempImg) {
-            EventBus.emit('req-show-loader', true); // إظهار التحميل لأن الرفع قد يستغرق ثواني
-            
-            try {
-                let finalImgUrl = '';
-                
-                // 🌟 الرفع السحابي النظيف للبنر الإعلاني
-                if (AdminUI?.tempFile) {
-                    EventBus.emit('req-show-toast', {message: 'جاري رفع البنر الإعلاني للسحابة...', type: 'info'});
-                    finalImgUrl = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'banners');
-                } else {
-                    // كخيار احتياطي إذا كان هناك خطأ في الواجهة وأرسلت Base64
-                    finalImgUrl = AppController.tempImg; 
-                }
+        // 🌟 الإصلاح الجذري 1: سحب الملف مباشرة من الـ DOM بدلاً من المتغيرات المتطايرة
+        const fileInput = document.getElementById('ban-img-input');
+        const fileToUpload = fileInput?.files?.[0];
 
-                if(!AdminData.data.banners) AdminData.data.banners = [];
-                AdminData.data.banners.push({
-                    id: String(Date.now()),
-                    img: finalImgUrl, // 👈 تخزين الرابط السحابي
-                    link: Utils.escapeHTML(Utils.getVal('ban-link'))
-                });
-                
-                await AdminData?.saveBanners?.();
-                AppController.finishAction('req-render-banners', null, 'ADD_BANNER', 'تم إضافة بانر إعلاني جديد', null);
-                
-            } catch (error) {
-                console.error("Save Banner Error:", error);
-                EventBus.emit('req-show-toast', {message: 'حدث خطأ أثناء رفع البنر', type: 'error'});
-            } finally {
-                EventBus.emit('req-show-loader', false);
-            }
+        if (!fileToUpload) {
+            EventBus.emit('req-show-toast', {message: 'يرجى اختيار صورة للبنر أولاً', type: 'warning'});
+            return;
+        }
+
+        EventBus.emit('req-show-loader', true); 
+        
+        try {
+            EventBus.emit('req-show-toast', {message: 'جاري رفع البنر الإعلاني للسحابة...', type: 'info'});
+            const finalImgUrl = await FirebaseAdapter.uploadImage(fileToUpload, 'banners');
+
+            if(!AdminData.data.banners) AdminData.data.banners = [];
+            AdminData.data.banners.push({
+                id: String(Date.now()),
+                img: finalImgUrl, 
+                link: Utils.escapeHTML(Utils.getVal('ban-link'))
+            });
+            
+            await AdminData?.saveBanners?.();
+            AppController.finishAction('req-render-banners', null, 'ADD_BANNER', 'تم إضافة بانر إعلاني جديد', null);
+            
+        } catch (error) {
+            console.error("Save Banner Error:", error);
+            EventBus.emit('req-show-toast', {message: 'حدث خطأ أثناء رفع البنر', type: 'error'});
+        } finally {
+            EventBus.emit('req-show-loader', false);
         }
     },
     
-        saveStoreIdentity: async function() {
-        // 🌟 الإصلاح الجذري: توجيه البيانات إلى (settings) بدلاً من (system)
+    saveStoreIdentity: async function() {
         if (!AdminData?.data?.settings) AdminData.data.settings = {};
-        const sys = AdminData.data.settings; // 👈 التعديل السحري هنا
+        const sys = AdminData.data.settings; 
         
-        // جمع النصوص والإعدادات
         sys.storeName = Utils.escapeHTML(Utils.getVal('store-name-input'));
         sys.logoSize = Utils.getVal('store-logo-size', 36);
         sys.nameWeight = Utils.getVal('store-name-weight', '900');
@@ -498,18 +542,22 @@ export const MarketingController = {
         sys.nameColor2 = Utils.getVal('store-color-2', '#FFD700');
         sys.nameShadow = Utils.getCheck('store-name-shadow');
 
-        // دالة مساعدة متقدمة للتعامل مع الرفع السحابي المتعدد لهوية المتجر
-        const processBrandImage = async (inputId, currentUrl) => {
-            const inputEl = document.getElementById(inputId);
-            const wrapEl = document.getElementById(`${inputId}-wrap`);
+        // 🌟 الإصلاح الجذري 2: استهداف ذكي لزر الـ Input الفعلي من الـ DOM
+        const processBrandImage = async (baseId, currentUrl) => {
+            // نبحث عن زر الإدخال الأصلي، عادة يكون اسمه (baseId + '-input')
+            const inputEl = document.getElementById(`${baseId}-input`) || document.getElementById(baseId);
+            const wrapEl = document.getElementById(`${baseId}-wrap`);
             
+            // إذا كان المستخدم ضغط X ومسح الصورة، نعيد مساراً فارغاً
             if (wrapEl && !wrapEl.classList.contains('has-img')) return '';
             
+            // إذا كان هناك ملف جديد في عنصر الإدخال، نرفعه فوراً
             if (inputEl && inputEl.files && inputEl.files.length > 0) {
                 const file = inputEl.files[0];
                 return await FirebaseAdapter.uploadImage(file, 'brand');
             }
             
+            // إذا لم يتغير شيء، نحتفظ بالرابط القديم
             return currentUrl || '';
         };
 
@@ -518,24 +566,20 @@ export const MarketingController = {
         try {
             EventBus.emit('req-show-toast', {message: 'جاري تحديث هوية المتجر...', type: 'info'});
             
-            // رفع الصور الثلاث على التوازي لتسريع العملية
             const [newLogo, newLogoLight, newFavicon] = await Promise.all([
                 processBrandImage('store-logo', sys.storeLogo),
                 processBrandImage('store-logo-light', sys.storeLogoLight),
                 processBrandImage('store-favicon', sys.storeFavicon)
             ]);
 
-            // تخزين الروابط السحابية النظيفة
             sys.storeLogo = newLogo;
             sys.storeLogoLight = newLogoLight;
             sys.storeFavicon = newFavicon;
 
-            // الحفظ في قاعدة البيانات (هذه الدالة تحفظ settings و system معاً بأمان)
             if (AdminData?.saveSystemSettings) {
                 await AdminData.saveSystemSettings();
             }
 
-            // تسجيل النشاط وإشعار المستخدم
             if (AdminData?.addLog) AdminData.addLog('UPDATE_BRAND', 'تم تحديث الهوية البصرية للمتجر بنجاح');
             EventBus.emit('req-show-toast', { message: 'تم حفظ هوية المتجر واعتمادها بنجاح', type: 'success' });
             
@@ -546,7 +590,6 @@ export const MarketingController = {
             EventBus.emit('req-show-loader', false);
         }
     },
-
 
     autoSaveSettings: async function() {
         if (!AdminData?.data?.settings) AdminData.data.settings = {};
