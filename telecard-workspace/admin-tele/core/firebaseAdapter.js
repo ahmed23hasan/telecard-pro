@@ -1,14 +1,16 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - The Ultimate Cloud Gateway
+// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - The Unified Master Gateway
 // 🎯 الوظيفة: البوابة المشتركة للمتجر والإدارة للاتصال بـ Firestore & Storage & Auth
-// 🌟 المعمارية القصوى: Long Polling + Timeout Wrapper + ArrayBuffer + Anti-Leak + Debug Logs
+// 🌟 التحديث المعماري الأقصى: النسخة الكاملة بدون أي اختصارات برمجية (Anti-Syntax-Error)
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
     initializeFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+// 🌟 استيراد محرك التحقق من الهوية الرسمي
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+// 🌟 استيراد خدمات التخزين السحابي للصور والملفات مع دالة الحذف
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 // 🔑 مفاتيح الربط الخاصة بمتجر Telecard 
@@ -25,13 +27,11 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // 🌟 [الدرع الأول]: إجبار فايربيز على استخدام اتصال (Long Polling) المستقر 
-// يمنع أخطاء (WebChannel Connection)، ويفك حظر الـ Websockets لضمان المزامنة الحية دائماً!
 const db = initializeFirestore(app, { experimentalForceLongPolling: true });
 
 const auth = getAuth(app);
 const storage = getStorage(app); 
 
-// تصدير الكائنات لكي تتمكن ملفات الإقلاع الأخرى من قراءتها فوراً
 export { auth, db, storage };
 
 export const FirebaseAdapter = {
@@ -53,28 +53,20 @@ export const FirebaseAdapter = {
     // 📥 1. جلب كل البيانات من مجموعة معينة
     async getAll(collectionName) {
         try {
-            if (!collectionName) throw new Error("اسم المجموعة (Collection Name) غير معرّف!");
-            // 🌟 تطبيق المؤقت هنا لمنع الفشل الصامت
+            if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
             const snapshot = await this._withTimeout(getDocs(collection(db, collectionName)), 10000, `getAll -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (error) {
             console.error(`🚨 خطأ في جلب مجموعة [${collectionName}]: ${error.message}`);
-            return []; // إرجاع مصفوفة فارغة لمنع انهيار النظام
+            return [];
         }
     },
 
     // 📥 2. جلب أحدث البيانات بحد معين (Pagination)
     async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
         try {
-            if (!collectionName) throw new Error("اسم المجموعة (Collection Name) غير معرّف!");
-            
-            const q = query(
-                collection(db, collectionName), 
-                orderBy(orderByField, 'desc'), 
-                limit(limitCount)
-            );
-            
-            // 🌟 تطبيق المؤقت هنا لمنع الفشل الصامت
+            if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
+            const q = query(collection(db, collectionName), orderBy(orderByField, 'desc'), limit(limitCount));
             const snapshot = await this._withTimeout(getDocs(q), 10000, `getRecent -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (error) {
@@ -88,7 +80,6 @@ export const FirebaseAdapter = {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
             const docRef = doc(db, collectionName, String(docId));
-            // 🌟 تطبيق المؤقت هنا لمنع الفشل الصامت
             const docSnap = await this._withTimeout(getDoc(docRef), 10000, `getById -> ${collectionName}/${docId}`);
             return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
         } catch (error) {
@@ -181,39 +172,34 @@ export const FirebaseAdapter = {
                 try {
                     const oldImageRef = ref(storage, oldImageUrl);
                     await deleteObject(oldImageRef);
-                } catch (delErr) { /* تجاهل خطأ المسح لو كانت الصورة غير موجودة أصلاً */ }
+                } catch (delErr) { }
             }
-            
+
             const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'image.jpg';
             const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
             const storageRef = ref(storage, `${folderName}/${finalFileName}`);
             
-            console.log("⏳ جاري بدء الرفع السحابي لـ:", finalFileName);
-            
-            // 🌟 [الدرع الثالث: العلاج السحري للتجمد]: تحويل الملف إلى ArrayBuffer قبل الرفع
-            // هذا السطر يمنع الـ (Silent Hang Bug) في Firebase بشكل قاطع!
+            // 🌟 [الدرع الثالث]: تحويل الملف إلى ArrayBuffer لمنع تجمد الرفع الصامت لفايربيز
             const fileBuffer = await file.arrayBuffer();
-            
-            // 🌟 [الضربة القاضية]: تغليف الرفع بجدار الحماية لمنع التعليق الأبدي (12 ثانية كحد أقصى)
+
+            // تغليف الرفع بجدار الحماية لمنع التعليق
             const snapshot = await this._withTimeout(
-                uploadBytes(storageRef, fileBuffer, { contentType: file.type }),
-                12000,
+                uploadBytes(storageRef, fileBuffer, { contentType: file.type }), 
+                15000, 
                 "عملية رفع الصورة"
             );
-            
-            console.log("✅ اكتمل الرفع بالسحابة، جاري سحب الرابط...");
+
             const downloadURL = await getDownloadURL(snapshot.ref);
             return downloadURL;
-            
+
         } catch (error) {
             console.error("🚨 خطأ في محرك التخزين السحابي:", error);
-            // 🌟 تمرير رسالة الخطأ للأعلى ليراها المستخدم
             throw new Error(error.message || 'تعذر الرفع، السيرفر لم يستجب.');
         }
     },
 
     // ==========================================
-    // 🧹 11. دالة الحذف المباشر (Direct Delete) - [لحماية المساحة السحابية من التسريب]
+    // 🧹 11. دالة الحذف المباشر (Direct Delete) 
     // ==========================================
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
@@ -223,4 +209,6 @@ export const FirebaseAdapter = {
             console.log(`🗑️ تم تنظيف السحابة: مسح الصورة نهائياً (${url})`);
         } catch (error) {
             console.warn("⚠️ تنظيف السحابة: الصورة المراد حذفها لم تعد موجودة", error.message);
-        
+        }
+    }
+};
