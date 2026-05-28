@@ -36,7 +36,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
         const userRef = db.collection('telecard_users').doc(uid);
         const productRef = db.collection('telecard_prods').doc(String(productId));
         
-        // 🌟 استبدال (system) بمسارها الحقيقي بالمشروع (telecard_system)
         const systemRef = db.collection('telecard_system').doc('singleton');
         const countersRef = db.collection('telecard_system').doc('counters'); 
         
@@ -63,9 +62,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
         let isAutoDelivered = false;
 
         await db.runTransaction(async (transaction) => {
-            // ----------------------------------------------------
-            // 📥 1. منطقة القراءة فقط (READS ZONE)
-            // ----------------------------------------------------
             const userSnap = await transaction.get(userRef);
             const productSnap = await transaction.get(productRef);
             const countersSnap = await transaction.get(countersRef);
@@ -100,7 +96,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
                 vaultSnap = await transaction.get(vaultRef); 
             }
 
-            // 🌟 استخراج وتوليد الرقم التسلسلي النقي للطلب
             let currentOrderCount = 100001; 
             if (countersSnap.exists && countersSnap.data().orders_counter) {
                 currentOrderCount = countersSnap.data().orders_counter + 1;
@@ -108,9 +103,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
             const cleanOrderId = String(currentOrderCount);
             const orderRef = db.collection('telecard_orders').doc(cleanOrderId); 
 
-            // ----------------------------------------------------
-            // 🧠 2. منطقة الحسابات والمنطق (LOGIC ZONE)
-            // ----------------------------------------------------
             let rawUnitCost = Number(product.costPrice || product.unitCost || product.price || 0);
             if (product.type === 'select' && Array.isArray(product.options) && product.options[optIdx]) {
                 rawUnitCost = Number(product.options[optIdx].price || product.options[optIdx].costPrice || 0);
@@ -191,9 +183,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
                 statsUpdate['globalStats.financials.totalProfit'] = admin.firestore.FieldValue.increment(Number((pricingSnapshot.profit * finalQty).toFixed(4)));
             }
 
-            // ----------------------------------------------------
-            // 💾 3. منطقة الكتابة فقط (WRITES ZONE)
-            // ----------------------------------------------------
             if (pricingSnapshot.couponCode && couponRef && couponData) {
                 transaction.update(couponRef, { usedCount: admin.firestore.FieldValue.increment(1) });
             }
@@ -216,24 +205,81 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
 });
 
 // ==========================================
-// 💰 2. دالة إرسال طلب الإيداع للعملاء
+// 💰 2. دالة إرسال طلب الإيداع للعملاء (النسخة النهائية - محصنة ضد التلاعب والتكرار)
 // ==========================================
 exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
 
     const uid = context.auth.uid;
-    const { amount, paymentMethodName, payCurr, netBase, receiptData } = data;
+    const { amount, paymentMethodName, payCurr, receiptData } = data;
 
     if (amount <= 0) throw new functions.https.HttpsError('invalid-argument', 'المبلغ المدخل غير صالح.');
 
     try {
+        // 🌟 1. [جدار حماية التكرار]: التحقق من عدم وجود طلب معلق مسبقاً بنفس طريقة الدفع
+        const existingPending = await db.collection('telecard_deposits')
+            .where('userId', '==', uid)
+            .where('method', '==', paymentMethodName)
+            .where('status', '==', 'pending')
+            .limit(1).get();
+
+        if (!existingPending.empty) {
+            throw new functions.https.HttpsError('already-exists', 'عذراً، لديك طلب إيداع معلق مسبقاً بهذه الطريقة. يرجى الانتظار حتى تتم معالجته من قبل الإدارة.');
+        }
+
+        // 🌟 2. [استعلامات آمنة خارج الـ Transaction]: جلب البيانات الداعمة
+        const paymentsQuery = await db.collection('telecard_payments').where('name', '==', paymentMethodName).limit(1).get();
+        if (paymentsQuery.empty) throw new functions.https.HttpsError('not-found', 'طريقة الدفع غير صالحة.');
+        const paymentMethod = paymentsQuery.docs[0].data();
+
+        const ratesSnap = await db.collection('telecard_rates').get();
+        const rates = ratesSnap.docs.map(doc => doc.data());
+
         const countersRef = db.collection('telecard_system').doc('counters');
         const systemRef = db.collection('telecard_system').doc('singleton');
-        
+        const userRef = db.collection('telecard_users').doc(uid);
+
         await db.runTransaction(async (transaction) => {
+            const userSnap = await transaction.get(userRef);
             const countersSnap = await transaction.get(countersRef);
+
+            if (!userSnap.exists) throw new Error("المستخدم غير موجود.");
+            const baseCurr = (userSnap.data().baseCurrency || 'USD').toUpperCase();
+
+            const payCurrUpper = (payCurr || 'USD').toUpperCase();
+            let fee = parseFloat(paymentMethod.fee) || 0;
+            let feeType = paymentMethod.feeType || 'fee';
+            let feeUnit = paymentMethod.feeUnit || paymentMethod.unit || 'percent';
+
+            if (paymentMethod.currencySettings && paymentMethod.currencySettings[payCurrUpper]) {
+                const s = paymentMethod.currencySettings[payCurrUpper];
+                fee = parseFloat(s.fee) || 0;
+                feeType = s.feeType || 'fee';
+                feeUnit = s.feeUnit || s.unit || 'percent';
+            }
+
+            let feeAmount = 0;
+            if (feeUnit === 'fixed' || feeUnit === 'amount') {
+                feeAmount = fee;
+            } else {
+                feeAmount = amount * (fee / 100);
+            }
+
+            let netPayCurr = amount;
+            if (feeType === 'bonus') netPayCurr += feeAmount;
+            else netPayCurr -= feeAmount;
+
+            let safeNetBase = netPayCurr;
+            if (payCurrUpper !== baseCurr) {
+                 const fromRate = rates.find(c => c.code.toUpperCase() === payCurrUpper)?.depRate || 1;
+                 const toRate = rates.find(c => c.code.toUpperCase() === baseCurr)?.depRate || 1;
+                 safeNetBase = (netPayCurr / fromRate) * toRate;
+            }
             
-            let currentDepositCount = 500001; 
+            safeNetBase = Math.floor(safeNetBase * 10000) / 10000; 
+            if (isNaN(safeNetBase) || !isFinite(safeNetBase)) safeNetBase = 0;
+
+            let currentDepositCount = 500001;
             if (countersSnap.exists && countersSnap.data().deposits_counter) {
                 currentDepositCount = countersSnap.data().deposits_counter + 1;
             }
@@ -243,10 +289,11 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
             transaction.set(countersRef, { deposits_counter: currentDepositCount }, { merge: true });
 
             transaction.set(depositRef, {
-                id: cleanDepositId, displayId: cleanDepositId, 
+                id: cleanDepositId, displayId: cleanDepositId,
                 userId: uid, method: paymentMethodName,
-                amount: Number(amount), currency: payCurr, creditedAmount: Number(netBase),
-                status: 'pending', 
+                amount: Number(amount), currency: payCurr,
+                creditedAmount: safeNetBase, 
+                status: 'pending',
                 time: admin.firestore.FieldValue.serverTimestamp(),
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 receipt: receiptData || null
@@ -257,9 +304,10 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
             }, { merge: true });
         });
 
-        return { success: true, message: 'تم استلام طلب الإيداع وهو قيد المراجعة.' };
+        return { success: true, message: 'تم استلام طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة.' };
     } catch (error) {
         console.error("Deposit Error:", error);
+        if (error instanceof functions.https.HttpsError) throw error;
         throw new functions.https.HttpsError('internal', 'تعذر إرسال طلب الإيداع.');
     }
 });
