@@ -352,16 +352,19 @@ export const AppController = {
         const wrap = document.getElementById('adm-img-wrap'); 
         const hasImg = wrap?.classList.contains('has-img'); 
         
-        let finalImg = '';
+                let finalImg = '';
         if (hasImg) {
-            if (AdminUI?.tempFile) {
+            // 🌟 الحل الجذري: سحب الملف الحقيقي من الـ HTML مباشرة بدلاً من الذاكرة المتطايرة
+            const fileInput = document.getElementById('adm-img-file');
+            const fileToUpload = fileInput?.files?.[0];
+
+            if (fileToUpload) {
                 AdminUI?.showToast('جاري رفع صورتك الشخصية...', 'info');
-                finalImg = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'admin');
+                finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'admin');
             } else {
                 finalImg = this.data.adminProfile.img || '';
             }
         }
-
         this.data.adminProfile = { name, email, pass, img: finalImg }; 
         
         await AdminData?.saveAdminProfile?.(); 

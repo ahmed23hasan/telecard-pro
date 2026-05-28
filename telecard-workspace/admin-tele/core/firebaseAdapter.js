@@ -167,35 +167,41 @@ export const FirebaseAdapter = {
             return () => {}; 
         }
     },
-
     // ==========================================
     // ☁️ 10. محرك رفع الصور والملفات (Storage Engine - Pro Version)
     // ==========================================
     async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
         if (!file) return '';
         try {
-            // 🧹 التنظيف الذكي: إذا كان هناك صورة قديمة، احذفها أولاً لتوفير المساحة
+            // 🧹 التنظيف الذكي للصورة القديمة
             if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
                 try {
                     const oldImageRef = ref(storage, oldImageUrl);
                     await deleteObject(oldImageRef);
-                    console.log(`🗑️ تم تنظيف السحابة: حذف الصورة القديمة.`);
-                } catch (delErr) {
-                    console.warn(`⚠️ تعذر حذف الصورة القديمة (قد تكون محذوفة مسبقاً أو غير موجودة).`);
-                }
+                } catch (delErr) { /* تجاهل خطأ المسح لو كانت الصورة غير موجودة أصلاً */ }
             }
 
-            // 🚀 رفع الصورة الجديدة
-            const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+            const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'image.jpg';
             const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
             const storageRef = ref(storage, `${folderName}/${finalFileName}`);
             
-            const snapshot = await uploadBytes(storageRef, file);
+            console.log("⏳ جاري بدء الرفع السحابي لـ:", finalFileName);
+
+            // 🌟 [الضربة القاضية]: تغليف الرفع بجدار الحماية لمنع التعليق الأبدي (12 ثانية كحد أقصى)
+            const snapshot = await this._withTimeout(
+                uploadBytes(storageRef, file), 
+                12000, 
+                "عملية رفع الصورة"
+            );
+
+            console.log("✅ اكتمل الرفع بالسحابة، جاري سحب الرابط...");
             const downloadURL = await getDownloadURL(snapshot.ref);
             return downloadURL;
+
         } catch (error) {
-            console.error("🚨 خطأ في محرك التخزين السحابي (Storage):", error);
-            throw new Error('فشل رفع الصورة إلى السحابة. تأكد من إعدادات Storage Rules.');
+            console.error("🚨 خطأ في محرك التخزين السحابي:", error);
+            // 🌟 تمرير رسالة الخطأ للأعلى ليراها المستخدم
+            throw new Error(error.message || 'تعذر الرفع، السيرفر لم يستجب.');
         }
     },
 

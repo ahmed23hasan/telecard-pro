@@ -26,13 +26,20 @@ export const FinanceUI = {
         EventBus.emit('req-open-modal', 'currency');
     },
 
-    openPaymentModal: function(id = null) {
-        EventBus.emit('set-temp-edit-id', id);
-        // 🌟 حماية من المصفوفات المفرغة لتجنب خطأ Cannot read properties of null (reading 'id')
-        const pay = id ? (AdminData?.data?.payments || []).find(p => p && String(p.id) === String(id)) : null;
-        const rates = AdminData?.data?.rates || [];
-        this.setupPaymentModal(pay, rates);
-        EventBus.emit('req-open-modal', 'payment');
+        openPaymentModal: function(id = null) {
+        try {
+            // كود الدالة الطبيعي
+            EventBus.emit('set-temp-edit-id', id);
+            const pay = id ? (AdminData?.data?.payments || []).find(p => p && String(p.id) === String(id)) : null;
+            const rates = AdminData?.data?.rates || [];
+            this.setupPaymentModal(pay, rates);
+            EventBus.emit('req-open-modal', 'payment');
+            
+        } catch (error) {
+            // 🚨 هذا هو الكمين! سيفضح الخطأ رغماً عن المتصفح
+            console.error("🚨 المجرم الحقيقي تم القبض عليه:", error);
+            alert("تم اصطياد الخطأ بنجاح:\n\nالسبب: " + error.message + "\n\nالمكان: " + error.stack);
+        }
     },
 
     // ========================================================================

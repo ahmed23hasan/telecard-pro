@@ -2035,15 +2035,21 @@
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
     function handleModuleError(event) {
-    // 🌟 هذا السطر سيفضح الخطأ واسم الملف والسطر في كونسول Eruda فوراً!
-    console.error("🚨 الخطأ الجذري المكتوم:", event.error || event.reason || event.message || event);
-    
-    // تجاهل أخطاء الأيقونات وإضافات المتصفح
-    if (event && event.message && (event.message.includes('favicon') || event.message.includes('extension'))) {
-        return;
-    }        const loader = document.getElementById('loader');
+        // 🌟 [الحل السحري - الضربة القاضية]: 
+        // تجاهل الأخطاء الناتجة عن فشل تحميل عناصر HTML (مثل الصور المحذوفة 404 أو الروابط الميتة)
+        // لا توقف النظام أبداً بسبب صورة!
+        if (event.target && (event.target.tagName === 'IMG' || event.target.tagName === 'LINK' || event.target.tagName === 'SCRIPT')) {
+            return;
+        }
+
+        // تجاهل أخطاء الأيقونات وإضافات المتصفح
+        if (event && event.message && (event.message.includes('favicon') || event.message.includes('extension'))) {
+            return;
+        }
+
+        const loader = document.getElementById('loader');
         if (loader) loader.style.display = 'none';
-        
+                
         const errorScreen = document.getElementById('system-fatal-error');
         if (errorScreen) {
             errorScreen.style.display = 'flex';

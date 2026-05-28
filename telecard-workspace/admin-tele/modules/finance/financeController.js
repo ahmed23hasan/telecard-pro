@@ -55,9 +55,13 @@ export const FinanceController = {
             // 🌟 محرك الرفع السحابي لشعارات بوابات الدفع
             let finalImg = '';
             if (hasImg) {
-                if (AdminUI?.tempFile) {
+                // 🌟 سحب الملف مباشرة من عنصر الإدخال
+                const fileInput = document.getElementById('pay-img-input');
+                const fileToUpload = fileInput?.files?.[0];
+
+                if (fileToUpload) {
                     EventBus.emit('req-show-toast', {message:'جاري رفع شعار البوابة للسحابة...', type:'info'});
-                    finalImg = await FirebaseAdapter.uploadImage(AdminUI.tempFile, 'payments');
+                    finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'payments');
                 } else {
                     finalImg = oldImg || ''; 
                 }
@@ -91,7 +95,8 @@ export const FinanceController = {
             
         } catch (error) {
             console.error("Save Payment Error:", error);
-            EventBus.emit('req-show-toast', {message:'حدث خطأ أثناء حفظ البوابة', type:'error'});
+            // 🌟 إظهار رسالة الخطأ الحقيقية القادمة من السحابة لتشخيص الخلل
+            EventBus.emit('req-show-toast', {message:'فشل الحفظ: ' + (error.message || 'خطأ غير معروف'), type:'error'});
         } finally {
             EventBus.emit('req-show-loader', false); // 🌟 إخفاء شاشة التحميل دائماً
         }

@@ -21,18 +21,16 @@ service cloud.firestore {
     // 👥 إدارة المستخدمين (تمت حماية الأرصدة)
     // ==========================================
     match /telecard_users/{userId} {
-      // العميل يقرأ ملفه فقط، والمدير يقرأ الجميع
       allow read: if isOwner(userId) || isMasterAdmin();
       
-      // السماح بالتحديث فقط إذا لم يكن يحاول تغيير الأرصدة أو المستويات
       allow update: if (isOwner(userId) 
                     && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['walletBalance', 'balance', 'totalSpent', 'totalDeposit', 'tierId', 'tierCycleSpent'])) 
                     || isMasterAdmin();
                     
-      // السماح بإنشاء الحساب بشرط أن تكون الأرصدة صفر
+      // 🌟 تحديث: استخدام .get لمنع انهيار القاعدة إذا لم يتم تمرير الحقل من الواجهة
       allow create: if isOwner(userId) 
-                    && request.resource.data.walletBalance == 0 
-                    && request.resource.data.balance == 0;
+                    && request.resource.data.get('walletBalance', 0) == 0 
+                    && request.resource.data.get('balance', 0) == 0;
                     
       allow delete: if isMasterAdmin();
     }
@@ -56,19 +54,26 @@ service cloud.firestore {
     // ==========================================
     match /telecard_orders/{docId} {
       allow read: if isOwner(resource.data.userId) || isMasterAdmin();
-      // مؤقتاً: مسموح الإنشاء بشرط أن يكون UID داخل الطلب يطابق المستخدِم الفعلي
-      allow create: if isOwner(request.resource.data.userId);
+      // 🌟 تحديث: إجبار الطلب الجديد على أن يكون معلقاً، ومنع تمرير أسعار سالبة
+      allow create: if isOwner(request.resource.data.userId)
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.get('price', 0) >= 0;
       allow update, delete: if isMasterAdmin();
     }
     
     match /telecard_deposits/{docId} {
       allow read: if isOwner(resource.data.userId) || isMasterAdmin();
-      allow create: if isOwner(request.resource.data.userId);
+      // 🌟 تحديث: إجبار الإيداع على أن يكون معلقاً، والمبلغ أكبر من صفر
+      allow create: if isOwner(request.resource.data.userId)
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.get('amount', 0) > 0;
       allow update, delete: if isMasterAdmin();
     }
     
     match /telecard_coupons/{docId} {
-      allow read: if isAuthenticated();
+      // 🌟 تحديث: منع العملاء من سحب قائمة الكوبونات بالكامل، والسماح بالتحقق من كوبون محدد فقط
+      allow get: if isAuthenticated();
+      allow list: if isMasterAdmin();
       allow write: if isMasterAdmin();
     }
 
@@ -81,27 +86,25 @@ service cloud.firestore {
     match /telecard_logs/{docId} { allow read, write: if isMasterAdmin(); }
     
     match /telecard_kyc/{docId} {
-       // العميل يقرأ وثائقه فقط وينشئها، الإدارة تتحكم
        allow read: if isOwner(resource.data.userId) || isMasterAdmin();
        allow create: if isOwner(request.resource.data.userId);
        allow update, delete: if isMasterAdmin();
     }
+    
     // ==========================================
     // 🔌 إدارة الموردين والمفاتيح السرية
     // ==========================================
     match /telecard_suppliers/{docId} {
-      // الإدارة فقط يمكنها قراءة وكتابة بيانات الموردين
       allow read, write: if isMasterAdmin();
       
-      // 🛑 حماية صارمة جداً للمسار السري: لا يُسمح بقراءته من الواجهة الأمامية أبداً (السيرفر فقط من يقرأه)
       match /secrets/{secretId} {
-         allow read: if false; // ممنوع القراءة للجميع (السحابة لا تتأثر بهذه القواعد وتتخطاها تلقائياً)
-         allow write: if isMasterAdmin(); // يمكن للإدمن فقط تحديث المفتاح
+         allow read: if false; 
+         allow write: if isMasterAdmin(); 
       }
     }
 
     // ==========================================
-    // 🛑 القاعدة الجدارية
+    // 🛑 القاعدة الجدارية (Catch-all)
     // ==========================================
     match /{document=**} {
       allow read, write: if isMasterAdmin();
