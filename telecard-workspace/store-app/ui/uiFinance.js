@@ -1055,28 +1055,35 @@ export const UIFinance = {
         }
     },
     
-    togglePayDetail: function(id) {
-        const det = document.getElementById(`pay-det-${id}`);
-        const arrow = document.getElementById(`pay-arrow-${id}`);
-        if(!det) return;
+            togglePayDetail: function(headerElement) {
+        if (!headerElement) return;
+
+        // 1. العثور على الكارت الأب الحاضن للعملية
+        const card = headerElement.closest('.pay-history-card');
+        if (!card) return;
+
+        // 2. استهداف صندوق التفاصيل
+        const det = card.querySelector('.ph-details-body');
+        if (!det) return;
+
+        // 3. تبديل كلاس الظهور
         const isOpen = det.classList.toggle('is-open');
-        if(arrow) arrow.classList.toggle('is-open', isOpen);
-    },
+        
+        // 🎯 4. استهداف السهم بدقة متناهية (نتجاهل أيقونة الحالة)
+        // نبحث عن أيقونات الأسهم الشائعة أو الحاوية الخاصة بالسهم
+        const arrow = headerElement.querySelector('.fa-chevron-down, .fa-angle-down, .fa-chevron-left, .ph-arrow-btn, .ph-arrow');
+        
+        if (arrow) {
+            arrow.classList.toggle('is-open', isOpen);
+        }
 
-    showPayReceipt: function(url) {
-        if(!url) { getSys().showToast?.('لا يوجد إشعار دفع', 'error'); return; }
-        const box = document.getElementById('pay-receipt-lightbox');
-        const img = document.getElementById('pay-receipt-img');
-        if(img && box) { img.src = url; box.classList.add('active'); }
+        // 5. تشغيل الصوت بأمان من خلال السياق المدمج
+        if (typeof this.sfx === 'function') {
+            this.sfx('nav');
+        } else if (typeof window.ClientSystem !== 'undefined' && typeof window.ClientSystem.sfx === 'function') {
+            window.ClientSystem.sfx('nav');
+        }
     },
-
-    closePayReceipt: function() {
-        const box = document.getElementById('pay-receipt-lightbox');
-        if(box) box.classList.remove('active');
-        const img = document.getElementById('pay-receipt-img');
-        if(img) img.src = '';
-    },
-
     toggleWalletStats: function(btn) {
         const drawer = document.getElementById('walletStatsDrawer');
         if (!drawer) return;

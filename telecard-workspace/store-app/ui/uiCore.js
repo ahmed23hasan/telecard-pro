@@ -433,7 +433,7 @@ export const UICore = {
     navigateWallet: function() { this.closeSidebar(); getSys().openWallet?.(); },
     navigateSettings: function() { this.closeSidebar(); getSys().openSettings?.(); },
 
-    openCategory: function(id) {
+        openCategory: function(id) {
         if (!this.historyStateSet) {
             window.addEventListener('popstate', (e) => { this._manualGoBack(); });
             this.historyStateSet = true;
@@ -463,25 +463,28 @@ export const UICore = {
 
             grid.innerHTML = '';
             this.setGridMode('grid-prods');
-            
-            if (RenderManager.renderProductSkeletons) {
-                RenderManager.renderProductSkeletons('store-grid', 8);
+
+            // 🌟 1. تجميع دوال الرسم الفعلي في متغير
+            const performRender = () => {
+                if (RenderManager.renderOfferStories) RenderManager.renderOfferStories(id);
+                if(RenderManager._renderContent) RenderManager._renderContent(id);
+                if (Components && Components.initProductShine) Components.initProductShine();
+            };
+            // 🌟 2. الفحص الذكي: هل المنتجات محملة مسبقاً في الذاكرة؟
+            const hasData = (LiveStoreData.prods && LiveStoreData.prods.length > 0);
+
+            if (hasData) {
+                // ✅ رسم فوري ومباشر يمسح الكرت القديم قبل أن يلاحظ المتصفح، مما يمنع أي تعليق بصري
+                performRender(); 
+            } else {
+                // ⏳ عرض التحميل النبضي فقط إذا كانت البيانات فارغة (أول مرة)
+                if (RenderManager.renderProductSkeletons) {
+                    RenderManager.renderProductSkeletons('store-grid', 8);
+                }
+                setTimeout(performRender, 800);
             }
         }
-
-        setTimeout(() => {
-            if (RenderManager.renderOfferStories) {
-                RenderManager.renderOfferStories(id);
-            }
-            if(RenderManager._renderContent) {
-                RenderManager._renderContent(id);
-            }
-            if (Components && Components.initProductShine) {
-                Components.initProductShine();
-            }
-        }, 1500); 
     },
-    
     _manualGoBack: function() {
         if (this.navHistory.length === 0) { if(RenderManager.renderHome) RenderManager.renderHome(true); return; }
         const prevId = this.navHistory.pop();

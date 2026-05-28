@@ -71,7 +71,12 @@ exports.orderStatusWebhook = functions.firestore
 // 🔌 2. بوابة الـ API الخارجية (External API Gateway)
 // نقطة وصول REST API عادية ليستقبل طلبات الشراء من سيرفرات التجار
 // ==========================================
-exports.externalCreateOrder = functions.https.onRequest(async (req, res) => {
+// ==========================================
+// 🔌 2. بوابة الـ API الخارجية (External API Gateway)
+// نقطة وصول REST API عادية ليستقبل طلبات الشراء من سيرفرات التجار
+// ==========================================
+// 🌟 [الإصلاح المعماري 1]: توجيه الدالة للمنطقة السحابية المجانية والأسرع
+exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async (req, res) => {
     // 🛡️ السماح فقط بطلبات POST
     if (req.method !== 'POST') {
         return res.status(405).json({ success: false, error: 'Method Not Allowed. Use POST.' });
@@ -107,18 +112,20 @@ exports.externalCreateOrder = functions.https.onRequest(async (req, res) => {
         // 🔄 محرك التحويلات الجبار والتعديل الآمن
         await db.runTransaction(async (transaction) => {
             const productRef = db.collection('telecard_prods').doc(String(productId));
-            const systemRef = db.collection('system').doc('singleton');
-            const countersRef = db.collection('system').doc('counters'); // 🌟 إدخال محرك العداد التتابعي
+            
+            // 🌟 [الإصلاح المعماري 2]: توجيه الإحصائيات للجدول الصحيح (telecard_system) لكي تظهر الأرباح في لوحة القيادة
+            const systemRef = db.collection('telecard_system').doc('singleton');
+            const countersRef = db.collection('telecard_system').doc('counters'); 
 
             // قراءة المراجع المركزية معاً للتسريع
             const productSnap = await transaction.get(productRef);
             const countersSnap = await transaction.get(countersRef); 
-            const latestUserSnap = await transaction.get(userDoc.ref); // قراءة رصيد العميل الآني الدقيق
+            const latestUserSnap = await transaction.get(userDoc.ref); 
 
             if (!productSnap.exists) throw new Error('Product not found.');
             const product = productSnap.data();
 
-            // 🌟 1. استخراج الـ ID الأنيق لطلبات הـ API (بدل العشوائي)
+            // استخراج الـ ID الأنيق لطلبات הـ API 
             let currentOrderCount = 100001; 
             if (countersSnap.exists && countersSnap.data().orders_counter) {
                 currentOrderCount = countersSnap.data().orders_counter + 1;
@@ -146,7 +153,7 @@ exports.externalCreateOrder = functions.https.onRequest(async (req, res) => {
             const pricingSnapshot = FinancialEngine.calculatePrice({
                 costPrice: rawUnitCost,
                 tier: isFixed ? null : userTier,
-                offer: null, // تعطيل العروض לל API (التجارة الكبيرة لا تُخفض مرتين)
+                offer: null, 
                 coupon: null
             });
 
@@ -177,7 +184,7 @@ exports.externalCreateOrder = functions.https.onRequest(async (req, res) => {
                 }
             }
 
-            // 🌟 2. تحديثات القيود والترتيب (مع الأرباح والتكلفة لتعبئة الداشبورد)
+            // تحديثات القيود والترتيب 
             const costPriceVal = Number((pricingSnapshot.cost * finalQty).toFixed(4));
             const netProfit = Number((pricingSnapshot.profit * finalQty).toFixed(4));
             const newBalance = Math.max(0, Number((currentBalance - exactPrice).toFixed(4)));
@@ -187,7 +194,7 @@ exports.externalCreateOrder = functions.https.onRequest(async (req, res) => {
 
             const newOrder = {
                 id: cleanOrderId,
-                displayId: cleanOrderId, // توحيد المُعرّف ليظهر بامتياز للإدمن والعميل
+                displayId: cleanOrderId, 
                 userId: uid,
                 prodId: productId,
                 product: product.name,
@@ -196,7 +203,7 @@ exports.externalCreateOrder = functions.https.onRequest(async (req, res) => {
                 input: inputStr || 'API Request',
                 status: isAutoDelivered ? 'completed' : 'pending',
                 deliveredCode: deliveredCodeText,
-                pricingSnapshot: { // 🌟 وضع لقطة الأسعار هنا سيصلح الخطأ الصِفري في نافذة (تفاصيل الطلب) 🌟
+                pricingSnapshot: { 
                     costUsd: costPriceVal,
                     tierPriceUsd: Number((pricingSnapshot.tierPrice * finalQty).toFixed(4)),
                     originalPriceUsd: Number((pricingSnapshot.originalPrice * finalQty).toFixed(4)),
@@ -210,7 +217,7 @@ exports.externalCreateOrder = functions.https.onRequest(async (req, res) => {
                 isApiOrder: true
             };
 
-            // 🌟 3. حماية تقارير המינהل من הפِقدان (Global Stats Updating)
+            // حماية تقارير المبيعات
             const statsUpdate = { 'globalStats.orders.total': admin.firestore.FieldValue.increment(1) };
             if (isAutoDelivered) {
                 statsUpdate['globalStats.orders.completed'] = admin.firestore.FieldValue.increment(1);

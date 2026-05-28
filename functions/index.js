@@ -2,7 +2,10 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const { FinancialEngine } = require('./financialEngine.js'); 
 
-admin.initializeApp();
+// تهيئة الأدمن مرة واحدة فقط
+if (!admin.apps.length) {
+    admin.initializeApp();
+}
 const db = admin.firestore();
 
 // ==========================================
@@ -22,7 +25,7 @@ const safeSub = (a, b) => Math.max(0, Number((Number(a) - Number(b)).toFixed(4))
 // ==========================================
 // 🛒 1. دالة إنشاء الطلبات الآمنة للعملاء (النسخة المعمارية الخالية من أخطاء التزامن)
 // ==========================================
-exports.createOrder = functions.https.onCall(async (data, context) => {
+exports.createOrder = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
 
     const uid = context.auth.uid;
@@ -33,7 +36,7 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
         const userRef = db.collection('telecard_users').doc(uid);
         const productRef = db.collection('telecard_prods').doc(String(productId));
         
-        // 🌟 [إصلاح مركزي قاتل]: استبدال (system) بمسارها الحقيقي بالمشروع (telecard_system) لمنع التسريب المحاسبي لعداد الأصفار
+        // 🌟 استبدال (system) بمسارها الحقيقي بالمشروع (telecard_system)
         const systemRef = db.collection('telecard_system').doc('singleton');
         const countersRef = db.collection('telecard_system').doc('counters'); 
         
@@ -61,11 +64,11 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
 
         await db.runTransaction(async (transaction) => {
             // ----------------------------------------------------
-            // 📥 1. منطقة القراءة فقط (READS ZONE) - Safe execution area
+            // 📥 1. منطقة القراءة فقط (READS ZONE)
             // ----------------------------------------------------
             const userSnap = await transaction.get(userRef);
             const productSnap = await transaction.get(productRef);
-            const countersSnap = await transaction.get(countersRef); // 🌟 קراءة العداد الدقيق السحابي
+            const countersSnap = await transaction.get(countersRef);
             let couponSnap = couponRef ? await transaction.get(couponRef) : null;
 
             if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'المستخدم غير موجود.');
@@ -80,7 +83,6 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
             const tierSnap = await transaction.get(tierRef);
             const userTier = tierSnap.exists ? tierSnap.data() : null;
             
-            // 🛡️ فحص صلاحية التوقيت سحابياً (Server-side Time Trust)
             const serverNow = Date.now(); 
             
             if (activeOffer && activeOffer.expiryDate && activeOffer.expiryDate < serverNow) {
@@ -98,7 +100,7 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
                 vaultSnap = await transaction.get(vaultRef); 
             }
 
-            // 🌟 1.1 استخراج وتوليد الرقم التسلسلي النقي للطلب (نهاية التوليد العشوائي المدمر)
+            // 🌟 استخراج وتوليد الرقم التسلسلي النقي للطلب
             let currentOrderCount = 100001; 
             if (countersSnap.exists && countersSnap.data().orders_counter) {
                 currentOrderCount = countersSnap.data().orders_counter + 1;
@@ -124,7 +126,6 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
                 if (fixedUsd > 0) rawUnitCost = fixedUsd;
             }
 
-            // الربط الصارم بالمحرك المالي
             const pricingSnapshot = FinancialEngine.calculatePrice({
                 costPrice: rawUnitCost, tier: isFixed ? null : userTier, offer: activeOffer, coupon: couponData
             });
@@ -160,7 +161,6 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
             const newTotalSpent = safeAdd(userData.totalSpent || 0, totalRequired);
             const newCycleSpent = safeAdd(userData.tierCycleSpent || 0, totalRequired); 
 
-            // دمج الخاتم الخاص بتقرير الـ SSOT وحل الصفر الكارثي للـ Pricing Snapshot
             const newOrder = {
                 id: cleanOrderId, displayId: cleanOrderId, 
                 userId: uid, prodId: productId, product: product.name,
@@ -218,7 +218,7 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
 // ==========================================
 // 💰 2. دالة إرسال طلب الإيداع للعملاء
 // ==========================================
-exports.submitBalanceRequest = functions.https.onCall(async (data, context) => {
+exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
 
     const uid = context.auth.uid;
@@ -227,14 +227,12 @@ exports.submitBalanceRequest = functions.https.onCall(async (data, context) => {
     if (amount <= 0) throw new functions.https.HttpsError('invalid-argument', 'المبلغ المدخل غير صالح.');
 
     try {
-        // 🌟 إصلاح المرجع للرقم الحقيقي الصحيح (telecard_system)
         const countersRef = db.collection('telecard_system').doc('counters');
         const systemRef = db.collection('telecard_system').doc('singleton');
         
         await db.runTransaction(async (transaction) => {
             const countersSnap = await transaction.get(countersRef);
             
-            // التسلسل الدقيق لأرقام الإيداعات
             let currentDepositCount = 500001; 
             if (countersSnap.exists && countersSnap.data().deposits_counter) {
                 currentDepositCount = countersSnap.data().deposits_counter + 1;
@@ -267,9 +265,9 @@ exports.submitBalanceRequest = functions.https.onCall(async (data, context) => {
 });
 
 // ==========================================
-// 👑 3. [إدارة] دالة معالجة الإيداعات الآمنة (المطورة - تدعم الاسترجاع)
+// 👑 3. [إدارة] دالة معالجة الإيداعات الآمنة
 // ==========================================
-exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
+exports.adminProcessDeposit = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك.');
     
     const { depositId, action, adminNote } = data;
@@ -289,20 +287,16 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
             if (!depSnap.exists) throw new functions.https.HttpsError('not-found', 'الإيداع غير موجود.');
             const depData = depSnap.data();
             
-            // 🛡️ 1. الجدار الأمني لتوجيه الحالات (State Machine Firewall)
             if (depData.status === action) {
                 throw new functions.https.HttpsError('failed-precondition', 'الإيداع يمتلك هذه الحالة بالفعل.');
             }
-            
             if (action === 'refunded' && depData.status !== 'approved') {
                 throw new functions.https.HttpsError('failed-precondition', 'لا يمكن استرجاع إيداع إلا إذا كان مقبولاً (مودعاً) مسبقاً.');
             }
-            
             if ((action === 'approved' || action === 'rejected') && depData.status !== 'pending') {
                 throw new functions.https.HttpsError('failed-precondition', 'تمت معالجة هذا الإيداع مسبقاً.');
             }
             
-            // 📥 2. جلب بيانات العميل (فقط إذا كنا سنضيف أو نسحب رصيداً)
             let userRef = null;
             let userSnap = null;
             if (action === 'approved' || action === 'refunded') {
@@ -313,7 +307,6 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
             const statsUpdate = {};
             const amountToProcess = Number(depData.creditedAmount || depData.amount || 0);
             
-            // 🧠 3. المنطق المالي (Financial Logic)
             if (action === 'approved') {
                 if (userSnap && userSnap.exists) {
                     const userData = userSnap.data();
@@ -329,10 +322,8 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
                 statsUpdate['globalStats.deposits.rejected'] = admin.firestore.FieldValue.increment(1);
                 
             } else if (action === 'refunded') {
-                // 🔄 عملية الاسترجاع العكسية (Reverse Ledger)
                 if (userSnap && userSnap.exists) {
                     const userData = userSnap.data();
-                    // نستخدم الطرح المباشر (بدون safeSub) لكي نسمح للرصيد بالنزول للسالب كـ (دين) في حال قام العميل بصرف الأموال قبل الاسترجاع.
                     const newWalletBal = Number((Number(userData.walletBalance || 0) - amountToProcess).toFixed(4));
                     const newBalance = Number((Number(userData.balance || 0) - amountToProcess).toFixed(4));
                     
@@ -342,12 +333,10 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
                         totalDeposit: safeSub(userData.totalDeposit || 0, amountToProcess)
                     });
                 }
-                // تعديل إحصائيات لوحة القيادة (نقل الإيداع من مقبول إلى مسترجع)
                 statsUpdate['globalStats.deposits.approved'] = admin.firestore.FieldValue.increment(-1);
                 statsUpdate['globalStats.deposits.refunded'] = admin.firestore.FieldValue.increment(1);
             }
             
-            // 💾 4. حفظ التحديثات النهائية
             transaction.update(depRef, {
                 status: action,
                 adminNote: adminNote || '',
@@ -364,10 +353,12 @@ exports.adminProcessDeposit = functions.https.onCall(async (data, context) => {
         console.error("Admin Deposit Error:", error);
         throw new functions.https.HttpsError('internal', error.message || 'فشلت عملية معالجة الإيداع.');
     }
-});// ==========================================
-// 👑 4. [إدارة] دالة معالجة الطلبات الآمنة (مع استرجاع الرصيد والكوبونات)
+});
+
 // ==========================================
-exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
+// 👑 4. [إدارة] دالة معالجة الطلبات الآمنة 
+// ==========================================
+exports.adminProcessOrder = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك.');
 
     const { orderId, action, adminNote } = data;
@@ -379,7 +370,6 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
             const orderRef = db.collection('telecard_orders').doc(String(orderId));
             const orderSnap = await transaction.get(orderRef);
             
-            // 🌟 إصلاح المرجع 
             const systemRef = db.collection('telecard_system').doc('singleton');
             
             if (!orderSnap.exists) throw new functions.https.HttpsError('not-found', 'الطلب غير موجود.');
@@ -413,7 +403,6 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
             const costUsd = orderData.pricingSnapshot ? Number(orderData.pricingSnapshot.costUsd || 0) : 0;
             const profitUsd = orderData.pricingSnapshot ? Number(orderData.pricingSnapshot.netProfitUsd || 0) : 0;
 
-            // إعلاء مبيعات وفوائد النظام العظيم، يتم إضافة العمليات المرفوضة وإزالتها للحفاظ على شفافية الداشبورد 📈
             if (orderData.status === 'pending' || orderData.status === 'processing') {
                 if (action === 'completed') {
                     statsUpdate['globalStats.orders.completed'] = admin.firestore.FieldValue.increment(1);
@@ -460,21 +449,105 @@ exports.adminProcessOrder = functions.https.onCall(async (data, context) => {
 });
 
 // ==========================================
-// 🔗 ربط وتصدير دوال المطورين والموردين
+// 💳 5. دالة الإدارة المالية (خصم/إضافة رصيد آمن) سحابياً
 // ==========================================
-const developerApi = require('./developerApi.js');
-const supplierEngine = require('./supplierEngine.js');
+exports.adminAdjustBalance = functions.region('us-east1').https.onCall(async (data, context) => {
+    if (!isMasterAdmin(context)) {
+        throw new functions.https.HttpsError('permission-denied', 'عملية غير مصرح بها.');
+    }
 
-exports.orderStatusWebhook = developerApi.orderStatusWebhook;
-exports.externalCreateOrder = developerApi.externalCreateOrder;
-exports.syncSupplierData = supplierEngine.syncSupplierData;
-exports.scheduledSupplierSync = supplierEngine.scheduledSupplierSync;
-exports.secureSaveSupplier = supplierEngine.secureSaveSupplier;
+    const { userId, type, amount, adminName } = data;
+    const adjustAmount = Number(amount);
+    if (isNaN(adjustAmount) || adjustAmount <= 0) {
+        throw new functions.https.HttpsError('invalid-argument', 'المبلغ غير صالح.');
+    }
+
+    const userRef = db.collection('telecard_users').doc(String(userId));
+    const countersRef = db.collection('telecard_system').doc('counters');
+    const systemRef = db.collection('telecard_system').doc('singleton');
+
+    try {
+        return await db.runTransaction(async (transaction) => {
+            const userDoc = await transaction.get(userRef);
+            const countersSnap = await transaction.get(countersRef);
+
+            if (!userDoc.exists) throw new functions.https.HttpsError('not-found', 'العميل غير موجود.');
+
+            const userData = userDoc.data();
+            const currentBal = Number(userData.walletBalance || userData.balance || 0);
+
+            if (type === 'subtract' && adjustAmount > currentBal) {
+                throw new functions.https.HttpsError('failed-precondition', 'رصيد العميل غير كافٍ لإتمام الخصم.');
+            }
+
+            let currentDepositCount = 500001;
+            if (countersSnap.exists && countersSnap.data().deposits_counter) {
+                currentDepositCount = countersSnap.data().deposits_counter + 1;
+            }
+            const cleanDepositId = String(currentDepositCount);
+            const depositRef = db.collection('telecard_deposits').doc(cleanDepositId);
+
+            const newBal = type === 'add' ? currentBal + adjustAmount : currentBal - adjustAmount;
+            
+            const currentTotalDep = Number(userData.totalDeposit || 0);
+            const newTotalDep = type === 'add' ? currentTotalDep + adjustAmount : currentTotalDep;
+            
+            const currentTotalSpent = Number(userData.totalSpent || 0);
+            const newTotalSpent = type === 'subtract' ? currentTotalSpent + adjustAmount : currentTotalSpent;
+
+            const currency = (userData.baseCurrency || 'USD').toUpperCase();
+
+            transaction.set(countersRef, { deposits_counter: currentDepositCount }, { merge: true });
+            
+            transaction.update(userRef, {
+                walletBalance: newBal,
+                balance: newBal,
+                wallet_balance: newBal,
+                totalDeposit: newTotalDep,
+                totalSpent: newTotalSpent
+            });
+
+            transaction.set(depositRef, {
+                id: cleanDepositId,
+                displayId: cleanDepositId,
+                userId: String(userId),
+                userName: userData.name || userData.fullName || '---',
+                amount: adjustAmount,
+                currency: currency,
+                creditedAmount: type === 'add' ? adjustAmount : -adjustAmount,
+                targetCurrency: currency,
+                method: type === 'add' ? 'إيداع من الإدارة' : 'خصم من الإدارة',
+                status: 'approved',
+                time: admin.firestore.FieldValue.serverTimestamp(),
+                admin: adminName || 'النظام المركزي'
+            });
+
+            const statsUpdate = { 'globalStats.deposits.total': admin.firestore.FieldValue.increment(1) };
+            if (type === 'add') {
+                statsUpdate['globalStats.deposits.approved'] = admin.firestore.FieldValue.increment(1);
+            }
+            transaction.set(systemRef, statsUpdate, { merge: true });
+
+            return { 
+                success: true, 
+                newBalance: newBal, 
+                newDeposit: { 
+                    id: cleanDepositId, 
+                    amount: adjustAmount, 
+                    creditedAmount: type === 'add' ? adjustAmount : -adjustAmount 
+                } 
+            };
+        });
+    } catch (error) {
+        console.error("Transaction Error:", error);
+        throw new functions.https.HttpsError('internal', error.message || 'فشلت العملية المالية.');
+    }
+});
 
 // ==========================================
-// 📊 دالة الصيانة الشاملة للإحصائيات (تُستخدم يدوياً للضبط)
+// 📊 دالة الصيانة الشاملة للإحصائيات 
 // ==========================================
-exports.calculateStoreStatsCloud = functions.https.onCall(async (data, context) => {
+exports.calculateStoreStatsCloud = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) {
         throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك بإعادة حساب إحصائيات المتجر.');
     }
@@ -489,7 +562,7 @@ exports.calculateStoreStatsCloud = functions.https.onCall(async (data, context) 
             financials: { totalRevenue: 0, totalProfit: 0, totalCost: 0 },
             orders: { total: 0, completed: 0, rejected: 0, refunded: 0 },
             deposits: { total: 0, approved: 0, rejected: 0, refunded: 0 },
-            daily: {} // نضيف قالب الأيام إن احتجنا في المستقبل للبناء الداخلي
+            daily: {} 
         };
 
         ordersSnap.forEach(doc => {
@@ -520,7 +593,6 @@ exports.calculateStoreStatsCloud = functions.https.onCall(async (data, context) 
             else if (d.status === 'refunded') globalStats.deposits.refunded++;
         });
 
-        // 🌟 إصلاح المرجع للجدول الصحيح للصيانة أيضاً (telecard_system)
         await db.collection('telecard_system').doc('singleton').set({ globalStats: globalStats }, { merge: true });
         return { success: true, message: 'تم إعادة بناء وضبط الإحصائيات المركزية بنجاح.' };
 
@@ -531,12 +603,23 @@ exports.calculateStoreStatsCloud = functions.https.onCall(async (data, context) 
 });
 
 // ==========================================
-// ⏱️ دالة جلب توقيت السيرفر المركزي (Server Time Provider)
+// ⏱️ دالة جلب توقيت السيرفر المركزي 
 // ==========================================
-exports.getServerTime = functions.https.onCall((data, context) => {
-    // تعيد التوقيت العالمي لضمان التزامن للمتجر
+exports.getServerTime = functions.region('us-east1').https.onCall((data, context) => {
     return {
         success: true,
         serverTime: Date.now() 
     };
 });
+
+// ==========================================
+// 🔗 ربط وتصدير دوال المطورين والموردين
+// ==========================================
+const developerApi = require('./developerApi.js');
+const supplierEngine = require('./supplierEngine.js');
+
+exports.orderStatusWebhook = developerApi.orderStatusWebhook;
+exports.externalCreateOrder = developerApi.externalCreateOrder;
+exports.syncSupplierData = supplierEngine.syncSupplierData;
+exports.scheduledSupplierSync = supplierEngine.scheduledSupplierSync;
+exports.secureSaveSupplier = supplierEngine.secureSaveSupplier;

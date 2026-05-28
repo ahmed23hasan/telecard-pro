@@ -167,45 +167,48 @@ export const FirebaseAdapter = {
             return () => {}; 
         }
     },
-    // ==========================================
-    // ☁️ 10. محرك رفع الصور والملفات (Storage Engine - Pro Version)
-    // ==========================================
-    async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
-        if (!file) return '';
-        try {
-            // 🧹 التنظيف الذكي للصورة القديمة
-            if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
-                try {
-                    const oldImageRef = ref(storage, oldImageUrl);
-                    await deleteObject(oldImageRef);
-                } catch (delErr) { /* تجاهل خطأ المسح لو كانت الصورة غير موجودة أصلاً */ }
-            }
-
-            const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'image.jpg';
-            const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
-            const storageRef = ref(storage, `${folderName}/${finalFileName}`);
-            
-            console.log("⏳ جاري بدء الرفع السحابي لـ:", finalFileName);
-
-            // 🌟 [الضربة القاضية]: تغليف الرفع بجدار الحماية لمنع التعليق الأبدي (12 ثانية كحد أقصى)
-            const snapshot = await this._withTimeout(
-                uploadBytes(storageRef, file), 
-                12000, 
-                "عملية رفع الصورة"
-            );
-
-            console.log("✅ اكتمل الرفع بالسحابة، جاري سحب الرابط...");
-            const downloadURL = await getDownloadURL(snapshot.ref);
-            return downloadURL;
-
-        } catch (error) {
-            console.error("🚨 خطأ في محرك التخزين السحابي:", error);
-            // 🌟 تمرير رسالة الخطأ للأعلى ليراها المستخدم
-            throw new Error(error.message || 'تعذر الرفع، السيرفر لم يستجب.');
+// ==========================================
+// ☁️ 10. محرك رفع الصور والملفات (Storage Engine - Pro Version)
+// ==========================================
+async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
+    if (!file) return '';
+    try {
+        // 🧹 التنظيف الذكي للصورة القديمة
+        if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
+            try {
+                const oldImageRef = ref(storage, oldImageUrl);
+                await deleteObject(oldImageRef);
+            } catch (delErr) { /* تجاهل خطأ المسح لو كانت الصورة غير موجودة أصلاً */ }
         }
-    },
-
-    // ==========================================
+        
+        const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'image.jpg';
+        const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
+        const storageRef = ref(storage, `${folderName}/${finalFileName}`);
+        
+        console.log("⏳ جاري بدء الرفع السحابي لـ:", finalFileName);
+        
+        // 🌟 [العلاج السحري للتجمد]: تحويل الملف إلى ArrayBuffer قبل الرفع
+        // هذا السطر يمنع الـ (Silent Hang Bug) في Firebase بشكل قاطع!
+        const fileBuffer = await file.arrayBuffer();
+        
+        // 🌟 [الضربة القاضية]: تغليف الرفع بجدار الحماية لمنع التعليق الأبدي (12 ثانية كحد أقصى)
+        const snapshot = await this._withTimeout(
+            uploadBytes(storageRef, fileBuffer, { contentType: file.type }),
+            12000,
+            "عملية رفع الصورة"
+        );
+        
+        console.log("✅ اكتمل الرفع بالسحابة، جاري سحب الرابط...");
+        const downloadURL = await getDownloadURL(snapshot.ref);
+        return downloadURL;
+        
+    } catch (error) {
+        console.error("🚨 خطأ في محرك التخزين السحابي:", error);
+        // 🌟 تمرير رسالة الخطأ للأعلى ليراها المستخدم
+        throw new Error(error.message || 'تعذر الرفع، السيرفر لم يستجب.');
+    }
+},
+// ==========================================
     // 🧹 11. دالة الحذف المباشر (Direct Delete) - [الإضافة الجديدة لحماية المساحة]
     // ==========================================
     async deleteImageByUrl(url) {

@@ -1,22 +1,27 @@
 // ============================================================================
 // ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة المتقدمة
+// 🌟 التحديث: توجيه كافة الدوال للمنطقة (us-east1) لتوحيد البيئة ومنع أخطاء CORS
 // ============================================================================
 
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 
+// تهيئة أدمن فايربيز إذا لم يتم تهيئته مسبقاً
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
+// 🛡️ جدار الحماية للتحقق من صلاحيات المدير
 const isMasterAdmin = (context) => {
     if (!context.auth) return false;
     return context.auth.token.email === 'admin@telecard.pro' || context.auth.uid === 'e064MQJyn6dhU9mNXZvXItc7VYg2';
 };
 
+// ==========================================
 // 🔌 محولات المنصات (Provider Adapters)
+// ==========================================
 const ProviderAdapters = {
-    salla: async (baseUrl, token) => { /* ... كود سلة (كما في السابق) ... */ return []; },
-    zid: async (baseUrl, token) => { /* ... كود زد (كما في السابق) ... */ return []; },
+    salla: async (baseUrl, token) => { /* ... كود سلة ... */ return []; },
+    zid: async (baseUrl, token) => { /* ... كود زد ... */ return []; },
     custom: async (baseUrl, token) => {
         const response = await fetch(`${baseUrl}/export-products`, {
             headers: { 'x-api-key': token, 'Content-Type': 'application/json' }
@@ -32,8 +37,9 @@ const ProviderAdapters = {
         }));
     }
 };
+
 // ==========================================
-// 🧠 النواة المركزية للمزامنة (تم التحديث لدعم الشحن المجزأ +500 منتج)
+// 🧠 النواة المركزية للمزامنة (تدعم الشحن المجزأ +500 منتج)
 // ==========================================
 const coreSyncLogic = async (supplierId) => {
     const suppRef = db.collection('telecard_suppliers').doc(String(supplierId));
@@ -55,7 +61,7 @@ const coreSyncLogic = async (supplierId) => {
     let importedCount = 0;
     const defaultMargin = Number(supplier.defaultMargin || 0);
 
-    // 🌟 مصفوفة الدفعات الضخمة (Batches Array) لمنع اصطدام حاجز الـ 500
+    // 🌟 مصفوفة الدفعات الضخمة (Batches Array) لمنع اصطدام حاجز الـ 500 عملية لفايربيز
     let batches = [];
     let currentBatch = db.batch();
     let operationCount = 0;
@@ -80,8 +86,9 @@ const coreSyncLogic = async (supplierId) => {
             isExternal: true, isAvailable: true,
             lastSync: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
+        
         operationCount++;
-        if (operationCount >= 450) commitAndReset(); // أمان أعلى (تفادى سقف 500)
+        if (operationCount >= 450) commitAndReset(); // أمان أعلى (تفادي سقف 500)
 
         if (prod.codes && prod.codes.length > 0) {
             const vaultRef = db.collection('telecard_vault').doc(vaultId);
@@ -89,12 +96,14 @@ const coreSyncLogic = async (supplierId) => {
                 id: vaultId, supplierId: supplierId, codes: prod.codes,
                 lastSync: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
+            
             operationCount++;
             if (operationCount >= 450) commitAndReset();
         }
         importedCount++;
     });
 
+    // 🌟 البحث عن المنتجات التي تم حذفها من جهة المورد لتعطيلها في متجرنا
     const existingProdsSnap = await db.collection('telecard_prods').where('supplierId', '==', supplierId).get();
     let deletedCount = 0;
 
@@ -110,6 +119,7 @@ const coreSyncLogic = async (supplierId) => {
         }
     });
 
+    // تحديث إحصائيات المورد
     currentBatch.update(suppRef, { 
         lastSync: admin.firestore.FieldValue.serverTimestamp(),
         importedCount: importedCount 
@@ -120,13 +130,11 @@ const coreSyncLogic = async (supplierId) => {
 
     return { importedCount, deletedCount };
 };
+
 // ==========================================
 // 🚀 1. دالة المزامنة اليدوية (من زر لوحة التحكم)
 // ==========================================
-// ==========================================
-// 🚀 1. دالة المزامنة اليدوية (من زر لوحة التحكم)
-// ==========================================
-exports.syncSupplierData = functions.https.onCall(async (data, context) => {
+exports.syncSupplierData = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح.');
     try {
         const result = await coreSyncLogic(data.supplierId);
@@ -134,7 +142,7 @@ exports.syncSupplierData = functions.https.onCall(async (data, context) => {
         // 🌟 التعديل السحري: إرسال الأرقام للواجهة الأمامية لكي يرتفع العداد
         return { 
             success: true, 
-            message: `تم مزامنة ${result.importedCount} منتج. وتم تعطيل ${result.deletedCount} منتج محذوف.`,
+            message: `تمت مزامنة ${result.importedCount} منتج. وتم تعطيل ${result.deletedCount} منتج محذوف.`,
             importedCount: result.importedCount,
             deletedCount: result.deletedCount
         };
@@ -148,7 +156,7 @@ exports.syncSupplierData = functions.https.onCall(async (data, context) => {
 // ⏱️ 2. دالة المزامنة التلقائية (المجدولة) - Cron Job
 // تعمل كل 12 ساعة بتوقيت مكة المكرمة
 // ==========================================
-exports.scheduledSupplierSync = functions.pubsub.schedule('0 */12 * * *')
+exports.scheduledSupplierSync = functions.region('us-east1').pubsub.schedule('0 */12 * * *')
     .timeZone('Asia/Riyadh')
     .onRun(async (context) => {
         try {
@@ -180,7 +188,7 @@ exports.scheduledSupplierSync = functions.pubsub.schedule('0 */12 * * *')
 // ==========================================
 // 🛡️ 3. دالة حفظ المورد الآمنة (تفصل المفتاح عن البيانات)
 // ==========================================
-exports.secureSaveSupplier = functions.https.onCall(async (data, context) => {
+exports.secureSaveSupplier = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح.');
     
     const { id, name, type, baseUrl, token, defaultMargin, autoSync } = data;

@@ -41,7 +41,24 @@ const ClientSystem = {
     // ============================================================================
     // 🎯 نظام تفويض الأحداث المركزي (Global Event Delegation)
     // ============================================================================
-    initGlobalListeners: function() {
+        initGlobalListeners: function() {
+        // =======================================================
+        // 🌟 1. إصلاح ثغرات متصفحات الهواتف (Apple/WebKit Fixes)
+        // =======================================================
+        
+        // أ) إنهاء التأثيرات البصرية فور رفع الإصبع (لمنع تعليق زر القسم)
+        document.body.addEventListener('touchstart', () => {}, { passive: true });
+
+        // ب) إغلاق ثغرة السحب الوهمي التي تسبب الشلل النصفي لشاشة المتجر (Ghost Drag Bug)
+        window.addEventListener('contextmenu', (e) => {
+            if (e.target.closest('[data-action], .cat-card, .product-card')) {
+                e.preventDefault();
+            }
+        });
+
+        // =======================================================
+        // 🌟 2. مستمع الإغلاق الذكي (للنوافذ والقوائم المنسدلة)
+        // =======================================================
         document.addEventListener('click', (e) => {
             const packageWrapper = document.getElementById('pkg-custom-dropdown');
             if (packageWrapper && packageWrapper.classList.contains('open') && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
@@ -59,9 +76,11 @@ const ClientSystem = {
             }
         }, true); 
 
+        // =======================================================
+        // 🌟 3. الموجه المركزي للأحداث (Global Event Delegator)
+        // =======================================================
         let lastClickTime = 0;
         let lastClickTarget = null;
-        let clickTimeout = null;
 
         document.body.addEventListener('click', (e) => {
             const target = e.target.closest('[data-action]');
@@ -69,6 +88,9 @@ const ClientSystem = {
 
             const action = target.getAttribute('data-action');
             const id = target.getAttribute('data-id');
+
+            // 🌟 إجبار المتصفح على إسقاط حالة الـ Focus لمنع ظهور إطارات غريبة على الأزرار في أندرويد
+            target.blur();
 
             switch (action) {
                 case 'open-category':
@@ -81,14 +103,14 @@ const ClientSystem = {
                     const currentTime = new Date().getTime();
                     const timeDiff = currentTime - lastClickTime;
 
+                    // 🌟 إصلاح فخ الـ 300ms: 
+                    // 1. تسجيل الإعجاب إذا كان نقراً مزدوجاً
                     if (timeDiff < 300 && lastClickTarget === id) {
-                        clearTimeout(clickTimeout);
                         if(typeof this.triggerMagicFavorite === 'function') this.triggerMagicFavorite(e, id);
                         lastClickTime = 0; 
                     } else {
-                        clickTimeout = setTimeout(() => {
-                            if(typeof this.openProdModal === 'function') this.openProdModal(id);
-                        }, 300);
+                        // 2. الفتح الفوري الصاروخي للمنتج بدون أي تأخير اصطناعي!
+                        if(typeof this.openProdModal === 'function') this.openProdModal(id);
                         lastClickTime = currentTime;
                         lastClickTarget = id;
                     }
@@ -101,6 +123,14 @@ const ClientSystem = {
                 case 'submit-balance':
                     const currency = target.getAttribute('data-curr');
                     if(typeof this.handleBalanceSubmit === 'function') this.handleBalanceSubmit(currency);
+                    break;
+
+                // 🌟 التقاط أكشن الأكورديون وتوجيهه عبر معمارية الـ Facade بشكل نظيف
+                case 'toggle-accordion':
+                    e.preventDefault();
+                    if(typeof this.togglePayDetail === 'function') {
+                        this.togglePayDetail(target);
+                    }
                     break;
 
                 case 'toggle-wallet-stats': 
@@ -192,8 +222,8 @@ const ClientSystem = {
                     break;
             }
         });
-    } 
-}; 
+    }
+};
 
 // ============================================================================
 // 🔗 دمج الوحدات (Facade Pattern)

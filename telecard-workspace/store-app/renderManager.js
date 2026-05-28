@@ -56,7 +56,7 @@ export const RenderManager = {
     // =========================================================
     // 🏠 1. رسم الصفحة الرئيسية (الأقسام الرئيسية)
     // =========================================================
-    renderHome: function(isBackAction = false) {
+        renderHome: function(isBackAction = false) {
         const grid = document.getElementById('store-grid');
         const titleEl = document.getElementById('grid-title');
         
@@ -67,11 +67,8 @@ export const RenderManager = {
             titleEl.innerText = ''; 
         }
 
-        if (typeof this.renderHomeSkeletons === 'function') {
-            this.renderHomeSkeletons();
-        }
-
-        setTimeout(() => {
+        // 🌟 1. تجميع دوال الرسم الفعلي
+        const performRender = () => {
             UIManager.toggleHeroSection(true);
             UIManager.navHistory = []; 
             UIManager.currentCategoryId = null;
@@ -129,15 +126,26 @@ export const RenderManager = {
                      div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
                      fragment.appendChild(div);
                 });
-
                 if(grid) grid.appendChild(fragment); 
             }
             
             UIManager.initSlider();
+        };
 
-        }, 500); 
+        // 🌟 2. الفحص الذكي للبيانات
+        const hasData = (LiveStoreData.cats && LiveStoreData.cats.length > 0);
+        
+        if (hasData) {
+            // ✅ رسم فوري سريع
+            performRender();
+        } else {
+            // ⏳ تحميل نبضي فقط عند غياب البيانات
+            if (typeof this.renderHomeSkeletons === 'function') {
+                this.renderHomeSkeletons();
+            }
+            setTimeout(performRender, 600);
+        }
     },
-
     renderHomeSkeletons: function() {
         const grid = document.getElementById('store-grid');
         if (grid) {

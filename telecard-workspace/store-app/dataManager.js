@@ -59,11 +59,11 @@ export const DataManager = {
     appliedCoupon: null,
 
     _getCloudFunction: function(functionName) {
-        const app = getApp();
-        const functions = getFunctions(app);
-        return httpsCallable(functions, functionName);
-    },
-
+    const app = getApp();
+    // 🌟 التأكد من وجود 'us-east1' هنا أمر حتمي لكي تعمل دوال الشراء والإيداع الموجودة بالأسفل!
+    const functions = getFunctions(app, 'us-east1');
+    return httpsCallable(functions, functionName);
+},
     saveUserLocal: function() {
         if (!this.user) return;
         try {
@@ -438,27 +438,39 @@ export const DataManager = {
     },
 
         updateWalletStats: function() {
-        if(!this.user) return;
-        const allOrders = LiveStoreData.orders || [];
-        
-        // 🌟 الإصلاح: استخدام String بدلاً من Number لمقارنة UID فايربيز
-        const mySpent = allOrders
-            .filter(o => String(o.userId) === String(this.user.id) && o.status !== 'rejected' && o.status !== 'refunded')
-            .reduce((sum, order) => sum + Number(order.price || 0), 0);
+    if (!this.user) return;
+    
+    const allOrders = LiveStoreData.orders || [];
+    const allDeposits = LiveStoreData.deposits || [];
+    
+    // 1. حساب الأموال الصادرة (المشتريات الفعلية)
+    let mySpent = allOrders
+        .filter(o => String(o.userId) === String(this.user.id) && o.status !== 'rejected' && o.status !== 'refunded' && o.status !== 'returned')
+        .reduce((sum, order) => sum + Number(order.price || 0), 0);
+    
+    // 2. حساب الأموال الواردة (والخصومات الإدارية)
+    let myDeposits = 0;
+    
+    allDeposits
+        .filter(d => String(d.userId) === String(this.user.id) && d.status === 'approved')
+        .forEach(dep => {
+            const val = dep.creditedAmount !== undefined ? Number(dep.creditedAmount) : Number(dep.amount || 0);
             
-        const allDeposits = LiveStoreData.deposits || [];
-        const myDeposits = allDeposits
-            .filter(d => String(d.userId) === String(this.user.id) && d.status === 'approved')
-            .reduce((sum, dep) => {
-                const val = dep.creditedAmount !== undefined ? Number(dep.creditedAmount) : Number(dep.amount || 0);
-                return sum + (val > 0 ? val : 0);
-            }, 0);
-            
-        this.user.totalSpent = mySpent;
-        this.user.totalDeposit = myDeposits;
-    },
-
-    submitPasswordChange: function(currentVal, newVal, confirmVal) {
+            if (val > 0) {
+                // إذا كان إيداعاً حقيقياً أو إضافة رصيد من الإدارة (أموال واردة)
+                myDeposits += val;
+            } else if (val < 0) {
+                // 🚨 الحل المحاسبي: "خصم الرصيد من الإدارة" (قيمة سالبة) يُعتبر "أموال صادرة"
+                // لذا نضيفه بقيمته المطلقة إلى خانة (المشتريات / المسحوبات) ليتوازن الميزان!
+                mySpent += Math.abs(val);
+            }
+        });
+    
+    // 3. تحديث بيانات العرض للعميل لكي تتطابق الكبسولات الثلاث بشكل مثالي
+    this.user.totalSpent = mySpent;
+    this.user.totalDeposit = myDeposits;
+},
+submitPasswordChange: function(currentVal, newVal, confirmVal) {
         if(!newVal || newVal.length < 4) return { success: false, msg: 'الرجاء إدخال كلمة مرور لا تقل عن 4 أحرف.' };
         if(newVal !== confirmVal) return { success: false, msg: 'كلمتا المرور غير متطابقتين.' };
         

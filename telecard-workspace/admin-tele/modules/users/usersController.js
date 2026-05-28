@@ -69,49 +69,79 @@ export const UsersController = {
     },
 
     openBalanceAdjust: async function(type, userId) {
-        if (!AdminUI) return;
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
-        if (!user) return;
-
-        const curCode = (user.baseCurrency || 'USD').toUpperCase().replace('$', 'USD');
-        const displayCur = AdminRender?.getCurrencySymbolText?.(curCode) || curCode;
+    if (!AdminUI) return;
+    const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+    if (!user) return;
+    
+    const curCode = (user.baseCurrency || 'USD').toUpperCase().replace('$', 'USD');
+    const displayCur = AdminRender?.getCurrencySymbolText?.(curCode) || curCode;
+    
+    const amount = await AdminUI.showPrompt(`أدخل المبلغ المراد ${type === 'add' ? 'إضافته' : 'خصمه'} (${displayCur}):`, type === 'add' ? 'إضافة رصيد' : 'خصم رصيد', '');
+    if (!amount || isNaN(amount) || Number(amount) <= 0) return;
+    
+    const currentBal = Number(user.walletBalance ?? user.balance ?? 0);
+    const adjustAmount = Number(amount);
+    
+    if (type === 'subtract' && adjustAmount > currentBal) {
+        EventBus.emit('req-show-toast', { message: 'المبلغ المطلوب خصمه أكبر من الرصيد الحالي', type: 'error' });
+        return;
+    }
+    
+    EventBus.emit('req-show-loader', true);
+    
+    try {
+        const { getApp } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
+        const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js");
         
-        const amount = await AdminUI.showPrompt(`أدخل المبلغ المراد ${type === 'add' ? 'إضافته' : 'خصمه'} (${displayCur}):`, type === 'add' ? 'إضافة رصيد' : 'خصم رصيد', '');
-        if (!amount || isNaN(amount) || Number(amount) <= 0) return;
-
-        const currentBal = Number(user.walletBalance ?? user.balance ?? 0);
-        const adjustAmount = Number(amount);
-
-        if (type === 'subtract' && adjustAmount > currentBal) {
-            EventBus.emit('req-show-toast', {message:'المبلغ المطلوب خصمه أكبر من الرصيد الحالي', type:'error'});
-            return;
-        }
-
-        const newBal = type === 'add' ? currentBal + adjustAmount : currentBal - adjustAmount;
-        user.walletBalance = newBal;
-        user.wallet_balance = newBal;
-        user.balance = newBal;
-
-        AdminData.data.deposits.push({
-            id: String(Date.now()),
-            userId: String(userId),
-            userName: user.name || '---',
+        // 🌟 الربط الإجباري بالمنطقة السريعة
+        const functions = getFunctions(getApp(), 'us-east1');
+        const adjustBalanceCloud = httpsCallable(functions, 'adminAdjustBalance');
+        
+        const result = await adjustBalanceCloud({
+            userId: userId,
+            type: type,
             amount: adjustAmount,
-            currency: (user.baseCurrency || 'USD').toUpperCase(),
-            creditedAmount: type === 'add' ? adjustAmount : -adjustAmount,
-            targetCurrency: (user.baseCurrency || 'USD').toUpperCase(),
-            method: type === 'add' ? 'إيداع من الإدارة' : 'خصم من الإدارة',
-            status: 'approved',
-            time: Date.now()
+            adminName: AdminData.data.adminProfile?.name || 'المدير'
         });
-
-        await AdminData?.saveUsers?.();
-        await AdminData?.saveDeposits?.();
-
-        AdminUI?.UsersUI?.animateBalanceUpdate?.(newBal, curCode, type);
-        AppController.finishAction('req-render-users', null, type === 'add' ? 'ADD_BALANCE' : 'SUB_BALANCE', `تم ${type === 'add' ? 'إضافة' : 'خصم'} مبلغ ${adjustAmount} ${displayCur} للعميل ${user.name}`, `تم ${type === 'add' ? 'إضافة' : 'خصم'} ${adjustAmount} ${displayCur} بنجاح`);
-    },
-
+        
+        if (result.data.success) {
+            const newBal = result.data.newBalance;
+            
+            // 🌟 تحديث المتغيرات محلياً لتجنب الحاجة لعمل Refresh للصفحة
+            user.walletBalance = newBal;
+            user.balance = newBal;
+            user.wallet_balance = newBal;
+            if (type === 'add') {
+                user.totalDeposit = Number(user.totalDeposit || 0) + adjustAmount;
+            } else {
+                user.totalSpent = Number(user.totalSpent || 0) + adjustAmount;
+            }
+            
+            // 🌟 حيلة الـ Optimistic UI: حشر الفاتورة محلياً لتظهر في قائمة الإيداعات فوراً
+            AdminData.data.deposits.unshift({
+                id: result.data.newDeposit.id,
+                displayId: result.data.newDeposit.id,
+                userId: String(userId),
+                userName: user.name || user.fullName || '---',
+                amount: adjustAmount,
+                currency: curCode,
+                creditedAmount: result.data.newDeposit.creditedAmount,
+                targetCurrency: curCode,
+                method: type === 'add' ? 'إيداع من الإدارة' : 'خصم من الإدارة',
+                status: 'approved',
+                time: Date.now() // توقيت تقريبي ريثما يتم جلب الختم من السيرفر عند الريفريش
+            });
+            
+            AdminUI?.UsersUI?.animateBalanceUpdate?.(newBal, curCode, type);
+            AppController.finishAction('req-render-users', null, type === 'add' ? 'ADD_BALANCE' : 'SUB_BALANCE', `تم ${type === 'add' ? 'إضافة' : 'خصم'} مبلغ ${adjustAmount} ${displayCur} للعميل ${user.name}`, `تمت العملية بنجاح عبر السحابة ☁️`);
+        }
+    } catch (error) {
+        console.error("Cloud Error:", error);
+        EventBus.emit('req-show-toast', { message: 'خطأ سحابي: ' + error.message, type: 'error' });
+    } finally {
+        EventBus.emit('req-show-loader', false);
+    }
+},
     restrictUser: async function(userId) {
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
