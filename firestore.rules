@@ -79,13 +79,11 @@ allow read, write: if isMasterAdmin();
     }
     
     match /telecard_coupons/{docId} {
-      // 🌟 تحديث: منع العملاء من سحب قائمة الكوبونات بالكامل، والسماح بالتحقق من كوبون محدد فقط
-      allow get: if isAuthenticated();
-      allow list: if isMasterAdmin();
-      allow write: if isMasterAdmin();
-    }
-
-    // ==========================================
+// السماح بقراءة الكوبونات لكي يعمل محرك الفحص في المتجر
+allow read: if true;
+allow write: if isMasterAdmin();
+}
+// ==========================================
     // 🔒 المجموعات شديدة الحساسية
     // ==========================================
     match /telecard_vault/{docId} { allow read, write: if isMasterAdmin(); }

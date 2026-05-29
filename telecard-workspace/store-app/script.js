@@ -1,8 +1,12 @@
 // ============================================================================
 // 🧠 المحرك الرئيسي للمتجر (script.js) - المجلد الاحترافي المصلح للسحابة
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: حل أخطاء عدم ظهور البيانات وضمان المزامنة الآمنة للرصيد
+// 🚀 التحديث: دمج (onAuthStateChanged) لمنع طرد المتصفح وحل مشكلة الرصيد 0.00
 // ============================================================================
+
+// 🌟 استيراد محرك المصادقة الرسمي للتحقق من الهوية قبل طلب البيانات
+import { auth } from './core/firebaseAdapter.js';
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 import { DB_KEYS } from './config.js';
 import { Utils } from './utils.js';
@@ -229,12 +233,13 @@ modules.forEach(mod => {
 });
 
 // ============================================================================
-// 🔄 محرك المزامنة الحي (Real-time Firebase Sync Engine)
+// 🔄 محرك المزامنة الحي (Real-time Firebase Sync Engine) - النسخة المحمية
 // ============================================================================
 ClientSystem.initFirebaseListeners = function() {
-    console.log("📡 جاري تشغيل مستمعات السحابة الحية (المحمية)...");
+    console.log("📡 جاري تشغيل مستمعات السحابة الحية...");
     this.clearFirebaseListeners();
 
+    // 1. المستمعات العامة (تعمل للجميع، زوار ومسجلين)
     if (DB_KEYS.SETTINGS) {
         const unsubSettings = StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
             LiveStoreData.settings = Array.isArray(data) ? (data[0] || {}) : (data || {});
@@ -260,7 +265,6 @@ ClientSystem.initFirebaseListeners = function() {
 
     if (DB_KEYS.ALERTS) {
         const unsubAlerts = StoreDB.listenCollection(DB_KEYS.ALERTS, (data) => {
-            // 🛡️ استخدام المتغيرات الآمنة للرسم بدون Object.freeze لمنع التكسر
             LiveStoreData.alerts = _normalizeDataTime(Array.isArray(data) ? data : []); 
             requestAnimationFrame(() => {
                 if (UIManager && typeof UIManager.processAndDisplayAlerts === 'function') UIManager.processAndDisplayAlerts();
@@ -270,44 +274,56 @@ ClientSystem.initFirebaseListeners = function() {
         this.activeListeners.push(unsubAlerts);
     }
 
-    const uidStr = localStorage.getItem('telecard_active_user_uid');
-    
-    if (uidStr) {
-        if (StoreDB.listenDoc) {
-            const unsubUser = StoreDB.listenDoc(DB_KEYS.USERS, String(uidStr), (userData) => {
-                if (userData) {
-                    // 🛡️ تحديث الرصيد الحي فوراً دون فريز ليسمح للواجهة بقراءته وتحديثه 
-                    LiveStoreData.users = [userData]; 
+    // 🌟 2. المستمعات الخاصة (محمية بـ Auth State لمنع طرد فايرستور للمتصفح)
+    onAuthStateChanged(auth, (firebaseUser) => {
+        if (firebaseUser) {
+            console.log("🔐 تم تأكيد الهوية من فايربيز. جاري جلب البيانات الخاصة والمالية...");
+            const uidStr = firebaseUser.uid;
+            
+            // تحديث الذاكرة المحلية كإجراء احتياطي
+            localStorage.setItem('telecard_active_user_uid', uidStr);
+
+            if (StoreDB.listenDoc) {
+                const unsubUser = StoreDB.listenDoc(DB_KEYS.USERS, String(uidStr), (userData) => {
+                    if (userData) {
+                        LiveStoreData.users = [userData]; 
+                        requestAnimationFrame(() => {
+                            if (DataManager.syncUser) DataManager.syncUser();
+                            if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
+                        });
+                    }
+                });
+                this.activeListeners.push(unsubUser);
+            }
+
+            if (StoreDB.listenQuery) {
+                const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], (data) => {
+                    LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
                     requestAnimationFrame(() => {
-                        if (DataManager.syncUser) DataManager.syncUser();
-                        if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
+                        if (RenderManager && typeof RenderManager.renderOrders === 'function') RenderManager.renderOrders();
                     });
-                }
-            });
-            this.activeListeners.push(unsubUser);
-        }
-
-        if (StoreDB.listenQuery) {
-            const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], (data) => {
-                // 🛡️ تحديث الطلبات وفك التواريخ بطريقة آمنة لا تتوقف مع المصفوفة الفارغة
-                LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
-                requestAnimationFrame(() => {
-                    if (RenderManager && typeof RenderManager.renderOrders === 'function') RenderManager.renderOrders();
                 });
-            });
-            this.activeListeners.push(unsubOrders);
+                this.activeListeners.push(unsubOrders);
 
-            const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], (data) => {
-                // 🛡️ تحديث الإيداعات 
-                LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
-                requestAnimationFrame(() => {
-                    if (RenderManager && typeof RenderManager.renderWallet === 'function') RenderManager.renderWallet();
-                    if (RenderManager && typeof RenderManager.renderPayments === 'function') RenderManager.renderPayments();
+                const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], (data) => {
+                    LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
+                    requestAnimationFrame(() => {
+                        if (RenderManager && typeof RenderManager.renderWallet === 'function') RenderManager.renderWallet();
+                        if (RenderManager && typeof RenderManager.renderPayments === 'function') RenderManager.renderPayments();
+                    });
                 });
-            });
-            this.activeListeners.push(unsubDeposits);
+                this.activeListeners.push(unsubDeposits);
+            }
+        } else {
+            console.log("👤 العميل زائر (مجهول). تم إيقاف جلب البيانات الخاصة.");
+            localStorage.removeItem('telecard_active_user_uid');
+            LiveStoreData.users = [];
+            LiveStoreData.orders = [];
+            LiveStoreData.deposits = [];
+            if (DataManager.syncUser) DataManager.syncUser();
+            if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
         }
-    }
+    });
 };
 
 // ============================================================================
@@ -322,7 +338,7 @@ ClientSystem.init = async function() {
         // 📥 1. التحميل الأولي للبيانات الثابتة
         if (StoreDB) {
             try {
-                // 🛑 تمت إزالة 'ORDERS' و 'DEPOSITS' من هنا نهائياً ليتم سحبها عبر المزامنة الحية فقط
+                // 🛑 تمت إزالة 'ORDERS' و 'DEPOSITS' ليتم سحبها عبر المزامنة الحية الآمنة
                 const staticKeys = ['CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
                 
                 const fetchPromises = staticKeys.map(k => StoreDB.getAll(DB_KEYS[k]));
@@ -369,38 +385,36 @@ ClientSystem.init = async function() {
 
         if(DataManager.initDummyData) DataManager.initDummyData(); 
         
-        // 📡 3. تشغيل المستمعات الحية (هي التي ستجلب الرصيد والطلبات الآن!)
+        // 📡 3. تشغيل المستمعات الحية (تنتظر توكن فايربيز الآن)
         this.initFirebaseListeners();
 
-        // 🛡️ التأخير البسيط يضمن أن المزامنة الحية قامت بجلب بيانات العميل قبل رسم الواجهة
-        setTimeout(() => {
-            if(DataManager.syncUser) DataManager.syncUser();
-            if(DataManager.loadPrefs) DataManager.loadPrefs();
-            
-            if(typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
-            if(typeof UIManager.toggleHeroSection === 'function') UIManager.toggleHeroSection(true);
-            if(RenderManager.renderHome) RenderManager.renderHome();
-            
-            if(CalendarApp && CalendarApp.init) CalendarApp.init();
-            
-            const uiInitMethods = [
-                'initSlider', 'updateSidebarText', 'initSupportButton', 'initTheme',
-                'applyFontSettings', 'refreshCurrencyMenuFlags', 'renderSettingsUI',
-                'loadUserImageAutomatically', 'restoreDisplayState', 'setupMainContentClickDetector',
-                'initSwipeGestures'
-            ];
-            uiInitMethods.forEach(method => { 
-                if(typeof UIManager[method] === 'function') UIManager[method](); 
-            });
-            
-            if(typeof UIManager.updateDisplayCurrencyUI === 'function') UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
-            if(Components && Components.initBottomNavSync) Components.initBottomNavSync();
-            if(typeof UIManager.checkKycCelebration === 'function') UIManager.checkKycCelebration();
+        // 🚀 4. إقلاع الواجهة فوراً دون انتظار المؤقت القديم
+        if(DataManager.syncUser) DataManager.syncUser();
+        if(DataManager.loadPrefs) DataManager.loadPrefs();
+        
+        if(typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
+        if(typeof UIManager.toggleHeroSection === 'function') UIManager.toggleHeroSection(true);
+        if(RenderManager.renderHome) RenderManager.renderHome();
+        
+        if(CalendarApp && CalendarApp.init) CalendarApp.init();
+        
+        const uiInitMethods = [
+            'initSlider', 'updateSidebarText', 'initSupportButton', 'initTheme',
+            'applyFontSettings', 'refreshCurrencyMenuFlags', 'renderSettingsUI',
+            'loadUserImageAutomatically', 'restoreDisplayState', 'setupMainContentClickDetector',
+            'initSwipeGestures'
+        ];
+        uiInitMethods.forEach(method => { 
+            if(typeof UIManager[method] === 'function') UIManager[method](); 
+        });
+        
+        if(typeof UIManager.updateDisplayCurrencyUI === 'function') UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
+        if(Components && Components.initBottomNavSync) Components.initBottomNavSync();
+        if(typeof UIManager.checkKycCelebration === 'function') UIManager.checkKycCelebration();
 
-            this.initGlobalListeners();
-            this.isReady = true;
-            console.log("🚀 المتجر جاهز تماماً ومتصل بالسحابة!");
-        }, 300); // إعطاء Firebase 300ms ليجلب بيانات العميل قبل تشغيل الواجهة
+        this.initGlobalListeners();
+        this.isReady = true;
+        console.log("🚀 المتجر جاهز تماماً ومتصل بالسحابة!");
 
     } catch (criticalError) {
         console.error("🚨 خطأ حرج يمنع الإقلاع:", criticalError.message);
