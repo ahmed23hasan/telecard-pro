@@ -34,7 +34,7 @@ const generateUniqueId = () => {
 };
 
 // ==========================================
-// 🛒 1. دالة إنشاء الطلبات الآمنة للعملاء (النسخة اللانهائية التوازي + المحصنة ضد التكرار)
+// 🛒 1. دالة إنشاء الطلبات الآمنة للعملاء (النسخة اللانهائية التوازي + المحصنة ضد التكرار والتصادم المالي)
 // ==========================================
 exports.createOrder = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
@@ -53,15 +53,29 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
 
         if (!spamCheckQuery.empty) {
             const lastOrder = spamCheckQuery.docs[0].data();
-            const lastOrderTime = lastOrder.time ? lastOrder.time.toDate().getTime() : 0;
+            
+            // 🌟 [الدرع المعماري الاحترافي - Type Guard]: فك تشفير الوقت بمرونة فائقة 
+            // يقبل الـ Timestamp السحابي أو الرقم الملي-ثاني للطلبات القديمة لمنع انهيار السيرفر 
+            let lastOrderTime = 0;
+            if (lastOrder.time) {
+                if (typeof lastOrder.time.toDate === 'function') {
+                    lastOrderTime = lastOrder.time.toDate().getTime();
+                } else if (typeof lastOrder.time === 'number') {
+                    lastOrderTime = lastOrder.time;
+                } else {
+                    const parsedDate = new Date(lastOrder.time);
+                    lastOrderTime = isNaN(parsedDate.getTime()) ? 0 : parsedDate.getTime();
+                }
+            }
+            
             const timeDifference = Date.now() - lastOrderTime;
             
-            if (timeDifference < 10000) { // 10 ثوانٍ تبريد
+            if (timeDifference < 10000) { // 10 ثوانٍ تبريد لمنع السبام
                 throw new functions.https.HttpsError('already-exists', 'لقد قمت بطلب هذا المنتج للتو! يرجى الانتظار بضع ثوانٍ لمنع الشراء المزدوج بالخطأ.');
             }
         }
 
-        // 🌟 توليد المعرف الرقمي الفخم خارج الـ Transaction ومسح العدادات تماماً
+        // 🌟 توليد المعرف الرقمي الفخم خارج الـ Transaction ومسح العدادات تماماً لمنع الاختناق (No Hotspotting)
         const cleanOrderId = generateUniqueId();
         const userRef = db.collection('telecard_users').doc(uid);
         const productRef = db.collection('telecard_prods').doc(String(productId));
@@ -220,7 +234,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
         throw new functions.https.HttpsError('internal', 'حدث خطأ غير متوقع في السيرفر.');
     }
 });
-
 // ==========================================
 // 💰 2. دالة إرسال طلب الإيداع للعملاء (توازي + حماية سبام + حماية تلاعب أرقام)
 // ==========================================
