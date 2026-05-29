@@ -35,20 +35,28 @@ service cloud.firestore {
       allow delete: if isMasterAdmin();
     }
 
-    // ==========================================
-    // 🌐 المجموعات العامة (للعرض فقط)
-    // ==========================================
-    match /telecard_tiers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_prods/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_cats/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_settings/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_alerts/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_payments/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_banners/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_rates/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_countries/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_offers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+// ==========================================
+// 🌐 المجموعات العامة (للعرض فقط)
+// ==========================================
+match /telecard_tiers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+match /telecard_cats/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+match /telecard_settings/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+match /telecard_alerts/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+match /telecard_payments/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+match /telecard_banners/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+match /telecard_rates/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+match /telecard_countries/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+match /telecard_offers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
 
+// 🌟 المجموعة العامة للمنتجات (النسخة المطهرة والآمنة التي لا تحتوي على التكلفة)
+match /telecard_prods_public/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+
+// ==========================================
+// 🔒 مجموعة المنتجات الأصلية (شديدة الحساسية - تحتوي على التكلفة)
+// ==========================================
+match /telecard_prods/{docId} {
+allow read, write: if isMasterAdmin();
+}
     // ==========================================
     // 🛒 الطلبات والإيداعات
     // ==========================================
