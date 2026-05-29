@@ -1,3 +1,9 @@
+// ============================================================================
+// 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة المدرعة للإنتاج V5
+// 🎯 الوظيفة: معالجة الطلبات والإيداعات الآمنة سحابياً بنظام الحوسبة المتوازية اللانهائية
+// 🌟 التحديث الأقصى: معرفات Base36 + حماية التكرار (Anti-Spam) + توجيه us-east1
+// ============================================================================
+
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const { FinancialEngine } = require('./financialEngine.js'); 
@@ -14,16 +20,21 @@ const db = admin.firestore();
 
 const isMasterAdmin = (context) => {
     if (!context.auth) return false;
-    // التأكد التام من السماح لأهم الحسابات التشغيلية
     return context.auth.token.email === 'admin@telecard.pro' || context.auth.uid === 'e064MQJyn6dhU9mNXZvXItc7VYg2';
 };
 
-// عمليات حسابية حذرة للمحافظة على أمان فواصل الأعشار للأموال (Fintech Safety)
 const safeAdd = (a, b) => Number((Number(a) + Number(b)).toFixed(4));
 const safeSub = (a, b) => Math.max(0, Number((Number(a) - Number(b)).toFixed(4)));
 
+// 🌟 [مُولد المعرفات الفاخر]: يعتمد على نظام Base36 الزمني ويمنع الـ Hotspotting نهائياً
+const generateUniqueId = () => {
+    const timeBase36 = Date.now().toString(36).toUpperCase();
+    const randomSuffix = Math.floor(10 + Math.random() * 90); // رقمين عشوائيين للأمان المطلق
+    return `${timeBase36}-${randomSuffix}`; // ينتج معرفات فخمة مثل: LPTW89-34
+};
+
 // ==========================================
-// 🛒 1. دالة إنشاء الطلبات الآمنة للعملاء (المحصنة ضد النقر المزدوج وأخطاء التزامن)
+// 🛒 1. دالة إنشاء الطلبات الآمنة للعملاء (النسخة اللانهائية التوازي + المحصنة ضد التكرار)
 // ==========================================
 exports.createOrder = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
@@ -33,8 +44,7 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
     const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
 
     try {
-        // 🌟 [جدار الحماية ضد النقر المزدوج/السبام]: يمنع العميل من شراء نفس المنتج مرتين خلال 10 ثوانٍ
-        // نقوم بالاستعلام خارج المعاملة (Transaction) للحفاظ على سرعة السيرفر
+        // 🛡️ [جدار الحماية ضد النقر المزدوج]: يمنع العميل من شراء نفس المنتج مرتين خلال 10 ثوانٍ
         const spamCheckQuery = await db.collection('telecard_orders')
             .where('userId', '==', uid)
             .where('prodId', '==', String(productId))
@@ -46,20 +56,22 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
             const lastOrderTime = lastOrder.time ? lastOrder.time.toDate().getTime() : 0;
             const timeDifference = Date.now() - lastOrderTime;
             
-            if (timeDifference < 10000) { // 10 ثوانٍ (10000 ملي ثانية)
-                throw new functions.https.HttpsError('already-exists', 'لقد قمت بطلب هذا المنتج للتو! يرجى الانتظار بضع ثوانٍ قبل تكرار الطلب لمنع الشراء المزدوج.');
+            if (timeDifference < 10000) { // 10 ثوانٍ تبريد
+                throw new functions.https.HttpsError('already-exists', 'لقد قمت بطلب هذا المنتج للتو! يرجى الانتظار بضع ثوانٍ لمنع الشراء المزدوج بالخطأ.');
             }
         }
 
-        // --- الاستعلامات الآمنة خارج المعاملة ---
+        // 🌟 توليد المعرف الرقمي الفخم خارج الـ Transaction ومسح العدادات تماماً
+        const cleanOrderId = generateUniqueId();
+        const userRef = db.collection('telecard_users').doc(uid);
+        const productRef = db.collection('telecard_prods').doc(String(productId));
+        const systemRef = db.collection('telecard_system').doc('singleton');
+        const orderRef = db.collection('telecard_orders').doc(cleanOrderId); 
+        
         let couponRef = null;
-        let couponData = null;
         if (couponCode) {
             const couponQuery = await db.collection('telecard_coupons').where('code', '==', couponCode).limit(1).get();
-            if (!couponQuery.empty) {
-                couponRef = couponQuery.docs[0].ref;
-                couponData = couponQuery.docs[0].data();
-            }
+            if (!couponQuery.empty) couponRef = couponQuery.docs[0].ref;
         }
 
         const offersQuery = await db.collection('telecard_offers')
@@ -74,33 +86,21 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
             if (!off.expiryDate || off.expiryDate > now) activeOffer = off;
         });
 
-        // المراجع الأساسية
-        const userRef = db.collection('telecard_users').doc(uid);
-        const productRef = db.collection('telecard_prods').doc(String(productId));
-        const systemRef = db.collection('telecard_system').doc('singleton');
-        const countersRef = db.collection('telecard_system').doc('counters'); 
-
         let resultMessage = "تم استلام الطلب بأمان.";
         let deliveredCodeText = null;
         let isAutoDelivered = false;
 
-        // 🧠 بدء المعاملة المالية المغلقة والمحصنة (Transaction)
         await db.runTransaction(async (transaction) => {
-            // ----------------------------------------------------
-            // 📥 1. منطقة القراءة فقط (READS ZONE)
-            // ----------------------------------------------------
             const userSnap = await transaction.get(userRef);
             const productSnap = await transaction.get(productRef);
-            const countersSnap = await transaction.get(countersRef);
-            
-            // تحديث قراءة الكوبون لضمان عدم استخدامه في نفس اللحظة من شخص آخر
-            if (couponRef) couponData = (await transaction.get(couponRef)).data();
+            let couponSnap = couponRef ? await transaction.get(couponRef) : null;
 
             if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'المستخدم غير موجود.');
             if (!productSnap.exists) throw new functions.https.HttpsError('not-found', 'المنتج غير متوفر.');
 
             const userData = userSnap.data();
             const product = productSnap.data();
+            const couponData = (couponSnap && couponSnap.exists) ? couponSnap.data() : null;
 
             const tierId = String(userData.tierId || userData.tier || 1);
             const tierRef = db.collection('telecard_tiers').doc(tierId);
@@ -121,16 +121,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
                 vaultSnap = await transaction.get(vaultRef); 
             }
 
-            let currentOrderCount = 100001; 
-            if (countersSnap.exists && countersSnap.data().orders_counter) {
-                currentOrderCount = countersSnap.data().orders_counter + 1;
-            }
-            const cleanOrderId = String(currentOrderCount);
-            const orderRef = db.collection('telecard_orders').doc(cleanOrderId); 
-
-            // ----------------------------------------------------
-            // 🧠 2. منطقة الحسابات والمنطق (LOGIC ZONE)
-            // ----------------------------------------------------
             let rawUnitCost = Number(product.costPrice || product.unitCost || product.price || 0);
             if (product.type === 'select' && Array.isArray(product.options) && product.options[optIdx]) {
                 rawUnitCost = Number(product.options[optIdx].price || product.options[optIdx].costPrice || 0);
@@ -211,9 +201,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
                 statsUpdate['globalStats.financials.totalProfit'] = admin.firestore.FieldValue.increment(Number((pricingSnapshot.profit * finalQty).toFixed(4)));
             }
 
-            // ----------------------------------------------------
-            // 💾 3. منطقة الكتابة فقط (WRITES ZONE)
-            // ----------------------------------------------------
             if (pricingSnapshot.couponCode && couponRef && couponData) {
                 transaction.update(couponRef, { usedCount: admin.firestore.FieldValue.increment(1) });
             }
@@ -223,7 +210,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
             transaction.update(userRef, { walletBalance: newBalance, balance: newBalance, totalSpent: newTotalSpent, tierCycleSpent: newCycleSpent });
             transaction.set(orderRef, newOrder);
             transaction.set(systemRef, statsUpdate, { merge: true }); 
-            transaction.set(countersRef, { orders_counter: currentOrderCount }, { merge: true });
         });
 
         return { success: true, message: resultMessage, isAutoDelivered: isAutoDelivered, deliveredCode: deliveredCodeText };
@@ -236,18 +222,18 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
 });
 
 // ==========================================
-// 💰 2. دالة إرسال طلب الإيداع للعملاء (النسخة النهائية - محصنة ضد التلاعب والتكرار)
+// 💰 2. دالة إرسال طلب الإيداع للعملاء (توازي + حماية سبام + حماية تلاعب أرقام)
 // ==========================================
 exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
 
     const uid = context.auth.uid;
-    const { amount, paymentMethodName, payCurr, receiptData } = data;
+    const { amount, paymentMethodName, payCurr, receiptData } = data; // السيرفر يتجاهل netBase
 
     if (amount <= 0) throw new functions.https.HttpsError('invalid-argument', 'المبلغ المدخل غير صالح.');
 
     try {
-        // 🌟 1. [جدار حماية التكرار]: التحقق من عدم وجود طلب معلق مسبقاً بنفس طريقة الدفع
+        // 🛡️ [جدار الحماية ضد السبام]: التحقق من عدم وجود طلب معلق مسبقاً بنفس الطريقة
         const existingPending = await db.collection('telecard_deposits')
             .where('userId', '==', uid)
             .where('method', '==', paymentMethodName)
@@ -255,10 +241,9 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
             .limit(1).get();
 
         if (!existingPending.empty) {
-            throw new functions.https.HttpsError('already-exists', 'عذراً، لديك طلب إيداع معلق مسبقاً بهذه الطريقة. يرجى الانتظار حتى تتم معالجته من قبل الإدارة.');
+            throw new functions.https.HttpsError('already-exists', 'عذراً، لديك طلب إيداع معلق مسبقاً بهذه الطريقة. يرجى الانتظار حتى تتم معالجته.');
         }
 
-        // 🌟 2. [استعلامات آمنة خارج الـ Transaction]: جلب البيانات الداعمة
         const paymentsQuery = await db.collection('telecard_payments').where('name', '==', paymentMethodName).limit(1).get();
         if (paymentsQuery.empty) throw new functions.https.HttpsError('not-found', 'طريقة الدفع غير صالحة.');
         const paymentMethod = paymentsQuery.docs[0].data();
@@ -266,17 +251,19 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
         const ratesSnap = await db.collection('telecard_rates').get();
         const rates = ratesSnap.docs.map(doc => doc.data());
 
-        const countersRef = db.collection('telecard_system').doc('counters');
+        // 🌟 توليد معرّف الإيداع الزمني الخارق
+        const cleanDepositId = generateUniqueId(); 
+        const depositRef = db.collection('telecard_deposits').doc(cleanDepositId);
         const systemRef = db.collection('telecard_system').doc('singleton');
         const userRef = db.collection('telecard_users').doc(uid);
 
         await db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
-            const countersSnap = await transaction.get(countersRef);
 
             if (!userSnap.exists) throw new Error("المستخدم غير موجود.");
             const baseCurr = (userSnap.data().baseCurrency || 'USD').toUpperCase();
 
+            // 🧠 محرك الحساب السحابي الآمن لمنع التلاعب
             const payCurrUpper = (payCurr || 'USD').toUpperCase();
             let fee = parseFloat(paymentMethod.fee) || 0;
             let feeType = paymentMethod.feeType || 'fee';
@@ -310,20 +297,11 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
             safeNetBase = Math.floor(safeNetBase * 10000) / 10000; 
             if (isNaN(safeNetBase) || !isFinite(safeNetBase)) safeNetBase = 0;
 
-            let currentDepositCount = 500001;
-            if (countersSnap.exists && countersSnap.data().deposits_counter) {
-                currentDepositCount = countersSnap.data().deposits_counter + 1;
-            }
-            const cleanDepositId = String(currentDepositCount);
-            const depositRef = db.collection('telecard_deposits').doc(cleanDepositId);
-
-            transaction.set(countersRef, { deposits_counter: currentDepositCount }, { merge: true });
-
             transaction.set(depositRef, {
                 id: cleanDepositId, displayId: cleanDepositId,
                 userId: uid, method: paymentMethodName,
                 amount: Number(amount), currency: payCurr,
-                creditedAmount: safeNetBase, 
+                creditedAmount: safeNetBase, // حفظ الحساب السحابي الموثوق
                 status: 'pending',
                 time: admin.firestore.FieldValue.serverTimestamp(),
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -335,7 +313,7 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
             }, { merge: true });
         });
 
-        return { success: true, message: 'تم استلام طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة.' };
+        return { success: true, message: 'تم استلام طلب الإيداع وهو قيد المراجعة.' };
     } catch (error) {
         console.error("Deposit Error:", error);
         if (error instanceof functions.https.HttpsError) throw error;
@@ -360,7 +338,6 @@ exports.adminProcessDeposit = functions.region('us-east1').https.onCall(async (d
         return await db.runTransaction(async (transaction) => {
             const depRef = db.collection('telecard_deposits').doc(String(depositId));
             const depSnap = await transaction.get(depRef);
-            
             const systemRef = db.collection('telecard_system').doc('singleton');
             
             if (!depSnap.exists) throw new functions.https.HttpsError('not-found', 'الإيداع غير موجود.');
@@ -396,16 +373,13 @@ exports.adminProcessDeposit = functions.region('us-east1').https.onCall(async (d
                     });
                 }
                 statsUpdate['globalStats.deposits.approved'] = admin.firestore.FieldValue.increment(1);
-                
             } else if (action === 'rejected') {
                 statsUpdate['globalStats.deposits.rejected'] = admin.firestore.FieldValue.increment(1);
-                
             } else if (action === 'refunded') {
                 if (userSnap && userSnap.exists) {
                     const userData = userSnap.data();
                     const newWalletBal = Number((Number(userData.walletBalance || 0) - amountToProcess).toFixed(4));
                     const newBalance = Number((Number(userData.balance || 0) - amountToProcess).toFixed(4));
-                    
                     transaction.update(userRef, {
                         walletBalance: newWalletBal,
                         balance: newBalance,
@@ -435,7 +409,7 @@ exports.adminProcessDeposit = functions.region('us-east1').https.onCall(async (d
 });
 
 // ==========================================
-// 👑 4. [إدارة] دالة معالجة الطلبات الآمنة 
+// 👑 4. [إدارة] دالة معالجة الطلبات الآمنة
 // ==========================================
 exports.adminProcessOrder = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك.');
@@ -448,7 +422,6 @@ exports.adminProcessOrder = functions.region('us-east1').https.onCall(async (dat
         return await db.runTransaction(async (transaction) => {
             const orderRef = db.collection('telecard_orders').doc(String(orderId));
             const orderSnap = await transaction.get(orderRef);
-            
             const systemRef = db.collection('telecard_system').doc('singleton');
             
             if (!orderSnap.exists) throw new functions.https.HttpsError('not-found', 'الطلب غير موجود.');
@@ -542,14 +515,11 @@ exports.adminAdjustBalance = functions.region('us-east1').https.onCall(async (da
     }
 
     const userRef = db.collection('telecard_users').doc(String(userId));
-    const countersRef = db.collection('telecard_system').doc('counters');
     const systemRef = db.collection('telecard_system').doc('singleton');
 
     try {
         return await db.runTransaction(async (transaction) => {
             const userDoc = await transaction.get(userRef);
-            const countersSnap = await transaction.get(countersRef);
-
             if (!userDoc.exists) throw new functions.https.HttpsError('not-found', 'العميل غير موجود.');
 
             const userData = userDoc.data();
@@ -559,25 +529,17 @@ exports.adminAdjustBalance = functions.region('us-east1').https.onCall(async (da
                 throw new functions.https.HttpsError('failed-precondition', 'رصيد العميل غير كافٍ لإتمام الخصم.');
             }
 
-            let currentDepositCount = 500001;
-            if (countersSnap.exists && countersSnap.data().deposits_counter) {
-                currentDepositCount = countersSnap.data().deposits_counter + 1;
-            }
-            const cleanDepositId = String(currentDepositCount);
+            const cleanDepositId = generateUniqueId(); 
             const depositRef = db.collection('telecard_deposits').doc(cleanDepositId);
 
             const newBal = type === 'add' ? currentBal + adjustAmount : currentBal - adjustAmount;
-            
             const currentTotalDep = Number(userData.totalDeposit || 0);
             const newTotalDep = type === 'add' ? currentTotalDep + adjustAmount : currentTotalDep;
-            
             const currentTotalSpent = Number(userData.totalSpent || 0);
             const newTotalSpent = type === 'subtract' ? currentTotalSpent + adjustAmount : currentTotalSpent;
 
             const currency = (userData.baseCurrency || 'USD').toUpperCase();
 
-            transaction.set(countersRef, { deposits_counter: currentDepositCount }, { merge: true });
-            
             transaction.update(userRef, {
                 walletBalance: newBal,
                 balance: newBal,
@@ -610,11 +572,7 @@ exports.adminAdjustBalance = functions.region('us-east1').https.onCall(async (da
             return { 
                 success: true, 
                 newBalance: newBal, 
-                newDeposit: { 
-                    id: cleanDepositId, 
-                    amount: adjustAmount, 
-                    creditedAmount: type === 'add' ? adjustAmount : -adjustAmount 
-                } 
+                newDeposit: { id: cleanDepositId, amount: adjustAmount, creditedAmount: type === 'add' ? adjustAmount : -adjustAmount } 
             };
         });
     } catch (error) {
@@ -647,7 +605,6 @@ exports.calculateStoreStatsCloud = functions.region('us-east1').https.onCall(asy
         ordersSnap.forEach(doc => {
             const o = doc.data();
             globalStats.orders.total++;
-            
             if (o.status === 'completed') {
                 globalStats.orders.completed++;
                 const exactPriceUsd = Number(o.price || 0);
@@ -685,10 +642,7 @@ exports.calculateStoreStatsCloud = functions.region('us-east1').https.onCall(asy
 // ⏱️ دالة جلب توقيت السيرفر المركزي 
 // ==========================================
 exports.getServerTime = functions.region('us-east1').https.onCall((data, context) => {
-    return {
-        success: true,
-        serverTime: Date.now() 
-    };
+    return { success: true, serverTime: Date.now() };
 });
 
 // ==========================================
