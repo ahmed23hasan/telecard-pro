@@ -1,7 +1,7 @@
 // ============================================================================
 // 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - ES6 Module
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
-// 🚀 التحديث: التوافق الكامل مع معرفات Base36 والتوقيت السحابي + إيقاف المحاسب المحلي
+// 🚀 التحديث: التوافق الكامل مع معرفات Base36 والتوقيت السحابي + إيقاف المحاسب المحلي + حماية الإيداعات
 // ============================================================================
 
 import { DB_KEYS } from './config.js'; 
@@ -791,6 +791,87 @@ export const RenderManager = {
             loadMoreBtn.querySelector('button').onclick = () => { this.limits.wallet += 15; this.renderWallet(); };
             list.appendChild(loadMoreBtn);
         }
+    },
+    // ========================================================================
+    // 🌟 حماية تكرار الإيداعات (Pending Lock) في بوابات الدفع (بالتصميم الأصلي)
+    // ========================================================================
+    renderPayMethods: function() {
+        const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container') || document.querySelector('.bal-methods-grid') || document.getElementById('pay-methods-list');
+        if (!container) return;
+
+        container.innerHTML = '';
+        
+        const payments = LiveStoreData.payments || [];
+        const validPayments = payments.filter(p => p?.name?.trim() && p.isActive !== false && p.is_active !== false);
+
+        if (validPayments.length === 0) {
+            container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-building-columns"></i><h3>لا توجد طرق دفع متاحة</h3><p>نعمل على توفير طرق دفع قريباً.</p></div>`;
+            return;
+        }
+
+        // 🌟 استخراج العمليات المعلقة للعميل لمنع التكرار (Anti-Spam Pending Lock)
+        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? DataManager.user.id : null);
+        const allDeposits = LiveStoreData.deposits || [];
+        const pendingMethodKeys = allDeposits
+            .filter(d => String(d.userId) === String(uid) && d.status === 'pending')
+            .map(d => String(d.methodId || d.method).toLowerCase());
+
+        const fragment = document.createDocumentFragment();
+
+        validPayments.sort((a,b) => (a.order || 0) - (b.order || 0)).forEach(p => {
+            const safeName = Utils.escapeHtml(p.name);
+            const pIdStr = String(p.id).toLowerCase();
+            const pNameStr = String(p.name).toLowerCase();
+            
+            // الفحص الاستباقي: هل البوابة محظورة بسبب وجود طلب معلق؟
+            const isLocked = pendingMethodKeys.includes(pIdStr) || pendingMethodKeys.includes(pNameStr);
+
+            const imgHtml = p.img 
+                ? `<img src="${Utils.escapeHtml(p.img)}" class="pay-icon-img" alt="${safeName}" onerror="this.parentElement.innerHTML='<div class=\\'pay-icon-default\\'><i class=\\'fa-solid fa-building-columns\\'></i></div>'">` 
+                : `<div class="pay-icon-default"><i class="fa-solid fa-building-columns"></i></div>`;
+            
+            const card = document.createElement('div');
+            
+            if (isLocked) {
+                // 🔒 تصميم الكارت المقفل (Locked UI) - متوافق تماماً مع style.css
+                card.className = 'pay-card-select method-locked';
+                card.style.opacity = '0.65';
+                card.innerHTML = `
+                    <div class="pay-icon-wrapper" style="filter: grayscale(100%);">
+                        ${imgHtml}
+                    </div>
+                    <div class="pay-card-content">
+                        <h3 class="pay-card-name" style="color: var(--text-muted);">${safeName}</h3>
+                        <span style="display:block; font-size:11px; color:var(--warning); margin-top:4px;"><i class="fa-solid fa-hourglass-half"></i> لديك طلب قيد المعالجة بهذه الطريقة</span>
+                    </div>
+                    <i class="fa-solid fa-lock pay-card-arrow" style="color: var(--text-muted);"></i>
+                `;
+                // نزع صلاحية الفتح واستبدالها بإشعار تنبيهي
+                card.onclick = () => {
+                    if (window.UIManager && window.UIManager.showToast) {
+                        window.UIManager.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة، يرجى الانتظار حتى يتم قبوله أو رفضه.', 'warning');
+                    }
+                };
+            } else {
+                // ✅ تصميم الكارت الطبيعي المتاح للضغط - متوافق تماماً مع style.css
+                card.className = 'pay-card-select clickable';
+                card.setAttribute('data-action', 'select-pay');
+                card.setAttribute('data-id', p.id);
+                card.innerHTML = `
+                    <div class="pay-icon-wrapper">
+                        ${imgHtml}
+                    </div>
+                    <div class="pay-card-content">
+                        <h3 class="pay-card-name">${safeName}</h3>
+                    </div>
+                    <i class="fa-solid fa-chevron-left pay-card-arrow"></i>
+                `;
+            }
+            
+            fragment.appendChild(card);
+        });
+        
+        container.appendChild(fragment);
     },
 
     renderPayments: function() {
