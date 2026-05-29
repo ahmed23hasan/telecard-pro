@@ -1,6 +1,6 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud Version - Node.js)
-// 🎯 الوظيفة: حساب الأسعار بأمان تام داخل بيئة السيرفر
+// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - Master Engine
+// 🎯 الوظيفة: حساب الأسعار بأمان تام داخل بيئة السيرفر (محصن ضد أخطاء الإدخال)
 // ============================================================================
 
 exports.FinancialEngine = Object.freeze({
@@ -26,6 +26,7 @@ exports.FinancialEngine = Object.freeze({
         return Number(finalAmount.toFixed(4));
     },
 
+    // 🚀 المحرك الرياضي المكتمل والمحصن للسيرفر
     calculatePrice: function(params) {
         const { costPrice = 0, tier = null, offer = null, coupon = null } = params;
         const cost = Number(costPrice) || 0;
@@ -33,27 +34,50 @@ exports.FinancialEngine = Object.freeze({
         let currentPrice = cost;
         let tierName = null;
 
-        if (tier) {
-            tierName = tier.nameAr || tier.name || 'عضو';
-            const profitPercent = Number(tier.profitPercent || tier.profit_percent || 0);
-            const minProfitUsd = Number(tier.minProfitUsd || tier.min_profit_usd || 0);
+        // 🛡️ دالة مساعدة لانتزاع الأرقام الصافية بقوة من أي نص (حماية السيرفر من التعليق)
+        const extractNum = (val) => {
+            if (val === undefined || val === null || val === '') return 0;
+            const cleanStr = String(val).replace(/[^0-9.-]/g, '');
+            const num = parseFloat(cleanStr);
+            return isNaN(num) ? 0 : num;
+        };
 
-            let profitAdded = cost * (profitPercent / 100);
+        // 1. حساب سعر البيع الأساسي بناءً على مستوى العميل (Tier Profit Margin)
+        if (tier && typeof tier === 'object') {
+            tierName = tier.nameAr || tier.name || tier.id || 'عضو';
             
-            if (profitAdded < minProfitUsd) {
-                profitAdded = minProfitUsd;
+            // 🛡️ بحث مرن ومحصن ضد أخطاء التسمية في قاعدة البيانات
+            const profitPercent = extractNum(
+                tier.profitPercent ?? tier.profit_percent ?? 
+                tier.profitMargin ?? tier.profit_margin ?? 
+                tier.profit ?? tier.margin ?? tier.percentage ?? 0
+            );
+            
+            const minProfitUsd = extractNum(
+                tier.minProfitUsd ?? tier.min_profit_usd ?? 
+                tier.minProfit ?? tier.min_profit ?? tier.minUsd ?? 0
+            );
+
+            if (profitPercent > 0 || minProfitUsd > 0) {
+                let profitAdded = cost * (profitPercent / 100);
+                if (profitAdded < minProfitUsd) {
+                    profitAdded = minProfitUsd;
+                }
+                currentPrice += profitAdded;
+            } else {
+                console.warn(`⚠️ المحرك المالي السحابي: مستوى العميل [${tierName}] قرأ نسبة الربح كـ 0.`);
             }
-            currentPrice += profitAdded;
         }
 
         const tierPrice = currentPrice;
         const originalPrice = tierPrice;
 
+        // 2. تطبيق خصومات العروض النشطة (Sales & Offers)
         let offerName = null;
         let offerDiscount = 0;
         if (offer && offer.type !== 'fake') {
             offerName = offer.name;
-            const val = Number(offer.value || 0);
+            const val = extractNum(offer.value);
             if (offer.type === 'percentage') {
                 offerDiscount = originalPrice * (val / 100);
             } else if (offer.type === 'fixed' || offer.type === 'amount') {
@@ -62,11 +86,12 @@ exports.FinancialEngine = Object.freeze({
             currentPrice -= offerDiscount;
         }
 
+        // 3. تطبيق خصومات الكوبونات (Coupons)
         let couponCode = null;
         let couponDiscount = 0;
         if (coupon) {
             couponCode = coupon.code;
-            const val = Number(coupon.value || 0);
+            const val = extractNum(coupon.value);
             if (coupon.type === 'percentage') {
                 couponDiscount = currentPrice * (val / 100);
             } else if (coupon.type === 'fixed' || coupon.type === 'amount') {
@@ -75,10 +100,11 @@ exports.FinancialEngine = Object.freeze({
             currentPrice -= couponDiscount;
         }
 
+        // 4. 🛡️ جدار الحماية المالي (Financial Firewall)
         let isFirewallActive = false;
         if (currentPrice < cost) {
             isFirewallActive = true;
-            currentPrice = cost; 
+            currentPrice = cost; // منع البيع بخسارة
             
             const maxAllowedDiscount = originalPrice - cost;
             const totalRequestedDiscount = offerDiscount + couponDiscount;
@@ -95,6 +121,7 @@ exports.FinancialEngine = Object.freeze({
         const profit = finalPrice - cost;
         const marginPct = cost > 0 ? (profit / cost) * 100 : 0;
 
+        // إرجاع كائن التطابق الكامل لحفظه في فاتورة الطلب (telecard_orders)
         return {
             cost: Number(cost.toFixed(4)),
             tierPrice: Number(tierPrice.toFixed(4)),

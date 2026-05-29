@@ -1,6 +1,6 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (core/financialEngine.js) - Agnostic Core
-// 🎯 الوظيفة: حساب الأسعار، الخصومات، تحويل العملات، والضرائب (للمتجر والإدارة)
+// 💰 المحرك المالي للمتجر (store-app/core/financialEngine.js) - Client Safe Engine
+// 🎯 الوظيفة: حساب الأسعار، الخصومات، وتحويل العملات بذكاء وأمان تام (لا يحتوي على التكلفة)
 // ============================================================================
 
 export const FinancialEngine = Object.freeze({
@@ -24,58 +24,41 @@ export const FinancialEngine = Object.freeze({
         const inUSD = amt / (fromRate || 1);
         const finalAmount = inUSD * (toRate || 1);
         return Number(finalAmount.toFixed(4));
-    },    // 🚀 المحرك الرياضي المكتمل لحساب الأسعار وجدار الحماية
+    },
+
+    // 🚀 المحرك المالي النظيف والآمن (لا يقرأ ولا يحتوي على أي إشارة لسعر التكلفة)
     calculatePrice: function(params) {
-        const { costPrice = 0, tier = null, offer = null, coupon = null } = params;
-        const cost = Number(costPrice) || 0;
+        // نمرر كائن المنتج بالكامل بدلاً من سعر التكلفة
+        const { product = {}, tier = null, offer = null, coupon = null } = params;
 
-        let currentPrice = cost;
-        let tierName = null;
+        // 1. استخراج السعر المخصص لمستوى العميل (المحسوب مسبقاً والمُرسل من السيرفر)
+        let baseSellingPrice = 0;
+        
+        // التحقق مما إذا كان المنتج له سعر ثابت
+        const isFixed = (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true' || product.is_fixed_price === true);
 
-        // 🛡️ دالة مساعدة لانتزاع الأرقام الصافية بقوة من أي نص (تتجاهل الرموز مثل % أو $ أو المسافات)
+        if (isFixed) {
+            baseSellingPrice = Number(product.fixedPriceUsd || product.fixed_price_usd || 0);
+        } else if (tier && product.tierPrices && product.tierPrices[tier.id]) {
+            // إذا كان للعميل مستوى، نأخذ سعره الجاهز فوراً!
+            baseSellingPrice = Number(product.tierPrices[tier.id]);
+        } else {
+            // سعر احتياطي في حال لم يتم تحديد مستوى للعميل
+            baseSellingPrice = Number(product.price || 0); 
+        }
+
+        let currentPrice = baseSellingPrice;
+        const originalPrice = currentPrice;
+
+        // 🛡️ دالة مساعدة لانتزاع الأرقام الصافية بقوة
         const extractNum = (val) => {
             if (val === undefined || val === null || val === '') return 0;
-            // إزالة أي شيء ليس رقماً أو نقطة عشرية
             const cleanStr = String(val).replace(/[^0-9.-]/g, '');
             const num = parseFloat(cleanStr);
             return isNaN(num) ? 0 : num;
         };
 
-        // 1. حساب سعر البيع الأساسي بناءً على مستوى العميل (Tier Profit Margin)
-        if (tier && typeof tier === 'object') {
-            tierName = tier.nameAr || tier.name || tier.id || 'عضو';
-            
-            // 🛡️ مسح شامل لكل المفاتيح المحتملة + التنظيف الإجباري باستخدام extractNum
-            const profitPercent = extractNum(
-                tier.profitPercent ?? tier.profit_percent ?? 
-                tier.profitMargin ?? tier.profit_margin ?? 
-                tier.profit ?? tier.margin ?? tier.percentage ?? 0
-            );
-            
-            const minProfitUsd = extractNum(
-                tier.minProfitUsd ?? tier.min_profit_usd ?? 
-                tier.minProfit ?? tier.min_profit ?? tier.minUsd ?? 0
-            );
-
-            if (profitPercent > 0 || minProfitUsd > 0) {
-                // حساب الربح كنسبة مئوية من التكلفة
-                let profitAdded = cost * (profitPercent / 100);
-                
-                // تطبيق الحد الأدنى للربح إذا كانت النسبة المئوية أقل منه
-                if (profitAdded < minProfitUsd) {
-                    profitAdded = minProfitUsd;
-                }
-                currentPrice += profitAdded;
-            } else {
-                // طباعة القيم الأصلية الخام في الكونسول لتسهيل التتبع إذا استمرت المشكلة
-                console.warn(`⚠️ المحرك المالي: مستوى العميل [${tierName}] قرأ نسبة الربح كـ 0. (القيم الخام: نسبة='${tier.profit_percent || tier.profitPercent}', حد أدنى='${tier.min_profit_usd || tier.minProfitUsd}')`);
-            }
-        }
-
-        const tierPrice = currentPrice;
-        const originalPrice = tierPrice;
-
-        // 2. تطبيق خصومات العروض النشطة (Sales & Offers) - تم إضافة extractNum للحماية
+        // 2. تطبيق خصومات العروض النشطة (محلياً وبسرعة البرق)
         let offerName = null;
         let offerDiscount = 0;
         if (offer && offer.type !== 'fake') {
@@ -89,7 +72,7 @@ export const FinancialEngine = Object.freeze({
             currentPrice -= offerDiscount;
         }
 
-        // 3. تطبيق خصومات الكوبونات (Coupons) - تم إضافة extractNum للحماية
+        // 3. تطبيق خصومات الكوبونات (محلياً وبسرعة البرق)
         let couponCode = null;
         let couponDiscount = 0;
         if (coupon) {
@@ -103,44 +86,22 @@ export const FinancialEngine = Object.freeze({
             currentPrice -= couponDiscount;
         }
 
-        // 4. 🛡️ جدار الحماية المالي (Financial Firewall)
-        // يمنع بيع المنتج بخسارة إذا تجاوزت الخصومات سعر التكلفة
-        let isFirewallActive = false;
-        if (currentPrice < cost) {
-            isFirewallActive = true;
-            currentPrice = cost; // إعادة السعر ليكون مساوياً للتكلفة على الأقل
-            
-            // إعادة ضبط قيم الخصومات الظاهرية لكي لا تعطي أرقاماً وهمية للعميل
-            const maxAllowedDiscount = originalPrice - cost;
-            const totalRequestedDiscount = offerDiscount + couponDiscount;
-            
-            if (totalRequestedDiscount > 0) {
-                const ratio = maxAllowedDiscount / totalRequestedDiscount;
-                offerDiscount *= ratio;
-                couponDiscount *= ratio;
-            }
-        }
+        // 4. الحماية المحلية الظاهرية (لا يمكن أن يكون السعر بالسالب)
+        if (currentPrice < 0) currentPrice = 0;
 
         const finalPrice = currentPrice;
         const totalDiscountVal = offerDiscount + couponDiscount;
-        const profit = finalPrice - cost;
-        const marginPct = cost > 0 ? (profit / cost) * 100 : 0;
 
-        // إرجاع كائن التطابق الكامل الذي تحتاجه واجهات المتجر (Snapshot)
+        // 🌟 إرجاع البيانات النظيفة فقط للواجهة (تم حجب كل ما يخص الربح أو التكلفة تماماً)
         return {
-            cost: Number(cost.toFixed(4)),
-            tierPrice: Number(tierPrice.toFixed(4)),
             originalPrice: Number(originalPrice.toFixed(4)),
             finalPrice: Number(finalPrice.toFixed(4)),
-            tierName: tierName,
+            tierName: tier ? (tier.nameAr || tier.name || tier.id) : null,
             offerName: offerName,
             offerDiscount: Number(offerDiscount.toFixed(4)),
             couponCode: couponCode,
             couponDiscount: Number(couponDiscount.toFixed(4)),
-            totalDiscountVal: Number(totalDiscountVal.toFixed(4)),
-            profit: Number(profit.toFixed(4)),
-            marginPct: Number(marginPct.toFixed(2)),
-            isFirewallActive: isFirewallActive
+            totalDiscountVal: Number(totalDiscountVal.toFixed(4))
         };
     }
 });

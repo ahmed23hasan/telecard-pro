@@ -1,7 +1,7 @@
 // ============================================================================
 // 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - ES6 Module
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
-// 🚀 التحديث: إضافة زر "عرض المزيد" المركزي (Pagination) ونظام حماية تكرار الإيداعات (Pending Lock)
+// 🚀 التحديث: التوافق الكامل مع معرفات Base36 والتوقيت السحابي + إيقاف المحاسب المحلي
 // ============================================================================
 
 import { DB_KEYS } from './config.js'; 
@@ -56,7 +56,7 @@ export const RenderManager = {
     // =========================================================
     // 🏠 1. رسم الصفحة الرئيسية (الأقسام الرئيسية)
     // =========================================================
-        renderHome: function(isBackAction = false) {
+    renderHome: function(isBackAction = false) {
         const grid = document.getElementById('store-grid');
         const titleEl = document.getElementById('grid-title');
         
@@ -67,7 +67,6 @@ export const RenderManager = {
             titleEl.innerText = ''; 
         }
 
-        // 🌟 1. تجميع دوال الرسم الفعلي
         const performRender = () => {
             UIManager.toggleHeroSection(true);
             UIManager.navHistory = []; 
@@ -132,20 +131,18 @@ export const RenderManager = {
             UIManager.initSlider();
         };
 
-        // 🌟 2. الفحص الذكي للبيانات
         const hasData = (LiveStoreData.cats && LiveStoreData.cats.length > 0);
         
         if (hasData) {
-            // ✅ رسم فوري سريع
             performRender();
         } else {
-            // ⏳ تحميل نبضي فقط عند غياب البيانات
             if (typeof this.renderHomeSkeletons === 'function') {
                 this.renderHomeSkeletons();
             }
             setTimeout(performRender, 600);
         }
     },
+    
     renderHomeSkeletons: function() {
         const grid = document.getElementById('store-grid');
         if (grid) {
@@ -405,7 +402,7 @@ export const RenderManager = {
     
     _getCategoryName: function(id) {
         try {
-            const target = (LiveStoreData.cats || []).find(c => Number(c.id) === Number(id));
+            const target = (LiveStoreData.cats || []).find(c => String(c.id) === String(id));
             return target ? target.name : 'القسم';
         } catch(e) { return 'القسم'; }
     },
@@ -430,8 +427,8 @@ export const RenderManager = {
             titleEl.classList.add('show-correct-title'); 
         }
 
-        const subs = cats.filter(c => Number(c.parentId) === Number(id)).sort((a,b) => (a.order||0)-(b.order||0));
-        const items = prods.filter(p => Number(p.catId) === Number(id)).sort((a,b) => (a.order||0)-(b.order||0));
+        const subs = cats.filter(c => String(c.parentId) === String(id)).sort((a,b) => (a.order||0)-(b.order||0));
+        const items = prods.filter(p => String(p.catId) === String(id)).sort((a,b) => (a.order||0)-(b.order||0));
 
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if(backBtn) {
@@ -444,7 +441,7 @@ export const RenderManager = {
         }
 
         if(grid) {
-            const currentCat = cats.find(c => Number(c.id) === Number(id));
+            const currentCat = cats.find(c => String(c.id) === String(id));
             const catCols = currentCat?.layout || settings.rootLayout || null;
             
             this._applyGridLayout(grid, settings, catCols);
@@ -505,7 +502,7 @@ export const RenderManager = {
         
         let activeCols = null;
         if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId) {
-            const currentCat = (LiveStoreData.cats || []).find(c => Number(c.id) === Number(UIManager.currentCategoryId));
+            const currentCat = (LiveStoreData.cats || []).find(c => String(c.id) === String(UIManager.currentCategoryId));
             if (currentCat && currentCat.layout) activeCols = currentCat.layout;
         }
         this._applyGridLayout(grid, settings, activeCols);
@@ -663,20 +660,15 @@ export const RenderManager = {
     },
 
     // ========================================================================
-    // 💳 المحفظة والإيداعات والطلبات (تم إضافة زر Pagination المركزي)
+    // 💳 المحفظة والإيداعات والطلبات (تم إصلاح الفرز الزمني وإزالة المحاسب المحلي)
     // ========================================================================
     renderWallet: function() {
-        if (typeof DataManager.updateWalletStats === 'function') {
-            DataManager.updateWalletStats();
-        }
-        
         const filterData = Utils.getSearchAndDateFilters('wallet', 'wallet');
         if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
 
         const list = document.getElementById('wallet-list'); 
-        if(!list) return;
-        list.innerHTML = '';
+        if(!list) return; list.innerHTML = '';
 
         const user = DataManager.user || { id: 0, balance: 0, totalSpent: 0, totalDeposit: 0, baseCurrency: 'USD' };
         const walletCurr = (user.baseCurrency || user.base_currency || 'USD').toUpperCase();
@@ -685,7 +677,18 @@ export const RenderManager = {
         const deps = LiveStoreData.deposits || [];
         const ords = LiveStoreData.orders || [];
 
-        const getTime = (item) => RenderHelpers.parseTime(item.time || item.createdAt);
+        // 🌟 دالة قراءة التوقيت الآمنة (تقرأ Timestamp الحقيقي وتتجاهل Base36 ID)
+        const getTime = (item) => {
+            if (!item) return 0;
+            const t = item.time || item.createdAt;
+            if (typeof t === 'number') return t;
+            if (t && typeof t.toDate === 'function') return t.toDate().getTime();
+            if (typeof t === 'string' || t instanceof Date) {
+                const parsed = new Date(t).getTime();
+                return isNaN(parsed) ? 0 : parsed;
+            }
+            return 0;
+        };
 
         const deposits = deps.filter(d => String(d.userId) === String(uid)).map(d => {
             const credited = d.creditedAmount !== undefined ? Number(d.creditedAmount) : Number(d.amount || 0);
@@ -693,12 +696,16 @@ export const RenderManager = {
                 ...d, type: 'deposit', amountVal: Math.abs(credited),
                 amountCurrency: d.targetCurrency || walletCurr,
                 searchKey: `شحن deposit ${credited} #${d.displayId || d.id}`,
-                isDeduction: credited < 0
+                isDeduction: credited < 0,
+                sortTime: getTime(d)
             };
         });
         
         const orders = ords.filter(o => String(o.userId) === String(uid)).map(o => ({
-            ...o, type: 'purchase', amountVal: Number(o.price || 0), amountCurrency: o.priceCurrency || walletCurr, searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id}`
+            ...o, type: 'purchase', amountVal: Number(o.price || 0), 
+            amountCurrency: o.priceCurrency || walletCurr, 
+            searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id}`,
+            sortTime: getTime(o)
         }));
 
         let allTransactions = [...deposits, ...orders];
@@ -709,37 +716,15 @@ export const RenderManager = {
         const depDisp = document.getElementById('wallet-total-deposit');
         if(depDisp) depDisp.innerHTML = RenderHelpers.formatMoney(user.totalDeposit || 0, walletCurr);
 
-        allTransactions.sort((a, b) => getTime(a) - getTime(b));
+        // 🌟 الفرز الصحيح من الأحدث للأقدم بناءً على التوقيت الحقيقي وليس الـ ID
+        allTransactions.sort((a, b) => b.sortTime - a.sortTime);
 
-        let historySum = 0;
-        allTransactions.forEach(tx => {
-            let amt = parseFloat(tx.amountVal) || 0;
-            if (tx.type === 'deposit' && tx.status === 'approved') {
-                if (tx.isDeduction) historySum -= amt; else historySum += amt;
-            } else if (tx.type === 'purchase' && !['rejected', 'refunded', 'returned'].includes(tx.status)) {
-                historySum -= amt;
-            }
-        });
-
-        let currentRunningBalance = (Number(user.balance) || 0) - historySum;
-        const processedList = allTransactions.map(tx => {
-            let amount = parseFloat(tx.amountVal) || 0;
-            if (tx.type === 'deposit' && tx.status === 'approved') {
-                if (tx.isDeduction) currentRunningBalance -= amount; else currentRunningBalance += amount;
-            } else if (tx.type === 'purchase' && !['rejected', 'refunded', 'returned'].includes(tx.status)) {
-                currentRunningBalance -= amount;
-            }
-            return { ...tx, balanceAfter: currentRunningBalance };
-        }).reverse();
-
-        let finalView = processedList;
+        let finalView = allTransactions;
         const filters = DataManager.filters || { wallet: 'all' };
         if(filters.wallet !== 'all') finalView = finalView.filter(t => t.type === filters.wallet);
-        
         if(q) finalView = finalView.filter(t => t.searchKey.toLowerCase().includes(q));
-        
-        if(tStart) finalView = finalView.filter(t => getTime(t) >= tStart);
-        if(tEnd) finalView = finalView.filter(t => getTime(t) <= tEnd);
+        if(tStart) finalView = finalView.filter(t => t.sortTime >= tStart);
+        if(tEnd) finalView = finalView.filter(t => t.sortTime <= tEnd);
         
         const totalWalletCount = finalView.length;
         if (!q && !dStart && !dEnd) finalView = finalView.slice(0, this.limits.wallet);
@@ -748,7 +733,6 @@ export const RenderManager = {
         finalView.forEach(tx => {
             const isDep = tx.type === 'deposit';
             let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
-            
             let formattedDate = RenderHelpers.formatSafeDate(tx.time || tx.createdAt);
 
             if (isDep) {
@@ -776,142 +760,37 @@ export const RenderManager = {
                 }
             }
             
-            let balanceAfterHtml = '';
-            if (!isDep || tx.status === 'approved') {
-                balanceAfterHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, walletCurr)}</div>`;
-            } else {
-                balanceAfterHtml = `<div class="th-balance-after" style="opacity: 0.3; letter-spacing: 2px;">---</div>`;
-            }
-
             const jumpType = isDep ? 'deposit' : 'purchase';
             const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
 
             generatedHTML += `
             <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
-                <div class="th-icon ${iconColorClass}">
-                    <i class="fa-solid ${iconName}"></i>
-                </div>
-                
+                <div class="th-icon ${iconColorClass}"><i class="fa-solid ${iconName}"></i></div>
                 <div class="th-body">
                     <div class="th-details-col">
-                        <div class="th-row-top">
-                            <span class="tx-name-text">${isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء')}</span>
-                        </div>
-                        <div class="th-row-bottom">
-                            <span class="th-date num-en">${formattedDate}</span>
-                        </div>
+                        <div class="th-row-top"><span class="tx-name-text">${isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء')}</span></div>
+                        <div class="th-row-bottom"><span class="th-date num-en">${formattedDate}</span></div>
                     </div>
-
                     <div class="th-amount-col">
                         <span class="th-order num-en">${shortTxId}</span>
-
                         <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal, tx.amountCurrency)}</div>
-                        ${balanceAfterHtml}
                     </div>
                 </div>
             </div>`;
         }); 
 
         if (finalView.length === 0) {
-            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-wallet"></i><h3>لا توجد حركات</h3></div>`;
-            return;
+            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-wallet"></i><h3>لا توجد حركات</h3></div>`; return;
         }
-     
         list.innerHTML = generatedHTML;
 
-        // 🌟 زر تحميل المزيد (Pagination) لمعاملات المحفظة
         if (!q && !dStart && !dEnd && totalWalletCount > this.limits.wallet) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
             loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد (${totalWalletCount - this.limits.wallet})</button>`;
-            loadMoreBtn.querySelector('button').onclick = () => {
-                this.limits.wallet += 15;
-                this.renderWallet();
-            };
+            loadMoreBtn.querySelector('button').onclick = () => { this.limits.wallet += 15; this.renderWallet(); };
             list.appendChild(loadMoreBtn);
         }
-    },
-
-    // ========================================================================
-    // 🌟 حماية تكرار الإيداعات (Pending Lock) في بوابات الدفع
-    // ========================================================================
-    renderPayMethods: function() {
-        const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container') || document.querySelector('.bal-methods-grid') || document.getElementById('pay-methods-list');
-        if (!container) return;
-
-        container.innerHTML = '';
-        
-        const payments = LiveStoreData.payments || [];
-        const validPayments = payments.filter(p => p?.name?.trim() && p.isActive !== false);
-
-        if (validPayments.length === 0) {
-            container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-building-columns"></i><h3>لا توجد طرق دفع</h3><p>نعتذر، لا توجد بوابات دفع متاحة حالياً.</p></div>`;
-            return;
-        }
-
-        // 🌟 استخراج العمليات المعلقة للعميل لمنع التكرار (Anti-Spam Pending Lock)
-        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? DataManager.user.id : null);
-        const allDeposits = LiveStoreData.deposits || [];
-        const pendingMethodKeys = allDeposits
-            .filter(d => String(d.userId) === String(uid) && d.status === 'pending')
-            .map(d => String(d.methodId || d.method).toLowerCase());
-
-        const fragment = document.createDocumentFragment();
-
-        validPayments.forEach(p => {
-            const safeName = Utils.escapeHtml(p.name);
-            const pIdStr = String(p.id).toLowerCase();
-            const pNameStr = String(p.name).toLowerCase();
-            
-            // الفحص الاستباقي: هل البوابة محظورة بسبب وجود طلب معلق؟
-            const isLocked = pendingMethodKeys.includes(pIdStr) || pendingMethodKeys.includes(pNameStr);
-
-            const imgHtml = p.img 
-                ? `<img src="${Utils.escapeHtml(p.img)}" class="pay-icon-img" alt="${safeName}" onerror="this.parentElement.innerHTML='<div class=\\'pay-icon-default\\'><i class=\\'fa-solid fa-building-columns\\'></i></div>'">` 
-                : `<div class="pay-icon-default"><i class="fa-solid fa-building-columns"></i></div>`;
-            
-            const card = document.createElement('div');
-            
-            if (isLocked) {
-                // 🔒 تصميم الكارت المقفل (Locked UI)
-                card.className = 'pay-card-select method-locked';
-                card.style.opacity = '0.65';
-                card.innerHTML = `
-                    <div class="pay-icon-wrapper" style="filter: grayscale(100%);">
-                        ${imgHtml}
-                    </div>
-                    <div class="pay-card-content">
-                        <h3 class="pay-card-name" style="color: var(--text-muted);">${safeName}</h3>
-                        <span style="display:block; font-size:11px; color:var(--warning); margin-top:4px;"><i class="fa-solid fa-hourglass-half"></i> لديك طلب قيد المعالجة بهذه الطريقة</span>
-                    </div>
-                    <i class="fa-solid fa-lock pay-card-arrow" style="color: var(--text-muted);"></i>
-                `;
-                // نزع صلاحية الفتح واستبدالها بإشعار تنبيهي
-                card.onclick = () => {
-                    if (window.UIManager && window.UIManager.showToast) {
-                        window.UIManager.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة، يرجى الانتظار حتى يتم قبوله أو رفضه.', 'warning');
-                    }
-                };
-            } else {
-                // ✅ تصميم الكارت الطبيعي المتاح للضغط
-                card.className = 'pay-card-select';
-                card.setAttribute('data-action', 'select-pay');
-                card.setAttribute('data-id', p.id);
-                card.innerHTML = `
-                    <div class="pay-icon-wrapper">
-                        ${imgHtml}
-                    </div>
-                    <div class="pay-card-content">
-                        <h3 class="pay-card-name">${safeName}</h3>
-                    </div>
-                    <i class="fa-solid fa-chevron-left pay-card-arrow"></i>
-                `;
-            }
-            
-            fragment.appendChild(card);
-        });
-        
-        container.appendChild(fragment);
     },
 
     renderPayments: function() {
@@ -927,28 +806,32 @@ export const RenderManager = {
         const user = DataManager.user || { id: 0 };
         const allDeposits = LiveStoreData.deposits || [];
         
-        let myDeposits = allDeposits.filter(d => String(d.userId) === String(uid));
+        // 🌟 دالة قراءة التوقيت الآمنة
+        const getTime = (item) => {
+            if (!item) return 0;
+            const t = item.time || item.createdAt;
+            if (typeof t === 'number') return t;
+            if (t && typeof t.toDate === 'function') return t.toDate().getTime();
+            if (typeof t === 'string' || t instanceof Date) { const p = new Date(t).getTime(); return isNaN(p) ? 0 : p; }
+            return 0;
+        };
 
-        const getTime = (item) => RenderHelpers.parseTime(item.time || item.createdAt);
+        let myDeposits = allDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: getTime(d) }));
 
         const filters = DataManager.filters || { payments: 'all' };
         if (filters.payments !== 'all') myDeposits = myDeposits.filter(d => d.status === filters.payments);
-        
         if (q) myDeposits = myDeposits.filter(d => d.id.toString().includes(q) || d.method?.toLowerCase().includes(q));
-        
-        if (tStart) myDeposits = myDeposits.filter(d => getTime(d) >= tStart);
-        if (tEnd) myDeposits = myDeposits.filter(d => getTime(d) <= tEnd);
+        if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
+        if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
 
-        myDeposits.sort((a,b) => getTime(b) - getTime(a));
+        myDeposits.sort((a,b) => b.sortTime - a.sortTime); // 🌟 فرز زمني صحيح
         
         const totalPaymentsCount = myDeposits.length;
         if (!q && !dStart && !dEnd) myDeposits = myDeposits.slice(0, this.limits.payments);
 
         list.innerHTML = '';
-
         if (myDeposits.length === 0) {
-            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد عمليات</h3></div>`;
-            return;
+            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد عمليات</h3></div>`; return;
         }
 
         const fragment = document.createDocumentFragment();
@@ -977,12 +860,10 @@ export const RenderManager = {
             const displayNetCurrency = (d.targetCurrency || currency).toUpperCase();
 
             clone.querySelector('.ph-method-name').textContent = d.method || 'شحن رصيد';
-            
             clone.querySelector('.ph-amount-header').innerHTML = RenderHelpers.formatMoney(rawAmount, currency);
             clone.querySelector('.ph-total').innerHTML = RenderHelpers.formatMoney(totalVal, currency);
             clone.querySelector('.ph-fees').innerHTML = RenderHelpers.formatMoney(feesVal, currency);
             clone.querySelector('.ph-net').innerHTML = RenderHelpers.formatMoney(displayNetAmount, displayNetCurrency);
-            
             clone.querySelector('.ph-fee-pct').textContent = `(${feesPct}%)`;
 
             let formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
@@ -991,9 +872,7 @@ export const RenderManager = {
 
             const shortDepositId = RenderHelpers.formatDepositId(d);
             const idEl = clone.querySelector('.ph-id');
-            idEl.textContent = shortDepositId;
-            idEl.setAttribute('data-action', 'copy-text');
-            idEl.setAttribute('data-text', shortDepositId);
+            idEl.textContent = shortDepositId; idEl.setAttribute('data-action', 'copy-text'); idEl.setAttribute('data-text', shortDepositId);
             clone.querySelector('.ph-sender').innerHTML = (UIManager && UIManager._getTxNameWithID) ? UIManager._getTxNameWithID(user) : 'العميل';
             clone.querySelector('.ph-full-time').textContent = formattedDate;
 
@@ -1017,15 +896,11 @@ export const RenderManager = {
             fragment.appendChild(clone);
         });
         
-        // 🌟 زر تحميل المزيد (Pagination) لسجل الإيداعات
         if (!q && !dStart && !dEnd && totalPaymentsCount > this.limits.payments) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
             loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد (${totalPaymentsCount - this.limits.payments})</button>`;
-            loadMoreBtn.querySelector('button').onclick = () => {
-                this.limits.payments += 15;
-                this.renderPayments();
-            };
+            loadMoreBtn.querySelector('button').onclick = () => { this.limits.payments += 15; this.renderPayments(); };
             fragment.appendChild(loadMoreBtn);
         }
 
@@ -1040,33 +915,37 @@ export const RenderManager = {
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
         
         const list = document.getElementById('orders-list'); 
-        if (!list) return;
-        list.innerHTML = '';
+        if (!list) return; list.innerHTML = '';
         
         const uid = localStorage.getItem('telecard_active_user_uid');
         const allOrders = LiveStoreData.orders || [];
         const prods = LiveStoreData.prods || [];
 
-        const getTime = (item) => RenderHelpers.parseTime(item.time || item.createdAt);
+        // 🌟 دالة قراءة التوقيت الآمنة
+        const getTime = (item) => {
+            if (!item) return 0;
+            const t = item.time || item.createdAt;
+            if (typeof t === 'number') return t;
+            if (t && typeof t.toDate === 'function') return t.toDate().getTime();
+            if (typeof t === 'string' || t instanceof Date) { const p = new Date(t).getTime(); return isNaN(p) ? 0 : p; }
+            return 0;
+        };
 
-        let orders = allOrders.filter(o => String(o.userId) === String(uid));
+        let orders = allOrders.filter(o => String(o.userId) === String(uid)).map(o => ({ ...o, sortTime: getTime(o) }));
 
         const filters = DataManager.filters || { orders: 'all' };
         if (filters.orders !== 'all') orders = orders.filter(o => o.status === filters.orders);
-        
         if (q) orders = orders.filter(o => o.id.toString().includes(q) || o.product?.toLowerCase().includes(q)); 
-        
-        if (tStart) orders = orders.filter(o => getTime(o) >= tStart);
-        if (tEnd) orders = orders.filter(o => getTime(o) <= tEnd);
+        if (tStart) orders = orders.filter(o => o.sortTime >= tStart);
+        if (tEnd) orders = orders.filter(o => o.sortTime <= tEnd);
 
-        orders.sort((a, b) => getTime(b) - getTime(a));
+        orders.sort((a, b) => b.sortTime - a.sortTime); // 🌟 فرز زمني صحيح
         
         const totalOrdersCount = orders.length;
         if (!q && !dStart && !dEnd) orders = orders.slice(0, this.limits.orders);
 
         if (orders.length === 0) {
-            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد طلبات</h3></div>`;
-            return; 
+            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد طلبات</h3></div>`; return; 
         }
       
         const getCleanInputRows = (str) => {
@@ -1082,7 +961,7 @@ export const RenderManager = {
         orders.forEach((o, idx) => {
             const status = o.status || 'pending'; 
             const statusClass = status === 'completed' ? 'completed' : (status === 'rejected' ? 'rejected' : (['returned', 'refunded'].includes(status) ? 'returned' : 'pending'));
-            const prod = prods.find(p => p.id === o.prodId) || {};
+            const prod = prods.find(p => String(p.id) === String(o.prodId)) || {};
             const productName = o.product || prod.name || 'منتج';
             
             const localPrice = Number(o.price || 0);
@@ -1124,7 +1003,6 @@ export const RenderManager = {
             cardElement.setAttribute('data-id', o.id);
 
             const shortOrderId = RenderHelpers.formatOrderId(o);
-
             let formattedDate = RenderHelpers.formatSafeDate(o.time || o.createdAt);
 
             cardElement.innerHTML = `
@@ -1143,15 +1021,11 @@ export const RenderManager = {
             fragment.appendChild(cardElement);
         }); 
         
-        // 🌟 زر تحميل المزيد (Pagination) لسجل الطلبات
         if (!q && !dStart && !dEnd && totalOrdersCount > this.limits.orders) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
             loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد (${totalOrdersCount - this.limits.orders})</button>`;
-            loadMoreBtn.querySelector('button').onclick = () => {
-                this.limits.orders += 15;
-                this.renderOrders();
-            };
+            loadMoreBtn.querySelector('button').onclick = () => { this.limits.orders += 15; this.renderOrders(); };
             fragment.appendChild(loadMoreBtn);
         }
 
@@ -1240,7 +1114,8 @@ export const RenderManager = {
             printContainer.remove();
         }
     },
-        exportReceipt: function(orderId) {
+
+    exportReceipt: function(orderId) {
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
         if(!o) return;
 

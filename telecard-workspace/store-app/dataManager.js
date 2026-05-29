@@ -1,7 +1,7 @@
 // ============================================================================
-// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Cloud Secured)
-// 🎯 الوظيفة: معالجة البيانات، الحسابات المعقدة، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث: دمج التوقيت السحابي المتزامن، وتوحيد المترجم الزمني المركزي (SSOT)
+// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Client Safe)
+// 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة (Firebase)
+// 🚀 التحديث: التوافق التام مع المحرك المالي النظيف (خالي من أسرار التكلفة والأرباح)
 // ============================================================================
 
 import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -10,76 +10,46 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
 import { DB_KEYS, ACTIVE_USER_KEY } from './config.js';
 import { Utils } from './utils.js';
 import { FirebaseAdapter } from './core/firebaseAdapter.js';
-import { RenderHelpers } from './core/renderHelpers.js'; // 🌟 النواة المركزية للرسم والوقت
+import { RenderHelpers } from './core/renderHelpers.js'; 
 
-// ============================================================================
-// 🌐 1. البنية التحتية لقاعدة البيانات (Cloud Gateway)
-// ============================================================================
 export const StoreDB = FirebaseAdapter;
 
-// ============================================================================
-// 🧠 2. الذاكرة الحية للمتجر (RAM State) لسرعة التصفح
-// ============================================================================
 export const LiveStoreData = {
-    cats: [], 
-    prods: [], 
-    settings: {}, 
-    banners: [],
-    users: [], 
-    orders: [], 
-    deposits: [], 
-    payments: [], 
-    tiers: [], 
-    rates: [],
-    vault: [], 
-    coupons: [], 
-    offers: [], 
-    alerts: [] 
+    cats: [], prods: [], settings: {}, banners: [], users: [], 
+    orders: [], deposits: [], payments: [], tiers: [], rates: [],
+    vault: [], coupons: [], offers: [], alerts: [] 
 };
 
-// ============================================================================
-// 👑 3. الكائن الرئيسي لمدير البيانات (Single Source of Truth)
-// ============================================================================
 export const DataManager = {
-    // ⏱️ مزامن التوقيت السحابي
     serverTimeOffset: 0,
-    getNow: function() {
-        return Date.now() + this.serverTimeOffset;
-    },
+    getNow: function() { return Date.now() + this.serverTimeOffset; },
 
     user: null,
     prefs: { sound: true, theme: 'dark', security2fa: false, favs: [] },
     favs: new Set(),
     selectedCurr: 'USD',
     
-    currentProd: null,
-    currentPayment: null,
-    currentPayCurrency: null,
-    currentReceiptData: null,
-    appliedCoupon: null,
+    currentProd: null, currentPayment: null, currentPayCurrency: null,
+    currentReceiptData: null, appliedCoupon: null,
 
     _getCloudFunction: function(functionName) {
-    const app = getApp();
-    // 🌟 التأكد من وجود 'us-east1' هنا أمر حتمي لكي تعمل دوال الشراء والإيداع الموجودة بالأسفل!
-    const functions = getFunctions(app, 'us-east1');
-    return httpsCallable(functions, functionName);
-},
+        const app = getApp();
+        const functions = getFunctions(app, 'us-east1');
+        return httpsCallable(functions, functionName);
+    },
+
     saveUserLocal: function() {
         if (!this.user) return;
         try {
             const liteUser = { ...this.user };
-            delete liteUser.img;       
-            delete liteUser.kycData;   
+            delete liteUser.img; delete liteUser.kycData;   
             localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(liteUser));
         } catch (e) { console.error('Storage Quota Error in saveUserLocal:', e); }
     },
 
     updateUserProfile: async function(newData) {
         const uid = this.user?.id || this.user?.uid || localStorage.getItem('telecard_active_user_uid');
-        if (!uid) {
-            console.error("🚨 DataManager: تعذّر العثور على المعرّف الفريد للمستخدم.");
-            return false;
-        }
+        if (!uid) return false;
 
         this.user = { ...this.user, ...newData };
         
@@ -87,23 +57,15 @@ export const DataManager = {
             LiveStoreData.users = Object.freeze(
                 LiveStoreData.users.map(u => 
                     (String(u.id) === String(uid) || String(u.uid) === String(uid)) 
-                    ? { ...u, ...newData } 
-                    : u
+                    ? { ...u, ...newData } : u
                 )
             );
         }
 
         try {
             const success = await StoreDB.set(DB_KEYS.USERS, uid, newData);
-            if (success) {
-                return true;
-            } else {
-                throw new Error("Firebase returned false during setDoc");
-            }
-        } catch (error) {
-            console.error("🚨 DataManager: فشل تحديث بيانات الملف الشخصي:", error);
-            return false;
-        }
+            return success ? true : false;
+        } catch (error) { return false; }
     },
 
     loadPrefs: function() {
@@ -127,7 +89,7 @@ export const DataManager = {
         try {
             if(this.favs) this.prefs.favs = Array.from(this.favs);
             localStorage.setItem(DB_KEYS.PREFS, JSON.stringify(this.prefs || {}));
-        } catch(e) { console.warn('pref save error', e); }
+        } catch(e) {}
     },
 
     getTiers: function() { return LiveStoreData.tiers || []; },
@@ -155,14 +117,12 @@ export const DataManager = {
         
         const durationDays = Number(currentTier.durationDays || currentTier.duration_days || 30);
         const durationMs = durationDays * 24 * 60 * 60 * 1000;
-        const cycleStart = Number(this.user.tierCycleStartDate || this.getNow()); // 🌟 تطبيق التوقيت المتزامن
-        const remainingDays = Math.max(0, Math.ceil((durationMs - (this.getNow() - cycleStart)) / (1000 * 60 * 60 * 24))); // 🌟 التوقيت المتزامن
+        const cycleStart = Number(this.user.tierCycleStartDate || this.getNow()); 
+        const remainingDays = Math.max(0, Math.ceil((durationMs - (this.getNow() - cycleStart)) / (1000 * 60 * 60 * 24))); 
 
         const nextTier = sortedTiers.find(t => Number(t.threshold || 0) > Number(currentTier.threshold || 0));
         
-        let targetThreshold = 0;
-        let targetNameDisplay = "";
-        let isGoalReached = false;
+        let targetThreshold = 0; let targetNameDisplay = ""; let isGoalReached = false;
 
         if (nextTier) {
             targetThreshold = Number(nextTier.threshold);
@@ -185,7 +145,7 @@ export const DataManager = {
 
     getActiveOffer: function(prodId) {
         const offers = LiveStoreData.offers || [];
-        const now = this.getNow(); // 🌟 تطبيق التوقيت المتزامن
+        const now = this.getNow(); 
         return offers.find(o => 
             o.isActive && (!o.expiryDate || o.expiryDate > now) && 
             o.targetProds && o.targetProds.includes(String(prodId))
@@ -193,52 +153,28 @@ export const DataManager = {
     },
 
     // ============================================================================
-    // 🧮 4. المحرك الموحد للتسعير (يُستخدم لعرض الأسعار للعميل قبل الشراء فقط)
+    // 🧮 4. المحرك الموحد للتسعير (يعتمد على المحرك النظيف الخالي من التكلفة)
     // ============================================================================
     calculateFinalPrice: function(prod, user, qty, optIdx, appliedCoupon) {
         let q = Math.max(1, Number(qty) || 1);
         if (prod.type === 'select') q = 1; 
 
-        let rawUnitCost = 0;
-        if (prod.type === 'select' && Array.isArray(prod.options) && prod.options[optIdx]) {
-            const opt = prod.options[optIdx];
-            rawUnitCost = Number(opt.costPrice || opt.price || 0);
-        } else {
-            rawUnitCost = Number(prod.costPrice || prod.price || 0);
-        }
-
         const tier = this.getUserTier(user);
-        
-        // 🌟 الإصلاح الدفاعي
-        const isFixed = (prod.isFixedPrice === true || String(prod.isFixedPrice).toLowerCase() === 'true' || 
-                         prod.is_fixed_price === true || String(prod.is_fixed_price).toLowerCase() === 'true');
-                         
-        const fixedUsd = Number(prod.fixedPriceUsd || prod.fixed_price_usd || 0);
-        
-        let appliedTier = tier;
-        if (isFixed && fixedUsd > 0) {
-            rawUnitCost = fixedUsd; 
-            appliedTier = null; 
-        }
-
         const activeOffer = this.getActiveOffer(prod.id);
 
         let unitSnapshot = {
-            cost: rawUnitCost, tierPrice: rawUnitCost, originalPrice: rawUnitCost, finalPrice: rawUnitCost,
+            originalPrice: 0, finalPrice: 0,
             tierName: null, offerName: null, offerDiscount: 0, couponCode: null, couponDiscount: 0,
-            totalDiscountVal: 0, profit: 0, marginPct: 0, isFirewallActive: false
+            totalDiscountVal: 0
         };
 
         if (Utils.TelecardPricingEngine && typeof Utils.TelecardPricingEngine.calculate === 'function') {
             unitSnapshot = Utils.TelecardPricingEngine.calculate({
-                costPrice: rawUnitCost, 
-                tier: appliedTier, 
+                product: prod, // 🌟 تمرير المنتج بالكامل لتفعيل المعمارية الجديدة
+                tier: tier, 
                 offer: activeOffer, 
                 coupon: appliedCoupon
             });
-        } else {
-            console.error("🚨 المحرك المالي غير متاح! تم استخدام التسعير الافتراضي (سعر التكلفة).");
-            unitSnapshot.profit = -1; 
         }
 
         let oldPriceUsd = null;
@@ -251,14 +187,13 @@ export const DataManager = {
             totalUsd: unitSnapshot.finalPrice * q,
             unitUsd: unitSnapshot.finalPrice,
             originalTotalUsd: unitSnapshot.originalPrice * q, 
-            rawTotalCost: unitSnapshot.cost * q,
-            unitCost: unitSnapshot.cost,
             saleDiscountUsd: unitSnapshot.offerDiscount * q,
             couponDiscountUsd: unitSnapshot.couponDiscount * q,
             oldPriceUsd: oldPriceUsd, 
             displayOldTotalUsd: oldPriceUsd ? (oldPriceUsd * q) : (unitSnapshot.originalPrice * q)
         };
     },
+    
     computeSellingUsd: function(prod, user, qty=1, optIndex=null) {
         const pricing = this.calculateFinalPrice(prod, user, qty, optIndex, null);
         return pricing.totalUsd;
@@ -309,7 +244,7 @@ export const DataManager = {
         
         const coupons = LiveStoreData.coupons || [];
         const coupon = coupons.find(c => c.code.toUpperCase() === code.toUpperCase());
-        const now = this.getNow(); // 🌟 تطبيق التوقيت المتزامن
+        const now = this.getNow(); 
         
         if (!coupon) return { valid: false, msg: 'الكود غير صحيح أو غير موجود' };
         if (coupon.isActive === false || String(coupon.isActive) === 'false') return { valid: false, msg: 'عذراً، هذا الكوبون غير فعال حالياً' };
@@ -359,16 +294,12 @@ export const DataManager = {
         return Number(val.toFixed(4));
     },
 
-    // ============================================================================
-    // 👤 5. دوال العميل وإدارة المحفظة والطلبات (Cloud Secured)
-    // ============================================================================
     logout: function() {
         try {
             localStorage.removeItem('telecard_active_user_uid');
             localStorage.removeItem(ACTIVE_USER_KEY);
             localStorage.removeItem('telecard_display_currency');
         } catch(e) { console.warn('logout cleanup error', e); }
-        
         window.location.replace('login.html');
     },
 
@@ -386,7 +317,6 @@ export const DataManager = {
         
         if (activeUid && !me) {
             if (users.length > 0 && isSystemBooted) {
-                console.warn("⚠️ الحساب لم يعد موجوداً في قاعدة البيانات المركزية. جاري تسجيل الخروج...");
                 this.logout();
                 return false;
             } else {
@@ -401,7 +331,7 @@ export const DataManager = {
             me.inbox = me.inbox || []; 
 
             if (me.tierCycleStartDate === undefined) {
-                me.tierCycleStartDate = this.getNow(); // 🌟 تطبيق التوقيت المتزامن
+                me.tierCycleStartDate = this.getNow(); 
                 me.tierCycleSpent = 0;
             }
 
@@ -432,26 +362,16 @@ export const DataManager = {
 
     ackAdminMessage: async function() {
         if (!this.user || !this.user.id) return;
-        try {
-            this.updateUserProfile({ adminMessage: '' });
-        } catch(e) { console.error("Failed to acknowledge message", e); }
+        try { this.updateUserProfile({ adminMessage: '' }); } catch(e) { }
     },
 
-        updateWalletStats: function() {
-    // 🌟 [الإصلاح المعماري الجذري]: إيقاف المحاسب المحلي (Client-side calculation)
-    // الاعتماد 100% على الأرقام الموزونة القادمة من السيرفر (Server-side Ledger)
-    // لأن السيرفر الآن يقوم بحسابها بدقة متناهية مع كل عملية شراء أو إيداع، 
-    // ومحاولة جمعها محلياً ستؤدي لأخطاء إذا تم حذف كرت إيداع قديم.
-    
-    if (!this.user) return;
-    
-    // فقط نتأكد من أن القيم موجودة كأرقام لكي لا تنهار الواجهة
-    this.user.totalSpent = Number(this.user.totalSpent || 0);
-    this.user.totalDeposit = Number(this.user.totalDeposit || 0);
-    
-    // تم مسح حلقة التكرار (Loop) التي كانت تجمع الكروت وتدمر الأرقام القادمة من الداتابيس!
-},
-submitPasswordChange: function(currentVal, newVal, confirmVal) {
+    updateWalletStats: function() {
+        if (!this.user) return;
+        this.user.totalSpent = Number(this.user.totalSpent || 0);
+        this.user.totalDeposit = Number(this.user.totalDeposit || 0);
+    },
+
+    submitPasswordChange: function(currentVal, newVal, confirmVal) {
         if(!newVal || newVal.length < 4) return { success: false, msg: 'الرجاء إدخال كلمة مرور لا تقل عن 4 أحرف.' };
         if(newVal !== confirmVal) return { success: false, msg: 'كلمتا المرور غير متطابقتين.' };
         
@@ -462,7 +382,6 @@ submitPasswordChange: function(currentVal, newVal, confirmVal) {
             this.updateUserProfile({ pass: newVal });
             return { success: true, msg: 'تم تحديث كلمة المرور بنجاح.' };
         } catch(e) {
-            console.error('submitPasswordChange error', e);
             return { success: false, msg: 'تعذر تحديث كلمة المرور.' };
         }
     },
@@ -470,18 +389,8 @@ submitPasswordChange: function(currentVal, newVal, confirmVal) {
     confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
 
-        const pricingCheck = this.calculateFinalPrice(prod, this.user, qty, optIdx, appliedCoupon);
-        
-        const isFixed = (prod.isFixedPrice === true || String(prod.isFixedPrice).toLowerCase() === 'true' || 
-                         prod.is_fixed_price === true || String(prod.is_fixed_price).toLowerCase() === 'true');
-
-        if (!isFixed && pricingCheck.unitSnapshot.profit <= 0) {
-            console.error("🚨 تم حظر البيع: النظام حاول البيع بدون تطبيق نسبة ربح المستوى.");
-            return { 
-                success: false, 
-                msg: 'عذراً، تعذر إتمام الطلب لعدم توفر تسعيرة المستوى الخاص بك لهذا المنتج. يرجى التواصل مع الإدارة.' 
-            };
-        }
+        // 🌟 [الدرع المعماري]: السيرفر (القاضي) هو من سيقرر الربح والخسارة ويحمي التسعيرة
+        // المتجر يرسل الطلب فقط ولا يتدخل في قرار الربحية بعد الآن.
 
         try {
             const createOrderFn = this._getCloudFunction('createOrder');
@@ -506,7 +415,6 @@ submitPasswordChange: function(currentVal, newVal, confirmVal) {
 
         } catch (error) {
             console.error("Cloud Function Error (createOrder):", error);
-            
             let finalUserMessage = 'حدث خطأ أثناء معالجة الطلب، يرجى المحاولة لاحقاً.';
             
             if (error.details) {
@@ -519,10 +427,7 @@ submitPasswordChange: function(currentVal, newVal, confirmVal) {
                 }
             }
 
-            return { 
-                success: false, 
-                msg: finalUserMessage 
-            };
+            return { success: false, msg: finalUserMessage };
         }
     },
 
@@ -532,19 +437,15 @@ submitPasswordChange: function(currentVal, newVal, confirmVal) {
         const payCurrUpper = (payCurr || '').toUpperCase();
         
         let settings = {
-            fee: parseFloat(paymentMethod.fee) || 0,
-            min: parseFloat(paymentMethod.min) || 0,
-            max: parseFloat(paymentMethod.max) || 0,
-            feeType: paymentMethod.feeType || 'fee',
+            fee: parseFloat(paymentMethod.fee) || 0, min: parseFloat(paymentMethod.min) || 0,
+            max: parseFloat(paymentMethod.max) || 0, feeType: paymentMethod.feeType || 'fee',
             feeUnit: paymentMethod.feeUnit || paymentMethod.unit || 'percent' 
         };
 
         if (paymentMethod.currencySettings && paymentMethod.currencySettings[payCurrUpper]) {
             const s = paymentMethod.currencySettings[payCurrUpper];
-            settings.fee = parseFloat(s.fee) || 0;
-            settings.min = parseFloat(s.min) || 0;
-            settings.max = parseFloat(s.max) || 0;
-            settings.feeType = s.feeType || 'fee';
+            settings.fee = parseFloat(s.fee) || 0; settings.min = parseFloat(s.min) || 0;
+            settings.max = parseFloat(s.max) || 0; settings.feeType = s.feeType || 'fee';
             settings.feeUnit = s.feeUnit || s.unit || 'percent'; 
         } 
 
@@ -571,43 +472,36 @@ submitPasswordChange: function(currentVal, newVal, confirmVal) {
         let netBase = this.convertViaUSDHelper(netPayCurr, payCurrUpper, baseCurr, 'floor', 'deposit');
         if (isNaN(netBase) || !isFinite(netBase)) netBase = 0;
 
-        return { 
-            isValid: true, 
-            netBase: netBase, 
-            feePct: settings.fee, 
-            feeType: settings.feeType, 
-            feeUnit: settings.feeUnit, 
-            feeAmount: feeAmount 
-        };
+        return { isValid: true, netBase: netBase, feePct: settings.fee, feeType: settings.feeType, feeUnit: settings.feeUnit, feeAmount: feeAmount };
     },
 
-    submitBalanceRequest: async function(amount, paymentMethod, payCurr, netBase, receiptData) {
-        if (!paymentMethod) return { success: false, msg: 'حدث خطأ: لم يتم تحديد طريقة الدفع' };
-        if (amount <= 0) return { success: false, msg: 'يرجى إدخال مبلغ صحيح ضمن الحدود المسموحة' };
-        if (paymentMethod.reqProof !== false && !receiptData) return { success: false, msg: 'يرجى إرفاق صورة إشعار الدفع أولاً', errType: 'receipt' };
-
-        try {
-            const submitDepositFn = this._getCloudFunction('submitBalanceRequest');
-            
-            const requestData = {
-                amount: Number(amount),
-                paymentMethodName: paymentMethod.name,
-                payCurr: payCurr,
-                netBase: Number(netBase),
-                receiptData: receiptData || null
-            };
-
-            const result = await submitDepositFn(requestData);
-            
-            return { success: true, msg: result.data.message || 'تم إرسال طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة' };
-
-        } catch (error) {
-            console.error("Cloud Function Error (submitBalanceRequest):", error);
-            return { success: false, msg: error.message || 'تعذر إرسال طلب الإيداع، يرجى المحاولة لاحقاً.' };
-        }
-    },
+    submitBalanceRequest: async function(amount, paymentMethod, payCurr, receiptData) {
+    if (!paymentMethod) return { success: false, msg: 'حدث خطأ: لم يتم تحديد طريقة الدفع' };
+    if (amount <= 0) return { success: false, msg: 'يرجى إدخال مبلغ صحيح ضمن الحدود المسموحة' };
     
-    // 🌟 توجيه التنسيق الزمني للنواة المركزية
+    // الآن receiptData سيستلم رابط الصورة بشكل صحيح
+    if (paymentMethod.reqProof !== false && !receiptData) return { success: false, msg: 'يرجى إرفاق صورة إشعار الدفع أولاً', errType: 'receipt' };
+    
+    try {
+        const submitDepositFn = this._getCloudFunction('submitBalanceRequest');
+        
+        const requestData = {
+            amount: Number(amount),
+            paymentMethodName: paymentMethod.name,
+            payCurr: payCurr,
+            // 🌟 السيرفر الآمن هو من يتولى حساب الرصيد الصافي الآن لمنع التلاعب
+            receiptData: receiptData || null
+        };
+        
+        const result = await submitDepositFn(requestData);
+        return { success: true, msg: result.data.message || 'تم إرسال طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة' };
+        
+    } catch (error) {
+        console.error("Cloud Function Error (submitBalanceRequest):", error);
+        return { success: false, msg: error.message || 'تعذر إرسال طلب الإيداع، يرجى المحاولة لاحقاً.' };
+    }
+},
+
     formatDateLocal: function(timestamp) {
         if (typeof RenderHelpers !== 'undefined' && RenderHelpers.formatSafeDate) {
             return RenderHelpers.formatSafeDate(timestamp);
@@ -637,10 +531,7 @@ submitPasswordChange: function(currentVal, newVal, confirmVal) {
         try {
             const countries = await StoreDB.getAll(DB_KEYS.COUNTRIES);
             return Array.isArray(countries) ? countries : [];
-        } catch (e) {
-            console.error("DataManager Error: Failed to fetch countries from Cloud", e);
-            return [];
-        }
+        } catch (e) { return []; }
     },
 
     _isAlertForUser: function(msg, user, now, readIds = []) {
@@ -666,7 +557,7 @@ submitPasswordChange: function(currentVal, newVal, confirmVal) {
         const allAlerts = [...globalAlerts, ...inboxAlerts];
 
         const readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String);
-        const now = this.getNow(); // 🌟 تطبيق التوقيت المتزامن
+        const now = this.getNow(); 
 
         return allAlerts.filter(msg => {
             if (!this._isAlertForUser(msg, user, now, readIds)) return false;
@@ -687,7 +578,7 @@ submitPasswordChange: function(currentVal, newVal, confirmVal) {
         const globalAlerts = LiveStoreData.alerts || [];
         const inboxAlerts = user.inbox || [];
         const allAlerts = [...globalAlerts, ...inboxAlerts];
-        const now = this.getNow(); // 🌟 تطبيق التوقيت المتزامن
+        const now = this.getNow(); 
 
         return allAlerts.filter(msg => {
             return this._isAlertForUser(msg, user, now, []);

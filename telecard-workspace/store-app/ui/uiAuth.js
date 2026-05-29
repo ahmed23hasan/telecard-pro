@@ -160,23 +160,23 @@ export const UIAuth = {
 
         getSys().openModal?.('profile-info');
     },
-    handleAvatarClick: function(e) {
+        handleAvatarClick: function(e) {
         // ✅ تمت إزالة e.stopPropagation() لكي لا نكسر تفويض الأحداث المركزي
         if (DataManager.user && DataManager.user.img && DataManager.user.img !== DEFAULT_AVATAR_URL) {
             this.toggleAvatarMenu(e);
         } else {
             const fileInput = document.getElementById('avatar-upload-input');
-            if(fileInput) fileInput.click();
+            if (fileInput) fileInput.click();
         }
     },
-
+    
     toggleAvatarMenu: function(event) {
         const menu = document.getElementById('avatar-action-menu');
         if (!menu) return;
         
         menu.classList.toggle('active');
         getSys().sfx?.('nav');
-
+        
         if (menu.classList.contains('active')) {
             const closeMenu = (e) => {
                 if (!menu.contains(e.target) && !e.target.closest('#avatar-menu-trigger') && !e.target.closest('#profile-img')) {
@@ -188,28 +188,8 @@ export const UIAuth = {
             setTimeout(() => document.addEventListener('click', closeMenu), 10);
         }
     },
-    closeProfileInfo: function() { getSys().closeModal?.('profile-info'); },
-
-    toggleAvatarMenu: function(event) {
-        if (event) event.stopPropagation(); 
-        const menu = document.getElementById('avatar-action-menu');
-        if (!menu) return;
-        
-        menu.classList.toggle('active');
-        getSys().sfx?.('nav');
-
-        if (menu.classList.contains('active')) {
-            const closeMenu = (e) => {
-                if (!menu.contains(e.target) && !e.target.closest('#avatar-menu-trigger') && !e.target.closest('#profile-img')) {
-                    menu.classList.remove('active');
-                    document.removeEventListener('click', closeMenu);
-                }
-            };
-            document.addEventListener('click', closeMenu);
-        }
-    },
-
-    updateProfileDisplay: function() {
+    
+    closeProfileInfo: function() { getSys().closeModal?.('profile-info'); },    updateProfileDisplay: function() {
         try {
             const guestCard = document.getElementById('guest-sidebar-card');
             const userCard = document.getElementById('user-sidebar-card');
@@ -555,25 +535,39 @@ if(idEl) idEl.textContent = RenderHelpers.formatUserId(user);
     try {
         const userId = DataManager.user.id || 'unknown_user';
         
-        // استخدام Promise.allSettled بدلاً من Promise.all
+        // استخدام Promise.allSettled لضمان عدم توقف العملية إذا فشل ملف واحد، مما يتيح لنا تنظيف الباقي
         const uploadPromises = [
-            // ✅ تمرير اسم المجلد مفصولاً عن اسم الملف ليتم تطبيق التحديث الاحترافي
             FirebaseAdapter.uploadImage(frontFile, 'kyc_docs', `${userId}_front.jpg`),
             FirebaseAdapter.uploadImage(backFile, 'kyc_docs', `${userId}_back.jpg`),
             FirebaseAdapter.uploadImage(selfieFile, 'kyc_docs', `${userId}_selfie.jpg`)
         ];
-
+        
         const results = await Promise.allSettled(uploadPromises);
         
         const failedUploads = results.filter(r => r.status === 'rejected');
+        
+        // 🛠️ الإصلاح الأمني (منع تسريب التخزين السحابي Storage Leak):
+        // إذا فشلت إحدى الصور، نقوم بحذف الصور التي رُفعت بنجاح لتوفير المساحة وتجنب الملفات المعلقة
         if (failedUploads.length > 0) {
-            // ملاحظة هندسية: هنا يجب استدعاء دالة سحابية لحذف الملفات التي تم رفعها بنجاح لتنظيف Storage
+            const successfulUploads = results
+                .filter(r => r.status === 'fulfilled' && r.value)
+                .map(r => r.value);
+            
+            if (successfulUploads.length > 0) {
+                console.warn("⚠️ فشل اكتمال رفع بعض الملفات. جاري تنظيف الملفات المعلقة من السحابة...");
+                successfulUploads.forEach(url => {
+                    if (FirebaseAdapter.deleteImageByUrl) {
+                        // نضع catch فارغ حتى لا يعطل الانهيار عملية إظهار الخطأ للمستخدم
+                        FirebaseAdapter.deleteImageByUrl(url).catch(e => console.warn("تعذر تنظيف السحابة:", e));
+                    }
+                });
+            }
             throw new Error("فشل رفع إحدى الصور، يرجى التأكد من جودة الاتصال.");
         }
-
-        // بما أننا تأكدنا من عدم وجود failedUploads، يمكننا استخراج الروابط بأمان
+        
+        // بما أننا تأكدنا من عدم وجود failedUploads، نستخرج الروابط بأمان
         const [frontImgUrl, backImgUrl, selfieImgUrl] = results.map(r => r.value);
-
+        
         let success = false;
         if (DataManager.updateUserProfile) {
             success = await DataManager.updateUserProfile({
@@ -592,7 +586,7 @@ if(idEl) idEl.textContent = RenderHelpers.formatUserId(user);
         if (!success) throw new Error("Firebase Update Failed");
         
         this.kycFiles = {};
-
+        
         this.closeKycModal();
         getSys().showToast?.('تم رفع بياناتك بنجاح، يرجى انتظار المراجعة', 'success');
         getSys().sfx?.('success');
@@ -604,8 +598,7 @@ if(idEl) idEl.textContent = RenderHelpers.formatUserId(user);
     } finally {
         getSys().toggleLoader?.(false);
     }
-},
-    renderKycUI: function() {
+},    renderKycUI: function() {
         if (!DataManager.user) return;
         const user = DataManager.user;
         const status = user.kycStatus || 'none';

@@ -1007,33 +1007,40 @@ export const UIFinance = {
             if (input) input.focus(); return;
         }
 
-        if(!DataManager || typeof DataManager.submitBalanceRequest !== 'function') return;
+        if (!DataManager || typeof DataManager.submitBalanceRequest !== 'function') return;
 
-        if (typeof window.ClientSystem !== 'undefined' && window.ClientSystem.toggleLoader) {
-            window.ClientSystem.toggleLoader(true, 'جاري معالجة طلب الإيداع...');
-        }
+        // 🌟 توحيد استدعاء اللودر باستخدام الموجه المركزي الآمن
+        getSys().toggleLoader?.(true, 'جاري معالجة طلب الإيداع...');
 
         try {
             const payCurr = this.currentPayCurrency || 'USD';
-            const netBase = this.pendingDepositNetBase || 0;
             let finalReceiptUrl = '';
 
+            // 1. رفع الصورة أولاً إذا تم اختيارها
             if (this.pendingReceiptFile) {
                 getSys().showToast?.('جاري رفع إشعار الدفع بشكل آمن...', 'info');
                 const userId = DataManager.user?.id || 'unknown';
                 finalReceiptUrl = await FirebaseAdapter.uploadImage(this.pendingReceiptFile, `receipts/${userId}`);
+                
+                // حماية إضافية: إذا فشل الرفع لسبب صامت، نوقف العملية
+                if (!finalReceiptUrl) throw new Error("تعذر رفع إشعار الدفع، يرجى التأكد من اتصالك بالإنترنت.");
             } else if (this.currentReceiptData) {
                 finalReceiptUrl = this.currentReceiptData;
             }
 
-            const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, netBase, finalReceiptUrl);
+            // 🌟 2. الإصلاح المعماري (Zombie Variable Removal):
+            // تم حذف المتغير الميت (netBase) من هنا. السيرفر هو "القاضي" الوحيد الذي يحسب الرصيد الآن.
+            const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, finalReceiptUrl);
 
+            // 3. معالجة الرد
             if (result.success) {
                 getSys().sfx?.('success');
                 this.closeBalanceModal();
-                if(typeof DataManager.syncUser === 'function') DataManager.syncUser(); 
+                if (typeof DataManager.syncUser === 'function') DataManager.syncUser(); 
                 
+                // 🧹 تنظيف الذاكرة بالكامل من الملفات المؤقتة
                 this.pendingReceiptFile = null; 
+                this.currentReceiptData = null; 
                 
                 const successModal = document.getElementById('success-modal');
                 if (successModal) getSys().openModal?.('success'); 
@@ -1041,21 +1048,21 @@ export const UIFinance = {
             } else {
                 if (result.errType === 'receipt') {
                     const uploadBox = document.getElementById('bal-upload-box');
-                    if(uploadBox) { uploadBox.classList.add('upload-error-shake'); setTimeout(() => { uploadBox.classList.remove('upload-error-shake'); }, 500); }
+                    if (uploadBox) { 
+                        uploadBox.classList.add('upload-error-shake'); 
+                        setTimeout(() => uploadBox.classList.remove('upload-error-shake'), 500); 
+                    }
                 }
                 getSys().showToast?.(result.msg, 'error');
             }
         } catch (error) {
             console.error("Deposit Processing Error:", error);
-            getSys().showToast?.('فشل إرسال الطلب، يرجى المحاولة مجدداً.', 'error');
+            getSys().showToast?.(error.message || 'فشل إرسال الطلب، يرجى المحاولة مجدداً.', 'error');
         } finally {
-            if (typeof window.ClientSystem !== 'undefined' && window.ClientSystem.toggleLoader) {
-                window.ClientSystem.toggleLoader(false);
-            }
+            getSys().toggleLoader?.(false);
         }
     },
-    
-            togglePayDetail: function(headerElement) {
+    togglePayDetail: function(headerElement) {
         if (!headerElement) return;
 
         // 1. العثور على الكارت الأب الحاضن للعملية
