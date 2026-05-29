@@ -23,7 +23,7 @@ const safeAdd = (a, b) => Number((Number(a) + Number(b)).toFixed(4));
 const safeSub = (a, b) => Math.max(0, Number((Number(a) - Number(b)).toFixed(4)));
 
 // ==========================================
-// 🛒 1. دالة إنشاء الطلبات الآمنة للعملاء (النسخة المعمارية الخالية من أخطاء التزامن)
+// 🛒 1. دالة إنشاء الطلبات الآمنة للعملاء (المحصنة ضد النقر المزدوج وأخطاء التزامن)
 // ==========================================
 exports.createOrder = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
@@ -33,16 +33,33 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
     const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
 
     try {
-        const userRef = db.collection('telecard_users').doc(uid);
-        const productRef = db.collection('telecard_prods').doc(String(productId));
-        
-        const systemRef = db.collection('telecard_system').doc('singleton');
-        const countersRef = db.collection('telecard_system').doc('counters'); 
-        
+        // 🌟 [جدار الحماية ضد النقر المزدوج/السبام]: يمنع العميل من شراء نفس المنتج مرتين خلال 10 ثوانٍ
+        // نقوم بالاستعلام خارج المعاملة (Transaction) للحفاظ على سرعة السيرفر
+        const spamCheckQuery = await db.collection('telecard_orders')
+            .where('userId', '==', uid)
+            .where('prodId', '==', String(productId))
+            .orderBy('time', 'desc')
+            .limit(1).get();
+
+        if (!spamCheckQuery.empty) {
+            const lastOrder = spamCheckQuery.docs[0].data();
+            const lastOrderTime = lastOrder.time ? lastOrder.time.toDate().getTime() : 0;
+            const timeDifference = Date.now() - lastOrderTime;
+            
+            if (timeDifference < 10000) { // 10 ثوانٍ (10000 ملي ثانية)
+                throw new functions.https.HttpsError('already-exists', 'لقد قمت بطلب هذا المنتج للتو! يرجى الانتظار بضع ثوانٍ قبل تكرار الطلب لمنع الشراء المزدوج.');
+            }
+        }
+
+        // --- الاستعلامات الآمنة خارج المعاملة ---
         let couponRef = null;
+        let couponData = null;
         if (couponCode) {
             const couponQuery = await db.collection('telecard_coupons').where('code', '==', couponCode).limit(1).get();
-            if (!couponQuery.empty) couponRef = couponQuery.docs[0].ref;
+            if (!couponQuery.empty) {
+                couponRef = couponQuery.docs[0].ref;
+                couponData = couponQuery.docs[0].data();
+            }
         }
 
         const offersQuery = await db.collection('telecard_offers')
@@ -57,22 +74,33 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
             if (!off.expiryDate || off.expiryDate > now) activeOffer = off;
         });
 
+        // المراجع الأساسية
+        const userRef = db.collection('telecard_users').doc(uid);
+        const productRef = db.collection('telecard_prods').doc(String(productId));
+        const systemRef = db.collection('telecard_system').doc('singleton');
+        const countersRef = db.collection('telecard_system').doc('counters'); 
+
         let resultMessage = "تم استلام الطلب بأمان.";
         let deliveredCodeText = null;
         let isAutoDelivered = false;
 
+        // 🧠 بدء المعاملة المالية المغلقة والمحصنة (Transaction)
         await db.runTransaction(async (transaction) => {
+            // ----------------------------------------------------
+            // 📥 1. منطقة القراءة فقط (READS ZONE)
+            // ----------------------------------------------------
             const userSnap = await transaction.get(userRef);
             const productSnap = await transaction.get(productRef);
             const countersSnap = await transaction.get(countersRef);
-            let couponSnap = couponRef ? await transaction.get(couponRef) : null;
+            
+            // تحديث قراءة الكوبون لضمان عدم استخدامه في نفس اللحظة من شخص آخر
+            if (couponRef) couponData = (await transaction.get(couponRef)).data();
 
             if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'المستخدم غير موجود.');
             if (!productSnap.exists) throw new functions.https.HttpsError('not-found', 'المنتج غير متوفر.');
 
             const userData = userSnap.data();
             const product = productSnap.data();
-            const couponData = (couponSnap && couponSnap.exists) ? couponSnap.data() : null;
 
             const tierId = String(userData.tierId || userData.tier || 1);
             const tierRef = db.collection('telecard_tiers').doc(tierId);
@@ -81,10 +109,7 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
             
             const serverNow = Date.now(); 
             
-            if (activeOffer && activeOffer.expiryDate && activeOffer.expiryDate < serverNow) {
-                activeOffer = null; 
-            }
-
+            if (activeOffer && activeOffer.expiryDate && activeOffer.expiryDate < serverNow) activeOffer = null; 
             if (couponData && couponData.expiryDate && couponData.expiryDate < serverNow) {
                 throw new functions.https.HttpsError('failed-precondition', 'عذراً، انتهت صلاحية هذا الكوبون.');
             }
@@ -103,6 +128,9 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
             const cleanOrderId = String(currentOrderCount);
             const orderRef = db.collection('telecard_orders').doc(cleanOrderId); 
 
+            // ----------------------------------------------------
+            // 🧠 2. منطقة الحسابات والمنطق (LOGIC ZONE)
+            // ----------------------------------------------------
             let rawUnitCost = Number(product.costPrice || product.unitCost || product.price || 0);
             if (product.type === 'select' && Array.isArray(product.options) && product.options[optIdx]) {
                 rawUnitCost = Number(product.options[optIdx].price || product.options[optIdx].costPrice || 0);
@@ -183,6 +211,9 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
                 statsUpdate['globalStats.financials.totalProfit'] = admin.firestore.FieldValue.increment(Number((pricingSnapshot.profit * finalQty).toFixed(4)));
             }
 
+            // ----------------------------------------------------
+            // 💾 3. منطقة الكتابة فقط (WRITES ZONE)
+            // ----------------------------------------------------
             if (pricingSnapshot.couponCode && couponRef && couponData) {
                 transaction.update(couponRef, { usedCount: admin.firestore.FieldValue.increment(1) });
             }
