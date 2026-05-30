@@ -428,94 +428,161 @@ if(idEl) idEl.textContent = RenderHelpers.formatUserId(user);
         });
     },    
 
-    selectCountry: function(name, prefix, phoneLen) {
-        const textEl = document.getElementById('selected-country-text');
-        const hiddenInput = document.getElementById('reg-country');
-        const prefixEl = document.getElementById('phone-prefix');
-        const phoneInp = document.getElementById('reg-phone'); 
-        const dropdown = document.getElementById('country-dropdown');
-
-        if (textEl) textEl.innerText = name;
-        if (hiddenInput) hiddenInput.value = name;
-        if (prefixEl) prefixEl.innerHTML = `<span class="num-en">${prefix}</span>`;
-        if (phoneInp) { phoneInp.value = ''; phoneInp.maxLength = phoneLen || 10; phoneInp.placeholder = `أدخل رقم هاتفك`; }
-        if (dropdown) dropdown.classList.remove('open');
-        getSys().sfx?.('nav');
-    },
-
+    // =========================================================
+// 🌟 دالة اختيار عملة المحفظة الأساسية (إكمال الهوية)
+// =========================================================
+selectRegCurrency: function(name, code) {
+    const textEl = document.getElementById('selected-currency-text');
+    const hiddenInput = document.getElementById('reg-currency');
+    const dropdown = document.getElementById('reg-currency-dropdown');
+    
+    // تحديث النص الظاهر للعميل وتغيير لونه ليدل على الاختيار
+    if (textEl) {
+        textEl.innerText = name;
+        textEl.style.color = 'var(--text-main)';
+    }
+    
+    // حفظ الكود (USD, TRY...) في الحقل المخفي ليرسل إلى قاعدة البيانات
+    if (hiddenInput) {
+        hiddenInput.value = code;
+    }
+    
+    // إغلاق القائمة المنسدلة بنعومة
+    if (dropdown) {
+        dropdown.classList.remove('open');
+    }
+    
+    // تشغيل صوت النقر
+    getSys().sfx?.('nav');
+},
+// =========================================================
+// 🌍 دالة اختيار الدولة وتحديث كود الهاتف
+// =========================================================
+selectCountry: function(name, prefix, phoneLen) {
+    // 1. استهداف العناصر بدقة بناءً على الـ HTML الجديد
+    const textEl = document.getElementById('selected-country-text');
+    const hiddenInput = document.getElementById('reg-country');
+    const prefixEl = document.getElementById('phone-prefix');
+    const phoneInp = document.getElementById('reg-phone');
+    const dropdown = document.getElementById('country-dropdown');
+    
+    // 2. تحديث واجهة اختيار الدولة
+    if (textEl) {
+        textEl.innerText = name;
+        textEl.style.color = 'var(--text-main)'; // تغيير اللون ليدل على أنه تم الاختيار
+    }
+    if (hiddenInput) {
+        hiddenInput.value = name; // حفظ اسم الدولة للـ Database
+    }
+    
+    // 3. تحديث مفتاح الدولة (كود الاتصال +966 مثلاً)
+    if (prefixEl) {
+        prefixEl.innerHTML = `<span class="num-en">${prefix}</span>`;
+    }
+    
+    // 4. تهيئة حقل رقم الهاتف بناءً على طول رقم الدولة
+    if (phoneInp) {
+        phoneInp.value = '';
+        phoneInp.maxLength = phoneLen || 10;
+        phoneInp.placeholder = `أدخل رقم هاتفك`;
+    }
+    
+    // 5. إغلاق القائمة المنسدلة بنعومة
+    if (dropdown) {
+        dropdown.classList.remove('open');
+    }
+    
+    // 6. تشغيل تأثير صوتي
+    getSys().sfx?.('nav');
+},
     saveIdentityData: async function() {
-        const countryEl = document.getElementById('selected-country-text');
-        const phoneEl = document.getElementById('reg-phone');
-        const currencyEl = document.getElementById('reg-currency'); 
-        
-        const country = countryEl ? countryEl.innerText : '';
-        const phone = phoneEl ? phoneEl.value : '';
-        const currency = currencyEl ? currencyEl.value : ''; 
-        
-        if (!country || country === 'اختر الدولة...' || !phone || phone.trim() === '' || !currency) {
-            getSys().showToast?.('يرجى تعبئة جميع الحقول (الدولة، رقم الهاتف، وعملة المحفظة)', 'error');
-            return;
-        }
-        
-        getSys().toggleLoader?.(true, 'جاري الحفظ في قاعدة البيانات...');
-        
-        let success = false;
-        if (DataManager.updateUserProfile) {
-            success = await DataManager.updateUserProfile({
-                country: country,
-                phone: phone,
-                currency: currency,
-                baseCurrency: currency,
-                base_currency: currency,
-                isVerified: true
-            });
-        }
-        
-        getSys().toggleLoader?.(false);
-        
-        if (!success) {
-            getSys().showToast?.('حدث خطأ في الاتصال بقاعدة البيانات. حاول مجدداً', 'error');
-            return;
-        }
-        
-        localStorage.setItem('telecard_display_currency', currency);
-        
-        this.updateProfileDisplay();
-        
-        const inputsWrap = document.getElementById('identity-inputs-wrap');
-        const statusWrap = document.getElementById('identity-verified-status');
-        
-        if (inputsWrap) inputsWrap.style.display = 'none';
-        if (statusWrap) statusWrap.classList.remove('hide-element');
-        getSys().sfx?.('success');
-
-        setTimeout(() => {
-            window.location.reload();
-        }, 1500);
-    },
-
-    loadDynamicCurrenciesForModal: function() {
-        const currencySelect = document.getElementById('reg-currency');
-        if (!currencySelect) return;
-
-        const rates = window.LiveStoreData?.rates || window.DataManager?.rates || [];
-        currencySelect.innerHTML = '<option value="" disabled selected>حدد العملة الدائمة لمحفظتك...</option>';
-        if (rates.length === 0) {
-            currencySelect.innerHTML += '<option value="USD">دولار أمريكي (USD)</option>';
-            return;
-        }
-
-        rates.forEach(r => {
-            if (r.isActive === false) return; 
-            
-            const option = document.createElement('option');
-            option.value = r.code;
-            option.textContent = `${r.name || r.code} (${r.code})`;
-            currencySelect.appendChild(option);
+    const countryEl = document.getElementById('selected-country-text');
+    const phoneEl = document.getElementById('reg-phone');
+    const hiddenCurrency = document.getElementById('reg-currency');
+    
+    const country = countryEl ? countryEl.innerText : '';
+    const phone = phoneEl ? phoneEl.value : '';
+    const currency = hiddenCurrency ? hiddenCurrency.value : '';
+    
+    if (!country || country === 'اختر الدولة...' || !phone || phone.trim() === '' || !currency) {
+        getSys().showToast?.('يرجى تعبئة جميع الحقول (الدولة، رقم الهاتف، وعملة المحفظة)', 'error');
+        return;
+    }
+    
+    getSys().toggleLoader?.(true, 'جاري الحفظ في قاعدة البيانات...');
+    
+    let success = false;
+    if (DataManager.updateUserProfile) {
+        success = await DataManager.updateUserProfile({
+            country: country,
+            phone: phone,
+            currency: currency,
+            baseCurrency: currency,
+            base_currency: currency,
+            isVerified: true
         });
-    },
-
-    submitKycData: async function() {
+    }
+    
+    getSys().toggleLoader?.(false);
+    
+    if (!success) {
+        getSys().showToast?.('حدث خطأ في الاتصال بقاعدة البيانات. حاول مجدداً', 'error');
+        return;
+    }
+    
+    // 🌟 1. تحديث العملة محلياً في الذاكرة
+    localStorage.setItem('telecard_display_currency', currency);
+    DataManager.selectedCurr = currency;
+    
+    // 🌟 2. تحديث واجهة المتجر بالكامل "لحظياً" بدون الحاجة لعمل (Refresh) للصفحة
+    this.updateProfileDisplay();
+    if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(currency);
+    if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
+    
+    // 🌟 3. إخفاء حقول الإدخال وعرض رسالة النجاح
+    const inputsWrap = document.getElementById('identity-inputs-wrap');
+    const statusWrap = document.getElementById('identity-verified-status');
+    
+    if (inputsWrap) inputsWrap.style.display = 'none';
+    if (statusWrap) statusWrap.classList.remove('hide-element');
+    
+    getSys().sfx?.('success');
+    
+    // 🚀 تم حذف كود (window.location.reload) نهائياً!
+    // النافذة ستظل مفتوحة ورسالة النجاح الخضراء ستظل ظاهرة حتى يغلقها العميل بنفسه من علامة الـ (X).
+},
+loadDynamicCurrenciesForModal: function() {
+    const listTarget = document.getElementById('reg-currency-list-target');
+    // إذا لم يجد الحاوية الجديدة، يتوقف لمنع الأخطاء
+    if (!listTarget) return;
+    
+    // جلب العملات من الذاكرة (بدون اتصال بالسيرفر لتوفير التكلفة)
+    const rates = (typeof LiveStoreData !== 'undefined' && LiveStoreData.rates) ? LiveStoreData.rates : [];
+    
+    // وضع الخيار الأساسي (الدولار) بشكل ثابت
+    let html = `
+            <div class="dropdown-item" data-action="select-reg-currency" data-code="USD" data-name="دولار أمريكي (USD)">
+                <span style="flex: 1; text-align: right;">دولار أمريكي (USD)</span>
+                <span class="num-en" style="color: var(--primary); font-weight: 900;">USD</span>
+            </div>`;
+    
+    // رسم باقي العملات المضافة من لوحة الإدارة
+    if (rates.length > 0) {
+        rates.forEach(r => {
+            if (r.isActive === false || r.code.toUpperCase() === 'USD') return;
+            
+            const currName = `${r.name || r.code} (${r.code})`;
+            html += `
+                <div class="dropdown-item" data-action="select-reg-currency" data-code="${r.code}" data-name="${currName}">
+                    <span style="flex: 1; text-align: right;">${currName}</span>
+                    <span class="num-en" style="color: var(--primary); font-weight: 900;">${r.code}</span>
+                </div>`;
+        });
+    }
+    
+    // حقن العملات داخل القائمة
+    listTarget.innerHTML = html;
+},    submitKycData: async function() {
     const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
     const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
     

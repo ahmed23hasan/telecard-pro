@@ -1,0 +1,62 @@
+rules_version = '2';
+service firebase.storage {
+match /b/{bucket}/o {
+
+// ==========================================
+// 🛠️ دوال التحقق الأساسية
+// ==========================================
+function isMasterAdmin() {
+return request.auth != null && (request.auth.token.email == 'admin@telecard.pro' || request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2');
+}
+
+function isAuthenticated() {
+return request.auth != null;
+}
+
+function isOwner(userId) {
+return isAuthenticated() && request.auth.uid == userId;
+}
+
+// ==========================================
+// 👑 صلاحيات الإدارة المطلقة
+// ==========================================
+// الأدمن يمتلك صلاحية القراءة والكتابة والحذف في كل شبر من مساحة التخزين
+match /{allPaths=**} {
+allow read, write: if isMasterAdmin();
+}
+
+// ==========================================
+// 🧾 إيصالات الدفع (محمية ومخصصة لكل عميل)
+// ==========================================
+match /receipts/{userId}/{fileName} {
+allow read, write: if isOwner(userId);
+}
+
+// ==========================================
+// 👤 الصور الشخصية (الجميع يقرأها، والعميل يكتب خاصته فقط)
+// ==========================================
+match /avatars/{fileName} {
+allow read: if true;
+// حماية صارمة: لا يمكن للعميل رفع صورة إلا إذا كان اسمها يبدأ بالـ ID الخاص به
+allow write: if isAuthenticated() && fileName.matches('avatar_' + request.auth.uid + '.*');
+}
+
+// ==========================================
+// 🛡️ التوثيق الأمني KYC (أعلى درجات السرية)
+// ==========================================
+match /kyc_docs/{fileName} {
+// لا أحد يستطيع القراءة! (الأدمن فقط من يستطيع القراءة بفضل القاعدة العلوية)
+allow read: if false;
+// العميل يستطيع الرفع فقط، بشرط أن تبدأ أسماء الملفات بالـ ID الخاص به
+allow write: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
+}
+
+// ==========================================
+// 🖼️ الملفات العامة للمتجر (للعرض فقط)
+// ==========================================
+match /products/{allPaths=**} { allow read: if true; }
+match /categories/{allPaths=**} { allow read: if true; }
+match /general/{allPaths=**} { allow read: if true; }
+match /banners/{allPaths=**} { allow read: if true; }
+}
+}

@@ -988,77 +988,98 @@
             <div class="pm-header-spacer"></div>
         </div>
         
-        <div class="pm-scroll-content">
-            <div class="profile-lux-card glass-form" id="identity-section">
-                <div id="identity-inputs-wrap">
-                    <div class="identity-info-banner" style="margin-bottom: 20px;">
-                        <i class="fa-solid fa-circle-info"></i>
-                        <span>مطلوب لتفعيل المحفظة وإتمام الطلبات.</span>
-                    </div>
+<div class="pm-scroll-content">
+    <div class="profile-lux-card glass-form" id="identity-section">
+        
+        <!-- 🌟 قسم الإدخال -->
+        <div id="identity-inputs-wrap">
+            
+            <div class="identity-info-banner mb-20">
+                <i class="fa-solid fa-circle-info"></i>
+                <span>مطلوب لتفعيل المحفظة وإتمام الطلبات.</span>
+            </div>
+            
+            <!-- 1. حقل الدولة -->
+            <div class="input-field-lux country-field-wrapper mb-20">
+                <label>الدولة</label>
+                <div class="custom-dropdown-container solid-dropdown" id="country-dropdown">
+                    <button type="button" class="dropdown-trigger lux-input" onclick="this.parentElement.classList.toggle('open')">
+                        <div class="trigger-info">
+                            <span class="selected-text" id="selected-country-text">اختر الدولة...</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-down arrow-icon"></i>
+                    </button>
                     
-                    <div class="input-field-lux country-field-wrapper" style="position: relative; z-index: 12;">
-                        <label>الدولة</label>     
-                        <div class="custom-dropdown-container solid-dropdown" id="country-dropdown">
-                            <button type="button" class="dropdown-trigger lux-input" onclick="this.parentElement.classList.toggle('open')">
-                                <div class="trigger-info">
-                                    <span class="selected-text" id="selected-country-text">اختر الدولة...</span>
-                                </div>
-                                <i class="fa-solid fa-chevron-down arrow-icon"></i>
-                            </button>
-                            
-                            <div class="dropdown-menu">
-                                <div class="dropdown-search-header">
-                                    <div class="mf-search-box">
-                                        <input type="text" placeholder="ابحث عن دولتك..." oninput="ClientSystem.filterCountries(this.value)">
-                                    </div>
-                                </div>
-                                <div id="countries-list-target" class="dropdown-items-list">
-                                    <div class="dropdown-item muted-center">جاري تحميل الدول...</div>
-                                </div>
+                    <div class="dropdown-menu">
+                        <div class="dropdown-search-header">
+                            <div class="mf-search-box">
+                                <input type="text" placeholder="ابحث عن دولتك..." oninput="ClientSystem.filterCountries(this.value)">
                             </div>
                         </div>
-                        <input type="hidden" id="reg-country">
-                    </div>
-
-                    <div class="input-field-lux mb-20" style="position: relative; z-index: 10;">
-                        <label>رقم الهاتف</label>
-                        <div class="phone-input-container">
-                            <span class="country-code-label num-en" id="phone-prefix" dir="ltr">
-                                <i class="fa-solid fa-globe"></i>
-                            </span>
-                            <input type="tel" id="reg-phone" class="lux-input phone-input" placeholder="أدخل رقم هاتفك">
+                        <div id="countries-list-target" class="dropdown-items-list">
+                            <div class="dropdown-item muted-center">جاري تحميل الدول...</div>
                         </div>
                     </div>
-<div class="input-field-lux mb-20" style="position: relative; z-index: 8;">
-    <label>عملة المحفظة الأساسية</label>
-    <select id="reg-currency" class="lux-input" required>
-        <option value="" disabled selected>حدد العملة الدائمة لمحفظتك...</option>
-    </select>
-    
-    <div class="identity-warning-box">
-        <i class="fa-solid fa-circle-exclamation"></i>
-        <span>تنبيه: هذه العملة لا يمكن تغييرها لاحقاً</span>
-    </div>
-</div>
-                    <button class="btn-save-lux" onclick="ClientSystem.saveIdentityData()" style="margin-top: 10px;">
-                        حفظ البيانات
-                    </button>
                 </div>
-
-                <div id="identity-verified-status" class="hide-element">
-                    <div class="verified-info-box" style="flex-direction: column; text-align: center; padding: 25px 15px;">
-                        <i class="fa-solid fa-circle-check" style="font-size: 45px; margin-bottom: 10px; color: #22c55e;"></i>
-                        <div class="vi-details" style="width: 100%;">
-                            <span class="vi-label" style="display: block; font-size: 16px; margin-bottom: 8px; font-weight: 800;">تم إكمال بيانات حسابك بنجاح</span>
-                            <span class="vi-desc" style="display: block; font-size: 12.5px; color: var(--text-muted); line-height: 1.6;">يمكنك مراجعة بياناتك لاحقاً من خلال نافذة الملف الشخصي.</span>
-                        </div>
-                    </div>
+                <input type="hidden" id="reg-country">
+            </div>
+            
+            <!-- 2. حقل رقم الهاتف -->
+            <div class="input-field-lux mb-20">
+                <label>رقم الهاتف</label>
+                <div class="phone-input-container">
+                    <span class="country-code-label num-en" id="phone-prefix" dir="ltr">
+                        <i class="fa-solid fa-globe"></i>
+                    </span>
+                    <input type="tel" id="reg-phone" class="lux-input phone-input" placeholder="أدخل رقم هاتفك">
                 </div>
             </div>
+            
+            <!-- 🌟 3. حقل العملة (التحديث الاحترافي Custom Dropdown) -->
+            <div class="input-field-lux country-field-wrapper mb-20">
+                <label>عملة المحفظة الأساسية</label>
+                <div class="custom-dropdown-container solid-dropdown" id="reg-currency-dropdown">
+                    <button type="button" class="dropdown-trigger lux-input" onclick="this.parentElement.classList.toggle('open')">
+                        <div class="trigger-info">
+                            <span class="selected-text" id="selected-currency-text">اختر العملة...</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-down arrow-icon"></i>
+                    </button>
+                    
+                    <div class="dropdown-menu">
+                        <div id="reg-currency-list-target" class="dropdown-items-list">
+                            <!-- سيتم حقن العملات هنا بواسطة הג'افاسكريبت -->
+                        </div>
+                    </div>
+                </div>
+                <input type="hidden" id="reg-currency" value="">
+                
+                <!-- صندوق التنبيه -->
+                <div class="identity-warning-box">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                    <span>تنبيه: هذه العملة لا يمكن تغييرها لاحقاً</span>
+                </div>
+            </div>
+            
+            <button class="btn-save-lux" data-action="save-identity">
+                حفظ البيانات
+            </button>
+        </div>
+
+        <div id="identity-verified-status" class="hide-element">
+    <div class="verified-info-box">
+        <i class="fa-solid fa-circle-check"></i>
+        <div class="vi-details">
+            <span class="vi-label">تم إكمال بيانات حسابك بنجاح</span>
+            <span class="vi-desc">يمكنك مراجعة بياناتك لاحقاً من خلال نافذة الملف الشخصي.</span>
         </div>
     </div>
-    <div class="pm-overlay" id="kyc-upload-overlay" onclick="ClientSystem.closeKycModal()"></div>
-    <div class="modal-sheet bottom-sheet" id="kyc-upload-modal">
+</div>
+
+</div> 
+</div> 
+</div> <div class="pm-overlay" id="kyc-upload-overlay" onclick="ClientSystem.closeKycModal()"></div>
+<div class="modal-sheet bottom-sheet" id="kyc-upload-modal">
         <div class="pm-header-std">
             <div class="pm-close-std" onclick="ClientSystem.closeKycModal()"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">

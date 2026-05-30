@@ -84,35 +84,45 @@ const ClientSystem = {
             target.blur();
 
             switch (action) {
-                case 'open-category':
-                    e.preventDefault();
-                    if(typeof this.openCategory === 'function') this.openCategory(id); 
-                    break;
-                    
-                case 'open-product':
-                    e.preventDefault();
-                    const currentTime = new Date().getTime();
-                    const timeDiff = currentTime - lastClickTime;
-
-                    if (timeDiff < 300 && lastClickTarget === id) {
-                        if(typeof this.triggerMagicFavorite === 'function') this.triggerMagicFavorite(e, id);
-                        lastClickTime = 0; 
-                    } else {
-                        if(typeof this.openProdModal === 'function') this.openProdModal(id);
-                        lastClickTime = currentTime;
-                        lastClickTarget = id;
-                    }
-                    break;
-
-                case 'select-pay':
-                    if(typeof this.selectPay === 'function') this.selectPay(id);
-                    break;
-                    
-                case 'submit-balance':
-                    const currency = target.getAttribute('data-curr');
-                    if(typeof this.handleBalanceSubmit === 'function') this.handleBalanceSubmit(currency);
-                    break;
-
+    case 'open-category':
+        e.preventDefault();
+        if (typeof this.openCategory === 'function') this.openCategory(id);
+        break;
+        
+    case 'open-product':
+        e.preventDefault();
+        const currentTime = new Date().getTime();
+        const timeDiff = currentTime - lastClickTime;
+        
+        if (timeDiff < 300 && lastClickTarget === id) {
+            if (typeof this.triggerMagicFavorite === 'function') this.triggerMagicFavorite(e, id);
+            lastClickTime = 0;
+        } else {
+            if (typeof this.openProdModal === 'function') this.openProdModal(id);
+            lastClickTime = currentTime;
+            lastClickTarget = id;
+        }
+        break;
+        
+    case 'select-pay':
+        if (typeof this.selectPay === 'function') this.selectPay(id);
+        break;
+        
+    case 'submit-balance':
+        const currency = target.getAttribute('data-curr');
+        if (typeof this.handleBalanceSubmit === 'function') this.handleBalanceSubmit(currency);
+        break;
+        
+        // 🌟 الإضافة الجديدة: التقاط اختيار عملة المحفظة الأساسية
+    case 'select-reg-currency':
+        e.preventDefault();
+        const currName = target.getAttribute('data-name');
+        const currCode = target.getAttribute('data-code');
+        
+        if (typeof this.selectRegCurrency === 'function') {
+            this.selectRegCurrency(currName, currCode);
+        }
+        break;
                 case 'toggle-accordion':
                     e.preventDefault();
                     if(typeof this.togglePayDetail === 'function') {

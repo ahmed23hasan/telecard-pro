@@ -393,7 +393,6 @@ input, button, select, textarea, .nav-menu .nav-item, .form-label,
     0% { opacity: 0; transform: translateY(-15px); } 
     100% { opacity: 1; transform: translateY(0); } 
 }
-
 /* =========================================================
    [ 🔝 6. المحرك الذكي للشريط العلوي (Header Engine V4) ]
    ========================================================= */
@@ -426,13 +425,17 @@ input, button, select, textarea, .nav-menu .nav-item, .form-label,
     flex-direction: row; 
     transition: all var(--trans-speed) ease;
     
-    /* 🌟 السماح للمنطقة بأخذ المساحة المتاحة مع قابلية الانكماش المرنة */
-    flex: 1 1 auto;
-    min-width: 0; /* 🚀 أمر حاسم جداً: يمنع Flexbox من تجاوز حدود الشاشة عند وجود نص طويل */
+    /* 👈 1. التعديل الجذري: إجبار المحتوى الداخلي على الاصطفاف لليسار */
+    justify-content: flex-start;
     
+    /* 👈 2. التعديل الجذري: منع التمدد العشوائي (flex: 0) 
+         لكي يقوم الهيدر بدفعه لأقصى اليسار تلقائياً */
+    flex: 0 1 auto;
+    
+    min-width: 0; /* 🚀 أمر حاسم: يمنع Flexbox من تجاوز حدود الشاشة عند وجود نص طويل */
     overflow: visible; 
     
-    /* 🚀 التعديل الجذري: إجبار الحاوية لتبدأ من اليسار (اللوغو يسار والاسم يمين) */
+    /* إجبار الحاوية لتبدأ من اليسار (اللوغو يسار والاسم يمين) */
     direction: ltr !important;
 }
 
@@ -5677,11 +5680,26 @@ div.kyc-upload-grid .kyc-upload-box input[type="file"]::-webkit-file-upload-butt
 .country-field-wrapper { position: relative; z-index: var(--z-modal-top); }
 
 .solid-dropdown .dropdown-menu {
-    width: 100%; top: calc(100% + 8px); background: var(--bg-body) !important; border: 1px solid var(--primary);
-    box-shadow: 0 20px 60px rgba(0,0,0,0.8); z-index: 10000; border-radius: var(--radius-md); overflow: hidden; animation: modalSlideUp 0.3s ease;
+    width: 100%; top: calc(100% + 8px); 
+    
+    /* 🌟 1. الإصلاح الجذري للشفافية: لون معتم صريح وإلغاء الزجاج الموروث */
+    background: #111827 !important; /* لون داكن صلب يعزل ما خلفه */
+    backdrop-filter: none !important; 
+    -webkit-backdrop-filter: none !important;
+    
+    /* 🌟 2. استبدال الإطار الذهبي الفاقع بإطار رمادي ناعم لراحة العين */
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    
+    box-shadow: 0 15px 40px rgba(0,0,0,0.8); z-index: 10000; border-radius: var(--radius-md); overflow: hidden; animation: modalSlideUp 0.3s ease;
 }
 
-/* إصلاح عبارة "اختر الدولة" لتبدو متناسقة مع بقية الحقول */
+/* دعم اللون الصلب في الوضع النهاري */
+body.light-mode .solid-dropdown .dropdown-menu { 
+    background: #ffffff !important; 
+    border-color: rgba(0,0,0,0.1) !important; 
+}
+
+/* إصلاح عبارة "اختر الدولة" */
 .custom-dropdown-container .selected-text, .solid-dropdown .selected-text {
     font-size: 13px !important; font-weight: 700 !important; color: var(--text-muted); letter-spacing: 0.2px; transition: color var(--trans-speed);
 }
@@ -5692,10 +5710,33 @@ div.kyc-upload-grid .kyc-upload-box input[type="file"]::-webkit-file-upload-butt
 .solid-dropdown .mf-search-btn { color: var(--text-muted); font-size: 14px; background: transparent; border: none; }
 
 .solid-dropdown .dropdown-items-list { max-height: 220px; overflow-y: auto; }
-.dropdown-items-list::-webkit-scrollbar { width: 4px; }
-.dropdown-items-list::-webkit-scrollbar-thumb { background: var(--primary); border-radius: var(--radius-sm); }
-.hide-element { display: none !important; }
 
+/* 🌟 3. إصلاح السكرول بار: إزالة اللون الذهبي واستبداله بشفاف أنيق */
+.dropdown-items-list::-webkit-scrollbar { width: 4px; }
+.dropdown-items-list::-webkit-scrollbar-track { background: transparent; }
+.dropdown-items-list::-webkit-scrollbar-thumb { 
+    background: rgba(255, 255, 255, 0.15); /* لون أبيض شفاف خفيف جداً */
+    border-radius: var(--radius-sm); 
+}
+body.light-mode .dropdown-items-list::-webkit-scrollbar-thumb { 
+    background: rgba(0, 0, 0, 0.15); /* لون رمادي شفاف للوضع النهاري */
+}
+
+.hide-element { display: none !important; }
+/* =========================================================
+   [ 🛡️ حل مشكلة التداخل المتقدمة (Stacking Context Fix) ]
+   ========================================================= */
+/* 🌟 السطر السحري: يرفع الحاوية بأكملها فوق كل شيء فقط عندما تكون القائمة مفتوحة */
+.input-field-lux:has(.solid-dropdown.open),
+.country-field-wrapper:has(.solid-dropdown.open) {
+    z-index: 99999 !important;
+}
+
+/* ضمان أن حقل الهاتف لن يتمرد ويطفو فوق القوائم المفتوحة */
+.phone-input-container {
+    position: relative;
+    z-index: 1;
+}
 /* =========================================================
    [ ⏳ اللودر المركزي الاحترافي (Global Loader) ]
    ========================================================= */

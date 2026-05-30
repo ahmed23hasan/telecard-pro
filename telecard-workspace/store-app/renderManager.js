@@ -894,7 +894,7 @@ export const RenderManager = {
         container.appendChild(fragment);
     },
 
-    renderPayments: function() {
+renderPayments: function() {
         const list = document.getElementById('mypay-list');
         const template = document.getElementById('payment-card-template');
         if(!list || !template) return;
@@ -920,7 +920,17 @@ export const RenderManager = {
         let myDeposits = allDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: getTime(d) }));
 
         const filters = DataManager.filters || { payments: 'all' };
-        if (filters.payments !== 'all') myDeposits = myDeposits.filter(d => d.status === filters.payments);
+                // 🌟 الدمج الذكي للفلاتر (Smart Grouping)
+        if (filters.payments !== 'all') {
+            if (filters.payments === 'rejected') {
+                // إذا اختار العميل "مرفوض"، نعرض له المرفوض والمسترجع معاً
+                myDeposits = myDeposits.filter(d => ['rejected', 'refunded', 'returned'].includes(d.status));
+            } else {
+                // باقي التبويبات (مقبول، قيد المعالجة) تعمل كالمعتاد
+                myDeposits = myDeposits.filter(d => d.status === filters.payments);
+            }
+        }
+
         if (q) myDeposits = myDeposits.filter(d => d.id.toString().includes(q) || d.method?.toLowerCase().includes(q));
         if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
@@ -942,8 +952,23 @@ export const RenderManager = {
             const card = clone.querySelector('.pay-history-card');
             const header = clone.querySelector('.ph-header');
             
+            // 🌟 1. اكتشاف هل العملية تمثل (خصماً / خروج أموال)؟
+            const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
+
             let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
-            if (['approved', 'completed'].includes(d.status)) { stClass = 'st-approved'; stText = 'مقبول'; icon = 'fa-check'; } 
+            
+            // 🌟 2. تلوين الحالات وتغيير الأيقونات بناءً على نوع العملية
+            if (['approved', 'completed'].includes(d.status)) { 
+                if (isDeduction) {
+                    stClass = 'st-rejected'; // استخدام ستايل الرفض/اللون الأحمر ليدل على الخصم
+                    stText = 'مخصوم'; 
+                    icon = 'fa-arrow-up-long'; // سهم للأعلى (خروج)
+                } else {
+                    stClass = 'st-approved'; // اللون الأخضر
+                    stText = 'مقبول'; 
+                    icon = 'fa-check'; 
+                }
+            } 
             else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; }
             else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
 
@@ -952,19 +977,37 @@ export const RenderManager = {
             clone.querySelector('.ph-status-mini').textContent = stText;
 
             const currency = (d.currency || 'USD').toUpperCase();
-            const rawAmount = parseFloat(d.amount) || 0; 
+            
+            // تحويل المبالغ إلى قيم موجبة مطلقة لكي نتحكم نحن بإشارة السالب
+            const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
             const feesVal = parseFloat(d.fees || d.fee || 0);
             const feesPct = parseFloat(d.feesPercent || d.feePct || 0);
             const totalVal = rawAmount + (d.feeType === 'bonus' ? 0 : feesVal); 
 
-            const displayNetAmount = d.creditedAmount !== undefined ? d.creditedAmount : rawAmount;
+            const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
             const displayNetCurrency = (d.targetCurrency || currency).toUpperCase();
 
             clone.querySelector('.ph-method-name').textContent = d.method || 'شحن رصيد';
-            clone.querySelector('.ph-amount-header').innerHTML = RenderHelpers.formatMoney(rawAmount, currency);
+            
+            // 🌟 3. تطبيق إشارة السالب والألوان على المبالغ
+            const amountPrefix = isDeduction ? '- ' : (['approved', 'completed'].includes(d.status) && !isDeduction ? '+ ' : '');
+            const amountColorClass = isDeduction ? 'text-danger' : (['approved', 'completed'].includes(d.status) && !isDeduction ? 'text-success' : '');
+
+            // تحديث المبلغ الرئيسي
+            const headerAmtEl = clone.querySelector('.ph-amount-header');
+            if(headerAmtEl) {
+                headerAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}" style="font-weight: 800;">${amountPrefix}${RenderHelpers.formatMoney(rawAmount, currency)}</span>`;
+            }
+
             clone.querySelector('.ph-total').innerHTML = RenderHelpers.formatMoney(totalVal, currency);
             clone.querySelector('.ph-fees').innerHTML = RenderHelpers.formatMoney(feesVal, currency);
-            clone.querySelector('.ph-net').innerHTML = RenderHelpers.formatMoney(displayNetAmount, displayNetCurrency);
+            
+            // تحديث الصافي المضاف للمحفظة
+            const netAmtEl = clone.querySelector('.ph-net');
+            if(netAmtEl) {
+                netAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}" style="font-weight: 800;">${amountPrefix}${RenderHelpers.formatMoney(displayNetAmount, displayNetCurrency)}</span>`;
+            }
+            
             clone.querySelector('.ph-fee-pct').textContent = `(${feesPct}%)`;
 
             let formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
@@ -1007,7 +1050,6 @@ export const RenderManager = {
 
         list.appendChild(fragment);
     },
-
     renderOrders: function() {
         if (typeof window.updateBottomNavState === 'function') window.updateBottomNavState('orders');
 
