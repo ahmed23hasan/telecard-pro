@@ -661,50 +661,49 @@ exports.getServerTime = functions.region('us-east1').https.onCall((data, context
 // 🛡️ 6. دالة المزامنة الآمنة للمنتجات (Data Sanitizer - Public Splitter)
 // ==========================================
 // تعمل تلقائياً (Trigger) في الخلفية عندما يضيف أو يعدل الإدمن أي منتج
-exports.secureProductSync = functions.firestore
+exports.secureProductSync = functions.region('us-east1').firestore
     .document('telecard_prods/{productId}')
     .onWrite(async (change, context) => {
         const productId = context.params.productId;
         const publicProdRef = db.collection('telecard_prods_public').doc(productId);
-
+        
         // إذا قام الإدمن بحذف المنتج، نحذفه من الواجهة العامة للعملاء أيضاً
         if (!change.after.exists) {
             return publicProdRef.delete();
         }
-
+        
         const prodData = change.after.data();
         const costPrice = Number(prodData.costPrice || prodData.cost_price || 0);
-
+        
         // 1. جلب المستويات لحساب الأسعار مسبقاً
         const tiersSnap = await db.collection('telecard_tiers').get();
         const tierPrices = {};
-
+        
         // 2. حساب السعر المخصص لكل مستوى (بدون عروض أو كوبونات، السعر الأساسي فقط)
         tiersSnap.forEach(doc => {
             const tier = doc.data();
             const profitPercent = Number(tier.profitPercent || tier.profit_percent || 0);
             const minProfitUsd = Number(tier.minProfitUsd || tier.min_profit_usd || 0);
-
+            
             let profitAdded = costPrice * (profitPercent / 100);
             if (profitAdded < minProfitUsd) profitAdded = minProfitUsd;
-
+            
             tierPrices[tier.id] = Number((costPrice + profitAdded).toFixed(4));
         });
-
+        
         // 3. إنشاء النسخة النظيفة (حذف التكلفة وأي بيانات سرية للموردين)
         const publicData = { ...prodData };
         delete publicData.costPrice;
         delete publicData.cost_price;
         delete publicData.providerId; // أسرار الموردين
-        delete publicData.apiToken;   // أسرار الموردين
-
+        delete publicData.apiToken; // أسرار الموردين
+        
         // إضافة الأسعار المحسوبة مسبقاً للنسخة العامة
         publicData.tierPrices = tierPrices;
-
+        
         // 4. حفظ النسخة الآمنة في المجموعة العامة ليقرأها المتجر
         return publicProdRef.set(publicData, { merge: true });
     });
-
 // ==========================================
 // 🔗 ربط وتصدير دوال المطورين والموردين
 // ==========================================
