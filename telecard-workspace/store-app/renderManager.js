@@ -662,7 +662,7 @@ export const RenderManager = {
     // ========================================================================
     // 💳 المحفظة والإيداعات والطلبات (تم إصلاح الفرز الزمني وإزالة المحاسب المحلي)
     // ========================================================================
-    renderWallet: function() {
+        renderWallet: function() {
         const filterData = Utils.getSearchAndDateFilters('wallet', 'wallet');
         if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
@@ -677,7 +677,6 @@ export const RenderManager = {
         const deps = LiveStoreData.deposits || [];
         const ords = LiveStoreData.orders || [];
 
-        // 🌟 دالة قراءة التوقيت الآمنة (تقرأ Timestamp الحقيقي وتتجاهل Base36 ID)
         const getTime = (item) => {
             if (!item) return 0;
             const t = item.time || item.createdAt;
@@ -716,12 +715,25 @@ export const RenderManager = {
         const depDisp = document.getElementById('wallet-total-deposit');
         if(depDisp) depDisp.innerHTML = RenderHelpers.formatMoney(user.totalDeposit || 0, walletCurr);
 
-        // 🌟 الفرز الصحيح من الأحدث للأقدم بناءً على التوقيت الحقيقي وليس الـ ID
         allTransactions.sort((a, b) => b.sortTime - a.sortTime);
 
         let finalView = allTransactions;
         const filters = DataManager.filters || { wallet: 'all' };
-        if(filters.wallet !== 'all') finalView = finalView.filter(t => t.type === filters.wallet);
+
+        // 🌟 1. المتغير الذكي لمعرفة هل هناك أي فلتر نشط حالياً؟ (مهم جداً لإخفاء الرصيد التراكمي)
+        const isFilterActive = (filters.wallet !== 'all') || (q && q.length > 0) || tStart || tEnd;
+
+        // 🌟 2. الفلترة المنطقية الذكية للوارد والصادر
+        if(filters.wallet !== 'all') {
+            if (filters.wallet === 'deposit') {
+                finalView = finalView.filter(t => t.type === 'deposit' && !t.isDeduction);
+            } else if (filters.wallet === 'purchase') {
+                finalView = finalView.filter(t => t.type === 'purchase' || (t.type === 'deposit' && t.isDeduction));
+            } else {
+                finalView = finalView.filter(t => t.type === filters.wallet);
+            }
+        }
+
         if(q) finalView = finalView.filter(t => t.searchKey.toLowerCase().includes(q));
         if(tStart) finalView = finalView.filter(t => t.sortTime >= tStart);
         if(tEnd) finalView = finalView.filter(t => t.sortTime <= tEnd);
@@ -763,6 +775,12 @@ export const RenderManager = {
             const jumpType = isDep ? 'deposit' : 'purchase';
             const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
 
+            // 🌟 3. كود رسم الرصيد التراكمي (يظهر فقط إذا كان "الكل" ولا يوجد بحث، وكان الحقل موجوداً)
+            let runningBalanceHtml = '';
+            if (!isFilterActive && tx.balanceAfter !== undefined && tx.balanceAfter !== null) {
+                runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, walletCurr)}</div>`;
+            }
+
             generatedHTML += `
             <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
                 <div class="th-icon ${iconColorClass}"><i class="fa-solid ${iconName}"></i></div>
@@ -774,6 +792,7 @@ export const RenderManager = {
                     <div class="th-amount-col">
                         <span class="th-order num-en">${shortTxId}</span>
                         <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal, tx.amountCurrency)}</div>
+                        ${runningBalanceHtml} 
                     </div>
                 </div>
             </div>`;
@@ -792,6 +811,7 @@ export const RenderManager = {
             list.appendChild(loadMoreBtn);
         }
     },
+
     // ========================================================================
     // 🌟 حماية تكرار الإيداعات (Pending Lock) في بوابات الدفع (بالتصميم الأصلي)
     // ========================================================================

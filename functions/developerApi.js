@@ -12,26 +12,27 @@ const db = admin.firestore();
 // 🚀 1. مرسل الإشعارات السحابي (Webhook Dispatcher)
 // يعمل تلقائياً عند أي تحديث على حالة الطلب في قاعدة البيانات
 // ==========================================
-exports.orderStatusWebhook = functions.firestore
+// 👇 تمت إضافة تحديد المنطقة .region('us-east1') هنا
+exports.orderStatusWebhook = functions.region('us-east1').firestore
     .document('telecard_orders/{orderId}')
     .onUpdate(async (change, context) => {
         const before = change.before.data();
         const after = change.after.data();
-
+        
         // 🛡️ إذا لم تتغير الحالة، لا داعي لإرسال إشعار (توفير موارد السيرفر)
         if (before.status === after.status) return null;
-
+        
         const userId = after.userId;
-
+        
         try {
             const userSnap = await db.collection('telecard_users').doc(String(userId)).get();
             if (!userSnap.exists) return null;
-
+            
             const userData = userSnap.data();
             
             // تحقق من وجود رابط Webhook صالح للعميل
             if (!userData.webhookUrl || !userData.webhookUrl.startsWith('http')) return null;
-
+            
             // 📦 تجهيز طرد البيانات (Payload)
             const payload = {
                 event: 'order_status_changed',
@@ -44,29 +45,28 @@ exports.orderStatusWebhook = functions.firestore
                 deliveredCode: after.deliveredCode || null,
                 timestamp: new Date().toISOString()
             };
-
+            
             // 📡 إرسال الطلب لمتجر العميل
             // نستخدم دالة fetch القياسية في Node.js 18+
             const response = await fetch(userData.webhookUrl, {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
                     'User-Agent': 'Telecard-Cloud-Engine/1.0'
                 },
                 body: JSON.stringify(payload)
             });
-
+            
             if (!response.ok) {
                 console.warn(`Webhook failed for User ${userId} with status ${response.status}`);
             }
-
+            
             return true;
         } catch (error) {
             console.error("Webhook Dispatch Error:", error);
             return null; // لا نوقف النظام إذا فشل سيرفر العميل
         }
     });
-
 // ==========================================
 // 🔌 2. بوابة الـ API الخارجية (External API Gateway)
 // نقطة وصول REST API عادية ليستقبل طلبات الشراء من سيرفرات التجار
