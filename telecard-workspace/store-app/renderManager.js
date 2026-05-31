@@ -894,7 +894,10 @@ export const RenderManager = {
         container.appendChild(fragment);
     },
 
-renderPayments: function() {
+// =========================================================
+    // 💳 رسم سجل الدفعات والإيداعات (Payment History)
+    // =========================================================
+    renderPayments: function() {
         const list = document.getElementById('mypay-list');
         const template = document.getElementById('payment-card-template');
         if(!list || !template) return;
@@ -907,6 +910,7 @@ renderPayments: function() {
         const user = DataManager.user || { id: 0 };
         const allDeposits = LiveStoreData.deposits || [];
         
+        // ⏱️ دالة قراءة التوقيت الآمنة
         const getTime = (item) => {
             if (!item) return 0;
             const t = item.time || item.createdAt;
@@ -920,6 +924,7 @@ renderPayments: function() {
 
         const filters = DataManager.filters || { payments: 'all' };
         
+        // 🔍 الدمج الذكي للفلاتر (Smart Grouping)
         if (filters.payments !== 'all') {
             if (filters.payments === 'rejected') {
                 myDeposits = myDeposits.filter(d => ['rejected', 'refunded', 'returned'].includes(d.status));
@@ -932,14 +937,15 @@ renderPayments: function() {
         if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
 
-        myDeposits.sort((a,b) => b.sortTime - a.sortTime); 
+        myDeposits.sort((a, b) => b.sortTime - a.sortTime); // فرز زمني صحيح
         
         const totalPaymentsCount = myDeposits.length;
         if (!q && !dStart && !dEnd) myDeposits = myDeposits.slice(0, this.limits.payments);
 
         list.innerHTML = '';
         if (myDeposits.length === 0) {
-            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد عمليات</h3></div>`; return;
+            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد عمليات</h3></div>`; 
+            return;
         }
 
         const fragment = document.createDocumentFragment();
@@ -949,6 +955,7 @@ renderPayments: function() {
             const card = clone.querySelector('.pay-history-card');
             const header = clone.querySelector('.ph-header');
             
+            // 🛑 اكتشاف هل العملية تمثل (خصماً / خروج أموال)
             const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
 
             let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
@@ -963,35 +970,32 @@ renderPayments: function() {
                     stText = 'مقبول'; 
                     icon = 'fa-check'; 
                 }
-            } 
-            else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; }
-            else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
+            } else if (d.status === 'rejected') { 
+                stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; 
+            } else if (['refunded', 'returned'].includes(d.status)) { 
+                stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; 
+            }
 
             card.classList.add(stClass);
             clone.querySelector('.ph-icon').classList.add('fa-solid', icon);
             clone.querySelector('.ph-status-mini').textContent = stText;
 
             const currency = (d.currency || 'USD').toUpperCase();
-            
             const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
             const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
             const displayNetCurrency = (d.targetCurrency || currency).toUpperCase();
 
             // =========================================================
-            // 🚀 1. المحرك الديناميكي للرسوم (مع إصلاح الخط العربي)
+            // 🚀 1. المحرك الديناميكي للرسوم والبونص 
             // =========================================================
             const feeVal = parseFloat(d.fees || d.fee || 0); 
             const feeRate = parseFloat(d.feesPercent || d.feePct || d.feeRate || 0); 
             const feeType = d.feeType || 'fee'; 
             const feeUnit = d.feeUnit || d.unit || 'percent'; 
-            
             const totalVal = rawAmount + (feeType === 'bonus' ? 0 : feeVal);
-
             const feeRow = clone.querySelector('.ph-fees').closest('.ph-item');
 
             if (feeVal === 0 && feeRate === 0) {
-                // 🌟 الحل: أزلنا كلاس `.ph-item-val` الذي يفرض خط Inter الانجليزي
-                // واستخدمنا كلاسات نظيفة ليأخذ الخط العربي (Cairo) من الـ Body
                 feeRow.innerHTML = `
                     <div class="ph-item-label"><i class="fa-solid fa-tags"></i> الرسوم الإضافية</div>
                     <div class="text-muted fs-small">لا يوجد</div>
@@ -1004,7 +1008,6 @@ renderPayments: function() {
                 const labelText = isBonus ? 'بونص إضافي' : 'العمولة';
                 const colorClass = isBonus ? 'text-success' : 'text-danger';
                 const sign = isBonus ? '+' : '-';
-
                 const rateDisplay = isFixed ? '(مبلغ ثابت)' : `(<span class="num-en">${feeRate}%</span>)`;
 
                 feeRow.innerHTML = `
@@ -1034,89 +1037,102 @@ renderPayments: function() {
                 netAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}">${amountPrefix}${RenderHelpers.formatMoney(displayNetAmount, displayNetCurrency)}</span>`;
             }
 
-// =========================================================
-// 👤 2. استخراج اسم المستخدم (Username) وإعادة كبسولة الـ ID
-// =========================================================
-const senderRow = clone.querySelector('.ph-sender').closest('.ph-item');
+            // =========================================================
+            // 👤 2. استخراج اسم المستخدم وإعادة كبسولة الـ ID
+            // =========================================================
+            const senderRow = clone.querySelector('.ph-sender').closest('.ph-item');
+            const usernameText = user.username ? `@${user.username}` : (user.name || 'العميل');
+            clone.querySelector('.ph-sender').innerHTML = `<span class="num-en">${Utils.escapeHtml(usernameText)}</span>`;
 
-// استخراج اليوزرنيم حصراً (إذا لم يوجد نضع الاسم كاحتياط)
-const usernameText = user.username ? `@${user.username}` : (user.name || 'العميل');
-clone.querySelector('.ph-sender').innerHTML = `<span class="num-en">${Utils.escapeHtml(usernameText)}</span>`;
-
-// 🌟 استخدام الكبسولة الرسمية النظيفة (بدون أيقونة إضافية)
-const userIdString = RenderHelpers.formatUserId(user);
-const idRow = document.createElement('div');
-idRow.className = 'ph-item';
-
-idRow.innerHTML = `
+            const userIdString = RenderHelpers.formatUserId(user);
+            const idRow = document.createElement('div');
+            idRow.className = 'ph-item';
+            idRow.innerHTML = `
                 <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرّف العميل</div>
                 <div class="uid-capsule is-copyable" data-action="copy-text" data-text="${userIdString}" dir="ltr" title="اضغط للنسخ">
                     <span class="num-en">${userIdString}</span>
                 </div>
             `;
+            senderRow.parentNode.insertBefore(idRow, senderRow.nextSibling);
 
-senderRow.parentNode.insertBefore(idRow, senderRow.nextSibling);            // =========================================================
-
+            // =========================================================
+            // 📅 3. التاريخ ورقم العملية
+            // =========================================================
             let formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
             const miniDateEl = clone.querySelector('.ph-date-mini');
             if(miniDateEl) miniDateEl.innerHTML = formattedDate.replace(' | ', ' <span class="date-sep">|</span> ');
 
             const shortDepositId = RenderHelpers.formatDepositId(d);
             const idEl = clone.querySelector('.ph-id');
-            idEl.textContent = shortDepositId; idEl.setAttribute('data-action', 'copy-text'); idEl.setAttribute('data-text', shortDepositId);
+            idEl.textContent = shortDepositId; 
+            idEl.setAttribute('data-action', 'copy-text'); 
+            idEl.setAttribute('data-text', shortDepositId);
             
             clone.querySelector('.ph-full-time').textContent = formattedDate;
 
             // =========================================================
-// 📸 3. معالجة صورة الإيصال (إصلاح الظهور والفتح)
-// =========================================================
-if (d.receiptImage || d.receipt) {
-    const imgBox = clone.querySelector('.ph-receipt-img-box');
-    if (imgBox) {
-        imgBox.style.display = 'block';
-        
-        const imgElem = imgBox.querySelector('img');
-        const safeUrl = Utils.escapeHtml(d.receiptImage || d.receipt);
-        imgElem.src = safeUrl;
-        
-        // 🌟 منح الصورة الكلاس الفاخر الجاهز في ملف CSS لتبدو واضحة ومرتبة
-        imgElem.className = 'bal-receipt-preview-new clickable';
-        
-        // 🌟 ربط فتح الصورة بمكبر الصور (Lightbox) عند النقر
-        imgElem.onclick = (e) => {
-            e.stopPropagation(); // منع إغلاق الأكورديون عن طريق الخطأ
-            if (typeof window.ClientSystem.openImageViewer === 'function') {
-                window.ClientSystem.openImageViewer(safeUrl);
+            // 📸 4. معالجة صورة الإيصال 
+            // =========================================================
+            if (d.receiptImage || d.receipt) {
+                const imgBox = clone.querySelector('.ph-receipt-img-box');
+                if (imgBox) {
+                    imgBox.style.display = 'block';
+                    const imgElem = imgBox.querySelector('.ph-img-elem');
+                    const safeUrl = Utils.escapeHtml(d.receiptImage || d.receipt);
+                    imgElem.src = safeUrl;
+                    
+                    imgElem.onclick = (e) => {
+                        e.stopPropagation(); 
+                        const lightbox = document.getElementById('pay-receipt-lightbox');
+                        const lightboxImg = document.getElementById('pay-receipt-img');
+                        if (lightbox && lightboxImg) {
+                            lightboxImg.src = safeUrl; 
+                            lightbox.classList.add('active'); 
+                        }
+                    };
+                }
             }
-        };
-    }
-}
 
-// =========================================================
-// 📄 4. تفعيل زر تصدير الإيصال (PDF)
-// =========================================================
-const exportBtn = clone.querySelector('.btn-receipt-export');
-if (exportBtn) {
-    // 🌟 ربط الزر بدالة التصدير وتمرير الـ ID الخاص بالعملية
-    exportBtn.onclick = (e) => {
-        e.stopPropagation(); // منع إغلاق الأكورديون
-        if (typeof window.ClientSystem.exportPaymentReceipt === 'function') {
-            window.ClientSystem.exportPaymentReceipt(d.id);
-        }
-    };
-}
+            // =========================================================
+            // 📄 5. تفعيل زر تصدير الإيصال (PDF)
+            // =========================================================
+            const exportBtn = clone.querySelector('.btn-receipt-export');
+            if (exportBtn) {
+                exportBtn.onclick = (e) => {
+                    e.stopPropagation(); 
+                    if (typeof window.ClientSystem.exportPaymentReceipt === 'function') {
+                        window.ClientSystem.exportPaymentReceipt(d.id);
+                    }
+                };
+            }
 
-header.setAttribute('data-action', 'toggle-accordion');
-            if (d.adminNote?.trim()) {
+            // =========================================================
+            // 💬 6. ملاحظات الإدارة
+            // =========================================================
+            header.setAttribute('data-action', 'toggle-accordion');
+            if (d.adminNote && d.adminNote.trim() !== '') {
                 const safeAdminNote = Utils.escapeHtml(d.adminNote);
                 const noteStateClass = d.status === 'rejected' ? 'note-rejected' : (['approved', 'completed'].includes(d.status) ? 'note-approved' : '');
                 const noteDiv = document.createElement('div');
                 noteDiv.className = `ph-admin-note ${noteStateClass}`;
-                noteDiv.innerHTML = `<i class="fa-solid fa-headset"></i><div class="ph-admin-note-content"><div style="flex: 1;"><span class="ph-admin-note-title">رسالة من الإدارة:</span><div class="admin-reply-text">${safeAdminNote}</div></div><button class="reply-copy-btn" data-action="copy-text" data-text="${safeAdminNote.replace(/"/g, '&quot;')}"><i class="fa-regular fa-copy"></i></button></div>`;
+                noteDiv.innerHTML = `
+                    <i class="fa-solid fa-headset"></i>
+                    <div class="ph-admin-note-content">
+                        <div style="flex: 1;">
+                            <span class="ph-admin-note-title">رسالة من الإدارة:</span>
+                            <div class="admin-reply-text">${safeAdminNote}</div>
+                        </div>
+                        <button class="reply-copy-btn" data-action="copy-text" data-text="${safeAdminNote.replace(/"/g, '&quot;')}">
+                            <i class="fa-regular fa-copy"></i>
+                        </button>
+                    </div>`;
+                
                 const detailsBody = clone.querySelector('.ph-details-body') || card;
                 const footerAction = clone.querySelector('.ph-footer-action');
-                if (footerAction) detailsBody.insertBefore(noteDiv, footerAction); else detailsBody.appendChild(noteDiv);
+                if (footerAction) detailsBody.insertBefore(noteDiv, footerAction); 
+                else detailsBody.appendChild(noteDiv);
             }
+            
             fragment.appendChild(clone);
         });
         
@@ -1129,7 +1145,7 @@ header.setAttribute('data-action', 'toggle-accordion');
         }
 
         list.appendChild(fragment);
-    },    renderOrders: function() {
+    },  renderOrders: function() {
         if (typeof window.updateBottomNavState === 'function') window.updateBottomNavState('orders');
 
         const filterData = Utils.getSearchAndDateFilters('order', 'order');

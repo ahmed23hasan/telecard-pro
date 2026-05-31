@@ -3556,6 +3556,7 @@ body.light-mode .stats-drawer { background: var(--bg-card); }
    [ 💳 24. سجل الدفعات والمحفظة (Payment & Wallet History) ]
    ========================================================= */
 
+/* --- [ 1. التبويبات العلوية (Tabs) ] --- */
 .mf-tabs { display: flex; gap: 8px; width: 100%; margin: 15px 0 5px 0; }
 .mf-tab {
     display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; 
@@ -3570,6 +3571,9 @@ body.light-mode .mf-tab { background: var(--bg-compact); }
 @media (hover: hover) and (pointer: fine) { .mf-tab:hover { background: var(--bg-hover); color: var(--text-main); } }
 .mf-tab:active { transform: scale(0.95); }
 
+/* =========================================================
+   [ 👝 2. كروت سجل المحفظة (Wallet History Cards) ]
+   ========================================================= */
 .th-card {
     display: flex; align-items: center; gap: 15px; padding: 16px; 
     border-radius: 14px; margin-bottom: 12px; direction: rtl; cursor: pointer;
@@ -3584,12 +3588,42 @@ body.light-mode .th-card { background: var(--bg-card); border: var(--card-border
 }
 .th-card:active { transform: scale(0.98); background: var(--bg-hover); border-color: var(--primary-glow); }
 
-/* 🌟 إصلاح تداخل العناصر (إعطاء مساحة مرنة للأسماء الطويلة) */
+/* الهيكلة الداخلية لكرت المحفظة */
 .th-body { flex: 1; display: flex; justify-content: space-between; align-items: center; min-width: 0; }
 .th-details-col { display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; flex: 1; padding-left: 10px; }
 .th-row-top { display: flex; align-items: center; gap: 8px; width: 100%; }
 .th-amount-col { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 4px; flex-shrink: 0; }
 
+.tx-name-text { color: var(--text-main); font-weight: 800; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; display: inline-block; max-width: 140px; }
+@media (max-width: 380px) { .tx-name-text { max-width: 100px; } }
+
+.th-date { font-family: 'Inter', sans-serif; font-size: 11.5px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.3px; }
+.th-amount { font-family: 'Inter', sans-serif; font-size: 15.5px; font-weight: 900; direction: ltr; color: var(--text-main); display: flex; align-items: center; gap: 4px; line-height: 1; }
+
+/* الرصيد التراكمي (يظهر في المحفظة فقط عند عرض "الكل") */
+.th-balance-after { margin-top: 4px; font-size: 12.5px; font-weight: 800; color: var(--text-muted); direction: ltr; opacity: 0.85; }
+.th-balance-after::before { content: "الرصيد:"; margin-left: 4px; font-family: 'Cairo', sans-serif; }
+
+.th-order { align-self: flex-end; margin-bottom: 6px; padding: 4px 10px; border-radius: var(--radius-sm); background: var(--bg-glass); border: var(--border-nested); color: var(--text-muted); font-family: 'Inter', monospace; font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+body.light-mode .th-order { background: var(--bg-hover); color: var(--text-sub); }
+
+/* أيقونات المحفظة والدفعات المشتركة */
+.th-icon, .ph-icon-box { width: 42px; height: 42px; border-radius: var(--radius-sm); display: grid; place-items: center; flex-shrink: 0; background: var(--bg-glass-dark); border: var(--border-nested); font-size: 16px; transition: var(--trans-speed); }
+.icon-green, .st-approved .ph-icon-box { color: var(--success) !important; background: rgba(var(--success-rgb), 0.1) !important; border-color: rgba(var(--success-rgb), 0.2) !important; }
+.icon-red, .st-rejected .ph-icon-box { color: var(--danger) !important; background: rgba(var(--danger-rgb), 0.1) !important; border-color: rgba(var(--danger-rgb), 0.2) !important; }
+.icon-cyan, .st-refunded .ph-icon-box { color: var(--info); background: rgba(var(--info-rgb), 0.12); border-color: rgba(var(--info-rgb), 0.25); }
+.icon-gold, .st-pending .ph-icon-box { color: var(--pending-main) !important; background: var(--pending-bg) !important; border-color: rgba(var(--pending-rgb), 0.2) !important; }
+.icon-gold i, .st-pending .ph-icon-box i { animation: pendingGlowPulse 2s infinite alternate ease-in-out !important; }
+.icon-out { color: var(--outgoing-main) !important; background: var(--outgoing-bg) !important; border: 1px solid var(--outgoing-border) !important; }
+
+/* ألوان النصوص للمبالغ */
+.amt-in { color: var(--success) !important; }
+.amt-out { color: var(--danger) !important; } 
+.amt-neutral { color: var(--pending-main) !important; }
+
+/* =========================================================
+   [ 🧾 3. كروت سجل الدفعات (Payment History Cards) ]
+   ========================================================= */
 .pay-history-card {
     background: var(--bg-glass); border-radius: var(--radius-md); margin-bottom: 12px; 
     border: var(--border-nested); overflow: hidden; position: relative; transition: var(--trans-speed); 
@@ -3610,138 +3644,68 @@ body.light-mode .pay-history-card { background: var(--bg-card); border: var(--ca
 .ph-center-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .ph-left-sec { display: flex; justify-content: flex-end; }
 
-.th-icon, .ph-icon-box {
-    width: 42px; height: 42px; border-radius: var(--radius-sm); display: grid; place-items: center; flex-shrink: 0;
-    background: var(--bg-glass-dark); border: var(--border-nested); font-size: 16px; transition: var(--trans-speed);
-}
+.ph-method-name { color: var(--text-main); font-weight: 800; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; display: inline-block; max-width: 140px; }
+@media (max-width: 380px) { .ph-method-name { max-width: 100px; } }
 
-.icon-green, .st-approved .ph-icon-box { color: var(--success) !important; background: rgba(var(--success-rgb), 0.1) !important; border-color: rgba(var(--success-rgb), 0.2) !important; }
-.icon-red, .st-rejected .ph-icon-box { color: var(--danger) !important; background: rgba(var(--danger-rgb), 0.1) !important; border-color: rgba(var(--danger-rgb), 0.2) !important; }
-.icon-cyan, .st-refunded .ph-icon-box { color: var(--info); background: rgba(var(--info-rgb), 0.12); border-color: rgba(var(--info-rgb), 0.25); }
-.icon-gold, .st-pending .ph-icon-box { color: var(--pending-main) !important; background: var(--pending-bg) !important; border-color: rgba(var(--pending-rgb), 0.2) !important; }
-.icon-gold i, .st-pending .ph-icon-box i { animation: pendingGlowPulse 2s infinite alternate ease-in-out !important; }
-.icon-out { color: var(--outgoing-main) !important; background: var(--outgoing-bg) !important; border: 1px solid var(--outgoing-border) !important; }
-
-/* 🌟 إصلاح الأسماء الطويلة (إجبارها على التحول لنقاط عند الزحام) */
-.tx-name-text, .ph-method-name { 
-    color: var(--text-main); font-weight: 800; font-size: 13.5px; 
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
-    line-height: 1.4; display: inline-block; max-width: 140px; 
-}
-@media (max-width: 380px) { .tx-name-text, .ph-method-name { max-width: 100px; } }
-
-/* 🌟 تنسيق مبلغ العملية (ثابت وكبير) */
-.th-amount, .ph-amount-header { 
-    font-family: 'Inter', sans-serif; font-size: 15.5px; font-weight: 900; 
-    direction: ltr; color: var(--text-main); display: flex; align-items: center; gap: 4px; line-height: 1; 
-}
-
-/* 🌟 إصلاح الرصيد المتبقي (أكبر قليلاً وأوضح، لكن أصغر من مبلغ العملية) */
-.th-balance-after { 
-    margin-top: 4px; 
-    font-size: 12.5px;      /* 👈 تم التكبير (كان 10.5) */
-    font-weight: 800; 
-    color: var(--text-muted); 
-    direction: ltr; 
-    opacity: 0.85;          /* 👈 تم زيادة الوضوح (كان 0.6) */
-}
-
-/* تاريخ كرت المحفظة (الافتراضي) */
-.th-date { font-family: 'Inter', sans-serif; font-size: 11.5px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.3px; }
-
-/* =========================================================
-   [ 🔄 حركة دوران زر الإيداع (Deposit Button Animation) ]
-   ========================================================= */
-.dep-icon-box i { 
-    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); 
-    display: inline-block;
-}
-
-@media (hover: hover) and (pointer: fine) {
-    .deposit-btn:hover .dep-icon-box i { 
-        transform: rotate(180deg) scale(1.1); 
-    }
-}
-.deposit-btn:active .dep-icon-box i { 
-    transform: rotate(90deg) scale(0.9); 
-    transition: transform 0.2s ease;
-}
-/* 🌟 تم التحديث: تصغير وتنعيم التاريخ والوقت في سجل الدفعات وإجباره على سطر واحد */
-.ph-date-mini { 
-    font-family: 'Inter', sans-serif; 
-    font-size: 10px;          /* تصغير الحجم */
-    font-weight: 500;         /* وزن خط أنعم */
-    color: var(--text-muted); 
-    letter-spacing: 0.2px; 
-    white-space: nowrap;      /* إجبار البقاء في سطر واحد دائماً */
-    opacity: 0.8;
-}
-
-
-
-.amt-in { color: var(--success) !important; }
-.amt-out { color: var(--danger) !important; } 
-.amt-neutral { color: var(--pending-main) !important; }
+.ph-amount-header { font-family: 'Inter', sans-serif; font-size: 15.5px; font-weight: 900; direction: ltr; color: var(--text-main); display: flex; align-items: center; gap: 4px; line-height: 1; }
+.ph-date-mini { font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 500; color: var(--text-muted); letter-spacing: 0.2px; white-space: nowrap; opacity: 0.8; }
 
 .ph-status-mini {
     font-size: 11px; font-weight: 800; margin-top: 6px; padding: 4px 12px; border-radius: 20px; font-family: 'Cairo', sans-serif;
-    display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; line-height: 1.2;
-    border: 1px solid transparent; transition: var(--trans-speed);
+    display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; line-height: 1.2; border: 1px solid transparent; transition: var(--trans-speed);
 }
 .st-approved .ph-status-mini { color: var(--success); background: rgba(var(--success-rgb), 0.12); border-color: rgba(var(--success-rgb), 0.25); }
 .st-rejected .ph-status-mini { color: var(--danger); background: rgba(var(--danger-rgb), 0.12); border-color: rgba(var(--danger-rgb), 0.25); }
-.st-pending .ph-status-mini { color: var(--pending-dim); background: var(--pending-bg); border-color: rgba(var(--pending-rgb), 0.3); }.st-refunded .ph-status-mini { 
-    color: var(--info); 
-    background: rgba(var(--info-rgb), 0.12); 
-    border-color: rgba(var(--info-rgb), 0.25); 
-}
+.st-pending .ph-status-mini { color: var(--pending-dim); background: var(--pending-bg); border-color: rgba(var(--pending-rgb), 0.3); }
+.st-refunded .ph-status-mini { color: var(--info); background: rgba(var(--info-rgb), 0.12); border-color: rgba(var(--info-rgb), 0.25); }
 
-.th-order {
-    align-self: flex-end; margin-bottom: 6px; padding: 4px 10px; border-radius: var(--radius-sm);
-    background: var(--bg-glass); 
-    border: var(--border-nested); 
-    color: var(--text-muted); 
-    font-family: 'Inter', monospace; font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px;
-    display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
-}
-
-body.light-mode .th-order {
-    background: var(--bg-hover);
-    color: var(--text-sub);
-}
-
-/* 🌟 [الإصلاح المعماري]: توجيه الكلاسات مباشرة للسهم لتتوافق مع الجافاسكريبت */
+/* زر الأكورديون (السهم المتدلي) */
 .ph-arrow-btn { 
     width: 32px; height: 32px; border-radius: 50%; background: var(--bg-glass-dark); 
     border: var(--border-nested); color: var(--text-main); display: flex; 
-    align-items: center; justify-content: center; transition: all var(--trans-speed); 
-    pointer-events: none; 
+    align-items: center; justify-content: center; transition: all var(--trans-speed); pointer-events: none; 
 }
-.ph-arrow-btn i { 
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* حركة دوران انسيابية */
-}
-.ph-arrow-btn.is-open { 
-    background: var(--primary); color: var(--gold-text); border-color: var(--primary); 
-    box-shadow: 0 0 10px var(--primary-glow);
-}
-.ph-arrow-btn.is-open i { 
-    transform: rotate(180deg); 
-}
+.ph-arrow-btn i { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.ph-arrow-btn.is-open { background: var(--primary); color: var(--gold-text); border-color: var(--primary); box-shadow: 0 0 10px var(--primary-glow); }
+.ph-arrow-btn.is-open i { transform: rotate(180deg); }
 
-/* 🌟 [الإصلاح المعماري]: توجيه صندوق التفاصيل مباشرة للكلاس الخاص به */
-.ph-details-body { 
-    display: none; padding: 10px 15px 15px; background: var(--bg-glass-dark); 
-    border-top: var(--border-nested); 
-}
-.ph-details-body.is-open { 
-    display: block; animation: slideInPay 0.3s ease-out forwards; 
-}
+/* =========================================================
+   [ 📋 4. جسم تفاصيل الدفعة (Accordion Body) ]
+   ========================================================= */
+.ph-details-body { display: none; padding: 10px 15px 15px; background: var(--bg-glass-dark); border-top: var(--border-nested); }
+.ph-details-body.is-open { display: block; animation: slideInPay 0.3s ease-out forwards; }
 
 .ph-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed var(--border-light); font-size: 13px; }
 .ph-item:last-child { border-bottom: none; }
-.ph-item-label { color: var(--text-muted); font-weight: 700; }
+.ph-item-label { color: var(--text-muted); font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.ph-item-label i { color: var(--primary); width: 14px; text-align: center; }
 .ph-item-val { color: var(--text-main); font-weight: 800; font-family: 'Inter', sans-serif; }
 
+/* كبسولة الآيدي في التفاصيل */
+.tx-name-wrapper { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* =========================================================
+   [ 📸 5. صورة إيصال الدفع (Receipt Image Box) ]
+   ========================================================= */
+.ph-receipt-img-box {
+    width: 100%; margin-top: 15px; padding-top: 15px;
+    border-top: 1px dashed var(--border-light); text-align: center;
+}
+
+.ph-img-elem {
+    width: 100%; max-height: 180px; object-fit: cover; 
+    border-radius: 12px; border: 1px solid var(--border-light);
+    cursor: pointer; transition: transform 0.3s ease, border-color 0.3s ease;
+    background: var(--bg-glass-dark);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .ph-img-elem:hover { transform: scale(1.02); border-color: var(--primary); }
+}
+
+/* =========================================================
+   [ 💬 6. ملاحظات الإدارة وزر التصدير ]
+   ========================================================= */
 .ph-admin-note {
     padding: 12px 14px; border-radius: var(--radius-md); margin: 0 15px 15px 15px; font-size: 13px; font-weight: 600;
     display: flex; gap: 10px; align-items: flex-start; direction: rtl;
@@ -3773,52 +3737,15 @@ body.light-mode .th-order {
 
 @keyframes slideInPay { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 
-/* المحرك المالي الاحترافي V2 */
-.money-pro {
-    display: inline-flex;
-    align-items: baseline; 
-    direction: ltr !important; 
-    gap: 3px; /* مسافة ضيقة جداً وأنيقة */
-    white-space: nowrap;
-}
-
-/* الرقم الأساسي */
-.money-pro .money-val {
-    font-weight: 800; /* وزن قوي للرقم */
-}
-
-/* رمز العملة (الموازنة بين الحجم والسماكة) */
-.money-pro .cur-symbol {
-    /* 1. الحجم: 80% من حجم الرقم (ليس صغيراً جداً) */
-    font-size: 0.80em; 
-    
-    /* 2. السماكة: أقصى سماكة ممكنة ليكون واضحاً وحاداً */
-    font-weight: 900; 
-    
-    /* 3. الوضوح: إزالة الشفافية ليكون لونه قوياً */
-    opacity: 1; 
-    
-    color: inherit; 
-    line-height: 1;
-}
-
-/* إذا كان شعاراً نصياً (مثل USD أو TRY) نصغره قليلاً ليتناسب طولياً */
-.money-pro .cur-multi {
-    font-size: 0.72em;
-    letter-spacing: 0.5px;
-    font-weight: 800;
-}/* =========================================================
-   [ 🆔 كبسولة معرّف المستخدم (User ID Capsule) ]
-   ========================================================= */
-
-/* ضبط المحاذاة بين اسم المستخدم وكبسولة الأيدي */
-.tx-name-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap; /* لمنع تداخل العناصر في الشاشات الصغيرة جداً */
-}
 /* =========================================================
+   [ 💰 7. المحرك المالي المشترك (Money-Pro Formatting) ]
+   ========================================================= */
+.money-pro {
+    display: inline-flex; align-items: baseline; direction: ltr !important; gap: 3px; white-space: nowrap;
+}
+.money-pro .money-val { font-weight: 800; }
+.money-pro .cur-symbol { font-size: 0.80em; font-weight: 900; opacity: 1; color: inherit; line-height: 1; }
+.money-pro .cur-multi { font-size: 0.72em; letter-spacing: 0.5px; font-weight: 800; }/* =========================================================
    [ 📦 25. كرت سجل الطلبات (Order History Card) ]
    ========================================================= */
 

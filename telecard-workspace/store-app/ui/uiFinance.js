@@ -1533,5 +1533,21 @@ export const UIFinance = {
             countBadge.classList.add('hide-element');
             if(headerHeartIcon) headerHeartIcon.className = 'fa-regular fa-heart'; 
         }
+    },
+    // =========================================================
+// 📸 إغلاق مكبر إيصالات الدفع (Receipt Lightbox)
+// =========================================================
+closePayReceipt: function() {
+    const lightbox = document.getElementById('pay-receipt-lightbox');
+    if (lightbox) {
+        // 1. إخفاء النافذة الزجاجية
+        lightbox.classList.remove('active');
+        
+        // 2. تفريغ الصورة بعد انتهاء حركة الإغلاق لتخفيف استهلاك الرام
+        setTimeout(() => {
+            const img = document.getElementById('pay-receipt-img');
+            if (img) img.src = '';
+        }, 300);
     }
+}
 };
