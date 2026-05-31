@@ -441,6 +441,9 @@
             } 
             
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
+
+// 🌟 الإصلاح المعماري: زرع كاش العميل الجديد فوراً عند إنشاء الحساب
+localStorage.setItem('telecard_active_user', JSON.stringify(newUser));
             const toast = document.getElementById('successToast');
             if (toast) toast.classList.add('show');
             setTimeout(() => { window.location.href = "store.html"; }, 1500);

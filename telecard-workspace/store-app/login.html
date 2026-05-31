@@ -413,6 +413,12 @@
             }
 
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
+
+// 🌟 الإصلاح المعماري: زرع كاش بيانات العميل فوراً عند تسجيل الدخول
+// هذا يضمن أن المتجر يفتح مسجلاً للدخول فوراً في أول جزء من الثانية عند التحويل
+if (userDoc) {
+    localStorage.setItem('telecard_active_user', JSON.stringify(userDoc));
+}
             
             if(userDoc && (userDoc.baseCurrency || userDoc.base_currency)) {
                 localStorage.setItem('telecard_display_currency', userDoc.baseCurrency || userDoc.base_currency);
