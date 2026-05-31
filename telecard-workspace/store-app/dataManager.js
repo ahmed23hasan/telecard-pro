@@ -303,63 +303,83 @@ export const DataManager = {
         window.location.replace('login.html');
     },
 
-    syncUser: function() { 
-        const users = LiveStoreData.users || [];
-        const activeUid = localStorage.getItem('telecard_active_user_uid'); 
-        
-        let me = null;
-        if(activeUid) {
-            const foundUser = users.find(u => String(u.id) === String(activeUid));
-            if (foundUser) me = { ...foundUser };
-        }
-        
-        const isSystemBooted = window.ClientSystem && window.ClientSystem.isReady;
-        
-        if (activeUid && !me) {
-            if (users.length > 0 && isSystemBooted) {
-                this.logout();
-                return false;
-            } else {
-                return true; 
-            }
-        }
-        
-        if(me) {
-            me.baseCurrency = me.baseCurrency || me.base_currency || 'USD';
-            const bal = me.walletBalance ?? me.wallet_balance ?? me.balance ?? 0;
-            me.walletBalance = bal;
-            me.inbox = me.inbox || []; 
-
-            if (me.tierCycleStartDate === undefined) {
-                me.tierCycleStartDate = this.getNow(); 
-                me.tierCycleSpent = 0;
-            }
-
-            if (me.inbox && me.inbox.length > 30) {
-                me.inbox = [...me.inbox].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 30);
-            }
-
-            this.user = me; 
-            this.saveUserLocal(); 
+    // =========================================================
+// 👤 مزامنة العميل الذكية (Optimistic UI & Cache Engine)
+// =========================================================
+syncUser: function() {
+    const users = LiveStoreData.users || [];
+    const activeUid = localStorage.getItem('telecard_active_user_uid');
+    
+    let me = null;
+    if (activeUid) {
+        // 1. محاولة جلب العميل من مستمع السحابة الحي (المرجع الأساسي)
+        const foundUser = users.find(u => String(u.id) === String(activeUid));
+        if (foundUser) {
+            me = { ...foundUser };
         } else {
+            // 🌟 2. [التخزين المؤقت المتفائل]: إذا لم تأتِ البيانات بعد من السيرفر، نقرأ من الكاش المحلي فوراً
+            // هذا يضمن أن الموقع يفتح "مسجلاً للدخول بالرصيد والاسم الأخير" في جزء من الثانية دون انتظار فايربيز!
+            const savedUserRaw = localStorage.getItem(ACTIVE_USER_KEY);
+            if (savedUserRaw) {
+                try {
+                    const parsed = JSON.parse(savedUserRaw);
+                    if (String(parsed.id) === String(activeUid)) {
+                        me = parsed;
+                    }
+                } catch (e) {}
+            }
+        }
+    }
+    
+    const isSystemBooted = window.ClientSystem && window.ClientSystem.isReady;
+    
+    if (activeUid && !me) {
+        if (users.length > 0 && isSystemBooted) {
+            this.logout();
+            return false;
+        } else {
+            return true;
+        }
+    }
+    
+    if (me) {
+        me.baseCurrency = me.baseCurrency || me.base_currency || 'USD';
+        const bal = me.walletBalance ?? me.wallet_balance ?? me.balance ?? 0;
+        me.walletBalance = bal;
+        me.inbox = me.inbox || [];
+        
+        if (me.tierCycleStartDate === undefined) {
+            me.tierCycleStartDate = this.getNow();
+            me.tierCycleSpent = 0;
+        }
+        
+        if (me.inbox && me.inbox.length > 30) {
+            me.inbox = [...me.inbox].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 30);
+        }
+        
+        this.user = me;
+        this.saveUserLocal();
+    } else {
+        // 🌟 3. لا نقوم بتصفير المستخدم إلا إذا قام فعلياً بالضغط على "تسجيل الخروج" (أي لا يوجد activeUid)
+        if (!activeUid) {
             this.user = null;
         }
-        
-        const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ? LiveStoreData.settings.defaultCurrency : 'USD';
-        let savedCurr = localStorage.getItem('telecard_display_currency') || (this.user?.baseCurrency) || adminDefaultCurrency;
-
-        const settings = LiveStoreData.settings || {};
-        const isToggleAllowed = settings.showCurrencyToggle !== false;
-
-        if (!isToggleAllowed && this.user && savedCurr !== this.user.baseCurrency) {
-            savedCurr = this.user.baseCurrency; 
-            localStorage.setItem('telecard_display_currency', savedCurr); 
-        }
-
-        this.selectedCurr = savedCurr;
-        return true;
-    },
-
+    }
+    
+    const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ? LiveStoreData.settings.defaultCurrency : 'USD';
+    let savedCurr = localStorage.getItem('telecard_display_currency') || (this.user?.baseCurrency) || adminDefaultCurrency;
+    
+    const settings = LiveStoreData.settings || {};
+    const isToggleAllowed = settings.showCurrencyToggle !== false;
+    
+    if (!isToggleAllowed && this.user && savedCurr !== this.user.baseCurrency) {
+        savedCurr = this.user.baseCurrency;
+        localStorage.setItem('telecard_display_currency', savedCurr);
+    }
+    
+    this.selectedCurr = savedCurr;
+    return true;
+},
     ackAdminMessage: async function() {
         if (!this.user || !this.user.id) return;
         try { this.updateUserProfile({ adminMessage: '' }); } catch(e) { }

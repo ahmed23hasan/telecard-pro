@@ -1070,29 +1070,30 @@ export const RenderManager = {
             
             clone.querySelector('.ph-full-time').textContent = formattedDate;
 
-            // =========================================================
-            // 📸 4. معالجة صورة الإيصال 
-            // =========================================================
-            if (d.receiptImage || d.receipt) {
-                const imgBox = clone.querySelector('.ph-receipt-img-box');
-                if (imgBox) {
-                    imgBox.style.display = 'block';
-                    const imgElem = imgBox.querySelector('.ph-img-elem');
-                    const safeUrl = Utils.escapeHtml(d.receiptImage || d.receipt);
-                    imgElem.src = safeUrl;
-                    
-                    imgElem.onclick = (e) => {
-                        e.stopPropagation(); 
-                        const lightbox = document.getElementById('pay-receipt-lightbox');
-                        const lightboxImg = document.getElementById('pay-receipt-img');
-                        if (lightbox && lightboxImg) {
-                            lightboxImg.src = safeUrl; 
-                            lightbox.classList.add('active'); 
-                        }
-                    };
-                }
+     // =========================================================
+// 📸 4. معالجة صورة الإيصال (بدون تشويه الرابط)
+// =========================================================
+if (d.receiptImage || d.receipt) {
+    const imgBox = clone.querySelector('.ph-receipt-img-box');
+    if (imgBox) {
+        imgBox.style.display = 'block';
+        const imgElem = imgBox.querySelector('.ph-img-elem');
+        
+        // 🌟 الحل: استخدام الرابط الخام مباشرة لأن فايربيز ستورج آمن
+        const rawUrl = d.receiptImage || d.receipt;
+        imgElem.src = rawUrl;
+        
+        imgElem.onclick = (e) => {
+            e.stopPropagation();
+            const lightbox = document.getElementById('pay-receipt-lightbox');
+            const lightboxImg = document.getElementById('pay-receipt-img');
+            if (lightbox && lightboxImg) {
+                lightboxImg.src = rawUrl; // وضع الرابط السليم في المكبر
+                lightbox.classList.add('active');
             }
-
+        };
+    }
+}
             // =========================================================
             // 📄 5. تفعيل زر تصدير الإيصال (PDF)
             // =========================================================

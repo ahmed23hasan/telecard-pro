@@ -337,41 +337,40 @@ ClientSystem.initFirebaseListeners = function() {
 };
 
 // ============================================================================
-// 🚀 نقطة الإقلاع المركزية للنظام (Bootstrapper)
+// 🚀 نقطة الإقلاع المركزية للنظام (Bootstrapper - Meticulously Optimized)
 // ============================================================================
 ClientSystem.init = async function() {
     try {
         console.log("🚀 جاري إقلاع النظام السحابي المحصن...");
-
-        if(typeof UIManager.applySavedTheme === 'function') UIManager.applySavedTheme();
         
-        // 📥 1. التحميل الأولي للبيانات الثابتة
+        if (typeof UIManager.applySavedTheme === 'function') UIManager.applySavedTheme();
+        
+        // 📥 1. التحميل الأولي للبيانات الثابتة العامة
         if (StoreDB) {
             try {
-                // 🛑 تمت إزالة 'ORDERS' و 'DEPOSITS' ليتم سحبها عبر المزامنة الحية الآمنة
                 const staticKeys = ['CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
                 
                 const fetchPromises = staticKeys.map(k => StoreDB.getAll(DB_KEYS[k]));
                 const results = await Promise.all(fetchPromises);
                 
                 staticKeys.forEach((keyName, i) => {
-                    const property = keyName.toLowerCase(); 
-                    LiveStoreData[property] = Object.freeze([...(results[i] || [])]); 
+                    const property = keyName.toLowerCase();
+                    LiveStoreData[property] = Object.freeze([...(results[i] || [])]);
                 });
-
+                
                 RenderHelpers.init({
                     settings: LiveStoreData.settings || {},
                     rates: LiveStoreData.rates || [],
                     offers: LiveStoreData.offers || [],
                     isStore: true
                 });
-
+                
                 console.log("✅ تم استرجاع وتهيئة كافة البيانات الأساسية بأمان.");
-            } catch (error) { 
-                console.error("❌ فشل تحميل البيانات الحيوية من السحابة:", error); 
+            } catch (error) {
+                console.error("❌ فشل تحميل البيانات الحيوية من السحابة:", error);
             }
         }
-
+        
         // ⏱️ 2. مزامنة التوقيت السحابي
         try {
             if (DataManager && typeof DataManager._getCloudFunction === 'function') {
@@ -386,27 +385,34 @@ ClientSystem.init = async function() {
         
         if (UIManager.checkSystemStatus && UIManager.checkSystemStatus()) return;
         
-        const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) 
-            ? LiveStoreData.settings.defaultCurrency 
-            : 'USD';
-
+        const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ?
+            LiveStoreData.settings.defaultCurrency :
+            'USD';
+        
         const savedDisplayCurr = localStorage.getItem('telecard_display_currency');
         DataManager.selectedCurr = savedDisplayCurr || adminDefaultCurrency;
-
-        if(DataManager.initDummyData) DataManager.initDummyData(); 
         
-        // 📡 3. تشغيل المستمعات الحية (تنتظر توكن فايربيز الآن)
+        if (DataManager.initDummyData) DataManager.initDummyData();
+        
+        // 📡 3. تشغيل المستمعات الحية في الخلفية (تنتظر توكن فايربيز)
         this.initFirebaseListeners();
-
-        // 🚀 4. إقلاع الواجهة فوراً دون انتظار المؤقت القديم
-        if(DataManager.syncUser) DataManager.syncUser();
-        if(DataManager.loadPrefs) DataManager.loadPrefs();
         
-        if(typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
-        if(typeof UIManager.toggleHeroSection === 'function') UIManager.toggleHeroSection(true);
-        if(RenderManager.renderHome) RenderManager.renderHome();
+        // 🚀 4. إقلاع الواجهة الفوري المطور (Optimistic UI Bootstrapping)
+        // أ) جلب بيانات المستخدم وعملة العرض فوراً من الكاش المحلي (RAM)
+        if (DataManager.syncUser) DataManager.syncUser();
+        if (DataManager.loadPrefs) DataManager.loadPrefs();
         
-        if(CalendarApp && CalendarApp.init) CalendarApp.init();
+        // 🌟 ب) السطر السحري: إجبار الواجهة على رسم الرصيد والبيانات من الكاش فوراً عند الإقلاع (تمنع ظهور 0.00)
+        if (UIManager && typeof UIManager.updateDisplayBalance === 'function') {
+            UIManager.updateDisplayBalance();
+        }
+        
+        // ج) رسم وتجهيز الهوية البصرية والقوائم الأساسية
+        if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
+        if (typeof UIManager.toggleHeroSection === 'function') UIManager.toggleHeroSection(true);
+        if (RenderManager.renderHome) RenderManager.renderHome();
+        
+        if (CalendarApp && CalendarApp.init) CalendarApp.init();
         
         const uiInitMethods = [
             'initSlider', 'updateSidebarText', 'initSupportButton', 'initTheme',
@@ -414,18 +420,18 @@ ClientSystem.init = async function() {
             'loadUserImageAutomatically', 'restoreDisplayState', 'setupMainContentClickDetector',
             'initSwipeGestures'
         ];
-        uiInitMethods.forEach(method => { 
-            if(typeof UIManager[method] === 'function') UIManager[method](); 
+        uiInitMethods.forEach(method => {
+            if (typeof UIManager[method] === 'function') UIManager[method]();
         });
         
-        if(typeof UIManager.updateDisplayCurrencyUI === 'function') UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
-        if(Components && Components.initBottomNavSync) Components.initBottomNavSync();
-        if(typeof UIManager.checkKycCelebration === 'function') UIManager.checkKycCelebration();
-
+        if (typeof UIManager.updateDisplayCurrencyUI === 'function') UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
+        if (Components && Components.initBottomNavSync) Components.initBottomNavSync();
+        if (typeof UIManager.checkKycCelebration === 'function') UIManager.checkKycCelebration();
+        
         this.initGlobalListeners();
         this.isReady = true;
         console.log("🚀 المتجر جاهز تماماً ومتصل بالسحابة!");
-
+        
     } catch (criticalError) {
         console.error("🚨 خطأ حرج يمنع الإقلاع:", criticalError.message);
         document.body.innerHTML = `
@@ -438,7 +444,6 @@ ClientSystem.init = async function() {
             </div>`;
     }
 };
-
 window.ClientSystem = ClientSystem;
 window.CalendarApp = CalendarApp; 
 
