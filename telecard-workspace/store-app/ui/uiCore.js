@@ -975,15 +975,15 @@ export const UICore = {
         }
     } catch(e) {}
 },
-
-    // =========================================================
-    // ⚙️ 5. إعدادات المتجر العامة (General Setup)
+// =========================================================
+    // ⚙️ 5. إعدادات المتجر العامة والهوية البصرية (General Setup)
     // =========================================================
     applyStoreIdentity: function() {
-        // 🌟 التعديل السحري: تغيير system إلى settings
-const sys = LiveStoreData.settings || {}; 
+        // 🌟 الإصلاح المعماري: فك مصفوفة الإعدادات فوراً وتحويلها لكائن إذا كانت مخزنة كمصفوفة في الكاش
+        // هذا السطر يمنع ظهور كلمة "المتجر" الافتراضية ويمنع اختفاء اللوغو للحظات عند الإقلاع
+        let sys = LiveStoreData.settings || {}; 
+        if (Array.isArray(sys)) sys = sys[0] || {}; 
 
-        
         const storeName = (sys.storeName || sys.name || '').trim();
         const logoSize = parseInt(sys.logoSize) || 36;
         const weight = sys.nameWeight || '900';
@@ -997,7 +997,6 @@ const sys = LiveStoreData.settings || {};
         const favicon = sys.storeFavicon || sys.favicon || '';
 
         const isEnglish = /^[A-Za-z0-9]/.test(storeName);
-
         const finalStoreName = storeName || 'المتجر';
 
         document.title = `${finalStoreName} | المتجر`;
@@ -1042,7 +1041,6 @@ const sys = LiveStoreData.settings || {};
         }
 
         const nameHtml = `<div class="brand-text-dynamic">${Utils.safeText(finalStoreName)}</div>`;
-        
         const finalHtml = `${logoHtml} ${nameHtml}`;
 
         const targets = ['store-branding-target', 'sidebar-branding-target'];
@@ -1065,7 +1063,6 @@ const sys = LiveStoreData.settings || {};
         const displayState = { sidebarOpen: document.querySelector('.sidebar.active') !== null, userImage: DataManager.user?.img || null, theme: DataManager.prefs?.theme || 'dark', sound: DataManager.prefs?.sound !== false, lastVisit: Date.now() };
         try { localStorage.setItem('telecard_display_state', JSON.stringify(displayState)); } catch (e) {}
     },
-
         restoreDisplayState: function() {
         try {
             const savedState = localStorage.getItem('telecard_display_state');

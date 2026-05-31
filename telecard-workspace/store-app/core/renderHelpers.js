@@ -63,14 +63,33 @@ export const RenderHelpers = Object.freeze({
      * 👤 المنسق المركزي لأرقام العملاء (User ID)
      * يعالج الكائن أو النص المباشر ويقص المعرف الطويل للحماية وسهولة القراءة
      */
-    formatUserId: function(userObj) {
-        if (!userObj) return '---';
-        const rawId = typeof userObj === 'object' ? (userObj.displayId || userObj.id || '') : userObj;
-        if (!rawId) return '---';
-        
-        return String(rawId).substring(0, 6).toUpperCase();
-    },
+    // ============================================================================
+// 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (ID Formatter Engine)
+// ============================================================================
 
+/**
+ * 👤 المنسق المركزي لأرقام العملاء (User ID)
+ * يعالج الكائن أو النص المباشر ويقص المعرف الطويل فقط للحماية وسهولة القراءة
+ */
+formatUserId: function(userObj) {
+    if (!userObj) return '---';
+    
+    // 🌟 1. إذا كان المدخل كائناً (User Object)
+    if (typeof userObj === 'object') {
+        // إذا كان يمتلك المعرف الرقمي المكون من 7 خانات، نعرضه كاملاً دون قص
+        if (userObj.displayId) return String(userObj.displayId);
+        
+        // خطة الطوارئ: إذا لم يمتلكه، نأخذ المعرف السحابي الطويل ونقصه للأمان والوضوح
+        const rawId = userObj.id || '';
+        if (!rawId) return '---';
+        return String(rawId).substring(0, 6).toUpperCase();
+    }
+    
+    // 🌟 2. إذا كان المدخل نصاً مباشراً (String ID)
+    const strId = String(userObj);
+    // إذا كان معرّف فايربيز السحابي الطويل (عادة أكبر من 15 حرف)، نقوم بقصه
+    return strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
+},
     /**
      * 📦 المنسق المركزي لأرقام الطلبات (Order ID)
      * يطبع المعرف الرقمي الصافي القادم من السيرفر ويضيف البادئة التجميلية

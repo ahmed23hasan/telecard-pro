@@ -246,13 +246,21 @@ modules.forEach(mod => {
 // 🔄 محرك المزامنة الحي (Real-time Firebase Sync Engine) - النسخة المحمية
 // ============================================================================
 ClientSystem.initFirebaseListeners = function() {
-    console.log("📡 جاري تشغيل مستمعات السحابة الحية...");
+    console.log("📡 جاري تشغيل مستمعات السحابة الحية (المحمية)...");
     this.clearFirebaseListeners();
-
+    
     // 1. المستمعات العامة (تعمل للجميع، زوار ومسجلين)
     if (DB_KEYS.SETTINGS) {
         const unsubSettings = StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
-            LiveStoreData.settings = Array.isArray(data) ? (data[0] || {}) : (data || {});
+            const incoming = Array.isArray(data) ? (data[0] || null) : (data || null);
+            
+            // 🛡️ درع حماية الكاش: نمنع المستمع الحي من مسح كاش الإعدادات البصرية أثناء محاولة الاتصال بالسيرفر
+            if (!incoming && Object.keys(LiveStoreData.settings || {}).length > 0) {
+                console.log("⏳ تم الاحتفاظ بكاش إعدادات المتجر البصرية أثناء اتصال السحابة.");
+                return;
+            }
+            
+            LiveStoreData.settings = incoming || {};
             
             RenderHelpers.init({
                 settings: LiveStoreData.settings || {},
@@ -265,17 +273,17 @@ ClientSystem.initFirebaseListeners = function() {
             if (UIManager && typeof UIManager.updateDisplayCurrencyUI === 'function') {
                 UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
             }
-
+            
             if (UIManager && typeof UIManager.applyStoreIdentity === 'function') {
                 UIManager.applyStoreIdentity();
             }
         });
         this.activeListeners.push(unsubSettings);
     }
-
+    
     if (DB_KEYS.ALERTS) {
         const unsubAlerts = StoreDB.listenCollection(DB_KEYS.ALERTS, (data) => {
-            LiveStoreData.alerts = _normalizeDataTime(Array.isArray(data) ? data : []); 
+            LiveStoreData.alerts = _normalizeDataTime(Array.isArray(data) ? data : []);
             requestAnimationFrame(() => {
                 if (UIManager && typeof UIManager.processAndDisplayAlerts === 'function') UIManager.processAndDisplayAlerts();
                 if (UIManager && typeof UIManager.updateNotifBadges === 'function') UIManager.updateNotifBadges();
@@ -283,20 +291,19 @@ ClientSystem.initFirebaseListeners = function() {
         });
         this.activeListeners.push(unsubAlerts);
     }
-
+    
     // 🌟 2. المستمعات الخاصة (محمية بـ Auth State لمنع طرد فايرستور للمتصفح)
     onAuthStateChanged(auth, (firebaseUser) => {
         if (firebaseUser) {
             console.log("🔐 تم تأكيد الهوية من فايربيز. جاري جلب البيانات الخاصة والمالية...");
             const uidStr = firebaseUser.uid;
             
-            // تحديث الذاكرة المحلية كإجراء احتياطي
             localStorage.setItem('telecard_active_user_uid', uidStr);
-
+            
             if (StoreDB.listenDoc) {
                 const unsubUser = StoreDB.listenDoc(DB_KEYS.USERS, String(uidStr), (userData) => {
                     if (userData) {
-                        LiveStoreData.users = [userData]; 
+                        LiveStoreData.users = [userData];
                         requestAnimationFrame(() => {
                             if (DataManager.syncUser) DataManager.syncUser();
                             if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
@@ -305,7 +312,7 @@ ClientSystem.initFirebaseListeners = function() {
                 });
                 this.activeListeners.push(unsubUser);
             }
-
+            
             if (StoreDB.listenQuery) {
                 const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], (data) => {
                     LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
@@ -314,7 +321,7 @@ ClientSystem.initFirebaseListeners = function() {
                     });
                 });
                 this.activeListeners.push(unsubOrders);
-
+                
                 const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], (data) => {
                     LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
                     requestAnimationFrame(() => {
@@ -335,83 +342,50 @@ ClientSystem.initFirebaseListeners = function() {
         }
     });
 };
-
 // ============================================================================
-// 🚀 نقطة الإقلاع المركزية للنظام (Bootstrapper - Meticulously Optimized)
+// 🚀 نقطة الإقلاع المركزية للنظام (Bootstrapper - Hydration Pattern)
 // ============================================================================
 ClientSystem.init = async function() {
     try {
-        console.log("🚀 جاري إقلاع النظام السحابي المحصن...");
+        console.log("🚀 جاري إقلاع النظام (نمط الـ Hydration الفوري)...");
         
         if (typeof UIManager.applySavedTheme === 'function') UIManager.applySavedTheme();
         
-        // 📥 1. التحميل الأولي للبيانات الثابتة العامة
-        if (StoreDB) {
-            try {
-                const staticKeys = ['CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
-                
-                const fetchPromises = staticKeys.map(k => StoreDB.getAll(DB_KEYS[k]));
-                const results = await Promise.all(fetchPromises);
-                
-                staticKeys.forEach((keyName, i) => {
-                    const property = keyName.toLowerCase();
-                    LiveStoreData[property] = Object.freeze([...(results[i] || [])]);
+        // 🌟 1. الاسترجاع الفوري من الذاكرة المحلية (Hydration Cache)
+        // هذا الكود يمنع اختفاء اللوغو والمستويات والأقسام، ويرسمها فوراً من الكاش!
+        try {
+            const localCache = localStorage.getItem('telecard_store_cache');
+            if (localCache) {
+                const parsed = JSON.parse(localCache);
+                ['cats', 'settings', 'tiers', 'rates'].forEach(k => {
+                    if (parsed[k]) LiveStoreData[k] = parsed[k];
                 });
-                
                 RenderHelpers.init({
                     settings: LiveStoreData.settings || {},
                     rates: LiveStoreData.rates || [],
-                    offers: LiveStoreData.offers || [],
+                    offers: [],
                     isStore: true
                 });
-                
-                console.log("✅ تم استرجاع وتهيئة كافة البيانات الأساسية بأمان.");
-            } catch (error) {
-                console.error("❌ فشل تحميل البيانات الحيوية من السحابة:", error);
+                console.log("⚡ تم حقن البيانات البصرية من الذاكرة المحلية بنجاح.");
             }
-        }
-        
-        // ⏱️ 2. مزامنة التوقيت السحابي
-        try {
-            if (DataManager && typeof DataManager._getCloudFunction === 'function') {
-                const getServerTimeFn = DataManager._getCloudFunction('getServerTime');
-                const timeRes = await getServerTimeFn();
-                const serverMs = timeRes.data.serverTime;
-                DataManager.serverTimeOffset = serverMs - Date.now();
-            }
-        } catch (timeErr) {
-            DataManager.serverTimeOffset = 0;
-        }
+        } catch (e) {}
         
         if (UIManager.checkSystemStatus && UIManager.checkSystemStatus()) return;
         
-        const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ?
-            LiveStoreData.settings.defaultCurrency :
-            'USD';
-        
-        const savedDisplayCurr = localStorage.getItem('telecard_display_currency');
-        DataManager.selectedCurr = savedDisplayCurr || adminDefaultCurrency;
+        const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ? LiveStoreData.settings.defaultCurrency : 'USD';
+        DataManager.selectedCurr = localStorage.getItem('telecard_display_currency') || adminDefaultCurrency;
         
         if (DataManager.initDummyData) DataManager.initDummyData();
         
-        // 📡 3. تشغيل المستمعات الحية في الخلفية (تنتظر توكن فايربيز)
-        this.initFirebaseListeners();
-        
-        // 🚀 4. إقلاع الواجهة الفوري المطور (Optimistic UI Bootstrapping)
-        // أ) جلب بيانات المستخدم وعملة العرض فوراً من الكاش المحلي (RAM)
+        // 🌟 2. الإقلاع البصري الصاروخي (يعتمد على الكاش 100%)
+        // يتم رسم الواجهة فوراً دون انتظار اتصال الإنترنت أو رد السيرفر!
         if (DataManager.syncUser) DataManager.syncUser();
         if (DataManager.loadPrefs) DataManager.loadPrefs();
         
-        // 🌟 ب) السطر السحري: إجبار الواجهة على رسم الرصيد والبيانات من الكاش فوراً عند الإقلاع (تمنع ظهور 0.00)
-        if (UIManager && typeof UIManager.updateDisplayBalance === 'function') {
-            UIManager.updateDisplayBalance();
-        }
-        
-        // ج) رسم وتجهيز الهوية البصرية والقوائم الأساسية
+        if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
         if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
         if (typeof UIManager.toggleHeroSection === 'function') UIManager.toggleHeroSection(true);
         if (RenderManager.renderHome) RenderManager.renderHome();
-        
         if (CalendarApp && CalendarApp.init) CalendarApp.init();
         
         const uiInitMethods = [
@@ -430,7 +404,62 @@ ClientSystem.init = async function() {
         
         this.initGlobalListeners();
         this.isReady = true;
-        console.log("🚀 المتجر جاهز تماماً ومتصل بالسحابة!");
+        
+        // 🌟 3. تشغيل المستمعات الحية وجلب البيانات الثابتة في الخلفية (Background Sync)
+        this.initFirebaseListeners();
+        
+        if (StoreDB) {
+            const staticKeys = ['CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
+            
+            Promise.all(staticKeys.map(k => StoreDB.getAll(DB_KEYS[k]))).then(results => {
+            let cacheObject = {};
+            staticKeys.forEach((keyName, i) => {
+                const property = keyName.toLowerCase();
+                const rawData = results[i] || [];
+                
+                // 🌟 الإصلاح المعماري: معالجة الـ settings مسبقاً ككائن لتجنب مصفوفة فايربيز العشوائية
+                if (property === 'settings') {
+                    LiveStoreData.settings = Array.isArray(rawData) ? (rawData[0] || {}) : (rawData || {});
+                } else {
+                    LiveStoreData[property] = Object.freeze([...rawData]);
+                }
+                
+                // حفظ الأشياء الحيوية فقط في الكاش لتسريع الدخول القادم
+                if (['cats', 'settings', 'tiers', 'rates'].includes(property)) {
+                    cacheObject[property] = LiveStoreData[property];
+                }
+            });                
+                // حفظ الكاش المحدث في الذاكرة
+                localStorage.setItem('telecard_store_cache', JSON.stringify(cacheObject));
+                
+                RenderHelpers.init({
+                    settings: LiveStoreData.settings || {},
+                    rates: LiveStoreData.rates || [],
+                    offers: LiveStoreData.offers || [],
+                    isStore: true
+                });
+                
+                // إعادة حقن المساعدات ورسم الهوية والمحفظة للتأكد من أحدث الأرقام بصمت
+                if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
+                if (typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
+                if (RenderManager.renderHome) RenderManager.renderHome();
+                
+                console.log("☁️ تم مزامنة أحدث البيانات من السيرفر بصمت.");
+            }).catch(error => {
+                console.warn("⚠️ تعذر جلب البيانات الثابتة، المتجر يعمل حالياً على النسخة المخبأة (Cache).", error);
+            });
+        }
+        
+        // ⏱️ مزامنة التوقيت السحابي
+        try {
+            if (DataManager && typeof DataManager._getCloudFunction === 'function') {
+                DataManager._getCloudFunction('getServerTime')().then(timeRes => {
+                    DataManager.serverTimeOffset = timeRes.data.serverTime - Date.now();
+                });
+            }
+        } catch (timeErr) {
+            DataManager.serverTimeOffset = 0;
+        }
         
     } catch (criticalError) {
         console.error("🚨 خطأ حرج يمنع الإقلاع:", criticalError.message);
@@ -444,12 +473,13 @@ ClientSystem.init = async function() {
             </div>`;
     }
 };
+
 window.ClientSystem = ClientSystem;
-window.CalendarApp = CalendarApp; 
+window.CalendarApp = CalendarApp;
 
 (function() {
-    const startApp = () => { 
-        if (window.ClientSystem && window.ClientSystem.init) window.ClientSystem.init(); 
+    const startApp = () => {
+        if (window.ClientSystem && window.ClientSystem.init) window.ClientSystem.init();
     };
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', startApp);
