@@ -907,7 +907,6 @@ renderPayments: function() {
         const user = DataManager.user || { id: 0 };
         const allDeposits = LiveStoreData.deposits || [];
         
-        // 🌟 دالة قراءة التوقيت الآمنة
         const getTime = (item) => {
             if (!item) return 0;
             const t = item.time || item.createdAt;
@@ -920,13 +919,11 @@ renderPayments: function() {
         let myDeposits = allDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: getTime(d) }));
 
         const filters = DataManager.filters || { payments: 'all' };
-                // 🌟 الدمج الذكي للفلاتر (Smart Grouping)
+        
         if (filters.payments !== 'all') {
             if (filters.payments === 'rejected') {
-                // إذا اختار العميل "مرفوض"، نعرض له المرفوض والمسترجع معاً
                 myDeposits = myDeposits.filter(d => ['rejected', 'refunded', 'returned'].includes(d.status));
             } else {
-                // باقي التبويبات (مقبول، قيد المعالجة) تعمل كالمعتاد
                 myDeposits = myDeposits.filter(d => d.status === filters.payments);
             }
         }
@@ -935,7 +932,7 @@ renderPayments: function() {
         if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
 
-        myDeposits.sort((a,b) => b.sortTime - a.sortTime); // 🌟 فرز زمني صحيح
+        myDeposits.sort((a,b) => b.sortTime - a.sortTime); 
         
         const totalPaymentsCount = myDeposits.length;
         if (!q && !dStart && !dEnd) myDeposits = myDeposits.slice(0, this.limits.payments);
@@ -952,19 +949,17 @@ renderPayments: function() {
             const card = clone.querySelector('.pay-history-card');
             const header = clone.querySelector('.ph-header');
             
-            // 🌟 1. اكتشاف هل العملية تمثل (خصماً / خروج أموال)؟
             const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
 
             let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
             
-            // 🌟 2. تلوين الحالات وتغيير الأيقونات بناءً على نوع العملية
             if (['approved', 'completed'].includes(d.status)) { 
                 if (isDeduction) {
-                    stClass = 'st-rejected'; // استخدام ستايل الرفض/اللون الأحمر ليدل على الخصم
+                    stClass = 'st-rejected'; 
                     stText = 'مخصوم'; 
-                    icon = 'fa-arrow-up-long'; // سهم للأعلى (خروج)
+                    icon = 'fa-arrow-up-long'; 
                 } else {
-                    stClass = 'st-approved'; // اللون الأخضر
+                    stClass = 'st-approved'; 
                     stText = 'مقبول'; 
                     icon = 'fa-check'; 
                 }
@@ -978,37 +973,89 @@ renderPayments: function() {
 
             const currency = (d.currency || 'USD').toUpperCase();
             
-            // تحويل المبالغ إلى قيم موجبة مطلقة لكي نتحكم نحن بإشارة السالب
             const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
-            const feesVal = parseFloat(d.fees || d.fee || 0);
-            const feesPct = parseFloat(d.feesPercent || d.feePct || 0);
-            const totalVal = rawAmount + (d.feeType === 'bonus' ? 0 : feesVal); 
-
             const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
             const displayNetCurrency = (d.targetCurrency || currency).toUpperCase();
 
+            // =========================================================
+            // 🚀 1. المحرك الديناميكي للرسوم (مع إصلاح الخط العربي)
+            // =========================================================
+            const feeVal = parseFloat(d.fees || d.fee || 0); 
+            const feeRate = parseFloat(d.feesPercent || d.feePct || d.feeRate || 0); 
+            const feeType = d.feeType || 'fee'; 
+            const feeUnit = d.feeUnit || d.unit || 'percent'; 
+            
+            const totalVal = rawAmount + (feeType === 'bonus' ? 0 : feeVal);
+
+            const feeRow = clone.querySelector('.ph-fees').closest('.ph-item');
+
+            if (feeVal === 0 && feeRate === 0) {
+                // 🌟 الحل: أزلنا كلاس `.ph-item-val` الذي يفرض خط Inter الانجليزي
+                // واستخدمنا كلاسات نظيفة ليأخذ الخط العربي (Cairo) من الـ Body
+                feeRow.innerHTML = `
+                    <div class="ph-item-label"><i class="fa-solid fa-tags"></i> الرسوم الإضافية</div>
+                    <div class="text-muted fs-small">لا يوجد</div>
+                `;
+            } else {
+                const isBonus = (feeType === 'bonus');
+                const isFixed = (feeUnit === 'fixed' || feeUnit === 'amount');
+
+                const iconClass = isBonus ? 'fa-gift' : 'fa-scissors';
+                const labelText = isBonus ? 'بونص إضافي' : 'العمولة';
+                const colorClass = isBonus ? 'text-success' : 'text-danger';
+                const sign = isBonus ? '+' : '-';
+
+                const rateDisplay = isFixed ? '(مبلغ ثابت)' : `(<span class="num-en">${feeRate}%</span>)`;
+
+                feeRow.innerHTML = `
+                    <div class="ph-item-label">
+                        <i class="fa-solid ${iconClass}"></i> ${labelText} &nbsp;<span class="fs-xs text-muted">${rateDisplay}</span>
+                    </div>
+                    <div class="ph-item-val num-en ${colorClass}" dir="ltr">
+                        ${sign} ${RenderHelpers.formatMoney(feeVal, currency)}
+                    </div>
+                `;
+            }
+
             clone.querySelector('.ph-method-name').textContent = d.method || 'شحن رصيد';
             
-            // 🌟 3. تطبيق إشارة السالب والألوان على المبالغ
             const amountPrefix = isDeduction ? '- ' : (['approved', 'completed'].includes(d.status) && !isDeduction ? '+ ' : '');
             const amountColorClass = isDeduction ? 'text-danger' : (['approved', 'completed'].includes(d.status) && !isDeduction ? 'text-success' : '');
 
-            // تحديث المبلغ الرئيسي
             const headerAmtEl = clone.querySelector('.ph-amount-header');
             if(headerAmtEl) {
-                headerAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}" style="font-weight: 800;">${amountPrefix}${RenderHelpers.formatMoney(rawAmount, currency)}</span>`;
+                headerAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}">${amountPrefix}${RenderHelpers.formatMoney(rawAmount, currency)}</span>`;
             }
 
             clone.querySelector('.ph-total').innerHTML = RenderHelpers.formatMoney(totalVal, currency);
-            clone.querySelector('.ph-fees').innerHTML = RenderHelpers.formatMoney(feesVal, currency);
             
-            // تحديث الصافي المضاف للمحفظة
             const netAmtEl = clone.querySelector('.ph-net');
             if(netAmtEl) {
-                netAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}" style="font-weight: 800;">${amountPrefix}${RenderHelpers.formatMoney(displayNetAmount, displayNetCurrency)}</span>`;
+                netAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}">${amountPrefix}${RenderHelpers.formatMoney(displayNetAmount, displayNetCurrency)}</span>`;
             }
-            
-            clone.querySelector('.ph-fee-pct').textContent = `(${feesPct}%)`;
+
+// =========================================================
+// 👤 2. استخراج اسم المستخدم (Username) وإعادة كبسولة الـ ID
+// =========================================================
+const senderRow = clone.querySelector('.ph-sender').closest('.ph-item');
+
+// استخراج اليوزرنيم حصراً (إذا لم يوجد نضع الاسم كاحتياط)
+const usernameText = user.username ? `@${user.username}` : (user.name || 'العميل');
+clone.querySelector('.ph-sender').innerHTML = `<span class="num-en">${Utils.escapeHtml(usernameText)}</span>`;
+
+// 🌟 استخدام الكبسولة الرسمية النظيفة (بدون أيقونة إضافية)
+const userIdString = RenderHelpers.formatUserId(user);
+const idRow = document.createElement('div');
+idRow.className = 'ph-item';
+
+idRow.innerHTML = `
+                <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرّف العميل</div>
+                <div class="uid-capsule is-copyable" data-action="copy-text" data-text="${userIdString}" dir="ltr" title="اضغط للنسخ">
+                    <span class="num-en">${userIdString}</span>
+                </div>
+            `;
+
+senderRow.parentNode.insertBefore(idRow, senderRow.nextSibling);            // =========================================================
 
             let formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
             const miniDateEl = clone.querySelector('.ph-date-mini');
@@ -1017,16 +1064,49 @@ renderPayments: function() {
             const shortDepositId = RenderHelpers.formatDepositId(d);
             const idEl = clone.querySelector('.ph-id');
             idEl.textContent = shortDepositId; idEl.setAttribute('data-action', 'copy-text'); idEl.setAttribute('data-text', shortDepositId);
-            clone.querySelector('.ph-sender').innerHTML = (UIManager && UIManager._getTxNameWithID) ? UIManager._getTxNameWithID(user) : 'العميل';
+            
             clone.querySelector('.ph-full-time').textContent = formattedDate;
 
-            if(d.receiptImage || d.receipt){
-                const imgBox = clone.querySelector('.ph-receipt-img-box');
-                if(imgBox) { imgBox.style.display = 'block'; imgBox.querySelector('img').src = Utils.escapeHtml(d.receiptImage || d.receipt); }
+            // =========================================================
+// 📸 3. معالجة صورة الإيصال (إصلاح الظهور والفتح)
+// =========================================================
+if (d.receiptImage || d.receipt) {
+    const imgBox = clone.querySelector('.ph-receipt-img-box');
+    if (imgBox) {
+        imgBox.style.display = 'block';
+        
+        const imgElem = imgBox.querySelector('img');
+        const safeUrl = Utils.escapeHtml(d.receiptImage || d.receipt);
+        imgElem.src = safeUrl;
+        
+        // 🌟 منح الصورة الكلاس الفاخر الجاهز في ملف CSS لتبدو واضحة ومرتبة
+        imgElem.className = 'bal-receipt-preview-new clickable';
+        
+        // 🌟 ربط فتح الصورة بمكبر الصور (Lightbox) عند النقر
+        imgElem.onclick = (e) => {
+            e.stopPropagation(); // منع إغلاق الأكورديون عن طريق الخطأ
+            if (typeof window.ClientSystem.openImageViewer === 'function') {
+                window.ClientSystem.openImageViewer(safeUrl);
             }
+        };
+    }
+}
 
-            header.setAttribute('data-action', 'toggle-accordion');
+// =========================================================
+// 📄 4. تفعيل زر تصدير الإيصال (PDF)
+// =========================================================
+const exportBtn = clone.querySelector('.btn-receipt-export');
+if (exportBtn) {
+    // 🌟 ربط الزر بدالة التصدير وتمرير الـ ID الخاص بالعملية
+    exportBtn.onclick = (e) => {
+        e.stopPropagation(); // منع إغلاق الأكورديون
+        if (typeof window.ClientSystem.exportPaymentReceipt === 'function') {
+            window.ClientSystem.exportPaymentReceipt(d.id);
+        }
+    };
+}
 
+header.setAttribute('data-action', 'toggle-accordion');
             if (d.adminNote?.trim()) {
                 const safeAdminNote = Utils.escapeHtml(d.adminNote);
                 const noteStateClass = d.status === 'rejected' ? 'note-rejected' : (['approved', 'completed'].includes(d.status) ? 'note-approved' : '');
@@ -1049,8 +1129,7 @@ renderPayments: function() {
         }
 
         list.appendChild(fragment);
-    },
-    renderOrders: function() {
+    },    renderOrders: function() {
         if (typeof window.updateBottomNavState === 'function') window.updateBottomNavState('orders');
 
         const filterData = Utils.getSearchAndDateFilters('order', 'order');

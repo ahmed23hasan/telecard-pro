@@ -51,12 +51,11 @@ allow read: if false;
 allow write: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
 }
 
-// ==========================================
 // 🖼️ الملفات العامة للمتجر (للعرض فقط)
-// ==========================================
 match /products/{allPaths=**} { allow read: if true; }
 match /categories/{allPaths=**} { allow read: if true; }
 match /general/{allPaths=**} { allow read: if true; }
 match /banners/{allPaths=**} { allow read: if true; }
-}
-}
+
+// 🌟 السطر الجديد: السماح للجميع بمشاهدة لوغو وهويات المتجر البصرية
+match /brand/{allPaths=**} { allow read: if true; }
