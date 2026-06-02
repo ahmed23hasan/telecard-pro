@@ -1,16 +1,14 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - The Unified Master Gateway
-// 🎯 الوظيفة: البوابة المشتركة للمتجر والإدارة للاتصال بـ Firestore & Storage & Auth
-// 🌟 التحديث المعماري الأقصى: النسخة الكاملة بدون أي اختصارات برمجية (Anti-Syntax-Error)
+// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Version
+// 🎯 الوظيفة: بوابة البيانات المستقلة للتحقق الآمن من هوية المشرفين وإدارتهم
+// 🚀 التحديث: تفعيل السرعة القصوى (WebSockets) وإلغاء القيود البطيئة
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
-    initializeFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit
+    getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-// 🌟 استيراد محرك التحقق من الهوية الرسمي
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-// 🌟 استيراد خدمات التخزين السحابي للصور والملفات مع دالة الحذف
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 // 🔑 مفاتيح الربط الخاصة بمتجر Telecard 
@@ -26,9 +24,8 @@ const firebaseConfig = {
 // 🚀 تهيئة الاتصال بـ Firebase
 const app = initializeApp(firebaseConfig);
 
-// 🌟 [الدرع الأول]: إجبار فايربيز على استخدام اتصال (Long Polling) المستقر 
-const db = initializeFirestore(app, { experimentalForceLongPolling: true });
-
+// 🌟 تفعيل الاتصال السريع المباشر (WebSockets) للوحة الإدارة
+const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app); 
 
@@ -39,7 +36,7 @@ export const FirebaseAdapter = {
     storage: storage,
 
     // ==========================================
-    // 🛡️ [الدرع الثاني]: الحماية من التعليق الأبدي (Timeout Wrapper)
+    // 🛡️ [الدرع الثاني]: الحماية من التعليق الأبدي
     // ==========================================
     _withTimeout: function(promise, ms = 10000, context = '') {
         return Promise.race([
@@ -62,7 +59,7 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 📥 2. جلب أحدث البيانات بحد معين (Pagination)
+    // 📥 2. جلب أحدث البيانات بحد معين 
     async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
@@ -88,7 +85,7 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 💾 4. حفظ أو تحديث مستند بـ ID محدد
+    // 💾 4. حفظ أو تحديث مستند 
     async set(collectionName, docId, data) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
@@ -133,7 +130,7 @@ export const FirebaseAdapter = {
         });
     },
 
-    // 📡 8. الاستماع الحي لمستند واحد فقط (ضرورية لملف العميل)
+    // 📡 8. الاستماع الحي لمستند واحد فقط
     listenDoc(collectionName, docId, callback) {
         return onSnapshot(doc(db, collectionName, String(docId)), (snapshot) => {
             if (snapshot.exists()) {
@@ -144,7 +141,7 @@ export const FirebaseAdapter = {
         });
     },
 
-    // 📡 9. الاستماع الحي بفلتر ذكي (ضرورية لطلبات وإيداعات العميل فقط)
+    // 📡 9. الاستماع الحي بفلتر ذكي (بدون تقييد ليتمكن الأدمن من البحث بحرية)
     listenQuery(collectionName, condition, callback) {
         try {
             const q = query(collection(db, collectionName), where(condition[0], condition[1], condition[2]));
@@ -162,12 +159,11 @@ export const FirebaseAdapter = {
     },
 
     // ==========================================
-    // ☁️ 10. محرك رفع الصور والملفات (Storage Engine - Pro Version)
+    // ☁️ 10. محرك رفع الصور والملفات 
     // ==========================================
     async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
         if (!file) return '';
         try {
-            // 🧹 التنظيف الذكي للصورة القديمة
             if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
                 try {
                     const oldImageRef = ref(storage, oldImageUrl);
@@ -179,10 +175,8 @@ export const FirebaseAdapter = {
             const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
             const storageRef = ref(storage, `${folderName}/${finalFileName}`);
             
-            // 🌟 [الدرع الثالث]: تحويل الملف إلى ArrayBuffer لمنع تجمد الرفع الصامت لفايربيز
             const fileBuffer = await file.arrayBuffer();
 
-            // تغليف الرفع بجدار الحماية لمنع التعليق
             const snapshot = await this._withTimeout(
                 uploadBytes(storageRef, fileBuffer, { contentType: file.type }), 
                 15000, 
@@ -199,7 +193,7 @@ export const FirebaseAdapter = {
     },
 
     // ==========================================
-    // 🧹 11. دالة الحذف المباشر (Direct Delete) 
+    // 🧹 11. دالة الحذف المباشر
     // ==========================================
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;

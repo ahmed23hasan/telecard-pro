@@ -2,7 +2,7 @@
 // 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers)
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core - Zero Dependencies)
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث: توحيد مصدر الحقيقة الزمني (SSOT) ومحرك معالجة المُعرّفات (IDs)
+// 🌟 التحديث: توحيد مصدر الحقيقة الزمني (SSOT) والذكاء المالي لإخفاء الأصفار
 // ============================================================================
 
 let _injectedSource = null;
@@ -43,13 +43,15 @@ export const RenderHelpers = Object.freeze({
     },
 
     /**
-     * 🔢 دالة تنسيق الأرقام (تضمن ظهور الرقم بالشكل القياسي الإنجليزي 123.45)
-     * مستقلة تماماً لحماية النظام من تحول الأرقام إلى الهندية (١٢٣)
+     * 🔢 دالة تنسيق الأرقام (الذكية)
+     * تضمن ظهور الرقم بالشكل القياسي الإنجليزي وتخفي الأصفار العشرية إذا كان الرقم صحيحاً
      */
     _enNum: function(num, decimals = 2) {
         const parsedNum = Number(num) || 0;
+        const finalDecimals = Number.isInteger(parsedNum) ? 0 : decimals;
+        
         return parsedNum.toLocaleString('en-US', {
-            minimumFractionDigits: decimals,
+            minimumFractionDigits: finalDecimals,
             maximumFractionDigits: decimals,
             useGrouping: false // تمنع فواصل الألوف للقيم البرمجية الصافية
         });
@@ -61,35 +63,28 @@ export const RenderHelpers = Object.freeze({
 
     /**
      * 👤 المنسق المركزي لأرقام العملاء (User ID)
-     * يعالج الكائن أو النص المباشر ويقص المعرف الطويل للحماية وسهولة القراءة
+     * يعالج الكائن أو النص المباشر ويقص المعرف الطويل فقط للحماية وسهولة القراءة
      */
-    // ============================================================================
-// 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (ID Formatter Engine)
-// ============================================================================
-
-/**
- * 👤 المنسق المركزي لأرقام العملاء (User ID)
- * يعالج الكائن أو النص المباشر ويقص المعرف الطويل فقط للحماية وسهولة القراءة
- */
-formatUserId: function(userObj) {
-    if (!userObj) return '---';
-    
-    // 🌟 1. إذا كان المدخل كائناً (User Object)
-    if (typeof userObj === 'object') {
-        // إذا كان يمتلك المعرف الرقمي المكون من 7 خانات، نعرضه كاملاً دون قص
-        if (userObj.displayId) return String(userObj.displayId);
+    formatUserId: function(userObj) {
+        if (!userObj) return '---';
         
-        // خطة الطوارئ: إذا لم يمتلكه، نأخذ المعرف السحابي الطويل ونقصه للأمان والوضوح
-        const rawId = userObj.id || '';
-        if (!rawId) return '---';
-        return String(rawId).substring(0, 6).toUpperCase();
-    }
-    
-    // 🌟 2. إذا كان المدخل نصاً مباشراً (String ID)
-    const strId = String(userObj);
-    // إذا كان معرّف فايربيز السحابي الطويل (عادة أكبر من 15 حرف)، نقوم بقصه
-    return strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
-},
+        // 🌟 1. إذا كان المدخل كائناً (User Object)
+        if (typeof userObj === 'object') {
+            // إذا كان يمتلك المعرف الرقمي المكون من 7 خانات، نعرضه كاملاً دون قص
+            if (userObj.displayId) return String(userObj.displayId);
+            
+            // خطة الطوارئ: إذا لم يمتلكه، نأخذ المعرف السحابي الطويل ونقصه للأمان والوضوح
+            const rawId = userObj.id || '';
+            if (!rawId) return '---';
+            return String(rawId).substring(0, 6).toUpperCase();
+        }
+        
+        // 🌟 2. إذا كان المدخل نصاً مباشراً (String ID)
+        const strId = String(userObj);
+        // إذا كان معرّف فايربيز السحابي الطويل (عادة أكبر من 15 حرف)، نقوم بقصه
+        return strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
+    },
+
     /**
      * 📦 المنسق المركزي لأرقام الطلبات (Order ID)
      * يطبع المعرف الرقمي الصافي القادم من السيرفر ويضيف البادئة التجميلية
@@ -103,9 +98,6 @@ formatUserId: function(userObj) {
     },
 
     /**
-     * 💳 المنسق المركزي لأرقام العمليات والإيداعات (Transaction/Deposit ID)
-     */
-        /**
      * 💳 المنسق المركزي لأرقام الإيداعات (Deposit ID)
      * يطبع المعرف الرقمي ويضيف البادئة التجميلية للإيداعات
      */
@@ -163,13 +155,16 @@ formatUserId: function(userObj) {
 
     /**
      * 🎨 دالة تنسيق المبالغ المالية الفاخرة
-     * 🌟 العزل ثنائي الاتجاه (Bidi Isolation) لحل مشكلة الخط المشطوب
+     * 🌟 التحديث: إخفاء الأصفار العشرية الزائدة إذا كان الرقم صحيحاً + العزل ثنائي الاتجاه
      */
     formatMoney: function(amount, currencyCode = 'USD', decimals = 2) {
         const num = Number(amount) || 0;
         
+        // الذكاء هنا: إذا الرقم صحيح (15) نخفي الأصفار، إذا كسري (15.50) نظهرها
+        const finalDecimals = Number.isInteger(num) ? 0 : decimals;
+        
         const formattedNum = num.toLocaleString('en-US', {
-            minimumFractionDigits: decimals,
+            minimumFractionDigits: finalDecimals,
             maximumFractionDigits: decimals
         });
         
@@ -183,20 +178,19 @@ formatUserId: function(userObj) {
     // ============================================================================
     // 👥 محركات أسماء المستخدمين والشارات
     // ============================================================================
-/**
- * 🆔 جلب الاسم الظاهر للمستخدم (مخصص للطلبات والإيداعات والعمليات)
- * 🌟 [الإصلاح المعماري]: تم إزالة دمج الـ ID بين أقواس لمنع التكرار (Redundancy)
- * لأن واجهات UI (القوالب) أصبحت تمتلك كبسولات تفاعلية مستقلة لعرض الرقم.
- */
-_getTxName: function(u) {
-    if (!u) return 'مستخدم جديد';
-    
-    const f = u.firstName || u.first_name || u.name || '';
-    const l = u.lastName || u.last_name || '';
-    let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
-    
-    return fullName ? fullName : 'مستخدم جديد';
-},
+
+    /**
+     * 🆔 جلب الاسم الظاهر للمستخدم (مخصص للطلبات والإيداعات والعمليات)
+     */
+    _getTxName: function(u) {
+        if (!u) return 'مستخدم جديد';
+        
+        const f = u.firstName || u.first_name || u.name || '';
+        const l = u.lastName || u.last_name || '';
+        let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
+        
+        return fullName ? fullName : 'مستخدم جديد';
+    },
 
     /**
      * 🆔 جلب الاسم الصريح للمستخدم (الاسم الأول والأخير صافي للملف الشخصي)
@@ -230,7 +224,38 @@ _getTxName: function(u) {
             
         return `<span class="promo-badge b-success icon-ms-2 badge-micro" title="مشمول في عرض: ${safeName}"><i class="fa-solid fa-bolt"></i> عرض نشط</span>`;
     },
+    /**
+     * ⏱️ محرك فك تشفير وتوحيد أوقات المستندات (Unified Document Time Parser)
+     * 🎯 الوظيفة: استخراج الوقت الصافي كـ (Millisecond) من أي كائن
+     */
+    parseUnifiedTime: function(item) {
+        if (!item) return 0;
+        
+        // جلب الحقل الزمني المتوفر في المستند بمرونة
+        const t = item.time ?? item.createdAt ?? item.actionTime ?? null;
+        if (t === null || t === undefined) return 0;
 
+        // 1. وقت رقمي جاهز
+        if (typeof t === 'number') return t;
+        
+        // 2. كائن تاريخ متصفح اعتيادي
+        if (t instanceof Date) return t.getTime();
+        
+        // 3. كائنات فايربيز (Standard)
+        if (typeof t.toDate === 'function') return t.toDate().getTime(); 
+        
+        // 4. كائنات فايربيز الخام (Raw/JSON Parsed)
+        if (t.seconds) return t.seconds * 1000; 
+        if (t._seconds) return t._seconds * 1000; // 🛡️ حماية للكاش السحابي
+        
+        // 5. نصوص تاريخية
+        if (typeof t === 'string') {
+            const parsed = new Date(t).getTime();
+            return isNaN(parsed) ? 0 : parsed;
+        }
+        
+        return 0; 
+    },
     // ============================================================================
     // ⏱️ المحرك الزمني المركزي
     // ============================================================================
@@ -253,7 +278,6 @@ _getTxName: function(u) {
 
     /**
      * 📅 المنسق الزمني الموحد (يطبع التاريخ بشكل محاسبي أنيق ومقروء)
-     * 🎯 SSOT: يتم استدعاؤه في قوائم المتجر ودرج الإدارة لمنع تضارب عروض الأوقات
      */
     formatSafeDate: function(ts) {
         const timeMs = this.parseTime(ts);

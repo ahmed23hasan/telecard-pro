@@ -1,8 +1,8 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers)
+// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - نسخة الإدارة
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core - Zero Dependencies)
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث: توحيد مصدر الحقيقة الزمني (SSOT) ومحرك معالجة المُعرّفات (IDs)
+// 🌟 التحديث: توحيد مصدر الحقيقة الزمني (SSOT) والذكاء المالي لإخفاء الأصفار
 // ============================================================================
 
 let _injectedSource = null;
@@ -43,13 +43,15 @@ export const RenderHelpers = Object.freeze({
     },
 
     /**
-     * 🔢 دالة تنسيق الأرقام (تضمن ظهور الرقم بالشكل القياسي الإنجليزي 123.45)
-     * مستقلة تماماً لحماية النظام من تحول الأرقام إلى الهندية (١٢٣)
+     * 🔢 دالة تنسيق الأرقام (الذكية)
+     * تضمن ظهور الرقم بالشكل القياسي الإنجليزي وتخفي الأصفار العشرية إذا كان الرقم صحيحاً
      */
     _enNum: function(num, decimals = 2) {
         const parsedNum = Number(num) || 0;
+        const finalDecimals = Number.isInteger(parsedNum) ? 0 : decimals;
+        
         return parsedNum.toLocaleString('en-US', {
-            minimumFractionDigits: decimals,
+            minimumFractionDigits: finalDecimals,
             maximumFractionDigits: decimals,
             useGrouping: false // تمنع فواصل الألوف للقيم البرمجية الصافية
         });
@@ -61,14 +63,21 @@ export const RenderHelpers = Object.freeze({
 
     /**
      * 👤 المنسق المركزي لأرقام العملاء (User ID)
-     * يعالج الكائن أو النص المباشر ويقص المعرف الطويل للحماية وسهولة القراءة
+     * يعالج الكائن أو النص المباشر ويقص المعرف الطويل فقط للحماية وسهولة القراءة
      */
     formatUserId: function(userObj) {
         if (!userObj) return '---';
-        const rawId = typeof userObj === 'object' ? (userObj.displayId || userObj.id || '') : userObj;
-        if (!rawId) return '---';
         
-        return String(rawId).substring(0, 6).toUpperCase();
+        if (typeof userObj === 'object') {
+            if (userObj.displayId) return String(userObj.displayId);
+            
+            const rawId = userObj.id || '';
+            if (!rawId) return '---';
+            return String(rawId).substring(0, 6).toUpperCase();
+        }
+        
+        const strId = String(userObj);
+        return strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
     },
 
     /**
@@ -84,9 +93,6 @@ export const RenderHelpers = Object.freeze({
     },
 
     /**
-     * 💳 المنسق المركزي لأرقام العمليات والإيداعات (Transaction/Deposit ID)
-     */
-        /**
      * 💳 المنسق المركزي لأرقام الإيداعات (Deposit ID)
      * يطبع المعرف الرقمي ويضيف البادئة التجميلية للإيداعات
      */
@@ -144,13 +150,16 @@ export const RenderHelpers = Object.freeze({
 
     /**
      * 🎨 دالة تنسيق المبالغ المالية الفاخرة
-     * 🌟 العزل ثنائي الاتجاه (Bidi Isolation) لحل مشكلة الخط المشطوب
+     * 🌟 التحديث: إخفاء الأصفار العشرية الزائدة إذا كان الرقم صحيحاً + العزل ثنائي الاتجاه
      */
     formatMoney: function(amount, currencyCode = 'USD', decimals = 2) {
         const num = Number(amount) || 0;
         
+        // الذكاء هنا: إذا الرقم صحيح (15) نخفي الأصفار، إذا كسري (15.50) نظهرها
+        const finalDecimals = Number.isInteger(num) ? 0 : decimals;
+        
         const formattedNum = num.toLocaleString('en-US', {
-            minimumFractionDigits: decimals,
+            minimumFractionDigits: finalDecimals,
             maximumFractionDigits: decimals
         });
         
@@ -164,20 +173,19 @@ export const RenderHelpers = Object.freeze({
     // ============================================================================
     // 👥 محركات أسماء المستخدمين والشارات
     // ============================================================================
-/**
- * 🆔 جلب الاسم الظاهر للمستخدم (مخصص للطلبات والإيداعات والعمليات)
- * 🌟 [الإصلاح المعماري]: تم إزالة دمج الـ ID بين أقواس لمنع التكرار (Redundancy)
- * لأن واجهات UI (القوالب) أصبحت تمتلك كبسولات تفاعلية مستقلة لعرض الرقم.
- */
-_getTxName: function(u) {
-    if (!u) return 'مستخدم جديد';
-    
-    const f = u.firstName || u.first_name || u.name || '';
-    const l = u.lastName || u.last_name || '';
-    let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
-    
-    return fullName ? fullName : 'مستخدم جديد';
-},
+
+    /**
+     * 🆔 جلب الاسم الظاهر للمستخدم (مخصص للطلبات والإيداعات والعمليات)
+     */
+    _getTxName: function(u) {
+        if (!u) return 'مستخدم جديد';
+        
+        const f = u.firstName || u.first_name || u.name || '';
+        const l = u.lastName || u.last_name || '';
+        let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
+        
+        return fullName ? fullName : 'مستخدم جديد';
+    },
 
     /**
      * 🆔 جلب الاسم الصريح للمستخدم (الاسم الأول والأخير صافي للملف الشخصي)
@@ -234,7 +242,6 @@ _getTxName: function(u) {
 
     /**
      * 📅 المنسق الزمني الموحد (يطبع التاريخ بشكل محاسبي أنيق ومقروء)
-     * 🎯 SSOT: يتم استدعاؤه في قوائم المتجر ودرج الإدارة لمنع تضارب عروض الأوقات
      */
     formatSafeDate: function(ts) {
         const timeMs = this.parseTime(ts);

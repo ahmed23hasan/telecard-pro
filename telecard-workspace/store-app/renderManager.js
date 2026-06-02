@@ -1,7 +1,7 @@
 // ============================================================================
 // 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - ES6 Module
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
-// 🚀 التحديث: المزامنة الآمنة للرصيد التراكمي + تلاشي الصور الذكي (Fade-In) وحماية الموارد
+// 🚀 التحديث: دمج معالجة الوقت المركزية + منع تسرب الذاكرة + حماية مراجع البيانات (Mutation)
 // ============================================================================
 
 import { DB_KEYS } from './config.js'; 
@@ -95,6 +95,7 @@ export const RenderManager = {
             if(backBtn) {
                 backBtn.classList.remove('show');
                 backBtn.style.display = 'none';
+                backBtn.onclick = null; // تنظيف الحدث بشكل آمن
             }
 
             const fragment = document.createDocumentFragment();
@@ -110,38 +111,39 @@ export const RenderManager = {
                         </div>`;
                 }
             } else {
-                            rootCats.forEach(c => {
-                 const div = document.createElement('div');
-                 div.className = 'cat-card';
-                 div.setAttribute('data-action', 'open-category');
-                 div.setAttribute('data-id', c.id);
-                 
-                 const safeName = Utils.safeText(c.name);
-                 
-                 const imgHTML = c.img 
-                    ? `<img src="${Utils.escapeHtml(c.img)}" alt="${safeName}" fetchpriority="high" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
-                    : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
-                 
-                 div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
-                 fragment.appendChild(div);
-            });
-            if(grid) grid.appendChild(fragment); 
-        }
-        
-        UIManager.initSlider();
-    };
+                rootCats.forEach(c => {
+                    const div = document.createElement('div');
+                    div.className = 'cat-card';
+                    div.setAttribute('data-action', 'open-category');
+                    div.setAttribute('data-id', c.id);
+                    
+                    const safeName = Utils.safeText(c.name);
+                    
+                    const imgHTML = c.img 
+                        ? `<img src="${Utils.escapeHtml(c.img)}" alt="${safeName}" fetchpriority="high" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
+                        : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
+                    
+                    div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
+                    fragment.appendChild(div);
+                });
+                if(grid) grid.appendChild(fragment); 
+            }
+            
+            UIManager.initSlider();
+        };
 
-    const hasData = (LiveStoreData.cats && LiveStoreData.cats.length > 0);
-    
-    if (hasData) {
-        performRender();
-    } else {
-        if (typeof this.renderHomeSkeletons === 'function') {
-            this.renderHomeSkeletons();
+        const hasData = (LiveStoreData.cats && LiveStoreData.cats.length > 0);
+        
+        if (hasData) {
+            performRender();
+        } else {
+            if (typeof this.renderHomeSkeletons === 'function') {
+                this.renderHomeSkeletons();
+            }
+            setTimeout(performRender, 600);
         }
-        setTimeout(performRender, 600);
-    }
-},
+    },
+
     renderHomeSkeletons: function() {
         const grid = document.getElementById('store-grid');
         if (grid) {
@@ -241,7 +243,6 @@ export const RenderManager = {
         
         let imgSrcHtml = '';
         if (p.img) {
-            // 🌟 التحديث الاحترافي: إيقاف الشيمر وإضافة التحميل الكسول لصور المنتجات
             imgSrcHtml = `
                 <img src="${Utils.escapeHtml(p.img)}" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.style.display='none'; this.nextElementSibling.style.display='';">
                 <div class="default-prod-icon" style="display: none;"><i class="fa-solid fa-box-open"></i></div>
@@ -369,7 +370,6 @@ export const RenderManager = {
 
                 let storyImgHtml = '';
                 if (prod.img) {
-                    // 🌟 التحديث الاحترافي: إيقاف الشيمر عند التحديث للقصص
                     storyImgHtml = `
                         <img src="${Utils.escapeHtml(prod.img)}" alt="${Utils.escapeHtml(prod.name)}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                         <div class="default-prod-icon" style="display: none; width: 100%; height: 100%;"><i class="fa-solid fa-box-open"></i></div>
@@ -431,14 +431,13 @@ export const RenderManager = {
         const subs = cats.filter(c => String(c.parentId) === String(id)).sort((a,b) => (a.order||0)-(b.order||0));
         const items = prods.filter(p => String(p.catId) === String(id)).sort((a,b) => (a.order||0)-(b.order||0));
 
+        // 🌟 التحديث: استخدام إسناد الحدث المباشر بدون استنساخ لتجنب تسرب الذاكرة
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if(backBtn) {
             backBtn.style.display = 'flex'; 
-            const newBtn = backBtn.cloneNode(true); 
-            backBtn.parentNode.replaceChild(newBtn, backBtn);
-            setTimeout(() => newBtn.classList.add('show'), 10);
-            newBtn.setAttribute('data-action', 'go-back');
-            newBtn.onclick = (e) => { e.preventDefault(); UIManager._manualGoBack(); };
+            setTimeout(() => backBtn.classList.add('show'), 10);
+            backBtn.setAttribute('data-action', 'go-back');
+            backBtn.onclick = (e) => { e.preventDefault(); UIManager._manualGoBack(); };
         }
 
         if(grid) {
@@ -453,7 +452,6 @@ export const RenderManager = {
                 UIManager.setGridMode('grid-cats');
                 subs.forEach(c => {
                     const safeName = Utils.safeText(c.name);
-                    // 🌟 التحديث الاحترافي: إيقاف الشيمر وإضافة التحميل الكسول
                     const imgHTML = c.img 
                         ? `<img src="${Utils.escapeHtml(c.img)}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
                         : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
@@ -512,13 +510,13 @@ export const RenderManager = {
         UIManager.resetGridScroll();
         UIManager.setGridMode(null);
 
+        // 🌟 التحديث: استخدام إسناد الحدث المباشر بدون استنساخ
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if(backBtn) {
             backBtn.style.display = 'flex'; 
-            const newBtn = backBtn.cloneNode(true); 
-            backBtn.parentNode.replaceChild(newBtn, backBtn);
-            setTimeout(() => newBtn.classList.add('show'), 10);
-            newBtn.onclick = () => { 
+            setTimeout(() => backBtn.classList.add('show'), 10);
+            backBtn.setAttribute('data-action', 'go-back');
+            backBtn.onclick = () => { 
                 const inp = document.getElementById('store-search-input');
                 if(inp) inp.value = ''; 
                 this.renderHome(true); 
@@ -536,7 +534,6 @@ export const RenderManager = {
 
         matchedCats.forEach(c => {
             const safeName = Utils.safeText(c.name);
-            // 🌟 التحديث الاحترافي
             const imgHTML = c.img 
                 ? `<img src="${Utils.escapeHtml(c.img)}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
                 : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
@@ -575,7 +572,7 @@ export const RenderManager = {
     },
 
     // =========================================================
-    // 🌟 2. نافذة المفضلة الفاخرة (المنظفة سحابياً)
+    // 🌟 2. نافذة المفضلة الفاخرة 
     // =========================================================
     renderFavorites: function() {
         document.body.classList.remove('is-home');
@@ -594,13 +591,13 @@ export const RenderManager = {
         UIManager.setGridMode(null);
         UIManager.resetGridScroll();
         
+        // 🌟 التحديث: استخدام إسناد الحدث المباشر بدون استنساخ
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if (backBtn) {
             backBtn.style.display = 'flex';
-            const newBtn = backBtn.cloneNode(true);
-            backBtn.parentNode.replaceChild(newBtn, backBtn);
-            setTimeout(() => newBtn.classList.add('show'), 10);
-            newBtn.onclick = () => UIManager.closeFavorites();
+            setTimeout(() => backBtn.classList.add('show'), 10);
+            backBtn.setAttribute('data-action', 'go-back');
+            backBtn.onclick = (e) => { e.preventDefault(); UIManager.closeFavorites(); };
         }
         
         const gridTitle = document.getElementById('grid-title');
@@ -678,19 +675,7 @@ export const RenderManager = {
         const deps = LiveStoreData.deposits || [];
         const ords = LiveStoreData.orders || [];
 
-        const getTime = (item) => {
-            if (!item) return 0;
-            const t = item.time || item.createdAt;
-            if (typeof t === 'number') return t;
-            if (t && typeof t.toDate === 'function') return t.toDate().getTime();
-            if (typeof t === 'string' || t instanceof Date) {
-                const parsed = new Date(t).getTime();
-                return isNaN(parsed) ? 0 : parsed;
-            }
-            return 0;
-        };
-
-                const deposits = deps.filter(d => String(d.userId) === String(uid)).map(d => {
+        const deposits = deps.filter(d => String(d.userId) === String(uid)).map(d => {
             const credited = d.creditedAmount !== undefined ? Number(d.creditedAmount) : Number(d.amount || 0);
             const formattedDepId = RenderHelpers.formatDepositId(d).toLowerCase();
             return {
@@ -698,17 +683,17 @@ export const RenderManager = {
                 amountCurrency: d.targetCurrency || walletCurr,
                 searchKey: `شحن deposit ${credited} #${d.displayId || d.id} ${formattedDepId}`,
                 isDeduction: credited < 0,
-                sortTime: getTime(d)
+                sortTime: RenderHelpers.parseUnifiedTime(d) // 🌟 التحديث: استخدام الدالة الموحدة
             };
         });
         
-                const orders = ords.filter(o => String(o.userId) === String(uid)).map(o => {
+        const orders = ords.filter(o => String(o.userId) === String(uid)).map(o => {
             const formattedOrdId = RenderHelpers.formatOrderId(o).toLowerCase();
             return {
                 ...o, type: 'purchase', amountVal: Number(o.price || 0), 
                 amountCurrency: o.priceCurrency || walletCurr, 
                 searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id} ${formattedOrdId}`,
-                sortTime: getTime(o)
+                sortTime: RenderHelpers.parseUnifiedTime(o) // 🌟 التحديث: استخدام الدالة الموحدة
             };
         });
 
@@ -728,13 +713,9 @@ export const RenderManager = {
         const isFilterActive = (filters.wallet !== 'all') || (q && q.length > 0) || tStart || tEnd;
 
         if(filters.wallet !== 'all') {
-            if (filters.wallet === 'deposit') {
-                finalView = finalView.filter(t => t.type === 'deposit' && !t.isDeduction);
-            } else if (filters.wallet === 'purchase') {
-                finalView = finalView.filter(t => t.type === 'purchase' || (t.type === 'deposit' && t.isDeduction));
-            } else {
-                finalView = finalView.filter(t => t.type === filters.wallet);
-            }
+            if (filters.wallet === 'deposit') { finalView = finalView.filter(t => t.type === 'deposit' && !t.isDeduction); } 
+            else if (filters.wallet === 'purchase') { finalView = finalView.filter(t => t.type === 'purchase' || (t.type === 'deposit' && t.isDeduction)); } 
+            else { finalView = finalView.filter(t => t.type === filters.wallet); }
         }
 
         if(q) finalView = finalView.filter(t => t.searchKey.toLowerCase().includes(q));
@@ -742,10 +723,10 @@ export const RenderManager = {
         if(tEnd) finalView = finalView.filter(t => t.sortTime <= tEnd);
         
         const totalWalletCount = finalView.length;
-        if (!q && !dStart && !dEnd) finalView = finalView.slice(0, this.limits.wallet);
+        const visibleWallet = (!q && !dStart && !dEnd) ? finalView.slice(0, this.limits.wallet) : finalView;
 
         let generatedHTML = '';
-        finalView.forEach(tx => {
+        visibleWallet.forEach(tx => {
             const isDep = tx.type === 'deposit';
             let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
             let formattedDate = RenderHelpers.formatSafeDate(tx.time || tx.createdAt);
@@ -800,19 +781,83 @@ export const RenderManager = {
             </div>`;
         }); 
 
-        if (finalView.length === 0) {
+        if (visibleWallet.length === 0) {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-wallet"></i><h3>لا توجد حركات</h3></div>`; return;
         }
         list.innerHTML = generatedHTML;
 
-        if (!q && !dStart && !dEnd && totalWalletCount > this.limits.wallet) {
+        // 🌟 الترقيم الاحترافي للمحفظة
+        const hasMoreData = DataManager.cursors && (DataManager.cursors.orders || DataManager.cursors.deposits);
+
+        if (!q && !dStart && !dEnd && (totalWalletCount > this.limits.wallet || hasMoreData)) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد (${totalWalletCount - this.limits.wallet})</button>`;
-            loadMoreBtn.querySelector('button').onclick = () => { this.limits.wallet += 15; this.renderWallet(); };
+            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+            
+            loadMoreBtn.querySelector('button').onclick = async () => {
+                const btn = loadMoreBtn.querySelector('button');
+                
+                if (totalWalletCount > this.limits.wallet) {
+                    this.limits.wallet += 15; 
+                    this.renderWallet(); 
+                    return;
+                }
+                
+                if (hasMoreData) {
+                    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`;
+                    btn.disabled = true;
+                    
+                    const fetchPromises = [];
+                    if (DataManager.cursors.deposits) {
+                        fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.DEPOSITS, ['userId', '==', String(uid)], 'time', DataManager.cursors.deposits, 15).then(res => ({ type: 'dep', res })));
+                    }
+                    if (DataManager.cursors.orders) {
+                        fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15).then(res => ({ type: 'ord', res })));
+                    }
+
+                    const results = await Promise.all(fetchPromises);
+                    let addedSomething = false;
+
+                    results.forEach(result => {
+                        if (result.res.data && result.res.data.length > 0) {
+                            addedSomething = true;
+                            const normData = result.res.data.map(item => {
+                                let norm = { ...item };
+                                if (norm.time) norm.time = RenderHelpers.parseTime(norm.time);
+                                if (norm.createdAt) norm.createdAt = RenderHelpers.parseTime(norm.createdAt);
+                                return norm;
+                            });
+
+                            // 🌟 التحديث: دمج البيانات الجديدة محلياً بذكاء لعدم فقدان الـ Reference ولمنع التكرار
+                            if (result.type === 'dep') {
+                                const existingDepIds = new Set(LiveStoreData.deposits.map(d => String(d.id)));
+                                const uniqueDeps = normData.filter(d => !existingDepIds.has(String(d.id)));
+                                LiveStoreData.deposits.push(...uniqueDeps);
+                                DataManager.cursors.deposits = result.res.newLastDoc;
+                            } else {
+                                const existingOrdIds = new Set(LiveStoreData.orders.map(o => String(o.id)));
+                                const uniqueOrders = normData.filter(o => !existingOrdIds.has(String(o.id)));
+                                LiveStoreData.orders.push(...uniqueOrders);
+                                DataManager.cursors.orders = result.res.newLastDoc;
+                            }
+                        } else {
+                            if (result.type === 'dep') DataManager.cursors.deposits = null;
+                            if (result.type === 'ord') DataManager.cursors.orders = null;
+                        }
+                    });
+
+                    if (addedSomething) {
+                        this.limits.wallet += 15;
+                        this.renderWallet();
+                    } else {
+                        btn.innerHTML = `لا توجد حركات أقدم`;
+                        setTimeout(() => loadMoreBtn.remove(), 2000);
+                    }
+                }
+            };
             list.appendChild(loadMoreBtn);
         }
-    },
+    },    
 
     renderPayMethods: function() {
         const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container') || document.querySelector('.bal-methods-grid') || document.getElementById('pay-methods-list');
@@ -843,7 +888,6 @@ export const RenderManager = {
             
             const isLocked = pendingMethodKeys.includes(pIdStr) || pendingMethodKeys.includes(pNameStr);
 
-            // 🌟 التحديث الاحترافي
             const imgHtml = p.img 
                 ? `<img src="${Utils.escapeHtml(p.img)}" class="pay-icon-img" loading="lazy" decoding="async" alt="${safeName}" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'pay-icon-default\\'><i class=\\'fa-solid fa-building-columns\\'></i></div>'">` 
                 : `<div class="pay-icon-default"><i class="fa-solid fa-building-columns"></i></div>`;
@@ -902,16 +946,8 @@ export const RenderManager = {
         const user = DataManager.user || { id: 0 };
         const allDeposits = LiveStoreData.deposits || [];
         
-        const getTime = (item) => {
-            if (!item) return 0;
-            const t = item.time || item.createdAt;
-            if (typeof t === 'number') return t;
-            if (t && typeof t.toDate === 'function') return t.toDate().getTime();
-            if (typeof t === 'string' || t instanceof Date) { const p = new Date(t).getTime(); return isNaN(p) ? 0 : p; }
-            return 0;
-        };
-
-        let myDeposits = allDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: getTime(d) }));
+        // 🌟 التحديث: استخدام الدالة الموحدة
+        let myDeposits = allDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: RenderHelpers.parseUnifiedTime(d) }));
 
         const filters = DataManager.filters || { payments: 'all' };
         
@@ -923,7 +959,7 @@ export const RenderManager = {
             }
         }
 
-                if (q) myDeposits = myDeposits.filter(d => 
+        if (q) myDeposits = myDeposits.filter(d => 
             d.id.toString().includes(q) || 
             (d.displayId && d.displayId.toLowerCase().includes(q)) ||
             RenderHelpers.formatDepositId(d).toLowerCase().includes(q) || 
@@ -936,17 +972,17 @@ export const RenderManager = {
         myDeposits.sort((a, b) => b.sortTime - a.sortTime);
         
         const totalPaymentsCount = myDeposits.length;
-        if (!q && !dStart && !dEnd) myDeposits = myDeposits.slice(0, this.limits.payments);
+        const visibleDeposits = (!q && !dStart && !dEnd) ? myDeposits.slice(0, this.limits.payments) : myDeposits;
 
         list.innerHTML = '';
-        if (myDeposits.length === 0) {
+        if (visibleDeposits.length === 0) {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد عمليات</h3></div>`; 
             return;
         }
 
         const fragment = document.createDocumentFragment();
 
-        myDeposits.forEach(d => {
+        visibleDeposits.forEach(d => {
             const clone = template.content.cloneNode(true);
             const card = clone.querySelector('.pay-history-card');
             const header = clone.querySelector('.ph-header');
@@ -956,15 +992,8 @@ export const RenderManager = {
             let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
             
             if (['approved', 'completed'].includes(d.status)) { 
-                if (isDeduction) {
-                    stClass = 'st-rejected'; 
-                    stText = 'مخصوم'; 
-                    icon = 'fa-arrow-up-long'; 
-                } else {
-                    stClass = 'st-approved'; 
-                    stText = 'مقبول'; 
-                    icon = 'fa-check'; 
-                }
+                if (isDeduction) { stClass = 'st-rejected'; stText = 'مخصوم'; icon = 'fa-arrow-up-long'; } 
+                else { stClass = 'st-approved'; stText = 'مقبول'; icon = 'fa-check'; }
             } else if (d.status === 'rejected') { 
                 stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; 
             } else if (['refunded', 'returned'].includes(d.status)) { 
@@ -988,14 +1017,10 @@ export const RenderManager = {
             const feeRow = clone.querySelector('.ph-fees').closest('.ph-item');
 
             if (feeVal === 0 && feeRate === 0) {
-                feeRow.innerHTML = `
-                    <div class="ph-item-label"><i class="fa-solid fa-tags"></i> الرسوم الإضافية</div>
-                    <div class="text-muted fs-small">لا يوجد</div>
-                `;
+                feeRow.innerHTML = `<div class="ph-item-label"><i class="fa-solid fa-tags"></i> الرسوم الإضافية</div><div class="text-muted fs-small">لا يوجد</div>`;
             } else {
                 const isBonus = (feeType === 'bonus');
                 const isFixed = (feeUnit === 'fixed' || feeUnit === 'amount');
-
                 const iconClass = isBonus ? 'fa-gift' : 'fa-scissors';
                 const labelText = isBonus ? 'بونص إضافي' : 'العمولة';
                 const colorClass = isBonus ? 'text-success' : 'text-danger';
@@ -1018,16 +1043,12 @@ export const RenderManager = {
             const amountColorClass = isDeduction ? 'text-danger' : (['approved', 'completed'].includes(d.status) && !isDeduction ? 'text-success' : '');
 
             const headerAmtEl = clone.querySelector('.ph-amount-header');
-            if(headerAmtEl) {
-                headerAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}">${amountPrefix}${RenderHelpers.formatMoney(rawAmount, currency)}</span>`;
-            }
+            if(headerAmtEl) headerAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}">${amountPrefix}${RenderHelpers.formatMoney(rawAmount, currency)}</span>`;
 
             clone.querySelector('.ph-total').innerHTML = RenderHelpers.formatMoney(totalVal, currency);
             
             const netAmtEl = clone.querySelector('.ph-net');
-            if(netAmtEl) {
-                netAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}">${amountPrefix}${RenderHelpers.formatMoney(displayNetAmount, displayNetCurrency)}</span>`;
-            }
+            if(netAmtEl) netAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}">${amountPrefix}${RenderHelpers.formatMoney(displayNetAmount, displayNetCurrency)}</span>`;
 
             const senderRow = clone.querySelector('.ph-sender').closest('.ph-item');
             const usernameText = user.username ? `@${user.username}` : (user.name || 'العميل');
@@ -1061,37 +1082,22 @@ export const RenderManager = {
                 if (imgBox) {
                     imgBox.style.display = 'block';
                     const imgElem = imgBox.querySelector('.ph-img-elem');
-                    
                     const rawUrl = d.receiptImage || d.receipt;
                     imgElem.src = rawUrl;
-                    
-                    // 🌟 التحديث الاحترافي: التحميل الكسول وإيقاف الشيمر للإيصالات
                     imgElem.setAttribute('loading', 'lazy');
                     imgElem.setAttribute('decoding', 'async');
-                    imgElem.onload = function() {
-                        this.classList.add('img-loaded');
-                        this.parentElement.classList.add('shimmer-stop');
-                    };
-                    
+                    imgElem.onload = function() { this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop'); };
                     imgElem.onclick = (e) => {
                         e.stopPropagation();
                         const lightbox = document.getElementById('pay-receipt-lightbox');
                         const lightboxImg = document.getElementById('pay-receipt-img');
-                        if (lightbox && lightboxImg) {
-                            lightboxImg.src = rawUrl; 
-                            lightbox.classList.add('active');
-                        }
+                        if (lightbox && lightboxImg) { lightboxImg.src = rawUrl; lightbox.classList.add('active'); }
                     };
                 }
             }
             const exportBtn = clone.querySelector('.btn-receipt-export');
             if (exportBtn) {
-                exportBtn.onclick = (e) => {
-                    e.stopPropagation(); 
-                    if (typeof window.ClientSystem.exportPaymentReceipt === 'function') {
-                        window.ClientSystem.exportPaymentReceipt(d.id);
-                    }
-                };
+                exportBtn.onclick = (e) => { e.stopPropagation(); if (typeof window.ClientSystem.exportPaymentReceipt === 'function') window.ClientSystem.exportPaymentReceipt(d.id); };
             }
 
             header.setAttribute('data-action', 'toggle-accordion');
@@ -1107,30 +1113,65 @@ export const RenderManager = {
                             <span class="ph-admin-note-title">رسالة من الإدارة:</span>
                             <div class="admin-reply-text">${safeAdminNote}</div>
                         </div>
-                        <button class="reply-copy-btn" data-action="copy-text" data-text="${safeAdminNote.replace(/"/g, '&quot;')}">
-                            <i class="fa-regular fa-copy"></i>
-                        </button>
+                        <button class="reply-copy-btn" data-action="copy-text" data-text="${safeAdminNote.replace(/"/g, '&quot;')}"><i class="fa-regular fa-copy"></i></button>
                     </div>`;
-                
                 const detailsBody = clone.querySelector('.ph-details-body') || card;
                 const footerAction = clone.querySelector('.ph-footer-action');
-                if (footerAction) detailsBody.insertBefore(noteDiv, footerAction); 
-                else detailsBody.appendChild(noteDiv);
+                if (footerAction) detailsBody.insertBefore(noteDiv, footerAction); else detailsBody.appendChild(noteDiv);
             }
-            
             fragment.appendChild(clone);
         });
         
-        if (!q && !dStart && !dEnd && totalPaymentsCount > this.limits.payments) {
+        const hasMoreServerDeposits = DataManager.cursors && DataManager.cursors.deposits;
+
+        if (!q && !dStart && !dEnd && (totalPaymentsCount > this.limits.payments || hasMoreServerDeposits)) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد (${totalPaymentsCount - this.limits.payments})</button>`;
-            loadMoreBtn.querySelector('button').onclick = () => { this.limits.payments += 15; this.renderPayments(); };
+            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+            
+            loadMoreBtn.querySelector('button').onclick = async () => {
+                const btn = loadMoreBtn.querySelector('button');
+                
+                if (totalPaymentsCount > this.limits.payments) {
+                    this.limits.payments += 15; 
+                    this.renderPayments(); 
+                    return;
+                }
+                
+                if (hasMoreServerDeposits) {
+                    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`;
+                    btn.disabled = true;
+                    
+                    const res = await StoreDB.fetchMoreWithCursor(DB_KEYS.DEPOSITS, ['userId', '==', String(uid)], 'time', DataManager.cursors.deposits, 15);
+                    
+                    if (res.data && res.data.length > 0) {
+                        const newDeps = res.data.map(item => {
+                            let norm = { ...item };
+                            if (norm.time) norm.time = RenderHelpers.parseTime(norm.time);
+                            if (norm.createdAt) norm.createdAt = RenderHelpers.parseTime(norm.createdAt);
+                            return norm;
+                        });
+                        
+                        // 🌟 التحديث: دمج البيانات وحمايتها من التكرار
+                        const existingDepIds = new Set(LiveStoreData.deposits.map(d => String(d.id)));
+                        const uniqueDeps = newDeps.filter(d => !existingDepIds.has(String(d.id)));
+                        
+                        LiveStoreData.deposits.push(...uniqueDeps);
+                        DataManager.cursors.deposits = res.newLastDoc; 
+                        this.limits.payments += 15;
+                        this.renderPayments();
+                    } else {
+                        DataManager.cursors.deposits = null;
+                        btn.innerHTML = `لا توجد عمليات أقدم`;
+                        setTimeout(() => loadMoreBtn.remove(), 2000);
+                    }
+                }
+            };
             fragment.appendChild(loadMoreBtn);
         }
 
         list.appendChild(fragment);
-    },  
+    },
 
     renderOrders: function() {
         if (typeof window.updateBottomNavState === 'function') window.updateBottomNavState('orders');
@@ -1146,20 +1187,13 @@ export const RenderManager = {
         const allOrders = LiveStoreData.orders || [];
         const prods = LiveStoreData.prods || [];
 
-        const getTime = (item) => {
-            if (!item) return 0;
-            const t = item.time || item.createdAt;
-            if (typeof t === 'number') return t;
-            if (t && typeof t.toDate === 'function') return t.toDate().getTime();
-            if (typeof t === 'string' || t instanceof Date) { const p = new Date(t).getTime(); return isNaN(p) ? 0 : p; }
-            return 0;
-        };
-
-        let orders = allOrders.filter(o => String(o.userId) === String(uid)).map(o => ({ ...o, sortTime: getTime(o) }));
+        // 🌟 التحديث: استخدام الدالة الموحدة
+        let orders = allOrders.filter(o => String(o.userId) === String(uid)).map(o => ({ ...o, sortTime: RenderHelpers.parseUnifiedTime(o) }));
 
         const filters = DataManager.filters || { orders: 'all' };
         if (filters.orders !== 'all') orders = orders.filter(o => o.status === filters.orders);
-                if (q) orders = orders.filter(o => 
+        
+        if (q) orders = orders.filter(o => 
             o.id.toString().includes(q) || 
             (o.displayId && o.displayId.toLowerCase().includes(q)) ||
             RenderHelpers.formatOrderId(o).toLowerCase().includes(q) || 
@@ -1172,9 +1206,9 @@ export const RenderManager = {
         orders.sort((a, b) => b.sortTime - a.sortTime);
         
         const totalOrdersCount = orders.length;
-        if (!q && !dStart && !dEnd) orders = orders.slice(0, this.limits.orders);
+        const visibleOrders = (!q && !dStart && !dEnd) ? orders.slice(0, this.limits.orders) : orders;
 
-        if (orders.length === 0) {
+        if (visibleOrders.length === 0) {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد طلبات</h3></div>`; return; 
         }
       
@@ -1188,7 +1222,7 @@ export const RenderManager = {
         
         const fragment = document.createDocumentFragment();
         
-        orders.forEach((o, idx) => {
+        visibleOrders.forEach((o, idx) => {
             const status = o.status || 'pending'; 
             const statusClass = status === 'completed' ? 'completed' : (status === 'rejected' ? 'rejected' : (['returned', 'refunded'].includes(status) ? 'returned' : 'pending'));
             const prod = prods.find(p => String(p.id) === String(o.prodId)) || {};
@@ -1251,17 +1285,57 @@ export const RenderManager = {
             fragment.appendChild(cardElement);
         }); 
         
-        if (!q && !dStart && !dEnd && totalOrdersCount > this.limits.orders) {
+        const hasMoreServerOrders = DataManager.cursors && DataManager.cursors.orders;
+
+        if (!q && !dStart && !dEnd && (totalOrdersCount > this.limits.orders || hasMoreServerOrders)) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد (${totalOrdersCount - this.limits.orders})</button>`;
-            loadMoreBtn.querySelector('button').onclick = () => { this.limits.orders += 15; this.renderOrders(); };
+            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+            
+            loadMoreBtn.querySelector('button').onclick = async () => {
+                const btn = loadMoreBtn.querySelector('button');
+                
+                if (totalOrdersCount > this.limits.orders) {
+                    this.limits.orders += 15; 
+                    this.renderOrders(); 
+                    return;
+                }
+                
+                if (hasMoreServerOrders) {
+                    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`;
+                    btn.disabled = true;
+                    
+                    const res = await StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15);
+                    
+                    if (res.data && res.data.length > 0) {
+                        const newOrders = res.data.map(item => {
+                            let norm = { ...item };
+                            if (norm.time) norm.time = RenderHelpers.parseTime(norm.time);
+                            if (norm.createdAt) norm.createdAt = RenderHelpers.parseTime(norm.createdAt);
+                            return norm;
+                        });
+                        
+                        // 🌟 التحديث: الدمج الآمن للحفاظ على المراجع وتجنب التكرار
+                        const existingOrdIds = new Set(LiveStoreData.orders.map(o => String(o.id)));
+                        const uniqueOrders = newOrders.filter(o => !existingOrdIds.has(String(o.id)));
+                        
+                        LiveStoreData.orders.push(...uniqueOrders);
+                        DataManager.cursors.orders = res.newLastDoc; 
+                        this.limits.orders += 15;
+                        this.renderOrders();
+                    } else {
+                        DataManager.cursors.orders = null;
+                        btn.innerHTML = `لا توجد طلبات أقدم`;
+                        setTimeout(() => loadMoreBtn.remove(), 2000);
+                    }
+                }
+            };
             fragment.appendChild(loadMoreBtn);
         }
 
         list.appendChild(fragment);
     },
-
+    
     generatePDFReceipt: async function(config) {
         const printContainer = document.createElement('div');
         printContainer.id = 'pdf-export-container'; 
@@ -1445,59 +1519,56 @@ export const RenderManager = {
             </div>`;
         }).join('');
     },
-// =========================================================
-// 📜 رسم الشروط والأحكام ديناميكياً من السيرفر (Unified Document)
-// =========================================================
-renderTerms: function() {
-    const container = document.getElementById('store-terms-content');
-    if (!container) return;
-    
-    const settings = LiveStoreData.settings || {};
-    const termsList = settings.terms || [];
-    
-    // دعم التوافقية الرجعية (إذا كانت الشروط نصاً قديماً)
-    if (typeof termsList === 'string') {
-        container.innerHTML = `<div class="terms-unified-card"><div class="term-item-row"><p class="tir-text">${Utils.escapeHtml(termsList)}</p></div></div>`;
-        return;
-    }
-    
-    if (!Array.isArray(termsList) || termsList.length === 0) {
-        container.innerHTML = `
-                <div class="empty-state-v2">
-                    <i class="fa-solid fa-file-contract"></i>
-                    <h3>لا توجد سياسة حالياً</h3>
-                    <p>لم تقم الإدارة بنشر شروط وأحكام المتجر بعد.</p>
-                </div>`;
-        return;
-    }
-    
-    // 🌟 فتح الوثيقة الموحدة
-    let html = '<div class="terms-unified-card">';
-    
-    termsList.forEach((term, index) => {
-        const safeTitle = Utils.escapeHtml(term.title || `البند ${index + 1}`);
-        const safeText = Utils.escapeHtml(term.text || '');
+
+    // =========================================================
+    // 📜 رسم الشروط والأحكام ديناميكياً من السيرفر (Unified Document)
+    // =========================================================
+    renderTerms: function() {
+        const container = document.getElementById('store-terms-content');
+        if (!container) return;
         
-        let rawIcon = term.icon || 'fa-file-signature';
-        if (!rawIcon.startsWith('fa-')) rawIcon = 'fa-' + rawIcon;
-        const iconClass = (rawIcon.includes('fa-solid') || rawIcon.includes('fa-regular') || rawIcon.includes('fa-brands')) ? rawIcon : `fa-solid ${rawIcon}`;
+        const settings = LiveStoreData.settings || {};
+        const termsList = settings.terms || [];
         
-        // 🌟 رسم صف واحد داخل الوثيقة
-        html += `
-                <div class="term-item-row">
-                    <div class="tir-header">
-                        <h3 class="tir-title">${safeTitle}</h3>
-                        <div class="tir-icon"><i class="${Utils.escapeHtml(iconClass)}"></i></div>
-                    </div>
-                    <div class="tir-body">
-                        <p class="tir-text">${safeText}</p>
-                    </div>
-                </div>`;
-    });
-    
-    // إغلاق الوثيقة الموحدة
-    html += '</div>';
-    
-    container.innerHTML = html;
-},
+        if (typeof termsList === 'string') {
+            container.innerHTML = `<div class="terms-unified-card"><div class="term-item-row"><p class="tir-text">${Utils.escapeHtml(termsList)}</p></div></div>`;
+            return;
+        }
+        
+        if (!Array.isArray(termsList) || termsList.length === 0) {
+            container.innerHTML = `
+                    <div class="empty-state-v2">
+                        <i class="fa-solid fa-file-contract"></i>
+                        <h3>لا توجد سياسة حالياً</h3>
+                        <p>لم تقم الإدارة بنشر شروط وأحكام المتجر بعد.</p>
+                    </div>`;
+            return;
+        }
+        
+        let html = '<div class="terms-unified-card">';
+        
+        termsList.forEach((term, index) => {
+            const safeTitle = Utils.escapeHtml(term.title || `البند ${index + 1}`);
+            const safeText = Utils.escapeHtml(term.text || '');
+            
+            let rawIcon = term.icon || 'fa-file-signature';
+            if (!rawIcon.startsWith('fa-')) rawIcon = 'fa-' + rawIcon;
+            const iconClass = (rawIcon.includes('fa-solid') || rawIcon.includes('fa-regular') || rawIcon.includes('fa-brands')) ? rawIcon : `fa-solid ${rawIcon}`;
+            
+            html += `
+                    <div class="term-item-row">
+                        <div class="tir-header">
+                            <h3 class="tir-title">${safeTitle}</h3>
+                            <div class="tir-icon"><i class="${Utils.escapeHtml(iconClass)}"></i></div>
+                        </div>
+                        <div class="tir-body">
+                            <p class="tir-text">${safeText}</p>
+                        </div>
+                    </div>`;
+        });
+        
+        html += '</div>';
+        
+        container.innerHTML = html;
+    }
 };

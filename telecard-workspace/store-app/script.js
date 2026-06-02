@@ -1,10 +1,9 @@
 // ============================================================================
 // 🧠 المحرك الرئيسي للمتجر (script.js) - المجلد الاحترافي المصلح للسحابة
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: دمج (onAuthStateChanged) + إصلاح الكاش للبنرات + منع الومضات
+// 🚀 التحديث: دمج نظام المؤشرات (Cursor Pagination) + إيقاف نزيف الذاكرة
 // ============================================================================
 
-// 🌟 استيراد محرك المصادقة الرسمي للتحقق من الهوية قبل طلب البيانات
 import { auth } from './core/firebaseAdapter.js';
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
@@ -95,20 +94,14 @@ const ClientSystem = {
                     const timeDiff = currentTime - lastClickTime;
 
                     if (timeDiff < 280 && lastClickTarget === id) {
-                        // 🌟 1. اكتشاف نقر مزدوج! نقتل المؤقت فوراً لنمنع فتح نافذة الشراء
                         clearTimeout(window.productClickTimer);
-                        
-                        // 🌟 2. نطلق القلب السحري
                         if (typeof this.triggerMagicFavorite === 'function') {
                             this.triggerMagicFavorite(e, id);
                         }
-                        lastClickTime = 0; // تصفير العداد
+                        lastClickTime = 0; 
                     } else {
-                        // 🌟 نقرة مفردة تم اكتشافها
                         lastClickTime = currentTime;
                         lastClickTarget = id;
-                        
-                        // نضع فتح النافذة في مؤقت (Timer) قصير جداً (250ms)
                         window.productClickTimer = setTimeout(() => {
                             if (typeof this.openProdModal === 'function') {
                                 this.openProdModal(id);
@@ -130,7 +123,6 @@ const ClientSystem = {
                     e.preventDefault();
                     const currName = target.getAttribute('data-name');
                     const currCode = target.getAttribute('data-code');
-                    
                     if (typeof this.selectRegCurrency === 'function') {
                         this.selectRegCurrency(currName, currCode);
                     }
@@ -138,9 +130,7 @@ const ClientSystem = {
 
                 case 'toggle-accordion':
                     e.preventDefault();
-                    if(typeof this.togglePayDetail === 'function') {
-                        this.togglePayDetail(target);
-                    }
+                    if(typeof this.togglePayDetail === 'function') this.togglePayDetail(target);
                     break;
 
                 case 'toggle-wallet-stats': 
@@ -179,8 +169,8 @@ const ClientSystem = {
                     break;
                 
                 case 'copy-text':
-                    e.preventDefault();  // 🛡️ منع أي سلوك افتراضي للمتصفح
-                    e.stopPropagation(); // 🛑 القتل النهائي لتسرب الحدث للكرت الأب
+                    e.preventDefault();  
+                    e.stopPropagation(); 
                     const textToCopy = target.getAttribute('data-text');
                     if(typeof this.copyToClipboard === 'function') this.copyToClipboard(textToCopy, target);
                     break;
@@ -264,19 +254,13 @@ ClientSystem.initFirebaseListeners = function() {
     console.log("📡 جاري تشغيل مستمعات السحابة الحية (المحمية)...");
     this.clearFirebaseListeners();
     
-    // 1. المستمعات العامة (تعمل للجميع، زوار ومسجلين)
+    // 1. المستمعات العامة
     if (DB_KEYS.SETTINGS) {
         const unsubSettings = StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
             const incoming = Array.isArray(data) ? (data[0] || null) : (data || null);
-            
-            // 🛡️ درع حماية الكاش: نمنع المستمع الحي من مسح كاش الإعدادات البصرية أثناء محاولة الاتصال بالسيرفر
-            if (!incoming && Object.keys(LiveStoreData.settings || {}).length > 0) {
-                console.log("⏳ تم الاحتفاظ بكاش إعدادات المتجر البصرية أثناء اتصال السحابة.");
-                return;
-            }
+            if (!incoming && Object.keys(LiveStoreData.settings || {}).length > 0) return;
             
             LiveStoreData.settings = incoming || {};
-            
             RenderHelpers.init({
                 settings: LiveStoreData.settings || {},
                 rates: LiveStoreData.rates || [],
@@ -288,7 +272,6 @@ ClientSystem.initFirebaseListeners = function() {
             if (UIManager && typeof UIManager.updateDisplayCurrencyUI === 'function') {
                 UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
             }
-            
             if (UIManager && typeof UIManager.applyStoreIdentity === 'function') {
                 UIManager.applyStoreIdentity();
             }
@@ -307,13 +290,15 @@ ClientSystem.initFirebaseListeners = function() {
         this.activeListeners.push(unsubAlerts);
     }
     
-    // 🌟 2. المستمعات الخاصة (محمية بـ Auth State لمنع طرد فايرستور للمتصفح)
+    // 🌟 2. المستمعات الخاصة + الترقيم الاحترافي
     onAuthStateChanged(auth, (firebaseUser) => {
         if (firebaseUser) {
-            console.log("🔐 تم تأكيد الهوية من فايربيز. جاري جلب البيانات الخاصة والمالية...");
+            console.log("🔐 تم تأكيد الهوية. جاري جلب أحدث البيانات المالية...");
             const uidStr = firebaseUser.uid;
-            
             localStorage.setItem('telecard_active_user_uid', uidStr);
+            
+            // تهيئة مخزن المؤشرات (Cursors)
+            DataManager.cursors = DataManager.cursors || {};
             
             if (StoreDB.listenDoc) {
                 const unsubUser = StoreDB.listenDoc(DB_KEYS.USERS, String(uidStr), (userData) => {
@@ -329,16 +314,20 @@ ClientSystem.initFirebaseListeners = function() {
             }
             
             if (StoreDB.listenQuery) {
-                const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], (data) => {
+                // 🌟 جلب أحدث 30 طلب فقط + حفظ المؤشر
+                const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
                     LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
+                    DataManager.cursors.orders = lastDoc; // حفظ مكان التوقف
                     requestAnimationFrame(() => {
                         if (RenderManager && typeof RenderManager.renderOrders === 'function') RenderManager.renderOrders();
                     });
                 });
                 this.activeListeners.push(unsubOrders);
                 
-                const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], (data) => {
+                // 🌟 جلب أحدث 30 إيداع فقط + حفظ المؤشر
+                const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
                     LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
+                    DataManager.cursors.deposits = lastDoc; // حفظ مكان التوقف
                     requestAnimationFrame(() => {
                         if (RenderManager && typeof RenderManager.renderWallet === 'function') RenderManager.renderWallet();
                         if (RenderManager && typeof RenderManager.renderPayments === 'function') RenderManager.renderPayments();
@@ -347,11 +336,13 @@ ClientSystem.initFirebaseListeners = function() {
                 this.activeListeners.push(unsubDeposits);
             }
         } else {
-            console.log("👤 العميل زائر (مجهول). تم إيقاف جلب البيانات الخاصة.");
+            console.log("👤 العميل زائر. تم إيقاف جلب البيانات الخاصة.");
+            this.clearFirebaseListeners(); 
             localStorage.removeItem('telecard_active_user_uid');
             LiveStoreData.users = [];
             LiveStoreData.orders = [];
             LiveStoreData.deposits = [];
+            if (DataManager.cursors) DataManager.cursors = {}; // تصفير المؤشرات
             if (DataManager.syncUser) DataManager.syncUser();
             if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
         }
@@ -359,7 +350,7 @@ ClientSystem.initFirebaseListeners = function() {
 };
 
 // ============================================================================
-// 🚀 نقطة الإقلاع المركزية للنظام (Bootstrapper - Hydration Pattern)
+// 🚀 نقطة الإقلاع المركزية للنظام
 // ============================================================================
 ClientSystem.init = async function() {
     try {
@@ -367,13 +358,10 @@ ClientSystem.init = async function() {
         
         if (typeof UIManager.applySavedTheme === 'function') UIManager.applySavedTheme();
         
-        // 🌟 1. الاسترجاع الفوري من الذاكرة المحلية (Hydration Cache)
-        // هذا الكود يمنع اختفاء اللوغو والمستويات والأقسام ويرسمها فوراً من الكاش!
         try {
             const localCache = localStorage.getItem('telecard_store_cache');
             if (localCache) {
                 const parsed = JSON.parse(localCache);
-                // 🌟 تمت إضافة banners هنا للكاش
                 ['cats', 'settings', 'tiers', 'rates', 'banners'].forEach(k => {
                     if (parsed[k]) LiveStoreData[k] = parsed[k];
                 });
@@ -383,7 +371,6 @@ ClientSystem.init = async function() {
                     offers: [],
                     isStore: true
                 });
-                console.log("⚡ تم حقن البيانات البصرية من الذاكرة المحلية بنجاح.");
             }
         } catch (e) {}
         
@@ -394,7 +381,6 @@ ClientSystem.init = async function() {
         
         if (DataManager.initDummyData) DataManager.initDummyData();
         
-        // 🌟 2. الإقلاع البصري الصاروخي (يعتمد على الكاش 100%)
         if (DataManager.syncUser) DataManager.syncUser();
         if (DataManager.loadPrefs) DataManager.loadPrefs();
         
@@ -422,10 +408,8 @@ ClientSystem.init = async function() {
         this.initGlobalListeners();
         this.isReady = true;
         
-        // 🌟 3. تشغيل المستمعات الحية وجلب البيانات الثابتة في الخلفية (Background Sync)
         this.initFirebaseListeners();
         
-        // 📥 1. التحميل الأولي للبيانات الثابتة العامة وتحديث الكاش
         if (StoreDB) {
             const staticKeys = ['SETTINGS', 'CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
             
@@ -441,7 +425,6 @@ ClientSystem.init = async function() {
                         LiveStoreData[property] = Object.freeze([...rawData]);
                     }
                     
-                    // 🌟 تمت إضافة banners هنا للحفظ في الكاش المستقبلي
                     if (['cats', 'settings', 'tiers', 'rates', 'banners'].includes(property)) {
                         cacheObject[property] = LiveStoreData[property];
                     }
@@ -459,18 +442,14 @@ ClientSystem.init = async function() {
                 if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
                 if (typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
                 
-                // 🌟 [الدرع المعماري الأخير]: تم حذف سطر (RenderManager.renderHome) من هنا نهائياً للقضاء على الومضة البصرية!
-                // 🌟 الحل الجذري: نقوم بتحديث السلايدر وشريط الأخبار فقط بشكل مستقل فور وصول البيانات
                 if (typeof UIManager.initSlider === 'function') UIManager.initSlider();
                 if (typeof UIManager.renderTicker === 'function') UIManager.renderTicker(); 
                 
-                console.log("☁️ تم مزامنة أحدث البيانات من السيرفر بصمت وتحديث الكاش المحلي.");
             }).catch(error => {
                 console.warn("⚠️ تعذر جلب البيانات الثابتة، المتجر يعمل حالياً على النسخة المخبأة (Cache).", error);
             });
         }
         
-        // ⏱️ مزامنة التوقيت السحابي
         try {
             if (DataManager && typeof DataManager._getCloudFunction === 'function') {
                 DataManager._getCloudFunction('getServerTime')().then(timeRes => {
@@ -482,7 +461,6 @@ ClientSystem.init = async function() {
         }
         
     } catch (criticalError) {
-        console.error("🚨 خطأ حرج يمنع الإقلاع:", criticalError.message);
         document.body.innerHTML = `
             <div class="error-screen" style="display:flex; justify-content:center; align-items:center; height:100vh; background:#111; color:#fff; font-family:sans-serif; text-align:center;">
                 <div>

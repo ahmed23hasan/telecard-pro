@@ -1,16 +1,15 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - The Unified Master Gateway
-// 🎯 الوظيفة: البوابة المشتركة للمتجر والإدارة للاتصال بـ Firestore & Storage & Auth
-// 🌟 التحديث المعماري الأقصى: النسخة الكاملة بدون أي اختصارات برمجية (Anti-Syntax-Error)
+// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version
+// 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth
+// 🌟 التحديث: تفعيل الاتصال السريع + نظام الترقيم بالمؤشرات (Cursor Pagination)
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+// 🌟 تم دمج الواردات وإضافة startAfter للترقيم الاحترافي
 import { 
-    initializeFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit
+    getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-// 🌟 استيراد محرك التحقق من الهوية الرسمي
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-// 🌟 استيراد خدمات التخزين السحابي للصور والملفات مع دالة الحذف
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 // 🔑 مفاتيح الربط الخاصة بمتجر Telecard 
@@ -26,10 +25,8 @@ const firebaseConfig = {
 // 🚀 تهيئة الاتصال بـ Firebase
 const app = initializeApp(firebaseConfig);
 
-// 🌟 [الدرع الأول]: إجبار فايربيز على استخدام اتصال (Long Polling) المستقر 
-import { getFirestore } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+// 🌟 تفعيل الاتصال السريع (WebSockets) وإلغاء القيود البطيئة
 const db = getFirestore(app);
-
 const auth = getAuth(app);
 const storage = getStorage(app); 
 
@@ -145,16 +142,27 @@ export const FirebaseAdapter = {
         });
     },
 
-    // 📡 9. الاستماع الحي بفلتر ذكي (ضرورية لطلبات وإيداعات العميل فقط)
-    listenQuery(collectionName, condition, callback) {
+    // ==========================================
+    // 🛡️ 9. المستمع الحي بفلتر ذكي (مُرقّى لحماية الفاتورة)
+    // ==========================================
+    listenQuery(collectionName, condition, orderByField = 'time', limitCount = 30, callback) {
         try {
-            const q = query(collection(db, collectionName), where(condition[0], condition[1], condition[2]));
+            const q = query(
+                collection(db, collectionName), 
+                where(condition[0], condition[1], condition[2]),
+                orderBy(orderByField, 'desc'),
+                limit(limitCount) // 🎯 تقييد القراءات لخفض الفاتورة 90%
+            );
+            
             return onSnapshot(q, (snapshot) => {
                 const arr = [];
+                // استخراج آخر مستند لاستخدامه كمؤشر (Cursor) للتحميل المستقبلي
+                const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+                
                 snapshot.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
-                callback(arr);
+                callback(arr, lastDoc); // إرسال الداتا + المؤشر
             }, (error) => {
-                console.error(`🚨 تم رفض أو فشل الاستماع للمجموعة [${collectionName}]:`, error.message);
+                console.error(`🚨 تم رفض الاستماع للمجموعة [${collectionName}]:`, error.message);
             });
         } catch (error) {
             console.error(`🚨 خطأ في بناء استعلام المجموعة [${collectionName}]: ${error.message}`);
@@ -163,12 +171,39 @@ export const FirebaseAdapter = {
     },
 
     // ==========================================
-    // ☁️ 10. محرك رفع الصور والملفات (Storage Engine - Pro Version)
+    // 🪄 10. جلب الأرشيف القديم (Cursor Pagination) 
+    // تعمل مرة واحدة فقط عند الضغط على "عرض المزيد"
+    // ==========================================
+    async fetchMoreWithCursor(collectionName, condition, orderByField = 'time', lastDocMarker, limitCount = 15) {
+        try {
+            if (!lastDocMarker) return { data: [], newLastDoc: null };
+            
+            const q = query(
+                collection(db, collectionName),
+                where(condition[0], condition[1], condition[2]),
+                orderBy(orderByField, 'desc'),
+                startAfter(lastDocMarker), // 🎯 يبدأ البحث من حيث توقفنا في المرة السابقة
+                limit(limitCount)
+            );
+            
+            const snapshot = await this._withTimeout(getDocs(q), 10000, `fetchMore -> ${collectionName}`);
+            
+            const arr = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const newLastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+            
+            return { data: arr, newLastDoc: newLastDoc };
+        } catch (error) {
+            console.error(`🚨 خطأ في جلب الأرشيف القديم [${collectionName}]: ${error.message}`);
+            return { data: [], newLastDoc: null };
+        }
+    },
+
+    // ==========================================
+    // ☁️ 11. محرك رفع الصور والملفات (Storage Engine)
     // ==========================================
     async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
         if (!file) return '';
         try {
-            // 🧹 التنظيف الذكي للصورة القديمة
             if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
                 try {
                     const oldImageRef = ref(storage, oldImageUrl);
@@ -180,10 +215,8 @@ export const FirebaseAdapter = {
             const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
             const storageRef = ref(storage, `${folderName}/${finalFileName}`);
             
-            // 🌟 [الدرع الثالث]: تحويل الملف إلى ArrayBuffer لمنع تجمد الرفع الصامت لفايربيز
             const fileBuffer = await file.arrayBuffer();
 
-            // تغليف الرفع بجدار الحماية لمنع التعليق
             const snapshot = await this._withTimeout(
                 uploadBytes(storageRef, fileBuffer, { contentType: file.type }), 
                 15000, 
@@ -200,7 +233,7 @@ export const FirebaseAdapter = {
     },
 
     // ==========================================
-    // 🧹 11. دالة الحذف المباشر (Direct Delete) 
+    // 🧹 12. دالة الحذف المباشر (Direct Delete) 
     // ==========================================
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;

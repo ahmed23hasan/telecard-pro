@@ -10,16 +10,13 @@ const db = admin.firestore();
 
 // ==========================================
 // 🚀 1. مرسل الإشعارات السحابي (Webhook Dispatcher)
-// يعمل تلقائياً عند أي تحديث على حالة الطلب في قاعدة البيانات
 // ==========================================
-// 👇 تمت إضافة تحديد المنطقة .region('us-east1') هنا
 exports.orderStatusWebhook = functions.region('us-east1').firestore
     .document('telecard_orders/{orderId}')
     .onUpdate(async (change, context) => {
         const before = change.before.data();
         const after = change.after.data();
         
-        // 🛡️ إذا لم تتغير الحالة، لا داعي لإرسال إشعار (توفير موارد السيرفر)
         if (before.status === after.status) return null;
         
         const userId = after.userId;
@@ -30,10 +27,8 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
             
             const userData = userSnap.data();
             
-            // تحقق من وجود رابط Webhook صالح للعميل
             if (!userData.webhookUrl || !userData.webhookUrl.startsWith('http')) return null;
             
-            // 📦 تجهيز طرد البيانات (Payload)
             const payload = {
                 event: 'order_status_changed',
                 orderId: after.displayId || after.id,
@@ -46,8 +41,6 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
                 timestamp: new Date().toISOString()
             };
             
-            // 📡 إرسال الطلب لمتجر العميل
-            // نستخدم دالة fetch القياسية في Node.js 18+
             const response = await fetch(userData.webhookUrl, {
                 method: 'POST',
                 headers: {
@@ -64,18 +57,13 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
             return true;
         } catch (error) {
             console.error("Webhook Dispatch Error:", error);
-            return null; // لا نوقف النظام إذا فشل سيرفر العميل
+            return null; 
         }
     });
+
 // ==========================================
-// 🔌 2. بوابة الـ API الخارجية (External API Gateway)
-// نقطة وصول REST API عادية ليستقبل طلبات الشراء من سيرفرات التجار
+// 🔌 2. بوابة الـ API الخارجية (External API Gateway - Turbo Version)
 // ==========================================
-// ==========================================
-// 🔌 2. بوابة الـ API الخارجية (External API Gateway)
-// نقطة وصول REST API عادية ليستقبل طلبات الشراء من سيرفرات التجار
-// ==========================================
-// 🌟 [الإصلاح المعماري 1]: توجيه الدالة للمنطقة السحابية المجانية والأسرع
 exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async (req, res) => {
     // 🛡️ السماح فقط بطلبات POST
     if (req.method !== 'POST') {
@@ -97,7 +85,6 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
         }
 
         const userDoc = usersQuery.docs[0];
-        const userData = userDoc.data();
         const uid = userDoc.id;
 
         const { productId, qty, inputStr } = req.body;
@@ -106,26 +93,25 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
         }
 
         const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
-        
         let resultData = null;
 
-        // 🔄 محرك التحويلات الجبار والتعديل الآمن
+        // 🔄 محرك التحويلات الجبار والمسرع
         await db.runTransaction(async (transaction) => {
             const productRef = db.collection('telecard_prods').doc(String(productId));
-            
-            // 🌟 [الإصلاح المعماري 2]: توجيه الإحصائيات للجدول الصحيح (telecard_system) لكي تظهر الأرباح في لوحة القيادة
-            const systemRef = db.collection('telecard_system').doc('singleton');
             const countersRef = db.collection('telecard_system').doc('counters'); 
 
-            // قراءة المراجع المركزية معاً للتسريع
-            const productSnap = await transaction.get(productRef);
-            const countersSnap = await transaction.get(countersRef); 
-            const latestUserSnap = await transaction.get(userDoc.ref); 
+            // 🚀 1. القراءة المتزامنة الحقيقية (يوفر ثانية كاملة)
+            const [productSnap, countersSnap, latestUserSnap] = await Promise.all([
+                transaction.get(productRef),
+                transaction.get(countersRef),
+                transaction.get(userDoc.ref)
+            ]);
 
             if (!productSnap.exists) throw new Error('Product not found.');
             const product = productSnap.data();
+            const userData = latestUserSnap.data();
 
-            // استخراج الـ ID الأنيق لطلبات הـ API 
+            // استخراج الـ ID المتسلسل (العداد)
             let currentOrderCount = 100001; 
             if (countersSnap.exists && countersSnap.data().orders_counter) {
                 currentOrderCount = countersSnap.data().orders_counter + 1;
@@ -133,17 +119,21 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
             const cleanOrderId = String(currentOrderCount);
             const orderRef = db.collection('telecard_orders').doc(cleanOrderId);
 
-            // جلب مستوى العميل 
-            const tierId = String(latestUserSnap.data().tierId || latestUserSnap.data().tier || 1);
-            const tierSnap = await transaction.get(db.collection('telecard_tiers').doc(tierId));
+            // 🚀 2. جلب المستوى والمخزن معاً
+            const tierId = String(userData.tierId || userData.tier || 1);
+            const tierRef = db.collection('telecard_tiers').doc(tierId);
+            const vaultRef = product.vaultPoolId ? db.collection('telecard_vault').doc(String(product.vaultPoolId)) : null;
+
+            const [tierSnap, vaultSnap] = await Promise.all([
+                transaction.get(tierRef),
+                vaultRef ? transaction.get(vaultRef) : Promise.resolve(null)
+            ]);
+
             const userTier = tierSnap.exists ? tierSnap.data() : null;
 
-            // حساب التكلفة (والفحص الثابت إذا وجد)
+            // حساب التكلفة
             let rawUnitCost = Number(product.costPrice || product.price || 0);
-            const isFixed = (
-                product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true' || 
-                product.is_fixed_price === true || String(product.is_fixed_price).toLowerCase() === 'true'
-            );
+            const isFixed = (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true');
 
             if (isFixed) {
                 const fixedUsd = Number(product.fixedPriceUsd || product.fixed_price_usd || 0);
@@ -158,7 +148,7 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
             });
 
             const exactPrice = Number((pricingSnapshot.finalPrice * finalQty).toFixed(4));
-            const currentBalance = Number(latestUserSnap.data().walletBalance || 0);
+            const currentBalance = Number(userData.walletBalance || 0);
 
             if (currentBalance < exactPrice) {
                 throw new Error('Insufficient balance.');
@@ -167,30 +157,27 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
             let deliveredCodeText = null;
             let isAutoDelivered = false;
 
-            if (product.vaultPoolId) {
-                const vaultRef = db.collection('telecard_vault').doc(String(product.vaultPoolId));
-                const vaultSnap = await transaction.get(vaultRef);
-                if (vaultSnap.exists) {
-                    const vaultData = vaultSnap.data();
-                    if (vaultData.codes && vaultData.codes.length >= finalQty) {
-                        const remainingCodes = [...vaultData.codes];
-                        const extractedCodes = remainingCodes.splice(0, finalQty);
-                        deliveredCodeText = extractedCodes.map(c => typeof c === 'object' ? (c.text || c.code || '') : c).join(' | ');
-                        isAutoDelivered = true;
-                        transaction.update(vaultRef, { codes: remainingCodes });
-                    } else {
-                        throw new Error('Out of stock.');
-                    }
+            if (vaultSnap && vaultSnap.exists) {
+                const vaultData = vaultSnap.data();
+                if (vaultData.codes && vaultData.codes.length >= finalQty) {
+                    const remainingCodes = [...vaultData.codes];
+                    const extractedCodes = remainingCodes.splice(0, finalQty);
+                    deliveredCodeText = extractedCodes.map(c => typeof c === 'object' ? (c.text || c.code || '') : c).join(' | ');
+                    isAutoDelivered = true;
+                    transaction.update(vaultRef, { codes: remainingCodes });
+                } else {
+                    throw new Error('Out of stock.');
                 }
             }
 
             // تحديثات القيود والترتيب 
             const costPriceVal = Number((pricingSnapshot.cost * finalQty).toFixed(4));
             const netProfit = Number((pricingSnapshot.profit * finalQty).toFixed(4));
-            const newBalance = Math.max(0, Number((currentBalance - exactPrice).toFixed(4)));
-
-            const newTotalSpent = Number((Number(latestUserSnap.data().totalSpent || 0) + exactPrice).toFixed(4));
-            const newCycleSpent = Number((Number(latestUserSnap.data().tierCycleSpent || 0) + exactPrice).toFixed(4));
+            
+            // التعديل الآمن للأرصدة
+            const newBalance = Number(Math.max(0, currentBalance - exactPrice).toFixed(4));
+            const newTotalSpent = Number((Number(userData.totalSpent || 0) + exactPrice).toFixed(4));
+            const newCycleSpent = Number((Number(userData.tierCycleSpent || 0) + exactPrice).toFixed(4));
 
             const newOrder = {
                 id: cleanOrderId,
@@ -203,6 +190,7 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                 input: inputStr || 'API Request',
                 status: isAutoDelivered ? 'completed' : 'pending',
                 deliveredCode: deliveredCodeText,
+                balanceAfter: newBalance, // 🌟 إضافة الرصيد التراكمي
                 pricingSnapshot: { 
                     costUsd: costPriceVal,
                     tierPriceUsd: Number((pricingSnapshot.tierPrice * finalQty).toFixed(4)),
@@ -217,23 +205,13 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                 isApiOrder: true
             };
 
-            // حماية تقارير المبيعات
-            const statsUpdate = { 'globalStats.orders.total': admin.firestore.FieldValue.increment(1) };
-            if (isAutoDelivered) {
-                statsUpdate['globalStats.orders.completed'] = admin.firestore.FieldValue.increment(1);
-                statsUpdate['globalStats.financials.totalRevenue'] = admin.firestore.FieldValue.increment(exactPrice);
-                statsUpdate['globalStats.financials.totalCost'] = admin.firestore.FieldValue.increment(costPriceVal);
-                statsUpdate['globalStats.financials.totalProfit'] = admin.firestore.FieldValue.increment(netProfit);
-            }
-
-            // تطبيق الختم والتغييرات الشاملة
+            // تطبيق التغييرات (بدون update للـ singleton لمنع الدبلة والاختناق)
             transaction.update(userDoc.ref, {
                 walletBalance: newBalance, balance: newBalance,
                 totalSpent: newTotalSpent, tierCycleSpent: newCycleSpent
             });
             
             transaction.set(orderRef, newOrder);
-            transaction.set(systemRef, statsUpdate, { merge: true }); 
             transaction.set(countersRef, { orders_counter: currentOrderCount }, { merge: true });
 
             resultData = {
