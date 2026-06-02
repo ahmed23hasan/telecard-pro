@@ -27,7 +27,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // 🌟 [الدرع الأول]: إجبار فايربيز على استخدام اتصال (Long Polling) المستقر 
-const db = initializeFirestore(app, { experimentalForceLongPolling: true });
+import { getFirestore } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+const db = getFirestore(app);
 
 const auth = getAuth(app);
 const storage = getStorage(app); 

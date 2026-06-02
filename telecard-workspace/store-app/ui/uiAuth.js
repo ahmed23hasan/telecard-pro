@@ -26,11 +26,9 @@ export const UIAuth = {
 
     // 🌟 ذاكرة مؤقتة للاحتفاظ بملفات الـ KYC قبل رفعها
     kycFiles: {},
-
-    openProfileInfo: function() {
+openProfileInfo: function() {
         getSys().resetUI?.();
         
-        // 🌟 مزامنة حية للبيانات
         if(DataManager.syncUser) DataManager.syncUser();
         this.updateProfileDisplay();
 
@@ -38,16 +36,14 @@ export const UIAuth = {
         const user = DataManager.user;
         const isVerified = (user.kycStatus === 'approved' || user.kycStatus === 'verified'); 
 
-        // 🌟 [المنطق الجديد] استخدام الدالة المركزية بشكل آمن عبر getSys()
         const fullName = getSys()._getFullName ? getSys()._getFullName(user) : (user.name || 'العميل');
         
-        const usernameVal = user.username ? `@${user.username}` : '---';
+        const usernameVal = user.username ? `${user.username}` : '---';
         const countryTxt = user.countryName || user.country || 'غير محدد';
         const emailTxt = (user.email && user.email.trim()) ? user.email : 'غير محدد';
         const phoneTxt = (user.phone && user.phone.trim()) ? user.phone : 'غير محدد';
         
         const idTxt = RenderHelpers.formatUserId(user);
-
 
         const displayNameEl = document.getElementById('display-name');
         const editNameEl = document.getElementById('edit-name-input');
@@ -68,7 +64,6 @@ export const UIAuth = {
             editBtnToggle.style.display = isVerified ? 'none' : 'flex';
             const icon = editBtnToggle.querySelector('i'); 
             if (icon) icon.className = 'fa-solid fa-pen'; 
-            // 🌟 ربط الزر بتفويض الأحداث بدلاً من المستمع المباشر
             editBtnToggle.setAttribute('data-action', 'toggle-name-edit');
         }
         
@@ -79,21 +74,41 @@ export const UIAuth = {
             editNameEl.value = fullName;
         }
 
-        if(usernameEl) usernameEl.textContent = usernameVal;
-        if(emailEl) emailEl.textContent = emailTxt;
+        if(usernameEl) {
+            usernameEl.textContent = `@${usernameVal}`;
+            usernameEl.setAttribute('data-action', 'copy-text');
+            usernameEl.setAttribute('data-text', usernameVal);
+            usernameEl.style.cursor = 'pointer';
+        }
+        
+        if(emailEl) {
+            emailEl.textContent = emailTxt;
+            emailEl.setAttribute('data-action', 'copy-text');
+            emailEl.setAttribute('data-text', emailTxt);
+            emailEl.style.cursor = 'pointer';
+        }
 
         if(phoneEl) {
             phoneEl.innerHTML = `<span dir="ltr">${phoneTxt}</span>`;
             const phoneCard = phoneEl.closest('.info-card-item');
             if (phoneCard) {
-                // 🌟 التخلص من onclick واستخدام تفويض الأحداث
                 phoneCard.style.cursor = 'pointer';
                 phoneCard.setAttribute('data-action', 'show-phone-toast');
             }
         }
         
         if(countryEl) countryEl.textContent = countryTxt;
-        if(idBadge) idBadge.textContent = idTxt;
+        
+        if(idBadge) {
+            idBadge.textContent = idTxt;
+            const idWrap = idBadge.closest('.uid-capsule');
+            if (idWrap) {
+                idWrap.setAttribute('data-action', 'copy-text');
+                idWrap.setAttribute('data-text', idTxt);
+                idWrap.style.cursor = 'pointer';
+            }
+        }
+        
         if(baseCurrView) { const base = (user.baseCurrency || user.base_currency || 'USD').toUpperCase(); baseCurrView.textContent = base; }
         
         const currentTier = typeof DataManager.getUserTier === 'function' ? DataManager.getUserTier(user) : null;
@@ -104,7 +119,7 @@ export const UIAuth = {
             let iconClass = currentTier ? (currentTier.icon || 'fa-solid fa-medal') : 'fa-solid fa-circle-exclamation';
             if (!iconClass.includes('fa-solid') && !iconClass.includes('fa-regular') && !iconClass.includes('fa-brands')) iconClass = 'fa-solid ' + iconClass;
 
-            tierView.innerHTML = `<div class="tier-view-wrapper"><span>${Utils.safeText(tierName)}</span><i class="${Utils.safeText(iconClass.trim())}" style="color: ${tierColor};"></i></div>`;
+            tierView.innerHTML = `<div class="tier-view-wrapper"><span>${Utils.safeText(tierName)}</span><i class="${Utils.safeText(iconClass.trim())}" style="color: ${tierColor}; margin-inline-start: 8px;"></i></div>`;
             if (tierIconBox) { tierIconBox.style.color = tierColor; }
         }
 
@@ -117,7 +132,6 @@ export const UIAuth = {
         if(imgEl) imgEl.src = currentAvatar;
         if(sidebarAvatar) sidebarAvatar.src = currentAvatar;
         
-        // 🌟 إعطاء صلاحية تفويض الأحداث لخيارات الصور
         if(imgEl) {
             imgEl.style.cursor = 'pointer';
             imgEl.setAttribute('data-action', 'handle-avatar-click');
@@ -126,7 +140,12 @@ export const UIAuth = {
             cameraBtn.setAttribute('data-action', 'handle-avatar-click');
         }
 
-        // 🌟 مستمع الـ Change يستثنى من الـ Click Delegation ويبقى مكانه هنا
+        const deleteAvatarBtn = document.getElementById('inline-delete-avatar-btn');
+        if (deleteAvatarBtn) {
+            const hasCustomImage = user.img && user.img.trim() !== '' && user.img !== DEFAULT_AVATAR_URL;
+            deleteAvatarBtn.classList.toggle('active', !!hasCustomImage);
+        }
+
         if(fileInput && !fileInput._boundChange) {
             fileInput.addEventListener('change', async (e) => {
                 const file = e.target.files && e.target.files[0];
@@ -139,19 +158,38 @@ export const UIAuth = {
                     };
                     reader.readAsDataURL(file);
 
-                        getSys().showToast?.('جاري رفع الصورة الشخصية...', 'info');
+                    const avatarWrapper = document.querySelector('.profile-container .avatar-wrapper');
+                    if (avatarWrapper) avatarWrapper.classList.add('is-loading');
+
+                    const shield = document.createElement('div');
+                    shield.id = 'invisible-tx-shield';
+                    document.body.appendChild(shield);
+
                     try {
-                        // استخدام الاسم المخصص للكتابة فوق الصورة القديمة
                         const downloadUrl = await FirebaseAdapter.uploadImage(file, 'avatars', `avatar_${DataManager.user.id}.jpg`);               
                         
                         if (DataManager.updateUserProfile) {
                             await DataManager.updateUserProfile({ img: downloadUrl });
                         }
                         
+                        localStorage.setItem('telecard_user_image_' + DataManager.user.id, downloadUrl);
+
+                        // 🌟 تفعيل ظهور زر الحذف فوراً عند نجاح الرفع
+                        if (deleteAvatarBtn) deleteAvatarBtn.classList.add('active');
+
                         getSys().showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
+                        getSys().sfx?.('success');
+                        
                     } catch (err) {
                         console.error("Avatar Upload Error:", err);
-                        getSys().showToast?.('تعذر حفظ الصورة في السحابة', 'error');
+                        getSys().showToast?.('عذراً، تعذر حفظ الصورة في السحابة', 'error');
+                        const fallbackImg = DataManager.user.img || DEFAULT_AVATAR_URL;
+                        if(imgEl) imgEl.src = fallbackImg; 
+                        if(sidebarAvatar) sidebarAvatar.src = fallbackImg; 
+                    } finally {
+                        if (avatarWrapper) avatarWrapper.classList.remove('is-loading');
+                        shield.remove();
+                        fileInput.value = ''; 
                     }
                 }
             });
@@ -159,8 +197,7 @@ export const UIAuth = {
         }
 
         getSys().openModal?.('profile-info');
-    },
-        handleAvatarClick: function(e) {
+    },       handleAvatarClick: function(e) {
         // ✅ تمت إزالة e.stopPropagation() لكي لا نكسر تفويض الأحداث المركزي
         if (DataManager.user && DataManager.user.img && DataManager.user.img !== DEFAULT_AVATAR_URL) {
             this.toggleAvatarMenu(e);

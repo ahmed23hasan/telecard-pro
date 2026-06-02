@@ -2099,33 +2099,55 @@ body.light-mode .ph-receipt-img-box {
 /* =========================================================
    [ 🎛️ 16. الإدارة المركزية للحقول العائمة (Clean Royal Inputs) ]
    ========================================================= */
-.floating-group { 
-    position: relative; 
-    margin-bottom: 15px; 
-    width: 100%; 
+.floating-group {
+    position: relative;
+    margin-bottom: 15px;
+    width: 100%;
 }
 
-/* 🌟 توحيد تصميم جميع الحقول والقوائم والعدادات (بدون !important) */
+/* 🌟 توحيد تصميم الحقول والعدادات (ارتفاع ثابت 56px) */
 .floating-group .floating-input,
-.custom-dropdown-container .dropdown-trigger, 
-.pm-float-box input, 
-.pm-quantity-group, 
-.coupon-section {
-    height: 56px; 
-    width: 100%; 
-    padding: 0 16px; 
-    font-size: 15px; 
-    font-weight: 700; 
+.custom-dropdown-container .dropdown-trigger,
+.pm-float-box input,
+.pm-quantity-group,
+.lux-input {
+    height: 56px;
+    width: 100%;
+    padding: 0 16px;
+    font-size: 15px;
+    font-weight: 700;
     color: var(--text-main);
-    background: var(--bg-input); 
-    border: var(--card-border); 
+    background: var(--bg-input);
+    border: var(--card-border);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-input-inner); 
-    outline: none; 
+    box-shadow: var(--shadow-input-inner);
+    outline: none;
     font-family: inherit;
-    transition: background-color var(--trans-speed), border-color var(--trans-speed), box-shadow var(--trans-speed), color var(--trans-speed); 
+    transition: background-color var(--trans-speed), border-color var(--trans-speed), box-shadow var(--trans-speed), color var(--trans-speed);
 }
 
+/* 🌟 حاوية الكوبون (ارتفاع مرن لتسمح بالتمدد للأسفل) */
+.coupon-section {
+    width: 100%;
+    background: var(--bg-input);
+    border: var(--card-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-input-inner);
+    transition: background-color var(--trans-speed), border-color var(--trans-speed), box-shadow var(--trans-speed);
+}
+
+/* 🌟 تأثير التركيز (Focus & Active States) للجميع */
+.floating-group .floating-input:focus,
+.custom-dropdown-container.open .dropdown-trigger,
+.pm-float-box input:focus,
+.pm-quantity-group:focus-within,
+.coupon-section.open,
+.c-input:focus,
+.lux-input:focus {
+    background: var(--bg-card);
+    border-color: var(--primary);
+    box-shadow: var(--shadow-glow), var(--shadow-input-inner);
+}
 /* 🌟 تأثير التركيز (Focus & Active States) */
 .floating-group .floating-input:focus,
 .custom-dropdown-container.open .dropdown-trigger, 
@@ -3345,7 +3367,20 @@ div.bal-result-field-new { color: var(--text-muted); opacity: 0.5; font-size: 20
 
 .profile-container .ltr-text { direction: ltr !important; text-align: right; }
 .profile-container .value-text.curr-box { display: flex; align-items: center; justify-content: flex-end; gap: 6px; direction: ltr; }
+@media (hover: hover) {
+    .value-text[data-action="copy-text"]:hover,
+    .uid-capsule[data-action="copy-text"]:hover {
+        color: var(--primary) !important;
+        transition: color 0.2s ease;
+    }
+}
 
+.value-text.is-copied,
+.uid-capsule.is-copied {
+    color: var(--success) !important;
+    text-shadow: 0 0 8px rgba(var(--success-rgb), 0.3) !important;
+    transition: color 0.2s ease, text-shadow 0.2s ease;
+}
 /* 🌟 زر الأمان (تغيير كلمة المرور): تحويله لزر زجاجي احترافي بدون إطارات مقطعة */
 .profile-container .security-btn {
     display: flex; justify-content: center; align-items: center; gap: 10px; 
@@ -3402,7 +3437,50 @@ div.bal-result-field-new { color: var(--text-muted); opacity: 0.5; font-size: 20
 .avatar-action-btn.delete-btn { color: var(--danger); display: none; }
 .avatar-action-btn.delete-btn.active { display: flex; }
 .avatar-action-btn.delete-btn:hover { background: rgba(var(--danger-rgb), 0.1); }
+<div class="avatar-action-menu" id="avatar-action-menu">
+    <button type="button" class="avatar-action-btn edit-btn" data-action="trigger-click" data-target="avatar-upload-input">
+        <i class="fa-regular fa-image"></i> تغيير الصورة
+    </button>
+    <button type="button" class="avatar-action-btn delete-btn" id="inline-delete-avatar-btn" data-action="delete-avatar">
+        <i class="fa-regular fa-trash-can"></i> حذف الصورة
+    </button>
+</div>
 
+<input type="file" id="avatar-upload-input" hidden accept="image/*">
+</div>ition: relative;
+    pointer-events: none; /* منع النقر المكرر أثناء الرفع */
+}
+
+/* طبقة زجاجية معتمة دائرية فوق الأفاتار */
+.avatar-wrapper.is-loading::before {
+    content: '';
+    position: absolute;
+    inset: 3px; /* يطابق حشوة الصورة الشخصية ليلتف حولها بدقة */
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 5;
+}
+/* لودر دوار صغير في السنتر (تم حل مشكلة التمركز برياضيات الهوامش) */
+.avatar-wrapper.is-loading::after {
+    content: "\f110"; /* أيقونة الدوران من FontAwesome */
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 30px; /* تحديد أبعاد ثابتة للودر */
+    height: 30px;
+    margin-top: -15px;  /* نصف الارتفاع بالضبط لجذبه للسنتر عمودياً */
+    margin-left: -15px; /* نصف العرض بالضبط لجذبه للسنتر أفقياً */
+    line-height: 30px;
+    text-align: center;
+    color: var(--primary);
+    font-size: 1.4rem;
+    animation: fa-spin 0.8s infinite linear;
+    z-index: 6;
+}
 /* =========================================================
    [ 🔐 22. نافذة تغيير كلمة المرور (Password Modal) ]
    ========================================================= */

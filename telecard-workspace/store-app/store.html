@@ -717,19 +717,17 @@
                     <div class="camera-btn" id="avatar-menu-trigger">
                         <i class="fa-solid fa-camera" style="pointer-events: none;"></i>
                     </div>
+<div class="avatar-action-menu" id="avatar-action-menu">
+    <button type="button" class="avatar-action-btn edit-btn" data-action="trigger-click" data-target="avatar-upload-input">
+        <i class="fa-regular fa-image"></i> تغيير الصورة
+    </button>
+    <button type="button" class="avatar-action-btn delete-btn" id="inline-delete-avatar-btn" data-action="delete-avatar">
+        <i class="fa-regular fa-trash-can"></i> حذف الصورة
+    </button>
+</div>
 
-                    <div class="avatar-action-menu" id="avatar-action-menu">
-                        <button class="avatar-action-btn edit-btn" onclick="document.getElementById('avatar-upload-input').click()">
-                            <i class="fa-regular fa-image"></i> تغيير الصورة
-                        </button>
-                        <button class="avatar-action-btn delete-btn" id="inline-delete-avatar-btn" onclick="ClientSystem.deleteProfileImage()">
-                            <i class="fa-regular fa-trash-can"></i> حذف الصورة
-                        </button>
-                    </div>
-                    
-                    <input type="file" id="avatar-upload-input" hidden accept="image/*">
-                </div>
-                
+<input type="file" id="avatar-upload-input" hidden accept="image/*">
+</div>             
                 <div class="profile-header-row">
                     <div class="name-wrapper" dir="auto">
                         <h1 class="user-name" id="display-name" onclick="document.getElementById('profile-edit-toggle').click()">--</h1>
@@ -1168,20 +1166,18 @@
         </div>
         
         <div class="pm-overlay" id="notif-center-overlay" onclick="ClientSystem.closeNotifCenter()"></div>
-        <div class="modal-sheet bottom-sheet" id="notif-center-modal">
-            <div class="pm-header-std">
-                <div class="pm-close-std" onclick="ClientSystem.closeNotifCenter()"><i class="fa-solid fa-xmark"></i></div>
-                <div class="header-center">
-                    <span class="title3-badge"><i class="fa-solid fa-bell"></i> صندوق الإشعارات</span>
-                </div>
-                <div class="pm-header-spacer"></div>
-            </div>
-            <div class="pm-scroll-content">
-                <div id="notif-center-list" class="u-list">
-                </div>
-            </div>
+<div class="modal-sheet bottom-sheet" id="notif-center-modal">
+    <div class="pm-header-std">
+        <div class="pm-close-std" onclick="ClientSystem.closeNotifCenter()"><i class="fa-solid fa-xmark"></i></div>
+        <div class="header-center">
+            <span class="title-badge"><i class="fa-solid fa-bell"></i> صندوق الإشعارات</span>
         </div>
-        
+        <div class="pm-header-spacer"></div>
+    </div>
+    <div class="pm-scroll-content">
+        <div id="notif-center-list" class="u-list"></div>
+    </div>
+</div>        
         <div class="pm-overlay" id="tier-info-overlay" onclick="ClientSystem.closeModal('tier-info')"></div>
         <div class="modal-sheet bottom-sheet" id="tier-info-modal">
             <div class="pm-header-std">

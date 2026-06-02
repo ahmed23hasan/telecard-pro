@@ -645,10 +645,7 @@ export const UICore = {
         else if(toPage === 'favorites') { if(RenderManager.renderFavorites) RenderManager.renderFavorites(); }
     },
 
-    // =========================================================
-    // 📋 4. العمليات المشتركة والإشعارات (Utilities & Alerts)
-    // =========================================================
-    copyToClipboard: function(text, element, type = 'default') {
+copyToClipboard: function(text, element, type = 'default') {
         getSys().sfx?.('nav'); 
         const successVisuals = () => {
             this.showToast('تم النسخ', 'success');
@@ -696,7 +693,35 @@ export const UICore = {
     copyOrderInput: function(text, element) { this.copyToClipboard(text, element, 'default'); },
     copySmartLine: function(element, text) { this.copyToClipboard(text, element, 'smartline'); },
 
-    showAdminDirectMessage: function(msgText) {
+    pasteText: async function() {
+        const couponInput = document.getElementById('couponCode');
+        if (!couponInput) return;
+
+        if (!navigator.clipboard) {
+            this.showToast('المتصفح يحظر اللصق التلقائي على هذا الاتصال. يرجى استخدام اللصق اليدوي بالضغط المطول داخل الحقل.', 'warning');
+            return;
+        }
+
+        try {
+            const text = await navigator.clipboard.readText();
+            if (text && text.trim() !== '') {
+                couponInput.value = text.trim().toUpperCase();
+                
+                if (typeof this.checkInputState === 'function') {
+                    this.checkInputState();
+                } else if (typeof getSys().checkInputState === 'function') {
+                    getSys().checkInputState();
+                }
+                
+                this.showToast('تم لصق الكوبون بنجاح', 'success');
+                getSys().sfx?.('success');
+            } else {
+                this.showToast('الحافظة فارغة! يرجى نسخ كود الكوبون أولاً.', 'warning');
+            }
+        } catch (err) {
+            this.showToast('يرجى السماح باللصق التلقائي من إعدادات المتصفح (أيقونة القفل 🔒 بأعلى الشاشة)', 'warning');
+        }
+    },    showAdminDirectMessage: function(msgText) {
         if (document.getElementById('admin-direct-msg-popup')) return;
         const safeMsg = Utils.escapeHtml(msgText);
         
