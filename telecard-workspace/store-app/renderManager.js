@@ -110,40 +110,38 @@ export const RenderManager = {
                         </div>`;
                 }
             } else {
-                rootCats.forEach(c => {
-                     const div = document.createElement('div');
-                     div.className = 'cat-card';
-                     div.setAttribute('data-action', 'open-category');
-                     div.setAttribute('data-id', c.id);
-                     
-                     const safeName = Utils.safeText(c.name);
-                     
-                     // 🌟 التحديث الاحترافي: إيقاف الشيمر وإضافة التحميل الكسول
-                     const imgHTML = c.img 
-                        ? `<img src="${Utils.escapeHtml(c.img)}" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
-                        : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
-                     
-                     div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
-                     fragment.appendChild(div);
-                });
-                if(grid) grid.appendChild(fragment); 
-            }
-            
-            UIManager.initSlider();
-        };
-
-        const hasData = (LiveStoreData.cats && LiveStoreData.cats.length > 0);
-        
-        if (hasData) {
-            performRender();
-        } else {
-            if (typeof this.renderHomeSkeletons === 'function') {
-                this.renderHomeSkeletons();
-            }
-            setTimeout(performRender, 600);
+                            rootCats.forEach(c => {
+                 const div = document.createElement('div');
+                 div.className = 'cat-card';
+                 div.setAttribute('data-action', 'open-category');
+                 div.setAttribute('data-id', c.id);
+                 
+                 const safeName = Utils.safeText(c.name);
+                 
+                 const imgHTML = c.img 
+                    ? `<img src="${Utils.escapeHtml(c.img)}" alt="${safeName}" fetchpriority="high" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
+                    : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
+                 
+                 div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
+                 fragment.appendChild(div);
+            });
+            if(grid) grid.appendChild(fragment); 
         }
-    },
+        
+        UIManager.initSlider();
+    };
+
+    const hasData = (LiveStoreData.cats && LiveStoreData.cats.length > 0);
     
+    if (hasData) {
+        performRender();
+    } else {
+        if (typeof this.renderHomeSkeletons === 'function') {
+            this.renderHomeSkeletons();
+        }
+        setTimeout(performRender, 600);
+    }
+},
     renderHomeSkeletons: function() {
         const grid = document.getElementById('store-grid');
         if (grid) {
@@ -692,23 +690,27 @@ export const RenderManager = {
             return 0;
         };
 
-        const deposits = deps.filter(d => String(d.userId) === String(uid)).map(d => {
+                const deposits = deps.filter(d => String(d.userId) === String(uid)).map(d => {
             const credited = d.creditedAmount !== undefined ? Number(d.creditedAmount) : Number(d.amount || 0);
+            const formattedDepId = RenderHelpers.formatDepositId(d).toLowerCase();
             return {
                 ...d, type: 'deposit', amountVal: Math.abs(credited),
                 amountCurrency: d.targetCurrency || walletCurr,
-                searchKey: `شحن deposit ${credited} #${d.displayId || d.id}`,
+                searchKey: `شحن deposit ${credited} #${d.displayId || d.id} ${formattedDepId}`,
                 isDeduction: credited < 0,
                 sortTime: getTime(d)
             };
         });
         
-        const orders = ords.filter(o => String(o.userId) === String(uid)).map(o => ({
-            ...o, type: 'purchase', amountVal: Number(o.price || 0), 
-            amountCurrency: o.priceCurrency || walletCurr, 
-            searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id}`,
-            sortTime: getTime(o)
-        }));
+                const orders = ords.filter(o => String(o.userId) === String(uid)).map(o => {
+            const formattedOrdId = RenderHelpers.formatOrderId(o).toLowerCase();
+            return {
+                ...o, type: 'purchase', amountVal: Number(o.price || 0), 
+                amountCurrency: o.priceCurrency || walletCurr, 
+                searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id} ${formattedOrdId}`,
+                sortTime: getTime(o)
+            };
+        });
 
         let allTransactions = [...deposits, ...orders];
         
@@ -921,7 +923,13 @@ export const RenderManager = {
             }
         }
 
-        if (q) myDeposits = myDeposits.filter(d => d.id.toString().includes(q) || d.method?.toLowerCase().includes(q));
+                if (q) myDeposits = myDeposits.filter(d => 
+            d.id.toString().includes(q) || 
+            (d.displayId && d.displayId.toLowerCase().includes(q)) ||
+            RenderHelpers.formatDepositId(d).toLowerCase().includes(q) || 
+            d.method?.toLowerCase().includes(q)
+        );
+
         if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
 
@@ -1151,7 +1159,13 @@ export const RenderManager = {
 
         const filters = DataManager.filters || { orders: 'all' };
         if (filters.orders !== 'all') orders = orders.filter(o => o.status === filters.orders);
-        if (q) orders = orders.filter(o => o.id.toString().includes(q) || o.product?.toLowerCase().includes(q)); 
+                if (q) orders = orders.filter(o => 
+            o.id.toString().includes(q) || 
+            (o.displayId && o.displayId.toLowerCase().includes(q)) ||
+            RenderHelpers.formatOrderId(o).toLowerCase().includes(q) || 
+            o.product?.toLowerCase().includes(q)
+        );
+
         if (tStart) orders = orders.filter(o => o.sortTime >= tStart);
         if (tEnd) orders = orders.filter(o => o.sortTime <= tEnd);
 

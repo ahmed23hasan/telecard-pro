@@ -640,13 +640,22 @@
                     <div class="coupon-msg-box" id="couponMsg"></div>
                 </div>
             </div>
-
             <div id="pm-desc-container" class="pm-desc-box-styled desc-spaced"></div>
 
             <div class="pm-buttons-row checkout-actions">
-                <button class="pm-btn-gold" id="btn-confirm-buy" onclick="ClientSystem.handlePurchaseSubmit()">
-                    شراء <i class="fa-solid fa-cart-shopping"></i>
+                
+                <button class="pm-btn-gold btn-pro" id="btn-confirm-buy" onclick="ClientSystem.handlePurchaseSubmit()">
+                    
+                    <span class="btn-content">
+                        شراء <i class="fa-solid fa-cart-shopping"></i>
+                    </span>
+                    
+                    <span class="btn-spinner">
+                        <i class="fa-solid fa-spinner fa-spin"></i>
+                    </span>
+                    
                 </button>
+
                 <div class="price-panel-footer">
                     <span class="price-label-sm">الإجمالي</span>
                     <div class="price-box" id="priceBox">
@@ -657,9 +666,9 @@
                     </div>
                 </div>
             </div>
+            
         </div>
     </div>
-
     <div class="pm-overlay" id="success-overlay" onclick="ClientSystem.closeModal('success')"></div>
     <div class="modal-sheet bottom-sheet success-card" id="success-modal">
         <div class="pm-close-std floating-close" onclick="ClientSystem.closeModal('success'); ClientSystem.sfx('nav');" aria-label="إغلاق" role="button">
@@ -880,14 +889,15 @@
             <i class="fa-solid fa-xmark"></i>
         </div>
         <div class="success-icon"><i class="fa-solid fa-check"></i></div> 
-        <h3 class="success-title" id="success-modal-title">تم استلام طلبك!</h3>
-        <div id="success-code-display" class="d-none"></div>
+        
+        <h3 class="success-title" id="purchase-success-title">تم استلام طلبك!</h3>
+        <div id="purchase-code-display" class="d-none"></div>
+        
         <div class="success-meta">
             <i class="fa-solid fa-bag-shopping"></i>
-            <span id="success-modal-desc">يمكنك متابعة حالة الطلب في <span class="smart-link" onclick="ClientSystem.closePurchaseSuccess(); ClientSystem.openOrders();">سجل الطلبات</span></span>
+            <span id="purchase-success-desc">يمكنك متابعة حالة الطلب في <span class="smart-link" onclick="ClientSystem.closePurchaseSuccess(); ClientSystem.openOrders();">سجل الطلبات</span></span>
         </div>
     </div>
-
     <template id="payment-card-template">
         <div class="pay-history-card">
             <div class="ph-header">
@@ -1204,7 +1214,7 @@
                     حصلت الآن على شارة التوثيق الرسمية، وتم تفعيل كافة ميزات حسابك بأمان.
                 </span>
             </div>
-        </div>
+        </di<div class="pm-overlay" id="purchase-success-overlay" onclick="ClientSystem.closeModal('purchase-success')"></div>v>
         <script type="module" src="script.js"></script>
         
         </body>
