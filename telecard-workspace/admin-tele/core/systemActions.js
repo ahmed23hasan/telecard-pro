@@ -7,7 +7,7 @@
 import { AdminUI, AdminCalendar } from '../adminUI.js';
 import { AdminRender } from '../adminRender.js';
 import { EventBus } from '../adminUtils.js';
-import { BackupSystem } from './backupService.js'; 
+import { BackupSystem } from './backupService.js';
 
 // استيراد المتحكمات الفرعية لتوجيه أوامر التعديل والحذف
 import { CatalogController } from '../modules/catalog/catalogController.js';
@@ -31,8 +31,10 @@ export const SystemActions = {
     'toggle-system': (data) => EventBus.emit('req-toggle-system', { type: data.type, element: data.element }),
     'save-support': () => EventBus.emit('req-save-support'),
     'save-terms': () => EventBus.emit('req-save-terms'),
+    'add-term-card': () => AdminUI?.addTermCardUI?.(),
+    'select-term-icon': (data) => AdminUI?.selectTermIconUI?.(data.element, data.val), // 👈 السطر الجديد لتحديد الأيقونات داخل الكروت
     'save-admin-profile': () => EventBus.emit('req-save-admin-profile'),
-    'auto-save-settings': () => MarketingController.autoSaveSettings?.(), 
+    'auto-save-settings': () => MarketingController.autoSaveSettings?.(),
     
     // --- 3. النوافذ المشتركة ---
     'open-modal': (data) => AdminUI?.openModal?.(data.target),

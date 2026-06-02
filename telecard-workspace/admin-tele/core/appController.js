@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 الموجه المركزي للنظام (core/appController.js) - Master Orchestrator
 // الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🌟 التحديث: سد ثغرات التخزين للصور المحذوفة + تنظيف ارتباط الأحداث المركزية
+// 🌟 التحديث: سد ثغرات التخزين للصور المحذوفة + منشئ الشروط والأحكام التفاعلي
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -336,10 +336,34 @@ export const AppController = {
         AdminUI?.showToast('تم حفظ إعدادات الدعم بنجاح', 'success');
     },
     
+    // 🌟 دالة حفظ الشروط والأحكام المطوّرة (الجديدة)
     saveTerms: async function() { 
-        this.data.settings.terms = Utils.escapeHTML(Utils.getVal('setting-terms-text')); 
-        await AdminData?.saveSystemSettings?.(); 
-        AdminUI?.showToast('تم حفظ الشروط بنجاح', 'success'); 
+        try {
+            AdminUI?.toggleLoader?.(true, "جاري رفع الشروط للسحابة...");
+
+            // 1. جلب البيانات من كروت الواجهة
+            const termsArray = AdminUI?.getTermsDataFromUI?.() || [];
+            
+            // 2. تحديث الذاكرة المركزية
+            if (!this.data.settings) this.data.settings = {};
+            this.data.settings.terms = termsArray;
+
+            // 3. نداء الحفظ السحابي الآمن
+            const success = await AdminData?.saveSystemSettings?.();
+
+            AdminUI?.toggleLoader?.(false);
+
+            if (success) {
+                AdminUI?.showToast?.('تم حفظ الشروط والأحكام التفاعلية بنجاح!', 'success');
+                if (AdminData?.addLog) AdminData.addLog('UPDATE_TERMS', 'قام بتحديث الشروط والأحكام (الكروت الذكية).');
+            } else {
+                AdminUI?.showToast?.('حدث خطأ أثناء حفظ الشروط في السحابة', 'error');
+            }
+        } catch (error) {
+            AdminUI?.toggleLoader?.(false);
+            console.error("❌ خطأ أثناء حفظ الشروط:", error);
+            AdminUI?.showToast?.('حدث خطأ غير متوقع!', 'error');
+        }
     },
     
     saveAdminProfile: async function() { 
@@ -352,7 +376,7 @@ export const AppController = {
         const wrap = document.getElementById('adm-img-wrap'); 
         const hasImg = wrap?.classList.contains('has-img'); 
         
-                let finalImg = '';
+        let finalImg = '';
         if (hasImg) {
             // 🌟 الحل الجذري: سحب الملف الحقيقي من الـ HTML مباشرة بدلاً من الذاكرة المتطايرة
             const fileInput = document.getElementById('adm-img-file');

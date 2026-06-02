@@ -974,16 +974,25 @@
             </div>
             
             <div id="view-terms" class="section">
-                <div class="card-header mb-15 no-border-bottom">
-                    <div class="card-title"><i class="fa-solid fa-file-contract text-primary"></i> إدارة الشروط والأحكام</div>
-                </div>
-                <div class="card terms-card">
-                    <div class="terms-desc">قم بكتابة الشروط والأحكام الخاصة بمتجرك هنا. يمكنك استخدام المسافات والأسطر المتعددة بحرية، وسيتم عرضها للعميل بنفس التنسيق تماماً.</div>
-                    <div class="form-group"><textarea id="setting-terms-text" class="form-input terms-textarea" placeholder="اكتب شروط المتجر هنا..."></textarea></div>
-                    <button type="button" class="btn btn-primary btn-full btn-terms-save mt-10" data-action="save-terms"><i class="fa-solid fa-floppy-disk"></i> حفظ الشروط والأحكام</button>
-                </div>
-            </div>
-            
+    <div class="card-header mb-15 no-border-bottom">
+    <div class="card-title"><i class="fa-solid fa-file-contract text-primary"></i> إدارة الشروط والأحكام</div>
+    <button type="button" class="btn btn-primary" data-action="add-term-card">
+        <i class="fa-solid fa-plus"></i> إضافة بند جديد
+    </button>
+</div>    <div class="alert-info mb-15">
+        <i class="fa-solid fa-circle-info text-info alert-icon"></i>
+        <span>قم ببناء الشروط على شكل كروت ذكية. سيتم عرضها للعميل بتصميم عصري (أيقونة، عنوان، تفاصيل). يمكنك سحب الكروت لترتيبها.</span>
+    </div>
+    
+    <div class="card terms-card">
+        <!-- الحاوية التي سيتم رسم الكروت بداخلها ديناميكياً -->
+        <div id="dynamic-terms-container" class="dynamic-cards-list"></div>
+        
+        <button type="button" class="btn btn-primary btn-full btn-terms-save mt-15" data-action="save-terms">
+            <i class="fa-solid fa-floppy-disk"></i> حفظ الشروط والأحكام
+        </button>
+    </div>
+</div>            
             <div id="view-integrations" class="section">
                 <div class="card-header mb-15 no-border-bottom">
                     <div class="card-title"><i class="fa-solid fa-plug text-primary"></i> إدارة الربط والموردين (API)</div>

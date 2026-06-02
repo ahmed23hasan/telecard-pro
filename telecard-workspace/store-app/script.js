@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 المحرك الرئيسي للمتجر (script.js) - المجلد الاحترافي المصلح للسحابة
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: دمج (onAuthStateChanged) لمنع طرد المتصفح وحل مشكلة الرصيد 0.00
+// 🚀 التحديث: دمج (onAuthStateChanged) + إزالة إعادة الرسم المسبب للومضة البصرية
 // ============================================================================
 
 // 🌟 استيراد محرك المصادقة الرسمي للتحقق من الهوية قبل طلب البيانات
@@ -84,45 +84,59 @@ const ClientSystem = {
             target.blur();
 
             switch (action) {
-    case 'open-category':
-        e.preventDefault();
-        if (typeof this.openCategory === 'function') this.openCategory(id);
-        break;
-        
-    case 'open-product':
-        e.preventDefault();
-        const currentTime = new Date().getTime();
-        const timeDiff = currentTime - lastClickTime;
-        
-        if (timeDiff < 300 && lastClickTarget === id) {
-            if (typeof this.triggerMagicFavorite === 'function') this.triggerMagicFavorite(e, id);
-            lastClickTime = 0;
-        } else {
-            if (typeof this.openProdModal === 'function') this.openProdModal(id);
-            lastClickTime = currentTime;
-            lastClickTarget = id;
+                case 'open-category':
+                    e.preventDefault();
+                    if (typeof this.openCategory === 'function') this.openCategory(id);
+                    break;
+                    
+                case 'open-product':
+e.preventDefault();
+const currentTime = new Date().getTime();
+const timeDiff = currentTime - lastClickTime;
+
+if (timeDiff < 280 && lastClickTarget === id) {
+    // 🌟 1. اكتشاف نقر مزدوج! نقتل المؤقت فوراً لنمنع فتح نافذة الشراء
+    clearTimeout(window.productClickTimer);
+    
+    // 🌟 2. نطلق القلب السحري
+    if (typeof this.triggerMagicFavorite === 'function') {
+        this.triggerMagicFavorite(e, id);
+    }
+    lastClickTime = 0; // تصفير العداد
+} else {
+    // 🌟 نقرة مفردة تم اكتشافها
+    lastClickTime = currentTime;
+    lastClickTarget = id;
+    
+    // نضع فتح النافذة في مؤقت (Timer) قصير جداً (250ms)
+    // إذا نقر العميل مرة أخرى قبل انتهاء هذا الوقت، سيتم إلغاء المؤقت ولن تفتح النافذة
+    window.productClickTimer = setTimeout(() => {
+        if (typeof this.openProdModal === 'function') {
+            this.openProdModal(id);
         }
-        break;
-        
-    case 'select-pay':
-        if (typeof this.selectPay === 'function') this.selectPay(id);
-        break;
-        
-    case 'submit-balance':
-        const currency = target.getAttribute('data-curr');
-        if (typeof this.handleBalanceSubmit === 'function') this.handleBalanceSubmit(currency);
-        break;
-        
-        // 🌟 الإضافة الجديدة: التقاط اختيار عملة المحفظة الأساسية
-    case 'select-reg-currency':
-        e.preventDefault();
-        const currName = target.getAttribute('data-name');
-        const currCode = target.getAttribute('data-code');
-        
-        if (typeof this.selectRegCurrency === 'function') {
-            this.selectRegCurrency(currName, currCode);
-        }
-        break;
+    }, 250);
+}
+break;
+                    
+                case 'select-pay':
+                    if (typeof this.selectPay === 'function') this.selectPay(id);
+                    break;
+                    
+                case 'submit-balance':
+                    const currency = target.getAttribute('data-curr');
+                    if (typeof this.handleBalanceSubmit === 'function') this.handleBalanceSubmit(currency);
+                    break;
+                    
+                case 'select-reg-currency':
+                    e.preventDefault();
+                    const currName = target.getAttribute('data-name');
+                    const currCode = target.getAttribute('data-code');
+                    
+                    if (typeof this.selectRegCurrency === 'function') {
+                        this.selectRegCurrency(currName, currCode);
+                    }
+                    break;
+
                 case 'toggle-accordion':
                     e.preventDefault();
                     if(typeof this.togglePayDetail === 'function') {
@@ -166,9 +180,11 @@ const ClientSystem = {
                     break;
                 
                 case 'copy-text':
-                    const textToCopy = target.getAttribute('data-text');
-                    if(typeof this.copyToClipboard === 'function') this.copyToClipboard(textToCopy, target);
-                    break;
+    e.preventDefault();  // 🛡️ منع أي سلوك افتراضي للمتصفح
+    e.stopPropagation(); // 🛑 القتل النهائي لتسرب الحدث للكرت الأب
+    const textToCopy = target.getAttribute('data-text');
+    if(typeof this.copyToClipboard === 'function') this.copyToClipboard(textToCopy, target);
+    break;
 
                 case 'close-sidebar':
                     if(typeof this.closeSidebar === 'function') this.closeSidebar();
@@ -342,6 +358,7 @@ ClientSystem.initFirebaseListeners = function() {
         }
     });
 };
+
 // ============================================================================
 // 🚀 نقطة الإقلاع المركزية للنظام (Bootstrapper - Hydration Pattern)
 // ============================================================================
@@ -386,6 +403,7 @@ ClientSystem.init = async function() {
         if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
         if (typeof UIManager.toggleHeroSection === 'function') UIManager.toggleHeroSection(true);
         if (RenderManager.renderHome) RenderManager.renderHome();
+        
         if (CalendarApp && CalendarApp.init) CalendarApp.init();
         
         const uiInitMethods = [
@@ -408,28 +426,30 @@ ClientSystem.init = async function() {
         // 🌟 3. تشغيل المستمعات الحية وجلب البيانات الثابتة في الخلفية (Background Sync)
         this.initFirebaseListeners();
         
+        // 📥 1. التحميل الأولي للبيانات الثابتة العامة وتحديث الكاش
         if (StoreDB) {
-            const staticKeys = ['CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
+            // 🌟 الإصلاح المعماري الأخير: إضافة 'SETTINGS' للمصفوفة لكي يتم جلبها وكتابتها في الكاش السحابي
+            const staticKeys = ['SETTINGS', 'CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
             
             Promise.all(staticKeys.map(k => StoreDB.getAll(DB_KEYS[k]))).then(results => {
-            let cacheObject = {};
-            staticKeys.forEach((keyName, i) => {
-                const property = keyName.toLowerCase();
-                const rawData = results[i] || [];
-                
-                // 🌟 الإصلاح المعماري: معالجة الـ settings مسبقاً ككائن لتجنب مصفوفة فايربيز العشوائية
-                if (property === 'settings') {
-                    LiveStoreData.settings = Array.isArray(rawData) ? (rawData[0] || {}) : (rawData || {});
-                } else {
-                    LiveStoreData[property] = Object.freeze([...rawData]);
-                }
-                
-                // حفظ الأشياء الحيوية فقط في الكاش لتسريع الدخول القادم
-                if (['cats', 'settings', 'tiers', 'rates'].includes(property)) {
-                    cacheObject[property] = LiveStoreData[property];
-                }
-            });                
-                // حفظ الكاش المحدث في الذاكرة
+                let cacheObject = {};
+                staticKeys.forEach((keyName, i) => {
+                    const property = keyName.toLowerCase();
+                    const rawData = results[i] || [];
+                    
+                    // 🌟 معالجة الـ settings مسبقاً ككائن لتجنب مصفوفة فايربيز العشوائية
+                    if (property === 'settings') {
+                        LiveStoreData.settings = Array.isArray(rawData) ? (rawData[0] || {}) : (rawData || {});
+                    } else {
+                        LiveStoreData[property] = Object.freeze([...rawData]);
+                    }
+                    
+                    // حفظ الأشياء الحيوية فقط في الكاش لتسريع الدخول القادم
+                    if (['cats', 'settings', 'tiers', 'rates'].includes(property)) {
+                        cacheObject[property] = LiveStoreData[property];
+                    }
+                });                
+                // حفظ الكاش المحدث في الذاكرة المحلية
                 localStorage.setItem('telecard_store_cache', JSON.stringify(cacheObject));
                 
                 RenderHelpers.init({
@@ -442,9 +462,10 @@ ClientSystem.init = async function() {
                 // إعادة حقن المساعدات ورسم الهوية والمحفظة للتأكد من أحدث الأرقام بصمت
                 if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
                 if (typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
-                if (RenderManager.renderHome) RenderManager.renderHome();
                 
-                console.log("☁️ تم مزامنة أحدث البيانات من السيرفر بصمت.");
+                // 🌟 [الدرع المعماري الأخير]: تم حذف سطر (RenderManager.renderHome) من هنا نهائياً للقضاء على الومضة البصرية!
+                
+                console.log("☁️ تم مزامنة أحدث البيانات من السيرفر بصمت وتحديث الكاش المحلي.");
             }).catch(error => {
                 console.warn("⚠️ تعذر جلب البيانات الثابتة، المتجر يعمل حالياً على النسخة المخبأة (Cache).", error);
             });

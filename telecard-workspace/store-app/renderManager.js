@@ -1,7 +1,7 @@
 // ============================================================================
 // 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - ES6 Module
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
-// 🚀 التحديث: التوافق الكامل مع معرفات Base36 والتوقيت السحابي + إيقاف المحاسب المحلي + حماية الإيداعات
+// 🚀 التحديث: المزامنة الآمنة للرصيد التراكمي + تلاشي الصور الذكي (Fade-In) وحماية الموارد
 // ============================================================================
 
 import { DB_KEYS } from './config.js'; 
@@ -118,8 +118,9 @@ export const RenderManager = {
                      
                      const safeName = Utils.safeText(c.name);
                      
+                     // 🌟 التحديث الاحترافي: إيقاف الشيمر وإضافة التحميل الكسول
                      const imgHTML = c.img 
-                        ? `<img src="${Utils.escapeHtml(c.img)}" alt="${safeName}" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
+                        ? `<img src="${Utils.escapeHtml(c.img)}" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
                         : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
                      
                      div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
@@ -242,8 +243,9 @@ export const RenderManager = {
         
         let imgSrcHtml = '';
         if (p.img) {
+            // 🌟 التحديث الاحترافي: إيقاف الشيمر وإضافة التحميل الكسول لصور المنتجات
             imgSrcHtml = `
-                <img src="${Utils.escapeHtml(p.img)}" alt="${safeName}" onerror="this.style.display='none'; this.nextElementSibling.style.display='';">
+                <img src="${Utils.escapeHtml(p.img)}" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.style.display='none'; this.nextElementSibling.style.display='';">
                 <div class="default-prod-icon" style="display: none;"><i class="fa-solid fa-box-open"></i></div>
             `;
         } else {
@@ -369,8 +371,9 @@ export const RenderManager = {
 
                 let storyImgHtml = '';
                 if (prod.img) {
+                    // 🌟 التحديث الاحترافي: إيقاف الشيمر عند التحديث للقصص
                     storyImgHtml = `
-                        <img src="${Utils.escapeHtml(prod.img)}" alt="${Utils.escapeHtml(prod.name)}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                        <img src="${Utils.escapeHtml(prod.img)}" alt="${Utils.escapeHtml(prod.name)}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                         <div class="default-prod-icon" style="display: none; width: 100%; height: 100%;"><i class="fa-solid fa-box-open"></i></div>
                     `;
                 } else {
@@ -406,7 +409,7 @@ export const RenderManager = {
             return target ? target.name : 'القسم';
         } catch(e) { return 'القسم'; }
     },
-
+    
     _renderContent: function(id) {
         UIManager.currentCategoryId = id;
         document.body.classList.remove('is-home');
@@ -452,8 +455,9 @@ export const RenderManager = {
                 UIManager.setGridMode('grid-cats');
                 subs.forEach(c => {
                     const safeName = Utils.safeText(c.name);
+                    // 🌟 التحديث الاحترافي: إيقاف الشيمر وإضافة التحميل الكسول
                     const imgHTML = c.img 
-                        ? `<img src="${Utils.escapeHtml(c.img)}" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
+                        ? `<img src="${Utils.escapeHtml(c.img)}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
                         : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
                     
                     const div = document.createElement('div'); div.className = 'cat-card';
@@ -534,8 +538,9 @@ export const RenderManager = {
 
         matchedCats.forEach(c => {
             const safeName = Utils.safeText(c.name);
+            // 🌟 التحديث الاحترافي
             const imgHTML = c.img 
-                ? `<img src="${Utils.escapeHtml(c.img)}" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
+                ? `<img src="${Utils.escapeHtml(c.img)}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
                 : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
             
             const div = document.createElement('div'); div.className = 'cat-card';
@@ -572,42 +577,40 @@ export const RenderManager = {
     },
 
     // =========================================================
-    // 🌟 نافذة المفضلة الفاخرة
+    // 🌟 2. نافذة المفضلة الفاخرة (المنظفة سحابياً)
     // =========================================================
     renderFavorites: function() {
         document.body.classList.remove('is-home');
         UIManager.toggleHeroSection(false);
-
-        const favIds = DataManager.favs ? Array.from(DataManager.favs).map(Number) : [];
+        
+        const favIds = DataManager.favs ? Array.from(DataManager.favs).map(String) : [];
         const prods = LiveStoreData.prods || [];
         const settings = LiveStoreData.settings || {};
-        const favProds = prods.filter(p => favIds.some(favId => Number(favId) === Number(p.id)));
+        const favProds = prods.filter(p => favIds.includes(String(p.id)));
         
-        const grid = document.getElementById('store-grid'); 
-        if(!grid) return;
+        const grid = document.getElementById('store-grid');
+        if (!grid) return;
         
-        grid.style.opacity = '1';
-        grid.style.transform = 'translateY(0)';
         grid.innerHTML = '';
         
         UIManager.setGridMode(null);
         UIManager.resetGridScroll();
-
+        
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
-        if(backBtn) {
+        if (backBtn) {
             backBtn.style.display = 'flex';
             const newBtn = backBtn.cloneNode(true);
             backBtn.parentNode.replaceChild(newBtn, backBtn);
             setTimeout(() => newBtn.classList.add('show'), 10);
             newBtn.onclick = () => UIManager.closeFavorites();
         }
-
+        
         const gridTitle = document.getElementById('grid-title');
-        if(gridTitle) {
+        if (gridTitle) {
             gridTitle.innerText = 'المفضلة';
             gridTitle.classList.add('show-correct-title');
         }
-
+        
         if (favProds.length === 0) {
             grid.innerHTML = `
                 <div class="empty-state-v2">
@@ -618,28 +621,28 @@ export const RenderManager = {
             
             UIManager.setGridMode('grid-prods');
             return;
-        }        
+        }
         
         const fragment = document.createDocumentFragment();
         favProds.forEach((p, idx) => fragment.appendChild(this._createProductCard(p, idx)));
         grid.appendChild(fragment);
         
         UIManager.setGridMode('grid-prods');
-
+        
         let activeCols = null;
-
+        
         if (favProds.length > 0 && LiveStoreData.cats) {
             const firstProdCatId = favProds[0].catId;
-            const parentCat = LiveStoreData.cats.find(c => Number(c.id) === Number(firstProdCatId));
+            const parentCat = LiveStoreData.cats.find(c => String(c.id) === String(firstProdCatId));
             if (parentCat && parentCat.layout) {
                 activeCols = parseInt(parentCat.layout);
             }
         }
-
+        
         if (!activeCols || isNaN(activeCols)) {
             activeCols = parseInt(localStorage.getItem('store_layout_cols')) || parseInt(settings.rootLayout) || (window.innerWidth > 768 ? 4 : 2);
         }
-
+        
         if (settings.syncGridLayout) {
             grid.style.setProperty('--layout-cols', activeCols);
         } else {
@@ -660,9 +663,9 @@ export const RenderManager = {
     },
 
     // ========================================================================
-    // 💳 المحفظة والإيداعات والطلبات (تم إصلاح الفرز الزمني وإزالة المحاسب المحلي)
+    // 💳 3. المحفظة والإيداعات والطلبات
     // ========================================================================
-        renderWallet: function() {
+    renderWallet: function() {
         const filterData = Utils.getSearchAndDateFilters('wallet', 'wallet');
         if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
@@ -720,10 +723,8 @@ export const RenderManager = {
         let finalView = allTransactions;
         const filters = DataManager.filters || { wallet: 'all' };
 
-        // 🌟 1. المتغير الذكي لمعرفة هل هناك أي فلتر نشط حالياً؟ (مهم جداً لإخفاء الرصيد التراكمي)
         const isFilterActive = (filters.wallet !== 'all') || (q && q.length > 0) || tStart || tEnd;
 
-        // 🌟 2. الفلترة المنطقية الذكية للوارد والصادر
         if(filters.wallet !== 'all') {
             if (filters.wallet === 'deposit') {
                 finalView = finalView.filter(t => t.type === 'deposit' && !t.isDeduction);
@@ -775,7 +776,6 @@ export const RenderManager = {
             const jumpType = isDep ? 'deposit' : 'purchase';
             const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
 
-            // 🌟 3. كود رسم الرصيد التراكمي (يظهر فقط إذا كان "الكل" ولا يوجد بحث، وكان الحقل موجوداً)
             let runningBalanceHtml = '';
             if (!isFilterActive && tx.balanceAfter !== undefined && tx.balanceAfter !== null) {
                 runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, walletCurr)}</div>`;
@@ -790,7 +790,7 @@ export const RenderManager = {
                         <div class="th-row-bottom"><span class="th-date num-en">${formattedDate}</span></div>
                     </div>
                     <div class="th-amount-col">
-                        <span class="th-order num-en">${shortTxId}</span>
+                        <span class="th-order num-en is-copyable" data-action="copy-text" data-text="${shortTxId}" title="اضغط لنسخ رقم العملية"><i class="fa-regular fa-copy" style="margin-right:4px; font-size:10px; opacity:0.7;"></i> ${shortTxId}</span>
                         <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal, tx.amountCurrency)}</div>
                         ${runningBalanceHtml} 
                     </div>
@@ -812,9 +812,6 @@ export const RenderManager = {
         }
     },
 
-    // ========================================================================
-    // 🌟 حماية تكرار الإيداعات (Pending Lock) في بوابات الدفع (بالتصميم الأصلي)
-    // ========================================================================
     renderPayMethods: function() {
         const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container') || document.querySelector('.bal-methods-grid') || document.getElementById('pay-methods-list');
         if (!container) return;
@@ -829,7 +826,6 @@ export const RenderManager = {
             return;
         }
 
-        // 🌟 استخراج العمليات المعلقة للعميل لمنع التكرار (Anti-Spam Pending Lock)
         const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? DataManager.user.id : null);
         const allDeposits = LiveStoreData.deposits || [];
         const pendingMethodKeys = allDeposits
@@ -843,17 +839,16 @@ export const RenderManager = {
             const pIdStr = String(p.id).toLowerCase();
             const pNameStr = String(p.name).toLowerCase();
             
-            // الفحص الاستباقي: هل البوابة محظورة بسبب وجود طلب معلق؟
             const isLocked = pendingMethodKeys.includes(pIdStr) || pendingMethodKeys.includes(pNameStr);
 
+            // 🌟 التحديث الاحترافي
             const imgHtml = p.img 
-                ? `<img src="${Utils.escapeHtml(p.img)}" class="pay-icon-img" alt="${safeName}" onerror="this.parentElement.innerHTML='<div class=\\'pay-icon-default\\'><i class=\\'fa-solid fa-building-columns\\'></i></div>'">` 
+                ? `<img src="${Utils.escapeHtml(p.img)}" class="pay-icon-img" loading="lazy" decoding="async" alt="${safeName}" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'pay-icon-default\\'><i class=\\'fa-solid fa-building-columns\\'></i></div>'">` 
                 : `<div class="pay-icon-default"><i class="fa-solid fa-building-columns"></i></div>`;
             
             const card = document.createElement('div');
             
             if (isLocked) {
-                // 🔒 تصميم الكارت المقفل (Locked UI) - متوافق تماماً مع style.css
                 card.className = 'pay-card-select method-locked';
                 card.style.opacity = '0.65';
                 card.innerHTML = `
@@ -866,14 +861,12 @@ export const RenderManager = {
                     </div>
                     <i class="fa-solid fa-lock pay-card-arrow" style="color: var(--text-muted);"></i>
                 `;
-                // نزع صلاحية الفتح واستبدالها بإشعار تنبيهي
                 card.onclick = () => {
                     if (window.UIManager && window.UIManager.showToast) {
                         window.UIManager.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة، يرجى الانتظار حتى يتم قبوله أو رفضه.', 'warning');
                     }
                 };
             } else {
-                // ✅ تصميم الكارت الطبيعي المتاح للضغط - متوافق تماماً مع style.css
                 card.className = 'pay-card-select clickable';
                 card.setAttribute('data-action', 'select-pay');
                 card.setAttribute('data-id', p.id);
@@ -894,9 +887,6 @@ export const RenderManager = {
         container.appendChild(fragment);
     },
 
-// =========================================================
-    // 💳 رسم سجل الدفعات والإيداعات (Payment History)
-    // =========================================================
     renderPayments: function() {
         const list = document.getElementById('mypay-list');
         const template = document.getElementById('payment-card-template');
@@ -910,7 +900,6 @@ export const RenderManager = {
         const user = DataManager.user || { id: 0 };
         const allDeposits = LiveStoreData.deposits || [];
         
-        // ⏱️ دالة قراءة التوقيت الآمنة
         const getTime = (item) => {
             if (!item) return 0;
             const t = item.time || item.createdAt;
@@ -924,7 +913,6 @@ export const RenderManager = {
 
         const filters = DataManager.filters || { payments: 'all' };
         
-        // 🔍 الدمج الذكي للفلاتر (Smart Grouping)
         if (filters.payments !== 'all') {
             if (filters.payments === 'rejected') {
                 myDeposits = myDeposits.filter(d => ['rejected', 'refunded', 'returned'].includes(d.status));
@@ -937,7 +925,7 @@ export const RenderManager = {
         if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
 
-        myDeposits.sort((a, b) => b.sortTime - a.sortTime); // فرز زمني صحيح
+        myDeposits.sort((a, b) => b.sortTime - a.sortTime);
         
         const totalPaymentsCount = myDeposits.length;
         if (!q && !dStart && !dEnd) myDeposits = myDeposits.slice(0, this.limits.payments);
@@ -955,7 +943,6 @@ export const RenderManager = {
             const card = clone.querySelector('.pay-history-card');
             const header = clone.querySelector('.ph-header');
             
-            // 🛑 اكتشاف هل العملية تمثل (خصماً / خروج أموال)
             const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
 
             let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
@@ -985,9 +972,6 @@ export const RenderManager = {
             const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
             const displayNetCurrency = (d.targetCurrency || currency).toUpperCase();
 
-            // =========================================================
-            // 🚀 1. المحرك الديناميكي للرسوم والبونص 
-            // =========================================================
             const feeVal = parseFloat(d.fees || d.fee || 0); 
             const feeRate = parseFloat(d.feesPercent || d.feePct || d.feeRate || 0); 
             const feeType = d.feeType || 'fee'; 
@@ -1037,9 +1021,6 @@ export const RenderManager = {
                 netAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}">${amountPrefix}${RenderHelpers.formatMoney(displayNetAmount, displayNetCurrency)}</span>`;
             }
 
-            // =========================================================
-            // 👤 2. استخراج اسم المستخدم وإعادة كبسولة الـ ID
-            // =========================================================
             const senderRow = clone.querySelector('.ph-sender').closest('.ph-item');
             const usernameText = user.username ? `@${user.username}` : (user.name || 'العميل');
             clone.querySelector('.ph-sender').innerHTML = `<span class="num-en">${Utils.escapeHtml(usernameText)}</span>`;
@@ -1055,9 +1036,6 @@ export const RenderManager = {
             `;
             senderRow.parentNode.insertBefore(idRow, senderRow.nextSibling);
 
-            // =========================================================
-            // 📅 3. التاريخ ورقم العملية
-            // =========================================================
             let formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
             const miniDateEl = clone.querySelector('.ph-date-mini');
             if(miniDateEl) miniDateEl.innerHTML = formattedDate.replace(' | ', ' <span class="date-sep">|</span> ');
@@ -1070,33 +1048,34 @@ export const RenderManager = {
             
             clone.querySelector('.ph-full-time').textContent = formattedDate;
 
-     // =========================================================
-// 📸 4. معالجة صورة الإيصال (بدون تشويه الرابط)
-// =========================================================
-if (d.receiptImage || d.receipt) {
-    const imgBox = clone.querySelector('.ph-receipt-img-box');
-    if (imgBox) {
-        imgBox.style.display = 'block';
-        const imgElem = imgBox.querySelector('.ph-img-elem');
-        
-        // 🌟 الحل: استخدام الرابط الخام مباشرة لأن فايربيز ستورج آمن
-        const rawUrl = d.receiptImage || d.receipt;
-        imgElem.src = rawUrl;
-        
-        imgElem.onclick = (e) => {
-            e.stopPropagation();
-            const lightbox = document.getElementById('pay-receipt-lightbox');
-            const lightboxImg = document.getElementById('pay-receipt-img');
-            if (lightbox && lightboxImg) {
-                lightboxImg.src = rawUrl; // وضع الرابط السليم في المكبر
-                lightbox.classList.add('active');
+            if (d.receiptImage || d.receipt) {
+                const imgBox = clone.querySelector('.ph-receipt-img-box');
+                if (imgBox) {
+                    imgBox.style.display = 'block';
+                    const imgElem = imgBox.querySelector('.ph-img-elem');
+                    
+                    const rawUrl = d.receiptImage || d.receipt;
+                    imgElem.src = rawUrl;
+                    
+                    // 🌟 التحديث الاحترافي: التحميل الكسول وإيقاف الشيمر للإيصالات
+                    imgElem.setAttribute('loading', 'lazy');
+                    imgElem.setAttribute('decoding', 'async');
+                    imgElem.onload = function() {
+                        this.classList.add('img-loaded');
+                        this.parentElement.classList.add('shimmer-stop');
+                    };
+                    
+                    imgElem.onclick = (e) => {
+                        e.stopPropagation();
+                        const lightbox = document.getElementById('pay-receipt-lightbox');
+                        const lightboxImg = document.getElementById('pay-receipt-img');
+                        if (lightbox && lightboxImg) {
+                            lightboxImg.src = rawUrl; 
+                            lightbox.classList.add('active');
+                        }
+                    };
+                }
             }
-        };
-    }
-}
-            // =========================================================
-            // 📄 5. تفعيل زر تصدير الإيصال (PDF)
-            // =========================================================
             const exportBtn = clone.querySelector('.btn-receipt-export');
             if (exportBtn) {
                 exportBtn.onclick = (e) => {
@@ -1107,9 +1086,6 @@ if (d.receiptImage || d.receipt) {
                 };
             }
 
-            // =========================================================
-            // 💬 6. ملاحظات الإدارة
-            // =========================================================
             header.setAttribute('data-action', 'toggle-accordion');
             if (d.adminNote && d.adminNote.trim() !== '') {
                 const safeAdminNote = Utils.escapeHtml(d.adminNote);
@@ -1146,7 +1122,9 @@ if (d.receiptImage || d.receipt) {
         }
 
         list.appendChild(fragment);
-    },  renderOrders: function() {
+    },  
+
+    renderOrders: function() {
         if (typeof window.updateBottomNavState === 'function') window.updateBottomNavState('orders');
 
         const filterData = Utils.getSearchAndDateFilters('order', 'order');
@@ -1160,7 +1138,6 @@ if (d.receiptImage || d.receipt) {
         const allOrders = LiveStoreData.orders || [];
         const prods = LiveStoreData.prods || [];
 
-        // 🌟 دالة قراءة التوقيت الآمنة
         const getTime = (item) => {
             if (!item) return 0;
             const t = item.time || item.createdAt;
@@ -1178,7 +1155,7 @@ if (d.receiptImage || d.receipt) {
         if (tStart) orders = orders.filter(o => o.sortTime >= tStart);
         if (tEnd) orders = orders.filter(o => o.sortTime <= tEnd);
 
-        orders.sort((a, b) => b.sortTime - a.sortTime); // 🌟 فرز زمني صحيح
+        orders.sort((a, b) => b.sortTime - a.sortTime);
         
         const totalOrdersCount = orders.length;
         if (!q && !dStart && !dEnd) orders = orders.slice(0, this.limits.orders);
@@ -1453,5 +1430,60 @@ if (d.receiptImage || d.receipt) {
                 <span class="num-en" style="color: var(--text-muted);">${dialCode}</span>
             </div>`;
         }).join('');
+    },
+// =========================================================
+// 📜 رسم الشروط والأحكام ديناميكياً من السيرفر (Unified Document)
+// =========================================================
+renderTerms: function() {
+    const container = document.getElementById('store-terms-content');
+    if (!container) return;
+    
+    const settings = LiveStoreData.settings || {};
+    const termsList = settings.terms || [];
+    
+    // دعم التوافقية الرجعية (إذا كانت الشروط نصاً قديماً)
+    if (typeof termsList === 'string') {
+        container.innerHTML = `<div class="terms-unified-card"><div class="term-item-row"><p class="tir-text">${Utils.escapeHtml(termsList)}</p></div></div>`;
+        return;
     }
+    
+    if (!Array.isArray(termsList) || termsList.length === 0) {
+        container.innerHTML = `
+                <div class="empty-state-v2">
+                    <i class="fa-solid fa-file-contract"></i>
+                    <h3>لا توجد سياسة حالياً</h3>
+                    <p>لم تقم الإدارة بنشر شروط وأحكام المتجر بعد.</p>
+                </div>`;
+        return;
+    }
+    
+    // 🌟 فتح الوثيقة الموحدة
+    let html = '<div class="terms-unified-card">';
+    
+    termsList.forEach((term, index) => {
+        const safeTitle = Utils.escapeHtml(term.title || `البند ${index + 1}`);
+        const safeText = Utils.escapeHtml(term.text || '');
+        
+        let rawIcon = term.icon || 'fa-file-signature';
+        if (!rawIcon.startsWith('fa-')) rawIcon = 'fa-' + rawIcon;
+        const iconClass = (rawIcon.includes('fa-solid') || rawIcon.includes('fa-regular') || rawIcon.includes('fa-brands')) ? rawIcon : `fa-solid ${rawIcon}`;
+        
+        // 🌟 رسم صف واحد داخل الوثيقة
+        html += `
+                <div class="term-item-row">
+                    <div class="tir-header">
+                        <h3 class="tir-title">${safeTitle}</h3>
+                        <div class="tir-icon"><i class="${Utils.escapeHtml(iconClass)}"></i></div>
+                    </div>
+                    <div class="tir-body">
+                        <p class="tir-text">${safeText}</p>
+                    </div>
+                </div>`;
+    });
+    
+    // إغلاق الوثيقة الموحدة
+    html += '</div>';
+    
+    container.innerHTML = html;
+},
 };

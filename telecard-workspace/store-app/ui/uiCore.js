@@ -1,7 +1,7 @@
 // ============================================================================
 // ⚙️ وحدة الأساسيات والنواة (uiCore.js) - ES6 Module
 // 🎯 الوظيفة: النوافذ، الإشعارات، القائمة الجانبية، النسخ، الثيم، والتوجيه العام
-// 🚀 التحديث: تفويض الأحداث، تطهير الـ HTML، وحل مشكلة فقدان سياق (Context Loss)
+// 🚀 التحديث: كود نظيف 100%، خالي من التكرار، مع نظام المفضلة السحري
 // ============================================================================
 
 import { DB_KEYS } from '../config.js';           
@@ -11,14 +11,10 @@ import { RenderManager } from '../renderManager.js';
 import { Components } from '../components.js';     
 import { RenderHelpers } from '../core/renderHelpers.js'; 
 
-// 🌟 دالة مساعدة للوصول الآمن للمحرك المركزي
-// ✅ دالة آمنة لجلب النظام تمنع انهيار الواجهة إذا لم يكتمل تحميل script.js
 const getSys = () => {
     if (window.ClientSystem) return window.ClientSystem;
     if (window.UIManager) return window.UIManager;
-    
     console.warn("⚠️ تحذير: تم استدعاء النظام قبل اكتمال الإقلاع.");
-    // إعادة كائن وهمي (Proxy أو Object) بدوال فارغة لمنع أخطاء undefined is not a function
     return new Proxy({}, { get: () => () => {} }); 
 };
 
@@ -55,7 +51,6 @@ export const UICore = {
 
     _getFullName: function(user) {
         const u = user || DataManager.user || {}; 
-
         const isKycApproved = (u.kycStatus === 'approved' || u.kycStatus === 'verified');
 
         if (isKycApproved) {
@@ -78,7 +73,6 @@ export const UICore = {
         const u = user || DataManager.user || {}; 
         const namePart = u.username ? `@${u.username}` : this._getFullName(u);
         const displayId = RenderHelpers.formatUserId(u);
-
 
         return `
             <div class="tx-name-wrapper">
@@ -118,7 +112,6 @@ export const UICore = {
                     if (RenderManager.renderCountryList) RenderManager.renderCountryList(countries);
                 });
             }
-            
             getSys().loadDynamicCurrenciesForModal?.();
         }
 
@@ -179,9 +172,7 @@ export const UICore = {
             if(walletModal) walletModal.classList.remove('drawer-blur-active');
         }
 
-        if (walletArrow) { 
-            walletArrow.classList.remove('open'); 
-        }
+        if (walletArrow) { walletArrow.classList.remove('open'); }
         
         const searchInputs = ['store-search-input', 'order-search-input', 'wallet-search-input', 'pay-search-input'];
         searchInputs.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
@@ -214,9 +205,13 @@ export const UICore = {
 
     openTermsModal: function() {
         getSys().closeSidebar?.();
-        const settings = LiveStoreData.settings || {};
-        const termsContent = document.getElementById('store-terms-content');
-        if (termsContent) termsContent.innerText = settings.terms || 'لا توجد شروط وأحكام مسجلة حالياً.';
+        if (RenderManager && typeof RenderManager.renderTerms === 'function') {
+            RenderManager.renderTerms();
+        } else {
+            const settings = LiveStoreData.settings || {};
+            const termsContent = document.getElementById('store-terms-content');
+            if (termsContent) termsContent.innerText = settings.terms || 'لا توجد شروط وأحكام مسجلة حالياً.';
+        }
         this.openModal('terms');
     },
 
@@ -414,26 +409,48 @@ export const UICore = {
 
     navigateHome: function() { this.closeSidebar(); if(RenderManager.renderHome) RenderManager.renderHome(); },
     
-    openFavorites: function() { 
-        if (!DataManager || !DataManager.user) {
-            getSys().showToast?.('يجب تسجيل الدخول لعرض مفضلتك', 'error');
-            getSys().sfx?.('error');
-            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
-            return;
-        }
-        this.closeSidebar(); 
-        this.resetUI(); 
-        this.currentCategoryId = null;
-        if(RenderManager.renderFavorites) RenderManager.renderFavorites(); 
-    },
-
+    openFavorites: function() {
+    if (!DataManager || !DataManager.user) {
+        getSys().showToast?.('يجب تسجيل الدخول لعرض مفضلتك', 'error');
+        getSys().sfx?.('error');
+        setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+        return;
+    }
+    
+    // 🌟 [الإصلاح الجذري]: فحص هل نحن داخل المفضلة بالفعل؟
+    const currentTitle = document.getElementById('grid-title')?.innerText?.trim();
+    if (currentTitle === 'المفضلة') {
+        // إذا كنا في المفضلة: نغلق القائمة الجانبية (لو كانت مفتوحة) ونرفع العميل لأعلى الشاشة بنعومة دون أي إعادة رسم!
+        this.closeSidebar();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return; // 🛑 نوقف الدالة هنا لمنع الوميض الأسود وإعادة الرسم العبثية
+    }
+    
+    // --- إذا لم نكن في المفضلة، يتم تنفيذ الانتقال الطبيعي ---
+    this.closeSidebar();
+    this.resetUI();
+    this.currentCategoryId = null;
+    
+    const grid = document.getElementById('store-grid');
+    if (grid) {
+        grid.style.transition = 'opacity 0.2s ease';
+        grid.style.opacity = '0';
+        
+        setTimeout(() => {
+            if (RenderManager.renderFavorites) RenderManager.renderFavorites();
+            grid.style.opacity = '1';
+        }, 200);
+    } else {
+        if (RenderManager.renderFavorites) RenderManager.renderFavorites();
+    }
+},
     navigateBalance: function() { this.closeSidebar(); getSys().openAddBalance?.(); },
     navigateMyPayments: function() { this.closeSidebar(); getSys().openMyPayments?.(); },
     navigateOrders: function() { this.closeSidebar(); getSys().openOrders?.(); },
     navigateWallet: function() { this.closeSidebar(); getSys().openWallet?.(); },
     navigateSettings: function() { this.closeSidebar(); getSys().openSettings?.(); },
 
-        openCategory: function(id) {
+    openCategory: function(id) {
         if (!this.historyStateSet) {
             window.addEventListener('popstate', (e) => { this._manualGoBack(); });
             this.historyStateSet = true;
@@ -464,20 +481,17 @@ export const UICore = {
             grid.innerHTML = '';
             this.setGridMode('grid-prods');
 
-            // 🌟 1. تجميع دوال الرسم الفعلي في متغير
             const performRender = () => {
                 if (RenderManager.renderOfferStories) RenderManager.renderOfferStories(id);
                 if(RenderManager._renderContent) RenderManager._renderContent(id);
                 if (Components && Components.initProductShine) Components.initProductShine();
             };
-            // 🌟 2. الفحص الذكي: هل المنتجات محملة مسبقاً في الذاكرة؟
+            
             const hasData = (LiveStoreData.prods && LiveStoreData.prods.length > 0);
 
             if (hasData) {
-                // ✅ رسم فوري ومباشر يمسح الكرت القديم قبل أن يلاحظ المتصفح، مما يمنع أي تعليق بصري
                 performRender(); 
             } else {
-                // ⏳ عرض التحميل النبضي فقط إذا كانت البيانات فارغة (أول مرة)
                 if (RenderManager.renderProductSkeletons) {
                     RenderManager.renderProductSkeletons('store-grid', 8);
                 }
@@ -485,6 +499,7 @@ export const UICore = {
             }
         }
     },
+    
     _manualGoBack: function() {
         if (this.navHistory.length === 0) { if(RenderManager.renderHome) RenderManager.renderHome(true); return; }
         const prevId = this.navHistory.pop();
@@ -568,16 +583,13 @@ export const UICore = {
 
     closeOrders: function() { this._closeAndResetTabs('orders', 'orders', '#orders-tabs .mf-tab'); },
     
-        closeWallet: function() {
-        // 1. استهداف العناصر بذكاء
+    closeWallet: function() {
         const statsDrawer = document.getElementById('walletStatsDrawer');
         const arrowBtn = document.querySelector('.detail-arrow'); 
         const walletModal = document.getElementById('wallet-modal');
 
-        // 2. التنظيف الآمن (Safe Cleanup) - استخدام Optional Chaining إذا كان المتصفح حديثاً أو الفحص التقليدي
         if (statsDrawer) {
             statsDrawer.classList.remove('active');
-            // إزالة خصائص الـ CSS المضافة ديناميكياً لضمان عدم وجود تداخل
             statsDrawer.style.removeProperty('max-height');
         }
         
@@ -585,18 +597,14 @@ export const UICore = {
         
         if (walletModal) {
             walletModal.classList.remove('drawer-blur-active');
-            // إعادة ضبط التمرير في المحفظة عند إغلاقها لتكون جاهزة للمرة القادمة
             walletModal.scrollTop = 0;
         }
 
-        // 3. إعادة التعيين عبر الدالة المركزية الموحدة
         if (typeof this._closeAndResetTabs === 'function') {
             this._closeAndResetTabs('wallet', 'wallet', '#wallet-tabs .mf-tab');
         }
-
-        // 4. تسجيل العملية في سجل الأحداث (لأغراض التصحيح لاحقاً)
-        console.debug('Wallet drawer closed and state reset.');
     },
+
     setupWalletDrawerClickOutside: function() {
         if (this._walletDrawerListenerBound) return;
         
@@ -671,7 +679,7 @@ export const UICore = {
                         element.classList.remove('is-copied');
                         if (icon && icon.dataset.origClass) icon.className = icon.dataset.origClass; 
                     }
-                }, 1500); 
+                }, 800); 
             }
         };
 
@@ -692,7 +700,6 @@ export const UICore = {
         if (document.getElementById('admin-direct-msg-popup')) return;
         const safeMsg = Utils.escapeHtml(msgText);
         
-        // 🌟 تطهير الـ HTML من onclick واستخدام addEventListener
         const html = `
             <div id="admin-direct-msg-popup" class="sys-dialog-wrapper">
                 <div class="sys-dialog-overlay"></div>
@@ -946,41 +953,39 @@ export const UICore = {
     },
     
     sfx: function(type) {
-    if(DataManager.prefs && DataManager.prefs.sound === false) return; 
-    
-    // شرط الاحترافية: عدم بدء الصوت إلا إذا تفاعل المستخدم مسبقاً لمنع تحذيرات الكونسول
-    if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
+        if(DataManager.prefs && DataManager.prefs.sound === false) return; 
+        
+        if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
 
-    try {
-        if(!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if(this.audioCtx.state === 'suspended') { this.audioCtx.resume().catch(() => {}); }
+        try {
+            if(!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if(this.audioCtx.state === 'suspended') { this.audioCtx.resume().catch(() => {}); }
+            
+            const t = this.audioCtx.currentTime; 
+            const osc = this.audioCtx.createOscillator(); 
+            const gain = this.audioCtx.createGain();
+            
+            osc.connect(gain); 
+            gain.connect(this.audioCtx.destination);
+            
+            if (type === 'nav') { osc.type='sine'; osc.frequency.setValueAtTime(1200,t); gain.gain.setValueAtTime(0.05,t); gain.gain.exponentialRampToValueAtTime(0.001,t+0.03); osc.start(t); osc.stop(t+0.03); } 
+            else if (type === 'success') { osc.type='sine'; osc.frequency.setValueAtTime(400,t); osc.frequency.linearRampToValueAtTime(800,t+0.15); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.3); osc.start(t); osc.stop(t+0.3); } 
+            else if (type === 'error') { osc.type='triangle'; osc.frequency.setValueAtTime(150,t); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.2); osc.start(t); osc.stop(t+0.2); }
+        } catch(e) {}
         
-        const t = this.audioCtx.currentTime; 
-        const osc = this.audioCtx.createOscillator(); 
-        const gain = this.audioCtx.createGain();
-        
-        osc.connect(gain); 
-        gain.connect(this.audioCtx.destination);
-        
-        if (type === 'nav') { osc.type='sine'; osc.frequency.setValueAtTime(1200,t); gain.gain.setValueAtTime(0.05,t); gain.gain.exponentialRampToValueAtTime(0.001,t+0.03); osc.start(t); osc.stop(t+0.03); } 
-        else if (type === 'success') { osc.type='sine'; osc.frequency.setValueAtTime(400,t); osc.frequency.linearRampToValueAtTime(800,t+0.15); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.3); osc.start(t); osc.stop(t+0.3); } 
-        else if (type === 'error') { osc.type='triangle'; osc.frequency.setValueAtTime(150,t); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.2); osc.start(t); osc.stop(t+0.2); }
-    } catch(e) {}
-    
-    try {
-        if (navigator.vibrate && navigator.userActivation && navigator.userActivation.hasBeenActive) {
-            if (type === 'error') { navigator.vibrate([50, 50, 50]); } 
-            else if (type === 'success') { navigator.vibrate(50); } 
-            else { navigator.vibrate(20); }
-        }
-    } catch(e) {}
-},
-// =========================================================
+        try {
+            if (navigator.vibrate && navigator.userActivation && navigator.userActivation.hasBeenActive) {
+                if (type === 'error') { navigator.vibrate([50, 50, 50]); } 
+                else if (type === 'success') { navigator.vibrate(50); } 
+                else { navigator.vibrate(20); }
+            }
+        } catch(e) {}
+    },
+
+    // =========================================================
     // ⚙️ 5. إعدادات المتجر العامة والهوية البصرية (General Setup)
     // =========================================================
     applyStoreIdentity: function() {
-        // 🌟 الإصلاح المعماري: فك مصفوفة الإعدادات فوراً وتحويلها لكائن إذا كانت مخزنة كمصفوفة في الكاش
-        // هذا السطر يمنع ظهور كلمة "المتجر" الافتراضية ويمنع اختفاء اللوغو للحظات عند الإقلاع
         let sys = LiveStoreData.settings || {}; 
         if (Array.isArray(sys)) sys = sys[0] || {}; 
 
@@ -1063,13 +1068,12 @@ export const UICore = {
         const displayState = { sidebarOpen: document.querySelector('.sidebar.active') !== null, userImage: DataManager.user?.img || null, theme: DataManager.prefs?.theme || 'dark', sound: DataManager.prefs?.sound !== false, lastVisit: Date.now() };
         try { localStorage.setItem('telecard_display_state', JSON.stringify(displayState)); } catch (e) {}
     },
-        restoreDisplayState: function() {
+    restoreDisplayState: function() {
         try {
             const savedState = localStorage.getItem('telecard_display_state');
             if (savedState) {
                 const displayState = JSON.parse(savedState);
                 
-                // ✅ الاحترافية هنا: استنساخ الكائن باستخدام Spread Operator لمنع خطأ التجميد (Mutation Error)
                 if (displayState.userImage && DataManager.user) { 
                     DataManager.user = { ...DataManager.user, img: displayState.userImage }; 
                     if (typeof this.loadUserImageAutomatically === 'function') this.loadUserImageAutomatically(); 
@@ -1200,13 +1204,10 @@ export const UICore = {
         }
     },
 
-        // 🌟 تم استبدال الكود الطويل القديم ليعتمد على النواة المركزية
     getFlagUrl: function(curr) {
-        // استدعاء الدالة من renderHelpers مباشرة
         return RenderHelpers.getCurrencyFlagUrl(curr);
     },
 
-    // 🌟 تم تنظيف الدالة لتتعامل دائماً مع صور (CDN) لتوحيد المظهر
     setFlagEl: function(el, curr) {
         if(!el) return;
         el.innerHTML = '';
@@ -1217,12 +1218,10 @@ export const UICore = {
         img.alt = curr;
         img.src = flagUrl;
         
-        // في حال فشل تحميل الصورة لسبب ما، نعرض إيموجي احتياطي
         img.onerror = () => { el.innerHTML = `<span class="ct-flag-emoji">🌍</span>`; };
         
         el.appendChild(img);
     },
-
 
     refreshCurrencyMenuFlags: function() {
         document.querySelectorAll('.ct-item').forEach(item => {
@@ -1284,7 +1283,6 @@ export const UICore = {
         menu.innerHTML = menuHtml;
         this.refreshCurrencyMenuFlags();
         
-        // 🌟 تطبيق تفويض الأحداث محلياً للمكون (Component-Level Event Delegation)
         if (!menu.dataset.delegated) {
             menu.addEventListener('click', (e) => {
                 const item = e.target.closest('.ct-item');
@@ -1338,7 +1336,6 @@ export const UICore = {
                 if(supportAnimation !== 'none') wrapper.classList.add(`support-anim-${supportAnimation}`);
                 btn.style.display = 'flex';
                 
-                // تنظيف المستمعات السابقة في حال تم استدعاء التهيئة مرتين
                 const newBtn = btn.cloneNode(true);
                 btn.replaceWith(newBtn);
                 
@@ -1454,5 +1451,173 @@ export const UICore = {
             const totalTime = performance.now() - startTime; const memoryUsed = (performance.memory ? performance.memory.usedJSHeapSize : 0) - memoryBefore;
             console.log(`📊 أداء النظام: وقت التهيئة ${totalTime.toFixed(2)}ms | الذاكرة ${(memoryUsed / 1024 / 1024).toFixed(2)}MB`);
         }, 1000);
+    },
+
+    // =========================================================
+    // ❤️ نظام المفضلة السحري (Magic Favorites System) 
+    // =========================================================
+    toggleFavoriteFromModal: function() {
+        const SYS = window.ClientSystem || window.DataManager;
+        if (!DataManager.currentProd || !SYS) return;
+
+        if (!SYS.user) {
+            getSys().showToast?.('يجب تسجيل الدخول لإضافة المنتجات للمفضلة', 'error');
+            getSys().sfx?.('error');
+            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+            return;
+        }
+        
+        const wasFavorite = SYS.isFavorite ? SYS.isFavorite(DataManager.currentProd.id) : false;
+        if (SYS.toggleFavorite) SYS.toggleFavorite(DataManager.currentProd.id);
+        
+        const btn = document.getElementById('pm-fav-btn');
+        if (btn) {
+            const isFav = !wasFavorite; 
+            btn.classList.toggle('active', isFav);
+            const icon = btn.querySelector('i');
+            if (icon) icon.className = isFav ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
+        }
+        
+        getSys().sfx?.('nav');
+        if (wasFavorite) getSys().showToast?.('تمت إزالة المنتج من المفضلة');
+        else getSys().showToast?.('تمت إضافة المنتج إلى المفضلة', 'success');
+        
+        getSys().updateFavBadgeCount?.();
+    },
+
+    triggerMagicFavorite: function(e, productId) {
+        if (e) {
+            e.preventDefault();
+        }
+        
+        const SYS = window.ClientSystem || window.DataManager;
+        if (!SYS) return;
+        
+        if (!DataManager || !DataManager.user) {
+            getSys().showToast?.('يجب تسجيل الدخول لإضافة المنتجات للمفضلة', 'error');
+            getSys().sfx?.('error');
+            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+            return;
+        }
+        
+        const wasFavorite = SYS.isFavorite ? SYS.isFavorite(productId) : false;
+        if (SYS.toggleFavorite) SYS.toggleFavorite(productId);
+        
+        const headerHeart = document.getElementById('sticky-fav-btn');
+        
+        // 🌟 [الإصلاح الجذري 1]: استهداف كرت المنتج وصورته برمجياً عبر الـ ID بدلاً من e.currentTarget الخادع!
+        const productCard = document.querySelector(`.product-card[data-id="${productId}"]`);
+        const imgBox = productCard ? productCard.querySelector('.card-image') : null;
+        
+        if (wasFavorite) {
+            getSys().showToast?.('تمت إزالة المنتج من المفضلة', 'info');
+            getSys().sfx?.('nav');
+            
+            if (imgBox) {
+                const popHeart = document.createElement('i');
+                popHeart.className = 'fa-solid fa-heart-crack center-crack-heart';
+                imgBox.appendChild(popHeart);
+                setTimeout(() => popHeart.remove(), 800);
+            }
+            getSys().updateFavBadgeCount?.();
+            return;
+        }
+        
+        getSys().showToast?.('تمت إضافة المنتج للمفضلة', 'success');
+        getSys().sfx?.('success');
+        
+        // 🌟 [الإصلاح الجذري 2]: أخذ إحداثيات انطلاق القلب من منتصف صورة المنتج تماماً
+        let startX = window.innerWidth / 2;
+        let startY = window.innerHeight / 2;
+        
+        if (imgBox) {
+            const rect = imgBox.getBoundingClientRect();
+            startX = rect.left + (rect.width / 2);
+            startY = rect.top + (rect.height / 2);
+            
+            const popHeart = document.createElement('i');
+            popHeart.className = 'fa-solid fa-heart center-pop-heart';
+            imgBox.appendChild(popHeart);
+            setTimeout(() => popHeart.remove(), 700);
+        } else if (e && e.clientX) {
+            startX = e.clientX;
+            startY = e.clientY;
+        }
+        
+        let endX = window.innerWidth / 2;
+        let endY = 20;
+        if (headerHeart) {
+            const rect = headerHeart.getBoundingClientRect();
+            endX = rect.left + (rect.width / 2);
+            endY = rect.top + (rect.height / 2);
+        }
+        
+        const flyingHeart = document.createElement('i');
+        flyingHeart.className = 'fa-solid fa-heart flying-magic-heart';
+        flyingHeart.style.setProperty('--startX', `${startX}px`);
+        flyingHeart.style.setProperty('--startY', `${startY}px`);
+        flyingHeart.style.setProperty('--endX', `${endX}px`);
+        flyingHeart.style.setProperty('--endY', `${endY}px`);
+        document.body.appendChild(flyingHeart);
+        
+        setTimeout(() => {
+            flyingHeart.remove();
+            if (headerHeart) {
+                headerHeart.classList.add('pulse-catch');
+                getSys().updateFavBadgeCount?.();
+                setTimeout(() => headerHeart.classList.remove('pulse-catch'), 500);
+            }
+        }, 800);
+    },
+    
+    // 🌟 دالة العداد الذكية (تقوم بتنظيف المنتجات الوهمية تلقائياً وبأمان)
+    updateFavBadgeCount: function() {
+        const SYS = window.DataManager || window.ClientSystem;
+        const countBadge = document.getElementById('sticky-fav-count');
+        const headerHeartIcon = document.querySelector('#sticky-fav-btn i');
+        if (!countBadge || !SYS) return;
+        
+        const validProds = window.LiveStoreData?.prods;
+        
+        // 🛡️ [الإصلاح الجذري 3]: جدار الحماية (The Savior Guard)
+        // يمنع مسح المفضلة إذا لم تكن المنتجات قد حُملت من السيرفر بعد
+        if (!validProds || validProds.length === 0) {
+            const currentFavCount = SYS.favs ? SYS.favs.size : 0;
+            if (currentFavCount > 0) {
+                countBadge.innerText = currentFavCount > 99 ? '+99' : currentFavCount;
+                countBadge.classList.remove('hide-element');
+                if (headerHeartIcon) headerHeartIcon.className = 'fa-solid fa-heart';
+            } else {
+                countBadge.classList.add('hide-element');
+                if (headerHeartIcon) headerHeartIcon.className = 'fa-regular fa-heart';
+            }
+            return;
+        }
+        
+        const validFavs = new Set();
+        
+        if (SYS.favs) {
+            SYS.favs.forEach(favId => {
+                if (validProds.some(p => String(p.id) === String(favId))) {
+                    validFavs.add(favId);
+                }
+            });
+            
+            SYS.favs = validFavs;
+            try {
+                localStorage.setItem('telecard_favorites_' + SYS.user?.id, JSON.stringify(Array.from(validFavs)));
+            } catch (e) {}
+        }
+        
+        const favCount = SYS.favs ? SYS.favs.size : 0;
+        
+        if (favCount > 0) {
+            countBadge.innerText = favCount > 99 ? '+99' : favCount;
+            countBadge.classList.remove('hide-element');
+            if (headerHeartIcon) headerHeartIcon.className = 'fa-solid fa-heart';
+        } else {
+            countBadge.classList.add('hide-element');
+            if (headerHeartIcon) headerHeartIcon.className = 'fa-regular fa-heart';
+        }
     }
 };

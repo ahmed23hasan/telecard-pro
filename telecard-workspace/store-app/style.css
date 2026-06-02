@@ -1780,21 +1780,90 @@ body.light-mode .default-prod-icon, body.light-mode .img-placeholder {
 
 .ct-item.active { background: var(--bg-hover); color: var(--primary); padding-right: 16px; }
 .ct-item:active { transform: scale(0.95); background: var(--bg-hover); }
-.ct-item .ct-code { font-weight: 800; font-size: 12px; font-family: 'Inter', sans-serif; }
-/* 🌟 جدار الحماية ضد تجميد المتصفح (Safari Ghost Drag Bug) */
+.ct-item .ct-code { font-weight: 800; font-size: 12px; font-family: 'Inter', sans-serif; }/* 🌟 جدار الحماية المطور: يمنع نسخ الصورة وسحبها، لكنه يسمح للنقر المزدوج بالعمل! */
 .cat-img-box img,
 .cat-card img,
 .product-card img {
-    pointer-events: none !important; /* يجعل اللمس يمر عبر الصورة للكرت ليمنع تفعيل القوائم */
     -webkit-user-drag: none !important;
     user-drag: none !important;
+    -webkit-touch-callout: none !important; /* يمنع ظهور قائمة "حفظ الصورة" في الآيفون */
+    user-select: none !important; /* يمنع تظليل الصورة باللون الأزرق */
+    /* 🚀 تم حذف pointer-events لتعود الصورة للإحساس بنقرات إصبعك */
 }
 
 .cat-card, .product-card {
     -webkit-user-drag: none !important;
     user-drag: none !important;
     -webkit-touch-callout: none !important;
-    touch-action: manipulation !important; /* يمنع تعليق النقر المزدوج */
+    user-select: none !important;
+    /* 🚀 تم حذف touch-action: manipulation لكي يستطيع الجوال قراءة النقر المزدوج مجدداً */
+}
+/* 🛡️ جدار حماية تضارب كروت المنتجات (Collision Firewall) - الإصلاح الدقيق */
+
+/* 1. حالة التضارب في الأعلى (يتدخل فقط إذا كانا في نفس الزاوية بالضبط) */
+.card-image .offer-badge-base.pos-top-right ~ div[class*="timer-"].pos-top-right,
+.card-image .offer-badge-base.pos-top-left ~ div[class*="timer-"].pos-top-left,
+.card-image .offer-badge-base.pos-top-center ~ div[class*="timer-"].pos-top-center {
+    top: calc(var(--safe-gap) + 20px + (4 - var(--layout-cols, 2)) * 3px) !important; 
+    z-index: 24 !important;
+}
+
+/* 2. حالة التضارب في الأسفل (يتدخل فقط إذا كانا في نفس الزاوية بالضبط) */
+.card-image .offer-badge-base.pos-bottom-right ~ div[class*="timer-"].pos-bottom-right,
+.card-image .offer-badge-base.pos-bottom-left ~ div[class*="timer-"].pos-bottom-left,
+.card-image .offer-badge-base.pos-bottom-center ~ div[class*="timer-"].pos-bottom-center {
+    bottom: calc(var(--safe-gap) + 20px + (4 - var(--layout-cols, 2)) * 3px) !important; 
+    z-index: 24 !important;
+}
+/* =========================================================
+   🌟 محرك الشيمر الشامل لجميع الصور (أقسام، منتجات، بوابات، إيصالات) 
+   ========================================================= */
+.cat-img-box,
+.card-image,
+.story-img-wrapper,
+.pay-icon-wrapper,
+.ph-receipt-img-box {
+    position: relative;
+    background-color: var(--bg-glass-dark) !important;
+    background-image: linear-gradient(90deg, 
+        transparent 0%, 
+        rgba(255, 255, 255, 0.03) 25%, 
+        rgba(255, 255, 255, 0.1) 50%, 
+        rgba(255, 255, 255, 0.03) 75%, 
+        transparent 100%
+    ) !important;
+    background-size: 200% 100% !important;
+    animation: skeletonShimmerLux 1.5s linear infinite !important;
+    will-change: background-position;
+}
+
+/* 🛡️ حماية حاوية الإيصالات من الانهيار البصري قبل التحميل */
+.ph-receipt-img-box {
+    min-height: 120px; 
+    border-radius: 12px;
+}
+
+/* --- الوضع النهاري للشيمر --- */
+body.light-mode .cat-img-box,
+body.light-mode .card-image,
+body.light-mode .story-img-wrapper,
+body.light-mode .pay-icon-wrapper,
+body.light-mode .ph-receipt-img-box {
+    background-color: rgba(0, 0, 0, 0.05) !important;
+    background-image: linear-gradient(90deg, 
+        transparent 0%, 
+        rgba(255, 255, 255, 0.4) 25%, 
+        rgba(255, 255, 255, 0.8) 50%, 
+        rgba(255, 255, 255, 0.4) 75%, 
+        transparent 100%
+    ) !important;
+}
+
+/* 🛑 المحرك الخفي: إيقاف استنزاف الموارد برمجياً بعد اكتمال التحميل */
+.shimmer-stop {
+    background-image: none !important;
+    animation: none !important;
+    background-color: transparent !important;
 }
 
 /* =========================================================
@@ -3540,17 +3609,6 @@ body.light-mode .stats-drawer { background: var(--bg-card); }
 #wallet-modal.drawer-blur-active > *:not(.pm-header-std):not(.w-dashboard) * {
     backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
 }
-/* سهم صغير أو تلميح في كروت المحفظة ليدل على أنها تفاعلية */
-.clickable-tx-card { 
-    cursor: pointer; 
-    position: relative; 
-    transition: var(--trans-speed); 
-}
-
-/* استجابة الكرت عند ضغطة الإصبع (انكماش بسيط) */
-.clickable-tx-card:active { 
-    transform: scale(0.98); 
-}
 
 /* =========================================================
    [ 💳 24. سجل الدفعات والمحفظة (Payment & Wallet History) ]
@@ -3579,6 +3637,7 @@ body.light-mode .mf-tab { background: var(--bg-compact); }
     border-radius: 14px; margin-bottom: 12px; direction: rtl; cursor: pointer;
     background: var(--bg-glass); border: var(--border-nested);
     box-shadow: none; transition: var(--trans-speed); overflow: hidden;
+    position: relative;
 }
 body.light-mode .th-card { background: var(--bg-card); border: var(--card-border); box-shadow: 0 2px 6px rgba(0,0,0,0.02); }
 
@@ -3600,12 +3659,66 @@ body.light-mode .th-card { background: var(--bg-card); border: var(--card-border
 .th-date { font-family: 'Inter', sans-serif; font-size: 11.5px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.3px; }
 .th-amount { font-family: 'Inter', sans-serif; font-size: 15.5px; font-weight: 900; direction: ltr; color: var(--text-main); display: flex; align-items: center; gap: 4px; line-height: 1; }
 
-/* الرصيد التراكمي (يظهر في المحفظة فقط عند عرض "الكل") */
+/* الرصيد التراكمي */
 .th-balance-after { margin-top: 4px; font-size: 12.5px; font-weight: 800; color: var(--text-muted); direction: ltr; opacity: 0.85; }
 .th-balance-after::before { content: "الرصيد:"; margin-left: 4px; font-family: 'Cairo', sans-serif; }
 
-.th-order { align-self: flex-end; margin-bottom: 6px; padding: 4px 10px; border-radius: var(--radius-sm); background: var(--bg-glass); border: var(--border-nested); color: var(--text-muted); font-family: 'Inter', monospace; font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+/* 🌟 التصميم الأساسي لرقم الطلب */
+.th-order { 
+    align-self: flex-end; 
+    margin-bottom: 6px; 
+    padding: 4px 10px; 
+    border-radius: var(--radius-sm); 
+    background: var(--bg-glass); 
+    border: var(--border-nested); 
+    color: var(--text-muted); 
+    font-family: 'Inter', monospace; 
+    font-size: 10.5px; 
+    font-weight: 800; 
+    letter-spacing: 0.5px; 
+    display: inline-flex; 
+    align-items: center; 
+    justify-content: center; 
+    white-space: nowrap; 
+}
 body.light-mode .th-order { background: var(--bg-hover); color: var(--text-sub); }
+
+/* 🚀 تأثيرات النسخ لرقم الطلب (سريعة جداً واحترافية) */
+.th-order.is-copyable {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .th-order.is-copyable:hover {
+        background: rgba(var(--primary-rgb), 0.15);
+        color: var(--primary);
+        border-color: rgba(var(--primary-rgb), 0.3);
+        transform: translateY(-1px);
+    }
+}
+
+.th-order.is-copyable:active {
+    transform: scale(0.92); /* انكماش أسرع وأوضح */
+}
+
+/* حالة النجاح عند النسخ (أنميشن 0.25 ثانية فقط!) */
+.th-order.is-copyable.is-copied {
+    background: rgba(var(--success-rgb), 0.15) !important;
+    color: var(--success) !important;
+    border-color: rgba(var(--success-rgb), 0.3) !important;
+    animation: premiumCopyPulseFast 0.25s ease-out forwards;
+}
+
+.th-order.is-copyable.is-copied i {
+    color: var(--success) !important;
+}
+
+@keyframes premiumCopyPulseFast {
+    0% { transform: scale(0.92); box-shadow: 0 0 0 rgba(var(--success-rgb), 0); }
+    50% { transform: scale(1.05); box-shadow: 0 0 8px rgba(var(--success-rgb), 0.4); }
+    100% { transform: scale(1); box-shadow: 0 0 0 rgba(var(--success-rgb), 0); }
+}
 
 /* أيقونات المحفظة والدفعات المشتركة */
 .th-icon, .ph-icon-box { width: 42px; height: 42px; border-radius: var(--radius-sm); display: grid; place-items: center; flex-shrink: 0; background: var(--bg-glass-dark); border: var(--border-nested); font-size: 16px; transition: var(--trans-speed); }
@@ -5941,15 +6054,6 @@ body.light-mode .modern-fav-btn { color: var(--primary-dim); }
 .card-image .top-center     { top: 0; left: 50%; bottom: auto; right: auto; transform: translateX(-50%); }
 .card-image .bottom-center  { bottom: 0; left: 50%; top: auto; right: auto; transform: translateX(-50%); }
 
-/* 🛡️ جدار حماية تضارب كروت المنتجات (Collision Firewall) */
-.card-image .offer-badge-base[class*="bottom-"] ~ div[class*="timer-"][class*="bottom-"] {
-    bottom: calc(var(--safe-gap) + 20px + (4 - var(--layout-cols, 2)) * 3px) !important; 
-    z-index: 24 !important;
-}
-.card-image .offer-badge-base[class*="top-"] ~ div[class*="timer-"][class*="top-"] {
-    top: calc(var(--safe-gap) + 20px + (4 - var(--layout-cols, 2)) * 3px) !important; 
-    z-index: 24 !important;
-}
 
 /* =========================================
    🧠 5. المحرك الذكي للتكيف للقصص (Smart Story Adaptation - Fixed Crisp Sizes)
@@ -6030,3 +6134,19 @@ body.light-mode .modern-fav-btn { color: var(--primary-dim); }
 .timer-minimal   { background: var(--bg-card); color: var(--text-main); border-bottom: 2px solid var(--primary); border-radius: 4px 4px 0 0; padding: 3px 8px; font-size: 10px; font-weight: bold; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); white-space: nowrap;}
 
 @keyframes pulse-green-glow { 0% { opacity: 0.4; box-shadow: 0 0 0 var(--success); } 100% { opacity: 1; box-shadow: 0 0 6px var(--success); } }
+/* =========================================================
+   [ 🖼️ 45. محرك تلاشي الصور الخاطف (Sleek Image Fade-In) ]
+   ========================================================= */
+.cat-img-box img,
+.card-image img,
+.pay-icon-img,
+.ph-img-elem,
+.story-img-wrapper img {
+    opacity: 0;
+    transition: opacity 0.25s ease-in-out !important; /* 👈 تسريع الحركة لـ 0.25 ثانية فقط لتبدو فورية */
+    will-change: opacity;
+}
+
+.img-loaded {
+    opacity: 1 !important;
+}

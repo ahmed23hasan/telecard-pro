@@ -38,16 +38,22 @@ export const DataManager = {
         return httpsCallable(functions, functionName);
     },
 
-    saveUserLocal: function() {
-        if (!this.user) return;
-        try {
-            const liteUser = { ...this.user };
-            delete liteUser.img; delete liteUser.kycData;   
-            localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(liteUser));
-        } catch (e) { console.error('Storage Quota Error in saveUserLocal:', e); }
-    },
-
-    updateUserProfile: async function(newData) {
+    // =========================================================
+// 💾 حفظ كاش بيانات العميل الأساسية محلياً
+// =========================================================
+saveUserLocal: function() {
+    if (!this.user) return;
+    try {
+        const liteUser = { ...this.user };
+        
+        // 🌟 الإصلاح المعماري: أزلنا مسح الصورة الشخصية (img) لأنها مجرد رابط نصي خفيف جداً (0$ تكلفة ومساحة)
+        // نبقي فقط على مسح مستندات التوثيق الثقيلة (kycData) لحماية سعة الذاكرة المحلية
+        delete liteUser.kycData;
+        
+        localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(liteUser));
+    } catch (e) { console.error('Storage Quota Error in saveUserLocal:', e); }
+},
+updateUserProfile: async function(newData) {
         const uid = this.user?.id || this.user?.uid || localStorage.getItem('telecard_active_user_uid');
         if (!uid) return false;
 

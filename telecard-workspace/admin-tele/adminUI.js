@@ -1,7 +1,7 @@
 // ============================================================================
 // 🎨 واجهة التوجيه المركزية للـ UI (adminUI.js) - Facade Pattern
 // 🎯 الوظيفة: نقطة عبور (Router) لربط دوال الواجهة بوحدات النظام المعزولة
-// 🌟 التحديث: ربط التعبئة التلقائية للدول بقاعدة البيانات الحية 
+// 🌟 التحديث: ربط التعبئة التلقائية للدول + منشئ الشروط التفاعلي (Interactive Terms Builder)
 // ============================================================================
 
 import { UIService } from './core/uiService.js';
@@ -194,7 +194,37 @@ export const AdminUI = {
             safeSetVal('sys-freeze-msg', s.freezeMsg || '');
         }
         else if (id === 'terms') { 
-            safeSetVal('setting-terms-text', data?.settings?.terms || ''); 
+            // 🌟 رسم الكروت الذكية الخاصة بالشروط
+            const container = document.getElementById('dynamic-terms-container');
+            if (!container) return;
+            
+            container.innerHTML = ''; // تفريغ الحاوية
+            
+            let termsData = data?.settings?.terms || [];
+            
+            // حل توافقي (Backward compatibility) إذا كانت الشروط القديمة نصية فقط
+            if (typeof termsData === 'string') {
+                if (termsData.trim() !== '') {
+                    termsData = [{ title: "الشروط العامة", text: termsData, icon: "fa-shield-halved" }];
+                } else {
+                    termsData = [];
+                }
+            }
+            
+            if (termsData.length === 0) {
+                this.addTermCardUI(); // كارت افتراضي في حال كانت الشروط فارغة
+            } else {
+                termsData.forEach(term => this.addTermCardUI(term));
+            }
+
+            // تفعيل السحب والإفلات لترتيب الكروت (إن وجدت مكتبة Sortable)
+            if (typeof Sortable !== 'undefined') {
+                new Sortable(container, {
+                    animation: 150,
+                    handle: '.term-drag-handle',
+                    ghostClass: 'sortable-ghost'
+                });
+            }
         }
     },
 
@@ -256,14 +286,12 @@ export const AdminUI = {
     // 🛠️ 6. أدوات النظام والمعاينات (System Utils & Previews)
     // =========================================================
     
-    // 🌟 التحديث: استخدام البيانات الحية أولاً، وتوفير الكلمات الدلالية كشبكة أمان
     detectCountryAutoFill: function(inputVal, dynamicCountriesArray = []) {
         const val = inputVal.trim().toLowerCase();
         if (!val) return;
         
         let match = null;
 
-        // 1. البحث في قاعدة البيانات الحية (الديناميكية) أولاً
         if (dynamicCountriesArray && dynamicCountriesArray.length > 0) {
             match = dynamicCountriesArray.find(c => 
                 (c.name && c.name.toLowerCase().includes(val)) || 
@@ -271,7 +299,6 @@ export const AdminUI = {
             );
         }
 
-        // 2. استخدام القاموس الدلالي للحالات الشائعة (Fallback)
         if (!match) {
             const smartCountriesDB = [
                 { code: "SA", flag: "🇸🇦", dialCode: "+966", keys: ["سعودي", "السعودية", "ksa", "saudi"] },
@@ -289,7 +316,6 @@ export const AdminUI = {
             const flagEl = document.getElementById('country-flag');
             const dialEl = document.getElementById('country-dial');
             
-            // قراءة المتغيرات بشكل آمن لتدعم كلاً من (الهيكلية الحية والهيكلية الثابتة)
             const safeCode = match.code || match.id;
             const safeFlag = match.flag || match.flagEmoji;
             const safeDial = match.dialCode || match.dial;
@@ -300,7 +326,6 @@ export const AdminUI = {
         }
     },
     
-    // 🔔 إعدادات حقول الإشعارات (Popups)
     toggleAlertTypeFields: function() {
         const type = document.getElementById('alert-type')?.value;
         const advFields = document.getElementById('popup-advanced-fields');
@@ -324,24 +349,19 @@ export const AdminUI = {
     },
 
     scrollToAlerts: function() {
-        // 1. التأكد أولاً أننا في لوحة القيادة (Dashboard)
         const dashView = document.getElementById('view-dash');
         if (!dashView.classList.contains('active')) {
-            // إذا لم نكن في الداتشبورد، ننتقل إليها أولاً
             EventBus.emit('req-navigate', { page: 'dash' });
         }
         
-        // 2. التمرير إلى صندوق التنبيهات
         const alertsBox = document.getElementById('dash-smart-alerts');
         if (alertsBox) {
             alertsBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            // إضافة وميض بسيط لجذب الانتباه (اختياري)
             alertsBox.classList.add('highlight-pulse');
             setTimeout(() => alertsBox.classList.remove('highlight-pulse'), 2000);
         }
     },
 
-    // 🎨 دوال المعاينة الحية للهوية البصرية 
     toggleColorType: function() { 
         const type = document.getElementById('store-color-type')?.value; 
         const color2 = document.getElementById('store-color-2'); 
@@ -391,7 +411,100 @@ export const AdminUI = {
             }
             nameText.style.filter = hasShadow ? (type === 'gradient' ? `drop-shadow(0 2px 4px rgba(0,0,0,0.5))` : `drop-shadow(0 0 8px ${c1}66)`) : 'none';
         }
+    },
+
+// =========================================================
+// 📝 7. منشئ الشروط والأحكام التفاعلي (Interactive Terms Builder)
+// =========================================================
+// دالة إنشاء وإضافة كارت الشروط للواجهة
+addTermCardUI: function(termData = {}) {
+    const container = document.getElementById('dynamic-terms-container');
+    if (!container) return;
+    
+    const cardId = 'term_' + Date.now() + Math.floor(Math.random() * 1000);
+    
+    // 🌟 تحديد الأيقونة الافتراضية
+    const currentIcon = termData.icon || 'fa-check';
+    const iconsList = ['fa-user', 'fa-wallet', 'fa-box', 'fa-shield-halved', 'fa-lock', 'fa-headset', 'fa-gem', 'fa-check', 'fa-handshake', 'fa-scale-balanced'];
+    
+    let iconsHTML = iconsList.map(icon => `
+            <div class="is-opt ${currentIcon === icon ? 'active' : ''}" data-action="select-term-icon" data-val="${icon}">
+                <i class="fa-solid ${icon}"></i>
+            </div>
+        `).join('');
+    
+    // 🌟 كود HTML نظيف وخالي تماماً من الـ Inline Styles!
+    const html = `
+            <div class="panel-card term-builder-card mb-15 p-15" id="${cardId}">
+                
+                <div class="term-card-header">
+                    <div class="term-drag-handle">
+                        <i class="fa-solid fa-grip-vertical"></i>
+                        <span>سحب للترتيب</span>
+                    </div>
+                    <button type="button" class="btn-micro btn-red" onclick="document.getElementById('${cardId}').remove()">
+                        <i class="fa-solid fa-trash"></i>
+                        <span>إزالة</span>
+                    </button>
+                </div>
+                
+                <div class="form-group mb-10">
+                    <label class="form-label fs-12 text-primary">عنوان البند</label>
+                    <input type="text" class="form-input term-title-input" value="${termData.title || ''}" placeholder="مثال: الشروط العامة لحساب المستخدم">
+                </div>
+
+                <div class="form-group mb-10">
+                    <label class="form-label fs-12">أيقونة البند</label>
+                    <div class="icon-selector term-icon-grid">
+                        ${iconsHTML}
+                    </div>
+                    <input type="hidden" class="term-icon-input" value="${currentIcon}">
+                </div>
+                
+                <div class="form-group mb-0">
+                    <label class="form-label fs-12 text-warning">تفاصيل البند</label>
+                    <textarea class="form-input term-text-input" rows="2" placeholder="اكتب الشرح التفصيلي هنا...">${termData.text || ''}</textarea>
+                </div>
+            </div>
+        `;
+    
+    container.insertAdjacentHTML('beforeend', html);
+},    // دالة مساعدة لجمع البيانات من الكروت للتحضير لحفظها (مهمة جداً لعملية الحفظ)
+    getTermsDataFromUI: function() {
+        const cards = document.querySelectorAll('.term-builder-card');
+        const termsArray = [];
+        
+        cards.forEach(card => {
+            const title = card.querySelector('.term-title-input').value.trim();
+            const text = card.querySelector('.term-text-input').value.trim();
+            const icon = card.querySelector('.term-icon-input').value;
+            
+            // تجاهل الكروت الفارغة بالكامل
+            if (title || text) {
+                termsArray.push({ title, text, icon });
+            }
+        });
+        
+        return termsArray;
+    },
+    
+    // 🌟 دالة للتعامل مع النقر على الأيقونات داخل الكروت
+    selectTermIconUI: function(element, val) {
+        if (!element) return;
+        const parent = element.closest('.icon-selector');
+        if (parent) {
+            // إزالة اللون من جميع الأيقونات في هذا الكارت فقط
+            parent.querySelectorAll('.is-opt').forEach(el => el.classList.remove('active'));
+            // تلوين الأيقونة المضغوطة
+            element.classList.add('active');
+            // تحديث الحقل المخفي الخاص بهذا الكارت
+            const hiddenInput = parent.nextElementSibling;
+            if (hiddenInput && hiddenInput.classList.contains('term-icon-input')) {
+                hiddenInput.value = val;
+            }
+        }
     }
+
 };
 
 export const AdminCalendar = CalendarService;

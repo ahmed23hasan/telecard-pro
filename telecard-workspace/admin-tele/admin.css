@@ -926,7 +926,7 @@ select.form-input option {
     text-align: right; 
 }
 
-.terms-textarea { resize: vertical; min-height: 150px; }
+
 
 .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
 .switch input { opacity: 0; width: 0; height: 0; }
@@ -3385,7 +3385,61 @@ body.drag-edit-active .item-box::before { content: ''; position: absolute; top: 
 }
 .auth-error-msg { background: var(--danger-10); color: var(--danger); border: 1px solid var(--danger-20); padding: 10px; border-radius: 8px; font-size: 12px; text-align: center; margin-bottom: 15px; font-weight: 700; animation: shake 0.4s ease-in-out; }
 
+/* =========================================================
+   [ 49. منشئ الشروط والأحكام التفاعلي (Interactive Terms Builder) ] 
+   ========================================================= */
+.term-builder-card {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+}
 
+/* 🌟 تأثير السحب والإفلات (Ghost) ليطابق ألوان متجرك */
+.term-builder-card.sortable-ghost {
+    opacity: 0.4;
+    background: var(--info-10) !important;
+    border-color: var(--info) !important;
+}
+
+.term-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.term-drag-handle {
+    cursor: grab;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: color 0.2s ease;
+}
+
+.term-drag-handle:active {
+    cursor: grabbing;
+}
+
+.term-card-header .btn-micro {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0; /* لمنع الزر من الانضغاط في الشاشات الصغيرة */
+}
+
+.term-icon-grid {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 0;
+}
 /* =========================================================
    [ 🌟 تأثيرات التمرير المجمعة (Hover Effects) - الجزء الرابع ] 
    ========================================================= */
@@ -3419,3 +3473,5 @@ body.drag-edit-active .item-box::before { content: ''; position: absolute; top: 
     
     .auth-submit-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px var(--gold-30); }
 }
+.term-drag-handle:hover { color: var(--gold); }
+    .term-builder-card:hover { border-color: var(--line-color); box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15); }
