@@ -120,10 +120,19 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
                 if (fixedUsd > 0) rawUnitCost = fixedUsd;
             }
 
-            const pricingSnapshot = FinancialEngine.calculatePrice({
-                costPrice: rawUnitCost, tier: isFixed ? null : userTier, offer: activeOffer, coupon: couponData
-            });
+            // 🌟 استخراج التكلفة الحقيقية للمورد
+const rawUnitCost = Number(product.costPrice || product.unitCost || product.price || 0);
 
+// 🌟 استخراج السعر الثابت إذا وجد
+const fixedUsd = isFixed ? Number(product.fixedPriceUsd || product.fixed_price_usd || 0) : 0;
+
+const pricingSnapshot = FinancialEngine.calculatePrice({
+    costPrice: rawUnitCost, // التكلفة الحقيقية لتقارير الأرباح
+    fixedPrice: fixedUsd, // سعر البيع الثابت (يتخطى تدرج المستويات)
+    tier: userTier,
+    offer: activeOffer,
+    coupon: couponData
+});
             const totalRequired = Number((pricingSnapshot.finalPrice * finalQty).toFixed(4));
             const currentBalance = Number(userData.walletBalance || 0);
 

@@ -1,119 +1,175 @@
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    
-    // ==========================================
-    // 🛠️ دوال التحقق الأساسية (النسخة المعززة بالشارات الأمنية)
-    // ==========================================
-    function isMasterAdmin() {
-      // 🌟 تحقق فوري ومجاني وآمن من شارة الإدارة المشفرة داخل توكن تسجيل الدخول
-      return request.auth != null && request.auth.token.admin == true;
-    }
+// ============================================================================
+// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - Master Engine
+// 🎯 الوظيفة: حساب الأسعار بأمان تام داخل بيئة السيرفر (محصن ضد أخطاء الإدخال)
+// ============================================================================
 
-    function isAuthenticated() {
-      return request.auth != null;
-    }
+var FinancialEngineDef = {
 
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    // ==========================================
-    // 👥 إدارة المستخدمين (تمت حماية الأرصدة)
-    // ==========================================
-    match /telecard_users/{userId} {
-      allow read: if isOwner(userId) || isMasterAdmin();
-      
-      allow update: if (isOwner(userId) 
-                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['walletBalance', 'balance', 'totalSpent', 'totalDeposit', 'tierId', 'tierCycleSpent'])) 
-                    || isMasterAdmin();
-                    
-      allow create: if isOwner(userId) 
-                    && request.resource.data.get('walletBalance', 0) == 0 
-                    && request.resource.data.get('balance', 0) == 0;
-                    
-      allow delete: if isMasterAdmin();
-    }
-
-    // ==========================================
-    // 🌐 المجموعات العامة (للعرض فقط)
-    // ==========================================
-    match /telecard_tiers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_cats/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_settings/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_alerts/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_payments/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_banners/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_rates/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_countries/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_offers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-
-    // المجموعة العامة للمنتجات (النسخة المطهرة والآمنة التي لا تحتوي على التكلفة)
-    match /telecard_prods_public/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-
-    // ==========================================
-    // 🔒 مجموعة المنتجات الأصلية (تحتوي على التكلفة)
-    // ==========================================
-    match /telecard_prods/{docId} {
-      allow read, write: if isMasterAdmin();
-    }
-
-    // ==========================================
-    // 🛒 الطلبات والإيداعات (مؤمنة بالكامل ضد التلاعب)
-    // ==========================================
-    match /telecard_orders/{docId} {
-      // العميل يرى طلباته فقط، والأدمن يرى كل شيء
-      allow read: if isOwner(resource.data.userId) || isMasterAdmin();
-      
-      // 🌟 [الدرع الأمني]: الخادم السحابي (Cloud Function) هو الوحيد المسموح له بإنشاء وتعديل الطلبات
-      // هذا يمنع أي هكر من استخدام المتصفح لإنشاء طلبات بأسعار وهمية أو تخطي فحص الرصيد!
-      allow write: if false; 
-    }
-    
-    match /telecard_deposits/{docId} {
-      allow read: if isOwner(resource.data.userId) || isMasterAdmin();
-      
-      // 🌟 [الدرع الأمني]: الخادم السحابي فقط مسموح له بإنشاء طلبات الإيداع عبر دالة submitBalanceRequest
-      allow write: if false; 
-    }
-    
-    match /telecard_coupons/{docId} {
-      allow read: if true;
-      allow write: if isMasterAdmin();
-    }
-
-    // ==========================================
-    // 🔒 المجموعات شديدة الحساسية
-    // ==========================================
-    match /telecard_vault/{docId} { allow read, write: if isMasterAdmin(); }
-    match /telecard_admin/{docId} { allow read, write: if isMasterAdmin(); }
-    match /telecard_system/{docId} { allow read, write: if isMasterAdmin(); }
-    match /telecard_logs/{docId} { allow read, write: if isMasterAdmin(); }
-    
-    match /telecard_kyc/{docId} {
-       allow read: if isOwner(resource.data.userId) || isMasterAdmin();
-       allow create: if isOwner(request.resource.data.userId);
-       allow update, delete: if isMasterAdmin();
-    }
-    
-    // ==========================================
-    // 🔌 إدارة الموردين والمفاتيح السرية
-    // ==========================================
-    match /telecard_suppliers/{docId} {
-      allow read, write: if isMasterAdmin();
-      
-      match /secrets/{secretId} {
-         allow read: if false; 
-         allow write: if isMasterAdmin(); 
+  normalizeRates: function(raw) {
+    var rates = Array.isArray(raw) ? raw : [];
+    var hasBase = false;
+    for (var i = 0; i < rates.length; i++) {
+      if (rates[i].isBase) {
+        hasBase = true;
+        break;
       }
     }
+    if (!hasBase) {
+      rates.unshift({ code: 'USD', symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true });
+    }
+    return rates;
+  },
 
-    // ==========================================
-    // 🛑 القاعدة الجدارية (Catch-all)
-    // ==========================================
-    match /{document=**} {
-      allow read, write: if isMasterAdmin();
+  convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel) {
+    var ch = channel || 'pricing';
+    var rates = this.normalizeRates(ratesArray);
+    var amt = Number(amount) || 0;
+    if (!fromCode || !toCode || fromCode === toCode) return amt;
+    
+    var fromCurr = { priceRate: 1, depRate: 1 };
+    var toCurr = { priceRate: 1, depRate: 1 };
+    
+    for (var i = 0; i < rates.length; i++) {
+      if (String(rates[i].code).toUpperCase() === String(fromCode).toUpperCase()) {
+        fromCurr = rates[i];
+      }
+      if (String(rates[i].code).toUpperCase() === String(toCode).toUpperCase()) {
+        toCurr = rates[i];
+      }
     }
     
+    var fromRate = ch === 'deposit' ? fromCurr.depRate : fromCurr.priceRate;
+    var toRate = ch === 'deposit' ? toCurr.depRate : toCurr.priceRate;
+    
+    var inUSD = amt / (fromRate || 1);
+    var finalAmount = inUSD * (toRate || 1);
+    return Number(finalAmount.toFixed(4));
+  },
+
+  _getFirstValid: function() {
+    for (var i = 0; i < arguments.length; i++) {
+      if (arguments[i] !== undefined && arguments[i] !== null) {
+        return arguments[i];
+      }
+    }
+    return 0;
+  },
+
+  calculatePrice: function(params) {
+    var p = params || {};
+    var cost = Number(p.costPrice) || 0;
+    var fixed = Number(p.fixedPrice) || 0;
+    var tier = p.tier || null;
+    var offer = p.offer || null;
+    var coupon = p.coupon || null;
+    
+    var currentPrice = cost;
+    var tierName = null;
+    
+    var extractNum = function(val) {
+      if (val === undefined || val === null || val === '') return 0;
+      var cleanStr = String(val).replace(/[^0-9.-]/g, '');
+      var num = parseFloat(cleanStr);
+      return isNaN(num) ? 0 : num;
+    };
+    
+    if (fixed > 0) {
+      currentPrice = fixed;
+      tierName = "سعر ثابت";
+    } else if (tier && typeof tier === 'object') {
+      tierName = tier.nameAr || tier.name || tier.id || 'عضو';
+      
+      var profitPercent = extractNum(
+        this._getFirstValid(
+          tier.profitPercent, tier.profit_percent,
+          tier.profitMargin, tier.profit_margin,
+          tier.profit, tier.margin, tier.percentage
+        )
+      );
+      
+      var minProfitUsd = extractNum(
+        this._getFirstValid(
+          tier.minProfitUsd, tier.min_profit_usd,
+          tier.minProfit, tier.min_profit, tier.minUsd
+        )
+      );
+      
+      if (profitPercent > 0 || minProfitUsd > 0) {
+        var profitAdded = cost * (profitPercent / 100);
+        if (profitAdded < minProfitUsd) {
+          profitAdded = minProfitUsd;
+        }
+        currentPrice += profitAdded;
+      } else {
+        console.warn("Financial Engine: Tier profit is 0.");
+      }
+    }
+    
+    var tierPrice = currentPrice;
+    var originalPrice = tierPrice;
+    
+    var offerName = null;
+    var offerDiscount = 0;
+    if (offer && offer.type !== 'fake') {
+      offerName = offer.name;
+      var offerVal = extractNum(offer.value);
+      if (offer.type === 'percentage') {
+        offerDiscount = originalPrice * (offerVal / 100);
+      } else if (offer.type === 'fixed' || offer.type === 'amount') {
+        offerDiscount = offerVal;
+      }
+      currentPrice -= offerDiscount;
+    }
+    
+    var couponCode = null;
+    var couponDiscount = 0;
+    if (coupon) {
+      couponCode = coupon.code;
+      var couponVal = extractNum(coupon.value);
+      if (coupon.type === 'percentage') {
+        couponDiscount = currentPrice * (couponVal / 100);
+      } else if (coupon.type === 'fixed' || coupon.type === 'amount') {
+        couponDiscount = couponVal;
+      }
+      currentPrice -= couponDiscount;
+    }
+    
+    var isFirewallActive = false;
+    if (currentPrice < cost) {
+      isFirewallActive = true;
+      currentPrice = cost;
+      
+      var maxAllowedDiscount = originalPrice - cost;
+      var totalRequestedDiscount = offerDiscount + couponDiscount;
+      
+      if (totalRequestedDiscount > 0) {
+        var ratio = maxAllowedDiscount / totalRequestedDiscount;
+        offerDiscount *= ratio;
+        couponDiscount *= ratio;
+      }
+    }
+    
+    var finalPrice = currentPrice;
+    var totalDiscountVal = offerDiscount + couponDiscount;
+    var profit = finalPrice - cost;
+    var marginPct = cost > 0 ? (profit / cost) * 100 : 0;
+    
+    return {
+      cost: Number(cost.toFixed(4)),
+      tierPrice: Number(tierPrice.toFixed(4)),
+      originalPrice: Number(originalPrice.toFixed(4)),
+      finalPrice: Number(finalPrice.toFixed(4)),
+      tierName: tierName,
+      offerName: offerName,
+      offerDiscount: Number(offerDiscount.toFixed(4)),
+      couponCode: couponCode,
+      couponDiscount: Number(couponDiscount.toFixed(4)),
+      totalDiscountVal: Number(totalDiscountVal.toFixed(4)),
+      profit: Number(profit.toFixed(4)),
+      marginPct: Number(marginPct.toFixed(2)),
+      isFirewallActive: isFirewallActive
+    };
   }
-}
+};
+
+exports.FinancialEngine = Object.freeze(FinancialEngineDef);

@@ -256,13 +256,17 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                 if (fixedUsd > 0) rawUnitCost = fixedUsd;
             }
 
-            const pricingSnapshot = FinancialEngine.calculatePrice({
-                costPrice: rawUnitCost,
-                tier: isFixed ? null : userTier,
-                offer: null, 
-                coupon: null
-            });
+            // 🌟 استخراج التكلفة الحقيقية للـ API
+const rawUnitCost = Number(product.costPrice || product.price || 0);
+const fixedUsd = isFixed ? Number(product.fixedPriceUsd || product.fixed_price_usd || 0) : 0;
 
+const pricingSnapshot = FinancialEngine.calculatePrice({
+    costPrice: rawUnitCost,
+    fixedPrice: fixedUsd,
+    tier: userTier,
+    offer: null,
+    coupon: null
+});
             const exactPrice = Number((pricingSnapshot.finalPrice * finalQty).toFixed(4));
             const currentBalance = Number(userData.walletBalance || 0);
 
