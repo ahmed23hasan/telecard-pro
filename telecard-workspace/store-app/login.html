@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>تسجيل الدخول - تيليكارد</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
     
     <style>
@@ -148,6 +148,55 @@
         /* === الكلاسات المساعدة === */
         .num-en { font-family: 'Inter', sans-serif !important; direction: ltr !important; text-align: left !important; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* =========================================================
+           🌟 تصاميم النوافذ المنبثقة الفاخرة البديلة عن alert و prompt
+           ========================================================= */
+        .custom-alert-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 9, 16, 0.85); /* تعتيم زجاجي داكن */
+            backdrop-filter: blur(10px); /* تأثير iOS الضبابي المذهل */
+            display: none; justify-content: center; align-items: center;
+            z-index: 9999;
+            opacity: 0; transition: opacity 0.3s ease;
+            padding: 15px;
+        }
+        .custom-alert-overlay.active { display: flex; opacity: 1; }
+        
+        .custom-alert-card {
+            width: 100%; max-width: 380px;
+            background: var(--bg-card);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 35px 24px;
+            text-align: center;
+            box-shadow: 0 25px 60px rgba(0,0,0,0.85);
+            transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .custom-alert-overlay.active .custom-alert-card { transform: scale(1); }
+
+        .alert-icon-box {
+            width: 60px; height: 60px;
+            margin: 0 auto 20px;
+            background: rgba(255, 215, 0, 0.15);
+            border: 1px solid var(--gold-main);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--gold-main);
+        }
+        .alert-icon-box svg { width: 28px; height: 28px; }
+
+        .alert-title { color: #fff; font-size: 18px; font-weight: 800; margin-bottom: 10px; }
+        .alert-msg { color: var(--text-gray); font-size: 13px; line-height: 1.6; margin-bottom: 25px; }
+        
+        .alert-btn {
+            width: 100%; height: 48px;
+            background: var(--gold-crystal-grad); color: var(--text-btn-luxury);
+            border-radius: var(--radius); font-size: 14px; font-weight: 800;
+            cursor: pointer; border: none; transition: .2s;
+        }
+        .alert-btn:active { transform: scale(0.97); }
     </style>
 </head>
 
@@ -196,7 +245,8 @@
                     </span>
                     تذكرني
                 </label>
-                <a href="#" class="forgot-link">نسيت كلمة المرور؟</a>
+                <!-- 🌟 استدعاء دالة الفتح المخصصة بدلاً من prompt المتصفح -->
+                <a href="#" class="forgot-link" onclick="event.preventDefault(); handleForgotPassword();">نسيت كلمة المرور؟</a>
             </div>
 
             <button type="button" class="submit-btn" id="loginBtn" onclick="validateLogin()">تسجيل الدخول</button>
@@ -206,12 +256,51 @@
             </div>
 
         </form>
+
+        <!-- 🌟 [النافذة الأولى]: تنبيهات النجاح والفشل الكريستالية الفاخرة البديلة عن alert -->
+        <div id="customAlert" class="custom-alert-overlay">
+            <div class="custom-alert-card">
+                <div class="alert-icon-box" id="alertIconBox">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </div>
+                <h3 class="alert-title" id="alertTitle">نجاح العملية</h3>
+                <p class="alert-msg" id="alertMsg">تم تنفيذ الإجراء بنجاح.</p>
+                <button type="button" class="alert-btn" onclick="closeCustomAlert()">حسناً</button>
+            </div>
+        </div>
+
+        <!-- 🌟 [النافذة الثانية]: نافذة إدخال الإيميل الكريستالية الفاخرة المخصصة البديلة عن prompt -->
+        <div id="forgotPasswordModal" class="custom-alert-overlay">
+            <div class="custom-alert-card">
+                <div class="alert-icon-box" style="background: rgba(168, 85, 247, 0.15); border-color: #a855f7; color: #a855f7;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                </div>
+                <h3 class="alert-title" style="color: #a855f7;">استعادة كلمة المرور</h3>
+                <p class="alert-msg">أدخل بريدك الإلكتروني لإرسال رابط إعادة التعيين.</p>
+                
+                <div class="input-group" style="margin-bottom: 25px;">
+                    <div class="input-box">
+                        <input type="email" class="input-field num-en" placeholder=" " id="forgotEmailInput">
+                        <label class="label" style="direction: rtl;">البريد الإلكتروني</label>
+                    </div>
+                    <div class="error-text" id="forgotEmailError" style="direction: rtl; text-align: right;">يرجى إدخال بريد إلكتروني صالح</div>
+                </div>
+
+                <div style="display: flex; gap: 10px; width: 100%;">
+                    <button type="button" class="alert-btn" id="btnSubmitForgot" onclick="submitForgotPasswordModal()" style="flex: 1;">إرسال الرابط</button>
+                    <button type="button" class="alert-btn" onclick="closeForgotPasswordModal()" style="flex: 1; background: #0a101d; border: 1px solid var(--border-default); color: var(--text-gray);">إلغاء</button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
 <script type="module">
     // 🚀 استيراد أدوات فايربيز وقاعدة البيانات من المحول المركزي
     import { auth, db } from './core/firebaseAdapter.js';
-    import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { 
+        signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail // 🌟 استيراد دالة الاستعادة الرسمية من جوجل [2]
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
     import { collection, query, where, getDocs, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     
     import { DB_KEYS } from './config.js';
@@ -271,28 +360,31 @@
         error.style.display = 'block';
     }
 
+    // تمكين التحديث الذكي للمسح
     function hideError(inputId, errorId) {
         const input = document.getElementById(inputId);
         const error = document.getElementById(errorId);
-        input.classList.remove('input-error');
-        error.style.display = 'none';
+        if (input) input.classList.remove('input-error');
+        if (error) error.style.display = 'none';
     }
 
     // === 3. مراقبة الحقول أثناء الكتابة ===
     const fields = [
         { id: 'identifier', err: 'identifierError' },
-        { id: 'password', err: 'passwordError' }
+        { id: 'password', err: 'passwordError' },
+        { id: 'forgotEmailInput', err: 'forgotEmailError' } // مراقبة حقل الاستعادة المخصص
     ];
 
     fields.forEach(field => {
         const el = document.getElementById(field.id);
-        el.addEventListener('input', () => {
-            hideError(field.id, field.err);
-        });
+        if (el) {
+            el.addEventListener('input', () => {
+                hideError(field.id, field.err);
+            });
+        }
     });
 
     // === 4. تسجيل الدخول الفعلي عبر جوجل ===
-      // === 4. تسجيل الدخول الفعلي عبر جوجل (النسخة المصلحة) ===
     async function handleGoogleLogin() {
         const btn = document.querySelector('.google-btn');
         const originalText = btn.innerHTML;
@@ -331,7 +423,7 @@
                     balance: 0,
                     totalSpent: 0,
                     totalDeposit: 0,
-                    tierId: "", // 🌟 الإصلاح الجذري: ترك المعرف فارغاً ليتولى النظام تعيين المستوى الافتراضي (عادي) بشكل ديناميكي
+                    tierId: "", 
                     createdAt: Date.now()
                 };
 
@@ -351,7 +443,6 @@
             
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
             
-            // 🌟 الإصلاح: إعطاء العميل استجابة بصرية بنجاح العملية بدلاً من التوست المفقود
             btn.style.background = "var(--success-green, #10b981)";
             btn.style.color = "#fff";
             btn.style.border = "none";
@@ -365,7 +456,6 @@
             btn.style.opacity = '1';
             btn.disabled = false;
             
-            // 🌟 الإصلاح: إظهار الخطأ للعميل ليعرف ماذا حدث
             if (error.code === 'auth/popup-closed-by-user') {
                 showError('identifier', 'identifierError', "تم إغلاق نافذة الدخول قبل إتمام العملية.");
             } else {
@@ -414,11 +504,9 @@
 
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
 
-// 🌟 الإصلاح المعماري: زرع كاش بيانات العميل فوراً عند تسجيل الدخول
-// هذا يضمن أن المتجر يفتح مسجلاً للدخول فوراً في أول جزء من الثانية عند التحويل
-if (userDoc) {
-    localStorage.setItem('telecard_active_user', JSON.stringify(userDoc));
-}
+            if (userDoc) {
+                localStorage.setItem('telecard_active_user', JSON.stringify(userDoc));
+            }
             
             if(userDoc && (userDoc.baseCurrency || userDoc.base_currency)) {
                 localStorage.setItem('telecard_display_currency', userDoc.baseCurrency || userDoc.base_currency);
@@ -447,9 +535,130 @@ if (userDoc) {
         }
     }
 
+    // =================================================================
+    // 🪄 6. دالة استعادة كلمة المرور الفاخرة (Forgot Password Logic)
+    // =================================================================
+    
+    // أ. دالة استدعاء نافذة التنبيهات المخصصة
+    function showCustomAlert(title, message, isSuccess = true) {
+        const overlay = document.getElementById('customAlert');
+        const titleEl = document.getElementById('alertTitle');
+        const msgEl = document.getElementById('alertMsg');
+        const iconBox = document.getElementById('alertIconBox');
+        
+        if (!overlay || !titleEl || !msgEl || !iconBox) return;
+        
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        
+        if (isSuccess) {
+            iconBox.style.background = "rgba(255, 215, 0, 0.15)";
+            iconBox.style.borderColor = "var(--gold-main)";
+            iconBox.style.color = "var(--gold-main)";
+            iconBox.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+        } else {
+            iconBox.style.background = "rgba(229, 62, 62, 0.15)";
+            iconBox.style.borderColor = "var(--error-red)";
+            iconBox.style.color = "var(--error-red)";
+            iconBox.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+        }
+        
+        overlay.classList.add('active');
+        document.body.style.overflow = 'hidden'; 
+    }
+
+    function closeCustomAlert() {
+        const overlay = document.getElementById('customAlert');
+        if (overlay) {
+            overlay.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+    }
+
+    // ب. فتح نافذة إدخال الإيميل المخصصة
+    function handleForgotPassword() {
+        const mainEmailInput = document.getElementById('identifier');
+        const forgotEmailInput = document.getElementById('forgotEmailInput');
+        const modal = document.getElementById('forgotPasswordModal');
+        
+        if (!modal || !forgotEmailInput) return;
+
+        // مسح الأخطاء السابقة وإعادة الضبط
+        hideError('forgotEmailInput', 'forgotEmailError');
+        
+        // إذا كان العميل كاتب إيميل في صفحة الدخول، نقوم بنسخه وتعبئته تلقائياً كـ Pre-fill ذكي مريح للمستخدم!
+        forgotEmailInput.value = mainEmailInput ? mainEmailInput.value.trim() : "";
+        
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeForgotPasswordModal() {
+        const modal = document.getElementById('forgotPasswordModal');
+        if (modal) {
+            modal.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+    }
+// جـ. إرسال الطلب الفعلي للسحابة من نافذة الإدخال المخصصة (نسخة طباعة البريد الذكية)
+async function submitForgotPasswordModal() {
+    const emailInput = document.getElementById('forgotEmailInput');
+    const email = emailInput ? emailInput.value.trim() : "";
+    
+    if (email === "") {
+        showError('forgotEmailInput', 'forgotEmailError', "يرجى إدخال البريد الإلكتروني");
+        return;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        showError('forgotEmailInput', 'forgotEmailError', "البريد الإلكتروني غير صالح");
+        return;
+    }
+    
+    const btn = document.getElementById('btnSubmitForgot');
+    const originalText = btn.textContent;
+    btn.textContent = "جاري الإرسال...";
+    btn.disabled = true;
+    
+    try {
+        // 🚀 استدعاء سيرفرات جوجل الآمنة لإرسال رابط الاستعادة [2]
+        await sendPasswordResetEmail(auth, email);
+        
+        btn.textContent = originalText;
+        btn.disabled = false;
+        
+        closeForgotPasswordModal(); // إغلاق نافذة الإدخال
+        
+        // 🌟 إظهار رسالة النجاح الكريستالية مع طباعة الإيميل للتأكد من عدم وجود خطأ إملائي [1]
+        showCustomAlert(
+            "تم إرسال الطلب",
+            `إذا كان البريد الإلكتروني (${email}) مسجلاً لدينا، فقد أرسلنا رابط استعادة كلمة المرور إليه.\nيرجى فحص صندوق الوارد ورسائل الـ Spam.`
+        );
+    } catch (error) {
+        btn.textContent = originalText;
+        btn.disabled = false;
+        console.error("Forgot Password Error:", error);
+        
+        if (error.code === 'auth/user-not-found') {
+            closeForgotPasswordModal();
+            // 🌟 حتى لو كان الإيميل غير موجود، نطبع له الإيميل الذي كتبه لحماية خصوصيته وتمكينه من كشف خطأ الإملاء [1]
+            showCustomAlert(
+                "تم إرسال الطلب",
+                `إذا كان البريد الإلكتروني (${email}) مسجلاً لدينا، فقد أرسلنا رابط استعادة كلمة المرور إليه.\nيرجى فحص صندوق الوارد ورسائل الـ Spam.`
+            );
+        } else if (error.code === 'auth/too-many-requests') {
+            showError('forgotEmailInput', 'forgotEmailError', "تم حظر المحاولات مؤقتاً لحماية الحساب، يرجى المحاولة لاحقاً");
+        } else {
+            showError('forgotEmailInput', 'forgotEmailError', "تعذر إرسال الإيميل، يرجى التحقق من اتصالك بالإنترنت");
+        }
+    }
+}
+    // إتاحة الدوال للنطاق العام (Global Scope) لتشغيلها من أزرار الـ HTML
     window.togglePass = togglePass;
     window.handleGoogleLogin = handleGoogleLogin;
     window.validateLogin = validateLogin;
+    window.handleForgotPassword = handleForgotPassword;
+    window.closeForgotPasswordModal = closeForgotPasswordModal;
+    window.submitForgotPasswordModal = submitForgotPasswordModal;
+    window.closeCustomAlert = closeCustomAlert;
 
 </script>
 

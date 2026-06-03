@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>إنشاء حساب - تيليكارد</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
     
     <style>
@@ -269,6 +269,23 @@
 
     const googleProvider = new GoogleAuthProvider();
 
+    // =================================================================
+    // 🌟 دالة جلب عملة العرض الافتراضية للمتجر ديناميكياً لتأمين الحساب
+    // =================================================================
+    async function getAdminDefaultCurrency() {
+        try {
+            const settingsSnap = await getDocs(collection(db, DB_KEYS.SETTINGS));
+            if (!settingsSnap.empty) {
+                const settingsData = settingsSnap.docs[0].data();
+                const defaultCurr = settingsData.defaultCurrency || settingsData.currency || 'USD';
+                return String(defaultCurr).toUpperCase();
+            }
+        } catch (error) {
+            console.warn("⚠️ تعذر جلب العملة الافتراضية، سيتم استخدام USD كاحتياطي.");
+        }
+        return 'USD';
+    }
+
     async function generateUniqueDisplayId() {
         let isUnique = false;
         let newId = 0;
@@ -383,12 +400,14 @@
         err.style.display = 'block';
     }
     function hideError(inputId, errorId) {
-        document.getElementById(inputId).classList.remove('input-error');
-        document.getElementById(errorId).style.display = 'none';
+        const input = document.getElementById(inputId);
+        if (input) input.classList.remove('input-error');
+        const err = document.getElementById(errorId);
+        if (err) err.style.display = 'none';
     }
 
     // =================================================================
-    // 🌐 دالة التسجيل عبر جوجل
+    // 🌐 دالة التسجيل عبر جوجل (النسخة الديناميكية المعززة)
     // =================================================================
     async function handleGoogleLogin() {
         const btn = document.querySelector('.google-btn');
@@ -403,9 +422,14 @@
             
             const userDocRef = doc(db, DB_KEYS.USERS, firebaseUser.uid);
             const userDocSnap = await getDoc(userDocRef);
+            
+            let activeUserObj = null;
 
             if (!userDocSnap.exists()) {
                 btn.innerHTML = 'جاري تهيئة الحساب...';
+                
+                // جلب عملة العرض ديناميكياً لإنشاء المحفظة [1]
+                const targetCurrency = await getAdminDefaultCurrency();
                 const shortDisplayId = await generateUniqueDisplayId();
 
                 const fullName = firebaseUser.displayName || 'عميل جديد';
@@ -415,35 +439,40 @@
                 const baseUsername = fullName.toLowerCase().replace(/\s+/g, '');
                 const finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
 
-                const newUser = {
+                activeUserObj = {
                     id: firebaseUser.uid,
                     displayId: shortDisplayId,
                     name: firstName,
                     lastName: lastName,
                     username: finalUsername,
                     email: firebaseUser.email,
-                    currency: null,
+                    baseCurrency: targetCurrency, // 🌟 ديناميكي [1]
+                    base_currency: targetCurrency, // 🌟 ديناميكي [1]
                     phone: null,
                     country: null,
                     walletBalance: 0,
                     balance: 0,
                     totalSpent: 0,
                     totalDeposit: 0,
-                    tierId: 1, 
+                    tierId: "", 
                     createdAt: Date.now()
                 };
 
                 if (StoreDB && typeof StoreDB.set === 'function') {
-                    await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, newUser);
+                    await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
                 } else {
-                    await setDoc(userDocRef, newUser);
+                    await setDoc(userDocRef, activeUserObj);
                 }
-            } 
+            } else {
+                activeUserObj = userDocSnap.data();
+            }
             
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
 
-// 🌟 الإصلاح المعماري: زرع كاش العميل الجديد فوراً عند إنشاء الحساب
-localStorage.setItem('telecard_active_user', JSON.stringify(newUser));
+            // 🌟 حل مشكلة الـ ReferenceError وحفظ كاش الإنعاش الذكي
+            localStorage.setItem('telecard_active_user', JSON.stringify(activeUserObj));
+            localStorage.setItem('telecard_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency || 'USD');
+
             const toast = document.getElementById('successToast');
             if (toast) toast.classList.add('show');
             setTimeout(() => { window.location.href = "store.html"; }, 1500);
@@ -457,7 +486,7 @@ localStorage.setItem('telecard_active_user', JSON.stringify(newUser));
     }
 
     // =================================================================
-    // ✍️ دالة التسجيل اليدوي
+    // ✍️ دالة التسجيل اليدوي (المسرعة والمعززة بكاش المزامنة وعملات الإدارة)
     // =================================================================
     async function validateAndRegister() {
         const fname = document.getElementById('fname');
@@ -494,12 +523,15 @@ localStorage.setItem('telecard_active_user', JSON.stringify(newUser));
         btn.style.pointerEvents = "none";
 
         try {
-            const userCredential = await createUserWithEmailAndPassword(auth, email.value.trim().toLowerCase(), pass.value);
+            const rawEmail = email.value.trim().toLowerCase();
+            const userCredential = await createUserWithEmailAndPassword(auth, rawEmail, pass.value);
             const firebaseUser = userCredential.user;
 
             let baseUsername = `${fname.value.trim()}.${lname.value.trim()}`.toLowerCase().replace(/\s+/g, '');
             let finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
 
+            // جلب عملة العرض الافتراضية المحددة من الأدمن ديناميكياً [1]
+            const targetCurrency = await getAdminDefaultCurrency();
             const shortDisplayId = await generateUniqueDisplayId();
 
             const newUser = {
@@ -509,29 +541,46 @@ localStorage.setItem('telecard_active_user', JSON.stringify(newUser));
                 lastName: lname.value.trim(),
                 username: finalUsername, 
                 email: firebaseUser.email,
-                currency: null, 
+                baseCurrency: targetCurrency, // 🌟 ديناميكي [1]
+                base_currency: targetCurrency, // 🌟 ديناميكي [1]
                 phone: null,
                 country: null,
                 walletBalance: 0, 
                 balance: 0, 
                 totalSpent: 0,
                 totalDeposit: 0,
-                tierId: 1,
+                tierId: "", // رتبة فارغة افتراضية
                 createdAt: Date.now()
             };
 
             if(StoreDB && typeof StoreDB.set === 'function') {
                 await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, newUser);
+            } else {
+                const userDocRef = doc(db, DB_KEYS.USERS, firebaseUser.uid);
+                await setDoc(userDocRef, newUser);
             }
 
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
+            
+            // زرع كاش الإنعاش الفوري للرصيد والعملة لتجنب الومضات البصرية
+            localStorage.setItem('telecard_active_user', JSON.stringify(newUser));
+            localStorage.setItem('telecard_display_currency', targetCurrency);
 
             document.getElementById('successToast').classList.add('show');
             setTimeout(() => { window.location.href = "store.html"; }, 1500);
 
         } catch(error) {
             console.error("Auth Error:", error);
-            if (error.code === 'auth/email-already-in-use') { showError('email', 'emailError', 'البريد الإلكتروني مسجل مسبقاً، تفضل بتسجيل الدخول'); } 
+            if (error.code === 'auth/email-already-in-use') { 
+                // 🌟 [التوجيه الذكي والفاخر]: تخزين الإيميل المسجل وتوجيه العميل لصفحة الدخول [1]
+                showError('email', 'emailError', 'البريد مسجل مسبقاً! جاري توجيهك لصفحة تسجيل الدخول...');
+                try {
+                    sessionStorage.setItem('prefilled_email', email.value.trim().toLowerCase());
+                } catch(e) {}
+                
+                // توجيه تلقائي جذاب بعد 2 ثانية
+                setTimeout(() => { window.location.href = "login.html"; }, 1800);
+            } 
             else if (error.code === 'auth/network-request-failed') { showError('email', 'emailError', 'خطأ في الاتصال بالإنترنت'); } 
             else { showError('email', 'emailError', 'حدث خطأ أثناء التسجيل، يرجى المحاولة لاحقاً'); }
             
