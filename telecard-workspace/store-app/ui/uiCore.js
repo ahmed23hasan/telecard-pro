@@ -1594,7 +1594,192 @@ copyToClipboard: function(text, element, type = 'default') {
             }
         }, 800);
     },
+    // 🌟 [بوابة المجتمع]: جلب وعرض روابط قنوات التواصل الاجتماعي يدوياً وديناميكياً من السيرفر [1.5, 2]
+openCommunityModal: function() {
+    this.closeSidebar();
     
+    const target = document.getElementById('community-links-target');
+    if (!target) return;
+    
+    const s = LiveStoreData.settings || {};
+    
+    // قراءة الروابط ديناميكياً من إعدادات المتجر (لا داعي لتعديل الأكواد مستقبلاً!) [1]
+    const telegramChan = s.telegramChannel || s.telegramLink || '';
+    const telegramGroup = s.telegramGroup || '';
+    const whatsappGroup = s.whatsappGroup || '';
+    const facebookPage = s.facebookPage || '';
+    
+    let html = '';
+    
+    if (telegramChan) {
+        html += `
+                <a href="${Utils.escapeHtml(telegramChan)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                    <div class="community-left">
+                        <div class="community-icon" style="background: #24A1DE;"><i class="fa-brands fa-telegram"></i></div>
+                        <div class="community-info">
+                            <span class="community-name">قناتنا الرسمية على تلغرام</span>
+                            <span class="community-desc">أحدث الأسعار، العروض، والمسابقات الحصرية أولاً بأول.</span>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-left community-arrow"></i>
+                </a>`;
+    }
+    
+    if (telegramGroup) {
+        html += `
+                <a href="${Utils.escapeHtml(telegramGroup)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                    <div class="community-left">
+                        <div class="community-icon" style="background: #229ED9;"><i class="fa-solid fa-users"></i></div>
+                        <div class="community-info">
+                            <span class="community-name">مجموعة مناقشات الأعضاء</span>
+                            <span class="community-desc">تبادل الأفكار، والنقاشات الفورية مع عائلة المتجر.</span>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-left community-arrow"></i>
+                </a>`;
+    }
+    
+    if (whatsappGroup) {
+        html += `
+                <a href="${Utils.escapeHtml(whatsappGroup)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                    <div class="community-left">
+                        <div class="community-icon" style="background: #25D366;"><i class="fa-brands fa-whatsapp"></i></div>
+                        <div class="community-info">
+                            <span class="community-name">مجموعتنا على واتساب</span>
+                            <span class="community-desc">تحديثات سريعة ودعم مباشر متاح على مدار الساعة.</span>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-left community-arrow"></i>
+                </a>`;
+    }
+    
+    if (facebookPage) {
+        html += `
+                <a href="${Utils.escapeHtml(facebookPage)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                    <div class="community-left">
+                        <div class="community-icon" style="background: #1877F2;"><i class="fa-brands fa-facebook-f"></i></div>
+                        <div class="community-info">
+                            <span class="community-name">صفحتنا على فيسبوك</span>
+                            <span class="community-desc">تابع أخبارنا وتواصل معنا عبر منصة فيسبوك الرسمية.</span>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-left community-arrow"></i>
+                </a>`;
+    }
+    
+    if (!html) {
+        html = `<div class="empty-state-v2"><i class="fa-solid fa-share-nodes"></i><h3>قريباً جداً</h3><p>تعمل الإدارة حالياً على تجهيز شبكات التواصل الاجتماعي الرسمية.</p></div>`;
+    }
+    
+    target.innerHTML = html;
+    this.openModal('community');
+},
+// 🌟 دالة فتح نافذة التقييم الذكي وتصفير حالتها للعميل [2]
+openRatingModal: function() {
+        this.closeSidebar();
+        
+        // تفريغ المدخلات القديمة وإعادة الضبط
+        this._currentRating = 0;
+        const btn = document.getElementById('btnContinueRating');
+        if (btn) {
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+        }
+        
+        const feedbackInput = document.getElementById('ratingFeedbackInput');
+        if (feedbackInput) feedbackInput.value = '';
+        
+        // تفعيل النجوم وإفراغ تلوينها
+        document.querySelectorAll('.rating-star').forEach(star => {
+            star.className = 'fa-regular fa-star rating-star';
+        });
+        
+        // إظهار شاشة النجوم وإخفاء شاشات الخطوات الأخرى
+        document.getElementById('rating-step-stars').style.display = 'block';
+        document.getElementById('rating-step-feedback').style.display = 'none';
+        document.getElementById('rating-step-share').style.display = 'none';
+        
+        this.openModal('rating');
+    },
+    
+    // دالة تلوين النجوم التفاعلية عند اختيار العميل
+    selectRatingStar: function(val) {
+        this._currentRating = val;
+        getSys().sfx?.('nav');
+        
+        const stars = document.querySelectorAll('.rating-star');
+        stars.forEach(star => {
+            const starVal = parseInt(star.dataset.value || star.getAttribute('data-value'));
+            if (starVal <= val) {
+                star.className = 'fa-solid fa-star rating-star active'; // تلوين ذهبي
+            } else {
+                star.className = 'fa-regular fa-star rating-star'; // إفراغ اللون
+            }
+        });
+        
+        // تفعيل زر المتابعة
+        const btn = document.getElementById('btnContinueRating');
+        if (btn) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+        }
+    },
+    
+    // دالة فرز وتوجيه الطلب بناءً على عدد النجوم
+    submitRatingStep: function() {
+        getSys().sfx?.('nav');
+        const rating = this._currentRating || 0;
+        
+        document.getElementById('rating-step-stars').style.display = 'none';
+        
+        if (rating <= 3) {
+            // 🛡️ توجيه صامت للشكاوى (التقييم منخفض) [1]
+            document.getElementById('rating-step-feedback').style.display = 'block';
+        } else {
+            // 🎁 توجيه لـ Trustpilot ومكافأة كوبون الخصم (التقييم ممتاز) [1]
+            document.getElementById('rating-step-share').style.display = 'block';
+        }
+    },
+    
+    // دالة إرسال الشكاوى والمقترحات الصامتة لفايرستور وحفظ سمعة المتجر [1]
+    submitPrivateFeedback: async function() {
+        const feedbackInput = document.getElementById('ratingFeedbackInput');
+        const feedback = feedbackInput ? feedbackInput.value.trim() : '';
+        
+        if (!feedback) {
+            this.showToast("يرجى كتابة تفاصيل مقترحك أو شكواك لمساعدتنا على خدمتك", "warning");
+            return;
+        }
+        
+        const btn = document.getElementById('btnSubmitFeedback');
+        btn.textContent = "جاري الإرسال...";
+        btn.disabled = true;
+        
+        try {
+            const uid = DataManager.user?.id || localStorage.getItem('telecard_active_user_uid') || 'guest';
+            const username = DataManager.user?.username || 'ضيف';
+            
+            // حفظ الشكوى يدوياً في جدول خاص لا يقرأه إلا الأدمن [1]
+            await StoreDB.add('telecard_private_feedbacks', {
+                userId: uid,
+                username: username,
+                rating: this._currentRating || 0,
+                feedback: feedback,
+                time: Date.now()
+            });
+            
+            this.toggleLoader(false);
+            this.closeModal('rating');
+            this.showToast("نشكرك جداً على مقترحك الصادق! تم إرساله للإدارة لمراجعته وحل مشكلتك فوراً.", "success");
+            getSys().sfx?.('success');
+            
+        } catch (error) {
+            btn.textContent = "إرسال للإدارة";
+            btn.disabled = false;
+            console.error("Feedback Submission Error:", error);
+            this.showToast("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
+        }
+    },
     // 🌟 دالة العداد الذكية (تقوم بتنظيف المنتجات الوهمية تلقائياً وبأمان)
     updateFavBadgeCount: function() {
         const SYS = window.DataManager || window.ClientSystem;

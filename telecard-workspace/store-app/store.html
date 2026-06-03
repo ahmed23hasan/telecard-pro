@@ -179,11 +179,10 @@
                 <span class="sidebar-notif-badge hide-element" id="sidebar-notif-badge">0</span>
             </div>
 
-            <div class="nav-item" onclick="ClientSystem.sfx('nav'); alert('قناة تيليجرام')">
-                <i class="fa-brands fa-telegram nav-icon"></i>
-                <span class="nav-item-text">قناة تيليجرام</span>
-            </div>
-
+            <div class="nav-item" onclick="ClientSystem.sfx('nav'); ClientSystem.openCommunityModal()">
+    <i class="fa-solid fa-share-nodes nav-icon"></i>
+    <span class="nav-item-text">قنواتنا ومجتمعنا</span>
+</div>
             <div class="nav-item" onclick="ClientSystem.sfx('nav'); alert('الأمان والخصوصية')">
                 <i class="fa-solid fa-shield-halved nav-icon"></i>
                 <span class="nav-item-text">الأمان والخصوصية</span>
@@ -194,11 +193,10 @@
                 <span class="nav-item-text">الإعدادات</span>
             </div>
 
-            <div class="nav-item" onclick="ClientSystem.sfx('nav'); alert('قيمنا')">
-                <i class="fa-solid fa-star nav-icon"></i>
-                <span class="nav-item-text">قيمنا</span>
-            </div>
-
+            <div class="nav-item" onclick="ClientSystem.sfx('nav'); ClientSystem.openRatingModal()">
+    <i class="fa-solid fa-star nav-icon"></i>
+    <span class="nav-item-text">قيمنا</span>
+</div>
             <div class="nav-item" onclick="ClientSystem.sfx('nav'); ClientSystem.openTermsModal()">
                 <i class="fa-solid fa-file-contract nav-icon"></i>
                 <span class="nav-item-text">الشروط والأحكام</span>
@@ -1210,9 +1208,93 @@
                     حصلت الآن على شارة التوثيق الرسمية، وتم تفعيل كافة ميزات حسابك بأمان.
                 </span>
             </div>
-        </di<div class="pm-overlay" id="purchase-success-overlay" onclick="ClientSystem.closeModal('purchase-success')"></div>v>
+        </div> <!-- 🌟 هذا هو الإغلاق الصحيح والنظيف للـ kyc-celebration-modal -->
+      <!-- 🌟 [النافذة الجديدة]: مجتمعنا وقنوات التواصل الكريستالية الفاخرة -->
+    <div class="pm-overlay" id="community-overlay" onclick="ClientSystem.closeModal('community')"></div>
+    <div class="modal-sheet bottom-sheet" id="community-modal">
+        <div class="pm-header-std">
+            <div class="pm-close-std" onclick="ClientSystem.closeModal('community')"><i class="fa-solid fa-xmark"></i></div>
+            <div class="header-center">
+                <span class="title-badge text-warning"><i class="fa-solid fa-share-nodes"></i> قنواتنا ومجتمعنا</span>
+            </div>
+            <div class="pm-header-spacer"></div>
+        </div>
+        
+        <div class="pm-scroll-content">
+            <div class="community-intro-banner">
+                <i class="fa-solid fa-bullhorn fa-bounce"></i>
+                <span>تابع قنواتنا الرسمية ومجموعات الدعم لتحصل على التحديثات وأحدث العروض فوراً!</span>
+            </div>
+            
+            <div class="community-grid-list" id="community-links-target">
+                <!-- سيتم حقن كروت قنوات التواصل ديناميكياً بناءً على إعدادات الأدمن -->
+            </div>
+        </div>
+    </div>  
+    <!-- 🌟 [النافذة الجديدة]: نافذة التقييم الذكي والفاخر (مصيدة الشكاوى وتنشيط التقييمات) -->
+<div class="pm-overlay" id="rating-overlay" onclick="ClientSystem.closeModal('rating')"></div>
+<div class="modal-sheet bottom-sheet" id="rating-modal">
+    <div class="pm-header-std">
+        <div class="pm-close-std" onclick="ClientSystem.closeModal('rating')"><i class="fa-solid fa-xmark"></i></div>
+        <div class="header-center">
+            <span class="title-badge text-warning"><i class="fa-solid fa-star"></i> قيم تجربتك معنا</span>
+        </div>
+        <div class="pm-header-spacer"></div>
+    </div>
+    
+    <div class="pm-scroll-content">
+        <!-- 1. شاشة نجوم التقييم الأساسية -->
+        <div id="rating-step-stars" class="rating-step-block">
+            <p class="rating-intro-text">يُرجى تقييم جودة الخدمة لمساعدتنا في التطوير المستمر للأداء.</p>
+            <div class="rating-stars-container">
+                <i class="fa-regular fa-star rating-star" data-value="1" onclick="ClientSystem.selectRatingStar(1)"></i>
+                <i class="fa-regular fa-star rating-star" data-value="2" onclick="ClientSystem.selectRatingStar(2)"></i>
+                <i class="fa-regular fa-star rating-star" data-value="3" onclick="ClientSystem.selectRatingStar(3)"></i>
+                <i class="fa-regular fa-star rating-star" data-value="4" onclick="ClientSystem.selectRatingStar(4)"></i>
+                <i class="fa-regular fa-star rating-star" data-value="5" onclick="ClientSystem.selectRatingStar(5)"></i>
+            </div>
+            <button type="button" class="alert-btn" id="btnContinueRating" onclick="ClientSystem.submitRatingStep()" disabled style="opacity: 0.5;">متابعة</button>
+        </div>
+        
+        <!-- 2. شاشة الشكاوى والاقتراحات الصامتة (تظهر فقط عند تقييم 1-3 نجوم) -->
+        <div id="rating-step-feedback" class="rating-step-block" style="display: none;">
+            <div class="community-intro-banner" style="background: rgba(239, 68, 68, 0.04); border-color: rgba(239, 68, 68, 0.12); color: var(--text-gray); margin-bottom: 20px;">
+                <i class="fa-solid fa-face-frown" style="color: var(--error-red); font-size: 1.4rem;"></i>
+                <span>نأسف لعدم تلبية توقعاتك. يُرجى تدوين الملاحظات بالتفصيل ليتم مراجعتها من قِبل الإدارة واتخاذ الإجراءات اللازمة.</span>
+            </div>
+            <div class="input-group" style="margin-bottom: 25px;">
+                <div class="input-box" style="height: 100px;">
+                    <textarea class="input-field" id="ratingFeedbackInput" placeholder=" " style="padding: 12px; height: 100%; resize: none;"></textarea>
+                    <label class="label" style="direction: rtl;">تفاصيل الملاحظة أو المقترح...</label>
+                </div>
+            </div>
+            <button type="button" class="alert-btn" id="btnSubmitFeedback" onclick="ClientSystem.submitPrivateFeedback()">إرسال للإدارة</button>
+        </div>
+        
+        <!-- 3. شاشة التوجيه وكوبون الهدية (تظهر فقط عند تقييم 4-5 نجوم) -->
+        <div id="rating-step-share" class="rating-step-block" style="display: none;">
+            <div class="community-intro-banner" style="background: rgba(16, 185, 129, 0.04); border-color: rgba(16, 185, 129, 0.12); color: var(--text-gray); margin-bottom: 20px;">
+                <i class="fa-solid fa-gift" style="color: var(--success-green); font-size: 1.4rem;"></i>
+                <span>شكراً لتقييمك الإيجابي. يُرجى نسخ الرمز المخصص لعمليات الشراء التالية، مع إمكانية توثيق تقييمك عبر المنصة الرسمية.</span>
+            </div>
+            
+            <div class="rating-gift-box">
+                <div class="gift-coupon-title">رمز الخصم المخصص لعملية الشراء التالية:</div>
+                <div class="input-group" style="margin-bottom: 10px;">
+                    <div class="input-box" style="z-index: 10;">
+                        <input type="text" class="input-field num-en is-copyable" id="ratingGiftCoupon" readonly style="text-align: center; font-size: 16px; font-weight: 900; background: #0a101d; border: 1px dashed var(--gold-main);" value="VIP-GIFT-5" data-action="copy-text" data-text="VIP-GIFT-5">
+                        <label class="label" style="direction: rtl;">رمز الخصم الهدية</label>
+                    </div>
+                </div>
+            </div>
+            
+            <a href="https://www.trustpilot.com" target="_blank" class="submit-btn" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; margin-top: 20px;" onclick="ClientSystem.closeModal('rating')">
+                <i class="fa-solid fa-external-link"></i> تقييم الخدمة عبر منصة Trustpilot
+            </a>
+        </div>
+    </div>
+</div>
         <script type="module" src="script.js"></script>
         
-        </body>
-        
-        </html>
+</body>
+</html>

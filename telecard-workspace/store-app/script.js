@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - المجلد الاحترافي المصلح للسحابة
+// 🧠 المحرك الرئيسي للمتجر (script.js) - النسخة المدرعة للإنتاج V5
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: دمج نظام المؤشرات (Cursor Pagination) + إيقاف نزيف الذاكرة + Event-Driven Hydration
+// 🚀 التحديث: دمج نظام الربط التفاعلي للحظي للإشعارات (في جرس التنبيهات)
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
@@ -307,6 +307,10 @@ ClientSystem.initFirebaseListeners = function() {
                         requestAnimationFrame(() => {
                             if (DataManager.syncUser) DataManager.syncUser();
                             if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
+                            
+                            // 🌟 [تفعيل جرس الإشعارات تفاعلياً]: إنعاش عداد الجرس والبوب أب فوراً وبصوت منبه دافئ عند وصول أي إشعار جديد في الـ inbox! [2]
+                            if (UIManager && typeof UIManager.updateNotifBadges === 'function') UIManager.updateNotifBadges();
+                            if (UIManager && typeof UIManager.processAndDisplayAlerts === 'function') UIManager.processAndDisplayAlerts();
                         });
                     }
                 });
@@ -410,11 +414,16 @@ ClientSystem.init = async function() {
         
         this.initFirebaseListeners();
         
+        // 📥 1. التحميل الأولي للبيانات الثابتة العامة وتحديث الكاش
         if (StoreDB) {
             const staticKeys = ['SETTINGS', 'CATS', 'PRODS', 'BANNERS', 'OFFERS', 'RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
             
             Promise.all(staticKeys.map(k => StoreDB.getAll(DB_KEYS[k]))).then(results => {
                 let cacheObject = {};
+                
+                // 🌟 [منع الومضة]: الاحتفاظ بالنسخة القديمة المخبأة للمقارنة العميقة النخبوية
+                const oldCats = [...LiveStoreData.cats];
+
                 staticKeys.forEach((keyName, i) => {
                     const property = keyName.toLowerCase();
                     const rawData = results[i] || [];
@@ -430,10 +439,11 @@ ClientSystem.init = async function() {
                     }
                 });                
                 
-                // 🌟 تفعيل علم المزامنة الحقيقية
-                LiveStoreData.isInitialSyncDone = true; 
-                
+                // حفظ الكاش الجديد في المتصفح
                 localStorage.setItem('telecard_store_cache', JSON.stringify(cacheObject));
+                
+                // تفعيل علم المزامنة الحقيقية
+                LiveStoreData.isInitialSyncDone = true; 
                 
                 RenderHelpers.init({
                     settings: LiveStoreData.settings || {},
@@ -445,8 +455,34 @@ ClientSystem.init = async function() {
                 if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
                 if (typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
                 
-                // 🌟 إعادة رسم الصفحة الرئيسية بأمان وبدون أي ومضات بعد وصول البيانات الحقيقية
-                if (RenderManager && typeof RenderManager.renderHome === 'function') RenderManager.renderHome(); 
+                // 🌟 [منع الومضة البصرية - المقارنة العميقة النخبوية]:
+                // نقارن فقط الحقول المرئية التي تؤثر على الشاشة لضمان ثبات الصور تماماً
+                const areCategoriesEqual = (arr1, arr2) => {
+                    if (!arr1 || !arr2) return false;
+                    if (arr1.length !== arr2.length) return false;
+                    
+                    // فرز المصفوفتين حسب المعرف لضمان دقة التطابق بصرف النظر عن ترتيب السيرفر [1]
+                    const sorted1 = [...arr1].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+                    const sorted2 = [...arr2].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+                    
+                    return sorted1.every((cat, index) => {
+                        const other = sorted2[index];
+                        return cat.id === other.id &&
+                               cat.name === other.name &&
+                               cat.img === other.img &&
+                               cat.parentId === other.parentId &&
+                               (cat.order || 0) === (other.order || 0);
+                    });
+                };
+
+                const isCatsDataIdentical = areCategoriesEqual(oldCats, LiveStoreData.cats);
+
+                if (!isCatsDataIdentical) {
+                    console.log("🔄 تم اكتشاف تغيير في الأقسام من السيرفر، جاري التحديث البصري...");
+                    if (RenderManager && typeof RenderManager.renderHome === 'function') RenderManager.renderHome(); 
+                } else {
+                    console.log("🛡️ الأقسام مطابقة تماماً للذاكرة المحلية، تم إلغاء إعادة الرسم لتفادي الومضة البصرية.");
+                }
                 
                 if (typeof UIManager.initSlider === 'function') UIManager.initSlider();
                 if (typeof UIManager.renderTicker === 'function') UIManager.renderTicker(); 
@@ -456,6 +492,7 @@ ClientSystem.init = async function() {
             });
         }
         
+        // ⏱️ مزامنة التوقيت السحابي
         try {
             if (DataManager && typeof DataManager._getCloudFunction === 'function') {
                 DataManager._getCloudFunction('getServerTime')().then(timeRes => {

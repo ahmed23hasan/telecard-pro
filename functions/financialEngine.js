@@ -1,9 +1,23 @@
 // ============================================================================
 // 💰 المحرك المالي المركزي (Cloud Version - Node.js) - Master Engine
-// 🎯 الوظيفة: حساب الأسعار بأمان تام داخل بيئة السيرفر (محصن ضد أخطاء الإدخال)
+// 🎯 الوظيفة: حساب الأسعار بأمان تام داخل بيئة السيرفر بنظام Integer Math
+// 🌟 التحديث الأقصى: تطبيق الرياضيات الآمنة (x10000) لمنع أخطاء الفواصل العشرية
 // ============================================================================
 
 var FinancialEngineDef = {
+
+  // 🛡️ دوال الرياضيات الآمنة الداخلية (Integer Math)
+  safeAdd: function(a, b) {
+    return Math.round(Number(a) * 10000 + Number(b) * 10000) / 10000;
+  },
+  
+  safeSub: function(a, b) {
+    return Math.round(Number(a) * 10000 - Number(b) * 10000) / 10000;
+  },
+  
+  safeMul: function(a, b) {
+    return Math.round(Number(a) * Number(b) * 10000) / 10000;
+  },
 
   normalizeRates: function(raw) {
     var rates = Array.isArray(raw) ? raw : [];
@@ -41,9 +55,10 @@ var FinancialEngineDef = {
     var fromRate = ch === 'deposit' ? fromCurr.depRate : fromCurr.priceRate;
     var toRate = ch === 'deposit' ? toCurr.depRate : toCurr.priceRate;
     
+    // استخدام التحويل المباشر مع التقريب الآمن لـ 4 خانات
     var inUSD = amt / (fromRate || 1);
-    var finalAmount = inUSD * (toRate || 1);
-    return Number(finalAmount.toFixed(4));
+    var finalAmount = this.safeMul(inUSD, (toRate || 1));
+    return finalAmount;
   },
 
   _getFirstValid: function() {
@@ -95,13 +110,12 @@ var FinancialEngineDef = {
       );
       
       if (profitPercent > 0 || minProfitUsd > 0) {
-        var profitAdded = cost * (profitPercent / 100);
+        // حساب الربح بطريقة آمنة
+        var profitAdded = this.safeMul(cost, profitPercent / 100);
         if (profitAdded < minProfitUsd) {
           profitAdded = minProfitUsd;
         }
-        currentPrice += profitAdded;
-      } else {
-        console.warn("Financial Engine: Tier profit is 0.");
+        currentPrice = this.safeAdd(currentPrice, profitAdded);
       }
     }
     
@@ -114,11 +128,11 @@ var FinancialEngineDef = {
       offerName = offer.name;
       var offerVal = extractNum(offer.value);
       if (offer.type === 'percentage') {
-        offerDiscount = originalPrice * (offerVal / 100);
+        offerDiscount = this.safeMul(originalPrice, offerVal / 100);
       } else if (offer.type === 'fixed' || offer.type === 'amount') {
         offerDiscount = offerVal;
       }
-      currentPrice -= offerDiscount;
+      currentPrice = Math.max(0, this.safeSub(currentPrice, offerDiscount));
     }
     
     var couponCode = null;
@@ -127,45 +141,46 @@ var FinancialEngineDef = {
       couponCode = coupon.code;
       var couponVal = extractNum(coupon.value);
       if (coupon.type === 'percentage') {
-        couponDiscount = currentPrice * (couponVal / 100);
+        couponDiscount = this.safeMul(currentPrice, couponVal / 100);
       } else if (coupon.type === 'fixed' || coupon.type === 'amount') {
         couponDiscount = couponVal;
       }
-      currentPrice -= couponDiscount;
+      currentPrice = Math.max(0, this.safeSub(currentPrice, couponDiscount));
     }
     
     var isFirewallActive = false;
+    // حماية الأرباح (Firewall) باستخدام الطرح الآمن
     if (currentPrice < cost) {
       isFirewallActive = true;
       currentPrice = cost;
       
-      var maxAllowedDiscount = originalPrice - cost;
-      var totalRequestedDiscount = offerDiscount + couponDiscount;
+      var maxAllowedDiscount = Math.max(0, this.safeSub(originalPrice, cost));
+      var totalRequestedDiscount = this.safeAdd(offerDiscount, couponDiscount);
       
       if (totalRequestedDiscount > 0) {
         var ratio = maxAllowedDiscount / totalRequestedDiscount;
-        offerDiscount *= ratio;
-        couponDiscount *= ratio;
+        offerDiscount = this.safeMul(offerDiscount, ratio);
+        couponDiscount = this.safeMul(couponDiscount, ratio);
       }
     }
     
     var finalPrice = currentPrice;
-    var totalDiscountVal = offerDiscount + couponDiscount;
-    var profit = finalPrice - cost;
+    var totalDiscountVal = this.safeAdd(offerDiscount, couponDiscount);
+    var profit = Math.max(0, this.safeSub(finalPrice, cost));
     var marginPct = cost > 0 ? (profit / cost) * 100 : 0;
     
     return {
-      cost: Number(cost.toFixed(4)),
-      tierPrice: Number(tierPrice.toFixed(4)),
-      originalPrice: Number(originalPrice.toFixed(4)),
-      finalPrice: Number(finalPrice.toFixed(4)),
+      cost: cost,
+      tierPrice: tierPrice,
+      originalPrice: originalPrice,
+      finalPrice: finalPrice,
       tierName: tierName,
       offerName: offerName,
-      offerDiscount: Number(offerDiscount.toFixed(4)),
+      offerDiscount: offerDiscount,
       couponCode: couponCode,
-      couponDiscount: Number(couponDiscount.toFixed(4)),
-      totalDiscountVal: Number(totalDiscountVal.toFixed(4)),
-      profit: Number(profit.toFixed(4)),
+      couponDiscount: couponDiscount,
+      totalDiscountVal: totalDiscountVal,
+      profit: profit,
       marginPct: Number(marginPct.toFixed(2)),
       isFirewallActive: isFirewallActive
     };

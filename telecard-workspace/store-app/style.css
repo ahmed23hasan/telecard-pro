@@ -3590,7 +3590,12 @@ div.bal-result-field-new { color: var(--text-muted); opacity: 0.5; font-size: 20
 /* =========================================================
    [ 👑 نافذة المستويات الملكية V9 - Professional UI ]
    ========================================================= */
-.tm-wrapper { text-align: center; padding: 35px 20px; }
+
+/* أ. الهيكل والرأس الرئيسي للبطاقة */
+.tm-wrapper { 
+    text-align: center; 
+    padding: 35px 20px; 
+}
 
 .tm-icon-box { 
     display: flex; 
@@ -3614,9 +3619,22 @@ div.bal-result-field-new { color: var(--text-muted); opacity: 0.5; font-size: 20
     z-index: 2;
 }
 
-.tm-title { font-weight: 900; color: var(--text-main); font-size: 1.4rem; margin-bottom: 18px; }
-.tm-desc { color: var(--text-muted); font-size: 13px; line-height: 1.8; max-width: 320px; margin: 0 auto; }
+.tm-title { 
+    font-weight: 900; 
+    color: var(--text-main); 
+    font-size: 1.4rem; 
+    margin-bottom: 18px; 
+}
 
+.tm-desc { 
+    color: var(--text-muted); 
+    font-size: 13px; 
+    line-height: 1.8; 
+    max-width: 320px; 
+    margin: 0 auto; 
+}
+
+/* ب. كرت شريط تقدم المستوى النشط */
 .tm-progress-card {
     background: var(--bg-glass-dark);
     border: var(--border-nested);
@@ -3626,11 +3644,45 @@ div.bal-result-field-new { color: var(--text-muted); opacity: 0.5; font-size: 20
     box-shadow: inset 0 2px 10px rgba(0,0,0,0.15);
 }
 
-.tm-progress-header { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
-.tm-percent { min-width: 50px; text-align: right; color: var(--text-main); font-weight: 900; font-size: 14px; }
-.tm-bar-bg { flex: 1; height: 12px; background: var(--bg-input); border-radius: 50px; overflow: hidden; position: relative; box-shadow: var(--shadow-input-inner); }
-.tm-bar-fill { height: 100%; border-radius: 50px; transition: width 1.2s cubic-bezier(0.34, 1.56, 0.64, 1); position: relative; }
-.tm-bar-fill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent); animation: shimmer 2s infinite; }
+.tm-progress-header { 
+    display: flex; 
+    align-items: center; 
+    gap: 15px; 
+    margin-bottom: 15px; 
+}
+
+.tm-percent { 
+    min-width: 50px; 
+    text-align: right; 
+    color: var(--text-main); 
+    font-weight: 900; 
+    font-size: 14px; 
+}
+
+.tm-bar-bg { 
+    flex: 1; 
+    height: 12px; 
+    background: var(--bg-input); 
+    border-radius: 50px; 
+    overflow: hidden; 
+    position: relative; 
+    box-shadow: var(--shadow-input-inner); 
+}
+
+.tm-bar-fill { 
+    height: 100%; 
+    border-radius: 50px; 
+    transition: width 1.2s cubic-bezier(0.34, 1.56, 0.64, 1); 
+    position: relative; 
+}
+
+.tm-bar-fill::after { 
+    content: ''; 
+    position: absolute; 
+    inset: 0; 
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent); 
+    animation: shimmer 2s infinite; 
+}
 
 .tm-duration-badge {
     background: var(--bg-glass-dark);
@@ -3643,8 +3695,17 @@ div.bal-result-field-new { color: var(--text-muted); opacity: 0.5; font-size: 20
     white-space: nowrap;
 }
 
-.tm-footer-text { font-size: 13px; color: var(--text-muted); line-height: 1.8; margin-top: 20px; text-align: center; }
-.tm-text-highlight { font-weight: 900; }
+.tm-footer-text { 
+    font-size: 13px; 
+    color: var(--text-muted); 
+    line-height: 1.8; 
+    margin-top: 20px; 
+    text-align: center; 
+}
+
+.tm-text-highlight { 
+    font-weight: 900; 
+}
 
 .tm-amount-text {
     color: var(--success);
@@ -3653,7 +3714,7 @@ div.bal-result-field-new { color: var(--text-muted); opacity: 0.5; font-size: 20
     margin: 0 3px;
 }
 
-/* 🏆 تصميم كرت القمة الجديد (Top Tier VIP Card) الديناميكي */
+/* جـ. كرت التهنئة الخاص ببلوغ المستوى الأقصى (Top Tier) */
 .tm-top-tier-card {
     background: var(--bg-glass-dark);
     border: 1px solid rgba(255, 255, 255, 0.08); 
@@ -3696,7 +3757,113 @@ div.bal-result-field-new { color: var(--text-muted); opacity: 0.5; font-size: 20
     line-height: 1.8;
     z-index: 1;
 }
-/* =========================================================
+
+/* د. 🌟 قسم خريطة طريق مستويات الـ VIP التفاعلية الكاملة */
+.tm-roadmap-section {
+    margin-top: 35px;
+    padding-top: 25px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    width: 100%;
+    text-align: right; /* دعم كامل للغة العربية والاتجاه اليميني */
+}
+
+.tm-roadmap-title {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 800;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tm-roadmap-title i {
+    color: var(--gold-main); /* علامة خريطة الطريق الذهبية المتوهجة */
+}
+
+.tm-roadmap-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.tm-roadmap-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: rgba(10, 16, 29, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-md);
+    transition: 0.3s ease;
+}
+
+/* الكلاس الخاص بالمستوى الحالي النشط والمضيء للعميل */
+.tm-roadmap-item.active {
+    background: rgba(255, 215, 0, 0.03);
+    border-color: rgba(255, 215, 0, 0.15);
+    box-shadow: inset 0 0 15px rgba(255, 215, 0, 0.02);
+}
+
+/* الكلاس الخاص بالمستويات الأعلى المغلقة حالياً */
+.tm-roadmap-item.locked {
+    opacity: 0.65; /* تعتيم ناعم للمستويات المقفلة لغرس التنافسية */
+}
+
+.tm-item-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.tm-item-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+}
+
+.tm-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tm-item-name {
+    color: var(--text-main);
+    font-size: 13.5px;
+    font-weight: 800;
+}
+
+.tm-item-req {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* الشارات والأوسمة الخاصة بكل كارت في الخريطة */
+.tm-badge-active {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--text-btn-luxury);
+    padding: 4px 10px;
+    border-radius: 50px;
+    box-shadow: 0 4px 10px rgba(255, 215, 0, 0.15);
+}
+
+.tm-badge-locked {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 4px 10px;
+    border-radius: 50px;
+}/* =========================================================
    [ 👑 23. واجهة المحفظة الاحترافية (Wallet Dashboard) ]
    ========================================================= */
 
@@ -6309,7 +6476,147 @@ body.light-mode .modern-fav-btn { color: var(--primary-dim); }
 
 .custom-toast-container, #custom-notification { z-index: var(--z-toast); }
 #cal-modal.calendar-modal, .dropdown-list { z-index: var(--z-calendar); }
+/* === تصميم بوابة المجتمع وقنوات التواصل === */
+.community-intro-banner {
+    background: rgba(255, 215, 0, 0.04);
+    border: 1px solid rgba(255, 215, 0, 0.12);
+    padding: 15px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 25px;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.6;
+    font-weight: 600;
+    text-align: right;
+}
+.community-intro-banner i {
+    color: var(--gold-main);
+    font-size: 1.4rem;
+}
 
+.community-grid-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-bottom: 20px;
+}
+
+.community-item-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: rgba(10, 16, 29, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    border-radius: 16px;
+    text-decoration: none;
+    transition: 0.3s ease;
+}
+
+.community-item-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(10, 16, 29, 0.8);
+}
+
+.community-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.community-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: #fff;
+}
+
+.community-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    text-align: right;
+}
+
+.community-name {
+    color: var(--text-main);
+    font-size: 13.5px;
+    font-weight: 800;
+}
+
+.community-desc {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.community-arrow {
+    color: var(--text-muted);
+    font-size: 14px;
+}
+/* === تصميم وتوجيه نافذة التقييم الفاخرة === */
+.rating-step-block {
+    animation: fadeIn 0.3s ease;
+    text-align: center;
+}
+
+.rating-intro-text {
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.6;
+    margin-bottom: 25px;
+    text-align: center;
+}
+
+.rating-stars-container {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    font-size: 34px;
+    color: var(--text-muted);
+    margin-bottom: 30px;
+}
+
+.rating-star {
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.2s ease;
+}
+
+.rating-star:hover {
+    transform: scale(1.2);
+}
+
+.rating-star.active {
+    color: var(--gold-main); /* الون الذهبي الفاخر المعتمد لمتجرك */
+    text-shadow: 0 0 15px rgba(255, 215, 0, 0.4);
+    transform: scale(1.08);
+}
+
+.rating-gift-box {
+    background: rgba(255, 215, 0, 0.02);
+    border: 1px dashed rgba(255, 215, 0, 0.15);
+    padding: 20px 15px 15px;
+    border-radius: 16px;
+    margin-bottom: 20px;
+    text-align: right;
+}
+
+.gift-coupon-title {
+    color: var(--text-main);
+    font-size: 12.5px;
+    font-weight: 800;
+    margin-bottom: 15px;
+    text-align: center;
+}
 /* =========================================================
    [ 🖼️ 45. محرك تلاشي الصور الخاطف (Sleek Image Fade-In) ]
    ========================================================= */
