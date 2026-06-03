@@ -1,15 +1,18 @@
 // ============================================================================
 // 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Client Safe)
 // 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث: التوافق التام مع المحرك المالي النظيف (خالي من أسرار التكلفة والأرباح)
+// 🚀 التحديث: إغلاق ثغرة الجلسات الشبحية + تهيئة المؤشرات + محرك التسعير النظيف + علم المزامنة
 // ============================================================================
 
 import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
+// 🌟 استيراد دالة تسجيل الخروج الرسمية والآمنة لفايربيز
+import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
 
 import { DB_KEYS, ACTIVE_USER_KEY } from './config.js';
 import { Utils } from './utils.js';
-import { FirebaseAdapter } from './core/firebaseAdapter.js';
+// 🌟 استيراد auth لمعالجة تسجيل الخروج بشكل آمن
+import { FirebaseAdapter, auth } from './core/firebaseAdapter.js'; 
 import { RenderHelpers } from './core/renderHelpers.js'; 
 
 export const StoreDB = FirebaseAdapter;
@@ -17,7 +20,8 @@ export const StoreDB = FirebaseAdapter;
 export const LiveStoreData = {
     cats: [], prods: [], settings: {}, banners: [], users: [], 
     orders: [], deposits: [], payments: [], tiers: [], rates: [],
-    vault: [], coupons: [], offers: [], alerts: [] 
+    vault: [], coupons: [], offers: [], alerts: [],
+    isInitialSyncDone: false // 🌟 علم التحميل الأولي لمنع الومضات السوداء (شاشة المتجر فارغ)
 };
 
 export const DataManager = {
@@ -29,6 +33,9 @@ export const DataManager = {
     favs: new Set(),
     selectedCurr: 'USD',
     
+    // 🌟 نظام المؤشرات للترقيم الاحترافي (Cursors) لمنع انهيار الرسم المؤقت
+    cursors: { orders: null, deposits: null },
+
     currentProd: null, currentPayment: null, currentPayCurrency: null,
     currentReceiptData: null, appliedCoupon: null,
 
@@ -39,21 +46,22 @@ export const DataManager = {
     },
 
     // =========================================================
-// 💾 حفظ كاش بيانات العميل الأساسية محلياً
-// =========================================================
-saveUserLocal: function() {
-    if (!this.user) return;
-    try {
-        const liteUser = { ...this.user };
-        
-        // 🌟 الإصلاح المعماري: أزلنا مسح الصورة الشخصية (img) لأنها مجرد رابط نصي خفيف جداً (0$ تكلفة ومساحة)
-        // نبقي فقط على مسح مستندات التوثيق الثقيلة (kycData) لحماية سعة الذاكرة المحلية
-        delete liteUser.kycData;
-        
-        localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(liteUser));
-    } catch (e) { console.error('Storage Quota Error in saveUserLocal:', e); }
-},
-updateUserProfile: async function(newData) {
+    // 💾 حفظ كاش بيانات العميل الأساسية محلياً
+    // =========================================================
+    saveUserLocal: function() {
+        if (!this.user) return;
+        try {
+            const liteUser = { ...this.user };
+            
+            // 🌟 الإصلاح المعماري: أزلنا مسح الصورة الشخصية (img) لأنها مجرد رابط نصي خفيف جداً
+            // نبقي فقط على مسح مستندات التوثيق الثقيلة (kycData) لحماية سعة الذاكرة المحلية
+            delete liteUser.kycData;
+            
+            localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(liteUser));
+        } catch (e) { console.error('Storage Quota Error in saveUserLocal:', e); }
+    },
+
+    updateUserProfile: async function(newData) {
         const uid = this.user?.id || this.user?.uid || localStorage.getItem('telecard_active_user_uid');
         if (!uid) return false;
 
@@ -176,7 +184,7 @@ updateUserProfile: async function(newData) {
 
         if (Utils.TelecardPricingEngine && typeof Utils.TelecardPricingEngine.calculate === 'function') {
             unitSnapshot = Utils.TelecardPricingEngine.calculate({
-                product: prod, // 🌟 تمرير المنتج بالكامل لتفعيل المعمارية الجديدة
+                product: prod, 
                 tier: tier, 
                 offer: activeOffer, 
                 coupon: appliedCoupon
@@ -300,92 +308,102 @@ updateUserProfile: async function(newData) {
         return Number(val.toFixed(4));
     },
 
-    logout: function() {
+    // 🌟 دالة تسجيل الخروج المحمية 100%
+    logout: async function() {
         try {
+            // تسجيل الخروج الرسمي والآمن من سيرفرات فايربيز لإنهاء الجلسة تماماً وحماية الحساب
+            if (auth) {
+                await signOut(auth);
+            }
+            
+            // تنظيف الكاش والذاكرة المحلية بالكامل
             localStorage.removeItem('telecard_active_user_uid');
             localStorage.removeItem(ACTIVE_USER_KEY);
             localStorage.removeItem('telecard_display_currency');
-        } catch(e) { console.warn('logout cleanup error', e); }
+            localStorage.removeItem('telecard_store_cache'); // مسح كاش المتجر لمزيد من الأمان
+        } catch(e) { 
+            console.warn('logout cleanup error', e); 
+        }
         window.location.replace('login.html');
     },
 
     // =========================================================
-// 👤 مزامنة العميل الذكية (Optimistic UI & Cache Engine)
-// =========================================================
-syncUser: function() {
-    const users = LiveStoreData.users || [];
-    const activeUid = localStorage.getItem('telecard_active_user_uid');
-    
-    let me = null;
-    if (activeUid) {
-        // 1. محاولة جلب العميل من مستمع السحابة الحي (المرجع الأساسي)
-        const foundUser = users.find(u => String(u.id) === String(activeUid));
-        if (foundUser) {
-            me = { ...foundUser };
-        } else {
-            // 🌟 2. [التخزين المؤقت المتفائل]: إذا لم تأتِ البيانات بعد من السيرفر، نقرأ من الكاش المحلي فوراً
-            // هذا يضمن أن الموقع يفتح "مسجلاً للدخول بالرصيد والاسم الأخير" في جزء من الثانية دون انتظار فايربيز!
-            const savedUserRaw = localStorage.getItem(ACTIVE_USER_KEY);
-            if (savedUserRaw) {
-                try {
-                    const parsed = JSON.parse(savedUserRaw);
-                    if (String(parsed.id) === String(activeUid)) {
-                        me = parsed;
-                    }
-                } catch (e) {}
+    // 👤 مزامنة العميل الذكية (Optimistic UI & Cache Engine)
+    // =========================================================
+    syncUser: function() {
+        const users = LiveStoreData.users || [];
+        const activeUid = localStorage.getItem('telecard_active_user_uid');
+        
+        let me = null;
+        if (activeUid) {
+            // 1. محاولة جلب العميل من مستمع السحابة الحي (المرجع الأساسي)
+            const foundUser = users.find(u => String(u.id) === String(activeUid));
+            if (foundUser) {
+                me = { ...foundUser };
+            } else {
+                // 🌟 2. [التخزين المؤقت المتفائل]: نقرأ من الكاش المحلي فوراً
+                const savedUserRaw = localStorage.getItem(ACTIVE_USER_KEY);
+                if (savedUserRaw) {
+                    try {
+                        const parsed = JSON.parse(savedUserRaw);
+                        if (String(parsed.id) === String(activeUid)) {
+                            me = parsed;
+                        }
+                    } catch (e) {}
+                }
             }
         }
-    }
-    
-    const isSystemBooted = window.ClientSystem && window.ClientSystem.isReady;
-    
-    if (activeUid && !me) {
-        if (users.length > 0 && isSystemBooted) {
-            this.logout();
-            return false;
+        
+        const isSystemBooted = window.ClientSystem && window.ClientSystem.isReady;
+        
+        if (activeUid && !me) {
+            if (users.length > 0 && isSystemBooted) {
+                this.logout();
+                return false;
+            } else {
+                return true;
+            }
+        }
+        
+        if (me) {
+            me.baseCurrency = me.baseCurrency || me.base_currency || 'USD';
+            const bal = me.walletBalance ?? me.wallet_balance ?? me.balance ?? 0;
+            me.walletBalance = bal;
+            me.inbox = me.inbox || [];
+            
+            if (me.tierCycleStartDate === undefined) {
+                me.tierCycleStartDate = this.getNow();
+                me.tierCycleSpent = 0;
+            }
+            
+            if (me.inbox && me.inbox.length > 30) {
+                me.inbox = [...me.inbox].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 30);
+            }
+            
+            this.user = me;
+            this.saveUserLocal();
         } else {
-            return true;
-        }
-    }
-    
-    if (me) {
-        me.baseCurrency = me.baseCurrency || me.base_currency || 'USD';
-        const bal = me.walletBalance ?? me.wallet_balance ?? me.balance ?? 0;
-        me.walletBalance = bal;
-        me.inbox = me.inbox || [];
-        
-        if (me.tierCycleStartDate === undefined) {
-            me.tierCycleStartDate = this.getNow();
-            me.tierCycleSpent = 0;
+            // 🌟 3. لا نقوم بتصفير المستخدم إلا إذا قام فعلياً بالضغط على "تسجيل الخروج"
+            if (!activeUid) {
+                this.user = null;
+            }
         }
         
-        if (me.inbox && me.inbox.length > 30) {
-            me.inbox = [...me.inbox].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 30);
+        const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ? LiveStoreData.settings.defaultCurrency : 'USD';
+        let savedCurr = localStorage.getItem('telecard_display_currency') || (this.user?.baseCurrency) || adminDefaultCurrency;
+        
+        const settings = LiveStoreData.settings || {};
+        const isToggleAllowed = settings.showCurrencyToggle !== false;
+        
+        if (!isToggleAllowed && this.user && savedCurr !== this.user.baseCurrency) {
+            savedCurr = this.user.baseCurrency;
+            localStorage.setItem('telecard_display_currency', savedCurr);
         }
         
-        this.user = me;
-        this.saveUserLocal();
-    } else {
-        // 🌟 3. لا نقوم بتصفير المستخدم إلا إذا قام فعلياً بالضغط على "تسجيل الخروج" (أي لا يوجد activeUid)
-        if (!activeUid) {
-            this.user = null;
-        }
-    }
-    
-    const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ? LiveStoreData.settings.defaultCurrency : 'USD';
-    let savedCurr = localStorage.getItem('telecard_display_currency') || (this.user?.baseCurrency) || adminDefaultCurrency;
-    
-    const settings = LiveStoreData.settings || {};
-    const isToggleAllowed = settings.showCurrencyToggle !== false;
-    
-    if (!isToggleAllowed && this.user && savedCurr !== this.user.baseCurrency) {
-        savedCurr = this.user.baseCurrency;
-        localStorage.setItem('telecard_display_currency', savedCurr);
-    }
-    
-    this.selectedCurr = savedCurr;
-    return true;
-},
+        this.selectedCurr = savedCurr;
+        return true;
+    },
+
     ackAdminMessage: async function() {
         if (!this.user || !this.user.id) return;
         try { this.updateUserProfile({ adminMessage: '' }); } catch(e) { }
@@ -414,9 +432,6 @@ syncUser: function() {
 
     confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
-
-        // 🌟 [الدرع المعماري]: السيرفر (القاضي) هو من سيقرر الربح والخسارة ويحمي التسعيرة
-        // المتجر يرسل الطلب فقط ولا يتدخل في قرار الربحية بعد الآن.
 
         try {
             const createOrderFn = this._getCloudFunction('createOrder');
@@ -502,31 +517,29 @@ syncUser: function() {
     },
 
     submitBalanceRequest: async function(amount, paymentMethod, payCurr, receiptData) {
-    if (!paymentMethod) return { success: false, msg: 'حدث خطأ: لم يتم تحديد طريقة الدفع' };
-    if (amount <= 0) return { success: false, msg: 'يرجى إدخال مبلغ صحيح ضمن الحدود المسموحة' };
-    
-    // الآن receiptData سيستلم رابط الصورة بشكل صحيح
-    if (paymentMethod.reqProof !== false && !receiptData) return { success: false, msg: 'يرجى إرفاق صورة إشعار الدفع أولاً', errType: 'receipt' };
-    
-    try {
-        const submitDepositFn = this._getCloudFunction('submitBalanceRequest');
+        if (!paymentMethod) return { success: false, msg: 'حدث خطأ: لم يتم تحديد طريقة الدفع' };
+        if (amount <= 0) return { success: false, msg: 'يرجى إدخال مبلغ صحيح ضمن الحدود المسموحة' };
         
-        const requestData = {
-            amount: Number(amount),
-            paymentMethodName: paymentMethod.name,
-            payCurr: payCurr,
-            // 🌟 السيرفر الآمن هو من يتولى حساب الرصيد الصافي الآن لمنع التلاعب
-            receiptData: receiptData || null
-        };
+        if (paymentMethod.reqProof !== false && !receiptData) return { success: false, msg: 'يرجى إرفاق صورة إشعار الدفع أولاً', errType: 'receipt' };
         
-        const result = await submitDepositFn(requestData);
-        return { success: true, msg: result.data.message || 'تم إرسال طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة' };
-        
-    } catch (error) {
-        console.error("Cloud Function Error (submitBalanceRequest):", error);
-        return { success: false, msg: error.message || 'تعذر إرسال طلب الإيداع، يرجى المحاولة لاحقاً.' };
-    }
-},
+        try {
+            const submitDepositFn = this._getCloudFunction('submitBalanceRequest');
+            
+            const requestData = {
+                amount: Number(amount),
+                paymentMethodName: paymentMethod.name,
+                payCurr: payCurr,
+                receiptData: receiptData || null
+            };
+            
+            const result = await submitDepositFn(requestData);
+            return { success: true, msg: result.data.message || 'تم إرسال طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة' };
+            
+        } catch (error) {
+            console.error("Cloud Function Error (submitBalanceRequest):", error);
+            return { success: false, msg: error.message || 'تعذر إرسال طلب الإيداع، يرجى المحاولة لاحقاً.' };
+        }
+    },
 
     formatDateLocal: function(timestamp) {
         if (typeof RenderHelpers !== 'undefined' && RenderHelpers.formatSafeDate) {

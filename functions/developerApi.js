@@ -1,15 +1,38 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const crypto = require('crypto'); // 🌟 توليد المعرفات السريعة والتوقيع الرقمي
 const { FinancialEngine } = require('./financialEngine.js');
 
-// تأكد من تهيئة أدمن فايربيز إذا كان هذا الملف مستقلاً
 if (!admin.apps.length) {
     admin.initializeApp();
 }
 const db = admin.firestore();
 
 // ==========================================
-// 🚀 1. مرسل الإشعارات السحابي (Webhook Dispatcher)
+// 🛠️ دوال مساعدة (Helpers)
+// ==========================================
+
+// دالة لحفظ المحاولات الفاشلة في طابور المهام (Queue) لإعادة إرسالها
+async function logFailedWebhook(payload, webhookUrl, errorMsg, userId) {
+    await db.collection('telecard_failed_webhooks').add({
+        userId: userId,
+        payload: payload,
+        webhookUrl: webhookUrl,
+        attempts: 1,
+        status: 'failed',
+        error: errorMsg || 'Unknown Connection Error',
+        lastAttempt: admin.firestore.FieldValue.serverTimestamp()
+    });
+}
+
+// دالة لتوليد توقيع رقمي أمني (HMAC) للتأكد من هوية المرسل
+function generateHmacSignature(payload, secret) {
+    if (!secret) return '';
+    return crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
+}
+
+// ==========================================
+// 🚀 1. مرسل الإشعارات السحابي (Webhook Dispatcher - Secure)
 // ==========================================
 exports.orderStatusWebhook = functions.region('us-east1').firestore
     .document('telecard_orders/{orderId}')
@@ -17,6 +40,7 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
         const before = change.before.data();
         const after = change.after.data();
         
+        // منع إرسال إشعار إذا لم تتغير الحالة
         if (before.status === after.status) return null;
         
         const userId = after.userId;
@@ -40,21 +64,40 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
                 deliveredCode: after.deliveredCode || null,
                 timestamp: new Date().toISOString()
             };
+
+            // 🌟 توليد توقيع أمني إذا كان العميل يمتلك Secret Key
+            const signature = generateHmacSignature(payload, userData.webhookSecret || 'default_telecard_secret');
             
-            const response = await fetch(userData.webhookUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Telecard-Cloud-Engine/1.0'
-                },
-                body: JSON.stringify(payload)
-            });
-            
-            if (!response.ok) {
-                console.warn(`Webhook failed for User ${userId} with status ${response.status}`);
+            // 🌟 الجدار الناري: تحديد مهلة 10 ثوانٍ للاتصال
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            try {
+                const response = await fetch(userData.webhookUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'Telecard-Cloud-Engine/2.0',
+                        'X-Telecard-Signature': signature // توقيع الأمان
+                    },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    console.warn(`Webhook failed for User ${userId} with status ${response.status}`);
+                    await logFailedWebhook(payload, userData.webhookUrl, `HTTP Error: ${response.status}`, userId);
+                }
+                return true;
+            } catch (fetchErr) {
+                clearTimeout(timeoutId);
+                const errorMsg = fetchErr.name === 'AbortError' ? 'Connection Timeout (10s)' : fetchErr.message;
+                console.error("Fetch Webhook Error:", errorMsg);
+                await logFailedWebhook(payload, userData.webhookUrl, errorMsg, userId);
+                return null;
             }
-            
-            return true;
         } catch (error) {
             console.error("Webhook Dispatch Error:", error);
             return null; 
@@ -62,20 +105,87 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
     });
 
 // ==========================================
-// 🔌 2. بوابة الـ API الخارجية (External API Gateway - Turbo Version)
+// ♻️ 2. طابور المهام الذكي (Dead Letter Queue Retry)
+// ==========================================
+exports.cronRetryWebhooks = functions.region('us-east1').pubsub.schedule('every 1 hours')
+    .timeZone('Asia/Riyadh')
+    .onRun(async (context) => {
+        const failedSnaps = await db.collection('telecard_failed_webhooks')
+            .where('status', '==', 'failed')
+            .where('attempts', '<', 5)
+            .limit(50)
+            .get();
+
+        if (failedSnaps.empty) return null;
+
+        const promises = failedSnaps.docs.map(async (doc) => {
+            const data = doc.data();
+            const currentAttempt = data.attempts + 1;
+            const isLastAttempt = currentAttempt >= 5;
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            try {
+                const response = await fetch(data.webhookUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'Telecard-Cloud-Engine-Retry/2.0'
+                    },
+                    body: JSON.stringify(data.payload),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    return doc.ref.update({ 
+                        status: 'success', 
+                        attempts: currentAttempt, 
+                        lastAttempt: admin.firestore.FieldValue.serverTimestamp() 
+                    });
+                } else {
+                    return doc.ref.update({ 
+                        status: isLastAttempt ? 'permanently_failed' : 'failed',
+                        attempts: currentAttempt, 
+                        error: `HTTP ${response.status}`, 
+                        lastAttempt: admin.firestore.FieldValue.serverTimestamp() 
+                    });
+                }
+            } catch (err) {
+                clearTimeout(timeoutId);
+                const errorMsg = err.name === 'AbortError' ? 'Connection Timeout (10s)' : err.message;
+                
+                return doc.ref.update({ 
+                    status: isLastAttempt ? 'permanently_failed' : 'failed',
+                    attempts: currentAttempt, 
+                    error: errorMsg, 
+                    lastAttempt: admin.firestore.FieldValue.serverTimestamp() 
+                });
+            }
+        });
+
+        // 🌟 حماية السلسلة من الانهيار إذا فشل مستند واحد
+        await Promise.allSettled(promises);
+        return true;
+    });
+
+// ==========================================
+// 🔌 3. بوابة الـ API الخارجية (External API Gateway - Turbo & Idempotency)
 // ==========================================
 exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async (req, res) => {
-    // 🛡️ السماح فقط بطلبات POST
     if (req.method !== 'POST') {
         return res.status(405).json({ success: false, error: 'Method Not Allowed. Use POST.' });
     }
 
-    // 🔑 التحقق من المفتاح الأمني
     const apiKeyHeader = req.headers['x-api-key'] || req.headers['authorization'];
     if (!apiKeyHeader) {
         return res.status(401).json({ success: false, error: 'Unauthorized: API Key is missing.' });
     }
 
+    // 🌟 Idempotency Key: مفتاح الحماية من الطلبات المكررة
+    const idempotencyKey = req.headers['idempotency-key'];
     const cleanKey = apiKeyHeader.replace('Bearer ', '').trim();
 
     try {
@@ -95,15 +205,29 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
         const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
         let resultData = null;
 
-        // 🔄 محرك التحويلات الجبار والمسرع
-        await db.runTransaction(async (transaction) => {
-            const productRef = db.collection('telecard_prods').doc(String(productId));
-            const countersRef = db.collection('telecard_system').doc('counters'); 
+        // 🌟 إنشاء معرف طلب سريع جداً وخالٍ من الاختناقات (Contention-Free)
+        // صيغة: TC-TIMESTAMP-RANDOM
+        const cleanOrderId = 'TC-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
 
-            // 🚀 1. القراءة المتزامنة الحقيقية (يوفر ثانية كاملة)
-            const [productSnap, countersSnap, latestUserSnap] = await Promise.all([
+        await db.runTransaction(async (transaction) => {
+            
+            // 🌟 حماية الـ Idempotency داخل الـ Transaction
+            let idempotencyRef = null;
+            if (idempotencyKey) {
+                idempotencyRef = db.collection('telecard_idempotency_keys').doc(`${uid}_${idempotencyKey}`);
+                const existingReq = await transaction.get(idempotencyRef);
+                if (existingReq.exists) {
+                    // إذا وجدنا الطلب سابقاً، نعيد نتيجته المخزنة ولا ننفذ أي خصم!
+                    resultData = existingReq.data().resultData;
+                    return; 
+                }
+            }
+
+            const productRef = db.collection('telecard_prods').doc(String(productId));
+
+            // قراءة متوازية
+            const [productSnap, latestUserSnap] = await Promise.all([
                 transaction.get(productRef),
-                transaction.get(countersRef),
                 transaction.get(userDoc.ref)
             ]);
 
@@ -111,15 +235,8 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
             const product = productSnap.data();
             const userData = latestUserSnap.data();
 
-            // استخراج الـ ID المتسلسل (العداد)
-            let currentOrderCount = 100001; 
-            if (countersSnap.exists && countersSnap.data().orders_counter) {
-                currentOrderCount = countersSnap.data().orders_counter + 1;
-            }
-            const cleanOrderId = String(currentOrderCount);
             const orderRef = db.collection('telecard_orders').doc(cleanOrderId);
 
-            // 🚀 2. جلب المستوى والمخزن معاً
             const tierId = String(userData.tierId || userData.tier || 1);
             const tierRef = db.collection('telecard_tiers').doc(tierId);
             const vaultRef = product.vaultPoolId ? db.collection('telecard_vault').doc(String(product.vaultPoolId)) : null;
@@ -131,7 +248,6 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
 
             const userTier = tierSnap.exists ? tierSnap.data() : null;
 
-            // حساب التكلفة
             let rawUnitCost = Number(product.costPrice || product.price || 0);
             const isFixed = (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true');
 
@@ -170,11 +286,9 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                 }
             }
 
-            // تحديثات القيود والترتيب 
             const costPriceVal = Number((pricingSnapshot.cost * finalQty).toFixed(4));
             const netProfit = Number((pricingSnapshot.profit * finalQty).toFixed(4));
             
-            // التعديل الآمن للأرصدة
             const newBalance = Number(Math.max(0, currentBalance - exactPrice).toFixed(4));
             const newTotalSpent = Number((Number(userData.totalSpent || 0) + exactPrice).toFixed(4));
             const newCycleSpent = Number((Number(userData.tierCycleSpent || 0) + exactPrice).toFixed(4));
@@ -190,7 +304,8 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                 input: inputStr || 'API Request',
                 status: isAutoDelivered ? 'completed' : 'pending',
                 deliveredCode: deliveredCodeText,
-                balanceAfter: newBalance, // 🌟 إضافة الرصيد التراكمي
+                balanceAfter: newBalance,
+                idempotencyKey: idempotencyKey || null, // حفظ المفتاح كمرجع إضافي
                 pricingSnapshot: { 
                     costUsd: costPriceVal,
                     tierPriceUsd: Number((pricingSnapshot.tierPrice * finalQty).toFixed(4)),
@@ -205,21 +320,28 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                 isApiOrder: true
             };
 
-            // تطبيق التغييرات (بدون update للـ singleton لمنع الدبلة والاختناق)
-            transaction.update(userDoc.ref, {
-                walletBalance: newBalance, balance: newBalance,
-                totalSpent: newTotalSpent, tierCycleSpent: newCycleSpent
-            });
-            
-            transaction.set(orderRef, newOrder);
-            transaction.set(countersRef, { orders_counter: currentOrderCount }, { merge: true });
-
             resultData = {
                 orderId: cleanOrderId,
                 status: newOrder.status,
                 pricePaid: exactPrice,
                 deliveredCode: deliveredCodeText
             };
+
+            transaction.update(userDoc.ref, {
+                walletBalance: newBalance, balance: newBalance,
+                totalSpent: newTotalSpent, tierCycleSpent: newCycleSpent
+            });
+            
+            transaction.set(orderRef, newOrder);
+
+            // 🌟 توثيق العملية لضمان عدم تكرارها مستقبلاً
+            if (idempotencyRef) {
+                transaction.set(idempotencyRef, {
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    resultData: resultData,
+                    orderId: cleanOrderId
+                });
+            }
         });
 
         return res.status(200).json({ success: true, data: resultData });

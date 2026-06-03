@@ -56,94 +56,97 @@ export const RenderManager = {
     // =========================================================
     // 🏠 1. رسم الصفحة الرئيسية (الأقسام الرئيسية)
     // =========================================================
-    renderHome: function(isBackAction = false) {
-        const grid = document.getElementById('store-grid');
-        const titleEl = document.getElementById('grid-title');
+    // =========================================================
+// 🏠 1. رسم الصفحة الرئيسية (الأقسام الرئيسية - نسخة صامدة ضد الومضات)
+// =========================================================
+renderHome: function(isBackAction = false) {
+    const grid = document.getElementById('store-grid');
+    const titleEl = document.getElementById('grid-title');
+    
+    document.body.classList.add('is-home');
+    
+    if (titleEl) {
+        titleEl.classList.remove('show-correct-title');
+        titleEl.innerText = '';
+    }
+    
+    const performRender = () => {
+        UIManager.toggleHeroSection(true);
+        UIManager.navHistory = [];
+        UIManager.currentCategoryId = null;
         
-        document.body.classList.add('is-home');
-        
-        if(titleEl) {
-            titleEl.classList.remove('show-correct-title');
-            titleEl.innerText = ''; 
+        if (!isBackAction && window.history.replaceState) {
+            window.history.replaceState(null, '', ' ');
         }
-
-        const performRender = () => {
-            UIManager.toggleHeroSection(true);
-            UIManager.navHistory = []; 
-            UIManager.currentCategoryId = null;
-
-            if (!isBackAction && window.history.replaceState) {
-                window.history.replaceState(null, '', ' ');
-            }
-            
-            UIManager.resetGridScroll();
-            UIManager.resetUI();
-            UIManager.renderTicker();
-            
-            const cats = LiveStoreData.cats || [];
-            const settings = LiveStoreData.settings || {}; 
-            
-            if(grid) {
-                grid.innerHTML = '';
-                UIManager.setGridMode('grid-cats');
-                this._applyGridLayout(grid, settings, null);
-            }
-
-            if(titleEl) titleEl.innerText = 'الأقسام الرئيسية';
-
-            const backBtn = document.getElementById('header-back-btn') || document.querySelector('.modern-back-btn') || document.getElementById('smart-back-btn');
-            if(backBtn) {
-                backBtn.classList.remove('show');
-                backBtn.style.display = 'none';
-                backBtn.onclick = null; // تنظيف الحدث بشكل آمن
-            }
-
-            const fragment = document.createDocumentFragment();
-            const rootCats = cats.filter(c => !c.parentId).sort((a,b) => (a.order||0)-(b.order||0));
-            
-            if (rootCats.length === 0) {
+        
+        UIManager.resetGridScroll();
+        UIManager.resetUI();
+        UIManager.renderTicker();
+        
+        const cats = LiveStoreData.cats || [];
+        const settings = LiveStoreData.settings || {};
+        const isSyncDone = LiveStoreData.isInitialSyncDone || false; // 🌟 جلب علم مزامنة البيانات الحقيقي
+        
+        if (grid) {
+            grid.innerHTML = '';
+            UIManager.setGridMode('grid-cats');
+            this._applyGridLayout(grid, settings, null);
+        }
+        
+        if (titleEl) titleEl.innerText = 'الأقسام الرئيسية';
+        
+        const backBtn = document.getElementById('header-back-btn') || document.querySelector('.modern-back-btn') || document.getElementById('smart-back-btn');
+        if (backBtn) {
+            backBtn.classList.remove('show');
+            backBtn.style.display = 'none';
+            backBtn.onclick = null; // تنظيف الحدث بشكل آمن
+        }
+        
+        const fragment = document.createDocumentFragment();
+        const rootCats = cats.filter(c => !c.parentId).sort((a, b) => (a.order || 0) - (b.order || 0));
+        
+        if (rootCats.length === 0) {
+            if (isSyncDone) {
+                // 🌟 لا تظهر هذه الشاشة إلا إذا انتهى التحميل الفعلي من السيرفر وكانت البيانات صفر فعلياً
                 if (grid) {
                     grid.innerHTML = `
-                        <div class="empty-state-v2">
-                            <i class="fa-solid fa-store-slash"></i>
-                            <h3>المتجر قيد التجهيز</h3>
-                            <p>لا توجد أقسام أو منتجات متاحة في الوقت الحالي، نرجو زيارتنا لاحقاً.</p>
-                        </div>`;
+                            <div class="empty-state-v2">
+                                <i class="fa-solid fa-store-slash"></i>
+                                <h3>المتجر قيد التجهيز</h3>
+                                <p>لا توجد أقسام أو منتجات متاحة في الوقت الحالي، نرجو زيارتنا لاحقاً.</p>
+                            </div>`;
                 }
             } else {
-                rootCats.forEach(c => {
-                    const div = document.createElement('div');
-                    div.className = 'cat-card';
-                    div.setAttribute('data-action', 'open-category');
-                    div.setAttribute('data-id', c.id);
-                    
-                    const safeName = Utils.safeText(c.name);
-                    
-                    const imgHTML = c.img 
-                        ? `<img src="${Utils.escapeHtml(c.img)}" alt="${safeName}" fetchpriority="high" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
-                        : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
-                    
-                    div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
-                    fragment.appendChild(div);
-                });
-                if(grid) grid.appendChild(fragment); 
+                // 🌟 إذا لم ينتهِ التحميل الحقيقي، استمر في عرض الهيكل العظمي (Skeletons) دون أي ومضات سوداء
+                if (typeof this.renderHomeSkeletons === 'function') {
+                    this.renderHomeSkeletons();
+                }
             }
-            
-            UIManager.initSlider();
-        };
-
-        const hasData = (LiveStoreData.cats && LiveStoreData.cats.length > 0);
-        
-        if (hasData) {
-            performRender();
         } else {
-            if (typeof this.renderHomeSkeletons === 'function') {
-                this.renderHomeSkeletons();
-            }
-            setTimeout(performRender, 600);
+            rootCats.forEach(c => {
+                const div = document.createElement('div');
+                div.className = 'cat-card';
+                div.setAttribute('data-action', 'open-category');
+                div.setAttribute('data-id', c.id);
+                
+                const safeName = Utils.safeText(c.name);
+                
+                const imgHTML = c.img ?
+                    `<img src="${Utils.escapeHtml(c.img)}" alt="${safeName}" fetchpriority="high" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` :
+                    `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
+                
+                div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
+                fragment.appendChild(div);
+            });
+            if (grid) grid.appendChild(fragment);
         }
-    },
-
+        
+        UIManager.initSlider();
+    };
+    
+    // 🚀 تشغيل فوري وبدون أي فترات انتظار وهمية
+    performRender();
+},
     renderHomeSkeletons: function() {
         const grid = document.getElementById('store-grid');
         if (grid) {

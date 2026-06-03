@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 المحرك الرئيسي للمتجر (script.js) - المجلد الاحترافي المصلح للسحابة
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: دمج نظام المؤشرات (Cursor Pagination) + إيقاف نزيف الذاكرة
+// 🚀 التحديث: دمج نظام المؤشرات (Cursor Pagination) + إيقاف نزيف الذاكرة + Event-Driven Hydration
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
@@ -430,6 +430,9 @@ ClientSystem.init = async function() {
                     }
                 });                
                 
+                // 🌟 تفعيل علم المزامنة الحقيقية
+                LiveStoreData.isInitialSyncDone = true; 
+                
                 localStorage.setItem('telecard_store_cache', JSON.stringify(cacheObject));
                 
                 RenderHelpers.init({
@@ -441,6 +444,9 @@ ClientSystem.init = async function() {
                 
                 if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
                 if (typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
+                
+                // 🌟 إعادة رسم الصفحة الرئيسية بأمان وبدون أي ومضات بعد وصول البيانات الحقيقية
+                if (RenderManager && typeof RenderManager.renderHome === 'function') RenderManager.renderHome(); 
                 
                 if (typeof UIManager.initSlider === 'function') UIManager.initSlider();
                 if (typeof UIManager.renderTicker === 'function') UIManager.renderTicker(); 

@@ -696,6 +696,28 @@ exports.secureProductSync = functions.region('us-east1').firestore
         // 4. حفظ النسخة الآمنة في المجموعة العامة ليقرأها المتجر
         return publicProdRef.set(publicData, { merge: true });
     });
+    // دالة حماية فائقة لمنح رتب الأدمن (فقط مالك النظام الأساسي يستطيع تشغيلها)
+exports.grantAdminRole = functions.region('us-east1').https.onCall(async (data, context) => {
+    const rootOwnerUid = 'e064MQJyn6dhU9mNXZvXItc7VYg2'; // حسابك الأساسي المحمي
+    
+    if (!context.auth || context.auth.uid !== rootOwnerUid) {
+        throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك بتشغيل هذه الدالة الأمنية.');
+    }
+    
+    const targetEmail = data.email;
+    if (!targetEmail) {
+        throw new functions.https.HttpsError('invalid-argument', 'الرجاء إدخال البريد الإلكتروني المستهدف.');
+    }
+    
+    try {
+        const user = await admin.auth().getUserByEmail(targetEmail);
+        // حقن الشارة الأمنية المشفرة في حساب المستخدم للأبد [1]
+        await admin.auth().setCustomUserClaims(user.uid, { admin: true });
+        return { success: true, message: `تم منح رتبة الأدمن بنجاح للحساب: ${targetEmail}` };
+    } catch (error) {
+        throw new functions.https.HttpsError('internal', `فشل منح الصلاحية: ${error.message}`);
+    }
+});
 // ==========================================
 // 🔗 ربط وتصدير دوال المطورين والموردين
 // ==========================================
