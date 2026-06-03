@@ -1,6 +1,12 @@
+// ============================================================================
+// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - Pro Version
+// 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
+// 🚀 التحديث: دمج معايير (Idempotency) وسد الخلل المحاسبي لتقارير الأرباح
+// ============================================================================
+
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
-const crypto = require('crypto'); // 🌟 توليد المعرفات السريعة والتوقيع الرقمي
+const crypto = require('crypto'); 
 const { FinancialEngine } = require('./financialEngine.js');
 
 if (!admin.apps.length) {
@@ -40,7 +46,6 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
         const before = change.before.data();
         const after = change.after.data();
         
-        // منع إرسال إشعار إذا لم تتغير الحالة
         if (before.status === after.status) return null;
         
         const userId = after.userId;
@@ -65,10 +70,8 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
                 timestamp: new Date().toISOString()
             };
 
-            // 🌟 توليد توقيع أمني إذا كان العميل يمتلك Secret Key
             const signature = generateHmacSignature(payload, userData.webhookSecret || 'default_telecard_secret');
             
-            // 🌟 الجدار الناري: تحديد مهلة 10 ثوانٍ للاتصال
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -78,7 +81,7 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
                     headers: {
                         'Content-Type': 'application/json',
                         'User-Agent': 'Telecard-Cloud-Engine/2.0',
-                        'X-Telecard-Signature': signature // توقيع الأمان
+                        'X-Telecard-Signature': signature 
                     },
                     body: JSON.stringify(payload),
                     signal: controller.signal
@@ -166,7 +169,6 @@ exports.cronRetryWebhooks = functions.region('us-east1').pubsub.schedule('every 
             }
         });
 
-        // 🌟 حماية السلسلة من الانهيار إذا فشل مستند واحد
         await Promise.allSettled(promises);
         return true;
     });
@@ -184,7 +186,6 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
         return res.status(401).json({ success: false, error: 'Unauthorized: API Key is missing.' });
     }
 
-    // 🌟 Idempotency Key: مفتاح الحماية من الطلبات المكررة
     const idempotencyKey = req.headers['idempotency-key'];
     const cleanKey = apiKeyHeader.replace('Bearer ', '').trim();
 
@@ -205,19 +206,15 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
         const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
         let resultData = null;
 
-        // 🌟 إنشاء معرف طلب سريع جداً وخالٍ من الاختناقات (Contention-Free)
-        // صيغة: TC-TIMESTAMP-RANDOM
         const cleanOrderId = 'TC-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
 
         await db.runTransaction(async (transaction) => {
             
-            // 🌟 حماية الـ Idempotency داخل الـ Transaction
             let idempotencyRef = null;
             if (idempotencyKey) {
                 idempotencyRef = db.collection('telecard_idempotency_keys').doc(`${uid}_${idempotencyKey}`);
                 const existingReq = await transaction.get(idempotencyRef);
                 if (existingReq.exists) {
-                    // إذا وجدنا الطلب سابقاً، نعيد نتيجته المخزنة ولا ننفذ أي خصم!
                     resultData = existingReq.data().resultData;
                     return; 
                 }
@@ -225,7 +222,7 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
 
             const productRef = db.collection('telecard_prods').doc(String(productId));
 
-            // قراءة متوازية
+            // قراءة متوازية للمراجع الأساسية
             const [productSnap, latestUserSnap] = await Promise.all([
                 transaction.get(productRef),
                 transaction.get(userDoc.ref)
@@ -248,25 +245,19 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
 
             const userTier = tierSnap.exists ? tierSnap.data() : null;
 
-            let rawUnitCost = Number(product.costPrice || product.price || 0);
+            // 🌟 الحسبة المالية الدقيقة: التكلفة حقيقية والسعر الثابت منفصلان [1]
+            const rawUnitCost = Number(product.costPrice || product.price || 0);
             const isFixed = (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true');
+            const fixedUsd = isFixed ? Number(product.fixedPriceUsd || product.fixed_price_usd || 0) : 0;
 
-            if (isFixed) {
-                const fixedUsd = Number(product.fixedPriceUsd || product.fixed_price_usd || 0);
-                if (fixedUsd > 0) rawUnitCost = fixedUsd;
-            }
+            const pricingSnapshot = FinancialEngine.calculatePrice({
+                costPrice: rawUnitCost, // التكلفة الحقيقية للمورد
+                fixedPrice: fixedUsd,   // السعر الثابت للبيع
+                tier: userTier,
+                offer: null,
+                coupon: null
+            });
 
-            // 🌟 استخراج التكلفة الحقيقية للـ API
-const rawUnitCost = Number(product.costPrice || product.price || 0);
-const fixedUsd = isFixed ? Number(product.fixedPriceUsd || product.fixed_price_usd || 0) : 0;
-
-const pricingSnapshot = FinancialEngine.calculatePrice({
-    costPrice: rawUnitCost,
-    fixedPrice: fixedUsd,
-    tier: userTier,
-    offer: null,
-    coupon: null
-});
             const exactPrice = Number((pricingSnapshot.finalPrice * finalQty).toFixed(4));
             const currentBalance = Number(userData.walletBalance || 0);
 
@@ -309,7 +300,7 @@ const pricingSnapshot = FinancialEngine.calculatePrice({
                 status: isAutoDelivered ? 'completed' : 'pending',
                 deliveredCode: deliveredCodeText,
                 balanceAfter: newBalance,
-                idempotencyKey: idempotencyKey || null, // حفظ المفتاح كمرجع إضافي
+                idempotencyKey: idempotencyKey || null, 
                 pricingSnapshot: { 
                     costUsd: costPriceVal,
                     tierPriceUsd: Number((pricingSnapshot.tierPrice * finalQty).toFixed(4)),
@@ -338,7 +329,6 @@ const pricingSnapshot = FinancialEngine.calculatePrice({
             
             transaction.set(orderRef, newOrder);
 
-            // 🌟 توثيق العملية لضمان عدم تكرارها مستقبلاً
             if (idempotencyRef) {
                 transaction.set(idempotencyRef, {
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
