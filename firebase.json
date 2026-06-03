@@ -1,7 +1,7 @@
 {
   "firestore": {
     "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json" // 🌟 تم ربط وتفعيل فهارس الترقيم لحمايتها أثناء النشر من GitHub
+    "indexes": "firestore.indexes.json" 
   },
   "storage": {
     "rules": "storage.rules"
