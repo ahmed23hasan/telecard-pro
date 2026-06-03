@@ -315,7 +315,6 @@ exports.updateStatsOnNewDeposit = functions.region('us-east1').firestore
             'globalStats.deposits.total': admin.firestore.FieldValue.increment(1)
         }, { merge: true });
     });
-
 // ==========================================
 // 👑 3. [إدارة] دالة معالجة الإيداعات الآمنة
 // ==========================================
@@ -356,8 +355,9 @@ exports.adminProcessDeposit = functions.region('us-east1').https.onCall(async (d
             }
             
             const statsUpdate = {};
-            const amountToProcess = Number(depData.creditedAmount || d.amount || 0);
-            let newWalletBal = 0; 
+            // 🌟 تم تصحيح الخلل هنا باستدعاء depData.amount بدلاً من d.amount المجهولة [3]
+            const amountToProcess = Number(depData.creditedAmount || depData.amount || 0);
+            let newWalletBal = 0;
             
             if (action === 'approved') {
                 if (userSnap && userSnap.exists) {
@@ -407,7 +407,6 @@ exports.adminProcessDeposit = functions.region('us-east1').https.onCall(async (d
         throw new functions.https.HttpsError('internal', error.message || 'فشلت عملية معالجة الإيداع.');
     }
 });
-
 // ==========================================
 // 👑 4. [إدارة] دالة معالجة الطلبات الآمنة
 // ==========================================
