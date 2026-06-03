@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة المدرعة للإنتاج V5
 // 🎯 الوظيفة: معالجة الطلبات والإيداعات الآمنة سحابياً بنظام الحوسبة المتوازية اللانهائية
-// 🌟 التحديث الأقصى: تسجيل (الرصيد التراكمي) بدقة لجميع العمليات (balanceAfter)
+// 🌟 التحديث الأقصى: تسجيل (الرصيد التراكمي) + الترقية الأمنية لـ Custom Claims
 // ============================================================================
 
 const functions = require('firebase-functions');
@@ -18,9 +18,10 @@ const db = admin.firestore();
 // 🛡️ دوال مساعدة (Helper Functions)
 // ==========================================
 
+// التحقق السحابي الآمن من شارة الأدمن دون تثبيت إيميلات بالكود [1]
 const isMasterAdmin = (context) => {
-    if (!context.auth) return false;
-    return context.auth.token.email === 'admin@telecard.pro' || context.auth.uid === 'e064MQJyn6dhU9mNXZvXItc7VYg2';
+    if (!context.auth || !context.auth.token) return false;
+    return context.auth.token.admin === true;
 };
 
 const safeAdd = (a, b) => Number((Number(a) + Number(b)).toFixed(4));
@@ -32,6 +33,7 @@ const generateUniqueId = () => {
     const randomSuffix = Math.floor(10 + Math.random() * 90); // رقمين عشوائيين للأمان المطلق
     return `${timeBase36}-${randomSuffix}`; // ينتج معرفات فخمة مثل: LPTW89-34
 };
+
 // ==========================================
 // 🛒 1. دالة إنشاء الطلبات الآمنة للعملاء (نسخة الـ Turbo المجانية)
 // ==========================================
@@ -109,30 +111,26 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
                 throw new functions.https.HttpsError('failed-precondition', 'عذراً، انتهت صلاحية هذا الكوبون.');
             }
 
+            // تحديد التكلفة للمورد مع دعم خيارات الباقة (Select Package)
             let rawUnitCost = Number(product.costPrice || product.unitCost || product.price || 0);
             if (product.type === 'select' && Array.isArray(product.options) && product.options[optIdx]) {
                 rawUnitCost = Number(product.options[optIdx].price || product.options[optIdx].costPrice || 0);
             }
             
             const isFixed = (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true' || product.is_fixed_price === true);
-            if (isFixed) {
-                const fixedUsd = Number(product.fixedPriceUsd || product.fixed_price_usd || 0);
-                if (fixedUsd > 0) rawUnitCost = fixedUsd;
-            }
+            
+            // تحديد السعر الثابت إذا كان المنتج ثابتاً
+            const fixedUsd = isFixed ? Number(product.fixedPriceUsd || product.fixed_price_usd || 0) : 0;
 
-            // 🌟 استخراج التكلفة الحقيقية للمورد
-const rawUnitCost = Number(product.costPrice || product.unitCost || product.price || 0);
+            // 🌟 الحسبة المالية الدقيقة لحماية الأرباح (تم إزالة التكرار الخاطئ هنا)
+            const pricingSnapshot = FinancialEngine.calculatePrice({
+                costPrice: rawUnitCost, 
+                fixedPrice: fixedUsd, 
+                tier: userTier,
+                offer: activeOffer,
+                coupon: couponData
+            });
 
-// 🌟 استخراج السعر الثابت إذا وجد
-const fixedUsd = isFixed ? Number(product.fixedPriceUsd || product.fixed_price_usd || 0) : 0;
-
-const pricingSnapshot = FinancialEngine.calculatePrice({
-    costPrice: rawUnitCost, // التكلفة الحقيقية لتقارير الأرباح
-    fixedPrice: fixedUsd, // سعر البيع الثابت (يتخطى تدرج المستويات)
-    tier: userTier,
-    offer: activeOffer,
-    coupon: couponData
-});
             const totalRequired = Number((pricingSnapshot.finalPrice * finalQty).toFixed(4));
             const currentBalance = Number(userData.walletBalance || 0);
 
@@ -204,7 +202,6 @@ const pricingSnapshot = FinancialEngine.calculatePrice({
             });
             
             transaction.set(orderRef, newOrder);
-            // ❌ تم إزالة تحديث الإحصائيات (systemRef/singleton) من هنا لمنع الاختناق!
         });
 
         return { success: true, message: resultMessage, isAutoDelivered: isAutoDelivered, deliveredCode: deliveredCodeText };
@@ -215,6 +212,7 @@ const pricingSnapshot = FinancialEngine.calculatePrice({
         throw new functions.https.HttpsError('internal', 'حدث خطأ غير متوقع في السيرفر.');
     }
 });
+
 // ==========================================
 // 💰 2. دالة إرسال طلب الإيداع للعملاء (نسخة الـ Turbo المجانية)
 // ==========================================
@@ -227,7 +225,6 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
     if (amount <= 0) throw new functions.https.HttpsError('invalid-argument', 'المبلغ المدخل غير صالح.');
 
     try {
-        // 🚀 1. جلب جميع البيانات الأساسية في نفس اللحظة (يوفر أكثر من ثانية كاملة من الانتظار)
         const [existingPendingSnap, paymentsSnap, ratesSnap] = await Promise.all([
             db.collection('telecard_deposits').where('userId', '==', uid).where('method', '==', paymentMethodName).where('status', '==', 'pending').limit(1).get(),
             db.collection('telecard_payments').where('name', '==', paymentMethodName).limit(1).get(),
@@ -247,7 +244,6 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
         const depositRef = db.collection('telecard_deposits').doc(cleanDepositId);
         const userRef = db.collection('telecard_users').doc(uid);
 
-        // 🛡️ 2. بدء المعاملة الآمنة لمعالجة الرصيد
         await db.runTransaction(async (transaction) => {
             const userSnap = await transaction.get(userRef);
 
@@ -297,8 +293,6 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 receipt: receiptData || null
             });
-
-            // ❌ تم إزالة تحديث الإحصائيات (systemRef) من هنا لمنع عنق الزجاجة وتأخير العميل!
         });
 
         return { success: true, message: 'تم استلام طلب الإيداع وهو قيد المراجعة.' };
@@ -308,8 +302,9 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
         throw new functions.https.HttpsError('internal', 'تعذر إرسال طلب الإيداع.');
     }
 });
+
 // ==========================================
-// 📊 معالج إحصائيات الإيداع الصامت (يعمل في الخلفية ولا يؤخر العميل)
+// 📊 معالج إحصائيات الإيداع الصامت (يعمل في الخلفية)
 // ==========================================
 exports.updateStatsOnNewDeposit = functions.region('us-east1').firestore
     .document('telecard_deposits/{depositId}')
@@ -320,6 +315,7 @@ exports.updateStatsOnNewDeposit = functions.region('us-east1').firestore
             'globalStats.deposits.total': admin.firestore.FieldValue.increment(1)
         }, { merge: true });
     });
+
 // ==========================================
 // 👑 3. [إدارة] دالة معالجة الإيداعات الآمنة
 // ==========================================
@@ -360,8 +356,8 @@ exports.adminProcessDeposit = functions.region('us-east1').https.onCall(async (d
             }
             
             const statsUpdate = {};
-            const amountToProcess = Number(depData.creditedAmount || depData.amount || 0);
-            let newWalletBal = 0; // 🌟 للرصيد التراكمي
+            const amountToProcess = Number(depData.creditedAmount || d.amount || 0);
+            let newWalletBal = 0; 
             
             if (action === 'approved') {
                 if (userSnap && userSnap.exists) {
@@ -390,7 +386,6 @@ exports.adminProcessDeposit = functions.region('us-east1').https.onCall(async (d
                 statsUpdate['globalStats.deposits.refunded'] = admin.firestore.FieldValue.increment(1);
             }
             
-            // 🌟 3. تسجيل الرصيد التراكمي في الإيداع عند قبوله أو استرجاعه
             let depUpdateObj = {
                 status: action,
                 adminNote: adminNote || '',
@@ -459,7 +454,7 @@ exports.adminProcessOrder = functions.region('us-east1').https.onCall(async (dat
             const exactPriceUsd = Number(orderData.price || 0);
             const costUsd = orderData.pricingSnapshot ? Number(orderData.pricingSnapshot.costUsd || 0) : 0;
             const profitUsd = orderData.pricingSnapshot ? Number(orderData.pricingSnapshot.netProfitUsd || 0) : 0;
-            let newWalletBal = 0; // 🌟 للرصيد التراكمي عند الاسترجاع
+            let newWalletBal = 0; 
 
             if (orderData.status === 'pending' || orderData.status === 'processing') {
                 if (action === 'completed') {
@@ -493,7 +488,6 @@ exports.adminProcessOrder = functions.region('us-east1').https.onCall(async (dat
                 }
             }
 
-            // 🌟 4. تسجيل الرصيد التراكمي في الطلب عند الاسترجاع (Refund/Return/Reject)
             let orderUpdateObj = { status: action, adminNote: adminNote || '', actionTime: admin.firestore.FieldValue.serverTimestamp() };
             if (isRefundingAction && !wasAlreadyRefunded) {
                 orderUpdateObj.balanceAfter = newWalletBal;
@@ -544,7 +538,6 @@ exports.adminAdjustBalance = functions.region('us-east1').https.onCall(async (da
             const cleanDepositId = generateUniqueId(); 
             const depositRef = db.collection('telecard_deposits').doc(cleanDepositId);
 
-            // 🌟 5. حساب الرصيد التراكمي لحركات الإدارة
             const newBal = type === 'add' ? safeAdd(currentBal, adjustAmount) : safeSub(currentBal, adjustAmount);
             const currentTotalDep = Number(userData.totalDeposit || 0);
             const newTotalDep = type === 'add' ? safeAdd(currentTotalDep, adjustAmount) : currentTotalDep;
@@ -572,7 +565,7 @@ exports.adminAdjustBalance = functions.region('us-east1').https.onCall(async (da
                 targetCurrency: currency,
                 method: type === 'add' ? 'إيداع من الإدارة' : 'خصم من الإدارة',
                 status: 'approved',
-                balanceAfter: newBal, // 🌟 طباعة الرصيد التراكمي هنا
+                balanceAfter: newBal, 
                 time: admin.firestore.FieldValue.serverTimestamp(),
                 admin: adminName || 'النظام المركزي'
             });
@@ -661,14 +654,12 @@ exports.getServerTime = functions.region('us-east1').https.onCall((data, context
 // ==========================================
 // 🛡️ 6. دالة المزامنة الآمنة للمنتجات (Data Sanitizer - Public Splitter)
 // ==========================================
-// تعمل تلقائياً (Trigger) في الخلفية عندما يضيف أو يعدل الإدمن أي منتج
 exports.secureProductSync = functions.region('us-east1').firestore
     .document('telecard_prods/{productId}')
     .onWrite(async (change, context) => {
         const productId = context.params.productId;
         const publicProdRef = db.collection('telecard_prods_public').doc(productId);
         
-        // إذا قام الإدمن بحذف المنتج، نحذفه من الواجهة العامة للعملاء أيضاً
         if (!change.after.exists) {
             return publicProdRef.delete();
         }
@@ -676,11 +667,9 @@ exports.secureProductSync = functions.region('us-east1').firestore
         const prodData = change.after.data();
         const costPrice = Number(prodData.costPrice || prodData.cost_price || 0);
         
-        // 1. جلب المستويات لحساب الأسعار مسبقاً
         const tiersSnap = await db.collection('telecard_tiers').get();
         const tierPrices = {};
         
-        // 2. حساب السعر المخصص لكل مستوى (بدون عروض أو كوبونات، السعر الأساسي فقط)
         tiersSnap.forEach(doc => {
             const tier = doc.data();
             const profitPercent = Number(tier.profitPercent || tier.profit_percent || 0);
@@ -692,22 +681,19 @@ exports.secureProductSync = functions.region('us-east1').firestore
             tierPrices[tier.id] = Number((costPrice + profitAdded).toFixed(4));
         });
         
-        // 3. إنشاء النسخة النظيفة (حذف التكلفة وأي بيانات سرية للموردين)
         const publicData = { ...prodData };
         delete publicData.costPrice;
         delete publicData.cost_price;
-        delete publicData.providerId; // أسرار الموردين
-        delete publicData.apiToken; // أسرار الموردين
+        delete publicData.providerId; 
+        delete publicData.apiToken; 
         
-        // إضافة الأسعار المحسوبة مسبقاً للنسخة العامة
         publicData.tierPrices = tierPrices;
         
-        // 4. حفظ النسخة الآمنة في المجموعة العامة ليقرأها المتجر
         return publicProdRef.set(publicData, { merge: true });
     });
     // دالة حماية فائقة لمنح رتب الأدمن (فقط مالك النظام الأساسي يستطيع تشغيلها)
 exports.grantAdminRole = functions.region('us-east1').https.onCall(async (data, context) => {
-    const rootOwnerUid = 'e064MQJyn6dhU9mNXZvXItc7VYg2'; // حسابك الأساسي المحمي
+    const rootOwnerUid = 'e064MQJyn6dhU9mNXZvXItc7VYg2'; 
     
     if (!context.auth || context.auth.uid !== rootOwnerUid) {
         throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك بتشغيل هذه الدالة الأمنية.');
@@ -720,7 +706,6 @@ exports.grantAdminRole = functions.region('us-east1').https.onCall(async (data, 
     
     try {
         const user = await admin.auth().getUserByEmail(targetEmail);
-        // حقن الشارة الأمنية المشفرة في حساب المستخدم للأبد [1]
         await admin.auth().setCustomUserClaims(user.uid, { admin: true });
         return { success: true, message: `تم منح رتبة الأدمن بنجاح للحساب: ${targetEmail}` };
     } catch (error) {
