@@ -406,85 +406,106 @@
         if (err) err.style.display = 'none';
     }
 
-    // =================================================================
-    // 🌐 دالة التسجيل عبر جوجل (النسخة الديناميكية المعززة)
-    // =================================================================
-    async function handleGoogleLogin() {
-        const btn = document.querySelector('.google-btn');
-        const originalText = btn.innerHTML;
-        btn.innerHTML = 'جاري الاتصال بجوجل...'; 
-        btn.style.opacity = '0.7'; 
-        btn.disabled = true;
+// =================================================================
+// 🌐 دالة التسجيل عبر جوجل (النسخة الديناميكية المعززة مع سحب صورة غوغل)
+// =================================================================
+async function handleGoogleLogin() {
+    const btn = document.querySelector('.google-btn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = 'جاري الاتصال بجوجل...';
+    btn.style.opacity = '0.7';
+    btn.disabled = true;
+    
+    try {
+        const result = await signInWithPopup(auth, googleProvider);
+        const firebaseUser = result.user;
         
-        try {
-            const result = await signInWithPopup(auth, googleProvider);
-            const firebaseUser = result.user;
+        const userDocRef = doc(db, DB_KEYS.USERS, firebaseUser.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        
+        let activeUserObj = null;
+        
+        if (!userDocSnap.exists()) {
+            btn.innerHTML = 'جاري تهيئة الحساب...';
             
-            const userDocRef = doc(db, DB_KEYS.USERS, firebaseUser.uid);
-            const userDocSnap = await getDoc(userDocRef);
+            // جلب عملة العرض ديناميكياً لإنشاء المحفظة
+            const targetCurrency = await getAdminDefaultCurrency();
+            const shortDisplayId = await generateUniqueDisplayId();
             
-            let activeUserObj = null;
-
-            if (!userDocSnap.exists()) {
-                btn.innerHTML = 'جاري تهيئة الحساب...';
-                
-                // جلب عملة العرض ديناميكياً لإنشاء المحفظة [1]
-                const targetCurrency = await getAdminDefaultCurrency();
-                const shortDisplayId = await generateUniqueDisplayId();
-
-                const fullName = firebaseUser.displayName || 'عميل جديد';
-                const nameParts = fullName.split(' ');
-                const firstName = nameParts[0];
-                const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
-                const baseUsername = fullName.toLowerCase().replace(/\s+/g, '');
-                const finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
-
-                activeUserObj = {
-                    id: firebaseUser.uid,
-                    displayId: shortDisplayId,
-                    name: firstName,
-                    lastName: lastName,
-                    username: finalUsername,
-                    email: firebaseUser.email,
-                    baseCurrency: targetCurrency, // 🌟 ديناميكي [1]
-                    base_currency: targetCurrency, // 🌟 ديناميكي [1]
-                    phone: null,
-                    country: null,
-                    walletBalance: 0,
-                    balance: 0,
-                    totalSpent: 0,
-                    totalDeposit: 0,
-                    tierId: "", 
-                    createdAt: Date.now()
-                };
-
-                if (StoreDB && typeof StoreDB.set === 'function') {
-                    await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
-                } else {
-                    await setDoc(userDocRef, activeUserObj);
-                }
-            } else {
-                activeUserObj = userDocSnap.data();
+            const fullName = firebaseUser.displayName || 'عميل جديد';
+            const nameParts = fullName.split(' ');
+            const firstName = nameParts[0];
+            const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+            const baseUsername = fullName.toLowerCase().replace(/\s+/g, '');
+            const finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
+            
+            // 🌟 [الإصلاح الجذري]: سحب صورة بروفايل حساب غوغل الأصلي للعميل (إذا وُجدت)
+            let googleAvatar = null;
+            if (firebaseUser.photoURL) {
+                // تكبير جودة الصورة من غوغل (إزالة قياس =s96-c الافتراضي الصغير)
+                googleAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
             }
             
-            localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
-
-            // 🌟 حل مشكلة الـ ReferenceError وحفظ كاش الإنعاش الذكي
-            localStorage.setItem('telecard_active_user', JSON.stringify(activeUserObj));
-            localStorage.setItem('telecard_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency || 'USD');
-
-            const toast = document.getElementById('successToast');
-            if (toast) toast.classList.add('show');
-            setTimeout(() => { window.location.href = "store.html"; }, 1500);
+            activeUserObj = {
+                id: firebaseUser.uid,
+                displayId: shortDisplayId,
+                name: firstName,
+                lastName: lastName,
+                username: finalUsername,
+                email: firebaseUser.email,
+                img: googleAvatar, // 🌟 حفظ الصورة في قاعدة البيانات
+                baseCurrency: targetCurrency,
+                base_currency: targetCurrency,
+                phone: null,
+                country: null,
+                walletBalance: 0,
+                balance: 0,
+                totalSpent: 0,
+                totalDeposit: 0,
+                tierId: "",
+                createdAt: Date.now()
+            };
             
-        } catch (error) {
-            console.error("Google Auth Error:", error);
-            btn.innerHTML = originalText;
-            btn.style.opacity = '1';
-            btn.disabled = false;
+            if (StoreDB && typeof StoreDB.set === 'function') {
+                await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
+            } else {
+                await setDoc(userDocRef, activeUserObj);
+            }
+        } else {
+            activeUserObj = userDocSnap.data();
+            
+            // 🌟 [ترقية إضافية]: إذا كان العميل القديم لا يمتلك صورة، نحدث حسابه بصورة غوغل الآن!
+            if (!activeUserObj.img && firebaseUser.photoURL) {
+                const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
+                activeUserObj.img = freshAvatar;
+                if (StoreDB && typeof StoreDB.set === 'function') {
+                    await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { img: freshAvatar });
+                } else {
+                    await setDoc(userDocRef, { img: freshAvatar }, { merge: true });
+                }
+            }
         }
+        
+        localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
+        localStorage.setItem('telecard_active_user', JSON.stringify(activeUserObj));
+        localStorage.setItem('telecard_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency || 'USD');
+        
+        // 🌟 كاش سريع جداً لتظهر الصورة فور دخول المتجر بلا تقطيع
+        if (activeUserObj.img) {
+            localStorage.setItem('telecard_user_image_' + firebaseUser.uid, activeUserObj.img);
+        }
+        
+        const toast = document.getElementById('successToast');
+        if (toast) toast.classList.add('show');
+        setTimeout(() => { window.location.href = "store.html"; }, 1500);
+        
+    } catch (error) {
+        console.error("Google Auth Error:", error);
+        btn.innerHTML = originalText;
+        btn.style.opacity = '1';
+        btn.disabled = false;
     }
-
+}
     // =================================================================
     // ✍️ دالة التسجيل اليدوي (المسرعة والمعززة بكاش المزامنة وعملات الإدارة)
     // =================================================================

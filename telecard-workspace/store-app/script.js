@@ -87,7 +87,13 @@ const ClientSystem = {
                     e.preventDefault();
                     if (typeof this.openCategory === 'function') this.openCategory(id);
                     break;
-                    
+                   case 'open-about':
+e.preventDefault();
+// 🌟 استدعاء دالة فتح نافذة "من نحن" بأمان واحترافية
+if (typeof this.openAboutModal === 'function') {
+    this.openAboutModal();
+}
+break; 
                 case 'open-product':
                     e.preventDefault();
                     const currentTime = new Date().getTime();
@@ -318,41 +324,40 @@ ClientSystem.initFirebaseListeners = function() {
             }
             
             if (StoreDB.listenQuery) {
-                // 🌟 جلب أحدث 30 طلب فقط + حفظ المؤشر
-                const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
-                    LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
-                    DataManager.cursors.orders = lastDoc; // حفظ مكان التوقف
-                    requestAnimationFrame(() => {
-                        if (RenderManager && typeof RenderManager.renderOrders === 'function') RenderManager.renderOrders();
-                    });
-                });
-                this.activeListeners.push(unsubOrders);
-                
-                // 🌟 جلب أحدث 30 إيداع فقط + حفظ المؤشر
-                const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
-                    LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
-                    DataManager.cursors.deposits = lastDoc; // حفظ مكان التوقف
-                    requestAnimationFrame(() => {
-                        if (RenderManager && typeof RenderManager.renderWallet === 'function') RenderManager.renderWallet();
-                        if (RenderManager && typeof RenderManager.renderPayments === 'function') RenderManager.renderPayments();
-                    });
-                });
-                this.activeListeners.push(unsubDeposits);
-            }
-        } else {
-            console.log("👤 العميل زائر. تم إيقاف جلب البيانات الخاصة.");
-            this.clearFirebaseListeners(); 
-            localStorage.removeItem('telecard_active_user_uid');
-            LiveStoreData.users = [];
-            LiveStoreData.orders = [];
-            LiveStoreData.deposits = [];
-            if (DataManager.cursors) DataManager.cursors = {}; // تصفير المؤشرات
-            if (DataManager.syncUser) DataManager.syncUser();
-            if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
-        }
+    // 🌟 جلب أحدث 30 طلب فقط + فحص ذكي: إذا كان العدد أقل من 30 فالأرشيف فارغ ونلغي المؤشر تماماً! [1]
+    const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
+        LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
+        DataManager.cursors.orders = data.length < 30 ? null : lastDoc; // 🌟 الضبط الذكي
+        requestAnimationFrame(() => {
+            if (RenderManager && typeof RenderManager.renderOrders === 'function') RenderManager.renderOrders();
+        });
     });
+    this.activeListeners.push(unsubOrders);
+    
+    // 🌟 جلب أحدث 30 إيداع فقط + فحص ذكي: إذا كان العدد أقل من 30 فالأرشيف فارغ ونلغي المؤشر تماماً! [1]
+    const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
+        LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
+        DataManager.cursors.deposits = data.length < 30 ? null : lastDoc; // 🌟 الضبط الذكي
+        requestAnimationFrame(() => {
+            if (RenderManager && typeof RenderManager.renderWallet === 'function') RenderManager.renderWallet();
+            if (RenderManager && typeof RenderManager.renderPayments === 'function') RenderManager.renderPayments();
+        });
+    });
+    this.activeListeners.push(unsubDeposits);
+}
+} else {
+    console.log("👤 العميل زائر. تم إيقاف جلب البيانات الخاصة.");
+    this.clearFirebaseListeners();
+    localStorage.removeItem('telecard_active_user_uid');
+    LiveStoreData.users = [];
+    LiveStoreData.orders = [];
+    LiveStoreData.deposits = [];
+    if (DataManager.cursors) DataManager.cursors = {}; // تصفير المؤشرات عند الخروج
+    if (DataManager.syncUser) DataManager.syncUser();
+    if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
+}
+});
 };
-
 // ============================================================================
 // 🚀 نقطة الإقلاع المركزية للنظام
 // ============================================================================

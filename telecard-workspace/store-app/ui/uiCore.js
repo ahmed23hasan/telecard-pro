@@ -1779,8 +1779,42 @@ openRatingModal: function() {
             console.error("Feedback Submission Error:", error);
             this.showToast("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
         }
-    },
-    // 🌟 دالة العداد الذكية (تقوم بتنظيف المنتجات الوهمية تلقائياً وبأمان)
+    },// 🌟 [بوابة من نحن]: جلب وعرض الشرح السحابي للموقع وشعار البراند ديناميكياً بتناسق مالي وبصري كامل [1, 2]
+openAboutModal: function() {
+    this.closeSidebar(); // إغلاق القائمة الجانبية
+    
+    const logoTarget = document.getElementById('about-logo-box');
+    const titleEl = document.getElementById('about-popup-title');
+    const descEl = document.getElementById('about-popup-desc');
+    
+    if (!logoTarget || !titleEl || !descEl) return;
+    
+    const s = LiveStoreData.settings || {};
+    const storeName = s.storeName || s.name || 'تيليكارد';
+    
+    // قراءة الشرح ديناميكياً من إعدادات الإدارة لمنع جمود الكود [1]
+    const aboutText = s.aboutUs || s.storeDesc || 'بوابتك الأولى والآمنة لشراء وتداول الكروت الرقمية وبطاقات الشحن لجميع الألعاب والخدمات العالمية كالبلايستيشن، والبطاقات الترفيهية بأسعار مذهلة وتسليم آلي فوري.';
+    const logoDark = s.storeLogo || s.logo || '';
+    
+    // رسم الشعار كختم ملكي مضيء بحدود ذهبية أنيقة
+    if (logoDark) {
+        logoTarget.innerHTML = `
+                <div class="alert-icon-box" style="width: 75px; height: 75px; background: rgba(255,215,0,0.05); border: 1px solid var(--gold-main); border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; box-shadow: 0 0 15px rgba(255, 215, 0, 0.15);">
+                    <img src="${Utils.escapeHtml(logoDark)}" alt="${Utils.escapeHtml(storeName)}" style="max-height: 48px; width: auto; object-fit: contain;">
+                </div>`;
+    } else {
+        logoTarget.innerHTML = `
+                <div class="alert-icon-box">
+                    <i class="fa-solid fa-circle-info" style="font-size: 24px;"></i>
+                </div>`;
+    }
+    
+    // 🌟 التحديث الحاسم: تغليف اسم المتجر بكلاس .brand-text-dynamic ليرث ألوان وتدرجات وظلال الأدمن تلقائياً ومطابقتها للهيدر! [2]
+    titleEl.innerHTML = `عن <span class="brand-text-dynamic num-en" style="font-size: 22px !important; display: inline-block;">${Utils.escapeHtml(storeName)}</span>`;
+    descEl.textContent = aboutText;
+    
+    this.openModal('about');
+},  // 🌟 دالة العداد الذكية (تقوم بتنظيف المنتجات الوهمية تلقائياً وبأمان)
     updateFavBadgeCount: function() {
         const SYS = window.DataManager || window.ClientSystem;
         const countBadge = document.getElementById('sticky-fav-count');

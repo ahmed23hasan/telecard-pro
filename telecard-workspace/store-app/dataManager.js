@@ -415,22 +415,58 @@ export const DataManager = {
         this.user.totalDeposit = Number(this.user.totalDeposit || 0);
     },
 
-    submitPasswordChange: function(currentVal, newVal, confirmVal) {
-        if(!newVal || newVal.length < 4) return { success: false, msg: 'الرجاء إدخال كلمة مرور لا تقل عن 4 أحرف.' };
-        if(newVal !== confirmVal) return { success: false, msg: 'كلمتا المرور غير متطابقتين.' };
+    submitPasswordChange: async function(currentVal, newVal, confirmVal) {
+    // ملاحظة: فايربيز يفرض أن تكون كلمة المرور 6 أحرف كحد أدنى أمنياً
+    if (!newVal || newVal.length < 6) return { success: false, msg: 'الرجاء إدخال كلمة مرور لا تقل عن 6 أحرف.' };
+    if (newVal !== confirmVal) return { success: false, msg: 'كلمتا المرور غير متطابقتين.' };
+    if (!currentVal) return { success: false, msg: 'يرجى إدخال كلمة المرور الحالية.' };
+    
+    // 🛡️ درع الحماية: نظام النافذة الزمنية المنزلقة (3 مرات كل 24 ساعة)
+    const now = this.getNow();
+    const oneDayMs = 24 * 60 * 60 * 1000; // 24 ساعة بالملي ثانية
+    
+    // جلب سجل التغييرات السابقة (أو مصفوفة فارغة إذا لم يغيرها من قبل)
+    let changeHistory = this.user?.passwordChangeHistory || [];
+    
+    // 🧹 تنظيف السجل: الاحتفاظ فقط بالتغييرات التي تمت خلال الـ 24 ساعة الماضية
+    changeHistory = changeHistory.filter(timestamp => (now - timestamp) < oneDayMs);
+    
+    // التحقق من وصول العميل للحد الأقصى (3 مرات)
+    if (changeHistory.length >= 3) {
+        // حساب الوقت المتبقي لانتهاء صلاحية "أقدم" محاولة في السجل
+        const oldestChange = changeHistory[0];
+        const timeUntilUnlock = oneDayMs - (now - oldestChange);
+        const hoursLeft = Math.ceil(timeUntilUnlock / (1000 * 60 * 60));
         
-        const currentStored = this.user?.pass || '';
-        if(currentStored && currentVal !== currentStored) return { success: false, msg: 'كلمة المرور الحالية غير صحيحة.' };
-
-        try {
-            this.updateUserProfile({ pass: newVal });
-            return { success: true, msg: 'تم تحديث كلمة المرور بنجاح.' };
-        } catch(e) {
-            return { success: false, msg: 'تعذر تحديث كلمة المرور.' };
+        return {
+            success: false,
+            msg: `عذراً، استنفدت الحد الأقصى لتغيير كلمة المرور (3 مرات). يرجى المحاولة بعد ${hoursLeft} ساعة.`
+        };
+    }
+    
+    try {
+        // 🚀 توجيه الطلب إلى سيرفرات فايربيز الرسمية (آمن ومشفر)
+        const result = await StoreDB.changeUserPassword(currentVal, newVal);
+        
+        if (result.success) {
+            // إضافة الوقت الحالي لسجل التغييرات
+            changeHistory.push(now);
+            
+            // تحديث بيانات العميل في السيرفر
+            await this.updateUserProfile({
+                passwordChangeHistory: changeHistory, // حفظ السجل الجديد المحدث
+                pass: null // 🧹 تنظيف أمني لأي كلمة مرور قديمة غير مشفرة
+            });
+            
+            return { success: true, msg: 'تم تحديث كلمة المرور بنجاح وحماية حسابك.' };
+        } else {
+            return { success: false, msg: result.msg };
         }
-    },
-
-    confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
+        
+    } catch (e) {
+        return { success: false, msg: 'تعذر الاتصال بالسيرفر، يرجى المحاولة لاحقاً.' };
+    }
+},    confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
 
         try {
@@ -608,6 +644,10 @@ export const DataManager = {
             }
             return true;
         }).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)); 
+    },
+sendPasswordResetEmail: async function(email) {
+        if (!email) return { success: false, msg: 'لا يوجد بريد إلكتروني مرتبط بالحساب.' };
+        return await StoreDB.sendResetEmail(email);
     },
 
     getAllUserAlerts: function() {

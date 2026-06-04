@@ -420,52 +420,110 @@ export const UIAuth = {
 
     toggleSecurityPref: function() { getSys().showToast?.('قريباً: سيتم تفعيل هذه الميزة في التحديث القادم', 'info'); },
 
-    openPasswordDialog: function() {
+    // 🌟 [بوابة الأمان]: فتح نافذة الأمان والخصوصية الشاملة للعميل [2]
+openSecurityModal: function() {
         getSys().resetUI?.();
-        const hint = document.getElementById('profile-password-hint');
-        if(hint) { hint.textContent = ''; hint.classList.remove('error','success'); }
-        ['pass-current','pass-new','pass-confirm'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
-        getSys().openModal?.('pass-change'); 
-    },
-
-    closePasswordDialog: function() { getSys().closeModal?.('pass-change'); },
-
-    handlePasswordSubmit: function() {
-        const hint = document.getElementById('profile-password-hint');
-        const currentInput = document.getElementById('pass-current');
-        const newInput = document.getElementById('pass-new');
-        const confirmInput = document.getElementById('pass-confirm');
         
-        if(hint) { hint.textContent = ''; hint.classList.remove('error','success'); }
-
-        const currentVal = (currentInput?.value || '').trim();
-        const newVal = (newInput?.value || '').trim();
-        const confirmVal = (confirmInput?.value || '').trim();
-
-        if(!DataManager || typeof DataManager.submitPasswordChange !== 'function') return;
-
-        const result = DataManager.submitPasswordChange(currentVal, newVal, confirmVal);
-
-        if (result.success) {
-            if(hint) { hint.textContent = result.msg; hint.classList.add('success'); }
-            this.closePasswordDialog();
-            getSys().showToast?.(result.msg, 'success');
-        } else {
-            if(hint) { hint.textContent = result.msg; hint.classList.add('error'); }
-            getSys().showToast?.(result.msg, 'error');
+        // إعادة تهيئة حقول كلمة المرور وحذف تلميحات الأخطاء السابقة
+        const hint = document.getElementById('profile-password-hint');
+        if (hint) {
+            hint.textContent = '';
+            hint.className = 'profile-hint';
         }
-    },
-
-    filterCountries: function(query) {
-        const items = document.querySelectorAll('#countries-list-target .dropdown-item');
-        const term = query.toLowerCase();
-        items.forEach(item => {
-            const name = item.querySelector('.country-name') ? item.querySelector('.country-name').innerText.toLowerCase() : item.innerText.toLowerCase();
-            item.style.display = name.includes(term) ? 'flex' : 'none';
+        ['pass-current', 'pass-new', 'pass-confirm'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
         });
-    },    
-
-    selectRegCurrency: function(name, code) {
+        
+        // مزامنة حالة زر المصادقة الثنائية (2FA) في الواجهة بناءً على تفضيلات العميل المخبأة
+        const prefs = DataManager.prefs || {};
+        const is2faActive = prefs.security2fa === true;
+        const btn2fa = document.getElementById('setting-2fa-toggle');
+        const label2fa = document.getElementById('setting-2fa-label');
+        if (btn2fa) btn2fa.classList.toggle('on', is2faActive);
+        if (label2fa) label2fa.textContent = is2faActive ? 'مفعل' : 'قريباً';
+        
+        getSys().openModal?.('security');
+    },
+    
+    closeSecurityModal: function() {
+        getSys().closeModal?.('security');
+    },
+    
+    // 🌟 معالجة تحديث كلمة المرور المدمجة بداخل نافذة الأمان [2]
+    // 🌟 معالجة تحديث كلمة المرور (النسخة النظيفة المعتمدة على الإشعارات فقط)
+handlePasswordSubmit: function() {
+    const securityModal = document.getElementById('security-modal');
+    if (!securityModal) return;
+    
+    const currentInput = securityModal.querySelector('#pass-current');
+    const newInput = securityModal.querySelector('#pass-new');
+    const confirmInput = securityModal.querySelector('#pass-confirm');
+    
+    const currentVal = (currentInput?.value || '').trim();
+    const newVal = (newInput?.value || '').trim();
+    const confirmVal = (confirmInput?.value || '').trim();
+    
+    if (!DataManager || typeof DataManager.submitPasswordChange !== 'function') return;
+    
+    const result = DataManager.submitPasswordChange(currentVal, newVal, confirmVal);
+    
+    if (result.success) {
+        // إظهار الإشعار العائم الجميل
+        getSys().showToast?.('تم تحديث كلمة المرور بنجاح!', 'success');
+        getSys().sfx?.('success');
+        
+        // تفريغ الحقول بعد النجاح
+        [currentInput, newInput, confirmInput].forEach(el => { if (el) el.value = ''; });
+        
+        // إغلاق النافذة بنعومة بعد ثانية
+        setTimeout(() => {
+            getSys().closeSecurityModal?.();
+        }, 1000);
+        
+    } else {
+        // إظهار إشعار الخطأ
+        getSys().showToast?.(result.msg, 'error');
+        getSys().sfx?.('error');
+    }
+},
+// 🌟 دالة إرسال رابط إعادة تعيين كلمة المرور للايميل
+// 🌟 دالة إرسال رابط إعادة تعيين كلمة المرور للايميل (مربوطة بفايربيز فعلياً)
+sendResetPasswordEmail: async function() {
+    const user = DataManager?.user;
+    
+    if (!user || !user.email) {
+        getSys().showToast?.('لا يوجد بريد إلكتروني مرتبط بهذا الحساب لإرسال الرابط!', 'error');
+        getSys().sfx?.('error');
+        return;
+    }
+    
+    // تشغيل اللودر المركزي
+    getSys().toggleLoader?.(true, 'جاري إرسال رابط التعيين...');
+    
+    try {
+        // 🚀 الاستدعاء الفعلي الحقيقي لفايربيز عبر DataManager
+        const result = await DataManager.sendPasswordResetEmail(user.email);
+        
+        getSys().toggleLoader?.(false); // إيقاف اللودر
+        
+        if (result.success) {
+            getSys().closeSecurityModal?.(); // إغلاق النافذة
+            getSys().showToast?.('تم إرسال رابط التعيين إلى بريدك الإلكتروني بنجاح', 'success');
+            getSys().sfx?.('success');
+        } else {
+            getSys().showToast?.(result.msg, 'error'); // رسالة الخطأ القادمة من فايربيز
+            getSys().sfx?.('error');
+        }
+        
+    } catch (error) {
+        getSys().toggleLoader?.(false);
+        console.error("Reset Password Error:", error);
+        getSys().showToast?.('حدث خطأ أثناء إرسال الرابط، يرجى المحاولة لاحقاً', 'error');
+        getSys().sfx?.('error');
+    }
+},
+selectRegCurrency: function(name, code) {
         const textEl = document.getElementById('selected-currency-text');
         const hiddenInput = document.getElementById('reg-currency');
         const dropdown = document.getElementById('reg-currency-dropdown');

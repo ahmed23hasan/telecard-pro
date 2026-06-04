@@ -1,15 +1,23 @@
 // ============================================================================
 // ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version
 // 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth
-// 🌟 التحديث: تفعيل الاتصال السريع + نظام الترقيم بالمؤشرات (Cursor Pagination)
+// 🌟 التحديث: تفعيل الاتصال السريع + إرسال روابط التعيين + التشفير الأمني لكلمات المرور
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-// 🌟 تم دمج الواردات وإضافة startAfter للترقيم الاحترافي
 import { 
     getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+// 🌟 استيراد دوال المصادقة، وإرسال الروابط، وإعادة المصادقة الأمنية
+import { 
+    getAuth, 
+    sendPasswordResetEmail, 
+    updatePassword, 
+    reauthenticateWithCredential, 
+    EmailAuthProvider 
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 // 🔑 مفاتيح الربط الخاصة بمتجر Telecard 
@@ -25,7 +33,7 @@ const firebaseConfig = {
 // 🚀 تهيئة الاتصال بـ Firebase
 const app = initializeApp(firebaseConfig);
 
-// 🌟 تفعيل الاتصال السريع (WebSockets) وإلغاء القيود البطيئة
+// 🌟 تفعيل الاتصال
 const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app); 
@@ -243,6 +251,58 @@ export const FirebaseAdapter = {
             console.log(`🗑️ تم تنظيف السحابة: مسح الصورة نهائياً (${url})`);
         } catch (error) {
             console.warn("⚠️ تنظيف السحابة: الصورة المراد حذفها لم تعد موجودة", error.message);
+        }
+    },
+
+    // ==========================================
+    // 🔑 13. إرسال رابط إعادة تعيين كلمة المرور (Password Reset) 
+    // ==========================================
+    async sendResetEmail(email) {
+        try {
+            await sendPasswordResetEmail(auth, email);
+            return { success: true };
+        } catch (error) {
+            console.error("Firebase Reset Error:", error);
+            let errorMsg = 'تعذر إرسال الرابط، يرجى المحاولة لاحقاً.';
+            if (error.code === 'auth/user-not-found') errorMsg = 'هذا البريد غير مسجل لدينا.';
+            if (error.code === 'auth/too-many-requests') errorMsg = 'طلبات كثيرة جداً، يرجى المحاولة لاحقاً لحماية حسابك.';
+            if (error.code === 'auth/invalid-email') errorMsg = 'صيغة البريد الإلكتروني غير صحيحة.';
+            
+            return { success: false, msg: errorMsg };
+        }
+    },
+
+    // ==========================================
+    // 🔒 14. تغيير كلمة المرور بأمان تام (مع إعادة المصادقة)
+    // ==========================================
+    async changeUserPassword(currentPassword, newPassword) {
+        try {
+            const user = auth.currentUser;
+            if (!user) throw new Error("auth/no-user");
+
+            // 1. إعادة المصادقة (إثبات هوية العميل) بالكلمة القديمة
+            const credential = EmailAuthProvider.credential(user.email, currentPassword);
+            await reauthenticateWithCredential(user, credential);
+
+            // 2. إذا طابقت الكلمة القديمة، نقوم بتحديث كلمة المرور في سيرفرات فايربيز المشفرة
+            await updatePassword(user, newPassword);
+            return { success: true };
+            
+        } catch (error) {
+            console.error("Firebase Password Change Error:", error);
+            let errorMsg = 'تعذر تحديث كلمة المرور بسبب خطأ في الخادم.';
+            
+            if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
+                errorMsg = 'كلمة المرور الحالية التي أدخلتها غير صحيحة.';
+            } else if (error.code === 'auth/weak-password') {
+                errorMsg = 'كلمة المرور الجديدة ضعيفة جداً (يجب أن تكون 6 أحرف على الأقل).';
+            } else if (error.code === 'auth/too-many-requests') {
+                errorMsg = 'محاولات خاطئة كثيرة، تم حظر الإجراء مؤقتاً لحمايتك.';
+            } else if (error.code === 'auth/network-request-failed') {
+                errorMsg = 'خطأ في الاتصال بالإنترنت.';
+            }
+            
+            return { success: false, msg: errorMsg };
         }
     }
 };

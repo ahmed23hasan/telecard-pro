@@ -795,7 +795,8 @@ renderHome: function(isBackAction = false) {
         if (!q && !dStart && !dEnd && (totalWalletCount > this.limits.wallet || hasMoreData)) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+            // 🌟 استبدله في المرات الثلاث بهذا الزر المصمم بالهالة الذهبية
+loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
             
             loadMoreBtn.querySelector('button').onclick = async () => {
                 const btn = loadMoreBtn.querySelector('button');
@@ -1130,7 +1131,8 @@ renderHome: function(isBackAction = false) {
         if (!q && !dStart && !dEnd && (totalPaymentsCount > this.limits.payments || hasMoreServerDeposits)) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+            // 🌟 استبدله في المرات الثلاث بهذا الزر المصمم بالهالة الذهبية
+loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
             
             loadMoreBtn.querySelector('button').onclick = async () => {
                 const btn = loadMoreBtn.querySelector('button');
@@ -1293,7 +1295,8 @@ renderHome: function(isBackAction = false) {
         if (!q && !dStart && !dEnd && (totalOrdersCount > this.limits.orders || hasMoreServerOrders)) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            loadMoreBtn.innerHTML = `<button class="btn btn-ghost"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+            // 🌟 استبدله في المرات الثلاث بهذا الزر المصمم بالهالة الذهبية
+loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
             
             loadMoreBtn.querySelector('button').onclick = async () => {
                 const btn = loadMoreBtn.querySelector('button');

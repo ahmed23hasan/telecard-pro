@@ -78,16 +78,17 @@
              </div>
         </div>
         
-        <div class="logo-area logo-ar" id="store-branding-target" style="display: flex; align-items: center; gap: 8px;"></div>
+     <!-- الهيدر العلوي: نظيف كلياً وبدون أي ستايلات مدمجة -->
+<div class="logo-area logo-ar" id="store-branding-target" data-action="open-about"></div>
     </header>
     
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="ClientSystem.closeSidebar()"></div>
     
     <div class="sidebar" id="cs-menu">
-        <div class="sidebar-header">
-            <div id="sidebar-branding-target" style="display: flex; align-items: center; gap: 8px;"></div>
-            
-            <button class="sidebar-close-btn" onclick="ClientSystem.sfx('nav'); ClientSystem.closeSidebar()">
+    <div class="sidebar-header">
+
+<div id="sidebar-branding-target" data-action="open-about"></div>
+<button class="sidebar-close-btn" onclick="ClientSystem.sfx('nav'); ClientSystem.closeSidebar()">
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
@@ -107,41 +108,40 @@
         </div>
         
         <div class="sp-glass-card" id="user-sidebar-card">
-            <div class="sp-identity-wrapper" onclick="ClientSystem.sfx('nav'); ClientSystem.closeSidebar(); setTimeout(()=>ClientSystem.openProfileInfo(), 150);">
-                <div class="sp-avatar-box">
-                    <img src="" id="cs-avatar" alt="صورة المستخدم">
-                    <div class="sp-status-dot"></div>
-                </div>
-                <div class="sp-user-info">
-    <div class="sp-user-name">
-        <span id="cs-name">--</span>
-        <i class="fa-solid fa-chevron-left name-click-arrow"></i>
-    </div>
-    <div class="uid-capsule" id="cs-id-container">
-        <i class="fa-solid fa-id-card"></i> 
-        <span class="num-en" id="cs-id">--</span>
-    </div>
-</div>
+    <div class="sp-identity-wrapper" onclick="ClientSystem.sfx('nav'); ClientSystem.closeSidebar(); setTimeout(()=>ClientSystem.openProfileInfo(), 150);">
+        <div class="sp-avatar-box">
+            <img src="" id="cs-avatar" alt="صورة المستخدم">
+            <!-- 🌟 تم إصلاح الخطأ هنا (إزالة الأقواس الزائدة) -->
+            <div class="sp-status-dot"></div>
+        </div>
+        <div class="sp-user-info">
+            <div class="sp-user-name">
+                <span id="cs-name">--</span>
+                <i class="fa-solid fa-chevron-left name-click-arrow"></i>
             </div>
-
-            <div class="sp-divider"></div>
-
-            <div class="sp-finance-section">
-                <div class="sp-balance-box">
-                    <span class="sp-balance-label"><i class="fa-solid fa-wallet"></i> الرصيد الحالي</span>
-                    <div class="sp-balance-value num-en">
-    <span id="sidebar-balance-num">0.00</span>
-    <span class="sidebar-currency" id="sidebar-balance-curr">USD</span>
-</div>
-
-                </div>
-                <button class="sp-rank-capsule" id="sidebar-rank-btn" onclick="event.stopPropagation(); ClientSystem.sfx('nav'); ClientSystem.openTierInfoModal();">
-                    <i class="fa-solid fa-crown"></i> VIP
-                </button>
+            <div class="uid-capsule" id="cs-id-container">
+                <i class="fa-solid fa-id-card"></i>
+                <span class="num-en" id="cs-id">--</span>
             </div>
         </div>
-        
-        <div class="sb-profile-alert" id="sb-profile-alert" onclick="if(window.ClientSystem) { ClientSystem.sfx('nav'); ClientSystem.closeSidebar(); setTimeout(() => ClientSystem.openModal('identity'), 150); }">
+    </div>
+    
+    <div class="sp-divider"></div>
+    
+    <div class="sp-finance-section">
+        <!-- 🌟 تم تحويل صندوق الرصيد إلى زر تفاعلي يفتح المحفظة -->
+        <div class="sp-balance-box clickable-balance" onclick="ClientSystem.sfx('nav'); ClientSystem.closeSidebar(); setTimeout(()=>ClientSystem.openWallet(), 150);">
+            <span class="sp-balance-label"><i class="fa-solid fa-wallet"></i> الرصيد الحالي</span>
+            <div class="sp-balance-value num-en">
+                <span id="sidebar-balance-num">0.00</span>
+                <span class="sidebar-currency" id="sidebar-balance-curr">USD</span>
+            </div>
+        </div>
+        <button class="sp-rank-capsule" id="sidebar-rank-btn" onclick="event.stopPropagation(); ClientSystem.sfx('nav'); ClientSystem.openTierInfoModal();">
+            <i class="fa-solid fa-crown"></i> VIP
+        </button>
+    </div>
+</div>        <div class="sb-profile-alert" id="sb-profile-alert" onclick="if(window.ClientSystem) { ClientSystem.sfx('nav'); ClientSystem.closeSidebar(); setTimeout(() => ClientSystem.openModal('identity'), 150); }">
             <div class="sb-pa-icon"><i class="fa-solid fa-address-card"></i></div>
             <div class="sb-pa-text">
                 <h4>أكمل بياناتك</h4>
@@ -183,11 +183,11 @@
     <i class="fa-solid fa-share-nodes nav-icon"></i>
     <span class="nav-item-text">قنواتنا ومجتمعنا</span>
 </div>
-            <div class="nav-item" onclick="ClientSystem.sfx('nav'); alert('الأمان والخصوصية')">
-                <i class="fa-solid fa-shield-halved nav-icon"></i>
-                <span class="nav-item-text">الأمان والخصوصية</span>
-            </div>
-
+            <!-- تحديث الزر ليفتح نافذة الأمان والخصوصية الجديدة -->
+<div class="nav-item" id="nav-item-security" onclick="ClientSystem.sfx('nav'); ClientSystem.openSecurityModal()">
+    <i class="fa-solid fa-shield-halved nav-icon"></i>
+    <span class="nav-item-text">الأمان والخصوصية</span>
+</div>
             <div class="nav-item" onclick="ClientSystem.sfx('nav'); ClientSystem.navigateSettings()">
                 <i class="fa-solid fa-sliders nav-icon"></i>
                 <span class="nav-item-text">الإعدادات</span>
@@ -493,54 +493,41 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="settings-overlay" onclick="ClientSystem.closeSettings()"></div>
-    <div class="modal-sheet bottom-sheet settings-modal" id="settings-modal">
-        <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closeSettings()"><i class="fa-solid fa-xmark"></i></div>
-            <div class="header-center">
-                <span class="title-badge"><i class="fa-solid fa-gear"></i> إعدادات المتجر</span>
-            </div>
-            <div class="pm-header-spacer"></div>
+<!-- 🌟 [النسخة المصححة والمبسطة]: إعدادات تخصيص المتجر (تخصيص المظهر والأصوات فقط) [2] -->
+<div class="pm-overlay" id="settings-overlay" onclick="ClientSystem.closeSettings()"></div>
+<div class="modal-sheet bottom-sheet settings-modal" id="settings-modal">
+    <div class="pm-header-std">
+        <div class="pm-close-std" onclick="ClientSystem.closeSettings()"><i class="fa-solid fa-xmark"></i></div>
+        <div class="header-center">
+            <span class="title-badge"><i class="fa-solid fa-gear"></i> تخصيص المتجر</span>
         </div>
-        <div class="settings-body">
-            <div class="settings-group-title">التخصيص</div>
-            <div class="setting-row">
-                <div class="setting-info">
-                    <div class="setting-title"><i class="fa-solid fa-moon"></i> الوضع الليلي / النهاري</div>
-                    <div class="setting-sub">يغيّر خلفية المتجر فقط دون لمس ألوان أو صور المنتجات.</div>
-                </div>
-                <button type="button" class="setting-toggle" id="setting-theme-toggle" onclick="ClientSystem.toggleThemePref()">
-                    <span class="setting-toggle-knob"></span>
-                    <span class="setting-toggle-label" id="setting-theme-label">ليلي</span>
-                </button>
+        <div class="pm-header-spacer"></div>
+    </div>
+    <div class="settings-body">
+        <div class="settings-group-title">التخصيص البصري والسمعي</div>
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-title"><i class="fa-solid fa-moon"></i> الوضع الليلي / النهاري</div>
+                <div class="setting-sub">يغيّر خلفية المتجر فقط دون لمس ألوان أو صور المنتجات.</div>
             </div>
-
-            <div class="setting-row">
-                <div class="setting-info">
-                    <div class="setting-title"><i class="fa-solid fa-volume-high"></i> أصوات الواجهة</div>
-                    <div class="setting-sub">تشغيل/إيقاف نغمات التنقل والتنبيهات الصغيرة.</div>
-                </div>
-                <button type="button" class="setting-toggle" id="setting-sound-toggle" onclick="ClientSystem.toggleSoundPref()">
-                    <span class="setting-toggle-knob"></span>
-                    <span class="setting-toggle-label" id="setting-sound-label">مفعل</span>
-                </button>
+            <button type="button" class="setting-toggle" id="setting-theme-toggle" onclick="ClientSystem.toggleThemePref()">
+                <span class="setting-toggle-knob"></span>
+                <span class="setting-toggle-label" id="setting-theme-label">ليلي</span>
+            </button>
+        </div>
+        
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-title"><i class="fa-solid fa-volume-high"></i> أصوات الواجهة</div>
+                <div class="setting-sub">تشغيل/إيقاف نغمات التنقل والتنبيهات الصغيرة.</div>
             </div>
-
-            <div class="settings-group-title">أمان الحساب</div>
-            
-            <div class="setting-row">
-                <div class="setting-info">
-                    <div class="setting-title"><i class="fa-solid fa-shield-halved"></i> حماية الحساب</div>
-                    <div class="setting-sub">تجهيز لتفعيل المصادقة الثنائية 2FA قريباً. سنخطرك عند الإطلاق.</div>
-                </div>
-                <button type="button" class="setting-toggle ghost" id="setting-2fa-toggle" onclick="ClientSystem.toggleSecurityPref()">
-                    <span class="setting-toggle-knob"></span>
-                    <span class="setting-toggle-label" id="setting-2fa-label">قريباً</span>
-                </button>
-            </div>
+            <button type="button" class="setting-toggle" id="setting-sound-toggle" onclick="ClientSystem.toggleSoundPref()">
+                <span class="setting-toggle-knob"></span>
+                <span class="setting-toggle-label" id="setting-sound-label">مفعل</span>
+            </button>
         </div>
     </div>
-
+</div>
     <div class="pm-overlay" id="balance-overlay" onclick="ClientSystem.closeBalanceModal()"></div>
     <div class="bottom-sheet" id="balance-modal">
         <div class="pm-header-std">
@@ -708,133 +695,104 @@
 
         <div class="profile-container" id="profile-card">
             <div class="hero-section">                
-                
-                <div class="avatar-wrapper">
-                    <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" alt="Profile" class="profile-pic" id="profile-img">
-                    
-                    <div class="camera-btn" id="avatar-menu-trigger">
-                        <i class="fa-solid fa-camera" style="pointer-events: none;"></i>
-                    </div>
-<div class="avatar-action-menu" id="avatar-action-menu">
-    <button type="button" class="avatar-action-btn edit-btn" data-action="trigger-click" data-target="avatar-upload-input">
-        <i class="fa-regular fa-image"></i> تغيير الصورة
-    </button>
-    <button type="button" class="avatar-action-btn delete-btn" id="inline-delete-avatar-btn" data-action="delete-avatar">
-        <i class="fa-regular fa-trash-can"></i> حذف الصورة
-    </button>
+<div class="avatar-wrapper">
+    <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" alt="Profile" class="profile-pic" id="profile-img">
+    
+    <div class="camera-btn" id="avatar-menu-trigger">
+        <i class="fa-solid fa-camera" style="pointer-events: none;"></i>
+    </div>
+    
+    <div class="avatar-action-menu" id="avatar-action-menu">
+        <button type="button" class="avatar-action-btn edit-btn" data-action="trigger-click" data-target="avatar-upload-input">
+            <i class="fa-regular fa-image"></i> تغيير الصورة
+        </button>
+        <button type="button" class="avatar-action-btn delete-btn" id="inline-delete-avatar-btn" data-action="delete-avatar">
+            <i class="fa-regular fa-trash-can"></i> حذف الصورة
+        </button>
+    </div>
+    
+    <input type="file" id="avatar-upload-input" hidden accept="image/*">
 </div>
 
-<input type="file" id="avatar-upload-input" hidden accept="image/*">
-</div>             
-                <div class="profile-header-row">
-                    <div class="name-wrapper" dir="auto">
-                        <h1 class="user-name" id="display-name" onclick="document.getElementById('profile-edit-toggle').click()">--</h1>
-                        <input type="text" id="edit-name-input" class="name-edit-input d-none" value="" placeholder="أدخل اسمك">
-                        <button class="edit-icon-btn" id="profile-edit-toggle" title="تعديل">
-                            <i class="fa-solid fa-pen"></i>
-                        </button>
-                    </div>
-                    <div class="uid-capsule">
-    <i class="fa-solid fa-id-card"></i>
-    <span class="num-en" id="profile-client-id">--</span>
+<div class="profile-header-row">
+    <div class="name-wrapper" dir="auto">
+        <h1 class="user-name" id="display-name" onclick="document.getElementById('profile-edit-toggle').click()">--</h1>
+        <input type="text" id="edit-name-input" class="name-edit-input d-none" value="" placeholder="أدخل اسمك">
+        <button class="edit-icon-btn" id="profile-edit-toggle" title="تعديل">
+            <i class="fa-solid fa-pen"></i>
+        </button>
+    </div>
+    <div class="uid-capsule">
+        <i class="fa-solid fa-id-card"></i>
+        <span class="num-en" id="profile-client-id">--</span>
+    </div>
+</div>
 </div>
 
-                </div>
-            </div> 
-            
-            <div class="info-list">
-                <div class="info-card-item">
-                    <div class="icon-box" id="profile-tier-icon-box">
-                        <i class="fa-solid fa-ranking-star"></i>
-                    </div>
-                    <div class="text-content">
-                        <span class="label-text">مستوى الحساب</span>
-                        <div class="value-text" id="profile-info-tier">جاري التحميل...</div>
-                    </div>
-                </div>
-
-                <div class="info-card-item">
-                    <div class="icon-box"><i class="fa-solid fa-at"></i></div>    
-                    <div class="text-content">
-                        <span class="label-text">اسم المستخدم</span>
-                        <span class="value-text" id="profile-info-username">--</span>
-                    </div>
-                </div>
-
-                <div class="info-card-item">
-                    <div class="icon-box"><i class="fa-solid fa-envelope"></i></div>
-                    <div class="text-content">
-                        <span class="label-text">البريد الإلكتروني</span>
-                        <span class="value-text" id="profile-info-email">--</span>
-                    </div>
-                </div>
-
-                <div class="info-card-item">
-                    <div class="icon-box"><i class="fa-solid fa-phone"></i></div>
-                    <div class="text-content">
-                        <span class="label-text">رقم الهاتف</span>
-                        <span class="value-text ltr-text" id="profile-info-phone">--</span>
-                    </div>
-                </div>
-
-                <div class="info-card-item">
-                    <div class="icon-box"><i class="fa-solid fa-earth-americas"></i></div>
-                    <div class="text-content">
-                        <span class="label-text">الدولة</span>
-                        <span class="value-text" id="profile-info-country">غير محدد</span>
-                    </div>
-                </div>
-
-                <div class="info-card-item">
-                    <div class="icon-box"><i class="fa-solid fa-coins"></i></div>
-                    <div class="text-content">
-                        <span class="label-text">العملة الأساسية</span>
-                        <div class="value-text curr-box" id="profile-info-base-curr">
-                            <span id="profile-base-curr-text">--</span>
-                            <i class="fa-solid fa-lock lock-icon"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <button class="security-btn" onclick="ClientSystem.openPasswordDialog()">
-                <i class="fa-solid fa-lock"></i>
-                تغيير كلمة المرور
-            </button>
+<div class="info-list">
+    <div class="info-card-item">
+        <div class="icon-box" id="profile-tier-icon-box">
+            <i class="fa-solid fa-ranking-star"></i>
+        </div>
+        <div class="text-content">
+            <span class="label-text">مستوى الحساب</span>
+            <div class="value-text" id="profile-info-tier">جاري التحميل...</div>
         </div>
     </div>
-         
-    <div class="pm-overlay" id="pass-change-overlay" onclick="ClientSystem.closePasswordDialog()"></div>
-    <div class="modal-sheet bottom-sheet profile-pass-modal" id="pass-change-modal">
-        <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closePasswordDialog()"><i class="fa-solid fa-xmark"></i></div>
-            <div class="header-center">
-                <span class="title-badge"><i class="fa-solid fa-lock"></i> تغيير كلمة المرور</span>
-            </div>
-            <div class="pm-header-spacer"></div>
+    
+    <div class="info-card-item">
+        <div class="icon-box"><i class="fa-solid fa-at"></i></div>
+        <div class="text-content">
+            <span class="label-text">اسم المستخدم</span>
+            <span class="value-text" id="profile-info-username">--</span>
         </div>
-        
-        <div class="pm-scroll-content profile-pass-body">
-            <div class="profile-pass-field">
-                <label>كلمة المرور الحالية</label>
-                <input type="password" id="pass-current" placeholder="أدخل كلمة المرور الحالية" autocomplete="current-password">
-            </div>
-            <div class="profile-pass-field">
-                <label>كلمة المرور الجديدة</label>
-                <input type="password" id="pass-new" placeholder="أدخل كلمة مرور جديدة" autocomplete="new-password">
-            </div>
-            <div class="profile-pass-field">
-                <label>تأكيد كلمة المرور</label>
-                <input type="password" id="pass-confirm" placeholder="أعد إدخال كلمة المرور" autocomplete="new-password">
-            </div>
-            <div class="profile-pass-actions">
-                <button class="profile-btn" onclick="ClientSystem.handlePasswordSubmit()">حفظ</button>
-                <div class="profile-hint" id="profile-password-hint"></div>
+    </div>
+    
+    <div class="info-card-item">
+        <div class="icon-box"><i class="fa-solid fa-envelope"></i></div>
+        <div class="text-content">
+            <span class="label-text">البريد الإلكتروني</span>
+            <span class="value-text" id="profile-info-email">--</span>
+        </div>
+    </div>
+    
+    <div class="info-card-item">
+        <div class="icon-box"><i class="fa-solid fa-phone"></i></div>
+        <div class="text-content">
+            <span class="label-text">رقم الهاتف</span>
+            <span class="value-text ltr-text" id="profile-info-phone">--</span>
+        </div>
+    </div>
+    
+    <div class="info-card-item">
+        <div class="icon-box"><i class="fa-solid fa-earth-americas"></i></div>
+        <div class="text-content">
+            <span class="label-text">الدولة</span>
+            <span class="value-text" id="profile-info-country">غير محدد</span>
+        </div>
+    </div>
+    
+    <div class="info-card-item">
+        <div class="icon-box"><i class="fa-solid fa-coins"></i></div>
+        <div class="text-content">
+            <span class="label-text">العملة الأساسية</span>
+            <div class="value-text curr-box" id="profile-info-base-curr">
+                <span id="profile-base-curr-text">--</span>
+                <i class="fa-solid fa-lock lock-icon"></i>
             </div>
         </div>
     </div>
+</div>
 
-    <nav class="bottom-nav">
+<!-- 🌟 تم تحديث الزر ليفتح نافذة الأمان والخصوصية بدلاً من النافذة القديمة -->
+<button class="security-btn" onclick="ClientSystem.openSecurityModal()">
+    <i class="fa-solid fa-shield-halved"></i>
+    الأمان والخصوصية
+</button>
+</div>
+</div>
+
+<!-- 🗑️ تم حذف نافذة pass-change-modal القديمة والـ overlay الخاص بها من هنا لمنع التعارض -->    <nav class="bottom-nav">
         <div class="nav-icon active" onclick="ClientSystem.sfx('nav'); ClientSystem.renderHome()"><i class="fa-solid fa-house"></i><span>الرئيسية</span></div>
         <div class="nav-icon" onclick="ClientSystem.sfx('nav'); ClientSystem.openWallet()"><i class="fa-solid fa-wallet nav-lg-icon"></i><span>المحفظة</span></div>
         <div class="nav-icon" onclick="ClientSystem.sfx('nav'); ClientSystem.openFavorites()"><i class="fa-solid fa-heart"></i><span>المفضلة</span></div>
@@ -1230,8 +1188,7 @@
                 <!-- سيتم حقن كروت قنوات التواصل ديناميكياً بناءً على إعدادات الأدمن -->
             </div>
         </div>
-    </div>  
-    <!-- 🌟 [النافذة الجديدة]: نافذة التقييم الذكي والفاخر (مصيدة الشكاوى وتنشيط التقييمات) -->
+    </div>  <!-- 🌟 [النسخة المحسنة والأكاديمية]: نافذة التقييم الفاخرة (نظام ترقيات VIP الفاخر ومصيدة الشكاوى) [1.5, 2] -->
 <div class="pm-overlay" id="rating-overlay" onclick="ClientSystem.closeModal('rating')"></div>
 <div class="modal-sheet bottom-sheet" id="rating-modal">
     <div class="pm-header-std">
@@ -1262,31 +1219,23 @@
                 <i class="fa-solid fa-face-frown" style="color: var(--error-red); font-size: 1.4rem;"></i>
                 <span>نأسف لعدم تلبية توقعاتك. يُرجى تدوين الملاحظات بالتفصيل ليتم مراجعتها من قِبل الإدارة واتخاذ الإجراءات اللازمة.</span>
             </div>
+            
+            <!-- 🌟 تم عزل حقل النص هنا بكلاس مستقل تماماً لمنع الانهيار البصري -->
             <div class="input-group" style="margin-bottom: 25px;">
-                <div class="input-box" style="height: 100px;">
-                    <textarea class="input-field" id="ratingFeedbackInput" placeholder=" " style="padding: 12px; height: 100%; resize: none;"></textarea>
-                    <label class="label" style="direction: rtl;">تفاصيل الملاحظة أو المقترح...</label>
-                </div>
+                <textarea class="rating-textarea" id="ratingFeedbackInput" placeholder="اكتب تفاصيل ملاحظاتك أو مقترحاتك هنا لمراجعتها..."></textarea>
             </div>
+            
             <button type="button" class="alert-btn" id="btnSubmitFeedback" onclick="ClientSystem.submitPrivateFeedback()">إرسال للإدارة</button>
         </div>
         
-        <!-- 3. شاشة التوجيه وكوبون الهدية (تظهر فقط عند تقييم 4-5 نجوم) -->
+        <!-- 3. شاشة التوجيه الفاخرة لـ الـ VIP والتأثير الفيروسي (تظهر عند تقييم 4-5 نجوم) -->
         <div id="rating-step-share" class="rating-step-block" style="display: none;">
             <div class="community-intro-banner" style="background: rgba(16, 185, 129, 0.04); border-color: rgba(16, 185, 129, 0.12); color: var(--text-gray); margin-bottom: 20px;">
-                <i class="fa-solid fa-gift" style="color: var(--success-green); font-size: 1.4rem;"></i>
-                <span>شكراً لتقييمك الإيجابي. يُرجى نسخ الرمز المخصص لعمليات الشراء التالية، مع إمكانية توثيق تقييمك عبر المنصة الرسمية.</span>
+                <i class="fa-solid fa-crown" style="color: var(--gold-main); font-size: 1.4rem; animation: pulse 2s infinite;"></i>
+                <span>تقديراً لتقييمك المتميز، سنقوم  بمراجعة حسابك  لترقيته إلى مستوى VIP أفضل للحصول على أسعار وعروض حصرية مخصصة لك.</span>
             </div>
             
-            <div class="rating-gift-box">
-                <div class="gift-coupon-title">رمز الخصم المخصص لعملية الشراء التالية:</div>
-                <div class="input-group" style="margin-bottom: 10px;">
-                    <div class="input-box" style="z-index: 10;">
-                        <input type="text" class="input-field num-en is-copyable" id="ratingGiftCoupon" readonly style="text-align: center; font-size: 16px; font-weight: 900; background: #0a101d; border: 1px dashed var(--gold-main);" value="VIP-GIFT-5" data-action="copy-text" data-text="VIP-GIFT-5">
-                        <label class="label" style="direction: rtl;">رمز الخصم الهدية</label>
-                    </div>
-                </div>
-            </div>
+            <p class="rating-intro-text" style="margin-bottom: 20px; font-weight: 700;">ندعوك لتوثيق تجربتك ومشاركتها مع مجتمعنا عبر المنصة الرسمية لتقييم المتاجر:</p>
             
             <a href="https://www.trustpilot.com" target="_blank" class="submit-btn" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; margin-top: 20px;" onclick="ClientSystem.closeModal('rating')">
                 <i class="fa-solid fa-external-link"></i> تقييم الخدمة عبر منصة Trustpilot
@@ -1294,7 +1243,100 @@
         </div>
     </div>
 </div>
-        <script type="module" src="script.js"></script>
+<div class="pm-overlay" id="about-overlay" onclick="ClientSystem.closeModal('about')"></div>
+<div class="modal-sheet bottom-sheet" id="about-modal">
+    <div class="pm-header-std">
+        <div class="pm-close-std" onclick="ClientSystem.closeModal('about')"><i class="fa-solid fa-xmark"></i></div>
+        <div class="header-center">
+            <span class="title-badge text-warning"><i class="fa-solid fa-circle-info"></i> من نحن</span>
+        </div>
+        <div class="pm-header-spacer"></div>
+    </div>
+    
+    <div class="pm-scroll-content">
+        <div class="custom-alert-card" style="max-width: 100%; border: none; box-shadow: none; background: transparent; padding: 20px 10px;">
+            <div id="about-logo-box"></div>
+            <h3 class="alert-title" id="about-popup-title" style="color: var(--gold-main); font-size: 20px; margin-bottom: 15px;"></h3>
+            <p class="alert-msg" id="about-popup-desc" style="text-align: justify; text-align-last: center; line-height: 1.8; margin-bottom: 25px;"></p>
+            <button type="button" class="alert-btn" onclick="ClientSystem.closeModal('about')">أهلاً بك في متجرنا</button>
+        </div>
+    </div>
+</div>
+
+<div class="pm-overlay" id="security-overlay" onclick="ClientSystem.closeSecurityModal()"></div>
+<div class="modal-sheet bottom-sheet" id="security-modal">
+    <div class="pm-header-std">
+        <div class="pm-close-std" onclick="ClientSystem.closeSecurityModal()"><i class="fa-solid fa-xmark"></i></div>
+        <div class="header-center">
+            <span class="title-badge text-warning"><i class="fa-solid fa-shield-halved"></i> الأمان والخصوصية</span>
+        </div>
+        <div class="pm-header-spacer"></div>
+    </div>
+    
+    <div class="pm-scroll-content">
+        
+        <div class="settings-group-title">إعدادات المصادقة وحماية الحساب</div>
+        
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-title"><i class="fa-solid fa-key"></i> المصادقة الثنائية (2FA)</div>
+                <div class="setting-sub">إرسال رمز التحقق (OTP) إلى بريدك الإلكتروني عند إجراء العمليات.</div>
+            </div>
+            <button type="button" class="setting-toggle ghost" id="setting-2fa-toggle" onclick="ClientSystem.toggleSecurityPref()">
+                <span class="setting-toggle-knob"></span>
+                <span class="setting-toggle-label" id="setting-2fa-label">قريباً</span>
+            </button>
+        </div>
+        
+        <div class="setting-row">
+            <div class="setting-info">
+                <div class="setting-title"><i class="fa-solid fa-fingerprint"></i> المصادقة الحيوية</div>
+                <div class="setting-sub">تسجيل الدخول الفوري وتأكيد العمليات بلمسة إصبع آمنة.</div>
+            </div>
+            <button type="button" class="setting-toggle ghost" id="setting-biometric-toggle" onclick="ClientSystem.toggleSecurityPref()">
+                <span class="setting-toggle-knob"></span>
+                <span class="setting-toggle-label" id="setting-biometric-label">قريباً</span>
+            </button>
+        </div>
+        
+        <div class="settings-group-title">تعديل كلمة المرور</div>
+        
+        <div class="security-pass-wrapper">
+            <div class="input-field-lux" style="position: relative;">
+                <label>كلمة المرور الحالية</label>
+                <span class="forgot-pass-link" onclick="ClientSystem.sendResetPasswordEmail()">نسيت الكلمة؟</span>
+                <input type="password" id="pass-current" class="lux-input" placeholder="أدخل كلمة المرور الحالية" autocomplete="current-password">
+            </div>
+            
+            <div class="input-field-lux">
+                <label>كلمة المرور الجديدة</label>
+                <input type="password" id="pass-new" class="lux-input" placeholder="أدخل كلمة مرور جديدة" autocomplete="new-password">
+            </div>
+            
+            <div class="input-field-lux">
+                <label>تأكيد كلمة المرور</label>
+                <input type="password" id="pass-confirm" class="lux-input" placeholder="أعد إدخال كلمة المرور" autocomplete="new-password">
+            </div>
+            
+            <div style="margin-top: 10px;">
+                <button class="alert-btn" onclick="ClientSystem.handlePasswordSubmit()">تحديث كلمة المرور</button>
+            </div>
+        </div>
+        
+        <div class="settings-group-title" style="color: var(--danger);">إجراءات إغلاق الحساب</div>
+        
+        <div class="danger-zone-wrapper">
+            <div class="setting-info">
+                <div class="setting-title" style="color: var(--danger);"><i class="fa-solid fa-trash-can"></i> حذف الحساب نهائياً</div>
+                <div class="setting-sub" style="color: var(--text-muted);">هذا الإجراء سيقوم بحذف جميع بياناتك ورصيدك نهائياً ولا يمكن التراجع عنه.</div>
+            </div>
+            <button class="alert-btn" style="background: var(--danger); color: #fff; box-shadow: 0 4px 15px rgba(225, 29, 72, 0.2);" onclick="ClientSystem.toggleSecurityPref()">طلب حذف الحساب</button>
+        </div>
+        
+    </div>
+</div>
+
+<script type="module" src="script.js"></script>
         
 </body>
 </html>
