@@ -1,7 +1,7 @@
 // ============================================================================
 // 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Client Safe)
 // 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث: إغلاق ثغرة الجلسات الشبحية + تهيئة المؤشرات + محرك التسعير النظيف + علم المزامنة
+// 🚀 التحديث: إغلاق ثغرة الجلسات الشبحية + تهيئة المؤشرات + محرك التسعير النظيف + علم المزامنة + حماية تغيير المرور
 // ============================================================================
 
 import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -415,58 +415,46 @@ export const DataManager = {
         this.user.totalDeposit = Number(this.user.totalDeposit || 0);
     },
 
+    // 🌟 [الدالة التي كانت مفقودة] - نظام تغيير كلمة المرور الآمن
     submitPasswordChange: async function(currentVal, newVal, confirmVal) {
-    // ملاحظة: فايربيز يفرض أن تكون كلمة المرور 6 أحرف كحد أدنى أمنياً
-    if (!newVal || newVal.length < 6) return { success: false, msg: 'الرجاء إدخال كلمة مرور لا تقل عن 6 أحرف.' };
-    if (newVal !== confirmVal) return { success: false, msg: 'كلمتا المرور غير متطابقتين.' };
-    if (!currentVal) return { success: false, msg: 'يرجى إدخال كلمة المرور الحالية.' };
-    
-    // 🛡️ درع الحماية: نظام النافذة الزمنية المنزلقة (3 مرات كل 24 ساعة)
-    const now = this.getNow();
-    const oneDayMs = 24 * 60 * 60 * 1000; // 24 ساعة بالملي ثانية
-    
-    // جلب سجل التغييرات السابقة (أو مصفوفة فارغة إذا لم يغيرها من قبل)
-    let changeHistory = this.user?.passwordChangeHistory || [];
-    
-    // 🧹 تنظيف السجل: الاحتفاظ فقط بالتغييرات التي تمت خلال الـ 24 ساعة الماضية
-    changeHistory = changeHistory.filter(timestamp => (now - timestamp) < oneDayMs);
-    
-    // التحقق من وصول العميل للحد الأقصى (3 مرات)
-    if (changeHistory.length >= 3) {
-        // حساب الوقت المتبقي لانتهاء صلاحية "أقدم" محاولة في السجل
-        const oldestChange = changeHistory[0];
-        const timeUntilUnlock = oneDayMs - (now - oldestChange);
-        const hoursLeft = Math.ceil(timeUntilUnlock / (1000 * 60 * 60));
+        if (!newVal || newVal.length < 6) return { success: false, msg: 'الرجاء إدخال كلمة مرور لا تقل عن 6 أحرف.' };
+        if (newVal !== confirmVal) return { success: false, msg: 'كلمتا المرور غير متطابقتين.' };
+        if (!currentVal) return { success: false, msg: 'يرجى إدخال كلمة المرور الحالية.' };
         
-        return {
-            success: false,
-            msg: `عذراً، استنفدت الحد الأقصى لتغيير كلمة المرور (3 مرات). يرجى المحاولة بعد ${hoursLeft} ساعة.`
-        };
-    }
-    
-    try {
-        // 🚀 توجيه الطلب إلى سيرفرات فايربيز الرسمية (آمن ومشفر)
-        const result = await StoreDB.changeUserPassword(currentVal, newVal);
+        const now = this.getNow();
+        const oneDayMs = 24 * 60 * 60 * 1000;
         
-        if (result.success) {
-            // إضافة الوقت الحالي لسجل التغييرات
-            changeHistory.push(now);
-            
-            // تحديث بيانات العميل في السيرفر
-            await this.updateUserProfile({
-                passwordChangeHistory: changeHistory, // حفظ السجل الجديد المحدث
-                pass: null // 🧹 تنظيف أمني لأي كلمة مرور قديمة غير مشفرة
-            });
-            
-            return { success: true, msg: 'تم تحديث كلمة المرور بنجاح وحماية حسابك.' };
-        } else {
-            return { success: false, msg: result.msg };
+        let changeHistory = this.user?.passwordChangeHistory || [];
+        changeHistory = changeHistory.filter(timestamp => (now - timestamp) < oneDayMs);
+        
+        if (changeHistory.length >= 3) {
+            const oldestChange = changeHistory[0];
+            const timeUntilUnlock = oneDayMs - (now - oldestChange);
+            const hoursLeft = Math.ceil(timeUntilUnlock / (1000 * 60 * 60));
+            return {
+                success: false,
+                msg: `عذراً، استنفدت الحد الأقصى لتغيير كلمة المرور (3 مرات). يرجى المحاولة بعد ${hoursLeft} ساعة.`
+            };
         }
         
-    } catch (e) {
-        return { success: false, msg: 'تعذر الاتصال بالسيرفر، يرجى المحاولة لاحقاً.' };
-    }
-},    confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
+        try {
+            const result = await StoreDB.changeUserPassword(currentVal, newVal);
+            if (result.success) {
+                changeHistory.push(now);
+                await this.updateUserProfile({
+                    passwordChangeHistory: changeHistory,
+                    pass: null // تنظيف أمني
+                });
+                return { success: true, msg: 'تم تحديث كلمة المرور بنجاح وحماية حسابك.' };
+            } else {
+                return { success: false, msg: result.msg };
+            }
+        } catch (e) {
+            return { success: false, msg: 'تعذر الاتصال بالسيرفر، يرجى المحاولة لاحقاً.' };
+        }
+    },
+
+    confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
 
         try {
@@ -645,7 +633,8 @@ export const DataManager = {
             return true;
         }).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)); 
     },
-sendPasswordResetEmail: async function(email) {
+
+    sendPasswordResetEmail: async function(email) {
         if (!email) return { success: false, msg: 'لا يوجد بريد إلكتروني مرتبط بالحساب.' };
         return await StoreDB.sendResetEmail(email);
     },
@@ -662,6 +651,27 @@ sendPasswordResetEmail: async function(email) {
         return allAlerts.filter(msg => {
             return this._isAlertForUser(msg, user, now, []);
         }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    },
+
+    // ==========================================
+    // 🛡️ جسور المصادقة الثنائية (2FA / TOTP)
+    // ==========================================
+    generateTOTPSecret: async function() {
+        return await StoreDB.generateTOTPSecret();
+    },
+    
+    enrollTOTP: async function(secret, code) {
+        return await StoreDB.enrollTOTP(secret, code);
+    },
+        
+    unenrollMFA: async function() {
+        return await StoreDB.unenrollMFA();
+    },
+            
+    is2FAEnabled: function() {
+        const authUser = auth?.currentUser;
+        if (!authUser || !authUser.multiFactor) return false;
+        return authUser.multiFactor.enrolledFactors.length > 0;
     },
 
     markAlertAsRead: function(msgId, isPopup = false, maxViews = null) {

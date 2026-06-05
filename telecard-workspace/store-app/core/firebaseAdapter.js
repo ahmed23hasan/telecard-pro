@@ -1,7 +1,7 @@
 // ============================================================================
 // ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version
 // 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth
-// 🌟 التحديث: تفعيل الاتصال السريع + إرسال روابط التعيين + التشفير الأمني لكلمات المرور
+// 🌟 التحديث: تفعيل الاتصال السريع + التشفير الأمني لكلمات المرور + المصادقة الثنائية 2FA
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -9,13 +9,15 @@ import {
     getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-// 🌟 استيراد دوال المصادقة، وإرسال الروابط، وإعادة المصادقة الأمنية
+// 🌟 استيراد دوال المصادقة، التشفير، وإدارة الـ 2FA (TOTP)
 import { 
     getAuth, 
     sendPasswordResetEmail, 
     updatePassword, 
     reauthenticateWithCredential, 
-    EmailAuthProvider 
+    EmailAuthProvider,
+    multiFactor, 
+    TotpMultiFactorGenerator 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
@@ -280,11 +282,9 @@ export const FirebaseAdapter = {
             const user = auth.currentUser;
             if (!user) throw new Error("auth/no-user");
 
-            // 1. إعادة المصادقة (إثبات هوية العميل) بالكلمة القديمة
             const credential = EmailAuthProvider.credential(user.email, currentPassword);
             await reauthenticateWithCredential(user, credential);
 
-            // 2. إذا طابقت الكلمة القديمة، نقوم بتحديث كلمة المرور في سيرفرات فايربيز المشفرة
             await updatePassword(user, newPassword);
             return { success: true };
             
@@ -303,6 +303,63 @@ export const FirebaseAdapter = {
             }
             
             return { success: false, msg: errorMsg };
+        }
+    },
+
+    // ==========================================
+    // 🛡️ 15. نظام المصادقة الثنائية الرسمي (Firebase Native TOTP)
+    // ==========================================
+    
+    // أ. بدء جلسة 2FA وتوليد المفتاح من السيرفر
+    async generateTOTPSecret() {
+        try {
+            const user = auth.currentUser;
+            if (!user) throw new Error("لا يوجد مستخدم مسجل");
+
+            // طلب جلسة مصادقة من السيرفر
+            const multiFactorSession = await multiFactor(user).getSession();
+            
+            // توليد المفتاح السري من جوجل
+            const tfaSecret = await TotpMultiFactorGenerator.generateSecret(multiFactorSession);
+            
+            return { success: true, secret: tfaSecret };
+        } catch (error) {
+            console.error("Generate 2FA Error:", error);
+            return { success: false, msg: 'تعذر توليد المفتاح الأمني من السيرفر. تأكد من تفعيل الميزة في لوحة التحكم.' };
+        }
+    },
+
+    // ب. إرسال الـ 6 أرقام للسيرفر لتأكيد التفعيل
+    async enrollTOTP(tfaSecret, otpCode, displayName = "تطبيق المصدق") {
+        try {
+            const user = auth.currentUser;
+            // تجهيز بصمة التأكيد
+            const assertion = TotpMultiFactorGenerator.assertionForEnrollment(tfaSecret, otpCode);
+            // ربط المصادقة بحساب العميل رسمياً
+            await multiFactor(user).enroll(assertion, displayName);
+            return { success: true };
+        } catch (error) {
+            console.error("Enroll 2FA Error:", error);
+            let msg = 'تعذر تفعيل المصادقة.';
+            if (error.code === 'auth/invalid-verification-code') msg = 'الكود غير صحيح أو منتهي الصلاحية.';
+            return { success: false, msg: msg };
+        }
+    },
+
+    // ج. إيقاف وإلغاء المصادقة الثنائية
+    async unenrollMFA() {
+        try {
+            const user = auth.currentUser;
+            const enrolledFactors = multiFactor(user).enrolledFactors;
+            
+            if (enrolledFactors.length > 0) {
+                // حذف أول عامل مصادقة يجده (وهو الـ TOTP الخاص بنا)
+                await multiFactor(user).unenroll(enrolledFactors[0].uid);
+            }
+            return { success: true };
+        } catch (error) {
+            console.error("Unenroll 2FA Error:", error);
+            return { success: false, msg: 'تعذر إيقاف المصادقة.' };
         }
     }
 };

@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
-
 <head>
 <script>
     window.BootLog = {
@@ -11,11 +10,9 @@
             console.log(`[🚀 Startup] ${status === 'ok' ? '✅' : '❌'} ${module} ${msg}`);
         }
     };
-
-    // 1. مراقبة أخطاء الشبكة (ملفات مفقودة 404)
     window.addEventListener('error', function(e) {
         if (e.target.tagName === 'SCRIPT') {
-            window.BootLog.add(e.target.src, 'error', 'فشل في تحميل الملف (غالباً المسار خاطئ)');
+            window.BootLog.add(e.target.src, 'error', 'فشل في تحميل الملف');
             document.body.insertAdjacentHTML('afterbegin', 
                 `<div style="background:red; color:white; padding:10px; position:fixed; top:0; z-index:99999; width:100%; direction:rtl">
                    🛑 خلل في المسار: فشل المتصفح في العثور على الملف: <br> ${e.target.src}
@@ -23,10 +20,8 @@
             );
         }
     }, true);
-
-    // 2. مراقبة أخطاء السكربتات (أخطاء برمجية)
     window.onerror = function(msg, url, line) {
-        window.BootLog.add(url, 'crash', `خطأ برمج في السطر ${line}: ${msg}`);
+        window.BootLog.add(url, 'crash', `خطأ برمجي في السطر ${line}: ${msg}`);
         return false;
     };
 </script>
@@ -52,43 +47,37 @@
     
     <header class="store-header">
         <div class="header-actions-right">
-             <div class="action-btn menu-btn" onclick="ClientSystem.sfx('nav'); ClientSystem.openSidebar()"><i class="fa-solid fa-bars"></i></div>
+             <div class="action-btn menu-btn" data-action="open-sidebar"><i class="fa-solid fa-bars"></i></div>
              
-             <div class="action-btn notif-bell-btn" onclick="ClientSystem.sfx('nav'); ClientSystem.openNotifCenter()">
+             <div class="action-btn notif-bell-btn" data-action="open-notif-center">
                  <i class="fa-regular fa-bell"></i>
                  <span class="notif-badge hide-element" id="header-notif-badge">0</span>
              </div>
              
              <div class="ct-wrapper">
-                <button type="button" class="ct-toggle" id="ct-toggle" onclick="ClientSystem.toggleDisplayCurrencyMenu()">
+                <button type="button" class="ct-toggle" id="ct-toggle" data-action="toggle-currency-menu">
                     <span class="ct-flag-box" id="ct-flag-box"><img class="ct-flag" alt=""></span>
                     <span class="ct-label" id="ct-label">USD</span>
                     <i class="fa-solid fa-caret-down"></i>
                 </button>
-                 
-                                 <div class="ct-menu" id="ct-menu">
-                     </div>
-                 
-                 <select id="display-currency" class="display-currency-native" onchange="ClientSystem.setDisplayCurrency(this.value)">
-                     </select>
+                 <div class="ct-menu" id="ct-menu"></div>
+                 <select id="display-currency" class="display-currency-native" data-action="change-currency"></select>
              </div>
 
-             <div class="action-btn theme-toggle-btn" onclick="ClientSystem.toggleTheme()" title="تبديل الوضع">
-                   <i id="theme-toggle-icon"class="sun-dots-icon"></i>
+             <div class="action-btn theme-toggle-btn" data-action="toggle-theme" title="تبديل الوضع">
+                   <i id="theme-toggle-icon" class="sun-dots-icon"></i>
              </div>
         </div>
         
-     <!-- الهيدر العلوي: نظيف كلياً وبدون أي ستايلات مدمجة -->
-<div class="logo-area logo-ar" id="store-branding-target" data-action="open-about"></div>
+        <div class="logo-area logo-ar" id="store-branding-target" data-action="open-about"></div>
     </header>
     
-    <div class="sidebar-overlay" id="sidebarOverlay" onclick="ClientSystem.closeSidebar()"></div>
+    <div class="sidebar-overlay" id="sidebarOverlay" data-action="close-sidebar"></div>
     
     <div class="sidebar" id="cs-menu">
-    <div class="sidebar-header">
-
-<div id="sidebar-branding-target" data-action="open-about"></div>
-<button class="sidebar-close-btn" onclick="ClientSystem.sfx('nav'); ClientSystem.closeSidebar()">
+        <div class="sidebar-header">
+            <div id="sidebar-branding-target" data-action="open-about"></div>
+            <button class="sidebar-close-btn" data-action="close-sidebar">
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
@@ -108,40 +97,40 @@
         </div>
         
         <div class="sp-glass-card" id="user-sidebar-card">
-    <div class="sp-identity-wrapper" onclick="ClientSystem.sfx('nav'); ClientSystem.closeSidebar(); setTimeout(()=>ClientSystem.openProfileInfo(), 150);">
-        <div class="sp-avatar-box">
-            <img src="" id="cs-avatar" alt="صورة المستخدم">
-            <!-- 🌟 تم إصلاح الخطأ هنا (إزالة الأقواس الزائدة) -->
-            <div class="sp-status-dot"></div>
-        </div>
-        <div class="sp-user-info">
-            <div class="sp-user-name">
-                <span id="cs-name">--</span>
-                <i class="fa-solid fa-chevron-left name-click-arrow"></i>
+            <div class="sp-identity-wrapper" data-action="open-profile-sidebar">
+                <div class="sp-avatar-box">
+                    <img src="" id="cs-avatar" alt="صورة المستخدم">
+                    <div class="sp-status-dot"></div>
+                </div>
+                <div class="sp-user-info">
+                    <div class="sp-user-name">
+                        <span id="cs-name">--</span>
+                        <i class="fa-solid fa-chevron-left name-click-arrow"></i>
+                    </div>
+                    <div class="uid-capsule" id="cs-id-container">
+                        <i class="fa-solid fa-id-card"></i>
+                        <span class="num-en" id="cs-id">--</span>
+                    </div>
+                </div>
             </div>
-            <div class="uid-capsule" id="cs-id-container">
-                <i class="fa-solid fa-id-card"></i>
-                <span class="num-en" id="cs-id">--</span>
+            
+            <div class="sp-divider"></div>
+            
+            <div class="sp-finance-section">
+                <div class="sp-balance-box clickable-balance" data-action="open-wallet-sidebar">
+                    <span class="sp-balance-label"><i class="fa-solid fa-wallet"></i> الرصيد الحالي</span>
+                    <div class="sp-balance-value num-en">
+                        <span id="sidebar-balance-num">0.00</span>
+                        <span class="sidebar-currency" id="sidebar-balance-curr">USD</span>
+                    </div>
+                </div>
+                <button class="sp-rank-capsule" id="sidebar-rank-btn" data-action="open-tier-info">
+                    <i class="fa-solid fa-crown"></i> VIP
+                </button>
             </div>
         </div>
-    </div>
-    
-    <div class="sp-divider"></div>
-    
-    <div class="sp-finance-section">
-        <!-- 🌟 تم تحويل صندوق الرصيد إلى زر تفاعلي يفتح المحفظة -->
-        <div class="sp-balance-box clickable-balance" onclick="ClientSystem.sfx('nav'); ClientSystem.closeSidebar(); setTimeout(()=>ClientSystem.openWallet(), 150);">
-            <span class="sp-balance-label"><i class="fa-solid fa-wallet"></i> الرصيد الحالي</span>
-            <div class="sp-balance-value num-en">
-                <span id="sidebar-balance-num">0.00</span>
-                <span class="sidebar-currency" id="sidebar-balance-curr">USD</span>
-            </div>
-        </div>
-        <button class="sp-rank-capsule" id="sidebar-rank-btn" onclick="event.stopPropagation(); ClientSystem.sfx('nav'); ClientSystem.openTierInfoModal();">
-            <i class="fa-solid fa-crown"></i> VIP
-        </button>
-    </div>
-</div>        <div class="sb-profile-alert" id="sb-profile-alert" onclick="if(window.ClientSystem) { ClientSystem.sfx('nav'); ClientSystem.closeSidebar(); setTimeout(() => ClientSystem.openModal('identity'), 150); }">
+        
+        <div class="sb-profile-alert" id="sb-profile-alert" data-action="open-identity-sidebar">
             <div class="sb-pa-icon"><i class="fa-solid fa-address-card"></i></div>
             <div class="sb-pa-text">
                 <h4>أكمل بياناتك</h4>
@@ -152,59 +141,52 @@
             
         <div id="sidebar-kyc-container"></div>
             
-              <div class="menu-list">
-            <div class="nav-item active" onclick="ClientSystem.sfx('nav'); ClientSystem.navigateHome()">
+        <div class="menu-list">
+            <div class="nav-item active" data-action="nav-home">
                 <i class="fa-solid fa-house nav-icon"></i>
                 <span class="nav-item-text">الرئيسية</span>
             </div>
-
-            <div class="nav-item" id="nav-item-deposit" onclick="ClientSystem.sfx('nav'); ClientSystem.navigateBalance()">
+            <div class="nav-item" id="nav-item-deposit" data-action="nav-deposit">
                 <i class="fa-solid fa-circle-plus nav-icon"></i>
                 <span class="nav-item-text">إيداع رصيد</span>
             </div>
-
-            <div class="nav-item" id="nav-item-payments" onclick="ClientSystem.sfx('nav'); ClientSystem.navigateMyPayments()">
+            <div class="nav-item" id="nav-item-payments" data-action="nav-payments">
                 <i class="fa-solid fa-file-invoice-dollar nav-icon"></i>
                 <span class="nav-item-text">سجل الدفعات</span>
             </div>
-
-            <div class="nav-item" id="nav-item-orders" onclick="ClientSystem.sfx('nav'); ClientSystem.navigateOrders()">
+            <div class="nav-item" id="nav-item-orders" data-action="nav-orders">
                 <i class="fa-solid fa-box-open nav-icon"></i>
                 <span class="nav-item-text">سجل الطلبات</span>
             </div>
-                
-            <div class="nav-item" id="nav-item-notif" onclick="ClientSystem.sfx('nav'); ClientSystem.openNotifCenter()">
+            <div class="nav-item" id="nav-item-notif" data-action="open-notif-center">
                 <i class="fa-regular fa-bell nav-icon"></i>
                 <span class="nav-item-text">مركز الإشعارات</span> 
                 <span class="sidebar-notif-badge hide-element" id="sidebar-notif-badge">0</span>
             </div>
-
-            <div class="nav-item" onclick="ClientSystem.sfx('nav'); ClientSystem.openCommunityModal()">
-    <i class="fa-solid fa-share-nodes nav-icon"></i>
-    <span class="nav-item-text">قنواتنا ومجتمعنا</span>
-</div>
-            <!-- تحديث الزر ليفتح نافذة الأمان والخصوصية الجديدة -->
-<div class="nav-item" id="nav-item-security" onclick="ClientSystem.sfx('nav'); ClientSystem.openSecurityModal()">
-    <i class="fa-solid fa-shield-halved nav-icon"></i>
-    <span class="nav-item-text">الأمان والخصوصية</span>
-</div>
-            <div class="nav-item" onclick="ClientSystem.sfx('nav'); ClientSystem.navigateSettings()">
+            <div class="nav-item" data-action="open-community">
+                <i class="fa-solid fa-share-nodes nav-icon"></i>
+                <span class="nav-item-text">قنواتنا ومجتمعنا</span>
+            </div>
+            <div class="nav-item" id="nav-item-security" data-action="open-security-modal">
+                <i class="fa-solid fa-shield-halved nav-icon"></i>
+                <span class="nav-item-text">الأمان والخصوصية</span>
+            </div>
+            <div class="nav-item" data-action="nav-settings">
                 <i class="fa-solid fa-sliders nav-icon"></i>
                 <span class="nav-item-text">الإعدادات</span>
             </div>
-
-            <div class="nav-item" onclick="ClientSystem.sfx('nav'); ClientSystem.openRatingModal()">
-    <i class="fa-solid fa-star nav-icon"></i>
-    <span class="nav-item-text">قيمنا</span>
-</div>
-            <div class="nav-item" onclick="ClientSystem.sfx('nav'); ClientSystem.openTermsModal()">
+            <div class="nav-item" data-action="open-rating">
+                <i class="fa-solid fa-star nav-icon"></i>
+                <span class="nav-item-text">قيمنا</span>
+            </div>
+            <div class="nav-item" data-action="open-terms">
                 <i class="fa-solid fa-file-contract nav-icon"></i>
                 <span class="nav-item-text">الشروط والأحكام</span>
             </div>
         </div>
 
         <div class="sidebar-footer">
-            <div class="support-card" id="sidebar-support-btn" onclick="ClientSystem.sfx('nav'); ClientSystem.openSupport()">
+            <div class="support-card" id="sidebar-support-btn" data-action="open-support">
                 <div class="support-icon-frame" id="sidebar-support-icon-wrapper">
                     <i id="sidebar-support-icon"></i>
                 </div>
@@ -213,9 +195,8 @@
                     <div class="support-status">متصل الآن</div>
                 </div>
             </div>
-            <button class="logout-btn" id="sidebar-logout-btn" onclick="ClientSystem.sfx('nav'); ClientSystem.logout()"><i class="fa-solid fa-power-off"></i>تسجيل الخروج</button>
+            <button class="logout-btn" id="sidebar-logout-btn" data-action="logout"><i class="fa-solid fa-power-off"></i>تسجيل الخروج</button>
         </div>
-        
     </div>
 
     <div class="main-scroll">
@@ -236,14 +217,14 @@
         </div>
         <div class="section-header-modern" id="sticky-header-bar">
             <div class="header-right-group">
-                <button id="smart-back-btn" class="modern-back-btn" onclick="ClientSystem.renderHome()">
+                <button id="smart-back-btn" class="modern-back-btn" data-action="nav-home">
                     <i class="fa-solid fa-arrow-right"></i>
                 </button>
                 <div id="grid-title"></div>
             </div>
             
             <div class="header-left-group">
-                <button id="sticky-fav-btn" class="modern-fav-btn" aria-label="المفضلة" onclick="ClientSystem.openFavorites()">
+                <button id="sticky-fav-btn" class="modern-fav-btn" aria-label="المفضلة" data-action="open-favorites">
                     <i class="fa-regular fa-heart"></i>
                     <span class="fav-badge hide-element" id="sticky-fav-count">0</span>
                 </button>
@@ -251,9 +232,8 @@
         </div>
 
         <div class="mf-search-box store-search-box">
-            <input type="text" id="store-search-input" aria-label="بحث عن منتج" placeholder="ابحث عن منتج..." 
-                   onkeypress="if(event.key==='Enter'){ ClientSystem.sfx('nav'); ClientSystem.applyStoreSearch(); }">
-            <button class="mf-search-btn" aria-label="تنفيذ البحث" onclick="ClientSystem.sfx('nav'); ClientSystem.applyStoreSearch()">
+            <input type="text" id="store-search-input" aria-label="بحث عن منتج" placeholder="ابحث عن منتج..." data-action="store-search-enter">
+            <button class="mf-search-btn" aria-label="تنفيذ البحث" data-action="store-search-btn">
                 <i class="fa-solid fa-magnifying-glass"></i>
             </button>
         </div>
@@ -263,16 +243,13 @@
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
-            <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
-            <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
         </div>
     </div>
 
-   
-    <div class="pm-overlay" id="orders-overlay" onclick="ClientSystem.closeOrders()"></div>
+    <div class="pm-overlay" id="orders-overlay" data-action="close-orders"></div>
     <div class="modal-sheet bottom-sheet" id="orders-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closeOrders()"><i class="fa-solid fa-xmark"></i></div>            
+            <div class="pm-close-std" data-action="close-orders"><i class="fa-solid fa-xmark"></i></div>            
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-box-open"></i> سجل الطلبات</span>
             </div>
@@ -281,7 +258,7 @@
         
         <div class="filter-pro-container">
             <div class="fp-dates-row compact-row">
-                <div class="custom-field compact-field" onclick="CalendarApp.open('order-date-start', event)">
+                <div class="custom-field compact-field" data-action="open-cal-order-start">
                     <div class="field-content">
                         <div class="icon-wrapper">
                             <i class="fa-regular fa-calendar"></i>
@@ -292,7 +269,7 @@
                     </div>
                 </div>
 
-                <div class="custom-field compact-field" onclick="CalendarApp.open('order-date-end', event)">
+                <div class="custom-field compact-field" data-action="open-cal-order-end">
                     <div class="field-content">
                         <div class="icon-wrapper">
                             <i class="fa-regular fa-calendar"></i>
@@ -303,34 +280,33 @@
                     </div>
                 </div>
 
-                <button class="btn-filter-action" onclick="ClientSystem.sfx('nav'); ClientSystem.renderOrders()">
+                <button class="btn-filter-action" data-action="render-orders">
                     <i class="fa-solid fa-filter"></i>
                 </button>
             </div>
             
             <div class="mf-search-box order-search-box">
-                <input type="text" id="order-search-input" placeholder="بحث في الطلبات..." 
-                       onkeypress="if(event.key==='Enter'){ ClientSystem.sfx('nav'); ClientSystem.renderOrders(); }">
-                <button class="mf-search-btn" onclick="ClientSystem.sfx('nav'); ClientSystem.renderOrders()">
+                <input type="text" id="order-search-input" placeholder="بحث في الطلبات..." data-action="order-search-enter">
+                <button class="mf-search-btn" data-action="render-orders">
                     <i class="fa-solid fa-magnifying-glass"></i>
                 </button>
             </div>
         </div>
 
         <div class="mf-tabs spaced-tabs" id="orders-tabs">
-            <div class="mf-tab active" onclick="ClientSystem.setOrderFilter('all',this)">الكل</div>
-            <div class="mf-tab" onclick="ClientSystem.setOrderFilter('pending',this)">قيد التنفيذ</div>
-            <div class="mf-tab" onclick="ClientSystem.setOrderFilter('completed',this)">مكتمل</div>
-            <div class="mf-tab" onclick="ClientSystem.setOrderFilter('rejected',this)">مرفوض</div>
-            <div class="mf-tab" onclick="ClientSystem.setOrderFilter('refunded',this)">مسترجع</div>
+            <div class="mf-tab active" data-action="filter-order" data-val="all">الكل</div>
+            <div class="mf-tab" data-action="filter-order" data-val="pending">قيد التنفيذ</div>
+            <div class="mf-tab" data-action="filter-order" data-val="completed">مكتمل</div>
+            <div class="mf-tab" data-action="filter-order" data-val="rejected">مرفوض</div>
+            <div class="mf-tab" data-action="filter-order" data-val="refunded">مسترجع</div>
         </div>
         <div class="pm-scroll-content"><div id="orders-list" class="u-list"></div></div>
     </div>
 
-    <div class="pm-overlay" id="wallet-overlay" onclick="ClientSystem.closeWallet()"></div>
+    <div class="pm-overlay" id="wallet-overlay" data-action="close-wallet"></div>
     <div class="modal-sheet bottom-sheet" id="wallet-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closeWallet()"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-wallet"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-wallet"></i> المحفظة</span>
             </div>
@@ -351,12 +327,12 @@
                             </div>
                         </div>
                     </div>
-                    <div class="detail-arrow" onclick="ClientSystem.toggleWalletStats(this)">
+                    <div class="detail-arrow" data-action="toggle-wallet-stats">
                         <i class="fa-solid fa-chevron-down"></i>
                     </div>
                 </div>
 
-                <div class="deposit-btn" onclick="ClientSystem.openAddBalance()">
+                <div class="deposit-btn" data-action="open-add-balance">
                     <div class="dep-icon-box"><i class="fa-solid fa-plus"></i></div>
                     <div class="dep-label">إيداع رصيد</div>
                 </div>
@@ -382,7 +358,7 @@
 
         <div class="filter-pro-container">
             <div class="fp-dates-row compact-row">
-                <div class="custom-field compact-field" onclick="CalendarApp.open('wallet-date-start', event)">
+                <div class="custom-field compact-field" data-action="open-cal-wallet-start">
                     <div class="field-content">
                         <div class="icon-wrapper">
                             <i class="fa-regular fa-calendar"></i>
@@ -393,7 +369,7 @@
                     </div>
                 </div>
 
-                <div class="custom-field compact-field" onclick="CalendarApp.open('wallet-date-end', event)">
+                <div class="custom-field compact-field" data-action="open-cal-wallet-end">
                     <div class="field-content">
                         <div class="icon-wrapper">
                             <i class="fa-regular fa-calendar"></i>
@@ -404,28 +380,27 @@
                     </div>
                 </div>
 
-                <button class="btn-filter-action" onclick="ClientSystem.sfx('nav'); ClientSystem.renderWallet()">
+                <button class="btn-filter-action" data-action="render-wallet">
                     <i class="fa-solid fa-filter"></i>
                 </button>
             </div>
             
             <div class="mf-search-box wallet-search-box">
-                <input type="text" id="wallet-search-input" placeholder="بحث في السجل..." 
-                       onkeypress="if(event.key==='Enter'){ ClientSystem.sfx('nav'); ClientSystem.renderWallet(); }">
-                <button class="mf-search-btn" onclick="ClientSystem.sfx('nav'); ClientSystem.renderWallet()">
+                <input type="text" id="wallet-search-input" placeholder="بحث في السجل..." data-action="wallet-search-enter">
+                <button class="mf-search-btn" data-action="render-wallet">
                     <i class="fa-solid fa-magnifying-glass"></i>
                 </button>
             </div>
         </div>
         
         <div class="mf-tabs" id="wallet-tabs">
-            <div class="mf-tab active" onclick="ClientSystem.setWalletFilter('all',this)">
+            <div class="mf-tab active" data-action="filter-wallet" data-val="all">
                 <i class="fa-solid fa-layer-group"></i> الكل
             </div>
-            <div class="mf-tab" onclick="ClientSystem.setWalletFilter('deposit',this)">
+            <div class="mf-tab" data-action="filter-wallet" data-val="deposit">
                 <i class="fa-solid fa-arrow-down"></i> وارد
             </div>
-            <div class="mf-tab" onclick="ClientSystem.setWalletFilter('purchase',this)">
+            <div class="mf-tab" data-action="filter-wallet" data-val="purchase">
                 <i class="fa-solid fa-bag-shopping"></i> صادر
             </div>
         </div>
@@ -433,10 +408,10 @@
         <div class="pm-scroll-content"><div id="wallet-list" class="u-list"></div></div>
     </div>
 
-    <div class="pm-overlay" id="mypay-overlay" onclick="ClientSystem.closeMyPayments()"></div>
+    <div class="pm-overlay" id="mypay-overlay" data-action="close-mypayments"></div>
     <div class="modal-sheet bottom-sheet" id="mypay-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closeMyPayments()"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-mypayments"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-file-invoice-dollar"></i> سجل الدفعات</span>
             </div>
@@ -445,7 +420,7 @@
 
         <div class="filter-pro-container shrink-none">
             <div class="fp-dates-row compact-row">
-                <div class="custom-field compact-field" onclick="CalendarApp.open('pay-date-start', event)">
+                <div class="custom-field compact-field" data-action="open-cal-pay-start">
                     <div class="field-content">
                         <div class="icon-wrapper">
                             <i class="fa-regular fa-calendar"></i>
@@ -456,7 +431,7 @@
                     </div>
                 </div>
 
-                <div class="custom-field compact-field" onclick="CalendarApp.open('pay-date-end', event)">
+                <div class="custom-field compact-field" data-action="open-cal-pay-end">
                     <div class="field-content">
                         <div class="icon-wrapper">
                             <i class="fa-regular fa-calendar"></i>
@@ -467,25 +442,24 @@
                     </div>
                 </div>
 
-                <button class="btn-filter-action" onclick="ClientSystem.sfx('nav'); ClientSystem.renderPayments()">
+                <button class="btn-filter-action" data-action="render-payments">
                     <i class="fa-solid fa-filter"></i>
                 </button>
             </div>
             
             <div class="mf-search-box pay-search-box">
-                <input type="text" id="pay-search-input" placeholder="بحث في الدفعات..." 
-                       onkeypress="if(event.key==='Enter'){ ClientSystem.sfx('nav'); ClientSystem.renderPayments(); }">
-                <button class="mf-search-btn" onclick="ClientSystem.sfx('nav'); ClientSystem.renderPayments()">
+                <input type="text" id="pay-search-input" placeholder="بحث في الدفعات..." data-action="pay-search-enter">
+                <button class="mf-search-btn" data-action="render-payments">
                     <i class="fa-solid fa-magnifying-glass"></i>
                 </button>
             </div>
         </div>
 
        <div class="mf-tabs spaced-tabs shrink-none" id="payments-tabs">
-            <div class="mf-tab active" onclick="ClientSystem.setPaymentFilter('all',this)">الكل</div>
-            <div class="mf-tab" onclick="ClientSystem.setPaymentFilter('approved',this)">مقبول</div>
-            <div class="mf-tab" onclick="ClientSystem.setPaymentFilter('rejected',this)">مرفوض</div>
-            <div class="mf-tab" onclick="ClientSystem.setPaymentFilter('pending',this)">قيد المعالجة</div>
+            <div class="mf-tab active" data-action="filter-pay" data-val="all">الكل</div>
+            <div class="mf-tab" data-action="filter-pay" data-val="approved">مقبول</div>
+            <div class="mf-tab" data-action="filter-pay" data-val="rejected">مرفوض</div>
+            <div class="mf-tab" data-action="filter-pay" data-val="pending">قيد المعالجة</div>
         </div>
 
         <div class="pm-scroll-content">
@@ -493,46 +467,46 @@
         </div>
     </div>
 
-<!-- 🌟 [النسخة المصححة والمبسطة]: إعدادات تخصيص المتجر (تخصيص المظهر والأصوات فقط) [2] -->
-<div class="pm-overlay" id="settings-overlay" onclick="ClientSystem.closeSettings()"></div>
-<div class="modal-sheet bottom-sheet settings-modal" id="settings-modal">
-    <div class="pm-header-std">
-        <div class="pm-close-std" onclick="ClientSystem.closeSettings()"><i class="fa-solid fa-xmark"></i></div>
-        <div class="header-center">
-            <span class="title-badge"><i class="fa-solid fa-gear"></i> تخصيص المتجر</span>
-        </div>
-        <div class="pm-header-spacer"></div>
-    </div>
-    <div class="settings-body">
-        <div class="settings-group-title">التخصيص البصري والسمعي</div>
-        <div class="setting-row">
-            <div class="setting-info">
-                <div class="setting-title"><i class="fa-solid fa-moon"></i> الوضع الليلي / النهاري</div>
-                <div class="setting-sub">يغيّر خلفية المتجر فقط دون لمس ألوان أو صور المنتجات.</div>
+    <div class="pm-overlay" id="settings-overlay" data-action="close-settings"></div>
+    <div class="modal-sheet bottom-sheet settings-modal" id="settings-modal">
+        <div class="pm-header-std">
+            <div class="pm-close-std" data-action="close-settings"><i class="fa-solid fa-xmark"></i></div>
+            <div class="header-center">
+                <span class="title-badge"><i class="fa-solid fa-gear"></i> تخصيص المتجر</span>
             </div>
-            <button type="button" class="setting-toggle" id="setting-theme-toggle" onclick="ClientSystem.toggleThemePref()">
-                <span class="setting-toggle-knob"></span>
-                <span class="setting-toggle-label" id="setting-theme-label">ليلي</span>
-            </button>
+            <div class="pm-header-spacer"></div>
         </div>
-        
-        <div class="setting-row">
-            <div class="setting-info">
-                <div class="setting-title"><i class="fa-solid fa-volume-high"></i> أصوات الواجهة</div>
-                <div class="setting-sub">تشغيل/إيقاف نغمات التنقل والتنبيهات الصغيرة.</div>
+        <div class="settings-body">
+            <div class="settings-group-title">التخصيص البصري والسمعي</div>
+            <div class="setting-row">
+                <div class="setting-info">
+                    <div class="setting-title"><i class="fa-solid fa-moon"></i> الوضع الليلي / النهاري</div>
+                    <div class="setting-sub">يغيّر خلفية المتجر فقط دون لمس ألوان أو صور المنتجات.</div>
+                </div>
+                <button type="button" class="setting-toggle" id="setting-theme-toggle" data-action="toggle-theme-pref">
+                    <span class="setting-toggle-knob"></span>
+                    <span class="setting-toggle-label" id="setting-theme-label">ليلي</span>
+                </button>
             </div>
-            <button type="button" class="setting-toggle" id="setting-sound-toggle" onclick="ClientSystem.toggleSoundPref()">
-                <span class="setting-toggle-knob"></span>
-                <span class="setting-toggle-label" id="setting-sound-label">مفعل</span>
-            </button>
+            
+            <div class="setting-row">
+                <div class="setting-info">
+                    <div class="setting-title"><i class="fa-solid fa-volume-high"></i> أصوات الواجهة</div>
+                    <div class="setting-sub">تشغيل/إيقاف نغمات التنقل والتنبيهات الصغيرة.</div>
+                </div>
+                <button type="button" class="setting-toggle" id="setting-sound-toggle" data-action="toggle-sound-pref">
+                    <span class="setting-toggle-knob"></span>
+                    <span class="setting-toggle-label" id="setting-sound-label">مفعل</span>
+                </button>
+            </div>
         </div>
     </div>
-</div>
-    <div class="pm-overlay" id="balance-overlay" onclick="ClientSystem.closeBalanceModal()"></div>
+
+    <div class="pm-overlay" id="balance-overlay" data-action="close-balance"></div>
     <div class="bottom-sheet" id="balance-modal">
         <div class="pm-header-std">
             <span class="title-badge pm-title-badge"><i class="fa-solid fa-wallet"></i> إيداع رصيد</span>
-           <div id="bal-action-btn" class="pm-close-std" onclick="ClientSystem.closeBalanceModal()">
+           <div id="bal-action-btn" class="pm-close-std" data-action="close-balance">
                 <i class="fa-solid fa-xmark"></i>
             </div>
         </div>
@@ -551,30 +525,29 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="purchase-overlay" onclick="ClientSystem.closeModal('purchase')"></div>
+    <div class="pm-overlay" id="purchase-overlay" data-action="close-purchase"></div>
     <div class="modal-sheet bottom-sheet" id="purchase-modal">
         <div class="pm-header-img-style transparent-header">
-            <div class="pm-close-std" onclick="ClientSystem.closeModal('purchase')">
-
+            <div class="pm-close-std" data-action="close-purchase">
                 <i class="fa-solid fa-xmark"></i>
             </div>
         </div>
         
         <div class="pm-scroll-content no-pt">
             <div class="classic-header-section">
-    <div style="display: flex; flex-direction: column; gap: 5px; max-width: 82%;">
-        <div id="pm-badge-container"></div> 
-        <h3 class="product-title" id="pm-name">--</h3>
-    </div>
-    <button class="favorite-icon-wrapper pm-fav-btn" id="pm-fav-btn" onclick="ClientSystem.toggleFavoriteFromModal()">
-        <i class="fa-regular fa-heart"></i>
-    </button>
-</div>
-       <div id="simple-qty-wrapper" class="mb-20" style="display:none;">
+                <div style="display: flex; flex-direction: column; gap: 5px; max-width: 82%;">
+                    <div id="pm-badge-container"></div> 
+                    <h3 class="product-title" id="pm-name">--</h3>
+                </div>
+                <button class="favorite-icon-wrapper pm-fav-btn" id="pm-fav-btn" data-action="toggle-fav-modal">
+                    <i class="fa-regular fa-heart"></i>
+                </button>
+            </div>
+            <div id="simple-qty-wrapper" class="mb-20" style="display:none;">
                 <div class="pm-quantity-group">
-                    <button class="pm-qty-btn minus" onclick="ClientSystem.updateSimpleQty(-1)"><i class="fa-solid fa-minus"></i></button>
+                    <button class="pm-qty-btn minus" data-action="update-simple-qty" data-val="-1"><i class="fa-solid fa-minus"></i></button>
                     <input id="simple-qty-val" class="pm-qty-input num-en" value="1" readonly>
-                    <button class="pm-qty-btn plus" onclick="ClientSystem.updateSimpleQty(1)"><i class="fa-solid fa-plus"></i></button>
+                    <button class="pm-qty-btn plus" data-action="update-simple-qty" data-val="1"><i class="fa-solid fa-plus"></i></button>
                 </div>
                 <div id="simple-qty-error" class="qty-error"></div>
             </div>
@@ -592,7 +565,7 @@
 
             <div id="pm-static-ops" style="display:none;">
                 <div class="custom-dropdown-container" id="pkg-custom-dropdown">
-                    <button type="button" class="dropdown-trigger" onclick="this.parentElement.classList.toggle('open')">
+                    <button type="button" class="dropdown-trigger" data-action="toggle-pkg-dropdown">
                         <div class="trigger-info">
                             <span class="tiny-label">اختر الباقة</span>
                             <span class="selected-text" id="pkg-selected-text">اختر...</span>
@@ -607,7 +580,7 @@
             <div id="pm-input-container"></div>
 
             <div class="coupon-section" id="couponSection">
-                <button class="coupon-trigger" onclick="ClientSystem.toggleCoupon(this)">
+                <button class="coupon-trigger" data-action="toggle-coupon-ui">
                     <span><i class="fa-solid fa-ticket"></i> هل لديك كوبون خصم؟</span>
                     <i class="fa-solid fa-chevron-down"></i>
                 </button>
@@ -615,12 +588,11 @@
                 <div class="coupon-content">
                     <div class="coupon-input-wrapper">
                         <div class="relative-input-container">
-                            <input type="text" class="c-input" id="couponCode" aria-label="كود الخصم" placeholder="أدخل الكود" oninput="ClientSystem.checkInputState()" autocomplete="off">
+                            <input type="text" class="c-input" id="couponCode" aria-label="كود الخصم" placeholder="أدخل الكود" data-action="check-coupon-state" autocomplete="off">
                             <i class="fa-solid fa-circle-xmark icon-action clear-icon" id="clearIcon" data-action="remove-coupon"></i>
-                            <i class="fa-regular fa-paste icon-action paste-icon" id="pasteIcon" onclick="ClientSystem.pasteText()"></i>
+                            <i class="fa-regular fa-paste icon-action paste-icon" id="pasteIcon" data-action="paste-coupon"></i>
                         </div>
                         <button class="c-btn" id="btnApply" data-action="apply-coupon">تطبيق</button>
-
                     </div>
                     <div class="coupon-msg-box" id="couponMsg"></div>
                 </div>
@@ -628,17 +600,9 @@
             <div id="pm-desc-container" class="pm-desc-box-styled desc-spaced"></div>
 
             <div class="pm-buttons-row checkout-actions">
-                
-                <button class="pm-btn-gold btn-pro" id="btn-confirm-buy" onclick="ClientSystem.handlePurchaseSubmit()">
-                    
-                    <span class="btn-content">
-                        شراء <i class="fa-solid fa-cart-shopping"></i>
-                    </span>
-                    
-                    <span class="btn-spinner">
-                        <i class="fa-solid fa-spinner fa-spin"></i>
-                    </span>
-                    
+                <button class="pm-btn-gold btn-pro" id="btn-confirm-buy" data-action="confirm-purchase">
+                    <span class="btn-content">شراء <i class="fa-solid fa-cart-shopping"></i></span>
+                    <span class="btn-spinner"><i class="fa-solid fa-spinner fa-spin"></i></span>
                 </button>
 
                 <div class="price-panel-footer">
@@ -651,12 +615,12 @@
                     </div>
                 </div>
             </div>
-            
         </div>
     </div>
-    <div class="pm-overlay" id="success-overlay" onclick="ClientSystem.closeModal('success')"></div>
+
+    <div class="pm-overlay" id="success-overlay" data-action="close-success"></div>
     <div class="modal-sheet bottom-sheet success-card" id="success-modal">
-        <div class="pm-close-std floating-close" onclick="ClientSystem.closeModal('success'); ClientSystem.sfx('nav');" aria-label="إغلاق" role="button">
+        <div class="pm-close-std floating-close" data-action="close-success" aria-label="إغلاق" role="button">
             <i class="fa-solid fa-xmark"></i>
         </div>
         <div class="success-icon"><i class="fa-solid fa-circle-check"></i></div>
@@ -668,11 +632,11 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="tx-detail-overlay" onclick="ClientSystem.closeModal('tx-detail')"></div>
+    <div class="pm-overlay" id="tx-detail-overlay" data-action="close-tx-detail"></div>
     <div class="modal-sheet bottom-sheet tx-modal-sheet" id="tx-detail-modal">
         <div id="tx-top-badge-container"></div>
         <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closeModal('tx-detail')">
+            <div class="pm-close-std" data-action="close-tx-detail">
                 <i class="fa-solid fa-xmark"></i>
             </div>
             <div class="header-center">
@@ -683,10 +647,10 @@
         <div class="pm-scroll-content" id="tx-detail-content"></div>
     </div>
 
-    <div class="pm-overlay" id="profile-info-overlay" onclick="ClientSystem.closeProfileInfo()"></div>
+    <div class="pm-overlay" id="profile-info-overlay" data-action="close-profile"></div>
     <div class="modal-sheet bottom-sheet" id="profile-info-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closeProfileInfo()"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-profile"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-user"></i> الملف الشخصي</span>
             </div>
@@ -695,112 +659,110 @@
 
         <div class="profile-container" id="profile-card">
             <div class="hero-section">                
-<div class="avatar-wrapper">
-    <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" alt="Profile" class="profile-pic" id="profile-img">
-    
-    <div class="camera-btn" id="avatar-menu-trigger">
-        <i class="fa-solid fa-camera" style="pointer-events: none;"></i>
-    </div>
-    
-    <div class="avatar-action-menu" id="avatar-action-menu">
-        <button type="button" class="avatar-action-btn edit-btn" data-action="trigger-click" data-target="avatar-upload-input">
-            <i class="fa-regular fa-image"></i> تغيير الصورة
-        </button>
-        <button type="button" class="avatar-action-btn delete-btn" id="inline-delete-avatar-btn" data-action="delete-avatar">
-            <i class="fa-regular fa-trash-can"></i> حذف الصورة
-        </button>
-    </div>
-    
-    <input type="file" id="avatar-upload-input" hidden accept="image/*">
-</div>
+                <div class="avatar-wrapper">
+                    <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" alt="Profile" class="profile-pic" id="profile-img">
+                    
+                    <div class="camera-btn" id="avatar-menu-trigger">
+                        <i class="fa-solid fa-camera" style="pointer-events: none;"></i>
+                    </div>
+                    
+                    <div class="avatar-action-menu" id="avatar-action-menu">
+                        <button type="button" class="avatar-action-btn edit-btn" data-action="trigger-click" data-target="avatar-upload-input">
+                            <i class="fa-regular fa-image"></i> تغيير الصورة
+                        </button>
+                        <button type="button" class="avatar-action-btn delete-btn" id="inline-delete-avatar-btn" data-action="delete-avatar">
+                            <i class="fa-regular fa-trash-can"></i> حذف الصورة
+                        </button>
+                    </div>
+                    <input type="file" id="avatar-upload-input" hidden accept="image/*" data-action="upload-avatar">
+                </div>
 
-<div class="profile-header-row">
-    <div class="name-wrapper" dir="auto">
-        <h1 class="user-name" id="display-name" onclick="document.getElementById('profile-edit-toggle').click()">--</h1>
-        <input type="text" id="edit-name-input" class="name-edit-input d-none" value="" placeholder="أدخل اسمك">
-        <button class="edit-icon-btn" id="profile-edit-toggle" title="تعديل">
-            <i class="fa-solid fa-pen"></i>
-        </button>
-    </div>
-    <div class="uid-capsule">
-        <i class="fa-solid fa-id-card"></i>
-        <span class="num-en" id="profile-client-id">--</span>
-    </div>
-</div>
-</div>
-
-<div class="info-list">
-    <div class="info-card-item">
-        <div class="icon-box" id="profile-tier-icon-box">
-            <i class="fa-solid fa-ranking-star"></i>
-        </div>
-        <div class="text-content">
-            <span class="label-text">مستوى الحساب</span>
-            <div class="value-text" id="profile-info-tier">جاري التحميل...</div>
-        </div>
-    </div>
-    
-    <div class="info-card-item">
-        <div class="icon-box"><i class="fa-solid fa-at"></i></div>
-        <div class="text-content">
-            <span class="label-text">اسم المستخدم</span>
-            <span class="value-text" id="profile-info-username">--</span>
-        </div>
-    </div>
-    
-    <div class="info-card-item">
-        <div class="icon-box"><i class="fa-solid fa-envelope"></i></div>
-        <div class="text-content">
-            <span class="label-text">البريد الإلكتروني</span>
-            <span class="value-text" id="profile-info-email">--</span>
-        </div>
-    </div>
-    
-    <div class="info-card-item">
-        <div class="icon-box"><i class="fa-solid fa-phone"></i></div>
-        <div class="text-content">
-            <span class="label-text">رقم الهاتف</span>
-            <span class="value-text ltr-text" id="profile-info-phone">--</span>
-        </div>
-    </div>
-    
-    <div class="info-card-item">
-        <div class="icon-box"><i class="fa-solid fa-earth-americas"></i></div>
-        <div class="text-content">
-            <span class="label-text">الدولة</span>
-            <span class="value-text" id="profile-info-country">غير محدد</span>
-        </div>
-    </div>
-    
-    <div class="info-card-item">
-        <div class="icon-box"><i class="fa-solid fa-coins"></i></div>
-        <div class="text-content">
-            <span class="label-text">العملة الأساسية</span>
-            <div class="value-text curr-box" id="profile-info-base-curr">
-                <span id="profile-base-curr-text">--</span>
-                <i class="fa-solid fa-lock lock-icon"></i>
+                <div class="profile-header-row">
+                    <div class="name-wrapper" dir="auto">
+                        <h1 class="user-name" id="display-name" data-action="trigger-click" data-target="profile-edit-toggle">--</h1>
+                        <input type="text" id="edit-name-input" class="name-edit-input d-none" value="" placeholder="أدخل اسمك">
+                        <button class="edit-icon-btn" id="profile-edit-toggle" title="تعديل" data-action="toggle-name-edit">
+                            <i class="fa-solid fa-pen"></i>
+                        </button>
+                    </div>
+                    <div class="uid-capsule">
+                        <i class="fa-solid fa-id-card"></i>
+                        <span class="num-en" id="profile-client-id">--</span>
+                    </div>
+                </div>
             </div>
+
+            <div class="info-list">
+                <div class="info-card-item">
+                    <div class="icon-box" id="profile-tier-icon-box">
+                        <i class="fa-solid fa-ranking-star"></i>
+                    </div>
+                    <div class="text-content">
+                        <span class="label-text">مستوى الحساب</span>
+                        <div class="value-text" id="profile-info-tier">جاري التحميل...</div>
+                    </div>
+                </div>
+                
+                <div class="info-card-item">
+                    <div class="icon-box"><i class="fa-solid fa-at"></i></div>
+                    <div class="text-content">
+                        <span class="label-text">اسم المستخدم</span>
+                        <span class="value-text" id="profile-info-username">--</span>
+                    </div>
+                </div>
+                
+                <div class="info-card-item">
+                    <div class="icon-box"><i class="fa-solid fa-envelope"></i></div>
+                    <div class="text-content">
+                        <span class="label-text">البريد الإلكتروني</span>
+                        <span class="value-text" id="profile-info-email">--</span>
+                    </div>
+                </div>
+                
+                <div class="info-card-item">
+                    <div class="icon-box"><i class="fa-solid fa-phone"></i></div>
+                    <div class="text-content">
+                        <span class="label-text">رقم الهاتف</span>
+                        <span class="value-text ltr-text" id="profile-info-phone">--</span>
+                    </div>
+                </div>
+                
+                <div class="info-card-item">
+                    <div class="icon-box"><i class="fa-solid fa-earth-americas"></i></div>
+                    <div class="text-content">
+                        <span class="label-text">الدولة</span>
+                        <span class="value-text" id="profile-info-country">غير محدد</span>
+                    </div>
+                </div>
+                
+                <div class="info-card-item">
+                    <div class="icon-box"><i class="fa-solid fa-coins"></i></div>
+                    <div class="text-content">
+                        <span class="label-text">العملة الأساسية</span>
+                        <div class="value-text curr-box" id="profile-info-base-curr">
+                            <span id="profile-base-curr-text">--</span>
+                            <i class="fa-solid fa-lock lock-icon"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button class="security-btn" data-action="open-security-modal">
+                <i class="fa-solid fa-shield-halved"></i>
+                الأمان والخصوصية
+            </button>
         </div>
     </div>
-</div>
 
-<!-- 🌟 تم تحديث الزر ليفتح نافذة الأمان والخصوصية بدلاً من النافذة القديمة -->
-<button class="security-btn" onclick="ClientSystem.openSecurityModal()">
-    <i class="fa-solid fa-shield-halved"></i>
-    الأمان والخصوصية
-</button>
-</div>
-</div>
-
-<!-- 🗑️ تم حذف نافذة pass-change-modal القديمة والـ overlay الخاص بها من هنا لمنع التعارض -->    <nav class="bottom-nav">
-        <div class="nav-icon active" onclick="ClientSystem.sfx('nav'); ClientSystem.renderHome()"><i class="fa-solid fa-house"></i><span>الرئيسية</span></div>
-        <div class="nav-icon" onclick="ClientSystem.sfx('nav'); ClientSystem.openWallet()"><i class="fa-solid fa-wallet nav-lg-icon"></i><span>المحفظة</span></div>
-        <div class="nav-icon" onclick="ClientSystem.sfx('nav'); ClientSystem.openFavorites()"><i class="fa-solid fa-heart"></i><span>المفضلة</span></div>
-        <div class="nav-icon" onclick="ClientSystem.sfx('nav'); ClientSystem.openOrders()"><i class="fa-solid fa-box-open"></i><span>طلباتي</span></div>
-        <div class="nav-icon" onclick="ClientSystem.sfx('nav'); ClientSystem.openSidebar()"><i class="fa-solid fa-user"></i><span>حسابي</span></div>
+    <nav class="bottom-nav">
+        <div class="nav-icon active" data-action="nav-home"><i class="fa-solid fa-house"></i><span>الرئيسية</span></div>
+        <div class="nav-icon" data-action="nav-wallet"><i class="fa-solid fa-wallet nav-lg-icon"></i><span>المحفظة</span></div>
+        <div class="nav-icon" data-action="open-favorites"><i class="fa-solid fa-heart"></i><span>المفضلة</span></div>
+        <div class="nav-icon" data-action="nav-orders"><i class="fa-solid fa-box-open"></i><span>طلباتي</span></div>
+        <div class="nav-icon" data-action="open-sidebar"><i class="fa-solid fa-user"></i><span>حسابي</span></div>
     </nav> 
     
-    <div id="pay-receipt-lightbox" class="pay-receipt-lightbox" onclick="ClientSystem.closePayReceipt()">
+    <div id="pay-receipt-lightbox" class="pay-receipt-lightbox" data-action="close-pay-receipt">
         <div class="pay-receipt-inner">
             <img id="pay-receipt-img" alt="إشعار الدفع">    
             <div class="pay-receipt-close"><i class="fa-solid fa-xmark"></i></div>
@@ -811,18 +773,18 @@
         <div class="cal-header">
             <div class="selector-box">
                 <div class="arrows-col">
-                    <button class="mini-btn" onclick="CalendarApp.adjustMonth(1)"><i class="fa-solid fa-chevron-up"></i></button>
-                    <button class="mini-btn" onclick="CalendarApp.adjustMonth(-1)"><i class="fa-solid fa-chevron-down"></i></button>
+                    <button class="mini-btn" data-action="cal-adj-month" data-val="1"><i class="fa-solid fa-chevron-up"></i></button>
+                    <button class="mini-btn" data-action="cal-adj-month" data-val="-1"><i class="fa-solid fa-chevron-down"></i></button>
                 </div>
-                <div class="selector-text" id="disp-month" onclick="CalendarApp.toggleList('list-month', event)">January</div>
+                <div class="selector-text" id="disp-month" data-action="cal-toggle-list" data-target="list-month">January</div>
                 <div class="dropdown-list" id="list-month"></div>
             </div>
             <div class="selector-box">
                 <div class="arrows-col">
-                    <button class="mini-btn" onclick="CalendarApp.adjustYear(1)"><i class="fa-solid fa-chevron-up"></i></button>
-                    <button class="mini-btn" onclick="CalendarApp.adjustYear(-1)"><i class="fa-solid fa-chevron-down"></i></button>
+                    <button class="mini-btn" data-action="cal-adj-year" data-val="1"><i class="fa-solid fa-chevron-up"></i></button>
+                    <button class="mini-btn" data-action="cal-adj-year" data-val="-1"><i class="fa-solid fa-chevron-down"></i></button>
                 </div>
-                <div class="selector-text" id="disp-year" onclick="CalendarApp.toggleList('list-year', event)">2026</div>
+                <div class="selector-text" id="disp-year" data-action="cal-toggle-list" data-target="list-year">2026</div>
                 <div class="dropdown-list" id="list-year"></div>
             </div>
         </div>
@@ -837,9 +799,9 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="purchase-success-overlay" onclick="ClientSystem.closeModal('purchase-success')"></div>
+    <div class="pm-overlay" id="purchase-success-overlay" data-action="close-purchase-success"></div>
     <div class="modal-sheet bottom-sheet success-card" id="purchase-success-modal">
-        <div class="pm-close-std floating-close" onclick="ClientSystem.closeModal('purchase-success'); ClientSystem.sfx('nav');" aria-label="إغلاق" role="button">
+        <div class="pm-close-std floating-close" data-action="close-purchase-success" aria-label="إغلاق" role="button">
             <i class="fa-solid fa-xmark"></i>
         </div>
         <div class="success-icon"><i class="fa-solid fa-check"></i></div> 
@@ -849,9 +811,10 @@
         
         <div class="success-meta">
             <i class="fa-solid fa-bag-shopping"></i>
-            <span id="purchase-success-desc">يمكنك متابعة حالة الطلب في <span class="smart-link" onclick="ClientSystem.closePurchaseSuccess(); ClientSystem.openOrders();">سجل الطلبات</span></span>
+            <span id="purchase-success-desc">يمكنك متابعة حالة الطلب في <span class="smart-link" data-action="nav-orders-from-success">سجل الطلبات</span></span>
         </div>
     </div>
+
     <template id="payment-card-template">
         <div class="pay-history-card">
             <div class="ph-header">
@@ -916,10 +879,10 @@
         </div>
     </template>
 
-    <div class="pm-overlay" id="terms-overlay" onclick="ClientSystem.closeModal('terms')"></div>
+    <div class="pm-overlay" id="terms-overlay" data-action="close-terms"></div>
     <div class="modal-sheet bottom-sheet terms-modal-content" id="terms-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closeModal('terms')">
+            <div class="pm-close-std" data-action="close-terms">
                 <i class="fa-solid fa-xmark"></i>
             </div>
             <div class="header-center">
@@ -934,16 +897,17 @@
             </div>
             
             <div class="terms-footer">
-                <button class="btn btn-primary terms-btn" onclick="ClientSystem.closeModal('terms')">
+                <button class="btn btn-primary terms-btn" data-action="close-terms">
                     <i class="fa-solid fa-check-double"></i> قرأت وأوافق
                 </button>
             </div>
         </div>
     </div>
-<div class="pm-overlay" id="identity-overlay" onclick="ClientSystem.closeModal('identity')"></div>
+
+    <div class="pm-overlay" id="identity-overlay" data-action="close-identity"></div>
     <div class="modal-sheet bottom-sheet" id="identity-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closeModal('identity')">
+            <div class="pm-close-std" data-action="close-identity">
                 <i class="fa-solid fa-xmark"></i>
             </div>
             <div class="header-center">
@@ -952,100 +916,92 @@
             <div class="pm-header-spacer"></div>
         </div>
         
-<div class="pm-scroll-content">
-    <div class="profile-lux-card glass-form" id="identity-section">
-        
-        <!-- 🌟 قسم الإدخال -->
-        <div id="identity-inputs-wrap">
-            
-            <div class="identity-info-banner mb-20">
-                <i class="fa-solid fa-circle-info"></i>
-                <span>مطلوب لتفعيل المحفظة وإتمام الطلبات.</span>
-            </div>
-            
-            <!-- 1. حقل الدولة -->
-            <div class="input-field-lux country-field-wrapper mb-20">
-                <label>الدولة</label>
-                <div class="custom-dropdown-container solid-dropdown" id="country-dropdown">
-                    <button type="button" class="dropdown-trigger lux-input" onclick="this.parentElement.classList.toggle('open')">
-                        <div class="trigger-info">
-                            <span class="selected-text" id="selected-country-text">اختر الدولة...</span>
-                        </div>
-                        <i class="fa-solid fa-chevron-down arrow-icon"></i>
-                    </button>
+        <div class="pm-scroll-content">
+            <div class="profile-lux-card glass-form" id="identity-section">
+                <div id="identity-inputs-wrap">
+                    <div class="identity-info-banner mb-20">
+                        <i class="fa-solid fa-circle-info"></i>
+                        <span>مطلوب لتفعيل المحفظة وإتمام الطلبات.</span>
+                    </div>
                     
-                    <div class="dropdown-menu">
-                        <div class="dropdown-search-header">
-                            <div class="mf-search-box">
-                                <input type="text" placeholder="ابحث عن دولتك..." oninput="ClientSystem.filterCountries(this.value)">
+                    <div class="input-field-lux country-field-wrapper mb-20">
+                        <label>الدولة</label>
+                        <div class="custom-dropdown-container solid-dropdown" id="country-dropdown">
+                            <button type="button" class="dropdown-trigger lux-input" data-action="toggle-parent-dropdown">
+                                <div class="trigger-info">
+                                    <span class="selected-text" id="selected-country-text">اختر الدولة...</span>
+                                </div>
+                                <i class="fa-solid fa-chevron-down arrow-icon"></i>
+                            </button>
+                            
+                            <div class="dropdown-menu">
+                                <div class="dropdown-search-header">
+                                    <div class="mf-search-box">
+                                        <input type="text" placeholder="ابحث عن دولتك..." data-action="filter-countries">
+                                    </div>
+                                </div>
+                                <div id="countries-list-target" class="dropdown-items-list">
+                                    <div class="dropdown-item muted-center">جاري تحميل الدول...</div>
+                                </div>
                             </div>
                         </div>
-                        <div id="countries-list-target" class="dropdown-items-list">
-                            <div class="dropdown-item muted-center">جاري تحميل الدول...</div>
-                        </div>
+                        <input type="hidden" id="reg-country">
                     </div>
-                </div>
-                <input type="hidden" id="reg-country">
-            </div>
-            
-            <!-- 2. حقل رقم الهاتف -->
-            <div class="input-field-lux mb-20">
-                <label>رقم الهاتف</label>
-                <div class="phone-input-container">
-                    <span class="country-code-label num-en" id="phone-prefix" dir="ltr">
-                        <i class="fa-solid fa-globe"></i>
-                    </span>
-                    <input type="tel" id="reg-phone" class="lux-input phone-input" placeholder="أدخل رقم هاتفك">
-                </div>
-            </div>
-            
-            <!-- 🌟 3. حقل العملة (التحديث الاحترافي Custom Dropdown) -->
-            <div class="input-field-lux country-field-wrapper mb-20">
-                <label>عملة المحفظة الأساسية</label>
-                <div class="custom-dropdown-container solid-dropdown" id="reg-currency-dropdown">
-                    <button type="button" class="dropdown-trigger lux-input" onclick="this.parentElement.classList.toggle('open')">
-                        <div class="trigger-info">
-                            <span class="selected-text" id="selected-currency-text">اختر العملة...</span>
-                        </div>
-                        <i class="fa-solid fa-chevron-down arrow-icon"></i>
-                    </button>
                     
-                    <div class="dropdown-menu">
-                        <div id="reg-currency-list-target" class="dropdown-items-list">
-                            <!-- سيتم حقن العملات هنا بواسطة הג'افاسكريبت -->
+                    <div class="input-field-lux mb-20">
+                        <label>رقم الهاتف</label>
+                        <div class="phone-input-container">
+                            <span class="country-code-label num-en" id="phone-prefix" dir="ltr">
+                                <i class="fa-solid fa-globe"></i>
+                            </span>
+                            <input type="tel" id="reg-phone" class="lux-input phone-input" placeholder="أدخل رقم هاتفك">
+                        </div>
+                    </div>
+                    
+                    <div class="input-field-lux country-field-wrapper mb-20">
+                        <label>عملة المحفظة الأساسية</label>
+                        <div class="custom-dropdown-container solid-dropdown" id="reg-currency-dropdown">
+                            <button type="button" class="dropdown-trigger lux-input" data-action="toggle-parent-dropdown">
+                                <div class="trigger-info">
+                                    <span class="selected-text" id="selected-currency-text">اختر العملة...</span>
+                                </div>
+                                <i class="fa-solid fa-chevron-down arrow-icon"></i>
+                            </button>
+                            
+                            <div class="dropdown-menu">
+                                <div id="reg-currency-list-target" class="dropdown-items-list"></div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="reg-currency" value="">
+                        
+                        <div class="identity-warning-box">
+                            <i class="fa-solid fa-circle-exclamation"></i>
+                            <span>تنبيه: هذه العملة لا يمكن تغييرها لاحقاً</span>
+                        </div>
+                    </div>
+                    
+                    <button class="btn-save-lux" data-action="save-identity">
+                        حفظ البيانات
+                    </button>
+                </div>
+
+                <div id="identity-verified-status" class="hide-element">
+                    <div class="verified-info-box">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <div class="vi-details">
+                            <span class="vi-label">تم إكمال بيانات حسابك بنجاح</span>
+                            <span class="vi-desc">يمكنك مراجعة بياناتك لاحقاً من خلال نافذة الملف الشخصي.</span>
                         </div>
                     </div>
                 </div>
-                <input type="hidden" id="reg-currency" value="">
-                
-                <!-- صندوق التنبيه -->
-                <div class="identity-warning-box">
-                    <i class="fa-solid fa-circle-exclamation"></i>
-                    <span>تنبيه: هذه العملة لا يمكن تغييرها لاحقاً</span>
-                </div>
-            </div>
-            
-            <button class="btn-save-lux" data-action="save-identity">
-                حفظ البيانات
-            </button>
-        </div>
+            </div> 
+        </div> 
+    </div> 
 
-        <div id="identity-verified-status" class="hide-element">
-    <div class="verified-info-box">
-        <i class="fa-solid fa-circle-check"></i>
-        <div class="vi-details">
-            <span class="vi-label">تم إكمال بيانات حسابك بنجاح</span>
-            <span class="vi-desc">يمكنك مراجعة بياناتك لاحقاً من خلال نافذة الملف الشخصي.</span>
-        </div>
-    </div>
-</div>
-
-</div> 
-</div> 
-</div> <div class="pm-overlay" id="kyc-upload-overlay" onclick="ClientSystem.closeKycModal()"></div>
-<div class="modal-sheet bottom-sheet" id="kyc-upload-modal">
+    <div class="pm-overlay" id="kyc-upload-overlay" data-action="close-kyc-upload"></div>
+    <div class="modal-sheet bottom-sheet" id="kyc-upload-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closeKycModal()"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-kyc-upload"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge text-warning"><i class="fa-solid fa-shield-halved"></i> توثيق الحساب الرسمي</span>
             </div>
@@ -1055,19 +1011,19 @@
         <div class="pm-scroll-content">
             <div class="profile-lux-card glass-form">
                 <div id="kyc-rejection-alert" class="nm-reply-box d-none" style="margin-bottom: 20px; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3);">
-    <div class="nm-reply-content">
-        <span class="nm-reply-head" style="color: #f43f5e;">
-            <i class="fa-solid fa-circle-xmark"></i> تم رفض طلب التوثيق السابق
-        </span>
-        <div id="kyc-rejection-reason" class="nm-reply-body admin-reply-text" style="font-size: 12.5px;">
-            </div>
-    </div>
-</div>
+                    <div class="nm-reply-content">
+                        <span class="nm-reply-head" style="color: #f43f5e;">
+                            <i class="fa-solid fa-circle-xmark"></i> تم رفض طلب التوثيق السابق
+                        </span>
+                        <div id="kyc-rejection-reason" class="nm-reply-body admin-reply-text" style="font-size: 12.5px;"></div>
+                    </div>
+                </div>
 
                 <div class="identity-info-banner">
                     <i class="fa-solid fa-shield-halved"></i> 
                     <span>أكّد هويتك الشخصية لتعزيز أمآن حسابك</span>
                 </div>
+                
                 <div class="input-field-lux mb-15">
                     <label>الاسم الثلاثي الكامل</label>
                     <input type="text" id="kyc-full-name" class="lux-input w-100" placeholder="مطابق تماماً للوثيقة الرسمية...">
@@ -1080,98 +1036,97 @@
 
                 <div class="kyc-upload-grid">
                     <div class="kyc-upload-box" id="kyc-box-front">
-                        <input type="file" accept="image/*" onchange="ClientSystem.handleKycImage(this, 'kyc-prev-front')">
+                        <input type="file" accept="image/*" data-action="kyc-upload-front">
                         <i class="fa-regular fa-id-card"></i>
                         <span class="kyc-guide-txt">الوجه الأمامي للوثيقة<br>(يجب أن تكون البيانات واضحة)</span>
                         <img id="kyc-prev-front" class="kyc-preview">
                     </div>
                     
                     <div class="kyc-upload-box" id="kyc-box-back">
-                        <input type="file" accept="image/*" onchange="ClientSystem.handleKycImage(this, 'kyc-prev-back')">
+                        <input type="file" accept="image/*" data-action="kyc-upload-back">
                         <i class="fa-solid fa-barcode"></i>
                         <span class="kyc-guide-txt">الوجه الخلفي للوثيقة<br>(تأكد من وضوح الرموز)</span>
                         <img id="kyc-prev-back" class="kyc-preview">
                     </div>
                     
                     <div class="kyc-upload-box kyc-box-full" id="kyc-box-selfie">
-                        <input type="file" accept="image/*" onchange="ClientSystem.handleKycImage(this, 'kyc-prev-selfie')">
+                        <input type="file" accept="image/*" data-action="kyc-upload-selfie">
                         <i class="fa-solid fa-camera-retro"></i>
-                        <span class="kyc-guide-txt">صورة سيلفي مع الوثيقة<br>(يرجى الإمساك بها بجانب الوجه دون حجب الملامح)</span>
+                        <span class="kyc-guide-txt">صورة سيلفي مع الوثيقة<br>(يرجى الإمساك بها بجانب الوجه)</span>
                         <img id="kyc-prev-selfie" class="kyc-preview">
                     </div>
                 </div>
 
-                <button class="btn-save-lux mt-20" onclick="ClientSystem.submitKycData()">
+                <button class="btn-save-lux mt-20" data-action="submit-kyc">
                     إرسال للتوثيق الآمن
                 </button>
             </div>
         </div>
     </div>
 
-        <div class="pm-overlay" id="kyc-status-overlay" onclick="ClientSystem.closeKycStatusModal()"></div>
-        <div class="modal-sheet bottom-sheet" id="kyc-status-modal">
-            <div class="pm-header-std">
-                <div class="pm-close-std" onclick="ClientSystem.closeKycStatusModal()"><i class="fa-solid fa-xmark"></i></div>
-                <div class="header-center">
-                    <span class="title-badge"><i class="fa-solid fa-shield-check"></i> حالة التوثيق</span>
-                </div>
-                <div class="pm-header-spacer"></div>
+    <div class="pm-overlay" id="kyc-status-overlay" data-action="close-kyc-status"></div>
+    <div class="modal-sheet bottom-sheet" id="kyc-status-modal">
+        <div class="pm-header-std">
+            <div class="pm-close-std" data-action="close-kyc-status"><i class="fa-solid fa-xmark"></i></div>
+            <div class="header-center">
+                <span class="title-badge"><i class="fa-solid fa-shield-check"></i> حالة التوثيق</span>
             </div>
-            <div class="pm-scroll-content" id="kyc-status-content">
+            <div class="pm-header-spacer"></div>
+        </div>
+        <div class="pm-scroll-content" id="kyc-status-content"></div>
+    </div>
+        
+    <div class="pm-overlay" id="notif-center-overlay" data-action="close-notif-center"></div>
+    <div class="modal-sheet bottom-sheet" id="notif-center-modal">
+        <div class="pm-header-std">
+            <div class="pm-close-std" data-action="close-notif-center"><i class="fa-solid fa-xmark"></i></div>
+            <div class="header-center">
+                <span class="title-badge"><i class="fa-solid fa-bell"></i> صندوق الإشعارات</span>
             </div>
+            <div class="pm-header-spacer"></div>
+        </div>
+        <div class="pm-scroll-content">
+            <div id="notif-center-list" class="u-list"></div>
+        </div>
+    </div>        
+
+    <div class="pm-overlay" id="tier-info-overlay" data-action="close-tier-info"></div>
+    <div class="modal-sheet bottom-sheet" id="tier-info-modal">
+        <div class="pm-header-std">
+            <div class="pm-close-std" data-action="close-tier-info"><i class="fa-solid fa-xmark"></i></div>
+            <div class="header-center">
+                <span class="title-badge text-warning"><i class="fa-solid fa-crown"></i> تفاصيل المستوى</span>
+            </div>
+            <div class="pm-header-spacer"></div>
+        </div>
+        <div class="pm-scroll-content" id="tier-info-content"></div>
+    </div>
+        
+    <div class="pm-overlay" id="kyc-celebration-overlay" data-action="close-kyc-celebration"></div>
+    <div class="modal-sheet bottom-sheet success-card" id="kyc-celebration-modal" style="border-top-color: var(--kyc-cyan-main) !important; box-shadow: inset 0 0 15px rgba(14, 165, 233, 0.15), var(--shadow-soft) !important;">
+        <div class="pm-close-std floating-close" data-action="close-kyc-celebration" title="إغلاق">
+            <i class="fa-solid fa-xmark"></i>
         </div>
         
-        <div class="pm-overlay" id="notif-center-overlay" onclick="ClientSystem.closeNotifCenter()"></div>
-<div class="modal-sheet bottom-sheet" id="notif-center-modal">
-    <div class="pm-header-std">
-        <div class="pm-close-std" onclick="ClientSystem.closeNotifCenter()"><i class="fa-solid fa-xmark"></i></div>
-        <div class="header-center">
-            <span class="title-badge"><i class="fa-solid fa-bell"></i> صندوق الإشعارات</span>
-        </div>
-        <div class="pm-header-spacer"></div>
-    </div>
-    <div class="pm-scroll-content">
-        <div id="notif-center-list" class="u-list"></div>
-    </div>
-</div>        
-        <div class="pm-overlay" id="tier-info-overlay" onclick="ClientSystem.closeModal('tier-info')"></div>
-        <div class="modal-sheet bottom-sheet" id="tier-info-modal">
-            <div class="pm-header-std">
-                <div class="pm-close-std" onclick="ClientSystem.closeModal('tier-info')"><i class="fa-solid fa-xmark"></i></div>
-                <div class="header-center">
-                    <span class="title-badge text-warning"><i class="fa-solid fa-crown"></i> تفاصيل المستوى</span>
-                </div>
-                <div class="pm-header-spacer"></div>
-            </div>
-            <div class="pm-scroll-content" id="tier-info-content">
-            </div>
+        <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 85px; height: 85px; margin-bottom: 20px;">
+            <i class="fa-solid fa-certificate" style="font-size: 85px; background: linear-gradient(135deg, var(--kyc-cyan-light) 0%, var(--kyc-cyan-main) 50%, var(--kyc-cyan-dark) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 4px 15px rgba(14, 165, 233, 0.4)); animation: iconScale 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;"></i>
+            <i class="fa-solid fa-check" style="position: absolute; font-size: 40px; color: var(--bg-body); font-weight: 900; z-index: 2; margin-top: 2px; animation: popBadge 0.5s ease-out 0.2s forwards; opacity: 0;"></i>
         </div>
         
-        <div class="pm-overlay" id="kyc-celebration-overlay" onclick="ClientSystem.closeModal('kyc-celebration')"></div>
-        <div class="modal-sheet bottom-sheet success-card" id="kyc-celebration-modal" style="border-top-color: var(--kyc-cyan-main) !important; box-shadow: inset 0 0 15px rgba(14, 165, 233, 0.15), var(--shadow-soft) !important;">
-            <div class="pm-close-std floating-close" onclick="ClientSystem.closeModal('kyc-celebration'); ClientSystem.sfx('nav');" title="إغلاق">
-                <i class="fa-solid fa-xmark"></i>
-            </div>
-            
-            <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 85px; height: 85px; margin-bottom: 20px;">
-                <i class="fa-solid fa-certificate" style="font-size: 85px; background: linear-gradient(135deg, var(--kyc-cyan-light) 0%, var(--kyc-cyan-main) 50%, var(--kyc-cyan-dark) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 4px 15px rgba(14, 165, 233, 0.4)); animation: iconScale 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;"></i>
-                <i class="fa-solid fa-check" style="position: absolute; font-size: 40px; color: var(--bg-body); font-weight: 900; z-index: 2; margin-top: 2px; animation: popBadge 0.5s ease-out 0.2s forwards; opacity: 0;"></i>
-            </div>
-            
-            <h3 class="success-title" style="margin-bottom: 15px;">تهانينا! تم توثيق حسابك</h3>
-            
-            <div class="success-meta" style="border-color: rgba(14, 165, 233, 0.3);">
-                <i class="fa-solid fa-shield-halved" style="color: var(--kyc-cyan-main); font-size: 1.3rem;"></i>
-                <span style="white-space: normal !important; text-align: center; line-height: 1.5; flex: 1;">
-                    حصلت الآن على شارة التوثيق الرسمية، وتم تفعيل كافة ميزات حسابك بأمان.
-                </span>
-            </div>
-        </div> <!-- 🌟 هذا هو الإغلاق الصحيح والنظيف للـ kyc-celebration-modal -->
-      <!-- 🌟 [النافذة الجديدة]: مجتمعنا وقنوات التواصل الكريستالية الفاخرة -->
-    <div class="pm-overlay" id="community-overlay" onclick="ClientSystem.closeModal('community')"></div>
+        <h3 class="success-title" style="margin-bottom: 15px;">تهانينا! تم توثيق حسابك</h3>
+        
+        <div class="success-meta" style="border-color: rgba(14, 165, 233, 0.3);">
+            <i class="fa-solid fa-shield-halved" style="color: var(--kyc-cyan-main); font-size: 1.3rem;"></i>
+            <span style="white-space: normal !important; text-align: center; line-height: 1.5; flex: 1;">
+                حصلت الآن على شارة التوثيق الرسمية، وتم تفعيل كافة ميزات حسابك بأمان.
+            </span>
+        </div>
+    </div> 
+
+    <div class="pm-overlay" id="community-overlay" data-action="close-community"></div>
     <div class="modal-sheet bottom-sheet" id="community-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" onclick="ClientSystem.closeModal('community')"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-community"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge text-warning"><i class="fa-solid fa-share-nodes"></i> قنواتنا ومجتمعنا</span>
             </div>
@@ -1184,159 +1139,199 @@
                 <span>تابع قنواتنا الرسمية ومجموعات الدعم لتحصل على التحديثات وأحدث العروض فوراً!</span>
             </div>
             
-            <div class="community-grid-list" id="community-links-target">
-                <!-- سيتم حقن كروت قنوات التواصل ديناميكياً بناءً على إعدادات الأدمن -->
-            </div>
+            <div class="community-grid-list" id="community-links-target"></div>
         </div>
-    </div>  <!-- 🌟 [النسخة المحسنة والأكاديمية]: نافذة التقييم الفاخرة (نظام ترقيات VIP الفاخر ومصيدة الشكاوى) [1.5, 2] -->
-<div class="pm-overlay" id="rating-overlay" onclick="ClientSystem.closeModal('rating')"></div>
-<div class="modal-sheet bottom-sheet" id="rating-modal">
-    <div class="pm-header-std">
-        <div class="pm-close-std" onclick="ClientSystem.closeModal('rating')"><i class="fa-solid fa-xmark"></i></div>
-        <div class="header-center">
-            <span class="title-badge text-warning"><i class="fa-solid fa-star"></i> قيم تجربتك معنا</span>
-        </div>
-        <div class="pm-header-spacer"></div>
-    </div>
-    
-    <div class="pm-scroll-content">
-        <!-- 1. شاشة نجوم التقييم الأساسية -->
-        <div id="rating-step-stars" class="rating-step-block">
-            <p class="rating-intro-text">يُرجى تقييم جودة الخدمة لمساعدتنا في التطوير المستمر للأداء.</p>
-            <div class="rating-stars-container">
-                <i class="fa-regular fa-star rating-star" data-value="1" onclick="ClientSystem.selectRatingStar(1)"></i>
-                <i class="fa-regular fa-star rating-star" data-value="2" onclick="ClientSystem.selectRatingStar(2)"></i>
-                <i class="fa-regular fa-star rating-star" data-value="3" onclick="ClientSystem.selectRatingStar(3)"></i>
-                <i class="fa-regular fa-star rating-star" data-value="4" onclick="ClientSystem.selectRatingStar(4)"></i>
-                <i class="fa-regular fa-star rating-star" data-value="5" onclick="ClientSystem.selectRatingStar(5)"></i>
-            </div>
-            <button type="button" class="alert-btn" id="btnContinueRating" onclick="ClientSystem.submitRatingStep()" disabled style="opacity: 0.5;">متابعة</button>
-        </div>
-        
-        <!-- 2. شاشة الشكاوى والاقتراحات الصامتة (تظهر فقط عند تقييم 1-3 نجوم) -->
-        <div id="rating-step-feedback" class="rating-step-block" style="display: none;">
-            <div class="community-intro-banner" style="background: rgba(239, 68, 68, 0.04); border-color: rgba(239, 68, 68, 0.12); color: var(--text-gray); margin-bottom: 20px;">
-                <i class="fa-solid fa-face-frown" style="color: var(--error-red); font-size: 1.4rem;"></i>
-                <span>نأسف لعدم تلبية توقعاتك. يُرجى تدوين الملاحظات بالتفصيل ليتم مراجعتها من قِبل الإدارة واتخاذ الإجراءات اللازمة.</span>
-            </div>
-            
-            <!-- 🌟 تم عزل حقل النص هنا بكلاس مستقل تماماً لمنع الانهيار البصري -->
-            <div class="input-group" style="margin-bottom: 25px;">
-                <textarea class="rating-textarea" id="ratingFeedbackInput" placeholder="اكتب تفاصيل ملاحظاتك أو مقترحاتك هنا لمراجعتها..."></textarea>
-            </div>
-            
-            <button type="button" class="alert-btn" id="btnSubmitFeedback" onclick="ClientSystem.submitPrivateFeedback()">إرسال للإدارة</button>
-        </div>
-        
-        <!-- 3. شاشة التوجيه الفاخرة لـ الـ VIP والتأثير الفيروسي (تظهر عند تقييم 4-5 نجوم) -->
-        <div id="rating-step-share" class="rating-step-block" style="display: none;">
-            <div class="community-intro-banner" style="background: rgba(16, 185, 129, 0.04); border-color: rgba(16, 185, 129, 0.12); color: var(--text-gray); margin-bottom: 20px;">
-                <i class="fa-solid fa-crown" style="color: var(--gold-main); font-size: 1.4rem; animation: pulse 2s infinite;"></i>
-                <span>تقديراً لتقييمك المتميز، سنقوم  بمراجعة حسابك  لترقيته إلى مستوى VIP أفضل للحصول على أسعار وعروض حصرية مخصصة لك.</span>
-            </div>
-            
-            <p class="rating-intro-text" style="margin-bottom: 20px; font-weight: 700;">ندعوك لتوثيق تجربتك ومشاركتها مع مجتمعنا عبر المنصة الرسمية لتقييم المتاجر:</p>
-            
-            <a href="https://www.trustpilot.com" target="_blank" class="submit-btn" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; margin-top: 20px;" onclick="ClientSystem.closeModal('rating')">
-                <i class="fa-solid fa-external-link"></i> تقييم الخدمة عبر منصة Trustpilot
-            </a>
-        </div>
-    </div>
-</div>
-<div class="pm-overlay" id="about-overlay" onclick="ClientSystem.closeModal('about')"></div>
-<div class="modal-sheet bottom-sheet" id="about-modal">
-    <div class="pm-header-std">
-        <div class="pm-close-std" onclick="ClientSystem.closeModal('about')"><i class="fa-solid fa-xmark"></i></div>
-        <div class="header-center">
-            <span class="title-badge text-warning"><i class="fa-solid fa-circle-info"></i> من نحن</span>
-        </div>
-        <div class="pm-header-spacer"></div>
-    </div>
-    
-    <div class="pm-scroll-content">
-        <div class="custom-alert-card" style="max-width: 100%; border: none; box-shadow: none; background: transparent; padding: 20px 10px;">
-            <div id="about-logo-box"></div>
-            <h3 class="alert-title" id="about-popup-title" style="color: var(--gold-main); font-size: 20px; margin-bottom: 15px;"></h3>
-            <p class="alert-msg" id="about-popup-desc" style="text-align: justify; text-align-last: center; line-height: 1.8; margin-bottom: 25px;"></p>
-            <button type="button" class="alert-btn" onclick="ClientSystem.closeModal('about')">أهلاً بك في متجرنا</button>
-        </div>
-    </div>
-</div>
+    </div>  
 
-<div class="pm-overlay" id="security-overlay" onclick="ClientSystem.closeSecurityModal()"></div>
-<div class="modal-sheet bottom-sheet" id="security-modal">
-    <div class="pm-header-std">
-        <div class="pm-close-std" onclick="ClientSystem.closeSecurityModal()"><i class="fa-solid fa-xmark"></i></div>
-        <div class="header-center">
-            <span class="title-badge text-warning"><i class="fa-solid fa-shield-halved"></i> الأمان والخصوصية</span>
-        </div>
-        <div class="pm-header-spacer"></div>
-    </div>
-    
-    <div class="pm-scroll-content">
-        
-        <div class="settings-group-title">إعدادات المصادقة وحماية الحساب</div>
-        
-        <div class="setting-row">
-            <div class="setting-info">
-                <div class="setting-title"><i class="fa-solid fa-key"></i> المصادقة الثنائية (2FA)</div>
-                <div class="setting-sub">إرسال رمز التحقق (OTP) إلى بريدك الإلكتروني عند إجراء العمليات.</div>
+    <div class="pm-overlay" id="rating-overlay" data-action="close-rating"></div>
+    <div class="modal-sheet bottom-sheet" id="rating-modal">
+        <div class="pm-header-std">
+            <div class="pm-close-std" data-action="close-rating"><i class="fa-solid fa-xmark"></i></div>
+            <div class="header-center">
+                <span class="title-badge text-warning"><i class="fa-solid fa-star"></i> قيم تجربتك معنا</span>
             </div>
-            <button type="button" class="setting-toggle ghost" id="setting-2fa-toggle" onclick="ClientSystem.toggleSecurityPref()">
-                <span class="setting-toggle-knob"></span>
-                <span class="setting-toggle-label" id="setting-2fa-label">قريباً</span>
+            <div class="pm-header-spacer"></div>
+        </div>
+        
+        <div class="pm-scroll-content">
+            <div id="rating-step-stars" class="rating-step-block">
+                <p class="rating-intro-text">يُرجى تقييم جودة الخدمة لمساعدتنا في التطوير المستمر للأداء.</p>
+                <div class="rating-stars-container">
+                    <i class="fa-regular fa-star rating-star" data-action="select-rating" data-val="1"></i>
+                    <i class="fa-regular fa-star rating-star" data-action="select-rating" data-val="2"></i>
+                    <i class="fa-regular fa-star rating-star" data-action="select-rating" data-val="3"></i>
+                    <i class="fa-regular fa-star rating-star" data-action="select-rating" data-val="4"></i>
+                    <i class="fa-regular fa-star rating-star" data-action="select-rating" data-val="5"></i>
+                </div>
+                <button type="button" class="alert-btn" id="btnContinueRating" data-action="submit-rating-step" disabled style="opacity: 0.5;">متابعة</button>
+            </div>
+            
+            <div id="rating-step-feedback" class="rating-step-block" style="display: none;">
+                <div class="community-intro-banner" style="background: rgba(239, 68, 68, 0.04); border-color: rgba(239, 68, 68, 0.12); color: var(--text-gray); margin-bottom: 20px;">
+                    <i class="fa-solid fa-face-frown" style="color: var(--error-red); font-size: 1.4rem;"></i>
+                    <span>نأسف لعدم تلبية توقعاتك. يُرجى تدوين الملاحظات بالتفصيل ليتم مراجعتها من قِبل الإدارة واتخاذ الإجراءات اللازمة.</span>
+                </div>
+                
+                <div class="input-group" style="margin-bottom: 25px;">
+                    <textarea class="rating-textarea" id="ratingFeedbackInput" placeholder="اكتب تفاصيل ملاحظاتك أو مقترحاتك هنا لمراجعتها..."></textarea>
+                </div>
+                
+                <button type="button" class="alert-btn" id="btnSubmitFeedback" data-action="submit-private-feedback">إرسال للإدارة</button>
+            </div>
+            
+            <div id="rating-step-share" class="rating-step-block" style="display: none;">
+                <div class="community-intro-banner" style="background: rgba(16, 185, 129, 0.04); border-color: rgba(16, 185, 129, 0.12); color: var(--text-gray); margin-bottom: 20px;">
+                    <i class="fa-solid fa-crown" style="color: var(--gold-main); font-size: 1.4rem; animation: pulse 2s infinite;"></i>
+                    <span>تقديراً لتقييمك المتميز، سنقوم بمراجعة حسابك لترقيته إلى مستوى VIP أفضل.</span>
+                </div>
+                
+                <p class="rating-intro-text" style="margin-bottom: 20px; font-weight: 700;">ندعوك لتوثيق تجربتك ومشاركتها مع مجتمعنا عبر المنصة الرسمية لتقييم المتاجر:</p>
+                
+                <a href="https://www.trustpilot.com" target="_blank" class="submit-btn" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; margin-top: 20px;" data-action="close-rating">
+                    <i class="fa-solid fa-external-link"></i> تقييم الخدمة عبر منصة Trustpilot
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="pm-overlay" id="about-overlay" data-action="close-about"></div>
+    <div class="modal-sheet bottom-sheet" id="about-modal">
+        <div class="pm-header-std">
+            <div class="pm-close-std" data-action="close-about"><i class="fa-solid fa-xmark"></i></div>
+            <div class="header-center">
+                <span class="title-badge text-warning"><i class="fa-solid fa-circle-info"></i> من نحن</span>
+            </div>
+            <div class="pm-header-spacer"></div>
+        </div>
+        
+        <div class="pm-scroll-content">
+            <div class="custom-alert-card" style="max-width: 100%; border: none; box-shadow: none; background: transparent; padding: 20px 10px;">
+                <div id="about-logo-box"></div>
+                <h3 class="alert-title" id="about-popup-title" style="color: var(--gold-main); font-size: 20px; margin-bottom: 15px;"></h3>
+                <p class="alert-msg" id="about-popup-desc" style="text-align: justify; text-align-last: center; line-height: 1.8; margin-bottom: 25px;"></p>
+                <button type="button" class="alert-btn" data-action="close-about">أهلاً بك في متجرنا</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="pm-overlay" id="security-overlay" data-action="close-security-modal"></div>
+    <div class="modal-sheet bottom-sheet" id="security-modal">
+        <div class="pm-header-std">
+            <div class="pm-close-std" data-action="close-security-modal"><i class="fa-solid fa-xmark"></i></div>
+            <div class="header-center">
+                <span class="title-badge text-warning"><i class="fa-solid fa-shield-halved"></i> الأمان والخصوصية</span>
+            </div>
+            <div class="pm-header-spacer"></div>
+        </div>
+        
+        <div class="pm-scroll-content">
+            <div class="settings-group-title">إعدادات المصادقة وحماية الحساب</div>
+            
+            <div class="setting-row">
+                <div class="setting-info">
+                    <div class="setting-title"><i class="fa-solid fa-key"></i> المصادقة الثنائية (2FA)</div>
+                    <div class="setting-sub">إرسال رمز التحقق (OTP) إلى تطبيق المصادقة.</div>
+                </div>
+                <button type="button" class="setting-toggle ghost" id="setting-2fa-toggle" data-action="toggle-2fa">
+                    <span class="setting-toggle-knob"></span>
+                    <span class="setting-toggle-label" id="setting-2fa-label">قريباً</span>
+                </button>
+            </div>
+            
+            <div class="setting-row">
+                <div class="setting-info">
+                    <div class="setting-title"><i class="fa-solid fa-fingerprint"></i> المصادقة الحيوية</div>
+                    <div class="setting-sub">تسجيل الدخول الفوري وتأكيد العمليات بلمسة إصبع آمنة.</div>
+                </div>
+                <button type="button" class="setting-toggle ghost" id="setting-biometric-toggle" data-action="toggle-biometric">
+                    <span class="setting-toggle-knob"></span>
+                    <span class="setting-toggle-label" id="setting-biometric-label">قريباً</span>
+                </button>
+            </div>
+            
+            <div class="settings-group-title">تعديل كلمة المرور</div>
+            
+            <div class="security-pass-wrapper">
+                <div class="input-field-lux" style="position: relative;">
+                    <label>كلمة المرور الحالية</label>
+                    <span class="forgot-pass-link" data-action="send-reset-pass">نسيت الكلمة؟</span>
+                    <input type="password" id="pass-current" class="lux-input" placeholder="أدخل كلمة المرور الحالية" autocomplete="current-password">
+                </div>
+                
+                <div class="input-field-lux">
+                    <label>كلمة المرور الجديدة</label>
+                    <input type="password" id="pass-new" class="lux-input" placeholder="أدخل كلمة مرور جديدة" autocomplete="new-password">
+                </div>
+                
+                <div class="input-field-lux">
+                    <label>تأكيد كلمة المرور</label>
+                    <input type="password" id="pass-confirm" class="lux-input" placeholder="أعد إدخال كلمة المرور" autocomplete="new-password">
+                </div>
+                
+                <div style="margin-top: 10px;">
+                    <button class="alert-btn" data-action="submit-password-change">تحديث كلمة المرور</button>
+                </div>
+            </div>
+            
+            <div class="settings-group-title" style="color: var(--danger);">إجراءات إغلاق الحساب</div>
+            
+            <div class="danger-zone-wrapper">
+                <div class="setting-info">
+                    <div class="setting-title" style="color: var(--danger);"><i class="fa-solid fa-trash-can"></i> حذف الحساب نهائياً</div>
+                    <div class="setting-sub" style="color: var(--text-muted);">هذا الإجراء سيقوم بحذف جميع بياناتك ورصيدك نهائياً ولا يمكن التراجع عنه.</div>
+                </div>
+                <button class="alert-btn" style="background: var(--danger); color: #fff; box-shadow: 0 4px 15px rgba(225, 29, 72, 0.2);" data-action="request-account-delete">طلب حذف الحساب</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="pm-overlay" id="setup-2fa-overlay" data-action="close-setup-2fa"></div>
+    <div class="modal-sheet bottom-sheet" id="setup-2fa-modal">
+        <div class="pm-header-std">
+            <div class="pm-close-std" data-action="close-setup-2fa"><i class="fa-solid fa-xmark"></i></div>
+            <div class="header-center">
+                <span class="title-badge text-warning"><i class="fa-solid fa-qrcode"></i> تفعيل المصادقة الثنائية</span>
+            </div>
+            <div class="pm-header-spacer"></div>
+        </div>
+        
+        <div class="pm-scroll-content" style="display: flex; flex-direction: column; align-items: center; text-align: center; padding: 15px 20px 40px;">
+            <div class="identity-info-banner" style="width: 100%; margin-bottom: 20px; text-align: right;">
+                <i class="fa-solid fa-shield-halved"></i>
+                <span>حمل تطبيق <b>Google Authenticator</b> وامسح الرمز أدناه لربط حسابك بأمان.</span>
+            </div>
+            
+            <div id="qrcode-container" style="background: #ffffff; padding: 15px; border-radius: 16px; border: 3px solid var(--primary); box-shadow: 0 0 20px rgba(255,215,0,0.2); margin-bottom: 20px; width: 180px; height: 180px; display: flex; align-items: center; justify-content: center;">
+                <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 30px; color: var(--text-muted);"></i>
+            </div>
+            
+            <p style="color: var(--text-muted); font-size: 11px; margin-bottom: 20px; font-weight: 700;">
+                أو أدخل هذا الرمز يدوياً في التطبيق: <br>
+                <span id="manual-2fa-secret" class="num-en" style="color: var(--primary); font-size: 14px; letter-spacing: 2px; user-select: all; margin-top: 5px; display: inline-block; background: rgba(255,215,0,0.1); padding: 4px 10px; border-radius: 6px; cursor: pointer;" data-action="copy-text" title="اضغط للنسخ">------</span>
+            </p>
+            
+            <div class="input-field-lux" style="width: 100%; margin-bottom: 20px;">
+                <input type="text" id="otp-verify-input" class="lux-input num-en" placeholder="أدخل الـ 6 أرقام هنا" maxlength="6" inputmode="numeric" style="text-align: center; font-size: 20px; letter-spacing: 8px;">
+            </div>
+            
+            <button class="alert-btn" id="btn-confirm-2fa" data-action="verify-and-enable-2fa" style="height: 52px; font-size: 16px;">
+                تأكيد وتفعيل الحماية
             </button>
         </div>
-        
-        <div class="setting-row">
-            <div class="setting-info">
-                <div class="setting-title"><i class="fa-solid fa-fingerprint"></i> المصادقة الحيوية</div>
-                <div class="setting-sub">تسجيل الدخول الفوري وتأكيد العمليات بلمسة إصبع آمنة.</div>
-            </div>
-            <button type="button" class="setting-toggle ghost" id="setting-biometric-toggle" onclick="ClientSystem.toggleSecurityPref()">
-                <span class="setting-toggle-knob"></span>
-                <span class="setting-toggle-label" id="setting-biometric-label">قريباً</span>
-            </button>
-        </div>
-        
-        <div class="settings-group-title">تعديل كلمة المرور</div>
-        
-        <div class="security-pass-wrapper">
-            <div class="input-field-lux" style="position: relative;">
-                <label>كلمة المرور الحالية</label>
-                <span class="forgot-pass-link" onclick="ClientSystem.sendResetPasswordEmail()">نسيت الكلمة؟</span>
-                <input type="password" id="pass-current" class="lux-input" placeholder="أدخل كلمة المرور الحالية" autocomplete="current-password">
-            </div>
-            
-            <div class="input-field-lux">
-                <label>كلمة المرور الجديدة</label>
-                <input type="password" id="pass-new" class="lux-input" placeholder="أدخل كلمة مرور جديدة" autocomplete="new-password">
-            </div>
-            
-            <div class="input-field-lux">
-                <label>تأكيد كلمة المرور</label>
-                <input type="password" id="pass-confirm" class="lux-input" placeholder="أعد إدخال كلمة المرور" autocomplete="new-password">
-            </div>
-            
-            <div style="margin-top: 10px;">
-                <button class="alert-btn" onclick="ClientSystem.handlePasswordSubmit()">تحديث كلمة المرور</button>
-            </div>
-        </div>
-        
-        <div class="settings-group-title" style="color: var(--danger);">إجراءات إغلاق الحساب</div>
-        
-        <div class="danger-zone-wrapper">
-            <div class="setting-info">
-                <div class="setting-title" style="color: var(--danger);"><i class="fa-solid fa-trash-can"></i> حذف الحساب نهائياً</div>
-                <div class="setting-sub" style="color: var(--text-muted);">هذا الإجراء سيقوم بحذف جميع بياناتك ورصيدك نهائياً ولا يمكن التراجع عنه.</div>
-            </div>
-            <button class="alert-btn" style="background: var(--danger); color: #fff; box-shadow: 0 4px 15px rgba(225, 29, 72, 0.2);" onclick="ClientSystem.toggleSecurityPref()">طلب حذف الحساب</button>
-        </div>
-        
     </div>
-</div>
 
-<script type="module" src="script.js"></script>
-        
+    <div id="biometric-lock-screen" class="biometric-lock-overlay">
+        <div class="bio-lock-card">
+            <div class="bio-icon-box pulse-anim">
+                <i class="fa-solid fa-fingerprint"></i>
+            </div>
+            <h2 class="bio-title">المتجر مقفل</h2>
+            <p class="bio-desc">يرجى استخدام بصمة الإصبع أو الوجه لفك قفل متجر تيليكارد والمتابعة.</p>
+            <button class="alert-btn" data-action="enforce-biometric">فتح القفل <i class="fa-solid fa-unlock-keyhole" style="margin-right: 5px;"></i></button>
+            <button class="alert-btn" style="background: rgba(229, 62, 62, 0.1); color: var(--danger); border: 1px solid rgba(229, 62, 62, 0.3); margin-top: 10px; box-shadow: none;" data-action="logout">تسجيل الخروج</button>
+        </div>
+    </div>
+
+    <script type="module" src="script.js"></script>
 </body>
 </html>

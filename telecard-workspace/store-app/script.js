@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 المحرك الرئيسي للمتجر (script.js) - النسخة المدرعة للإنتاج V5
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: دمج نظام الربط التفاعلي للحظي للإشعارات (في جرس التنبيهات)
+// 🚀 التحديث: دمج نظام الربط التفاعلي للإشعارات + اعتراض البصمة الحيوية + تفويض مركزي آمن
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
@@ -41,8 +41,49 @@ const ClientSystem = {
         }
     },
 
+    // 🛡️ دالة الحارس: تنفيذ قراءة البصمة للمتجر
+    enforceBiometricLock: async function() {
+        const lockScreen = document.getElementById('biometric-lock-screen');
+        if (!lockScreen) return false;
+
+        try {
+            const challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+            
+            // 🚀 جلب المعرف الذي حفظناه في الخطوة الأولى من الذاكرة المحلية
+            const savedRawId = localStorage.getItem('telecard_biometric_key');
+            if (!savedRawId) throw new Error("No credential ID found");
+
+            // تحويل النص إلى مصفوفة بايتات ليفهمها المتصفح
+            const rawIdBytes = new Uint8Array(savedRawId.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+
+            // طلب البصمة من العميل للتعرف عليه
+            await navigator.credentials.get({
+                publicKey: {
+                    challenge: challenge,
+                    timeout: 60000,
+                    userVerification: "required",
+                    allowCredentials: [{
+                        type: "public-key",
+                        id: rawIdBytes
+                    }]
+                }
+            });
+
+            // ✅ إذا تطابقت البصمة: نفتح المتجر بنجاح
+            lockScreen.classList.remove('active');
+            return true;
+        } catch (error) {
+            console.error("Biometric Login Failed:", error);
+            // ❌ إذا فشل أو ضغط "إلغاء": يبقى المتجر مقفلاً أمامه
+            if (typeof this.showToast === 'function') this.showToast('تعذر التحقق من البصمة. يرجى المحاولة مجدداً أو تسجيل الخروج.', 'error');
+            if (typeof this.sfx === 'function') this.sfx('error');
+            return false;
+        }
+    },
+
     // ============================================================================
-    // 🎯 نظام تفويض الأحداث المركزي (Global Event Delegation)
+    // 🎯 نظام تفويض الأحداث المركزي المحدث والآمن (Global Event Delegation)
     // ============================================================================
     initGlobalListeners: function() {
         document.body.addEventListener('touchstart', () => {}, { passive: true });
@@ -51,6 +92,32 @@ const ClientSystem = {
             if (e.target.closest('[data-action], .cat-card, .product-card')) {
                 e.preventDefault();
             }
+        });
+
+        // 🌟 التعامل مع حقول الإدخال والبحث (Enter Key)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const target = e.target;
+                const action = target.getAttribute('data-action');
+                if (action === 'store-search-enter' && typeof this.applyStoreSearch === 'function') { this.sfx?.('nav'); this.applyStoreSearch(); }
+                if (action === 'order-search-enter' && typeof this.renderOrders === 'function') { this.sfx?.('nav'); this.renderOrders(); }
+                if (action === 'wallet-search-enter' && typeof this.renderWallet === 'function') { this.sfx?.('nav'); this.renderWallet(); }
+                if (action === 'pay-search-enter' && typeof this.renderPayments === 'function') { this.sfx?.('nav'); this.renderPayments(); }
+            }
+        });
+
+        // 🌟 التعامل مع قوائم التحديد ورفع الملفات
+        document.addEventListener('change', (e) => {
+            const target = e.target;
+            const action = target.getAttribute('data-action');
+            
+            if (action === 'change-currency' && typeof this.setDisplayCurrency === 'function') {
+                this.setDisplayCurrency(target.value);
+            }
+            if (action === 'kyc-upload-front' && typeof this.handleKycImage === 'function') this.handleKycImage(target, 'kyc-prev-front');
+            if (action === 'kyc-upload-back' && typeof this.handleKycImage === 'function') this.handleKycImage(target, 'kyc-prev-back');
+            if (action === 'kyc-upload-selfie' && typeof this.handleKycImage === 'function') this.handleKycImage(target, 'kyc-prev-selfie');
+            if (action === 'upload-avatar' && typeof this.handleAvatarChange === 'function') this.handleAvatarChange(e);
         });
 
         document.addEventListener('click', (e) => {
@@ -63,9 +130,8 @@ const ClientSystem = {
             if (walletDrawer && walletDrawer.classList.contains('active')) {
                 const isClickInsideDrawer = walletDrawer.contains(e.target);
                 const isClickOnToggleButton = e.target.closest('.detail-arrow') || e.target.closest('.wallet-toggle-btn') || e.target.closest('[data-action="toggle-wallet-stats"]'); 
-                
-                if (!isClickInsideDrawer && !isClickOnToggleButton) {
-                    if (typeof this.closeWalletStats === 'function') this.closeWalletStats(); 
+                if (!isClickInsideDrawer && !isClickOnToggleButton && typeof this.closeWalletStats === 'function') {
+                    this.closeWalletStats(); 
                 }
             }
         }, true); 
@@ -77,156 +143,171 @@ const ClientSystem = {
             const target = e.target.closest('[data-action]');
             if (!target) return;
 
+            // 💡 استخراج جميع المتغيرات هنا لمنع أخطاء الـ Scope داخل الـ Switch
             const action = target.getAttribute('data-action');
             const id = target.getAttribute('data-id');
+            const val = target.getAttribute('data-val');
+            const dataType = target.getAttribute('data-type');
+            const dataCurr = target.getAttribute('data-curr');
+            const dataName = target.getAttribute('data-name');
+            const dataCode = target.getAttribute('data-code');
+            const dataLen = target.getAttribute('data-len');
+            const dataTarget = target.getAttribute('data-target');
+            const dataText = target.getAttribute('data-text');
 
             target.blur();
 
+            // 🎵 تشغيل الصوت الافتراضي للتنقلات
+            const sfxActions = ['open-sidebar', 'open-notif-center', 'nav-home', 'nav-deposit', 'nav-payments', 'nav-orders', 'open-community', 'open-security-modal', 'nav-settings', 'open-rating', 'open-terms', 'open-support', 'logout', 'store-search-btn', 'render-orders', 'render-wallet', 'render-payments'];
+            if (sfxActions.includes(action) && typeof this.sfx === 'function') this.sfx('nav');
+
             switch (action) {
-                case 'open-category':
-                    e.preventDefault();
-                    if (typeof this.openCategory === 'function') this.openCategory(id);
-                    break;
-                   case 'open-about':
-e.preventDefault();
-// 🌟 استدعاء دالة فتح نافذة "من نحن" بأمان واحترافية
-if (typeof this.openAboutModal === 'function') {
-    this.openAboutModal();
-}
-break; 
-                case 'open-product':
+                // 🧭 التنقل والروابط الأساسية
+                case 'nav-home': if (typeof this.renderHome === 'function') this.renderHome(); break;
+                case 'nav-deposit': if (typeof this.navigateBalance === 'function') this.navigateBalance(); break;
+                case 'nav-payments': if (typeof this.navigateMyPayments === 'function') this.navigateMyPayments(); break;
+                case 'nav-orders': if (typeof this.navigateOrders === 'function') this.navigateOrders(); break;
+                case 'nav-settings': if (typeof this.navigateSettings === 'function') this.navigateSettings(); break;
+                case 'nav-wallet': if (typeof this.openWallet === 'function') this.openWallet(); break;
+                
+                // 📂 النوافذ (Modals) والـ Sidebar
+                case 'open-sidebar': if (typeof this.openSidebar === 'function') this.openSidebar(); break;
+                case 'close-sidebar': if (typeof this.closeSidebar === 'function') this.closeSidebar(); break;
+                case 'open-notif-center': if (typeof this.openNotifCenter === 'function') this.openNotifCenter(); break;
+                case 'open-about': e.preventDefault(); if (typeof this.openAboutModal === 'function') this.openAboutModal(); break;
+                case 'open-community': if (typeof this.openCommunityModal === 'function') this.openCommunityModal(); break;
+                case 'open-security-modal': if (typeof this.openSecurityModal === 'function') this.openSecurityModal(); break;
+                case 'open-rating': if (typeof this.openRatingModal === 'function') this.openRatingModal(); break;
+                case 'open-terms': if (typeof this.openTermsModal === 'function') this.openTermsModal(); break;
+                case 'open-support': if (typeof this.openSupport === 'function') this.openSupport(); break;
+                case 'open-favorites': if (typeof this.openFavorites === 'function') this.openFavorites(); break;
+                case 'open-add-balance': if (typeof this.openAddBalance === 'function') this.openAddBalance(); break;
+                case 'open-tier-info': e.stopPropagation(); if (typeof this.openTierInfoModal === 'function') this.openTierInfoModal(); break;
+
+                // 🚪 تسجيل الخروج والبصمة
+                case 'logout': if (typeof this.logout === 'function') this.logout(); else if (DataManager && typeof DataManager.logout === 'function') DataManager.logout(); break;
+                case 'enforce-biometric': if (typeof this.enforceBiometricLock === 'function') this.enforceBiometricLock(); break;
+
+                // ❌ إغلاق النوافذ (Close Overlays)
+                case 'close-orders': if (typeof this.closeOrders === 'function') this.closeOrders(); break;
+                case 'close-wallet': if (typeof this.closeWallet === 'function') this.closeWallet(); break;
+                case 'close-mypayments': if (typeof this.closeMyPayments === 'function') this.closeMyPayments(); break;
+                case 'close-settings': if (typeof this.closeSettings === 'function') this.closeSettings(); break;
+                case 'close-balance': if (typeof this.closeBalanceModal === 'function') this.closeBalanceModal(); break;
+                case 'close-purchase': if (typeof this.closeModal === 'function') this.closeModal('purchase'); break;
+                case 'close-success': if (typeof this.closeModal === 'function') this.closeModal('success'); break;
+                case 'close-tx-detail': if (typeof this.closeModal === 'function') this.closeModal('tx-detail'); break;
+                case 'close-profile': if (typeof this.closeProfileInfo === 'function') this.closeProfileInfo(); break;
+                case 'close-pay-receipt': if (typeof this.closePayReceipt === 'function') this.closePayReceipt(); break;
+                case 'close-terms': if (typeof this.closeModal === 'function') this.closeModal('terms'); break;
+                case 'close-identity': if (typeof this.closeModal === 'function') this.closeModal('identity'); break;
+                case 'close-kyc-upload': if (typeof this.closeKycModal === 'function') this.closeKycModal(); break;
+                case 'close-kyc-status': if (typeof this.closeKycStatusModal === 'function') this.closeKycStatusModal(); break;
+                case 'close-notif-center': if (typeof this.closeNotifCenter === 'function') this.closeNotifCenter(); break;
+                case 'close-tier-info': if (typeof this.closeModal === 'function') this.closeModal('tier-info'); break;
+                case 'close-kyc-celebration': if (typeof this.closeModal === 'function') this.closeModal('kyc-celebration'); break;
+                case 'close-community': if (typeof this.closeModal === 'function') this.closeModal('community'); break;
+                case 'close-rating': if (typeof this.closeModal === 'function') this.closeModal('rating'); break;
+                case 'close-about': if (typeof this.closeModal === 'function') this.closeModal('about'); break;
+                case 'close-security-modal': if (typeof this.closeSecurityModal === 'function') this.closeSecurityModal(); break;
+                case 'close-setup-2fa': if (typeof this.closeModal === 'function') this.closeModal('setup-2fa'); break;
+
+                // 🔄 إجراءات منوعة
+                case 'toggle-currency-menu': if (typeof this.toggleDisplayCurrencyMenu === 'function') this.toggleDisplayCurrencyMenu(); break;
+                case 'toggle-theme': if (typeof this.toggleTheme === 'function') this.toggleTheme(); break;
+                case 'store-search-btn': if (typeof this.applyStoreSearch === 'function') this.applyStoreSearch(); break;
+                case 'open-category': e.preventDefault(); if (typeof this.openCategory === 'function') this.openCategory(id); break;
+                case 'open-product': {
                     e.preventDefault();
                     const currentTime = new Date().getTime();
                     const timeDiff = currentTime - lastClickTime;
-
                     if (timeDiff < 280 && lastClickTarget === id) {
                         clearTimeout(window.productClickTimer);
-                        if (typeof this.triggerMagicFavorite === 'function') {
-                            this.triggerMagicFavorite(e, id);
-                        }
+                        if (typeof this.triggerMagicFavorite === 'function') this.triggerMagicFavorite(e, id);
                         lastClickTime = 0; 
                     } else {
                         lastClickTime = currentTime;
                         lastClickTarget = id;
                         window.productClickTimer = setTimeout(() => {
-                            if (typeof this.openProdModal === 'function') {
-                                this.openProdModal(id);
-                            }
+                            if (typeof this.openProdModal === 'function') this.openProdModal(id);
                         }, 250);
                     }
                     break;
-                    
-                case 'select-pay':
-                    if (typeof this.selectPay === 'function') this.selectPay(id);
-                    break;
-                    
-                case 'submit-balance':
-                    const currency = target.getAttribute('data-curr');
-                    if (typeof this.handleBalanceSubmit === 'function') this.handleBalanceSubmit(currency);
-                    break;
-                    
-                case 'select-reg-currency':
-                    e.preventDefault();
-                    const currName = target.getAttribute('data-name');
-                    const currCode = target.getAttribute('data-code');
-                    if (typeof this.selectRegCurrency === 'function') {
-                        this.selectRegCurrency(currName, currCode);
-                    }
-                    break;
+                }
 
-                case 'toggle-accordion':
-                    e.preventDefault();
-                    if(typeof this.togglePayDetail === 'function') this.togglePayDetail(target);
-                    break;
+                // 🛒 تفاصيل الشراء والكوبونات
+                case 'toggle-fav-modal': if (typeof this.toggleFavoriteFromModal === 'function') this.toggleFavoriteFromModal(); break;
+                case 'update-simple-qty': if (typeof this.updateSimpleQty === 'function') this.updateSimpleQty(parseInt(val)); break;
+                case 'toggle-pkg-dropdown': target.parentElement.classList.toggle('open'); break;
+                case 'toggle-coupon-ui': if (typeof this.toggleCoupon === 'function') this.toggleCoupon(target); break;
+                case 'apply-coupon': if (typeof this.applyCoupon === 'function') this.applyCoupon(); break;
+                case 'remove-coupon': if (typeof this.removeCoupon === 'function') this.removeCoupon(); break;
+                case 'paste-coupon': if (typeof this.pasteText === 'function') this.pasteText(); break;
+                case 'confirm-purchase': if (typeof this.handlePurchaseSubmit === 'function') this.handlePurchaseSubmit(); break;
+                case 'nav-orders-from-success': if (typeof this.closePurchaseSuccess === 'function') { this.closePurchaseSuccess(); this.openOrders(); } break;
 
-                case 'toggle-wallet-stats': 
-                    if(typeof this.toggleWalletStats === 'function') this.toggleWalletStats(target);
-                    break;
-
-                case 'jump-transaction': 
-                    const type = target.getAttribute('data-type');
-                    if(typeof this.jumpToTransaction === 'function') this.jumpToTransaction(id, type);
-                    break;
-
-                case 'open-detail': 
-                    const txType = target.getAttribute('data-type');
-                    if(typeof this.openDetail === 'function') this.openDetail(e, txType, id);
-                    break;
-
-                case 'apply-coupon':
-                    if(typeof this.applyCoupon === 'function') this.applyCoupon();
-                    break;
-                    
-                case 'remove-coupon':
-                    if(typeof this.removeCoupon === 'function') this.removeCoupon();
-                    break;
-
-                case 'toggle-dropdown':
-                    const dropWrapper = target.closest('.custom-dropdown') || target.parentElement;
-                    if (dropWrapper) dropWrapper.classList.toggle('open');
-                    break;
-
-                case 'select-dropdown-item':
-                    if(typeof this.selectDropdownItem === 'function') this.selectDropdownItem(target);
-                    break;
-
-                case 'toggle-theme':
-                    if(typeof this.toggleTheme === 'function') this.toggleTheme();
-                    break;
+                // 💵 الإيداع وسجل الدفعات
+                case 'select-pay': if (typeof this.selectPay === 'function') this.selectPay(id); break;
+                case 'submit-balance': if (typeof this.handleBalanceSubmit === 'function') this.handleBalanceSubmit(dataCurr); break;
+                case 'toggle-accordion': e.preventDefault(); if (typeof this.togglePayDetail === 'function') this.togglePayDetail(target); break;
+                case 'jump-transaction': if (typeof this.jumpToTransaction === 'function') this.jumpToTransaction(id, dataType); break;
+                case 'open-detail': if (typeof this.openDetail === 'function') this.openDetail(e, dataType, id); break;
                 
+                // 📊 الفلاتر
+                case 'render-orders': if (typeof this.renderOrders === 'function') this.renderOrders(); break;
+                case 'render-wallet': if (typeof this.renderWallet === 'function') this.renderWallet(); break;
+                case 'render-payments': if (typeof this.renderPayments === 'function') this.renderPayments(); break;
+                case 'filter-order': if (typeof this.setOrderFilter === 'function') this.setOrderFilter(val, target); break;
+                case 'filter-wallet': if (typeof this.setWalletFilter === 'function') this.setWalletFilter(val, target); break;
+                case 'filter-pay': if (typeof this.setPaymentFilter === 'function') this.setPaymentFilter(val, target); break;
+                case 'toggle-wallet-stats': if (typeof this.toggleWalletStats === 'function') this.toggleWalletStats(target); break;
+
+                // 📅 التقويم (Calendar)
+                case 'open-cal-order-start': if (CalendarApp && typeof CalendarApp.open === 'function') CalendarApp.open('order-date-start', e); break;
+                case 'open-cal-order-end': if (CalendarApp && typeof CalendarApp.open === 'function') CalendarApp.open('order-date-end', e); break;
+                case 'open-cal-wallet-start': if (CalendarApp && typeof CalendarApp.open === 'function') CalendarApp.open('wallet-date-start', e); break;
+                case 'open-cal-wallet-end': if (CalendarApp && typeof CalendarApp.open === 'function') CalendarApp.open('wallet-date-end', e); break;
+                case 'open-cal-pay-start': if (CalendarApp && typeof CalendarApp.open === 'function') CalendarApp.open('pay-date-start', e); break;
+                case 'open-cal-pay-end': if (CalendarApp && typeof CalendarApp.open === 'function') CalendarApp.open('pay-date-end', e); break;
+                case 'cal-adj-month': if (CalendarApp && typeof CalendarApp.adjustMonth === 'function') CalendarApp.adjustMonth(parseInt(val)); break;
+                case 'cal-adj-year': if (CalendarApp && typeof CalendarApp.adjustYear === 'function') CalendarApp.adjustYear(parseInt(val)); break;
+                case 'cal-toggle-list': if (CalendarApp && typeof CalendarApp.toggleList === 'function') CalendarApp.toggleList(dataTarget, e); break;
+
+                // 👤 الهوية والإعدادات (Profile, Settings, Security)
+                case 'toggle-theme-pref': if (typeof this.toggleThemePref === 'function') this.toggleThemePref(); break;
+                case 'toggle-sound-pref': if (typeof this.toggleSoundPref === 'function') this.toggleSoundPref(); break;
+                case 'open-profile-sidebar': setTimeout(() => { if (typeof this.closeSidebar === 'function') this.closeSidebar(); if (typeof this.openProfileInfo === 'function') this.openProfileInfo(); }, 150); break;
+                case 'open-wallet-sidebar': setTimeout(() => { if (typeof this.closeSidebar === 'function') this.closeSidebar(); if (typeof this.openWallet === 'function') this.openWallet(); }, 150); break;
+                case 'open-identity-sidebar': setTimeout(() => { if (typeof this.closeSidebar === 'function') this.closeSidebar(); if (typeof this.openModal === 'function') this.openModal('identity'); }, 150); break;
+                case 'trigger-click': const trg = document.getElementById(dataTarget); if (trg) trg.click(); break;
+                case 'delete-avatar': if (typeof this.deleteProfileImage === 'function') this.deleteProfileImage(); break;
+                case 'toggle-name-edit': if (typeof this.toggleNameEdit === 'function') this.toggleNameEdit(); break;
+                case 'toggle-2fa': if (typeof this.handle2FAToggle === 'function') this.handle2FAToggle(); break;
+                case 'toggle-biometric': if (typeof this.handleBiometricToggle === 'function') this.handleBiometricToggle(); break;
+                case 'send-reset-pass': if (typeof this.sendResetPasswordEmail === 'function') this.sendResetPasswordEmail(); break;
+                case 'submit-password-change': if (typeof this.handlePasswordSubmit === 'function') this.handlePasswordSubmit(); break;
+                case 'request-account-delete': if (typeof this.toggleSecurityPref === 'function') this.toggleSecurityPref(); break;
+                case 'verify-and-enable-2fa': if (typeof this.verifyAndEnable2FA === 'function') this.verifyAndEnable2FA(); break;
+
+                // 🌍 إكمال الهوية (Identity)
+                case 'toggle-parent-dropdown': target.parentElement.classList.toggle('open'); break;
+                case 'select-reg-currency': e.preventDefault(); if (typeof this.selectRegCurrency === 'function') this.selectRegCurrency(dataName, dataCode); break;
+                case 'select-country': e.preventDefault(); if (typeof this.selectCountry === 'function') this.selectCountry(dataName, dataCode, dataLen); break;
+                case 'save-identity': if (typeof this.saveIdentityData === 'function') this.saveIdentityData(); break;
+                case 'submit-kyc': if (typeof this.submitKycData === 'function') this.submitKycData(); break;
+
+                // 📝 التقييمات
+                case 'select-rating': if (typeof this.selectRatingStar === 'function') this.selectRatingStar(parseInt(val)); break;
+                case 'submit-rating-step': if (typeof this.submitRatingStep === 'function') this.submitRatingStep(); break;
+                case 'submit-private-feedback': if (typeof this.submitPrivateFeedback === 'function') this.submitPrivateFeedback(); break;
+
+                // 🛠️ عام
                 case 'copy-text':
-                    e.preventDefault();  
-                    e.stopPropagation(); 
-                    const textToCopy = target.getAttribute('data-text');
-                    if(typeof this.copyToClipboard === 'function') this.copyToClipboard(textToCopy, target);
+                    e.preventDefault(); e.stopPropagation();
+                    if (typeof this.copyToClipboard === 'function') this.copyToClipboard(dataText || target.innerText, target);
                     break;
-
-                case 'close-sidebar':
-                    if(typeof this.closeSidebar === 'function') this.closeSidebar();
-                    break;
-                    
-                case 'open-favorites':
-                    if(typeof this.openFavorites === 'function') this.openFavorites();
-                    break;
-
-                case 'select-country':
-                    e.preventDefault();
-                    const name = target.getAttribute('data-name');
-                    const code = target.getAttribute('data-code');
-                    const len = target.getAttribute('data-len');
-                    if(typeof this.selectCountry === 'function') this.selectCountry(name, code, len);
-                    break;
-
                 case 'show-phone-toast':
-                    if(typeof this.showToast === 'function') this.showToast('هذا الرقم مرتبط بحسابك الأساسي. لتغييره يرجى التواصل مع الدعم الفني.', 'info');
-                    break;
-
-                case 'handle-avatar-click':
-                    if(typeof this.handleAvatarClick === 'function') this.handleAvatarClick(e);
-                    break;
-
-                case 'toggle-name-edit':
-                    if(typeof this.toggleNameEdit === 'function') this.toggleNameEdit();
-                    break;
-
-                case 'save-identity':
-                    if(typeof this.saveIdentityData === 'function') this.saveIdentityData();
-                    break;
-
-                case 'submit-kyc':
-                    if(typeof this.submitKycData === 'function') this.submitKycData();
-                    break;
-
-                case 'open-kyc-upload':
-                    if(typeof this.openModal === 'function') this.openModal('kyc-upload');
-                    break;
-
-                case 'open-kyc-status':
-                    if(typeof this.openKycStatusModal === 'function') this.openKycStatusModal(target.getAttribute('data-state'));
-                    break;
-                
-                case 'delete-avatar':
-                    if(typeof this.deleteProfileImage === 'function') this.deleteProfileImage();
+                    if (typeof this.showToast === 'function') this.showToast('هذا الرقم مرتبط بحسابك الأساسي. لتغييره يرجى التواصل مع الدعم الفني.', 'info');
                     break;
             }
         });
@@ -314,7 +395,7 @@ ClientSystem.initFirebaseListeners = function() {
                             if (DataManager.syncUser) DataManager.syncUser();
                             if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
                             
-                            // 🌟 [تفعيل جرس الإشعارات تفاعلياً]: إنعاش عداد الجرس والبوب أب فوراً وبصوت منبه دافئ عند وصول أي إشعار جديد في الـ inbox! [2]
+                            // 🌟 [تفعيل جرس الإشعارات تفاعلياً]
                             if (UIManager && typeof UIManager.updateNotifBadges === 'function') UIManager.updateNotifBadges();
                             if (UIManager && typeof UIManager.processAndDisplayAlerts === 'function') UIManager.processAndDisplayAlerts();
                         });
@@ -324,40 +405,41 @@ ClientSystem.initFirebaseListeners = function() {
             }
             
             if (StoreDB.listenQuery) {
-    // 🌟 جلب أحدث 30 طلب فقط + فحص ذكي: إذا كان العدد أقل من 30 فالأرشيف فارغ ونلغي المؤشر تماماً! [1]
-    const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
-        LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
-        DataManager.cursors.orders = data.length < 30 ? null : lastDoc; // 🌟 الضبط الذكي
-        requestAnimationFrame(() => {
-            if (RenderManager && typeof RenderManager.renderOrders === 'function') RenderManager.renderOrders();
-        });
+                // 🌟 جلب أحدث 30 طلب فقط + فحص ذكي
+                const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
+                    LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
+                    DataManager.cursors.orders = data.length < 30 ? null : lastDoc;
+                    requestAnimationFrame(() => {
+                        if (RenderManager && typeof RenderManager.renderOrders === 'function') RenderManager.renderOrders();
+                    });
+                });
+                this.activeListeners.push(unsubOrders);
+                
+                // 🌟 جلب أحدث 30 إيداع فقط + فحص ذكي
+                const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
+                    LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
+                    DataManager.cursors.deposits = data.length < 30 ? null : lastDoc;
+                    requestAnimationFrame(() => {
+                        if (RenderManager && typeof RenderManager.renderWallet === 'function') RenderManager.renderWallet();
+                        if (RenderManager && typeof RenderManager.renderPayments === 'function') RenderManager.renderPayments();
+                    });
+                });
+                this.activeListeners.push(unsubDeposits);
+            }
+        } else {
+            console.log("👤 العميل زائر. تم إيقاف جلب البيانات الخاصة.");
+            this.clearFirebaseListeners();
+            localStorage.removeItem('telecard_active_user_uid');
+            LiveStoreData.users = [];
+            LiveStoreData.orders = [];
+            LiveStoreData.deposits = [];
+            if (DataManager.cursors) DataManager.cursors = {}; 
+            if (DataManager.syncUser) DataManager.syncUser();
+            if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
+        }
     });
-    this.activeListeners.push(unsubOrders);
-    
-    // 🌟 جلب أحدث 30 إيداع فقط + فحص ذكي: إذا كان العدد أقل من 30 فالأرشيف فارغ ونلغي المؤشر تماماً! [1]
-    const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
-        LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
-        DataManager.cursors.deposits = data.length < 30 ? null : lastDoc; // 🌟 الضبط الذكي
-        requestAnimationFrame(() => {
-            if (RenderManager && typeof RenderManager.renderWallet === 'function') RenderManager.renderWallet();
-            if (RenderManager && typeof RenderManager.renderPayments === 'function') RenderManager.renderPayments();
-        });
-    });
-    this.activeListeners.push(unsubDeposits);
-}
-} else {
-    console.log("👤 العميل زائر. تم إيقاف جلب البيانات الخاصة.");
-    this.clearFirebaseListeners();
-    localStorage.removeItem('telecard_active_user_uid');
-    LiveStoreData.users = [];
-    LiveStoreData.orders = [];
-    LiveStoreData.deposits = [];
-    if (DataManager.cursors) DataManager.cursors = {}; // تصفير المؤشرات عند الخروج
-    if (DataManager.syncUser) DataManager.syncUser();
-    if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
-}
-});
 };
+
 // ============================================================================
 // 🚀 نقطة الإقلاع المركزية للنظام
 // ============================================================================
@@ -391,6 +473,22 @@ ClientSystem.init = async function() {
         if (DataManager.initDummyData) DataManager.initDummyData();
         
         if (DataManager.syncUser) DataManager.syncUser();
+
+        // 🔒 [الحارس الأمني]: اعتراض الشاشة فوراً إذا كان حساب العميل مقفلاً بالبصمة من السيرفر
+        if (DataManager.user && DataManager.user.biometricEnabled === true) {
+            const lockScreen = document.getElementById('biometric-lock-screen');
+            if (lockScreen) {
+                // إخفاء كل شيء وإظهار شاشة القفل فوراً
+                lockScreen.classList.add('active');
+                // تنفيذ المصادقة
+                const isUnlocked = await this.enforceBiometricLock();
+                if (!isUnlocked) {
+                    // إذا فشل أو ألغى، نوقف الإقلاع ولا ندعه يرى المتجر!
+                    return;
+                }
+            }
+        }
+
         if (DataManager.loadPrefs) DataManager.loadPrefs();
         
         if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
@@ -460,13 +558,11 @@ ClientSystem.init = async function() {
                 if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
                 if (typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
                 
-                // 🌟 [منع الومضة البصرية - المقارنة العميقة النخبوية]:
-                // نقارن فقط الحقول المرئية التي تؤثر على الشاشة لضمان ثبات الصور تماماً
+                // 🌟 [منع الومضة البصرية - المقارنة العميقة النخبوية]
                 const areCategoriesEqual = (arr1, arr2) => {
                     if (!arr1 || !arr2) return false;
                     if (arr1.length !== arr2.length) return false;
                     
-                    // فرز المصفوفتين حسب المعرف لضمان دقة التطابق بصرف النظر عن ترتيب السيرفر [1]
                     const sorted1 = [...arr1].sort((a, b) => String(a.id).localeCompare(String(b.id)));
                     const sorted2 = [...arr2].sort((a, b) => String(a.id).localeCompare(String(b.id)));
                     

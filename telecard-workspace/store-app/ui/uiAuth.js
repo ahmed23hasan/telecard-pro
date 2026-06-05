@@ -1,7 +1,7 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الاحترافية الكاملة
-// 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، والإعدادات
-// 🚀 التحديث: تنظيف التكرار، وتصفية لغة اللودر مع المعايير العالمية الفاخرة
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الاحترافية (Pro Version)
+// 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
+// 🚀 التحديث: تنظيف التكرار + تفعيل المصادقة الثنائية + دالة تعديل الاسم + المصادقة الحيوية
 // ============================================================================
 
 import { Utils } from '../utils.js';                    
@@ -11,23 +11,23 @@ import { RenderHelpers } from '../core/renderHelpers.js';
 
 const DEFAULT_AVATAR_URL = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
 
-// ✅ دالة آمنة لجلب النظام تمنع انهيار الواجهة إذا لم يكتمل تحميل script.js
+// ✅ دالة آمنة لجلب النظام تمنع انهيار الواجهة
 const getSys = () => {
     if (window.ClientSystem) return window.ClientSystem;
     if (window.UIManager) return window.UIManager;
-    
     console.warn("⚠️ تحذير: تم استدعاء النظام قبل اكتمال الإقلاع.");
     return new Proxy({}, { get: () => () => {} }); 
 };
 
 export const UIAuth = {
 
-    // 🌟 ذاكرة مؤقتة للاحتفاظ بملفات الـ KYC قبل رفعها
     kycFiles: {},
 
+    // =========================================================
+    // 👤 إدارة الملف الشخصي (Profile Management)
+    // =========================================================
     openProfileInfo: function() {
         getSys().resetUI?.();
-        
         if(DataManager.syncUser) DataManager.syncUser();
         this.updateProfileDisplay();
 
@@ -36,12 +36,10 @@ export const UIAuth = {
         const isVerified = (user.kycStatus === 'approved' || user.kycStatus === 'verified'); 
 
         const fullName = getSys()._getFullName ? getSys()._getFullName(user) : (user.name || 'العميل');
-        
         const usernameVal = user.username ? `${user.username}` : '---';
         const countryTxt = user.countryName || user.country || 'غير محدد';
         const emailTxt = (user.email && user.email.trim()) ? user.email : 'غير محدد';
         const phoneTxt = (user.phone && user.phone.trim()) ? user.phone : 'غير محدد';
-        
         const idTxt = RenderHelpers.formatUserId(user);
 
         const displayNameEl = document.getElementById('display-name');
@@ -131,13 +129,8 @@ export const UIAuth = {
         if(imgEl) imgEl.src = currentAvatar;
         if(sidebarAvatar) sidebarAvatar.src = currentAvatar;
         
-        if(imgEl) {
-            imgEl.style.cursor = 'pointer';
-            imgEl.setAttribute('data-action', 'handle-avatar-click');
-        }
-        if(cameraBtn) {
-            cameraBtn.setAttribute('data-action', 'handle-avatar-click');
-        }
+        if(imgEl) { imgEl.style.cursor = 'pointer'; imgEl.setAttribute('data-action', 'handle-avatar-click'); }
+        if(cameraBtn) { cameraBtn.setAttribute('data-action', 'handle-avatar-click'); }
 
         const deleteAvatarBtn = document.getElementById('inline-delete-avatar-btn');
         if (deleteAvatarBtn) {
@@ -195,6 +188,40 @@ export const UIAuth = {
         }
 
         getSys().openModal?.('profile-info');
+    },
+
+    // 🌟 دالة تعديل الاسم 
+    toggleNameEdit: function() {
+        const nameEl = document.getElementById('display-name');
+        const inpEl = document.getElementById('edit-name-input');
+        const btn = document.getElementById('profile-edit-toggle');
+        
+        if (!nameEl || !inpEl || !btn) return;
+        
+        if (inpEl.classList.contains('d-none')) {
+            nameEl.classList.add('d-none');
+            inpEl.classList.remove('d-none');
+            inpEl.focus();
+            btn.innerHTML = '<i class="fa-solid fa-check"></i>';
+        } else {
+            const newVal = inpEl.value.trim();
+            if (!newVal) {
+                getSys().showToast?.('لا يمكن ترك الاسم فارغاً', 'warning');
+                return;
+            }
+            if (DataManager.user && newVal !== DataManager.user.name) {
+                DataManager.updateUserProfile({ name: newVal, fullName: newVal }).then(success => {
+                    if (success) {
+                        nameEl.innerText = newVal;
+                        getSys().showToast?.('تم تحديث الاسم بنجاح', 'success');
+                        getSys().updateProfileDisplay?.();
+                    }
+                });
+            }
+            inpEl.classList.add('d-none');
+            nameEl.classList.remove('d-none');
+            btn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+        }
     },
 
     handleAvatarClick: function(e) {
@@ -379,6 +406,9 @@ export const UIAuth = {
         setTimeout(() => { sidebarAvatar.classList.remove('loading'); }, 300);
     },
 
+    // =========================================================
+    // ⚙️ إعدادات التطبيق (Settings & Appearance)
+    // =========================================================
     openSettings: function() { getSys().resetUI?.(); this.renderSettingsUI(); getSys().openModal?.('settings'); },
     closeSettings: function() { getSys().closeModal?.('settings'); },
 
@@ -420,124 +450,276 @@ export const UIAuth = {
 
     toggleSecurityPref: function() { getSys().showToast?.('قريباً: سيتم تفعيل هذه الميزة في التحديث القادم', 'info'); },
 
-    // 🌟 [بوابة الأمان]: فتح نافذة الأمان والخصوصية الشاملة للعميل [2]
-openSecurityModal: function() {
+    // =========================================================
+    // 🛡️ الأمان والمصادقة (Security & 2FA Native Engine)
+    // =========================================================
+    openSecurityModal: function() {
         getSys().resetUI?.();
-        
-        // إعادة تهيئة حقول كلمة المرور وحذف تلميحات الأخطاء السابقة
         const hint = document.getElementById('profile-password-hint');
-        if (hint) {
-            hint.textContent = '';
-            hint.className = 'profile-hint';
-        }
+        if (hint) { hint.textContent = ''; hint.className = 'profile-hint'; }
         ['pass-current', 'pass-new', 'pass-confirm'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
+            const el = document.getElementById(id); if (el) el.value = '';
         });
-        
-        // مزامنة حالة زر المصادقة الثنائية (2FA) في الواجهة بناءً على تفضيلات العميل المخبأة
-        const prefs = DataManager.prefs || {};
-        const is2faActive = prefs.security2fa === true;
+
+        // 🚀 قراءة حالة الـ 2FA
+        const is2faActive = DataManager.is2FAEnabled ? DataManager.is2FAEnabled() : false;
         const btn2fa = document.getElementById('setting-2fa-toggle');
         const label2fa = document.getElementById('setting-2fa-label');
-        if (btn2fa) btn2fa.classList.toggle('on', is2faActive);
-        if (label2fa) label2fa.textContent = is2faActive ? 'مفعل' : 'قريباً';
-        
+        if (btn2fa) { 
+            btn2fa.classList.toggle('on', is2faActive);
+            btn2fa.onclick = () => this.handle2FAToggle();
+        }
+        if (label2fa) label2fa.textContent = is2faActive ? 'مفعل' : 'مغلق';
+
+        // 🚀 قراءة حالة البصمة الحقيقية من السيرفر
+        const isBioActive = DataManager.user?.biometricEnabled === true;
+        const btnBio = document.getElementById('setting-biometric-toggle');
+        const labelBio = document.getElementById('setting-biometric-label');
+        if (btnBio) {
+            btnBio.classList.toggle('on', isBioActive);
+            btnBio.onclick = () => this.handleBiometricToggle();
+        }
+        if (labelBio) labelBio.textContent = isBioActive ? 'مفعل' : 'مغلق';
+
         getSys().openModal?.('security');
     },
-    
+
     closeSecurityModal: function() {
         getSys().closeModal?.('security');
     },
-    
-    // 🌟 معالجة تحديث كلمة المرور المدمجة بداخل نافذة الأمان [2]
-    // 🌟 معالجة تحديث كلمة المرور (النسخة النظيفة المعتمدة على الإشعارات فقط)
-handlePasswordSubmit: function() {
-    const securityModal = document.getElementById('security-modal');
-    if (!securityModal) return;
-    
-    const currentInput = securityModal.querySelector('#pass-current');
-    const newInput = securityModal.querySelector('#pass-new');
-    const confirmInput = securityModal.querySelector('#pass-confirm');
-    
-    const currentVal = (currentInput?.value || '').trim();
-    const newVal = (newInput?.value || '').trim();
-    const confirmVal = (confirmInput?.value || '').trim();
-    
-    if (!DataManager || typeof DataManager.submitPasswordChange !== 'function') return;
-    
-    const result = DataManager.submitPasswordChange(currentVal, newVal, confirmVal);
-    
-    if (result.success) {
-        // إظهار الإشعار العائم الجميل
-        getSys().showToast?.('تم تحديث كلمة المرور بنجاح!', 'success');
-        getSys().sfx?.('success');
+
+    _pendingTfaSecret: null,
+
+    handle2FAToggle: async function() {
+        const isCurrentlyEnabled = DataManager.is2FAEnabled ? DataManager.is2FAEnabled() : false;
         
-        // تفريغ الحقول بعد النجاح
-        [currentInput, newInput, confirmInput].forEach(el => { if (el) el.value = ''; });
-        
-        // إغلاق النافذة بنعومة بعد ثانية
-        setTimeout(() => {
-            getSys().closeSecurityModal?.();
-        }, 1000);
-        
-    } else {
-        // إظهار إشعار الخطأ
-        getSys().showToast?.(result.msg, 'error');
-        getSys().sfx?.('error');
-    }
-},
-// 🌟 دالة إرسال رابط إعادة تعيين كلمة المرور للايميل
-// 🌟 دالة إرسال رابط إعادة تعيين كلمة المرور للايميل (مربوطة بفايربيز فعلياً)
-sendResetPasswordEmail: async function() {
-    const user = DataManager?.user;
-    
-    if (!user || !user.email) {
-        getSys().showToast?.('لا يوجد بريد إلكتروني مرتبط بهذا الحساب لإرسال الرابط!', 'error');
-        getSys().sfx?.('error');
-        return;
-    }
-    
-    // تشغيل اللودر المركزي
-    getSys().toggleLoader?.(true, 'جاري إرسال رابط التعيين...');
-    
-    try {
-        // 🚀 الاستدعاء الفعلي الحقيقي لفايربيز عبر DataManager
-        const result = await DataManager.sendPasswordResetEmail(user.email);
-        
-        getSys().toggleLoader?.(false); // إيقاف اللودر
-        
-        if (result.success) {
-            getSys().closeSecurityModal?.(); // إغلاق النافذة
-            getSys().showToast?.('تم إرسال رابط التعيين إلى بريدك الإلكتروني بنجاح', 'success');
-            getSys().sfx?.('success');
+        if (isCurrentlyEnabled) {
+            getSys().toggleLoader?.(true, 'جاري إيقاف الحماية...');
+            const result = await DataManager.unenrollMFA();
+            getSys().toggleLoader?.(false);
+            
+            if (result.success) {
+                getSys().showToast?.('تم إيقاف المصادقة الثنائية', 'info');
+                getSys().sfx?.('nav');
+                this.openSecurityModal(); 
+            } else {
+                getSys().showToast?.(result.msg, 'error');
+            }
         } else {
-            getSys().showToast?.(result.msg, 'error'); // رسالة الخطأ القادمة من فايربيز
-            getSys().sfx?.('error');
+            this.start2FASetup();
+        }
+    },
+
+    start2FASetup: async function() {
+        getSys().toggleLoader?.(true, 'جاري إنشاء مفتاح آمن من جوجل...');
+        
+        const result = await DataManager.generateTOTPSecret();
+        getSys().toggleLoader?.(false);
+
+        if (!result.success) {
+            getSys().showToast?.(result.msg, 'error');
+            return;
+        }
+
+        this._pendingTfaSecret = result.secret;
+
+        const storeName = LiveStoreData.settings?.storeName || 'Telecard';
+        const userEmail = DataManager.user?.email || 'User';
+        
+        const qrUri = this._pendingTfaSecret.generateQrCodeUrl(userEmail, storeName);
+        const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUri)}&color=111a2b&bgcolor=ffffff`;
+
+        const manualSecretEl = document.getElementById('manual-2fa-secret');
+        if (manualSecretEl) manualSecretEl.innerText = this._pendingTfaSecret.secretKey;
+        
+        const otpInput = document.getElementById('otp-verify-input');
+        if (otpInput) otpInput.value = '';
+        
+        const qrContainer = document.getElementById('qrcode-container');
+        if (qrContainer) {
+            qrContainer.innerHTML = `<img src="${qrImageUrl}" style="width: 100%; height: 100%; border-radius: 8px;">`;
         }
         
-    } catch (error) {
-        getSys().toggleLoader?.(false);
-        console.error("Reset Password Error:", error);
-        getSys().showToast?.('حدث خطأ أثناء إرسال الرابط، يرجى المحاولة لاحقاً', 'error');
-        getSys().sfx?.('error');
-    }
-},
-selectRegCurrency: function(name, code) {
+        getSys().openModal?.('setup-2fa');
+    },
+
+    verifyAndEnable2FA: async function() {
+        if (!this._pendingTfaSecret) return;
+
+        const input = document.getElementById('otp-verify-input');
+        const code = input ? input.value.trim() : '';
+        
+        if (code.length !== 6) {
+            getSys().showToast?.('يرجى إدخال 6 أرقام كاملة', 'error');
+            return;
+        }
+        
+        const btn = document.getElementById('btn-confirm-2fa');
+        const origText = btn ? btn.innerHTML : 'تأكيد';
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التوثيق مع السيرفر...';
+            btn.disabled = true;
+        }
+        
+        const result = await DataManager.enrollTOTP(this._pendingTfaSecret, code);
+        
+        if (btn) {
+            btn.innerHTML = origText;
+            btn.disabled = false;
+        }
+        
+        if (result.success) {
+            this._pendingTfaSecret = null; 
+            getSys().closeModal?.('setup-2fa');
+            getSys().showToast?.('تم تفعيل المصادقة الثنائية بنجاح 🛡️', 'success');
+            getSys().sfx?.('success');
+            this.openSecurityModal(); 
+        } else {
+            getSys().showToast?.(result.msg, 'error');
+            getSys().sfx?.('error');
+            if (input) {
+                input.classList.add('input-error');
+                setTimeout(() => input.classList.remove('input-error'), 1000);
+            }
+        }
+    },
+
+    // =========================================================
+    // 👆 نظام المصادقة الحيوية (المستوى البنكي - Un-bypassable)
+    // =========================================================
+    handleBiometricToggle: async function() {
+        const isCurrentlyEnabled = DataManager.user?.biometricEnabled === true;
+        
+        if (isCurrentlyEnabled) {
+            getSys().toggleLoader?.(true, 'جاري إيقاف البصمة في السيرفر...');
+            const success = await DataManager.updateUserProfile({ biometricEnabled: false });
+            getSys().toggleLoader?.(false);
+            
+            if (success) {
+                localStorage.removeItem('telecard_biometric_key');
+                getSys().showToast?.('تم إيقاف المصادقة بالبصمة بنجاح', 'info');
+                getSys().sfx?.('nav');
+                this.openSecurityModal();
+            } else {
+                getSys().showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
+            }
+            return;
+        }
+
+        if (!window.PublicKeyCredential) {
+            getSys().showToast?.('عذراً، متصفحك أو جهازك لا يدعم المصادقة الحيوية', 'error');
+            return;
+        }
+
+        try {
+            getSys().toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
+            const challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+            const userIdBytes = new Uint8Array(16);
+            window.crypto.getRandomValues(userIdBytes);
+            const userEmail = DataManager.user?.email || 'user@telecard.com';
+            
+            const publicKeyCredentialCreationOptions = {
+                challenge: challenge,
+                rp: { name: LiveStoreData.settings?.storeName || "Telecard Store" },
+                user: { id: userIdBytes, name: userEmail, displayName: userEmail },
+                pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+                authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+                timeout: 60000
+            };
+
+            const credential = await navigator.credentials.create({ publicKey: publicKeyCredentialCreationOptions });
+            const rawId = Array.from(new Uint8Array(credential.rawId)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+            const success = await DataManager.updateUserProfile({ biometricEnabled: true });
+            
+            if (success) {
+                localStorage.setItem('telecard_biometric_key', rawId);
+                getSys().toggleLoader?.(false);
+                getSys().showToast?.('تم تفعيل البصمة بنجاح! سيتم قفل المتجر بها.', 'success');
+                getSys().sfx?.('success');
+                this.openSecurityModal();
+            } else {
+                throw new Error('Server Update Failed');
+            }
+        } catch (error) {
+            getSys().toggleLoader?.(false);
+            console.error("Biometric Error:", error);
+            if (error.name === 'NotAllowedError') {
+                getSys().showToast?.('تم إلغاء عملية البصمة', 'warning');
+            } else {
+                getSys().showToast?.('تعذر تفعيل البصمة، تأكد من إعدادات القفل في هاتفك', 'error');
+            }
+        }
+    },
+
+    // --- معالجة كلمات المرور (Password Reset & Change) ---
+    handlePasswordSubmit: function() {
+        const securityModal = document.getElementById('security-modal');
+        if (!securityModal) return;
+        
+        const currentInput = securityModal.querySelector('#pass-current');
+        const newInput = securityModal.querySelector('#pass-new');
+        const confirmInput = securityModal.querySelector('#pass-confirm');
+        
+        const currentVal = (currentInput?.value || '').trim();
+        const newVal = (newInput?.value || '').trim();
+        const confirmVal = (confirmInput?.value || '').trim();
+        
+        if (!DataManager || typeof DataManager.submitPasswordChange !== 'function') return;
+        
+        DataManager.submitPasswordChange(currentVal, newVal, confirmVal).then(result => {
+            if (result.success) {
+                getSys().showToast?.('تم تحديث كلمة المرور بنجاح!', 'success');
+                getSys().sfx?.('success');
+                [currentInput, newInput, confirmInput].forEach(el => { if (el) el.value = ''; });
+                setTimeout(() => { getSys().closeSecurityModal?.(); }, 1000);
+            } else {
+                getSys().showToast?.(result.msg, 'error');
+                getSys().sfx?.('error');
+            }
+        });
+    },
+
+    sendResetPasswordEmail: async function() {
+        const user = DataManager?.user;
+        if (!user || !user.email) {
+            getSys().showToast?.('لا يوجد بريد إلكتروني مرتبط بهذا الحساب لإرسال الرابط!', 'error');
+            getSys().sfx?.('error');
+            return;
+        }
+        
+        getSys().toggleLoader?.(true, 'جاري إرسال رابط التعيين...');
+        
+        try {
+            const result = await DataManager.sendPasswordResetEmail(user.email);
+            getSys().toggleLoader?.(false); 
+            
+            if (result.success) {
+                getSys().closeSecurityModal?.(); 
+                getSys().showToast?.('تم إرسال رابط التعيين إلى بريدك الإلكتروني بنجاح', 'success');
+                getSys().sfx?.('success');
+            } else {
+                getSys().showToast?.(result.msg, 'error'); 
+                getSys().sfx?.('error');
+            }
+        } catch (error) {
+            getSys().toggleLoader?.(false);
+            getSys().showToast?.('حدث خطأ أثناء إرسال الرابط، يرجى المحاولة لاحقاً', 'error');
+        }
+    },
+
+    // =========================================================
+    // 🌍 التوثيق (KYC) واستكمال الهوية (Identity)
+    // =========================================================
+    selectRegCurrency: function(name, code) {
         const textEl = document.getElementById('selected-currency-text');
         const hiddenInput = document.getElementById('reg-currency');
         const dropdown = document.getElementById('reg-currency-dropdown');
         
-        if (textEl) {
-            textEl.innerText = name;
-            textEl.style.color = 'var(--text-main)';
-        }
-        if (hiddenInput) {
-            hiddenInput.value = code;
-        }
-        if (dropdown) {
-            dropdown.classList.remove('open');
-        }
+        if (textEl) { textEl.innerText = name; textEl.style.color = 'var(--text-main)'; }
+        if (hiddenInput) { hiddenInput.value = code; }
+        if (dropdown) { dropdown.classList.remove('open'); }
         getSys().sfx?.('nav');
     },
 
@@ -548,28 +730,18 @@ selectRegCurrency: function(name, code) {
         const phoneInp = document.getElementById('reg-phone');
         const dropdown = document.getElementById('country-dropdown');
         
-        if (textEl) {
-            textEl.innerText = name;
-            textEl.style.color = 'var(--text-main)'; 
-        }
-        if (hiddenInput) {
-            hiddenInput.value = name; 
-        }
-        if (prefixEl) {
-            prefixEl.innerHTML = `<span class="num-en">${prefix}</span>`;
-        }
+        if (textEl) { textEl.innerText = name; textEl.style.color = 'var(--text-main)'; }
+        if (hiddenInput) { hiddenInput.value = name; }
+        if (prefixEl) { prefixEl.innerHTML = `<span class="num-en">${prefix}</span>`; }
         if (phoneInp) {
             phoneInp.value = '';
             phoneInp.maxLength = phoneLen || 10;
             phoneInp.placeholder = `أدخل رقم هاتفك`;
         }
-        if (dropdown) {
-            dropdown.classList.remove('open');
-        }
+        if (dropdown) { dropdown.classList.remove('open'); }
         getSys().sfx?.('nav');
     },
 
-    // 🌟 دالة حفظ بيانات الهوية والعملة الأساسية (النسخة الاحترافية المتوافقة مع معايير المنصات العالمية)
     saveIdentityData: async function() {
         const countryEl = document.getElementById('selected-country-text');
         const phoneEl = document.getElementById('reg-phone');
@@ -580,23 +752,17 @@ selectRegCurrency: function(name, code) {
         const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
         
         if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
-            getSys().showToast?.('يرجى تعبئة جميع الحقول (الدولة، رقم الهاتف، وعملة المحفظة الأساسية)', 'error');
+            getSys().showToast?.('يرجى تعبئة جميع الحقول', 'error');
             getSys().sfx?.('error');
             return;
         }
         
-        // 🚀 [التحديث المعماري للودر الفاخر - متوافق مع معايير المنصات العالمية] [2]
         getSys().toggleLoader?.(true, 'جاري حفظ التغييرات...');
         
         let success = false;
         if (DataManager.updateUserProfile) {
             success = await DataManager.updateUserProfile({
-                country: country,
-                phone: phone,
-                currency: currency,
-                baseCurrency: currency,
-                base_currency: currency,
-                isVerified: true
+                country: country, phone: phone, currency: currency, baseCurrency: currency, base_currency: currency, isVerified: true
             });
         }
         
@@ -604,16 +770,13 @@ selectRegCurrency: function(name, code) {
         
         if (!success) {
             getSys().showToast?.('تعذر حفظ التغييرات، يرجى المحاولة لاحقاً', 'error');
-            getSys().sfx?.('error');
             return;
         }
         
         localStorage.setItem('telecard_display_currency', currency);
         DataManager.selectedCurr = currency;
         
-        if (typeof this.updateProfileDisplay === 'function') {
-            this.updateProfileDisplay();
-        }
+        if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
         if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(currency);
         if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
         
@@ -632,30 +795,18 @@ selectRegCurrency: function(name, code) {
         if (!listTarget) return;
         
         const rates = (typeof LiveStoreData !== 'undefined' && LiveStoreData.rates) ? LiveStoreData.rates : [];
-        
-        let html = `
-                <div class="dropdown-item" data-action="select-reg-currency" data-code="USD" data-name="دولار أمريكي (USD)">
-                    <span style="flex: 1; text-align: right;">دولار أمريكي (USD)</span>
-                    <span class="num-en" style="color: var(--primary); font-weight: 900;">USD</span>
-                </div>`;
+        let html = `<div class="dropdown-item" data-action="select-reg-currency" data-code="USD" data-name="دولار أمريكي (USD)"><span style="flex: 1; text-align: right;">دولار أمريكي (USD)</span><span class="num-en" style="color: var(--primary); font-weight: 900;">USD</span></div>`;
         
         if (rates.length > 0) {
             rates.forEach(r => {
                 if (r.isActive === false || r.code.toUpperCase() === 'USD') return;
-                
                 const currName = `${r.name || r.code} (${r.code})`;
-                html += `
-                    <div class="dropdown-item" data-action="select-reg-currency" data-code="${r.code}" data-name="${currName}">
-                        <span style="flex: 1; text-align: right;">${currName}</span>
-                        <span class="num-en" style="color: var(--primary); font-weight: 900;">${r.code}</span>
-                    </div>`;
+                html += `<div class="dropdown-item" data-action="select-reg-currency" data-code="${r.code}" data-name="${currName}"><span style="flex: 1; text-align: right;">${currName}</span><span class="num-en" style="color: var(--primary); font-weight: 900;">${r.code}</span></div>`;
             });
         }
-        
         listTarget.innerHTML = html;
     },    
 
-    // 🌟 معالجة وقراءة صور الهوية محلياً ومباشرة مع حماية المساحة والسرعة [1.5]
     handleKycImage: function(input, previewId) {
         const file = input.files && input.files[0];
         const parentBox = input.closest('.kyc-upload-box');
@@ -663,17 +814,8 @@ selectRegCurrency: function(name, code) {
         
         this.kycFiles = this.kycFiles || {};
         
-        if (!file) {
-            if (previewImg) previewImg.src = '';
-            if (parentBox) parentBox.classList.remove('has-img');
-            delete this.kycFiles[previewId];
-            return;
-        }
-        
-        if (!file.type.startsWith('image/')) {
-            getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح (JPG, PNG)', 'error');
-            getSys().sfx?.('error');
-            
+        if (!file || !file.type.startsWith('image/')) {
+            getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
             input.value = '';
             if (previewImg) previewImg.src = '';
             if (parentBox) parentBox.classList.remove('has-img');
@@ -682,28 +824,21 @@ selectRegCurrency: function(name, code) {
         }
         
         if (file.size > 5 * 1024 * 1024) {
-            getSys().showToast?.('حجم الصورة كبير جداً! يرجى اختيار صورة أقل من 5 ميجابايت لتسريع عملية الرفع.', 'warning');
-            getSys().sfx?.('error');
-            
+            getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
             input.value = '';
-            if (previewImg) previewImg.src = '';
-            if (parentBox) parentBox.classList.remove('has-img');
             delete this.kycFiles[previewId];
             return;
         }
         
         this.kycFiles[previewId] = file;
-        
         const reader = new FileReader();
         reader.onload = (e) => {
             if (previewImg) previewImg.src = e.target.result;
             if (parentBox) parentBox.classList.add('has-img');
         };
-        
         reader.readAsDataURL(file);
     },
 
-    // 🌟 دالة رفع مستندات التوثيق ومكافحة تسريب التخزين (النسخة الاحترافية العالمية) [1.5, 2]
     submitKycData: async function() {
         const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
         const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
@@ -715,17 +850,14 @@ selectRegCurrency: function(name, code) {
         
         if (!fullName || !idNumber || !frontFile || !backFile || !selfieFile) {
             getSys().showToast?.('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
-            getSys().sfx?.('error');
             return;
         }
         
-        // 🚀 [التحديث المعماري للودر الفاخر - متوافق مع معايير المنصات العالمية] [2]
         getSys().toggleLoader?.(true, 'جاري تشفير ورفع الملفات...');
         
         try {
             const userId = DataManager.user.id || 'unknown_user';
             
-            // استخدام Promise.allSettled لضمان عدم توقف العملية إذا فشل ملف واحد
             const uploadPromises = [
                 FirebaseAdapter.uploadImage(frontFile, 'kyc_docs', `${userId}_front.jpg`),
                 FirebaseAdapter.uploadImage(backFile, 'kyc_docs', `${userId}_back.jpg`),
@@ -736,19 +868,13 @@ selectRegCurrency: function(name, code) {
             const failedUploads = results.filter(r => r.status === 'rejected');
             
             if (failedUploads.length > 0) {
-                const successfulUploads = results
-                    .filter(r => r.status === 'fulfilled' && r.value)
-                    .map(r => r.value);
-                
+                const successfulUploads = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
                 if (successfulUploads.length > 0) {
-                    console.warn("⚠️ فشل اكتمال رفع بعض الملفات. جاري تنظيف الملفات المعلقة...");
                     successfulUploads.forEach(url => {
-                        if (FirebaseAdapter.deleteImageByUrl) {
-                            FirebaseAdapter.deleteImageByUrl(url).catch(e => console.warn("تعذر تنظيف الملفات المعلقة:", e));
-                        }
+                        if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(()=>{});
                     });
                 }
-                throw new Error("فشل رفع إحدى الصور، يرجى التأكد من جودة اتصالك بالإنترنت.");
+                throw new Error("فشل رفع إحدى الصور.");
             }
             
             const [frontImgUrl, backImgUrl, selfieImgUrl] = results.map(r => r.value);
@@ -756,31 +882,21 @@ selectRegCurrency: function(name, code) {
             let success = false;
             if (DataManager.updateUserProfile) {
                 success = await DataManager.updateUserProfile({
-                    fullName: fullName,
-                    kycStatus: 'pending',
-                    kycData: {
-                        idNumber: idNumber,
-                        frontImg: frontImgUrl,
-                        backImg: backImgUrl,
-                        selfieImg: selfieImgUrl,
-                        submittedAt: Date.now()
-                    }
+                    fullName: fullName, kycStatus: 'pending',
+                    kycData: { idNumber: idNumber, frontImg: frontImgUrl, backImg: backImgUrl, selfieImg: selfieImgUrl, submittedAt: Date.now() }
                 });
             }
             
             if (!success) throw new Error("فشل تحديث بيانات الحساب.");
             
-            this.kycFiles = {}; // تفريغ الملفات بنجاح
-            
-            this.closeKycModal(); // إغلاق النافذة
-            getSys().showToast?.('تم إرسال مستندات التوثيق بنجاح! طلبك قيد المراجعة حالياً.', 'success');
-            getSys().sfx?.('success');
+            this.kycFiles = {}; 
+            this.closeKycModal(); 
+            getSys().showToast?.('تم إرسال مستندات التوثيق بنجاح! طلبك قيد المراجعة.', 'success');
             this.renderKycUI();
             
         } catch (e) {
             console.error('KYC Upload Error:', e);
-            getSys().showToast?.('تعذر إرسال المستندات، يرجى التحقق من اتصالك والمحاولة مجدداً', 'error');
-            getSys().sfx?.('error');
+            getSys().showToast?.('تعذر إرسال المستندات، يرجى المحاولة مجدداً', 'error');
         } finally {
             getSys().toggleLoader?.(false);
         }
@@ -790,7 +906,6 @@ selectRegCurrency: function(name, code) {
         if (!DataManager.user) return;
         const user = DataManager.user;
         const status = user.kycStatus || 'none';
-        
         const isKycApproved = (status === 'approved' || status === 'verified');
         
         const userNames = document.querySelectorAll('.user-display-name, .sb-name, #display-name, #cs-name');
@@ -819,22 +934,13 @@ selectRegCurrency: function(name, code) {
         }
 
         if (isKycApproved || !isRequiredBySystem) {
-            kycContainer.innerHTML = '';
-            return;
+            kycContainer.innerHTML = ''; return;
         }
 
         if (status === 'pending') {
-            kycContainer.innerHTML = `
-                <div class="sb-kyc-banner kyc-pending" data-action="open-kyc-status" data-state="pending">
-                    <span><i class="fa-solid fa-hourglass-half"></i> هويتك قيد المراجعة</span>
-                    <i class="fa-solid fa-chevron-left"></i>
-                </div>`;
+            kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-pending" data-action="open-kyc-status" data-state="pending"><span><i class="fa-solid fa-hourglass-half"></i> هويتك قيد المراجعة</span><i class="fa-solid fa-chevron-left"></i></div>`;
         } else {
-            kycContainer.innerHTML = `
-                <div class="sb-kyc-banner kyc-required" data-action="open-kyc-upload">
-                    <span><i class="fa-solid fa-shield-halved"></i> التحقق من الهوية (KYC)</span>
-                    <i class="fa-solid fa-chevron-left"></i>
-                </div>`;
+            kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-required" data-action="open-kyc-upload"><span><i class="fa-solid fa-shield-halved"></i> التحقق من الهوية (KYC)</span><i class="fa-solid fa-chevron-left"></i></div>`;
         }
     },
     
@@ -861,7 +967,7 @@ selectRegCurrency: function(name, code) {
         if(!content) return;
         
         if (state === 'approved' || state === 'verified') {
-            content.innerHTML = `<div class="kyc-status-card text-center"><i class="fa-solid fa-shield-halved kyc-status-icon verified"></i><h3 class="fw-bold text-main mb-10">حسابك موثق ومحمي</h3><p class="text-muted fs-13 line-height-lg">شكراً لثقتك بنا. بياناتك محفوظة بأعلى معايير التشفير. يمكنك الآن الإيداع والشراء بكامل الصلاحيات.</p></div>`;
+            content.innerHTML = `<div class="kyc-status-card text-center"><i class="fa-solid fa-shield-halved kyc-status-icon verified"></i><h3 class="fw-bold text-main mb-10">حسابك موثق ومحمي</h3><p class="text-muted fs-13 line-height-lg">بياناتك محفوظة بأعلى معايير التشفير. يمكنك الآن الإيداع والشراء بكامل الصلاحيات.</p></div>`;
         } else if (state === 'pending') {
             content.innerHTML = `<div class="kyc-status-card text-center"><i class="fa-solid fa-hourglass-half kyc-status-icon pending"></i><h3 class="fw-bold text-main mb-10">جاري مراجعة البيانات</h3><p class="text-muted fs-13 line-height-lg">طلبك الآن على طاولة الإدارة للمراجعة. قد يستغرق الأمر بعض الوقت، سيتم إشعارك فور الانتهاء.</p></div>`;
         }
@@ -871,163 +977,113 @@ selectRegCurrency: function(name, code) {
     checkKycCelebration: function() {
         const user = DataManager.user;
         if (!user) return;
-
         const isKycApproved = (user.kycStatus === 'approved' || user.kycStatus === 'verified');
         const celebrationKey = `kyc_celebrated_${user.id}`;
 
-        if (!isKycApproved) {
-            localStorage.removeItem(celebrationKey);
-            return;
-        }
-
+        if (!isKycApproved) { localStorage.removeItem(celebrationKey); return; }
         if (localStorage.getItem(celebrationKey)) return;
 
         localStorage.setItem(celebrationKey, 'true');
-
-        setTimeout(() => {
-            getSys().openModal?.('kyc-celebration');
-            getSys().sfx?.('success'); 
-        }, 1500);
+        setTimeout(() => { getSys().openModal?.('kyc-celebration'); getSys().sfx?.('success'); }, 1500);
     },
+    
     closeKycStatusModal: function() { getSys().closeModal?.('kyc-status'); },
 
-    // 🌟 دالة عرض تفاصيل ومزايا وخريطة طريق مستويات الـ VIP بالكامل (إصدار الـ Gamification الاحترافي والمحمي) [1.5, 2]
-// 🌟 دالة عرض تفاصيل ومزايا وخريطة طريق مستويات الـ VIP بالكامل (إصدار الـ Gamification الاحترافي والمحمي مع عزل العملات والـ Bidi) [1.5, 2]
-openTierInfoModal: async function() {
-    getSys().resetUI?.();
-    getSys().closeSidebar?.();
-    
-    if (!DataManager || typeof DataManager.getTierProgress !== 'function') return;
-    
-    const tierData = DataManager.getTierProgress();
-    if (!tierData) return;
-    
-    const { currentTier, targetNameDisplay, targetThreshold, spent, remainingAmt, percent, remainingDays, isGoalReached, isAutoAdvanceEnabled, isMaxTier } = tierData;
-    
-    const content = document.getElementById('tier-info-content');
-    if (!content) return;
-    
-    const settings = LiveStoreData.settings || {};
-    const pausedMsg = settings.tierPausedMsg || 'نظام الترقية التلقائية متوقف حالياً، يرجى التواصل مع الإدارة.';
-    
-    let rawIcon = currentTier.icon || 'medal';
-    let cleanIcon = rawIcon.replace(/fa-solid|fa-regular|fa-brands|fa-/g, '').trim();
-    let finalIconClass = `fa-solid fa-${cleanIcon}`;
-    
-    const tierColor = currentTier.color || 'var(--primary)';
-    
-    // 🌟 استخراج رمز العملة الفعلي للعميل ديناميكياً بدلاً من التثبيت اليدوي [1.5]
-    const user = DataManager.user || {};
-    const userBaseCurrency = (user.baseCurrency || user.base_currency || 'USD').toUpperCase();
-    const currencySymbol = RenderHelpers ? RenderHelpers.getCurrencySymbolText(userBaseCurrency) : '$';
-    
-    // أ. الجزء العلوي: بطاقة العميل والمستوى الفعلي الحالي للعميل
-    let html = `
-            <div class="tm-wrapper">
-                <div class="tm-icon-box" style="color: ${tierColor};">
-                    <i class="${finalIconClass} tm-icon"></i>
-                </div>
-                <h3 class="tm-title">${Utils.escapeHtml(currentTier.name)}</h3>
-                <p class="tm-desc">مستواك الحالي هو <span class="tm-text-highlight" style="color: ${tierColor};">${Utils.escapeHtml(currentTier.name)}</span>. للارتقاء بتجربتك والحصول على مزايا وأسعار أفضل، قم بزيادة مبيعاتك خلال المدة المحددة.</p>
-        `;
-    
-    // ب. الجزء الأوسط والسفلي: يعتمد كلياً على تفعيل أو تعطيل النظام من الإدارة
-    if (isAutoAdvanceEnabled) {
-        let targetPhraseHtml = '';
-        if (isMaxTier) {
-            targetPhraseHtml = `للحفاظ على باقتك ومميزاتك الحالية.`;
-        } else {
-            targetPhraseHtml = `للوصول لـ <span class="tm-text-highlight text-main">${Utils.escapeHtml(targetNameDisplay)}</span>.`;
-        }
+    // =========================================================
+    // 👑 مستويات وعضويات הـ VIP
+    // =========================================================
+    openTierInfoModal: async function() {
+        getSys().resetUI?.();
+        getSys().closeSidebar?.();
         
-        if (isGoalReached) {
-            html += `
-                    <div class="tm-top-tier-card" style="border-top-color: ${tierColor};">
-                        <div class="tm-top-icon" style="color: ${tierColor};">
-                            <i class="${finalIconClass}"></i>
-                        </div>
-                        <div class="tm-top-title" style="color: ${tierColor};">تهانينا، أنت في القمة!</div>
-                        <div class="tm-top-desc">
-                            لقد حققت الهدف وتصل الآن لأعلى مستوى متاح في المتجر لتتمتع بأفضل الأسعار. استمر في نشاطك للحفاظ على هذه المكانة الحصرية.
-                        </div>
+        if (!DataManager || typeof DataManager.getTierProgress !== 'function') return;
+        const tierData = DataManager.getTierProgress();
+        if (!tierData) return;
+        
+        const { currentTier, targetNameDisplay, targetThreshold, spent, remainingAmt, percent, remainingDays, isGoalReached, isAutoAdvanceEnabled, isMaxTier } = tierData;
+        const content = document.getElementById('tier-info-content');
+        if (!content) return;
+        
+        const settings = LiveStoreData.settings || {};
+        const pausedMsg = settings.tierPausedMsg || 'نظام الترقية التلقائية متوقف حالياً، يرجى التواصل مع الإدارة.';
+        
+        let rawIcon = currentTier.icon || 'medal';
+        let finalIconClass = `fa-solid fa-${rawIcon.replace(/fa-solid|fa-regular|fa-brands|fa-/g, '').trim()}`;
+        const tierColor = currentTier.color || 'var(--primary)';
+        
+        const user = DataManager.user || {};
+        const userBaseCurrency = (user.baseCurrency || user.base_currency || 'USD').toUpperCase();
+        const currencySymbol = RenderHelpers ? RenderHelpers.getCurrencySymbolText(userBaseCurrency) : '$';
+        
+        let html = `
+                <div class="tm-wrapper">
+                    <div class="tm-icon-box" style="color: ${tierColor};">
+                        <i class="${finalIconClass} tm-icon"></i>
                     </div>
-                `;
-        } else {
-            html += `
-                    <div class="tm-progress-card">
-                        <div class="tm-progress-header">
-                            <span class="tm-percent num-en">${percent.toFixed(0)}%</span>
-                            <div class="tm-bar-bg">
-                                <div class="tm-bar-fill" style="width: ${percent}%; background: ${tierColor};"></div>
-                            </div>
-                            <span class="tm-duration-badge num-en">${remainingDays} يوم متبقي</span>
-                        </div>
-                        
-                        <div class="tm-footer-text">
-                            يتوجب عليك إنفاق <span class="tm-amount-text num-en" dir="ltr">${remainingAmt.toFixed(2)} ${currencySymbol}</span> إضافية خلال <span class="tm-text-highlight text-warning">${remainingDays} يوماً</span> ${targetPhraseHtml}
-                        </div>
-                    </div>
-                `;
-        }
-        
-        // جـ. خريطة طريق مستويات الـ VIP التصاعدية بالكامل
-        const allTiers = (LiveStoreData.tiers || []);
-        if (allTiers.length > 0) {
-            const sortedTiers = [...allTiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
-            
-            html += `
-                    <div class="tm-roadmap-section">
-                        <h4 class="tm-roadmap-title"><i class="fa-solid fa-map-location-dot"></i> خريطة طريق مستويات VIP</h4>
-                        <div class="tm-roadmap-list">
-                `;
-            
-            sortedTiers.forEach(t => {
-                const isUserCurrent = String(t.id) === String(currentTier.id);
-                const tColor = t.color || 'var(--text-gray)';
-                let rawIconT = t.icon || 'medal';
-                let cleanIconT = rawIconT.replace(/fa-solid|fa-regular|fa-brands|fa-/g, '').trim();
-                let finalIconClassT = `fa-solid fa-${cleanIconT}`;
-                
-                const badgeHtml = isUserCurrent ?
-                    `<span class="tm-badge-active" style="background: ${tierColor};">مستواك الحالي</span>` :
-                    `<span class="tm-badge-locked">مغلق</span>`;
-                
-                const stateClass = isUserCurrent ? 'active' : 'locked';
-                
-                // 🌟 التحديث الحاسم: عزل الرقم والعملة بداخل وسم <bdi> لمنع قفز الرمز بجانب كلمة "هدف" وتثبيته بجانب الرقم [2]!
-                html += `
-                        <div class="tm-roadmap-item ${stateClass}">
-                            <div class="tm-item-left">
-                                <div class="tm-item-icon" style="color: ${tColor}; background: ${isUserCurrent ? 'rgba(255, 215, 0, 0.08)' : 'rgba(255, 255, 255, 0.03)'}; border-color: ${isUserCurrent ? tColor : 'rgba(255,255,255,0.05)'};">
-                                    <i class="${finalIconClassT}"></i>
-                                </div>
-                                <div class="tm-item-info">
-                                    <span class="tm-item-name">${Utils.escapeHtml(t.nameAr || t.name)}</span>
-                                    <span class="tm-item-req" style="${isUserCurrent ? 'color: var(--gold-main); font-weight:700;' : ''}">هدف المبيعات: <bdi class="num-en">${Number(t.threshold || 0).toFixed(0)} ${currencySymbol}</bdi></span>
-                                </div>
-                            </div>
-                            <div class="tm-item-right">
-                                ${badgeHtml}
-                            </div>
-                        </div>
-                    `;
-            });
-            
-            html += `</div></div>`;
-        }
-        
-    } else {
-        html += `
-                <div class="tm-alert-box mt-15" style="background: rgba(239, 68, 68, 0.04); border: 1px solid rgba(239, 68, 68, 0.12); padding: 16px; border-radius: 16px; display: block; text-align: right; width: 100%;">
-                    <span class="nm-reply-head text-danger tm-text-highlight d-block mb-8" style="font-weight: 800; font-size: 13.5px;"><i class="fa-solid fa-circle-info"></i> تنبيه إداري</span>
-                    <div class="nm-reply-body text-main line-height-lg" style="font-size: 13px; color: var(--text-gray); font-weight: 600;">${Utils.escapeHtml(pausedMsg)}</div>
-                </div>
+                    <h3 class="tm-title">${Utils.escapeHtml(currentTier.name)}</h3>
+                    <p class="tm-desc">مستواك الحالي هو <span class="tm-text-highlight" style="color: ${tierColor};">${Utils.escapeHtml(currentTier.name)}</span>. للارتقاء بتجربتك والحصول على مزايا وأسعار أفضل، قم بزيادة مبيعاتك خلال المدة المحددة.</p>
             `;
+        
+        if (isAutoAdvanceEnabled) {
+            let targetPhraseHtml = isMaxTier ? `للحفاظ على باقتك ومميزاتك الحالية.` : `للوصول لـ <span class="tm-text-highlight text-main">${Utils.escapeHtml(targetNameDisplay)}</span>.`;
+            
+            if (isGoalReached) {
+                html += `
+                        <div class="tm-top-tier-card" style="border-top-color: ${tierColor};">
+                            <div class="tm-top-icon" style="color: ${tierColor};"><i class="${finalIconClass}"></i></div>
+                            <div class="tm-top-title" style="color: ${tierColor};">تهانينا، أنت في القمة!</div>
+                            <div class="tm-top-desc">لقد حققت الهدف وتصل الآن لأعلى مستوى متاح في المتجر لتتمتع بأفضل الأسعار. استمر في نشاطك للحفاظ على هذه المكانة الحصرية.</div>
+                        </div>`;
+            } else {
+                html += `
+                        <div class="tm-progress-card">
+                            <div class="tm-progress-header">
+                                <span class="tm-percent num-en">${percent.toFixed(0)}%</span>
+                                <div class="tm-bar-bg"><div class="tm-bar-fill" style="width: ${percent}%; background: ${tierColor};"></div></div>
+                                <span class="tm-duration-badge num-en">${remainingDays} يوم متبقي</span>
+                            </div>
+                            <div class="tm-footer-text">
+                                يتوجب عليك إنفاق <span class="tm-amount-text num-en" dir="ltr">${remainingAmt.toFixed(2)} ${currencySymbol}</span> إضافية خلال <span class="tm-text-highlight text-warning">${remainingDays} يوماً</span> ${targetPhraseHtml}
+                            </div>
+                        </div>`;
+            }
+            
+            const allTiers = (LiveStoreData.tiers || []);
+            if (allTiers.length > 0) {
+                const sortedTiers = [...allTiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
+                
+                html += `<div class="tm-roadmap-section"><h4 class="tm-roadmap-title"><i class="fa-solid fa-map-location-dot"></i> خريطة طريق مستويات VIP</h4><div class="tm-roadmap-list">`;
+                
+                sortedTiers.forEach(t => {
+                    const isUserCurrent = String(t.id) === String(currentTier.id);
+                    const tColor = t.color || 'var(--text-gray)';
+                    let finalIconClassT = `fa-solid fa-${(t.icon || 'medal').replace(/fa-solid|fa-regular|fa-brands|fa-/g, '').trim()}`;
+                    
+                    const badgeHtml = isUserCurrent ? `<span class="tm-badge-active" style="background: ${tierColor};">مستواك الحالي</span>` : `<span class="tm-badge-locked">مغلق</span>`;
+                    const stateClass = isUserCurrent ? 'active' : 'locked';
+                    
+                    html += `
+                            <div class="tm-roadmap-item ${stateClass}">
+                                <div class="tm-item-left">
+                                    <div class="tm-item-icon" style="color: ${tColor}; background: ${isUserCurrent ? 'rgba(255, 215, 0, 0.08)' : 'rgba(255, 255, 255, 0.03)'}; border-color: ${isUserCurrent ? tColor : 'rgba(255,255,255,0.05)'};">
+                                        <i class="${finalIconClassT}"></i>
+                                    </div>
+                                    <div class="tm-item-info">
+                                        <span class="tm-item-name">${Utils.escapeHtml(t.nameAr || t.name)}</span>
+                                        <span class="tm-item-req" style="${isUserCurrent ? 'color: var(--gold-main); font-weight:700;' : ''}">هدف المبيعات: <bdi class="num-en">${Number(t.threshold || 0).toFixed(0)} ${currencySymbol}</bdi></span>
+                                    </div>
+                                </div>
+                                <div class="tm-item-right">${badgeHtml}</div>
+                            </div>`;
+                });
+                html += `</div></div>`;
+            }
+        } else {
+            html += `<div class="tm-alert-box mt-15" style="background: rgba(239, 68, 68, 0.04); border: 1px solid rgba(239, 68, 68, 0.12); padding: 16px; border-radius: 16px; display: block; text-align: right; width: 100%;"><span class="nm-reply-head text-danger tm-text-highlight d-block mb-8" style="font-weight: 800; font-size: 13.5px;"><i class="fa-solid fa-circle-info"></i> تنبيه إداري</span><div class="nm-reply-body text-main line-height-lg" style="font-size: 13px; color: var(--text-gray); font-weight: 600;">${Utils.escapeHtml(pausedMsg)}</div></div>`;
+        }
+        
+        html += `</div>`;
+        content.innerHTML = html;
+        getSys().openModal?.('tier-info');
     }
-    
-    html += `</div>`;
-    content.innerHTML = html;
-    
-    getSys().openModal?.('tier-info');
-}
 };
