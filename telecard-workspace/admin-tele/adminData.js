@@ -1,7 +1,7 @@
 // ============================================================================
 // 🗄️ مدير البيانات (adminData.js) - بنية ES Modules نقية 100% ☁️
 // 🎯 الوظيفة: إدارة حالة البيانات، الحسابات المركزية (SSOT)، وتوفير الفلاتر الذكية
-// 🌟 التحديث: حل مشكلة التعليق الصامت (Hanging Promises) + تأمين السحابة ضد المسح
+// 🌟 التحديث (V8.1): إصلاح النسخ الاحتياطي الكامل، التوافق مع Subcollections، وجسر التدقيق المالي
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -13,9 +13,6 @@ export const AdminData = {
     // 🌟 راية الأمان (Data Loss Firewall): تمنع مسح السحابة بالخطأ في حال فشل الجلب
     isCloudSyncSuccessful: false,
 
-    // ==========================================
-    // 📂 المتغيرات وحالة البيانات الأساسية
-    // ==========================================
     data: { 
         deposits: [], orders: [], users: [], cats: [], prods: [], payments: [], banners: [], 
         settings: {}, rates: [], notif: {}, system: {}, adminProfile: {}, tiers: [], 
@@ -36,19 +33,17 @@ export const AdminData = {
     },
 
     // ==========================================
-    // 🛠️ 1. دالة التهيئة وجلب البيانات من السحابة (النسخة الاحترافية والمحمية)
+    // 🛠️ 1. دالة التهيئة وجلب البيانات من السحابة
     // ==========================================
     loadData: async function() {
         console.log("☁️ جاري مزامنة بيانات لوحة الإدارة مع Firestore...");
         
-        // إغلاق صمام الأمان عند بدء الجلب
         this.isCloudSyncSuccessful = false;
-        let hasCriticalFailure = false; // 👈 سيتغير إذا فشل أي جدول
+        let hasCriticalFailure = false; 
         
         const arr = v => Array.isArray(v) ? v : [];
         const obj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
         
-        // دوال الجلب المساعدة
         const fetchRecent = async (key, limitCount = 100, orderByField = 'time') => {
             if (FirebaseAdapter.getRecent && typeof FirebaseAdapter.getRecent === 'function') {
                 const res = await FirebaseAdapter.getRecent(key, limitCount, orderByField);
@@ -68,7 +63,7 @@ export const AdminData = {
             return res ? res : fallback;
         };
 
-        // 🚀 مصفوفة الوعود (Promises) تم تجهيزها لسباق آمن
+        // 🚀 الجلب السريع للوحة التحكم (Limiting)
         const fetchPromises = [
             fetchArray(DB_KEYS.RATES, []),
             fetchArray(DB_KEYS.TIERS, []),
@@ -92,13 +87,11 @@ export const AdminData = {
             fetchArray(DB_KEYS.KYC, [])
         ];
 
-        // مصفوفة الأسماء للطباعة الدقيقة عند الخطأ
         const collectionNames = [
             'RATES', 'TIERS', 'USERS', 'DEPOSITS', 'ORDERS', 'CATS', 'PRODS', 'PAYMENTS', 'BANNERS',
             'SETTINGS', 'POPUP', 'SYSTEM', 'ADMIN', 'COUNTRIES', 'VAULT', 'COUPONS', 'OFFERS', 'LOGS', 'ALERTS', 'KYC'
         ];
 
-        // 🚀 الجلب المتوازي الآمن: تغليف كل طلب بـ catch لمنع التعليق الصامت
         const [
             rawRates, rawTiers, rawUsers, rawDeposits, rawOrders, rawCats, rawProds, 
             rawPayments, rawBanners, rawSettings, rawNotif, rawSystem, rawAdminProfile,
@@ -106,13 +99,12 @@ export const AdminData = {
         ] = await Promise.all(fetchPromises.map((p, index) => 
             p.catch(e => {
                 console.error(`❌ فشل جلب الجدول [${collectionNames[index]}]:`, e.message);
-                hasCriticalFailure = true; // رفع حالة التأهب: لا تحفظ البيانات لاحقاً!
+                hasCriticalFailure = true; 
                 const isObject = ['SETTINGS', 'POPUP', 'SYSTEM', 'ADMIN'].includes(collectionNames[index]);
                 return isObject ? {} : [];
             })
         ));
 
-        // 🛑 إذا كان هناك فشل حرج، نوقف الإقلاع هنا لحماية السحابة
         if (hasCriticalFailure) {
             console.error("⛔ جدار الحماية: تم إيقاف المزامنة لحماية البيانات السحابية من المسح بالخطأ.");
             throw new Error("فشل في جلب بعض الجداول الأساسية من Firebase. راجع الكونسول لمعرفة الجدول المعطوب.");
@@ -120,7 +112,6 @@ export const AdminData = {
 
         console.log("✅ تمت الاستجابة من فايربيز لجميع الطلبات!");
 
-        // 🚀 معالجة البيانات وتنقيتها فور وصولها معاً
         const availableRates = normalizeRates(rawRates);
         
         const normalizeCurrencyList = (val) => {
@@ -144,13 +135,17 @@ export const AdminData = {
         if(this.data.tiers.length === 0 || !this.data.tiers.some(t => !!t.isDefault)) await this.seedDefaultTiers();
         const defTier = this.data.tiers.find(t => !!t.isDefault) || this.data.tiers[0];
 
+        // 🚀 تنظيف المستخدمين (إزالة الـ Inbox ليتوافق مع V8 Subcollections)
         this.data.users = arr(rawUsers).map(u => {
             const baseCurrency = u.baseCurrency || u.base_currency || 'USD';
             const walletBalance = (u.walletBalance !== undefined && u.walletBalance !== null) ? u.walletBalance : (u.wallet_balance !== undefined && u.wallet_balance !== null) ? u.wallet_balance : (u.balance !== undefined && u.balance !== null ? u.balance : 0);
-            const inbox = Array.isArray(u.inbox) ? u.inbox : [];
             const tierCycleSpent = u.tierCycleSpent || 0;
             const tierCycleStartDate = u.tierCycleStartDate || Date.now();
-            return { ...u, baseCurrency, base_currency: baseCurrency, walletBalance, wallet_balance: walletBalance, balance: walletBalance, inbox, tierCycleSpent, tierCycleStartDate };
+            
+            // حماية الـ payload من البيانات الميتة
+            let cleanUser = { ...u, baseCurrency, base_currency: baseCurrency, walletBalance, wallet_balance: walletBalance, balance: walletBalance, tierCycleSpent, tierCycleStartDate };
+            delete cleanUser.inbox; // وداعاً للمصفوفة القديمة!
+            return cleanUser;
         });
 
         let changedTierAssign = false;
@@ -165,16 +160,9 @@ export const AdminData = {
         this.data.orders = arr(rawOrders);
         this.data.cats = arr(rawCats);
         
-        // 🌟 تطهير ومعايرة بيانات المنتجات
         this.data.prods = arr(rawProds).map(p => {
             const isFixed = p.isFixedPrice === true || p.isFixedPrice === 'true' || p.is_fixed_price === true || p.is_fixed_price === 'true';
-            return {
-                ...p,
-                isFixedPrice: isFixed,
-                costPrice: Number(p.costPrice || p.cost_price || 0),
-                price: Number(p.price || 0),
-                fixedPriceUsd: Number(p.fixedPriceUsd || p.fixed_price_usd || 0)
-            };
+            return { ...p, isFixedPrice: isFixed, costPrice: Number(p.costPrice || p.cost_price || 0), price: Number(p.price || 0), fixedPriceUsd: Number(p.fixedPriceUsd || p.fixed_price_usd || 0) };
         });
 
         this.data.payments = arr(rawPayments).map(p => { return { ...p, currencies: normalizeCurrencyList(p.currencies).join(',') }; });
@@ -185,75 +173,56 @@ export const AdminData = {
         this.data.system = obj(rawSystem);
         this.data.adminProfile = obj(rawAdminProfile);
         
-        // 🌟 ترميم بيانات الدول المجلوبة بذكاء
         this.data.countries = arr(rawCountries).map(c => {
-            return {
-                ...c,
-                name: c.name || c.nameAr || 'دولة جديدة',
-                flag: c.flag || c.flagEmoji || '🌍', 
-                currency: c.currency || 'USD',
-                dialCode: c.dialCode || '+00',
-                code: c.code || c.id || 'XX'
-            };
+            return { ...c, name: c.name || c.nameAr || 'دولة جديدة', flag: c.flag || c.flagEmoji || '🌍', currency: c.currency || 'USD', dialCode: c.dialCode || '+00', code: c.code || c.id || 'XX' };
         });
         
         if(this.data.countries.length === 0) await this.seedDefaultCountries();
 
         this.data.vault = arr(rawVault);
         
-        // 🌟 فلتر تطهير ومعايرة الكوبونات
         this.data.coupons = arr(rawCoupons).map(c => ({
-            ...c,
-            isActive: c.isActive === true || c.isActive === 'true' || c.is_active === true,
-            value: Number(c.value || 0),
-            minOrder: Number(c.minOrder || 0),
-            maxUses: Number(c.maxUses || 0),
-            usedCount: Number(c.usedCount || 0),
-            maxPerUser: Number(c.maxPerUser || 0),
-            expiryDate: c.expiryDate ? Number(c.expiryDate) : null,
-            targetProds: Array.isArray(c.targetProds) ? c.targetProds : [],
-            targetTiers: Array.isArray(c.targetTiers) ? c.targetTiers : [],
-            allowedUsers: Array.isArray(c.allowedUsers) ? c.allowedUsers : []
+            ...c, isActive: c.isActive === true || c.isActive === 'true' || c.is_active === true, value: Number(c.value || 0), minOrder: Number(c.minOrder || 0), maxUses: Number(c.maxUses || 0), usedCount: Number(c.usedCount || 0), maxPerUser: Number(c.maxPerUser || 0), expiryDate: c.expiryDate ? Number(c.expiryDate) : null, targetProds: Array.isArray(c.targetProds) ? c.targetProds : [], targetTiers: Array.isArray(c.targetTiers) ? c.targetTiers : [], allowedUsers: Array.isArray(c.allowedUsers) ? c.allowedUsers : []
         }));
 
-        // 🌟 فلتر تطهير ومعايرة العروض
         this.data.offers = arr(rawOffers).map(o => ({
-            ...o,
-            isActive: o.isActive === true || o.isActive === 'true',
-            value: Number(o.value || 0),
-            expiryDate: o.expiryDate ? Number(o.expiryDate) : null,
-            targetProds: Array.isArray(o.targetProds) ? o.targetProds : [],
-            visualConfig: (o.visualConfig && typeof o.visualConfig === 'object') ? o.visualConfig : {}
+            ...o, isActive: o.isActive === true || o.isActive === 'true', value: Number(o.value || 0), expiryDate: o.expiryDate ? Number(o.expiryDate) : null, targetProds: Array.isArray(o.targetProds) ? o.targetProds : [], visualConfig: (o.visualConfig && typeof o.visualConfig === 'object') ? o.visualConfig : {}
         }));
 
         this.data.logs = arr(rawLogs);
         this.data.alerts = arr(rawAlerts);
         this.data.kyc = arr(rawKyc);
 
-        // أخذ لقطة لكل البيانات لتشغيل محرك الـ Smart Diffing
         Object.keys(this.data).forEach(prop => this._updateSnapshot(prop));
-
-        // 🌟 فتح صمام الأمان: السحابة تمت قراءتها بنجاح وبشكل كامل دون أخطاء
         this.isCloudSyncSuccessful = true;
         
         if (changedTierAssign) await this.saveUsers(); 
-        
         if (this.calculateAllStoreStats) await this.calculateAllStoreStats();
-        
         await this.autoAdvanceSweep();
         
-        console.log("✅ اكتملت المزامنة الموازية بنجاح بسرعة فائقة وبأقل تكلفة من السحابة.");
         return true; 
     },
 
     // ==========================================
-    // 💾 دوال الحفظ الذكية (Smart Diffing Saver)
+    // 💾 دوال الحفظ الذكية والاتصال المباشر (V8 Features)
     // ==========================================
+    
+    // 🚀 جسر التواصل مع دالة التدقيق المالي السحابية
+    auditUser: async function(userId) {
+        if (!userId) return { success: false, message: "بيانات المستخدم مفقودة." };
+        try {
+            const result = await FirebaseAdapter.callFunction('adminAuditUserWallet', { userId: String(userId) });
+            return result; 
+        } catch (error) {
+            console.error("Audit Error:", error);
+            return { success: false, message: error.message || "فشل الاتصال بخادم التدقيق." };
+        }
+    },
+
     saveCollection: async function(key, prop) {
         try {
-            // 🌟 الجدار الناري: يمنع الحفظ وحذف الجداول إذا لم يكتمل الجلب
             if (!this.isCloudSyncSuccessful) {
-                console.error(`⛔ تم حظر عملية حفظ (${prop}): لم تكتمل المزامنة الأساسية، إجراء وقائي لمنع فقدان البيانات.`);
+                console.error(`⛔ تم حظر عملية حفظ (${prop}): لم تكتمل المزامنة الأساسية.`);
                 return false;
             }
 
@@ -273,7 +242,6 @@ export const AdminData = {
 
             const currentMap = new Map(currentArr.map(item => [String(item.id), item]));
             const snapMap = new Map(snapArr.map(item => [String(item.id), item]));
-
             const promises = [];
 
             for (const [id, item] of currentMap.entries()) {
@@ -289,9 +257,7 @@ export const AdminData = {
                 }
             }
 
-            if (promises.length > 0) {
-                await Promise.all(promises);
-            }
+            if (promises.length > 0) await Promise.all(promises);
 
             this._updateSnapshot(prop);
             return true;
@@ -338,20 +304,38 @@ export const AdminData = {
         } catch (err) { return false; }
     },
 
+    // 🚀 إصلاح ثغرة النسخ الاحتياطي الوهمي (الجلب الكامل الآمن)
     exportData: async function() {
         try {
-            const dataStr = JSON.stringify(this.data);
+            console.warn("⏳ جاري سحب نسخة احتياطية كاملة من قاعدة البيانات (قد يستغرق بعض الوقت)...");
+            
+            // جلب كامل ومباشر من السحابة لضمان عدم ضياع أي طلبات أو إيداعات قديمة
+            const fullExport = {
+                users: await FirebaseAdapter.getAll(DB_KEYS.USERS),
+                orders: await FirebaseAdapter.getAll(DB_KEYS.ORDERS),
+                deposits: await FirebaseAdapter.getAll(DB_KEYS.DEPOSITS),
+                prods: this.data.prods, cats: this.data.cats, payments: this.data.payments,
+                banners: this.data.banners, tiers: this.data.tiers, rates: this.data.rates,
+                countries: this.data.countries, vault: this.data.vault, coupons: this.data.coupons,
+                offers: this.data.offers, logs: this.data.logs, alerts: this.data.alerts, kyc: this.data.kyc,
+                settings: this.data.settings, system: this.data.system, notif: this.data.notif, adminProfile: this.data.adminProfile
+            };
+
+            const dataStr = JSON.stringify(fullExport);
             const blob = new Blob([dataStr], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const linkElement = document.createElement('a');
             linkElement.setAttribute('href', url);
-            linkElement.setAttribute('download', 'telecard_cloud_backup_' + new Date().toISOString().slice(0,10) + '.json');
+            linkElement.setAttribute('download', 'telecard_cloud_backup_FULL_' + new Date().toISOString().slice(0,10) + '.json');
             document.body.appendChild(linkElement);
             linkElement.click();
             document.body.removeChild(linkElement);
             URL.revokeObjectURL(url);
             return true;
-        } catch(err) { throw err; }
+        } catch(err) { 
+            console.error("فشل النسخ الاحتياطي السحابي الكامل:", err);
+            throw err; 
+        }
     },
 
     importData: function(input) {
@@ -372,13 +356,15 @@ export const AdminData = {
                 try {
                     const importedData = JSON.parse(e.target.result);
                     if(importedData && typeof importedData === 'object') {
-                        
                         const criticalArrays = ['users', 'orders', 'prods', 'cats'];
                         for (let key of criticalArrays) {
                             if (importedData[key] !== undefined && !Array.isArray(importedData[key])) {
                                 return reject(new Error(`الملف المرفوع تالف: البيانات في القسم (${key}) غير صالحة.`));
                             }
                         }
+
+                        // تحذير أمان: لا تقم بحفظ الاستيراد إذا كانت المزامنة الأصلية فاشلة
+                        if (!this.isCloudSyncSuccessful) return reject(new Error("لا يمكن استيراد البيانات، الاتصال الأساسي بالسحابة غير مستقر."));
 
                         for (const prop in importedData) {
                             if (this.data[prop] !== undefined && propToKey[prop]) {
@@ -396,62 +382,30 @@ export const AdminData = {
 
     seedDefaultCountries: async function() {
         console.warn("⚠️ جاري تأسيس بنية الدول في السحابة...");
-        const defaultCountry = {
-            id: 'COUNTRY_' + Utils.generateID(),
-            name: 'السعودية',       
-            code: 'SA',
-            dialCode: '+966',
-            flag: '🇸🇦',          
-            currency: 'SAR',     
-            isActive: true,
-            createdAt: Date.now()
-        };
-        
+        const defaultCountry = { id: 'COUNTRY_' + Utils.generateID(), name: 'السعودية', code: 'SA', dialCode: '+966', flag: '🇸🇦', currency: 'SAR', isActive: true, createdAt: Date.now() };
         this.data.countries = [defaultCountry];
         await FirebaseAdapter.set(DB_KEYS.COUNTRIES, defaultCountry.id, defaultCountry);
     },
+    
     seedDefaultTiers: async function() { 
         console.warn("⚠️ جاري تأسيس بنية المستويات في السحابة...");
-        const defaultTier = {
-            id: 'TIER_' + Utils.generateID(),
-            name: 'عادي',                  
-            icon: 'fa-user',               
-            isDefault: true,               
-            threshold: 0,                  
-            duration: 3650,                
-            duration_days: 3650,
-            profit_percent: 5,             
-            min_profit_usd: 0,             
-            autoAdvance: true,             
-            createdAt: Date.now()
-        };
-        
+        const defaultTier = { id: 'TIER_' + Utils.generateID(), name: 'عادي', icon: 'fa-user', isDefault: true, threshold: 0, duration: 3650, duration_days: 3650, profit_percent: 5, min_profit_usd: 0, autoAdvance: true, createdAt: Date.now() };
         this.data.tiers = [defaultTier]; 
         await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);
     },
 
     calculateAllStoreStats: async function() {
-    console.log("🚀 جاري الاتصال بالسحابة لضبط الإحصائيات المركزية...");
-    
-    try {
-        // 🌟 استخدام المحول المركزي الآمن بدلاً من الاستيراد اليدوي!
-        // هذا السطر سيتكفل بالـ CORS والمهلة الزمنية (Timeout) وكل شيء
-        const result = await FirebaseAdapter.callFunction('calculateStoreStatsCloud');
-        
-        if (result && result.success) {
-            console.log("✅ السحابة أنهت الحسابات بنجاح.");
-            const sysRef = await FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton');
-            if (sysRef && sysRef.globalStats) {
-                this.data.system.globalStats = sysRef.globalStats;
+        try {
+            const result = await FirebaseAdapter.callFunction('calculateStoreStatsCloud');
+            if (result && result.success) {
+                const sysRef = await FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton');
+                if (sysRef && sysRef.globalStats) this.data.system.globalStats = sysRef.globalStats;
+                return true;
             }
-            return true;
-        }
-    } catch (error) {
-        console.error("❌ فشل الاتصال بالسحابة لحساب الإحصائيات:", error);
-        return false;
-    }
-},
-getFilteredSalesStats: function(range = 'all') {
+        } catch (error) { console.error("❌ فشل الاتصال بالسحابة لحساب الإحصائيات:", error); return false; }
+    },
+
+    getFilteredSalesStats: function(range = 'all') {
         const orders = (this.data.orders || []).filter(o => o.status === 'completed');
         const now = Date.now();
         let startTime = 0;
@@ -477,9 +431,7 @@ getFilteredSalesStats: function(range = 'all') {
             const productData = (this.data.prods || []).find(pr => String(pr.id) === String(targetProdId));
             
             let actualCatId = productData ? productData.catId : (o.catId || o.categoryId);
-            if (!actualCatId || actualCatId === 'null') {
-                actualCatId = 'root';
-            }
+            if (!actualCatId || actualCatId === 'null') actualCatId = 'root';
 
             if (!cats[actualCatId]) {
                 let catName = 'القسم الرئيسي (الواجهة)'; 
@@ -490,21 +442,10 @@ getFilteredSalesStats: function(range = 'all') {
                 cats[actualCatId] = { name: catName, revenue: 0, profit: 0, cost: 0, count: 0 };
             }
             
-            cats[actualCatId].revenue += rev; 
-            cats[actualCatId].profit += prof; 
-            cats[actualCatId].cost += cst;
-            cats[actualCatId].count++;
+            cats[actualCatId].revenue += rev; cats[actualCatId].profit += prof; cats[actualCatId].cost += cst; cats[actualCatId].count++;
 
-            if (!prods[targetProdId]) {
-                prods[targetProdId] = { 
-                    name: productData ? productData.name : (o.product || 'منتج محذوف'), 
-                    revenue: 0, profit: 0, cost: 0, count: 0 
-                };
-            }
-            prods[targetProdId].revenue += rev; 
-            prods[targetProdId].profit += prof; 
-            prods[targetProdId].cost += cst;
-            prods[targetProdId].count++;
+            if (!prods[targetProdId]) prods[targetProdId] = { name: productData ? productData.name : (o.product || 'منتج محذوف'), revenue: 0, profit: 0, cost: 0, count: 0 };
+            prods[targetProdId].revenue += rev; prods[targetProdId].profit += prof; prods[targetProdId].cost += cst; prods[targetProdId].count++;
         });
 
         return { revenue, profit, cost, count: filteredOrders.length, categories: cats, products: prods };
@@ -528,23 +469,12 @@ getFilteredSalesStats: function(range = 'all') {
             let cycleSpent = Number(u.tierCycleSpent || 0);
 
             if (now - cycleStart > durationMs) {
-                u.tierCycleSpent = 0;
-                u.tierCycleStartDate = now;
-                cycleSpent = 0;
-                changed = true;
+                u.tierCycleSpent = 0; u.tierCycleStartDate = now; cycleSpent = 0; changed = true;
             }
 
-            const deservedTier = sortedTiers.find(t => 
-                t.autoAdvance && 
-                cycleSpent >= Number(t.threshold || 0) && 
-                Number(t.threshold || 0) > Number(currentTier.threshold || 0) 
-            );
-
+            const deservedTier = sortedTiers.find(t => t.autoAdvance && cycleSpent >= Number(t.threshold || 0) && Number(t.threshold || 0) > Number(currentTier.threshold || 0));
             if (deservedTier && String(u.tierId) !== String(deservedTier.id)) { 
-                u.tierId = deservedTier.id; 
-                u.tierCycleSpent = Math.max(0, cycleSpent - Number(deservedTier.threshold || 0));
-                u.tierCycleStartDate = now;
-                changed = true; 
+                u.tierId = deservedTier.id; u.tierCycleSpent = Math.max(0, cycleSpent - Number(deservedTier.threshold || 0)); u.tierCycleStartDate = now; changed = true; 
             }
         });
         if (changed) await this.saveUsers();
@@ -555,6 +485,7 @@ getFilteredSalesStats: function(range = 'all') {
         const rates = normalizeRates ? normalizeRates(this.data.rates) : [];
         const liquidity = { totalUsd: 0, details: {} };
         rates.forEach(r => { liquidity.details[r.code.toUpperCase()] = { name: r.name, sum: 0, count: 0 }; });
+        
         users.forEach(u => {
             const bal = Number(u.walletBalance ?? u.balance ?? 0);
             const currencyCode = (u.baseCurrency || 'USD').toUpperCase();
@@ -576,7 +507,6 @@ getFilteredSalesStats: function(range = 'all') {
         const d = this.data;
         const now = new Date();
         const nowTime = now.getTime();
-
         const sysDoc = d.system || {};
         const rawGStats = sysDoc.globalStats || {};
         
@@ -588,22 +518,14 @@ getFilteredSalesStats: function(range = 'all') {
             users: { total: (d.users || []).length, active: 0, restricted: 0, banned: 0, bannedIps: 0, topThreeSpenders: [], mostActiveUser: null },
             walletsData: this.getWalletsLiquidity(),
             promoStats: rawGStats.promoStats || { totalDiscountAmount: 0, discountedRevenue: 0, totalDiscountedOrders: 0, couponUsageMap: {}, offerUsageMap: {}, topCoupon: 'لا يوجد', topOffer: 'لا يوجد' },
-            alerts: [],
-            daily: {} 
+            alerts: [], daily: {} 
         };
 
-        // إحصائيات المستخدمين الصغرى
         (d.users || []).forEach(u => { 
-            if (u.isIpBanned) stats.users.bannedIps++; 
-            if (u.isBanned) stats.users.banned++; 
-            else if (u.isRestricted) stats.users.restricted++; 
-            else stats.users.active++; 
+            if (u.isIpBanned) stats.users.bannedIps++; else if (u.isBanned) stats.users.banned++; else if (u.isRestricted) stats.users.restricted++; else stats.users.active++; 
         });
 
-        // 🌟 بناء الديناميكية المحلية للمخططات والمتصدرين
         const ordersForCharts = (d.orders || []).filter(o => o.status === 'completed');
-        
-        // 🚀 المُتتبّع الحي الذكي للطلبات: يجمع كم طلب قام به כל عميل ليرد على الشاشة فوراً
         const userLiveOrderCounts = {};
 
         ordersForCharts.forEach(o => {
@@ -617,34 +539,24 @@ getFilteredSalesStats: function(range = 'all') {
             const rev = Number(pricing?.finalPriceUsd || pricing?.finalPrice || o.baseUsd || o.price || 0);
             const prof = Number(pricing?.netProfitUsd || pricing?.profit || 0);
             
-            stats.daily[dKey].revenue += rev;
-            stats.daily[dKey].profit += prof;
+            stats.daily[dKey].revenue += rev; stats.daily[dKey].profit += prof;
 
-            // 🚀 إضافة رصيد نشاط لهذا العميل المعين
-            if (o.userId) {
-                userLiveOrderCounts[o.userId] = (userLiveOrderCounts[o.userId] || 0) + 1;
-            }
+            if (o.userId) userLiveOrderCounts[o.userId] = (userLiveOrderCounts[o.userId] || 0) + 1;
         });
 
-        // ترتيبات التخفيضات 
         let topC = 0; const cMap = stats.promoStats.couponUsageMap || {}; for (let c in cMap) { if (cMap[c] > topC) { topC = cMap[c]; stats.promoStats.topCoupon = c; } }
         let topO = 0; const oMap = stats.promoStats.offerUsageMap || {}; for (let o in oMap) { if (oMap[o] > oMap[topO] || !topO) { topO = oMap[o]; stats.promoStats.topOffer = o; } }
 
         let lbKey = leaderboardPeriod === 'this_month' ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}` : (leaderboardPeriod === 'last_month' ? `${new Date(now.getFullYear(), now.getMonth()-1).getFullYear()}-${String(new Date(now.getFullYear(), now.getMonth()-1).getMonth()+1).padStart(2,'0')}` : '');
         
         let leaderboard = (d.users || []).map(u => ({ 
-            id: u.id, 
-            displayId: RenderHelpers.formatUserId(u),
-            name: u.username ? `@${u.username}` : (u.fullName || 'مستخدم جديد'), 
-            img: u.img || null, 
-            spent: leaderboardPeriod === 'all' ? (Number(u.totalSpent) || 0) : (Number(u.monthlySpent?.[lbKey]) || 0), 
-            count: userLiveOrderCounts[u.id] || 0 // 🚀 قراءة نشاط العميل من الآلة الحاسبة المباشرة!
+            id: u.id, displayId: RenderHelpers.formatUserId(u), name: u.username ? `@${u.username}` : (u.fullName || 'مستخدم جديد'), 
+            img: u.img || null, spent: leaderboardPeriod === 'all' ? (Number(u.totalSpent) || 0) : (Number(u.monthlySpent?.[lbKey]) || 0), count: userLiveOrderCounts[u.id] || 0
         }));
         
         stats.users.topThreeSpenders = leaderboard.filter(u => u.spent > 0).sort((a,b) => b.spent - a.spent).slice(0,3);
         stats.users.mostActiveUser = leaderboard.filter(u => u.count > 0).sort((a,b) => b.count - a.count)[0] || null;
 
-        // التنبيهات المضمنة للرادار الذكي
         const twoDays = nowTime - 172800000;
         (d.orders || []).filter(o => o.status === 'completed' && o.couponCode && RenderHelpers.parseTime(o.time || o.createdAt) > twoDays).forEach(o => { stats.alerts.push({ id: 'coupon_used', code: o.couponCode, user: o.userName || 'عميل', orderId: o.id, time: o.time || o.createdAt }); });
         (d.vault || []).forEach(p => { let av = (p.codes || []).filter(c => typeof c === 'string' || c.status === 'available').length; if (av === 0) stats.alerts.push({ id: 'vault_empty', poolId: p.id, poolName: p.name }); else if (av <= (p.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolId: p.id, poolName: p.name, count: av }); });

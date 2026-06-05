@@ -1,15 +1,12 @@
 // ============================================================================
 // 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Client Safe)
 // 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث: دمج البوابة السحابية الموحدة (Adapter) + إغلاق الثغرات + محرك التسعير
+// 🚀 التحديث الأقصى (V8.1): Real-time Subcollections، Idempotency، Warmup، & Sanitization
 // ============================================================================
 
-// 🌟 استيراد دالة تسجيل الخروج الرسمية والآمنة لفايربيز
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
-
 import { DB_KEYS, ACTIVE_USER_KEY } from './config.js';
 import { Utils } from './utils.js';
-// 🌟 استيراد محول فايربيز المركزي (البوابة الموحدة)
 import { FirebaseAdapter, auth } from './core/firebaseAdapter.js'; 
 import { RenderHelpers } from './core/renderHelpers.js'; 
 
@@ -19,7 +16,8 @@ export const LiveStoreData = {
     cats: [], prods: [], settings: {}, banners: [], users: [], 
     orders: [], deposits: [], payments: [], tiers: [], rates: [],
     vault: [], coupons: [], offers: [], alerts: [],
-    isInitialSyncDone: false // 🌟 علم التحميل الأولي لمنع الومضات السوداء
+    userNotifications: [], // 🚀 مصفوفة الإشعارات الحية القادمة من الـ Subcollection
+    isInitialSyncDone: false
 };
 
 export const DataManager = {
@@ -31,22 +29,35 @@ export const DataManager = {
     favs: new Set(),
     selectedCurr: 'USD',
     
-    // 🌟 نظام المؤشرات للترقيم الاحترافي (Cursors) لمنع انهيار الرسم المؤقت
     cursors: { orders: null, deposits: null },
 
     currentProd: null, currentPayment: null, currentPayCurrency: null,
     currentReceiptData: null, appliedCoupon: null,
 
+    // 🚀 أداة توليد مفتاح عدم التكرار (Idempotency Key) للحماية من السبام
+    generateIdempotencyKey: function() {
+        return Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 9);
+    },
+
     // =========================================================
-    // 💾 حفظ كاش بيانات العميل الأساسية محلياً
+    // 💾 1. حفظ كاش بيانات العميل (محمي ومطهر)
     // =========================================================
     saveUserLocal: function() {
         if (!this.user) return;
         try {
-            const liteUser = { ...this.user };
-            delete liteUser.kycData; // 🌟 حماية مساحة الكاش المحلي
-            localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(liteUser));
-        } catch (e) { console.error('Storage Quota Error in saveUserLocal:', e); }
+            const safeUser = {
+                id: this.user.id, uid: this.user.uid,
+                name: this.user.name, email: this.user.email,
+                walletBalance: this.user.walletBalance, balance: this.user.balance,
+                baseCurrency: this.user.baseCurrency || 'USD',
+                tierId: this.user.tierId || this.user.tier,
+                tierCycleSpent: this.user.tierCycleSpent || 0,
+                tierCycleStartDate: this.user.tierCycleStartDate,
+                totalSpent: this.user.totalSpent || 0, 
+                totalDeposit: this.user.totalDeposit || 0
+            };
+            localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser));
+        } catch (e) { console.error('Storage Quota Error:', e); }
     },
 
     updateUserProfile: async function(newData) {
@@ -155,7 +166,7 @@ export const DataManager = {
     },
 
     // ============================================================================
-    // 🧮 4. المحرك الموحد للتسعير
+    // 🧮 2. المحرك الموحد للتسعير
     // ============================================================================
     calculateFinalPrice: function(prod, user, qty, optIdx, appliedCoupon) {
         let q = Math.max(1, Number(qty) || 1);
@@ -172,10 +183,7 @@ export const DataManager = {
 
         if (Utils.TelecardPricingEngine && typeof Utils.TelecardPricingEngine.calculate === 'function') {
             unitSnapshot = Utils.TelecardPricingEngine.calculate({
-                product: prod, 
-                tier: tier, 
-                offer: activeOffer, 
-                coupon: appliedCoupon
+                product: prod, tier: tier, offer: activeOffer, coupon: appliedCoupon
             });
         }
 
@@ -185,14 +193,10 @@ export const DataManager = {
         }
 
         return {
-            unitSnapshot: unitSnapshot, 
-            totalUsd: unitSnapshot.finalPrice * q,
-            unitUsd: unitSnapshot.finalPrice,
-            originalTotalUsd: unitSnapshot.originalPrice * q, 
-            saleDiscountUsd: unitSnapshot.offerDiscount * q,
-            couponDiscountUsd: unitSnapshot.couponDiscount * q,
-            oldPriceUsd: oldPriceUsd, 
-            displayOldTotalUsd: oldPriceUsd ? (oldPriceUsd * q) : (unitSnapshot.originalPrice * q)
+            unitSnapshot: unitSnapshot, totalUsd: unitSnapshot.finalPrice * q,
+            unitUsd: unitSnapshot.finalPrice, originalTotalUsd: unitSnapshot.originalPrice * q, 
+            saleDiscountUsd: unitSnapshot.offerDiscount * q, couponDiscountUsd: unitSnapshot.couponDiscount * q,
+            oldPriceUsd: oldPriceUsd, displayOldTotalUsd: oldPriceUsd ? (oldPriceUsd * q) : (unitSnapshot.originalPrice * q)
         };
     },
     
@@ -230,14 +234,11 @@ export const DataManager = {
         }
 
          return {
-            totalUsd: pricing.totalUsd,
-            totalLocalBase: totalLocalBase, 
-            displayCurrency: displayCurrency,
+            totalUsd: pricing.totalUsd, totalLocalBase: totalLocalBase, displayCurrency: displayCurrency,
             unitText: valUnit.toFixed(2) + (displayCurrency === 'USD' ? ' $' : ' ' + displayCurrency),
             totalText: valTotal.toFixed(2) + (displayCurrency === 'USD' ? ' $' : ' ' + displayCurrency),
             hasDiscount: (pricing.oldPriceUsd || pricing.couponDiscountUsd > 0 || pricing.saleDiscountUsd > 0),
-            oldTotalLocalBase: oldTotalLocal,
-            pricingSnapshot: pricing
+            oldTotalLocalBase: oldTotalLocal, pricingSnapshot: pricing
         };
     },
 
@@ -296,25 +297,20 @@ export const DataManager = {
         return Number(val.toFixed(4));
     },
 
-    // 🌟 دالة تسجيل الخروج المحمية 100%
     logout: async function() {
         try {
-            if (auth) {
-                await signOut(auth);
-            }
-            
+            if (auth) await signOut(auth);
             localStorage.removeItem('telecard_active_user_uid');
             localStorage.removeItem(ACTIVE_USER_KEY);
             localStorage.removeItem('telecard_display_currency');
             localStorage.removeItem('telecard_store_cache');
-        } catch(e) { 
-            console.warn('logout cleanup error', e); 
-        }
+            if (this._notifUnsubscribe) this._notifUnsubscribe(); // إيقاف المستمع عند تسجيل الخروج
+        } catch(e) { console.warn('logout cleanup error', e); }
         window.location.replace('login.html');
     },
 
     // =========================================================
-    // 👤 مزامنة العميل الذكية (Optimistic UI & Cache Engine)
+    // 👤 3. مزامنة العميل الذكية وتفعيل تسخين السيرفر
     // =========================================================
     syncUser: function() {
         const users = LiveStoreData.users || [];
@@ -334,10 +330,12 @@ export const DataManager = {
                     } catch (e) {}
                 }
             }
+
+            // 🚀 تسخين السيرفر (Cold Start Warm-up) 
+            StoreDB.callFunction('getServerTime').catch(() => {});
         }
         
         const isSystemBooted = window.ClientSystem && window.ClientSystem.isReady;
-        
         if (activeUid && !me) {
             if (users.length > 0 && isSystemBooted) {
                 this.logout();
@@ -349,15 +347,10 @@ export const DataManager = {
             me.baseCurrency = me.baseCurrency || me.base_currency || 'USD';
             const bal = me.walletBalance ?? me.wallet_balance ?? me.balance ?? 0;
             me.walletBalance = bal;
-            me.inbox = me.inbox || [];
-            
+
             if (me.tierCycleStartDate === undefined) {
                 me.tierCycleStartDate = this.getNow();
                 me.tierCycleSpent = 0;
-            }
-            
-            if (me.inbox && me.inbox.length > 30) {
-                me.inbox = [...me.inbox].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 30);
             }
             
             this.user = me;
@@ -404,31 +397,24 @@ export const DataManager = {
         changeHistory = changeHistory.filter(timestamp => (now - timestamp) < oneDayMs);
         
         if (changeHistory.length >= 3) {
-            const oldestChange = changeHistory[0];
-            const timeUntilUnlock = oneDayMs - (now - oldestChange);
+            const timeUntilUnlock = oneDayMs - (now - changeHistory[0]);
             const hoursLeft = Math.ceil(timeUntilUnlock / (1000 * 60 * 60));
-            return {
-                success: false,
-                msg: `عذراً، استنفدت الحد الأقصى لتغيير كلمة المرور (3 مرات). يرجى المحاولة بعد ${hoursLeft} ساعة.`
-            };
+            return { success: false, msg: `عذراً، استنفدت الحد الأقصى لتغيير كلمة المرور. يرجى المحاولة بعد ${hoursLeft} ساعة.` };
         }
         
         try {
             const result = await StoreDB.changeUserPassword(currentVal, newVal);
             if (result.success) {
                 changeHistory.push(now);
-                await this.updateUserProfile({
-                    passwordChangeHistory: changeHistory,
-                    pass: null 
-                });
+                await this.updateUserProfile({ passwordChangeHistory: changeHistory, pass: null });
                 return { success: true, msg: 'تم تحديث كلمة المرور بنجاح وحماية حسابك.' };
             } else { return { success: false, msg: result.msg }; }
-        } catch (e) {
-            return { success: false, msg: 'تعذر الاتصال بالسيرفر، يرجى المحاولة لاحقاً.' };
-        }
+        } catch (e) { return { success: false, msg: 'تعذر الاتصال بالسيرفر، يرجى المحاولة لاحقاً.' }; }
     },
 
-    // 🌟 الإصلاح الجذري لدالة معالجة الطلب (استخدام الموجه المركزي السريع)
+    // ============================================================================
+    // 🛒 4. دالة إنشاء الطلب مع معالجة ذكية للأخطاء وحماية Idempotency
+    // ============================================================================
     confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
 
@@ -438,10 +424,10 @@ export const DataManager = {
                 qty: Number(qty) || 1,
                 optIdx: optIdx !== null && optIdx !== undefined ? Number(optIdx) : null,
                 finalInputStr: finalInputStr || '---',
-                couponCode: appliedCoupon ? appliedCoupon.code : null
+                couponCode: appliedCoupon ? appliedCoupon.code : null,
+                idempotencyKey: this.generateIdempotencyKey() // 🚀 حماية إرسال الطلب المزدوج
             };
 
-            // 🚀 استدعاء السيرفر من خلال البوابة الآمنة والمحمية بالـ Timeout
             const responseData = await StoreDB.callFunction('createOrder', requestData);
 
             return {
@@ -453,11 +439,20 @@ export const DataManager = {
 
         } catch (error) {
             console.error("Store Order Error:", error);
-            let finalUserMessage = error.message || 'حدث خطأ أثناء معالجة الطلب، يرجى المحاولة لاحقاً.';
             
-            // ترجمة الخطأ الفني (إن وُجد) إلى لغة يقرؤها العميل
-            if (finalUserMessage.toLowerCase().includes('internal') || finalUserMessage.toLowerCase().includes('functions/')) {
-                finalUserMessage = 'رصيدك غير كافٍ ، يرجى إيداع رصيد أولاً لإتمام العملية.';
+            // 🚀 معالجة ذكية للأخطاء لتوجيه العميل بوضوح
+            let finalUserMessage = 'حدث خطأ أثناء معالجة الطلب، يرجى المحاولة لاحقاً.';
+            const code = error.code || '';
+            const msg = String(error.message || '').toLowerCase();
+
+            if (code === 'failed-precondition' || msg.includes('رصيد')) {
+                finalUserMessage = 'رصيدك غير كافٍ، يرجى إيداع رصيد أولاً لإتمام العملية.';
+            } else if (code === 'already-exists' || msg.includes('للتم') || msg.includes('مسبقاً')) {
+                finalUserMessage = 'تم استلام طلبك بالفعل، يرجى التحقق من سجل طلباتك لمنع التكرار.';
+            } else if (code === 'resource-exhausted') {
+                finalUserMessage = 'عذراً، المنتج أو الكوبون نفد من المخزون حالياً.';
+            } else if (code === 'not-found') {
+                finalUserMessage = 'المنتج المطلوب غير متوفر حالياً.';
             }
 
             return { success: false, msg: finalUserMessage };
@@ -468,18 +463,11 @@ export const DataManager = {
         if (!paymentMethod) return { isValid: false, msg: 'طريقة دفع مفقودة', netBase: 0, feePct: 0, feeType: 'fee', feeUnit: 'percent' };
         
         const payCurrUpper = (payCurr || '').toUpperCase();
-        
-        let settings = {
-            fee: parseFloat(paymentMethod.fee) || 0, min: parseFloat(paymentMethod.min) || 0,
-            max: parseFloat(paymentMethod.max) || 0, feeType: paymentMethod.feeType || 'fee',
-            feeUnit: paymentMethod.feeUnit || paymentMethod.unit || 'percent' 
-        };
+        let settings = { fee: parseFloat(paymentMethod.fee) || 0, min: parseFloat(paymentMethod.min) || 0, max: parseFloat(paymentMethod.max) || 0, feeType: paymentMethod.feeType || 'fee', feeUnit: paymentMethod.feeUnit || paymentMethod.unit || 'percent' };
 
         if (paymentMethod.currencySettings && paymentMethod.currencySettings[payCurrUpper]) {
             const s = paymentMethod.currencySettings[payCurrUpper];
-            settings.fee = parseFloat(s.fee) || 0; settings.min = parseFloat(s.min) || 0;
-            settings.max = parseFloat(s.max) || 0; settings.feeType = s.feeType || 'fee';
-            settings.feeUnit = s.feeUnit || s.unit || 'percent'; 
+            settings.fee = parseFloat(s.fee) || 0; settings.min = parseFloat(s.min) || 0; settings.max = parseFloat(s.max) || 0; settings.feeType = s.feeType || 'fee'; settings.feeUnit = s.feeUnit || s.unit || 'percent'; 
         } 
 
         const baseCurr = ((this.user.baseCurrency || this.user.base_currency || 'USD') || '').toUpperCase();
@@ -487,32 +475,21 @@ export const DataManager = {
         if (amount > 0) {
             if (settings.min > 0 && amount < settings.min) return { isValid: false, msg: `أقل مبلغ هو ${settings.min} ${payCurrUpper}`, netBase: 0, feePct: settings.fee, feeType: settings.feeType, feeUnit: settings.feeUnit };
             if (settings.max > 0 && amount > settings.max) return { isValid: false, msg: `أقصى مبلغ هو ${settings.max} ${payCurrUpper}`, netBase: 0, feePct: settings.fee, feeType: settings.feeType, feeUnit: settings.feeUnit };
-        } else {
-            return { isValid: false, msg: 'مبلغ غير صالح', netBase: 0, feePct: settings.fee, feeType: settings.feeType, feeUnit: settings.feeUnit };
-        }
+        } else { return { isValid: false, msg: 'مبلغ غير صالح', netBase: 0, feePct: settings.fee, feeType: settings.feeType, feeUnit: settings.feeUnit }; }
 
-        let feeAmount = 0;
-        if (settings.feeUnit === 'fixed' || settings.feeUnit === 'amount') {
-            feeAmount = settings.fee; 
-        } else {
-            feeAmount = amount * (settings.fee / 100); 
-        }
-
-        let netPayCurr = amount;
-        if (settings.feeType === 'bonus') netPayCurr += feeAmount;
-        else netPayCurr -= feeAmount;
-
+        let feeAmount = (settings.feeUnit === 'fixed' || settings.feeUnit === 'amount') ? settings.fee : amount * (settings.fee / 100);
+        let netPayCurr = settings.feeType === 'bonus' ? amount + feeAmount : amount - feeAmount;
         let netBase = this.convertViaUSDHelper(netPayCurr, payCurrUpper, baseCurr, 'floor', 'deposit');
-        if (isNaN(netBase) || !isFinite(netBase)) netBase = 0;
 
-        return { isValid: true, netBase: netBase, feePct: settings.fee, feeType: settings.feeType, feeUnit: settings.feeUnit, feeAmount: feeAmount };
+        return { isValid: true, netBase: isNaN(netBase) ? 0 : netBase, feePct: settings.fee, feeType: settings.feeType, feeUnit: settings.feeUnit, feeAmount: feeAmount };
     },
 
-    // 🌟 الإصلاح الجذري لدالة معالجة الإيداع (استخدام الموجه المركزي السريع)
+    // ============================================================================
+    // 💰 5. دالة الإيداع مع معالجة ذكية للأخطاء
+    // ============================================================================
     submitBalanceRequest: async function(amount, paymentMethod, payCurr, receiptData) {
         if (!paymentMethod) return { success: false, msg: 'حدث خطأ: لم يتم تحديد طريقة الدفع' };
         if (amount <= 0) return { success: false, msg: 'يرجى إدخال مبلغ صحيح ضمن الحدود المسموحة' };
-        
         if (paymentMethod.reqProof !== false && !receiptData) return { success: false, msg: 'يرجى إرفاق صورة إشعار الدفع أولاً', errType: 'receipt' };
         
         try {
@@ -520,17 +497,22 @@ export const DataManager = {
                 amount: Number(amount),
                 paymentMethodName: paymentMethod.name,
                 payCurr: payCurr,
-                receiptData: receiptData || null
+                receiptData: receiptData || null,
+                idempotencyKey: this.generateIdempotencyKey() // حماية إضافية
             };
             
-            // 🚀 استدعاء السيرفر من خلال البوابة الآمنة والمحمية بالـ Timeout
             const responseData = await StoreDB.callFunction('submitBalanceRequest', requestData);
-            
             return { success: true, msg: responseData.message || 'تم إرسال طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة' };
             
         } catch (error) {
             console.error("Store Deposit Error:", error);
-            return { success: false, msg: error.message || 'تعذر إرسال طلب الإيداع، يرجى المحاولة لاحقاً.' };
+            const code = error.code || '';
+            let finalUserMessage = 'تعذر إرسال طلب الإيداع، يرجى المحاولة لاحقاً.';
+            
+            if (code === 'already-exists') finalUserMessage = 'لديك طلب إيداع معلق مسبقاً، يرجى الانتظار لحين معالجته.';
+            else if (code === 'resource-exhausted') finalUserMessage = 'الرجاء الانتظار قليلاً قبل إرسال طلب إيداع جديد.';
+            
+            return { success: false, msg: finalUserMessage };
         }
     },
 
@@ -551,11 +533,8 @@ export const DataManager = {
         if(isNaN(numId)) return;
         
         if(!this.favs) this.favs = new Set();
-        if(this.favs.has(numId)) {
-            this.favs.delete(numId);
-        } else {
-            this.favs.add(numId);
-        }
+        if(this.favs.has(numId)) this.favs.delete(numId);
+        else this.favs.add(numId);
         this.savePrefs();
     },
 
@@ -564,6 +543,36 @@ export const DataManager = {
             const countries = await StoreDB.getAll(DB_KEYS.COUNTRIES);
             return Array.isArray(countries) ? countries : [];
         } catch (e) { return []; }
+    },
+
+    // ============================================================================
+    // 🔔 6. محرك الإشعارات المعماري الجديد (Subcollections & Real-time)
+    // ============================================================================
+    
+    // 🚀 1. مستمع حي للإشعارات الشخصية (Real-time Listener)
+    _notifUnsubscribe: null,
+    
+    listenToUserNotifications: function(renderCallback) {
+        if (!this.user || !this.user.id) return;
+
+        // إيقاف المستمع القديم إن وجد لمنع تسرب الذاكرة (Memory Leak)
+        if (this._notifUnsubscribe) {
+            this._notifUnsubscribe();
+        }
+
+        const notifPath = `telecard_users/${this.user.id}/notifications`;
+        try {
+            // الاستماع الحي للمجموعة الفرعية الخاصة بالعميل
+            this._notifUnsubscribe = StoreDB.listenCollection(notifPath, (notifs) => {
+                LiveStoreData.userNotifications = notifs || [];
+                // تحديث الواجهة فوراً بمجرد وصول إشعار جديد من السيرفر
+                if (renderCallback && typeof renderCallback === 'function') {
+                    renderCallback();
+                }
+            });
+        } catch (error) {
+            console.warn("Failed to listen to subcollection notifications:", error);
+        }
     },
 
     _isAlertForUser: function(msg, user, now, readIds = []) {
@@ -576,7 +585,7 @@ export const DataManager = {
         
         if (!isForMe) return false;
         if (msg.expiresAt && now > msg.expiresAt) return false;
-        if (readIds.includes(String(msg.id))) return false;
+        if (msg.isRead || readIds.includes(String(msg.id))) return false;
         return true;
     },
 
@@ -585,8 +594,8 @@ export const DataManager = {
         if (!user) return [];
 
         const globalAlerts = LiveStoreData.alerts || [];
-        const inboxAlerts = user.inbox || [];
-        const allAlerts = [...globalAlerts, ...inboxAlerts];
+        const personalNotifs = LiveStoreData.userNotifications || [];
+        const allAlerts = [...globalAlerts, ...personalNotifs];
 
         const readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String);
         const now = this.getNow(); 
@@ -603,23 +612,74 @@ export const DataManager = {
         }).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)); 
     },
 
-    sendPasswordResetEmail: async function(email) {
-        if (!email) return { success: false, msg: 'لا يوجد بريد إلكتروني مرتبط بالحساب.' };
-        return await StoreDB.sendResetEmail(email);
-    },
-
     getAllUserAlerts: function() {
         const user = this.user; 
         if (!user) return [];
 
         const globalAlerts = LiveStoreData.alerts || [];
-        const inboxAlerts = user.inbox || [];
-        const allAlerts = [...globalAlerts, ...inboxAlerts];
+        const personalNotifs = LiveStoreData.userNotifications || [];
+        const allAlerts = [...globalAlerts, ...personalNotifs];
         const now = this.getNow(); 
 
         return allAlerts.filter(msg => {
             return this._isAlertForUser(msg, user, now, []);
         }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    },
+
+    // 🚀 2. إصلاح دالة تحديث حالة القراءة (استخدام StoreDB.set للدمج الآمن)
+    markAlertAsRead: async function(msgId, isPopup = false, maxViews = null) {
+        if (!msgId) return;
+
+        if (isPopup && maxViews && maxViews > 1) {
+            let views = parseInt(localStorage.getItem(`alert_views_${msgId}`) || "0");
+            views++;
+            localStorage.setItem(`alert_views_${msgId}`, views.toString());
+            if (views < maxViews) return; 
+        }
+
+        const readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String);
+        if (!readIds.includes(String(msgId))) {
+            readIds.push(String(msgId));
+            localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
+        }
+
+        const isPersonal = LiveStoreData.userNotifications.some(n => String(n.id) === String(msgId));
+        if (isPersonal && this.user && this.user.id) {
+            try {
+                const notifPath = `telecard_users/${this.user.id}/notifications`;
+                // 🛑 تم الإصلاح: استخدام set للتحديث عبر merge بدلاً من دالة update غير المعرفة
+                await StoreDB.set(notifPath, msgId, { isRead: true });
+            } catch(e) { console.warn("Could not sync read status to cloud:", e); }
+        }
+    },
+
+    markAllAlertsRead: function() {
+        const allAlerts = this.getAllUserAlerts();
+        if (allAlerts.length === 0) return;
+
+        const readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String);
+
+        allAlerts.forEach(async msg => {
+            if (!readIds.includes(String(msg.id))) readIds.push(String(msg.id));
+            if (msg.type === 'popup' || msg.isPopup) {
+                localStorage.setItem(`alert_views_${msg.id}`, (msg.maxViews || 99).toString());
+            }
+            
+            if (msg.jumpTarget && this.user && this.user.id) {
+                try {
+                    const notifPath = `telecard_users/${this.user.id}/notifications`;
+                    // 🛑 تم الإصلاح: استخدام set
+                    await StoreDB.set(notifPath, msg.id, { isRead: true });
+                } catch(e) {}
+            }
+        });
+
+        localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
+    },
+
+    sendPasswordResetEmail: async function(email) {
+        if (!email) return { success: false, msg: 'لا يوجد بريد إلكتروني مرتبط بالحساب.' };
+        return await StoreDB.sendResetEmail(email);
     },
 
     // ==========================================
@@ -633,39 +693,5 @@ export const DataManager = {
         const authUser = auth?.currentUser;
         if (!authUser || !authUser.multiFactor) return false;
         return authUser.multiFactor.enrolledFactors.length > 0;
-    },
-
-    markAlertAsRead: function(msgId, isPopup = false, maxViews = null) {
-        if (!msgId) return;
-
-        if (isPopup && maxViews && maxViews > 1) {
-            let views = parseInt(localStorage.getItem(`alert_views_${msgId}`) || "0");
-            views++;
-            localStorage.setItem(`alert_views_${msgId}`, views.toString());
-            if (views < maxViews) return; 
-        }
-
-        const readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String);
-        
-        if (!readIds.includes(String(msgId))) {
-            readIds.push(String(msgId));
-            localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
-        }
-    },
-
-    markAllAlertsRead: function() {
-        const allAlerts = this.getAllUserAlerts();
-        if (allAlerts.length === 0) return;
-
-        const readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String);
-
-        allAlerts.forEach(msg => {
-            if (!readIds.includes(String(msg.id))) readIds.push(String(msg.id));
-            if (msg.type === 'popup' || msg.isPopup) {
-                localStorage.setItem(`alert_views_${msg.id}`, (msg.maxViews || 99).toString());
-            }
-        });
-
-        localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
     }
 };
