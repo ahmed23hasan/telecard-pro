@@ -225,28 +225,25 @@ toggleLoader: function(show, text = 'جاري المعالجة...') {
     },
 
     // 🌟 دالة إغلاق النوافذ الصارمة
-    closeModal: function(specificId = null) {
-        if (specificId) {
-            const modal = document.getElementById(specificId) || document.getElementById('m-' + specificId);
-            if (modal) modal.classList.remove('active');
-        } else {
-            document.querySelectorAll('.modal-overlay.active, .sys-overlay.active').forEach(overlay => overlay.classList.remove('active'));
-        }
-
-        document.body.style.overflow = ''; // إعادة تفعيل التمرير للشاشة الخلفية
-        this.tempImg = null;
-        this.tempFile = null; // 🌟 الإضافة الجديدة: تفريغ الملف عند إغلاق النافذة
-        EventBus.emit('modals-closed'); 
-        
-        // 🌟 الإصلاح الجذري 2: تمت إزالة كود التفريغ العشوائي من هنا.
-        // النظام الآن سليم ولن يمسح الحقول أبداً بشكل خاطئ!
-    },
+    // 🌟 دالة إغلاق النوافذ الصارمة والمحسنة
+closeModal: function(specificId = null) {
+    if (specificId) {
+        const modal = document.getElementById(specificId) || document.getElementById('m-' + specificId);
+        if (modal) modal.classList.remove('active');
+    } else {
+        document.querySelectorAll('.modal-overlay.active, .sys-overlay.active').forEach(overlay => overlay.classList.remove('active'));
+    }
     
-    Modal: function(id) {
-        this.openModal(id);
-    },
-
-    toggleSidebar: function() {
+    // 🌟 الإصلاح: لا نُعيد شريط التمرير للصفحة إلا إذا كانت كل النوافذ مغلقة!
+    const anyModalActive = document.querySelectorAll('.modal-overlay.active, .sys-overlay.active').length > 0;
+    if (!anyModalActive) {
+        document.body.style.overflow = '';
+    }
+    
+    this.tempImg = null;
+    this.tempFile = null;
+    EventBus.emit('modals-closed');
+},    toggleSidebar: function() {
         const sb = document.getElementById('sidebar');
         const ov = document.getElementById('sb-overlay');
         if (sb) { sb.classList.toggle('open'); sb.classList.toggle('active'); }

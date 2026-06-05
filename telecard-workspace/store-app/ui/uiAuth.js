@@ -8,6 +8,7 @@ import { Utils } from '../utils.js';
 import { DataManager, LiveStoreData } from '../dataManager.js'; 
 import { FirebaseAdapter } from '../core/firebaseAdapter.js';
 import { RenderHelpers } from '../core/renderHelpers.js';
+import { auth } from '../core/firebaseAdapter.js';
 
 const DEFAULT_AVATAR_URL = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
 
@@ -510,70 +511,97 @@ export const UIAuth = {
         }
     },
 
-    Start2FASetup: async function() {
-    const sys = getSys();
-    sys.toggleLoader?.(true, 'جاري إنشاء مفتاح آمن من جوجل...');
-    
-    try {
-        const result = await DataManager.generateTOTPSecret();
+        start2FASetup: async function() {
+        const sys = getSys();
+        sys.toggleLoader?.(true, 'جاري مزامنة بروتوكولات الأمان...');
+        
+        // 🌟 1. التحديث الصامت للتذكرة (Silent Token Refresh)
+        try {
+            if (auth && auth.currentUser) {
+                await auth.currentUser.getIdToken(true); // إجبار فايربيز على تحديث الصلاحيات فوراً
+            }
+        } catch (tokenError) {
+            console.warn("تجاوز التحديث الصامت للتذكرة:", tokenError);
+        }
 
-        if (!result.success) {
+        sys.toggleLoader?.(true, 'جاري إنشاء مفتاح آمن من جوجل...');
+        
+        try {
+            const result = await DataManager.generateTOTPSecret();
+
+            if (!result.success) {
+                sys.toggleLoader?.(false);
+                sys.showToast?.(result.msg || 'فشل في إنشاء المفتاح، يرجى المحاولة مرة أخرى.', 'error');
+                return;
+            }
+
+            this._pendingTfaSecret = result.secret;
+
+            const storeName = LiveStoreData.settings?.storeName || 'Telecard';
+            const userEmail = DataManager.user?.email || 'User';
+            
+            const qrUri = this._pendingTfaSecret.generateQrCodeUrl(userEmail, storeName);
+
+            // تحديث عناصر واجهة المستخدم
+            const manualSecretEl = document.getElementById('manual-2fa-secret');
+            if (manualSecretEl) manualSecretEl.innerText = this._pendingTfaSecret.secretKey;
+            
+            const otpInput = document.getElementById('otp-verify-input');
+            if (otpInput) otpInput.value = '';
+            
+            // إنشاء الـ QR Code محلياً
+            const qrContainer = document.getElementById('qrcode-container');
+            if (qrContainer) {
+                qrContainer.innerHTML = ''; // تفريغ الحاوية أولاً
+                
+                if (typeof QRCode !== 'undefined') {
+                    const qrDataUrl = await QRCode.toDataURL(qrUri, {
+                        color: { dark: '#111a2b', light: '#ffffff' },
+                        width: 200,
+                        margin: 1
+                    });
+                    qrContainer.innerHTML = `<img src="${qrDataUrl}" style="width: 100%; height: 100%; border-radius: 8px;" alt="2FA QR Code">`;
+                } else {
+                    // حل بديل (Fallback) في حال نسيان تضمين مكتبة QRCode في HTML
+                    const fallbackUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUri)}&color=111a2b&bgcolor=ffffff`;
+                    qrContainer.innerHTML = `<img src="${fallbackUrl}" style="width: 100%; height: 100%; border-radius: 8px;" alt="2FA QR Code">`;
+                }
+            }
+            
             sys.toggleLoader?.(false);
-            sys.showToast?.(result.msg || 'فشل في إنشاء المفتاح، يرجى المحاولة مرة أخرى.', 'error');
-            return;
-        }
-
-        this._pendingTfaSecret = result.secret;
-
-        const storeName = LiveStoreData.settings?.storeName || 'Telecard';
-        const userEmail = DataManager.user?.email || 'User';
-        
-        const qrUri = this._pendingTfaSecret.generateQrCodeUrl(userEmail, storeName);
-
-        // تحديث عناصر واجهة المستخدم
-        const manualSecretEl = document.getElementById('manual-2fa-secret');
-        if (manualSecretEl) manualSecretEl.innerText = this._pendingTfaSecret.secretKey;
-        
-        const otpInput = document.getElementById('otp-verify-input');
-        if (otpInput) otpInput.value = '';
-        
-        // إنشاء الـ QR Code محلياً (تتطلب وجود مكتبة qrcode في المشروع)
-        const qrContainer = document.getElementById('qrcode-container');
-        if (qrContainer) {
-            qrContainer.innerHTML = ''; // تفريغ الحاوية أولاً
             
-            const qrDataUrl = await QRCode.toDataURL(qrUri, {
-                color: { dark: '#111a2b', light: '#ffffff' },
-                width: 200,
-                margin: 1
-            });
-            
-            qrContainer.innerHTML = `<img src="${qrDataUrl}" style="width: 100%; height: 100%; border-radius: 8px;" alt="2FA QR Code">`;
-        }
-        
-        sys.toggleLoader?.(false);
-        
-        // فتح نافذة الإعداد لتنزلق للأعلى
-        if (typeof sys.openModal === 'function') {
-            sys.openModal('setup-2fa');
-        } else if (typeof this.openModal === 'function') {
-            this.openModal('setup-2fa');
-        }
+            // 🌟 2. الحل الاحترافي لتداخل النوافذ (Modal Stacking)
+            if (typeof this.closeSecurityModal === 'function') {
+                this.closeSecurityModal(); // إغلاق نافذة الأمان أولاً
+            } else if (typeof sys.closeModal === 'function') {
+                sys.closeModal('security');
+            }
 
-    } catch (error) {
-        console.error('2FA Setup Error:', error);
-        sys.toggleLoader?.(false);
-        sys.showToast?.('حدث خطأ في الاتصال، يرجى المحاولة لاحقاً.', 'error');
-    }
-},
+            // انتظار 150 ملي ثانية لانتهاء حركة الإغلاق، ثم فتح نافذة الباركود
+            setTimeout(() => {
+                if (typeof sys.openModal === 'function') {
+                    sys.openModal('setup-2fa');
+                } else if (typeof this.openModal === 'function') {
+                    this.openModal('setup-2fa');
+                }
+            }, 150);
+
+        } catch (error) {
+            console.error('2FA Setup Error:', error);
+            sys.toggleLoader?.(false);
+            sys.showToast?.('حدث خطأ في الاتصال، يرجى المحاولة لاحقاً.', 'error');
+        }
+    },
+
     verifyAndEnable2FA: async function() {
         if (!this._pendingTfaSecret) return;
 
+        const sys = getSys();
         const input = document.getElementById('otp-verify-input');
         const code = input ? input.value.trim() : '';
         
         if (code.length !== 6) {
-            getSys().showToast?.('يرجى إدخال 6 أرقام كاملة', 'error');
+            sys.showToast?.('يرجى إدخال 6 أرقام كاملة', 'error');
             return;
         }
         
@@ -593,13 +621,22 @@ export const UIAuth = {
         
         if (result.success) {
             this._pendingTfaSecret = null; 
-            getSys().closeModal?.('setup-2fa');
-            getSys().showToast?.('تم تفعيل المصادقة الثنائية بنجاح 🛡️', 'success');
-            getSys().sfx?.('success');
-            this.openSecurityModal(); 
+            sys.closeModal?.('setup-2fa');
+            sys.showToast?.('تم تفعيل المصادقة الثنائية بنجاح 🛡️', 'success');
+            sys.sfx?.('success');
+            
+            // العودة التلقائية لنافذة الأمان بعد النجاح
+            setTimeout(() => {
+                if (typeof this.openSecurityModal === 'function') {
+                    this.openSecurityModal();
+                } else if (typeof sys.openModal === 'function') {
+                    sys.openModal('security');
+                }
+            }, 150);
+            
         } else {
-            getSys().showToast?.(result.msg, 'error');
-            getSys().sfx?.('error');
+            sys.showToast?.(result.msg, 'error');
+            sys.sfx?.('error');
             if (input) {
                 input.classList.add('input-error');
                 setTimeout(() => input.classList.remove('input-error'), 1000);

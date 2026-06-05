@@ -485,59 +485,59 @@ exports.adminAdjustBalance = functions.region('us-east1').https.onCall(async (da
 // 📊 المحرك المركزي لحساب الإحصائيات الشاملة 
 // ==========================================
 const performStatsRecalculation = async () => {
-    const [ordersSnap, depositsSnap] = await Promise.all([
-        db.collection('telecard_orders').get(),
-        db.collection('telecard_deposits').get()
+    // 🚀 استخدام تقنية التجميع السحابية (تستهلك 0% من الذاكرة وتكلف قراءة واحدة فقط)
+    const AggregateField = admin.firestore.AggregateField;
+    
+    const ordersRef = db.collection('telecard_orders');
+    const depositsRef = db.collection('telecard_deposits');
+    
+    // تنفيذ جميع العمليات الحسابية بشكل متوازي (صاروخي) داخل محرك قاعدة البيانات
+    const [
+        ordersTotal, ordersCompleted, ordersRejected, ordersRefunded,
+        financials,
+        depTotal, depApproved, depRejected, depRefunded
+    ] = await Promise.all([
+        ordersRef.count().get(),
+        ordersRef.where('status', '==', 'completed').count().get(),
+        ordersRef.where('status', '==', 'rejected').count().get(),
+        ordersRef.where('status', '==', 'refunded').count().get(),
+        
+        // 💰 جمع الأموال مباشرة داخل قاعدة البيانات بدون جلبها للسيرفر
+        ordersRef.where('status', '==', 'completed').aggregate({
+            revenue: AggregateField.sum('price'),
+            cost: AggregateField.sum('pricingSnapshot.costUsd'),
+            profit: AggregateField.sum('pricingSnapshot.netProfitUsd')
+        }).get(),
+        
+        depositsRef.count().get(),
+        depositsRef.where('status', '==', 'approved').count().get(),
+        depositsRef.where('status', '==', 'rejected').count().get(),
+        depositsRef.where('status', '==', 'refunded').count().get()
     ]);
-
+    
     const globalStats = {
-        financials: { totalRevenue: 0, totalProfit: 0, totalCost: 0 },
-        orders: { total: 0, completed: 0, rejected: 0, refunded: 0 },
-        deposits: { total: 0, approved: 0, rejected: 0, refunded: 0 },
-        daily: {} 
+        financials: {
+            totalRevenue: Number((financials.data().revenue || 0).toFixed(4)),
+            totalCost: Number((financials.data().cost || 0).toFixed(4)),
+            totalProfit: Number((financials.data().profit || 0).toFixed(4))
+        },
+        orders: {
+            total: ordersTotal.data().count,
+            completed: ordersCompleted.data().count,
+            rejected: ordersRejected.data().count,
+            refunded: ordersRefunded.data().count
+        },
+        deposits: {
+            total: depTotal.data().count,
+            approved: depApproved.data().count,
+            rejected: depRejected.data().count,
+            refunded: depRefunded.data().count
+        },
+        daily: {}
     };
-
-    ordersSnap.forEach(doc => {
-        const o = doc.data();
-        globalStats.orders.total++;
-        if (o.status === 'completed') {
-            globalStats.orders.completed++;
-            const priceUsd = Number(o.price || 0);
-            const costUsd = o.pricingSnapshot ? Number(o.pricingSnapshot.costUsd || 0) : 0;
-            const profitUsd = o.pricingSnapshot ? Number(o.pricingSnapshot.netProfitUsd || 0) : 0;
-
-            globalStats.financials.totalRevenue = safeAdd(globalStats.financials.totalRevenue, priceUsd);
-            globalStats.financials.totalCost = safeAdd(globalStats.financials.totalCost, costUsd);
-            globalStats.financials.totalProfit = safeAdd(globalStats.financials.totalProfit, profitUsd);
-        } else if (o.status === 'rejected') {
-            globalStats.orders.rejected++;
-        } else if (o.status === 'refunded' || o.status === 'returned') {
-            globalStats.orders.refunded++;
-        }
-    });
-
-    depositsSnap.forEach(doc => {
-        const d = doc.data();
-        globalStats.deposits.total++;
-        if (d.status === 'approved') globalStats.deposits.approved++;
-        else if (d.status === 'rejected') globalStats.deposits.rejected++;
-        else if (d.status === 'refunded') globalStats.deposits.refunded++;
-    });
-
+    
     await db.collection('telecard_system').doc('singleton').set({ globalStats: globalStats }, { merge: true });
 };
-
-// ⏱️ دالة الاستدعاء اليدوي من الإدارة
-exports.calculateStoreStatsCloud = functions.region('us-east1').https.onCall(async (data, context) => {
-    if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح.');
-    try {
-        await performStatsRecalculation();
-        return { success: true, message: 'تم إعادة بناء الإحصائيات المركزية بنجاح.' };
-    } catch (error) {
-        throw new functions.https.HttpsError('internal', 'فشل حساب الإحصائيات.');
-    }
-});
-
 // ⏳ المحرك الآلي (Cron Job) - يحل مشكلة الـ Hotspotting تماماً
 exports.scheduledStatsAggregation = functions.region('us-east1').pubsub.schedule('every 1 hours').onRun(async (context) => {
     try {
@@ -551,7 +551,18 @@ exports.scheduledStatsAggregation = functions.region('us-east1').pubsub.schedule
 exports.getServerTime = functions.region('us-east1').https.onCall((data, context) => {
     return { success: true, serverTime: Date.now() };
 });
-
+// ⏱️ دالة الاستدعاء اليدوي من الإدارة (تمت استعادتها وتحديثها)
+exports.calculateStoreStatsCloud = functions.region('us-east1').https.onCall(async (data, context) => {
+    if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح.');
+    try {
+        await performStatsRecalculation();
+        return { success: true, message: 'تم إعادة بناء الإحصائيات المركزية بنجاح.' };
+    } catch (error) {
+        // طباعة الخطأ الحقيقي في سيرفرات جوجل وإرساله للواجهة
+        console.error("🔥 CRITICAL STATS ERROR:", error);
+        throw new functions.https.HttpsError('internal', `فشل السيرفر: ${error.message}`);
+    }
+});
 // ==========================================
 // 🛡️ 6. المزامنة الآمنة للمنتجات (Data Sanitizer)
 // ==========================================

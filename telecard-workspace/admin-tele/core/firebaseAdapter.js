@@ -1,7 +1,7 @@
 // ============================================================================
 // ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Version
 // 🎯 الوظيفة: بوابة البيانات المستقلة للتحقق الآمن من هوية المشرفين وإدارتهم
-// 🚀 التحديث: تفعيل السرعة القصوى (WebSockets) وإلغاء القيود البطيئة
+// 🚀 التحديث: تفعيل الدوال السحابية (Cloud Functions) وتوجيه النطاق الجغرافي
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -10,6 +10,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+// 🌟 الإضافة الجذرية 1: استيراد مكتبة الدوال السحابية
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
 // 🔑 مفاتيح الربط الخاصة بمتجر Telecard 
 const firebaseConfig = {
@@ -28,12 +30,15 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app); 
+// 🌟 الإضافة الجذرية 2: توجيه كل الاتصالات إلى سيرفر us-east1 لحل مشكلة CORS نهائياً
+const functions = getFunctions(app, 'us-east1');
 
-export { auth, db, storage };
+export { auth, db, storage, functions };
 
 export const FirebaseAdapter = {
     db: db,
     storage: storage,
+    functions: functions,
 
     // ==========================================
     // 🛡️ [الدرع الثاني]: الحماية من التعليق الأبدي
@@ -203,6 +208,29 @@ export const FirebaseAdapter = {
             console.log(`🗑️ تم تنظيف السحابة: مسح الصورة نهائياً (${url})`);
         } catch (error) {
             console.warn("⚠️ تنظيف السحابة: الصورة المراد حذفها لم تعد موجودة", error.message);
+        }
+    },
+
+    // ==========================================
+    // ⚡ 12. الموجه المركزي للاتصال بالسيرفر (Cloud Functions Gateway)
+    // ==========================================
+    async callFunction(functionName, payload = {}) {
+        try {
+            console.log(`🚀 جاري الاتصال بالسيرفر لاستدعاء [${functionName}]...`);
+            const targetFunction = httpsCallable(functions, functionName);
+            
+            // إضافة مهلة 15 ثانية لمنع تعليق النظام
+            const result = await this._withTimeout(
+                targetFunction(payload), 
+                15000, 
+                `Cloud Function -> ${functionName}`
+            );
+            return result.data;
+        } catch (error) {
+            // استخراج رسالة الخطأ الحقيقية
+            const errorMessage = error.message || 'فشل الاتصال بالسيرفر أو انتهت المهلة.';
+            console.error(`🚨 خطأ في السيرفر أثناء استدعاء [${functionName}]:`, errorMessage);
+            throw new Error(errorMessage);
         }
     }
 };

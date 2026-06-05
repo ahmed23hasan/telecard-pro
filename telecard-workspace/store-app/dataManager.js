@@ -1,17 +1,15 @@
 // ============================================================================
 // 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Client Safe)
 // 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث: إغلاق ثغرة الجلسات الشبحية + تهيئة المؤشرات + محرك التسعير النظيف + علم المزامنة + حماية تغيير المرور
+// 🚀 التحديث: دمج البوابة السحابية الموحدة (Adapter) + إغلاق الثغرات + محرك التسعير
 // ============================================================================
 
-import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 // 🌟 استيراد دالة تسجيل الخروج الرسمية والآمنة لفايربيز
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
 
 import { DB_KEYS, ACTIVE_USER_KEY } from './config.js';
 import { Utils } from './utils.js';
-// 🌟 استيراد auth لمعالجة تسجيل الخروج بشكل آمن
+// 🌟 استيراد محول فايربيز المركزي (البوابة الموحدة)
 import { FirebaseAdapter, auth } from './core/firebaseAdapter.js'; 
 import { RenderHelpers } from './core/renderHelpers.js'; 
 
@@ -21,7 +19,7 @@ export const LiveStoreData = {
     cats: [], prods: [], settings: {}, banners: [], users: [], 
     orders: [], deposits: [], payments: [], tiers: [], rates: [],
     vault: [], coupons: [], offers: [], alerts: [],
-    isInitialSyncDone: false // 🌟 علم التحميل الأولي لمنع الومضات السوداء (شاشة المتجر فارغ)
+    isInitialSyncDone: false // 🌟 علم التحميل الأولي لمنع الومضات السوداء
 };
 
 export const DataManager = {
@@ -39,12 +37,6 @@ export const DataManager = {
     currentProd: null, currentPayment: null, currentPayCurrency: null,
     currentReceiptData: null, appliedCoupon: null,
 
-    _getCloudFunction: function(functionName) {
-        const app = getApp();
-        const functions = getFunctions(app, 'us-east1');
-        return httpsCallable(functions, functionName);
-    },
-
     // =========================================================
     // 💾 حفظ كاش بيانات العميل الأساسية محلياً
     // =========================================================
@@ -52,11 +44,7 @@ export const DataManager = {
         if (!this.user) return;
         try {
             const liteUser = { ...this.user };
-            
-            // 🌟 الإصلاح المعماري: أزلنا مسح الصورة الشخصية (img) لأنها مجرد رابط نصي خفيف جداً
-            // نبقي فقط على مسح مستندات التوثيق الثقيلة (kycData) لحماية سعة الذاكرة المحلية
-            delete liteUser.kycData;
-            
+            delete liteUser.kycData; // 🌟 حماية مساحة الكاش المحلي
             localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(liteUser));
         } catch (e) { console.error('Storage Quota Error in saveUserLocal:', e); }
     },
@@ -167,7 +155,7 @@ export const DataManager = {
     },
 
     // ============================================================================
-    // 🧮 4. المحرك الموحد للتسعير (يعتمد على المحرك النظيف الخالي من التكلفة)
+    // 🧮 4. المحرك الموحد للتسعير
     // ============================================================================
     calculateFinalPrice: function(prod, user, qty, optIdx, appliedCoupon) {
         let q = Math.max(1, Number(qty) || 1);
@@ -311,16 +299,14 @@ export const DataManager = {
     // 🌟 دالة تسجيل الخروج المحمية 100%
     logout: async function() {
         try {
-            // تسجيل الخروج الرسمي والآمن من سيرفرات فايربيز لإنهاء الجلسة تماماً وحماية الحساب
             if (auth) {
                 await signOut(auth);
             }
             
-            // تنظيف الكاش والذاكرة المحلية بالكامل
             localStorage.removeItem('telecard_active_user_uid');
             localStorage.removeItem(ACTIVE_USER_KEY);
             localStorage.removeItem('telecard_display_currency');
-            localStorage.removeItem('telecard_store_cache'); // مسح كاش المتجر لمزيد من الأمان
+            localStorage.removeItem('telecard_store_cache');
         } catch(e) { 
             console.warn('logout cleanup error', e); 
         }
@@ -336,19 +322,15 @@ export const DataManager = {
         
         let me = null;
         if (activeUid) {
-            // 1. محاولة جلب العميل من مستمع السحابة الحي (المرجع الأساسي)
             const foundUser = users.find(u => String(u.id) === String(activeUid));
             if (foundUser) {
                 me = { ...foundUser };
             } else {
-                // 🌟 2. [التخزين المؤقت المتفائل]: نقرأ من الكاش المحلي فوراً
                 const savedUserRaw = localStorage.getItem(ACTIVE_USER_KEY);
                 if (savedUserRaw) {
                     try {
                         const parsed = JSON.parse(savedUserRaw);
-                        if (String(parsed.id) === String(activeUid)) {
-                            me = parsed;
-                        }
+                        if (String(parsed.id) === String(activeUid)) me = parsed;
                     } catch (e) {}
                 }
             }
@@ -360,9 +342,7 @@ export const DataManager = {
             if (users.length > 0 && isSystemBooted) {
                 this.logout();
                 return false;
-            } else {
-                return true;
-            }
+            } else { return true; }
         }
         
         if (me) {
@@ -383,10 +363,7 @@ export const DataManager = {
             this.user = me;
             this.saveUserLocal();
         } else {
-            // 🌟 3. لا نقوم بتصفير المستخدم إلا إذا قام فعلياً بالضغط على "تسجيل الخروج"
-            if (!activeUid) {
-                this.user = null;
-            }
+            if (!activeUid) this.user = null;
         }
         
         const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ? LiveStoreData.settings.defaultCurrency : 'USD';
@@ -415,7 +392,6 @@ export const DataManager = {
         this.user.totalDeposit = Number(this.user.totalDeposit || 0);
     },
 
-    // 🌟 [الدالة التي كانت مفقودة] - نظام تغيير كلمة المرور الآمن
     submitPasswordChange: async function(currentVal, newVal, confirmVal) {
         if (!newVal || newVal.length < 6) return { success: false, msg: 'الرجاء إدخال كلمة مرور لا تقل عن 6 أحرف.' };
         if (newVal !== confirmVal) return { success: false, msg: 'كلمتا المرور غير متطابقتين.' };
@@ -443,23 +419,20 @@ export const DataManager = {
                 changeHistory.push(now);
                 await this.updateUserProfile({
                     passwordChangeHistory: changeHistory,
-                    pass: null // تنظيف أمني
+                    pass: null 
                 });
                 return { success: true, msg: 'تم تحديث كلمة المرور بنجاح وحماية حسابك.' };
-            } else {
-                return { success: false, msg: result.msg };
-            }
+            } else { return { success: false, msg: result.msg }; }
         } catch (e) {
             return { success: false, msg: 'تعذر الاتصال بالسيرفر، يرجى المحاولة لاحقاً.' };
         }
     },
 
+    // 🌟 الإصلاح الجذري لدالة معالجة الطلب (استخدام الموجه المركزي السريع)
     confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
 
         try {
-            const createOrderFn = this._getCloudFunction('createOrder');
-            
             const requestData = {
                 productId: String(prod.id),
                 qty: Number(qty) || 1,
@@ -468,8 +441,8 @@ export const DataManager = {
                 couponCode: appliedCoupon ? appliedCoupon.code : null
             };
 
-            const result = await createOrderFn(requestData);
-            const responseData = result.data;
+            // 🚀 استدعاء السيرفر من خلال البوابة الآمنة والمحمية بالـ Timeout
+            const responseData = await StoreDB.callFunction('createOrder', requestData);
 
             return {
                 success: true,
@@ -479,17 +452,12 @@ export const DataManager = {
             };
 
         } catch (error) {
-            console.error("Cloud Function Error (createOrder):", error);
-            let finalUserMessage = 'حدث خطأ أثناء معالجة الطلب، يرجى المحاولة لاحقاً.';
+            console.error("Store Order Error:", error);
+            let finalUserMessage = error.message || 'حدث خطأ أثناء معالجة الطلب، يرجى المحاولة لاحقاً.';
             
-            if (error.details) {
-                finalUserMessage = error.details;
-            } else if (error.message) {
-                if (error.message.toLowerCase().includes('internal') || error.message.toLowerCase().includes('functions/')) {
-                    finalUserMessage = 'رصيدك غير كافٍ ، يرجى إيداع رصيد أولاً لإتمام العملية.';
-                } else {
-                    finalUserMessage = error.message;
-                }
+            // ترجمة الخطأ الفني (إن وُجد) إلى لغة يقرؤها العميل
+            if (finalUserMessage.toLowerCase().includes('internal') || finalUserMessage.toLowerCase().includes('functions/')) {
+                finalUserMessage = 'رصيدك غير كافٍ ، يرجى إيداع رصيد أولاً لإتمام العملية.';
             }
 
             return { success: false, msg: finalUserMessage };
@@ -540,6 +508,7 @@ export const DataManager = {
         return { isValid: true, netBase: netBase, feePct: settings.fee, feeType: settings.feeType, feeUnit: settings.feeUnit, feeAmount: feeAmount };
     },
 
+    // 🌟 الإصلاح الجذري لدالة معالجة الإيداع (استخدام الموجه المركزي السريع)
     submitBalanceRequest: async function(amount, paymentMethod, payCurr, receiptData) {
         if (!paymentMethod) return { success: false, msg: 'حدث خطأ: لم يتم تحديد طريقة الدفع' };
         if (amount <= 0) return { success: false, msg: 'يرجى إدخال مبلغ صحيح ضمن الحدود المسموحة' };
@@ -547,8 +516,6 @@ export const DataManager = {
         if (paymentMethod.reqProof !== false && !receiptData) return { success: false, msg: 'يرجى إرفاق صورة إشعار الدفع أولاً', errType: 'receipt' };
         
         try {
-            const submitDepositFn = this._getCloudFunction('submitBalanceRequest');
-            
             const requestData = {
                 amount: Number(amount),
                 paymentMethodName: paymentMethod.name,
@@ -556,11 +523,13 @@ export const DataManager = {
                 receiptData: receiptData || null
             };
             
-            const result = await submitDepositFn(requestData);
-            return { success: true, msg: result.data.message || 'تم إرسال طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة' };
+            // 🚀 استدعاء السيرفر من خلال البوابة الآمنة والمحمية بالـ Timeout
+            const responseData = await StoreDB.callFunction('submitBalanceRequest', requestData);
+            
+            return { success: true, msg: responseData.message || 'تم إرسال طلب الإيداع بنجاح، يرجى الانتظار لحين المراجعة' };
             
         } catch (error) {
-            console.error("Cloud Function Error (submitBalanceRequest):", error);
+            console.error("Store Deposit Error:", error);
             return { success: false, msg: error.message || 'تعذر إرسال طلب الإيداع، يرجى المحاولة لاحقاً.' };
         }
     },
@@ -656,17 +625,9 @@ export const DataManager = {
     // ==========================================
     // 🛡️ جسور المصادقة الثنائية (2FA / TOTP)
     // ==========================================
-    generateTOTPSecret: async function() {
-        return await StoreDB.generateTOTPSecret();
-    },
-    
-    enrollTOTP: async function(secret, code) {
-        return await StoreDB.enrollTOTP(secret, code);
-    },
-        
-    unenrollMFA: async function() {
-        return await StoreDB.unenrollMFA();
-    },
+    generateTOTPSecret: async function() { return await StoreDB.generateTOTPSecret(); },
+    enrollTOTP: async function(secret, code) { return await StoreDB.enrollTOTP(secret, code); },
+    unenrollMFA: async function() { return await StoreDB.unenrollMFA(); },
             
     is2FAEnabled: function() {
         const authUser = auth?.currentUser;

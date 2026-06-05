@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version
-// 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth
-// 🌟 التحديث: تفعيل الاتصال السريع + التشفير الأمني لكلمات المرور + المصادقة الثنائية 2FA
+// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version (Store App)
+// 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth & Functions
+// 🌟 التحديث: تفعيل دوال السيرفر (us-east1) + التشفير الأمني + المصادقة الثنائية 2FA
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -22,6 +22,9 @@ import {
 
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
+// 🌟 الإضافة الجذرية: استيراد مكتبة الدوال السحابية لمتجر العملاء
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
+
 // 🔑 مفاتيح الربط الخاصة بمتجر Telecard 
 const firebaseConfig = {
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
@@ -39,12 +42,15 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app); 
+// 🌟 توجيه كل اتصالات العملاء إلى سيرفر us-east1 لحل مشكلة CORS
+const functions = getFunctions(app, 'us-east1');
 
-export { auth, db, storage };
+export { auth, db, storage, functions };
 
 export const FirebaseAdapter = {
     db: db,
     storage: storage,
+    functions: functions,
 
     // ==========================================
     // 🛡️ [الدرع الثاني]: الحماية من التعليق الأبدي (Timeout Wrapper)
@@ -360,6 +366,29 @@ export const FirebaseAdapter = {
         } catch (error) {
             console.error("Unenroll 2FA Error:", error);
             return { success: false, msg: 'تعذر إيقاف المصادقة.' };
+        }
+    },
+
+    // ==========================================
+    // ⚡ 16. الموجه المركزي للاتصال بالسيرفر (Cloud Functions Gateway)
+    // ==========================================
+    async callFunction(functionName, payload = {}) {
+        try {
+            console.log(`🚀 جاري الاتصال بالسيرفر لاستدعاء [${functionName}]...`);
+            const targetFunction = httpsCallable(functions, functionName);
+            
+            // إضافة مهلة 15 ثانية لمنع تعليق واجهة العميل
+            const result = await this._withTimeout(
+                targetFunction(payload), 
+                15000, 
+                `Cloud Function -> ${functionName}`
+            );
+            return result.data;
+        } catch (error) {
+            // استخراج رسالة الخطأ الحقيقية
+            const errorMessage = error.message || 'فشل الاتصال بالسيرفر أو انتهت المهلة.';
+            console.error(`🚨 خطأ في السيرفر أثناء استدعاء [${functionName}]:`, errorMessage);
+            throw new Error(errorMessage);
         }
     }
 };
