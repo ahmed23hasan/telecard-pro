@@ -510,14 +510,16 @@ export const UIAuth = {
         }
     },
 
-    start2FASetup: async function() {
-        getSys().toggleLoader?.(true, 'جاري إنشاء مفتاح آمن من جوجل...');
-        
+    Start2FASetup: async function() {
+    const sys = getSys();
+    sys.toggleLoader?.(true, 'جاري إنشاء مفتاح آمن من جوجل...');
+    
+    try {
         const result = await DataManager.generateTOTPSecret();
-        getSys().toggleLoader?.(false);
 
         if (!result.success) {
-            getSys().showToast?.(result.msg, 'error');
+            sys.toggleLoader?.(false);
+            sys.showToast?.(result.msg || 'فشل في إنشاء المفتاح، يرجى المحاولة مرة أخرى.', 'error');
             return;
         }
 
@@ -527,22 +529,43 @@ export const UIAuth = {
         const userEmail = DataManager.user?.email || 'User';
         
         const qrUri = this._pendingTfaSecret.generateQrCodeUrl(userEmail, storeName);
-        const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUri)}&color=111a2b&bgcolor=ffffff`;
 
+        // تحديث عناصر واجهة المستخدم
         const manualSecretEl = document.getElementById('manual-2fa-secret');
         if (manualSecretEl) manualSecretEl.innerText = this._pendingTfaSecret.secretKey;
         
         const otpInput = document.getElementById('otp-verify-input');
         if (otpInput) otpInput.value = '';
         
+        // إنشاء الـ QR Code محلياً (تتطلب وجود مكتبة qrcode في المشروع)
         const qrContainer = document.getElementById('qrcode-container');
         if (qrContainer) {
-            qrContainer.innerHTML = `<img src="${qrImageUrl}" style="width: 100%; height: 100%; border-radius: 8px;">`;
+            qrContainer.innerHTML = ''; // تفريغ الحاوية أولاً
+            
+            const qrDataUrl = await QRCode.toDataURL(qrUri, {
+                color: { dark: '#111a2b', light: '#ffffff' },
+                width: 200,
+                margin: 1
+            });
+            
+            qrContainer.innerHTML = `<img src="${qrDataUrl}" style="width: 100%; height: 100%; border-radius: 8px;" alt="2FA QR Code">`;
         }
         
-        getSys().openModal?.('setup-2fa');
-    },
+        sys.toggleLoader?.(false);
+        
+        // فتح نافذة الإعداد لتنزلق للأعلى
+        if (typeof sys.openModal === 'function') {
+            sys.openModal('setup-2fa');
+        } else if (typeof this.openModal === 'function') {
+            this.openModal('setup-2fa');
+        }
 
+    } catch (error) {
+        console.error('2FA Setup Error:', error);
+        sys.toggleLoader?.(false);
+        sys.showToast?.('حدث خطأ في الاتصال، يرجى المحاولة لاحقاً.', 'error');
+    }
+},
     verifyAndEnable2FA: async function() {
         if (!this._pendingTfaSecret) return;
 
