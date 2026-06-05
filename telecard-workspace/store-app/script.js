@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 المحرك الرئيسي للمتجر (script.js) - النسخة المدرعة للإنتاج V5
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: دمج نظام الربط التفاعلي للإشعارات + اعتراض البصمة الحيوية + تفويض مركزي آمن
+// 🚀 التحديث: دمج نظام الربط التفاعلي للإشعارات + البصمة الحيوية + تفويض مركزي شامل
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
@@ -120,6 +120,22 @@ const ClientSystem = {
             if (action === 'upload-avatar' && typeof this.handleAvatarChange === 'function') this.handleAvatarChange(e);
         });
 
+        // 🌟 التعامل مع الكتابة المباشرة (Input Events) لحقول البحث والكوبونات
+        document.addEventListener('input', (e) => {
+            const target = e.target;
+            const action = target.getAttribute('data-action');
+            
+            // 1. فلترة الدول أثناء الكتابة
+            if (action === 'filter-countries' && typeof this.filterCountries === 'function') {
+                this.filterCountries(target.value);
+            }
+            
+            // 2. التحقق من حالة حقل الكوبون أثناء الكتابة
+            if (action === 'check-coupon-state' && typeof this.checkInputState === 'function') {
+                this.checkInputState();
+            }
+        });
+
         document.addEventListener('click', (e) => {
             const packageWrapper = document.getElementById('pkg-custom-dropdown');
             if (packageWrapper && packageWrapper.classList.contains('open') && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
@@ -155,10 +171,13 @@ const ClientSystem = {
             const dataTarget = target.getAttribute('data-target');
             const dataText = target.getAttribute('data-text');
 
-            target.blur();
+            // 🌟 إصلاح الكيبورد: إزالة التركيز عن الأزرار فقط، واستثناء حقول الإدخال
+            if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && target.tagName !== 'SELECT') {
+                target.blur();
+            }
 
             // 🎵 تشغيل الصوت الافتراضي للتنقلات
-            const sfxActions = ['open-sidebar', 'open-notif-center', 'nav-home', 'nav-deposit', 'nav-payments', 'nav-orders', 'open-community', 'open-security-modal', 'nav-settings', 'open-rating', 'open-terms', 'open-support', 'logout', 'store-search-btn', 'render-orders', 'render-wallet', 'render-payments'];
+  const sfxActions = ['open-sidebar', 'open-notif-center', 'nav-home', 'nav-deposit', 'nav-payments', 'nav-orders', 'open-community', 'open-security-modal', 'nav-settings', 'open-rating', 'open-terms', 'open-support', 'logout', 'store-search-btn', 'render-orders', 'render-wallet', 'render-payments'];
             if (sfxActions.includes(action) && typeof this.sfx === 'function') this.sfx('nav');
 
             switch (action) {
