@@ -1,7 +1,7 @@
 // ============================================================================
 // ⚙️ وحدة الأساسيات والنواة (uiCore.js) - ES6 Module
 // 🎯 الوظيفة: النوافذ، الإشعارات، القائمة الجانبية، النسخ، الثيم، والتوجيه العام
-// 🚀 التحديث: كود نظيف 100%، خالي من التكرار، مع نظام المفضلة السحري
+// 🚀 التحديث: كود نظيف 100%، خالي من التكرار، + نافذة الطرد المباشر (Live Ban Terminator)
 // ============================================================================
 
 import { DB_KEYS } from '../config.js';           
@@ -25,6 +25,32 @@ export const UICore = {
     navHistory: [],
     currentCategoryId: null,
     historyStateSet: false,
+
+    // =========================================================
+    // 🚨 0. نافذة الطرد المباشر (Live Session Terminator)
+    // =========================================================
+    triggerLiveBanAlert: function(reasonMessage) {
+        const overlay = document.getElementById('global-security-alert');
+        const msgEl = document.getElementById('global-alert-msg');
+        
+        if (overlay) {
+            if (msgEl && reasonMessage) msgEl.textContent = reasonMessage;
+            
+            // 1. إغلاق أي نافذة أو قائمة مفتوحة لمنع العميل من القيام بأي فعل
+            this.closeAllModals();
+            this.closeSidebar();
+            
+            // 2. إظهار نافذة الطرد الحمراء
+            overlay.classList.add('active');
+            
+            // 3. تشغيل صوت الخطأ/الإنذار
+            getSys().sfx?.('error');
+            
+            // 4. تجميد الواجهة بالكامل (Bank-Grade Freeze)
+            document.body.style.overflow = 'hidden';
+            document.body.style.pointerEvents = 'none';
+        }
+    },
 
     // =========================================================
     // 🌗 1. دوال الثيم والهوية البصرية (Theme & Identity)
@@ -410,40 +436,37 @@ export const UICore = {
     navigateHome: function() { this.closeSidebar(); if(RenderManager.renderHome) RenderManager.renderHome(); },
     
     openFavorites: function() {
-    if (!DataManager || !DataManager.user) {
-        getSys().showToast?.('يجب تسجيل الدخول لعرض مفضلتك', 'error');
-        getSys().sfx?.('error');
-        setTimeout(() => { window.location.href = 'login.html'; }, 1500);
-        return;
-    }
-    
-    // 🌟 [الإصلاح الجذري]: فحص هل نحن داخل المفضلة بالفعل؟
-    const currentTitle = document.getElementById('grid-title')?.innerText?.trim();
-    if (currentTitle === 'المفضلة') {
-        // إذا كنا في المفضلة: نغلق القائمة الجانبية (لو كانت مفتوحة) ونرفع العميل لأعلى الشاشة بنعومة دون أي إعادة رسم!
-        this.closeSidebar();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return; // 🛑 نوقف الدالة هنا لمنع الوميض الأسود وإعادة الرسم العبثية
-    }
-    
-    // --- إذا لم نكن في المفضلة، يتم تنفيذ الانتقال الطبيعي ---
-    this.closeSidebar();
-    this.resetUI();
-    this.currentCategoryId = null;
-    
-    const grid = document.getElementById('store-grid');
-    if (grid) {
-        grid.style.transition = 'opacity 0.2s ease';
-        grid.style.opacity = '0';
+        if (!DataManager || !DataManager.user) {
+            getSys().showToast?.('يجب تسجيل الدخول لعرض مفضلتك', 'error');
+            getSys().sfx?.('error');
+            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+            return;
+        }
         
-        setTimeout(() => {
+        const currentTitle = document.getElementById('grid-title')?.innerText?.trim();
+        if (currentTitle === 'المفضلة') {
+            this.closeSidebar();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            return; 
+        }
+        
+        this.closeSidebar();
+        this.resetUI();
+        this.currentCategoryId = null;
+        
+        const grid = document.getElementById('store-grid');
+        if (grid) {
+            grid.style.transition = 'opacity 0.2s ease';
+            grid.style.opacity = '0';
+            
+            setTimeout(() => {
+                if (RenderManager.renderFavorites) RenderManager.renderFavorites();
+                grid.style.opacity = '1';
+            }, 200);
+        } else {
             if (RenderManager.renderFavorites) RenderManager.renderFavorites();
-            grid.style.opacity = '1';
-        }, 200);
-    } else {
-        if (RenderManager.renderFavorites) RenderManager.renderFavorites();
-    }
-},
+        }
+    },
     navigateBalance: function() { this.closeSidebar(); getSys().openAddBalance?.(); },
     navigateMyPayments: function() { this.closeSidebar(); getSys().openMyPayments?.(); },
     navigateOrders: function() { this.closeSidebar(); getSys().openOrders?.(); },
@@ -1530,7 +1553,6 @@ copyToClipboard: function(text, element, type = 'default') {
         
         const headerHeart = document.getElementById('sticky-fav-btn');
         
-        // 🌟 [الإصلاح الجذري 1]: استهداف كرت المنتج وصورته برمجياً عبر الـ ID بدلاً من e.currentTarget الخادع!
         const productCard = document.querySelector(`.product-card[data-id="${productId}"]`);
         const imgBox = productCard ? productCard.querySelector('.card-image') : null;
         
@@ -1551,7 +1573,6 @@ copyToClipboard: function(text, element, type = 'default') {
         getSys().showToast?.('تمت إضافة المنتج للمفضلة', 'success');
         getSys().sfx?.('success');
         
-        // 🌟 [الإصلاح الجذري 2]: أخذ إحداثيات انطلاق القلب من منتصف صورة المنتج تماماً
         let startX = window.innerWidth / 2;
         let startY = window.innerHeight / 2;
         
@@ -1594,91 +1615,89 @@ copyToClipboard: function(text, element, type = 'default') {
             }
         }, 800);
     },
-    // 🌟 [بوابة المجتمع]: جلب وعرض روابط قنوات التواصل الاجتماعي يدوياً وديناميكياً من السيرفر [1.5, 2]
-openCommunityModal: function() {
-    this.closeSidebar();
-    
-    const target = document.getElementById('community-links-target');
-    if (!target) return;
-    
-    const s = LiveStoreData.settings || {};
-    
-    // قراءة الروابط ديناميكياً من إعدادات المتجر (لا داعي لتعديل الأكواد مستقبلاً!) [1]
-    const telegramChan = s.telegramChannel || s.telegramLink || '';
-    const telegramGroup = s.telegramGroup || '';
-    const whatsappGroup = s.whatsappGroup || '';
-    const facebookPage = s.facebookPage || '';
-    
-    let html = '';
-    
-    if (telegramChan) {
-        html += `
-                <a href="${Utils.escapeHtml(telegramChan)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
-                    <div class="community-left">
-                        <div class="community-icon" style="background: #24A1DE;"><i class="fa-brands fa-telegram"></i></div>
-                        <div class="community-info">
-                            <span class="community-name">قناتنا الرسمية على تلغرام</span>
-                            <span class="community-desc">أحدث الأسعار، العروض، والمسابقات الحصرية أولاً بأول.</span>
-                        </div>
-                    </div>
-                    <i class="fa-solid fa-chevron-left community-arrow"></i>
-                </a>`;
-    }
-    
-    if (telegramGroup) {
-        html += `
-                <a href="${Utils.escapeHtml(telegramGroup)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
-                    <div class="community-left">
-                        <div class="community-icon" style="background: #229ED9;"><i class="fa-solid fa-users"></i></div>
-                        <div class="community-info">
-                            <span class="community-name">مجموعة مناقشات الأعضاء</span>
-                            <span class="community-desc">تبادل الأفكار، والنقاشات الفورية مع عائلة المتجر.</span>
-                        </div>
-                    </div>
-                    <i class="fa-solid fa-chevron-left community-arrow"></i>
-                </a>`;
-    }
-    
-    if (whatsappGroup) {
-        html += `
-                <a href="${Utils.escapeHtml(whatsappGroup)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
-                    <div class="community-left">
-                        <div class="community-icon" style="background: #25D366;"><i class="fa-brands fa-whatsapp"></i></div>
-                        <div class="community-info">
-                            <span class="community-name">مجموعتنا على واتساب</span>
-                            <span class="community-desc">تحديثات سريعة ودعم مباشر متاح على مدار الساعة.</span>
-                        </div>
-                    </div>
-                    <i class="fa-solid fa-chevron-left community-arrow"></i>
-                </a>`;
-    }
-    
-    if (facebookPage) {
-        html += `
-                <a href="${Utils.escapeHtml(facebookPage)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
-                    <div class="community-left">
-                        <div class="community-icon" style="background: #1877F2;"><i class="fa-brands fa-facebook-f"></i></div>
-                        <div class="community-info">
-                            <span class="community-name">صفحتنا على فيسبوك</span>
-                            <span class="community-desc">تابع أخبارنا وتواصل معنا عبر منصة فيسبوك الرسمية.</span>
-                        </div>
-                    </div>
-                    <i class="fa-solid fa-chevron-left community-arrow"></i>
-                </a>`;
-    }
-    
-    if (!html) {
-        html = `<div class="empty-state-v2"><i class="fa-solid fa-share-nodes"></i><h3>قريباً جداً</h3><p>تعمل الإدارة حالياً على تجهيز شبكات التواصل الاجتماعي الرسمية.</p></div>`;
-    }
-    
-    target.innerHTML = html;
-    this.openModal('community');
-},
-// 🌟 دالة فتح نافذة التقييم الذكي وتصفير حالتها للعميل [2]
-openRatingModal: function() {
+
+    openCommunityModal: function() {
         this.closeSidebar();
         
-        // تفريغ المدخلات القديمة وإعادة الضبط
+        const target = document.getElementById('community-links-target');
+        if (!target) return;
+        
+        const s = LiveStoreData.settings || {};
+        
+        const telegramChan = s.telegramChannel || s.telegramLink || '';
+        const telegramGroup = s.telegramGroup || '';
+        const whatsappGroup = s.whatsappGroup || '';
+        const facebookPage = s.facebookPage || '';
+        
+        let html = '';
+        
+        if (telegramChan) {
+            html += `
+                    <a href="${Utils.escapeHtml(telegramChan)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                        <div class="community-left">
+                            <div class="community-icon" style="background: #24A1DE;"><i class="fa-brands fa-telegram"></i></div>
+                            <div class="community-info">
+                                <span class="community-name">قناتنا الرسمية على تلغرام</span>
+                                <span class="community-desc">أحدث الأسعار، العروض، والمسابقات الحصرية أولاً بأول.</span>
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-chevron-left community-arrow"></i>
+                    </a>`;
+        }
+        
+        if (telegramGroup) {
+            html += `
+                    <a href="${Utils.escapeHtml(telegramGroup)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                        <div class="community-left">
+                            <div class="community-icon" style="background: #229ED9;"><i class="fa-solid fa-users"></i></div>
+                            <div class="community-info">
+                                <span class="community-name">مجموعة مناقشات الأعضاء</span>
+                                <span class="community-desc">تبادل الأفكار، والنقاشات الفورية مع عائلة المتجر.</span>
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-chevron-left community-arrow"></i>
+                    </a>`;
+        }
+        
+        if (whatsappGroup) {
+            html += `
+                    <a href="${Utils.escapeHtml(whatsappGroup)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                        <div class="community-left">
+                            <div class="community-icon" style="background: #25D366;"><i class="fa-brands fa-whatsapp"></i></div>
+                            <div class="community-info">
+                                <span class="community-name">مجموعتنا على واتساب</span>
+                                <span class="community-desc">تحديثات سريعة ودعم مباشر متاح على مدار الساعة.</span>
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-chevron-left community-arrow"></i>
+                    </a>`;
+        }
+        
+        if (facebookPage) {
+            html += `
+                    <a href="${Utils.escapeHtml(facebookPage)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                        <div class="community-left">
+                            <div class="community-icon" style="background: #1877F2;"><i class="fa-brands fa-facebook-f"></i></div>
+                            <div class="community-info">
+                                <span class="community-name">صفحتنا على فيسبوك</span>
+                                <span class="community-desc">تابع أخبارنا وتواصل معنا عبر منصة فيسبوك الرسمية.</span>
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-chevron-left community-arrow"></i>
+                    </a>`;
+        }
+        
+        if (!html) {
+            html = `<div class="empty-state-v2"><i class="fa-solid fa-share-nodes"></i><h3>قريباً جداً</h3><p>تعمل الإدارة حالياً على تجهيز شبكات التواصل الاجتماعي الرسمية.</p></div>`;
+        }
+        
+        target.innerHTML = html;
+        this.openModal('community');
+    },
+
+    openRatingModal: function() {
+        this.closeSidebar();
+        
         this._currentRating = 0;
         const btn = document.getElementById('btnContinueRating');
         if (btn) {
@@ -1689,12 +1708,10 @@ openRatingModal: function() {
         const feedbackInput = document.getElementById('ratingFeedbackInput');
         if (feedbackInput) feedbackInput.value = '';
         
-        // تفعيل النجوم وإفراغ تلوينها
         document.querySelectorAll('.rating-star').forEach(star => {
             star.className = 'fa-regular fa-star rating-star';
         });
         
-        // إظهار شاشة النجوم وإخفاء شاشات الخطوات الأخرى
         document.getElementById('rating-step-stars').style.display = 'block';
         document.getElementById('rating-step-feedback').style.display = 'none';
         document.getElementById('rating-step-share').style.display = 'none';
@@ -1702,7 +1719,6 @@ openRatingModal: function() {
         this.openModal('rating');
     },
     
-    // دالة تلوين النجوم التفاعلية عند اختيار العميل
     selectRatingStar: function(val) {
         this._currentRating = val;
         getSys().sfx?.('nav');
@@ -1711,13 +1727,12 @@ openRatingModal: function() {
         stars.forEach(star => {
             const starVal = parseInt(star.dataset.value || star.getAttribute('data-value'));
             if (starVal <= val) {
-                star.className = 'fa-solid fa-star rating-star active'; // تلوين ذهبي
+                star.className = 'fa-solid fa-star rating-star active';
             } else {
-                star.className = 'fa-regular fa-star rating-star'; // إفراغ اللون
+                star.className = 'fa-regular fa-star rating-star';
             }
         });
         
-        // تفعيل زر المتابعة
         const btn = document.getElementById('btnContinueRating');
         if (btn) {
             btn.disabled = false;
@@ -1725,7 +1740,6 @@ openRatingModal: function() {
         }
     },
     
-    // دالة فرز وتوجيه الطلب بناءً على عدد النجوم
     submitRatingStep: function() {
         getSys().sfx?.('nav');
         const rating = this._currentRating || 0;
@@ -1733,15 +1747,12 @@ openRatingModal: function() {
         document.getElementById('rating-step-stars').style.display = 'none';
         
         if (rating <= 3) {
-            // 🛡️ توجيه صامت للشكاوى (التقييم منخفض) [1]
             document.getElementById('rating-step-feedback').style.display = 'block';
         } else {
-            // 🎁 توجيه لـ Trustpilot ومكافأة كوبون الخصم (التقييم ممتاز) [1]
             document.getElementById('rating-step-share').style.display = 'block';
         }
     },
     
-    // دالة إرسال الشكاوى والمقترحات الصامتة لفايرستور وحفظ سمعة المتجر [1]
     submitPrivateFeedback: async function() {
         const feedbackInput = document.getElementById('ratingFeedbackInput');
         const feedback = feedbackInput ? feedbackInput.value.trim() : '';
@@ -1759,7 +1770,6 @@ openRatingModal: function() {
             const uid = DataManager.user?.id || localStorage.getItem('telecard_active_user_uid') || 'guest';
             const username = DataManager.user?.username || 'ضيف';
             
-            // حفظ الشكوى يدوياً في جدول خاص لا يقرأه إلا الأدمن [1]
             await StoreDB.add('telecard_private_feedbacks', {
                 userId: uid,
                 username: username,
@@ -1768,7 +1778,7 @@ openRatingModal: function() {
                 time: Date.now()
             });
             
-            this.toggleLoader(false);
+            this.toggleLoader?.(false);
             this.closeModal('rating');
             this.showToast("نشكرك جداً على مقترحك الصادق! تم إرساله للإدارة لمراجعته وحل مشكلتك فوراً.", "success");
             getSys().sfx?.('success');
@@ -1779,42 +1789,41 @@ openRatingModal: function() {
             console.error("Feedback Submission Error:", error);
             this.showToast("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
         }
-    },// 🌟 [بوابة من نحن]: جلب وعرض الشرح السحابي للموقع وشعار البراند ديناميكياً بتناسق مالي وبصري كامل [1, 2]
-openAboutModal: function() {
-    this.closeSidebar(); // إغلاق القائمة الجانبية
-    
-    const logoTarget = document.getElementById('about-logo-box');
-    const titleEl = document.getElementById('about-popup-title');
-    const descEl = document.getElementById('about-popup-desc');
-    
-    if (!logoTarget || !titleEl || !descEl) return;
-    
-    const s = LiveStoreData.settings || {};
-    const storeName = s.storeName || s.name || 'تيليكارد';
-    
-    // قراءة الشرح ديناميكياً من إعدادات الإدارة لمنع جمود الكود [1]
-    const aboutText = s.aboutUs || s.storeDesc || 'بوابتك الأولى والآمنة لشراء وتداول الكروت الرقمية وبطاقات الشحن لجميع الألعاب والخدمات العالمية كالبلايستيشن، والبطاقات الترفيهية بأسعار مذهلة وتسليم آلي فوري.';
-    const logoDark = s.storeLogo || s.logo || '';
-    
-    // رسم الشعار كختم ملكي مضيء بحدود ذهبية أنيقة
-    if (logoDark) {
-        logoTarget.innerHTML = `
-                <div class="alert-icon-box" style="width: 75px; height: 75px; background: rgba(255,215,0,0.05); border: 1px solid var(--gold-main); border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; box-shadow: 0 0 15px rgba(255, 215, 0, 0.15);">
-                    <img src="${Utils.escapeHtml(logoDark)}" alt="${Utils.escapeHtml(storeName)}" style="max-height: 48px; width: auto; object-fit: contain;">
-                </div>`;
-    } else {
-        logoTarget.innerHTML = `
-                <div class="alert-icon-box">
-                    <i class="fa-solid fa-circle-info" style="font-size: 24px;"></i>
-                </div>`;
-    }
-    
-    // 🌟 التحديث الحاسم: تغليف اسم المتجر بكلاس .brand-text-dynamic ليرث ألوان وتدرجات وظلال الأدمن تلقائياً ومطابقتها للهيدر! [2]
-    titleEl.innerHTML = `عن <span class="brand-text-dynamic num-en" style="font-size: 22px !important; display: inline-block;">${Utils.escapeHtml(storeName)}</span>`;
-    descEl.textContent = aboutText;
-    
-    this.openModal('about');
-},  // 🌟 دالة العداد الذكية (تقوم بتنظيف المنتجات الوهمية تلقائياً وبأمان)
+    },
+
+    openAboutModal: function() {
+        this.closeSidebar(); 
+        
+        const logoTarget = document.getElementById('about-logo-box');
+        const titleEl = document.getElementById('about-popup-title');
+        const descEl = document.getElementById('about-popup-desc');
+        
+        if (!logoTarget || !titleEl || !descEl) return;
+        
+        const s = LiveStoreData.settings || {};
+        const storeName = s.storeName || s.name || 'تيليكارد';
+        
+        const aboutText = s.aboutUs || s.storeDesc || 'بوابتك الأولى والآمنة لشراء وتداول الكروت الرقمية وبطاقات الشحن لجميع الألعاب والخدمات العالمية كالبلايستيشن، والبطاقات الترفيهية بأسعار مذهلة وتسليم آلي فوري.';
+        const logoDark = s.storeLogo || s.logo || '';
+        
+        if (logoDark) {
+            logoTarget.innerHTML = `
+                    <div class="alert-icon-box" style="width: 75px; height: 75px; background: rgba(255,215,0,0.05); border: 1px solid var(--gold-main); border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; box-shadow: 0 0 15px rgba(255, 215, 0, 0.15);">
+                        <img src="${Utils.escapeHtml(logoDark)}" alt="${Utils.escapeHtml(storeName)}" style="max-height: 48px; width: auto; object-fit: contain;">
+                    </div>`;
+        } else {
+            logoTarget.innerHTML = `
+                    <div class="alert-icon-box">
+                        <i class="fa-solid fa-circle-info" style="font-size: 24px;"></i>
+                    </div>`;
+        }
+        
+        titleEl.innerHTML = `عن <span class="brand-text-dynamic num-en" style="font-size: 22px !important; display: inline-block;">${Utils.escapeHtml(storeName)}</span>`;
+        descEl.textContent = aboutText;
+        
+        this.openModal('about');
+    },  
+
     updateFavBadgeCount: function() {
         const SYS = window.DataManager || window.ClientSystem;
         const countBadge = document.getElementById('sticky-fav-count');
@@ -1823,8 +1832,6 @@ openAboutModal: function() {
         
         const validProds = window.LiveStoreData?.prods;
         
-        // 🛡️ [الإصلاح الجذري 3]: جدار الحماية (The Savior Guard)
-        // يمنع مسح المفضلة إذا لم تكن المنتجات قد حُملت من السيرفر بعد
         if (!validProds || validProds.length === 0) {
             const currentFavCount = SYS.favs ? SYS.favs.size : 0;
             if (currentFavCount > 0) {

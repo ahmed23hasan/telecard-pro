@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة المدرعة للإنتاج V8 (Ultimate)
+// 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة المدرعة للإنتاج V8.1 (Bank-Grade)
 // 🎯 الوظيفة: معالجة الطلبات، الإيداعات، الإحصائيات، والإشعارات بنظام الحوسبة المتوازية
-// 🌟 التحديث الأقصى: Subcollections للإشعارات، Aggregation للتدقيق، و Caching للسرعة
+// 🌟 التحديث الأقصى: Custom Claims Security, Token Revocation, Subcollections & Caching
 // ============================================================================
 
 const functions = require('firebase-functions');
@@ -48,12 +48,19 @@ const loadGlobalCache = async () => {
 };
 
 // ==========================================
-// 🛡️ 2. دوال مساعدة وتنظيف المدخلات (Sanitization & Helpers)
+// 🛡️ 2. دوال مساعدة وتنظيف المدخلات والدروع الأمنية
 // ==========================================
 
 const isMasterAdmin = (context) => {
     if (!context.auth || !context.auth.token) return false;
     return context.auth.token.admin === true;
+};
+
+// 🛑 الدرع الأول: طرد لحظي للمحظورين بدون تكلفة قراءة (Zero-Cost Firewall)
+const checkBanStatus = (context) => {
+    if (context.auth && context.auth.token && context.auth.token.banned === true) {
+        throw new functions.https.HttpsError('permission-denied', 'عذراً، هذا الحساب محظور من قبل الإدارة.');
+    }
 };
 
 const safeAdd = (a, b) => Math.round(Number(a) * 10000 + Number(b) * 10000) / 10000;
@@ -66,13 +73,15 @@ const generateUniqueId = () => {
 };
 
 // ==========================================
-// 🛒 3. دالة إنشاء الطلبات الآمنة للعملاء (Hybrid, Idempotent, Subcollections)
+// 🛒 3. دالة إنشاء الطلبات الآمنة للعملاء 
 // ==========================================
 exports.createOrder = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
+    
+    // 🛑 تشغيل حاجز الصد المبكر
+    checkBanStatus(context);
 
     const uid = context.auth.uid;
-    // تنظيف صارم للمدخلات
     const productId = String(data.productId || '');
     const finalQty = Math.max(1, Math.min(1000, Math.floor(Number(data.qty) || 1)));
     const optIdx = data.optIdx !== null && data.optIdx !== undefined ? Number(data.optIdx) : null;
@@ -90,7 +99,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
         const productRef = db.collection('telecard_prods').doc(productId);
         const orderRef = db.collection('telecard_orders').doc(cleanOrderId); 
         
-        // جلب الكاش السريع خارج الـ Transaction
         const cache = await loadGlobalCache();
         
         let activeOffer = null;
@@ -114,7 +122,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
         let deliveredCodeText = null;
         let isAutoDelivered = false;
 
-        // بدء القفل (Transaction) لمعالجة الرصيد والمخزون
         await db.runTransaction(async (transaction) => {
             const [userSnap, productSnap] = await Promise.all([
                 transaction.get(userRef),
@@ -127,7 +134,11 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
             const userData = userSnap.data();
             const product = productSnap.data();
 
-            // حماية عدم التكرار
+            // 🛑 الدرع الثاني المزدوج: التحقق العميق داخل المعاملة المالیة (Deep Verification)
+            if (userData.isBanned === true || userData.isIpBanned === true) {
+                throw new functions.https.HttpsError('permission-denied', 'العملية مرفوضة: الحساب أو الشبكة قيد الحظر.');
+            }
+
             if (idempotencyKey) {
                 const usedKeys = userData.usedIdempotencyKeys || [];
                 if (usedKeys.includes(idempotencyKey)) throw new functions.https.HttpsError('already-exists', 'تم معالجة هذا الطلب مسبقاً.');
@@ -189,7 +200,6 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
 
             const newBalance = safeSub(currentBalance, totalRequired);
             
-            // التحديثات
             if (pricingSnapshot.couponCode && couponRef && liveCouponData) {
                 transaction.update(couponRef, { usedCount: admin.firestore.FieldValue.increment(1) });
             }
@@ -200,7 +210,7 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
             let usedKeysUpdate = userData.usedIdempotencyKeys || [];
             if (idempotencyKey) {
                 usedKeysUpdate.push(idempotencyKey);
-                if (usedKeysUpdate.length > 10) usedKeysUpdate.shift(); // الاحتفاظ بآخر 10 مفاتيح فقط لحماية الذاكرة
+                if (usedKeysUpdate.length > 10) usedKeysUpdate.shift();
             }
 
             const userUpdateObj = { 
@@ -212,13 +222,11 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
             };
             transaction.update(userRef, userUpdateObj);
 
-            // 🚀 الإشعارات: الكتابة في Subcollection بدلاً من المصفوفة لمنع تضخم المستند
             if (isAutoDelivered) {
                 const notifId = 'notif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5);
                 const notifRef = userRef.collection('notifications').doc(notifId);
                 transaction.set(notifRef, {
-                    id: notifId,
-                    title: "🎉 تم تسليم طلبك بنجاح!",
+                    id: notifId, title: "🎉 تم تسليم طلبك بنجاح!",
                     message: `تم إكمال طلبك لشراء ( ${product.name} ) بنجاح. تفضل باستلام الكود الآن.`,
                     type: 'notification', jumpTarget: 'order', createdAt: serverNow
                 });
@@ -250,10 +258,13 @@ exports.createOrder = functions.region('us-east1').https.onCall(async (data, con
 });
 
 // ==========================================
-// 💰 4. دالة إرسال طلب الإيداع للعملاء (Hybrid, Spam Firewall)
+// 💰 4. دالة إرسال طلب الإيداع للعملاء
 // ==========================================
 exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
+
+    // 🛑 تشغيل حاجز الصد المبكر
+    checkBanStatus(context);
 
     const uid = context.auth.uid;
     const amount = Number(data.amount);
@@ -281,7 +292,11 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
             
             const userData = userSnap.data();
 
-            // 🛑 جدار الحماية (Spam Firewall)
+            // 🛑 الدرع الثاني: التحقق العميق للعميل أو الـ IP المحظور
+            if (userData.isBanned === true || userData.isIpBanned === true) {
+                throw new functions.https.HttpsError('permission-denied', 'العملية مرفوضة: الحساب أو الشبكة قيد الحظر.');
+            }
+
             if (serverNow - (userData.lastDepositReqTime || 0) < 10000) {
                 throw new functions.https.HttpsError('resource-exhausted', 'الرجاء الانتظار قليلاً قبل إرسال طلب جديد.');
             }
@@ -327,8 +342,41 @@ exports.submitBalanceRequest = functions.region('us-east1').https.onCall(async (
 });
 
 // ==========================================
-// 👑 5. دوال الإدارة والعمليات المالية (Admin Functions)
+// 👑 5. دوال الإدارة والعمليات المالية
 // ==========================================
+
+// 🚨 NEW: دالة الإدارة لتفعيل/إلغاء الحظر وتدمير الجلسات فوراً
+exports.adminToggleUserBan = functions.region('us-east1').https.onCall(async (data, context) => {
+    if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك.');
+
+    const { targetUid, isBanned, reason } = data;
+    if (!targetUid) throw new functions.https.HttpsError('invalid-argument', 'معرف المستخدم مفقود.');
+
+    try {
+        // 1. تحديث قاعدة البيانات
+        await db.collection('telecard_users').doc(targetUid).update({
+            isBanned: isBanned,
+            banReason: reason || '',
+            bannedAt: isBanned ? admin.firestore.FieldValue.serverTimestamp() : null
+        });
+
+        // 2. المحافظة على الصلاحيات السابقة للمستخدم وتحديث صلاحية الحظر
+        const userRecord = await admin.auth().getUser(targetUid);
+        const currentClaims = userRecord.customClaims || {};
+        currentClaims.banned = isBanned;
+        await admin.auth().setCustomUserClaims(targetUid, currentClaims);
+
+        // 3. 💥 تدمير الجلسات החية (إنهاء جلسة العميل قسرياً من جميع أجهزته)
+        if (isBanned) {
+            await admin.auth().revokeRefreshTokens(targetUid);
+        }
+
+        return { success: true, message: isBanned ? 'تم حظر المستخدم وتدمير جلساته بنجاح.' : 'تم رفع الحظر بنجاح.' };
+    } catch (error) {
+        throw new functions.https.HttpsError('internal', `فشل تطبيق إجراء الحظر: ${error.message}`);
+    }
+});
+
 exports.adminProcessDeposit = functions.region('us-east1').https.onCall(async (data, context) => {
     if (!isMasterAdmin(context)) throw new functions.https.HttpsError('permission-denied', 'غير مصرح لك.');
     
@@ -494,7 +542,6 @@ exports.adminAuditUserWallet = functions.region('us-east1').https.onCall(async (
         const userSnap = await userRef.get();
         if (!userSnap.exists) throw new functions.https.HttpsError('not-found', 'العميل غير موجود.');
 
-        // 🚀 استخدام التجميع المباشر لحساب الأموال بتكلفة (3 قراءات فقط) بدلاً من جلب آلاف المستندات
         const AggregateField = admin.firestore.AggregateField;
         
         const [ordersAgg, depApprovedAgg, depRefundedAgg] = await Promise.all([
@@ -506,8 +553,6 @@ exports.adminAuditUserWallet = functions.region('us-east1').https.onCall(async (
               .aggregate({ totalRefund: AggregateField.sum('creditedAmount') }).get() 
         ]);
 
-        // ملاحظة: عمليات الاسترجاع للإيداع قد تكون قيمتها موجبة ويجب طرحها، أو سالبة من الأصل.
-        // نفترض هنا أن النظام يسجل الاسترجاع كقيمة موجبة تعكس مقدار ما تم سحبه من الرصيد المُودع مسبقاً.
         const totalSpentRaw = ordersAgg.data().totalSpent || 0;
         const totalApprovedRaw = depApprovedAgg.data().totalDep || 0;
         const totalRefundedRaw = depRefundedAgg.data().totalRefund || 0;
@@ -606,7 +651,7 @@ exports.grantAdminRole = functions.region('us-east1').runWith({ secrets: [ROOT_O
 });
 
 // ==========================================
-// 🔔 8. معالجات الإشعارات الآلية (Subcollections)
+// 🔔 8. معالجات الإشعارات الآلية
 // ==========================================
 
 exports.autoNotifyOrderStatus = functions.region('us-east1').firestore.document('telecard_orders/{orderId}').onUpdate(async (change, context) => {

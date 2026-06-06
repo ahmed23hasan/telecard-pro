@@ -3331,9 +3331,9 @@ body.drag-edit-active .item-box::before { content: ''; position: absolute; top: 
     .cur-symbol.cur-multi { font-size: 0.6em; }
 }
 
-/* =========================================================
-   [ 48. بوابة تسجيل الدخول (Auth Gate) ] 
-   ========================================================= */
+/* ============================================================================
+   [ 48.  بوابة تسجيل الدخول (Auth Gate & Bank-Grade 2FA) ] 
+   ============================================================================ */
 .auth-overlay { position: fixed; inset: 0; z-index: var(--z-auth, 999999); display: flex; align-items: center; justify-content: center; visibility: hidden; opacity: 0; transition: all 0.4s ease; }
 .auth-overlay::before { content: ''; position: absolute; top: -20%; bottom: -20%; left: -20%; right: -20%; background: var(--bg-body); z-index: -1; pointer-events: none; }
 .auth-overlay.active { visibility: visible; opacity: 1; }
@@ -3385,7 +3385,27 @@ body.drag-edit-active .item-box::before { content: ''; position: absolute; top: 
 }
 .auth-error-msg { background: var(--danger-10); color: var(--danger); border: 1px solid var(--danger-20); padding: 10px; border-radius: 8px; font-size: 12px; text-align: center; margin-bottom: 15px; font-weight: 700; animation: shake 0.4s ease-in-out; }
 
-/* =========================================================
+/* 🌟 مكملات حركات الإقلاع وتنبيهات الخطأ */
+.spinner { display: none; margin-left: 10px; animation: spin 1s infinite linear; }
+.btn-loading .spinner { display: inline-block; }
+.btn-loading #btn-text { opacity: 0.7; }
+.btn-loading #btn-icon { display: none; }
+.shake-anim { animation: shake 0.5s; }
+
+/* 🌟 مكمل اتجاه الكتابة الذكي للحقول اللاتينية (إيميل وباسورد) */
+.input-en { font-family: monospace, sans-serif; letter-spacing: 1px; text-align: right; }
+.input-en:not(:placeholder-shown) { text-align: left; direction: ltr; }
+
+/* 🌟 مكملات تخصيص نافذة الـ 2FA البنكية الخضراء وتنسيق الرمز */
+#admin-2fa-modal { z-index: 9999; background: rgba(5, 9, 16, 0.85); backdrop-filter: blur(10px); }
+#admin-2fa-modal .mfa-card { border-color: var(--success); box-shadow: 0 10px 40px var(--success-20); }
+#admin-2fa-modal .mfa-logo { color: var(--success); background: var(--success-10); border-color: var(--success-30); }
+#admin-2fa-modal .mfa-input-group { margin-bottom: 20px; }
+#admin-2fa-code.mfa-code-input { text-align: center; font-size: 24px; letter-spacing: 8px; }
+#admin-2fa-modal .mfa-actions { display: flex; gap: 10px; margin-top: 15px; }
+#admin-2fa-modal .mfa-submit-btn { flex: 2; background: var(--success); border: none; color: #fff; }
+#admin-2fa-modal .mfa-submit-btn:hover { box-shadow: 0 4px 15px var(--success-30); }
+#admin-2fa-modal .mfa-cancel-btn { flex: 1; border: 1px solid var(--border); color: var(--text-muted); }/* =========================================================
    [ 49. منشئ الشروط والأحكام التفاعلي (Interactive Terms Builder) ] 
    ========================================================= */
 .term-builder-card {

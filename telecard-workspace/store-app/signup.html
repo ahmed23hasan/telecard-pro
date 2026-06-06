@@ -5,7 +5,6 @@
     <title>إنشاء حساب - تيليكارد</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
-    <!-- 🛡️ حارس البوابة السريع: يطرد العميل المسجل مسبقاً لمتجره في 0 ثانية ويمنع الوميض -->
     <script>
         if (localStorage.getItem('telecard_active_user_uid')) {
             window.location.replace('store.html');
@@ -178,6 +177,41 @@
 
         .num-en { font-family: 'Inter', sans-serif !important; direction: ltr !important; text-align: left !important; }
         
+        /* =========================================================
+           🌟 تصاميم النوافذ المنبثقة الفاخرة (تم إضافتها هنا أيضاً)
+           ========================================================= */
+        .custom-alert-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 9, 16, 0.85); backdrop-filter: blur(10px); 
+            display: none; justify-content: center; align-items: center;
+            z-index: 9999; opacity: 0; transition: opacity 0.3s ease; padding: 15px;
+        }
+        .custom-alert-overlay.active { display: flex; opacity: 1; }
+        
+        .custom-alert-card {
+            width: 100%; max-width: 380px; background: var(--bg-card);
+            border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px;
+            padding: 35px 24px; text-align: center; box-shadow: 0 25px 60px rgba(0,0,0,0.85);
+            transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .custom-alert-overlay.active .custom-alert-card { transform: scale(1); }
+
+        .alert-icon-box {
+            width: 60px; height: 60px; margin: 0 auto 20px;
+            background: rgba(255, 215, 0, 0.15); border: 1px solid var(--gold-main);
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            color: var(--gold-main);
+        }
+        .alert-icon-box svg { width: 28px; height: 28px; }
+        .alert-title { color: #fff; font-size: 18px; font-weight: 800; margin-bottom: 10px; }
+        .alert-msg { color: var(--text-gray); font-size: 13px; line-height: 1.6; margin-bottom: 25px; }
+        
+        .alert-btn {
+            width: 100%; height: 48px; background: var(--gold-crystal-grad); color: var(--text-btn-luxury);
+            border-radius: var(--radius); font-size: 14px; font-weight: 800; cursor: pointer; border: none; transition: .2s;
+        }
+        .alert-btn:active { transform: scale(0.97); }
+
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
@@ -187,6 +221,17 @@
     <div class="success-toast" id="successToast">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
         <span>تم التسجيل بنجاح! جاري الدخول...</span>
+    </div>
+
+    <div id="customAlert" class="custom-alert-overlay">
+        <div class="custom-alert-card">
+            <div class="alert-icon-box" id="alertIconBox">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <h3 class="alert-title" id="alertTitle">نجاح العملية</h3>
+            <p class="alert-msg" id="alertMsg">تم تنفيذ الإجراء بنجاح.</p>
+            <button type="button" class="alert-btn" onclick="closeCustomAlert()">حسناً</button>
+        </div>
     </div>
 
     <div class="container">
@@ -267,16 +312,55 @@
         </form>
     </div>
 <script type="module">
-    // 🚀 استيراد أدوات فايربيز وقاعدة البيانات من المحول المركزي
+    // 🚀 استيراد أدوات فايربيز
     import { auth } from './core/firebaseAdapter.js';
-    import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
     import { DB_KEYS } from './config.js';
     import { StoreDB } from './dataManager.js';
 
     const googleProvider = new GoogleAuthProvider();
 
     // =================================================================
-    // 🌟 دالة جلب عملة العرض الافتراضية للمتجر (مؤمنة عبر البوابة)
+    // 🪄 دوال النوافذ المنبثقة الفاخرة 
+    // =================================================================
+    function showCustomAlert(title, message, isSuccess = true) {
+        const overlay = document.getElementById('customAlert');
+        const titleEl = document.getElementById('alertTitle');
+        const msgEl = document.getElementById('alertMsg');
+        const iconBox = document.getElementById('alertIconBox');
+        
+        if (!overlay || !titleEl || !msgEl || !iconBox) return;
+        
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        
+        if (isSuccess) {
+            iconBox.style.background = "rgba(255, 215, 0, 0.15)";
+            iconBox.style.borderColor = "var(--gold-main)";
+            iconBox.style.color = "var(--gold-main)";
+            iconBox.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+        } else {
+            iconBox.style.background = "rgba(229, 62, 62, 0.15)";
+            iconBox.style.borderColor = "var(--error-red)";
+            iconBox.style.color = "var(--error-red)";
+            iconBox.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+        }
+        
+        overlay.classList.add('active');
+        document.body.style.overflow = 'hidden'; 
+    }
+
+    function closeCustomAlert() {
+        const overlay = document.getElementById('customAlert');
+        if (overlay) {
+            overlay.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+    }
+    window.closeCustomAlert = closeCustomAlert;
+
+    // =================================================================
+    // 🌟 دالة جلب عملة العرض الافتراضية
     // =================================================================
     async function getAdminDefaultCurrency() {
         try {
@@ -293,10 +377,9 @@
     }
 
     // =================================================================
-    // 🧠 دالة توليد رقم عرض (Display ID) آمنة وسريعة (خالية من ثغرات الصلاحيات)
+    // 🧠 دالة توليد رقم عرض (Display ID)
     // =================================================================
     async function generateUniqueDisplayId() {
-        // نولد رقماً عشوائياً من 7 خانات يعتمد على الوقت لضمان عدم التكرار
         const timePart = String(Date.now()).slice(-4);
         const randPart = Math.floor(100 + Math.random() * 900);
         return Number(timePart + randPart);
@@ -393,7 +476,7 @@
     }
 
 // =================================================================
-// 🌐 دالة التسجيل عبر جوجل (محمية وموحدة مع بوابة StoreDB)
+// 🌐 دالة التسجيل عبر جوجل (محمية ومسدودة من الثغرات)
 // =================================================================
 async function handleGoogleLogin() {
     const btn = document.querySelector('.google-btn');
@@ -412,6 +495,7 @@ async function handleGoogleLogin() {
         }
         
         if (!activeUserObj) {
+            // عميل جديد تماماً
             btn.innerHTML = 'جاري تهيئة الحساب...';
             
             const targetCurrency = await getAdminDefaultCurrency();
@@ -453,6 +537,17 @@ async function handleGoogleLogin() {
                 await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
             }
         } else {
+            // 🛑 [الدرع الأمني]: العميل موجود مسبقاً في الداتابيز، هل هو محظور؟
+            if (activeUserObj.isBanned === true || activeUserObj.isIpBanned === true) {
+                await signOut(auth); // إعدام الجلسة فوراً
+                localStorage.clear();
+                btn.innerHTML = originalText;
+                btn.style.opacity = '1';
+                btn.disabled = false;
+                showCustomAlert("حساب محظور", "عذراً، هذا الحساب تم حظره مسبقاً ولا يمكن استخدامه.", false);
+                return; // إحباط الدخول
+            }
+
             if (!activeUserObj.img && firebaseUser.photoURL) {
                 const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
                 activeUserObj.img = freshAvatar;
@@ -462,6 +557,7 @@ async function handleGoogleLogin() {
             }
         }
         
+        // إذا وصلنا لهنا، فالمستخدم سليم
         localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
         localStorage.setItem('telecard_active_user', JSON.stringify(activeUserObj));
         localStorage.setItem('telecard_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency || 'USD');
@@ -473,7 +569,6 @@ async function handleGoogleLogin() {
         const toast = document.getElementById('successToast');
         if (toast) toast.classList.add('show');
         
-        // 🌟 إصلاح فخ الرجوع (History Trap)
         setTimeout(() => { window.location.replace("store.html"); }, 1500);
         
     } catch (error) {
@@ -485,7 +580,7 @@ async function handleGoogleLogin() {
 }
 
     // =================================================================
-    // ✍️ دالة التسجيل اليدوي (المسرعة والمعززة بكاش المزامنة وعملات الإدارة)
+    // ✍️ دالة التسجيل اليدوي
     // =================================================================
     async function validateAndRegister() {
         const fname = document.getElementById('fname');
@@ -561,18 +656,16 @@ async function handleGoogleLogin() {
 
             document.getElementById('successToast').classList.add('show');
             
-            // 🌟 إصلاح فخ الرجوع (History Trap)
             setTimeout(() => { window.location.replace("store.html"); }, 1500);
 
         } catch(error) {
             console.error("Auth Error:", error);
+            // ملاحظة أمنية: إذا أدخل المحظور إيميله يدوياً سيظهر له هذا الخطأ ويحوله لصفحة تسجيل الدخول، وهناك سيتم طرده نهائياً.
             if (error.code === 'auth/email-already-in-use') { 
                 showError('email', 'emailError', 'البريد مسجل مسبقاً! جاري توجيهك لصفحة تسجيل الدخول...');
                 try {
                     sessionStorage.setItem('prefilled_email', email.value.trim().toLowerCase());
                 } catch(e) {}
-                
-                // 🌟 إصلاح فخ الرجوع
                 setTimeout(() => { window.location.replace("login.html"); }, 1800);
             } 
             else if (error.code === 'auth/network-request-failed') { showError('email', 'emailError', 'خطأ في الاتصال بالإنترنت'); } 

@@ -5,7 +5,6 @@
     <title>تسجيل الدخول - تيليكارد</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-    <!-- 🛡️ حارس البوابة السريع: يطرد العميل المسجل مسبقاً لمتجره في 0 ثانية ويمنع الوميض -->
     <script>
         if (localStorage.getItem('telecard_active_user_uid')) {
             window.location.replace('store.html');
@@ -253,7 +252,6 @@
                     </span>
                     تذكرني
                 </label>
-                <!-- 🌟 استدعاء دالة الفتح المخصصة بدلاً من prompt المتصفح -->
                 <a href="#" class="forgot-link" onclick="event.preventDefault(); handleForgotPassword();">نسيت كلمة المرور؟</a>
             </div>
 
@@ -265,7 +263,6 @@
 
         </form>
 
-        <!-- 🌟 [النافذة الأولى]: تنبيهات النجاح والفشل الكريستالية الفاخرة البديلة عن alert -->
         <div id="customAlert" class="custom-alert-overlay">
             <div class="custom-alert-card">
                 <div class="alert-icon-box" id="alertIconBox">
@@ -277,7 +274,6 @@
             </div>
         </div>
 
-        <!-- 🌟 [النافذة الثانية]: نافذة إدخال الإيميل الكريستالية الفاخرة المخصصة البديلة عن prompt -->
         <div id="forgotPasswordModal" class="custom-alert-overlay">
             <div class="custom-alert-card">
                 <div class="alert-icon-box" style="background: rgba(168, 85, 247, 0.15); border-color: #a855f7; color: #a855f7;">
@@ -301,7 +297,6 @@
             </div>
         </div>
 
-        <!-- 🌟 [النافذة الثالثة]: نافذة إدخال كود المصادقة الثنائية (2FA Login) -->
         <div id="login2FAModal" class="custom-alert-overlay">
             <div class="custom-alert-card">
                 <div class="alert-icon-box" style="background: rgba(16, 185, 129, 0.15); border-color: #10b981; color: #10b981;">
@@ -331,7 +326,7 @@
     import { auth, db } from './core/firebaseAdapter.js';
     import { 
         signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail,
-        getMultiFactorResolver, TotpMultiFactorGenerator 
+        getMultiFactorResolver, TotpMultiFactorGenerator, signOut
     } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
     import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     
@@ -360,10 +355,9 @@
     }
 
     // =================================================================
-    // 🧠 دالة توليد رقم عرض (Display ID) آمنة وسريعة (بدون استعلام قاعدة البيانات)
+    // 🧠 دالة توليد رقم عرض (Display ID) آمنة وسريعة
     // =================================================================
     async function generateUniqueDisplayId() {
-        // نولد رقماً عشوائياً من 7 خانات يعتمد على الوقت لضمان عدم التكرار المطلق
         const timePart = String(Date.now()).slice(-4);
         const randPart = Math.floor(100 + Math.random() * 900);
         return Number(timePart + randPart);
@@ -413,11 +407,10 @@
     });
 
     // =================================================================
-    // 🌐 دالة جلب العملة الافتراضية (باستخدام البوابة الآمنة)
+    // 🌐 دالة جلب العملة الافتراضية
     // =================================================================
     async function getAdminDefaultCurrency() {
         try {
-            // 🌟 استخدام البوابة الآمنة بدلاً من الاستعلام المباشر الممنوع أمنياً
             if (StoreDB && typeof StoreDB.getById === 'function') {
                 const settingsDoc = await StoreDB.getById(DB_KEYS.SETTINGS, 'singleton');
                 if (settingsDoc) {
@@ -430,7 +423,7 @@
         return 'USD';
     }
 
-    // === 4. تسجيل الدخول الفعلي عبر جوجل (مع سحب الصورة عالية الدقة) ===
+    // === 4. تسجيل الدخول الفعلي عبر جوجل (مع الدرع الأمني) ===
     async function handleGoogleLogin() {
         const btn = document.querySelector('.google-btn');
         const originalText = btn.innerHTML;
@@ -494,6 +487,17 @@
                 localStorage.setItem('telecard_display_currency', targetCurrency);
             } else {
                 activeUserObj = userDocSnap.data();
+
+                // 🛑 [الدرع الأمني البنكي]: منع العميل المحظور من الدخول عبر جوجل وتدمير الجلسة
+                if (activeUserObj.isBanned === true || activeUserObj.isIpBanned === true) {
+                    await signOut(auth);
+                    localStorage.clear();
+                    btn.innerHTML = originalText;
+                    btn.style.opacity = '1';
+                    btn.disabled = false;
+                    showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة لمخالفة الشروط.", false);
+                    return;
+                }
                 
                 if (!activeUserObj.img && firebaseUser.photoURL) {
                     const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
@@ -522,7 +526,6 @@
             btn.style.border = "none";
             btn.innerHTML = "تم تسجيل الدخول بنجاح ✔";
             
-            // 🌟 استخدام replace لمنع زر الرجوع من إعادة العميل لصفحة الـ login
             setTimeout(() => { window.location.replace("store.html"); }, 1000);
             
         } catch (error) {
@@ -545,7 +548,7 @@
         }
     }
 
-    // === 5. التحقق النهائي وإرسال النموذج (تسجيل الدخول اليدوي) ===
+    // === 5. التحقق النهائي وإرسال النموذج (تسجيل الدخول اليدوي المصفح) ===
     async function validateLogin() {
         const identifier = document.getElementById('identifier');
         const password = document.getElementById('password');
@@ -583,6 +586,17 @@
                 } catch(e) { console.warn("تعذر جلب تفضيلات العميل"); }
             }
 
+            // 🛑 [الدرع الأمني البنكي]: طرد فوري وتدمير جلسة العميل المحظور
+            if (userDoc && (userDoc.isBanned === true || userDoc.isIpBanned === true)) {
+                await signOut(auth);
+                localStorage.clear();
+                btn.textContent = originalText;
+                btn.style.opacity = "1";
+                btn.disabled = false;
+                showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة لمخالفة الشروط.", false);
+                return;
+            }
+
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
 
             if (userDoc) {
@@ -597,7 +611,6 @@
             btn.style.boxShadow = "none";
             btn.textContent = "تم تسجيل الدخول بنجاح ✔";
             
-            // 🌟 استخدام replace لمنع زر الرجوع
             setTimeout(() => window.location.replace("store.html"), 600);
             
         } catch (error) {
@@ -627,7 +640,7 @@
     }
 
     // =================================================================
-    // 🛡️ 6. دالة التأكيد النهائي وفتح الباب بعد إدخال كود الـ 2FA
+    // 🛡️ 6. دالة التأكيد النهائي وفتح الباب بعد إدخال كود الـ 2FA المصفحة
     // =================================================================
     async function submit2FALogin() {
         if (!current2FAResolver) return;
@@ -657,6 +670,17 @@
                 try { userDoc = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid); } catch(e) {}
             }
 
+            // 🛑 [الدرع الأمني البنكي]: طرد المستخدم المحظور حتى لو تجاوز الـ 2FA
+            if (userDoc && (userDoc.isBanned === true || userDoc.isIpBanned === true)) {
+                await signOut(auth);
+                localStorage.clear();
+                btn.innerHTML = origText;
+                btn.disabled = false;
+                close2FAModal();
+                showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة لمخالفة الشروط.", false);
+                return;
+            }
+
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
             if (userDoc) {
                 localStorage.setItem('telecard_active_user', JSON.stringify(userDoc));
@@ -668,7 +692,6 @@
             btn.innerHTML = "نجاح ✔";
             btn.style.background = "var(--success-green, #10b981)";
             
-            // 🌟 استخدام replace لمنع زر الرجوع
             setTimeout(() => window.location.replace("store.html"), 500);
 
         } catch (error) {
@@ -680,7 +703,7 @@
     }
 
     // =================================================================
-    // 🪄 7. دالة استعادة كلمة المرور الفاخرة (Forgot Password Logic)
+    // 🪄 7. دوال النوافذ المنبثقة الفاخرة (Custom Alerts & Modals)
     // =================================================================
     
     function showCustomAlert(title, message, isSuccess = true) {
@@ -779,7 +802,6 @@
         }
     }
 
-    // إتاحة الدوال للنطاق العام (Global Scope) لتشغيلها من أزرار الـ HTML
     window.togglePass = togglePass;
     window.handleGoogleLogin = handleGoogleLogin;
     window.validateLogin = validateLogin;

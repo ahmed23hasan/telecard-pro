@@ -32,7 +32,37 @@
     
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
     <link rel="stylesheet" href="style.css">
+
+    <style>
+        /* ستايل نافذة التنبيهات العامة للطرد أو الإشعارات الحرجة */
+        .global-alert-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 9, 16, 0.85); backdrop-filter: blur(10px); 
+            display: none; justify-content: center; align-items: center;
+            z-index: 999999; opacity: 0; transition: opacity 0.3s ease; padding: 15px;
+        }
+        .global-alert-overlay.active { display: flex; opacity: 1; }
+        .global-alert-card {
+            width: 100%; max-width: 380px; background: var(--bg-card, #111a2b);
+            border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px;
+            padding: 35px 24px; text-align: center; box-shadow: 0 25px 60px rgba(0,0,0,0.85);
+            transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .global-alert-overlay.active .global-alert-card { transform: scale(1); }
+        .global-icon-box {
+            width: 60px; height: 60px; margin: 0 auto 20px;
+            background: rgba(229, 62, 62, 0.15); border: 1px solid #E53E3E;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            color: #E53E3E;
+        }
+        .global-icon-box svg { width: 28px; height: 28px; }
+        .global-alert-title { color: #fff; font-size: 18px; font-weight: 800; margin-bottom: 10px; font-family: 'Cairo', sans-serif; }
+        .global-alert-msg { color: #8F9BB3; font-size: 13px; line-height: 1.6; margin-bottom: 25px; font-family: 'Cairo', sans-serif; }
+    </style>
 </head>
 
 <body class="store-page is-home">
@@ -42,6 +72,16 @@
             document.body.classList.add('light-mode');
         }
     </script>
+
+    <div class="global-alert-overlay" id="global-security-alert">
+        <div class="global-alert-card">
+            <div class="global-icon-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </div>
+            <h3 class="global-alert-title" id="global-alert-title">تم إيقاف الجلسة</h3>
+            <p class="global-alert-msg" id="global-alert-msg">نعتذر، تم حظر حسابك من قبل الإدارة. سيتم تسجيل خروجك الآن.</p>
+        </div>
+    </div>
 
     <div id="toast-warning" class="toast-warning" style="display: none;"><i class="fa-solid fa-circle-exclamation"></i> تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء</div>
     
@@ -1234,7 +1274,7 @@
                 </div>
                 <button type="button" class="setting-toggle ghost" id="setting-2fa-toggle" data-action="toggle-2fa">
                     <span class="setting-toggle-knob"></span>
-                    <span class="setting-toggle-label" id="setting-2fa-label">قريباً</span>
+                    <span class="setting-toggle-label" id="setting-2fa-label">غير مفعل</span>
                 </button>
             </div>
             

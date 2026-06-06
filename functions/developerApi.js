@@ -1,7 +1,7 @@
 // ============================================================================
 // ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - Bank Grade 🏦
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🌟 التحديث: دمج الإشعارات الفرعية (Subcollections)، الرياضيات الآمنة، والأداء العالي
+// 🌟 التحديث: دمج جدار حماية الحظر (Ban Firewall)، الرياضيات الآمنة، والأداء العالي
 // ============================================================================
 
 const functions = require('firebase-functions');
@@ -55,6 +55,12 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
             if (!userSnap.exists) return null;
             
             const userData = userSnap.data();
+            
+            // 🛑 [درع توفير الموارد]: عدم إرسال إشعارات Webhook لحساب محظور لتخفيف الحمل على السيرفر
+            if (userData.isBanned === true) {
+                console.log(`Webhook blocked for banned user: ${userId}`);
+                return null;
+            }
             
             if (!userData.webhookUrl || !userData.webhookUrl.startsWith('http')) return null;
             
@@ -159,7 +165,7 @@ exports.cronRetryWebhooks = functions.region('us-east1').pubsub.schedule('every 
     });
 
 // ==========================================
-// 🔌 3. بوابة الـ API الخارجية (External API Gateway - Safe Math & V8 Sync)
+// 🔌 3. بوابة الـ API الخارجية (External API Gateway - Bank Grade Security)
 // ==========================================
 exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async (req, res) => {
     if (req.method !== 'POST') {
@@ -208,6 +214,11 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
             if (!productSnap.exists) throw new Error('Product not found.');
             const product = productSnap.data();
             const userData = latestUserSnap.data();
+
+            // 🛑 [الدرع الأمني المباشر]: منع التاجر المحظور من إكمال العملية عبر الـ API
+            if (userData.isBanned === true || userData.isIpBanned === true) {
+                throw new Error('Unauthorized: Account Banned');
+            }
 
             const orderRef = db.collection('telecard_orders').doc(cleanOrderId);
             const tierId = String(userData.tierId || userData.tier || 1);
@@ -302,6 +313,12 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
 
     } catch (error) {
         console.error("API Gateway Error:", error);
+        
+        // 🛑 التقاط خطأ الحظر وإرسال استجابة 403 Forbidden
+        if (error.message === 'Unauthorized: Account Banned') {
+            return res.status(403).json({ success: false, error: 'Account is banned or restricted.' });
+        }
+        
         if (error.message === 'Insufficient balance.') return res.status(402).json({ success: false, error: 'Insufficient balance' });
         else if (error.message === 'Out of stock.') return res.status(409).json({ success: false, error: 'Product out of stock' });
         else if (error.message === 'Product not found.') return res.status(404).json({ success: false, error: 'Product not found' });

@@ -1,7 +1,7 @@
 // ============================================================================
 // 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - ES6 Module (Client Safe)
 // 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث الأقصى (V8.1): Real-time Subcollections، Idempotency، Warmup، & Sanitization
+// 🚀 التحديث الأقصى (V8.2): Live Ban Terminator، IP Watchdog، & Real-time Subcollections
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -310,7 +310,7 @@ export const DataManager = {
     },
 
     // =========================================================
-    // 👤 3. مزامنة العميل الذكية وتفعيل تسخين السيرفر
+    // 👤 3. مزامنة العميل الذكية وتفعيل تسخين السيرفر وفحص الحظر
     // =========================================================
     syncUser: function() {
         const users = LiveStoreData.users || [];
@@ -344,6 +344,13 @@ export const DataManager = {
         }
         
         if (me) {
+            // 🛑 [درع الأمان البنكي]: طرد حي وفوري للعميل المحظور أو المقيد إذا كان يتصفح المتجر حالياً
+            if (me.isBanned === true || me.isIpBanned === true || me.isRestricted === true) {
+                console.error("🚨 SECURITY WATCHDOG: This user is banned/restricted. Terminating session...");
+                this.logout(); // تسجيل خروج ومسح الكاش وتوجيهه لصفحة الدخول
+                return false;
+            }
+
             me.baseCurrency = me.baseCurrency || me.base_currency || 'USD';
             const bal = me.walletBalance ?? me.wallet_balance ?? me.balance ?? 0;
             me.walletBalance = bal;
@@ -359,6 +366,9 @@ export const DataManager = {
             if (!activeUid) this.user = null;
         }
         
+        // 🚀 تشغيل فحص الـ IP بالخلفية لطرده حتى لو لم يسجل دخوله
+        this.enforceIpBan();
+
         const adminDefaultCurrency = (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) ? LiveStoreData.settings.defaultCurrency : 'USD';
         let savedCurr = localStorage.getItem('telecard_display_currency') || (this.user?.baseCurrency) || adminDefaultCurrency;
         
@@ -372,6 +382,29 @@ export const DataManager = {
         
         this.selectedCurr = savedCurr;
         return true;
+    },
+
+    // 🚀 دالة فحص الـ IP المالي الحقيقي للزائر (محمية)
+    enforceIpBan: async function() {
+        try {
+            const bannedIps = LiveStoreData.settings?.bannedIps || [];
+            if (!Array.isArray(bannedIps) || bannedIps.length === 0) return false;
+
+            // جلب الـ IP الفعلي للجهاز عبر خدمة سريعة ومجانية
+            const ipRes = await fetch('https://api.ipify.org?format=json').then(r => r.json());
+            const visitorIp = ipRes.ip;
+
+            if (bannedIps.includes(visitorIp)) {
+                console.error("🚨 SECURITY WATCHDOG: IP is banned! Access Denied.");
+                // مسح الجلسة وتوجيه فوري لصفحة الدخول (سيتم منعه من الدخول مجدداً بواسطة الواجهة والسيرفر)
+                this.logout();
+                return true;
+            }
+        } catch (e) {
+            // في حال وجود مشكلة بالإنترنت لا نعطل العميل العادي
+            console.warn("Security Watchdog: IP check bypassed due to network issue.");
+        }
+        return false;
     },
 
     ackAdminMessage: async function() {
@@ -453,6 +486,10 @@ export const DataManager = {
                 finalUserMessage = 'عذراً، المنتج أو الكوبون نفد من المخزون حالياً.';
             } else if (code === 'not-found') {
                 finalUserMessage = 'المنتج المطلوب غير متوفر حالياً.';
+            } else if (code === 'permission-denied') {
+                // التقاط رسالة الحظر من السيرفر وعرضها بأناقة للعميل قبل أن يطرد
+                finalUserMessage = 'عذراً، لا يمكنك تنفيذ هذه العملية حالياً لوجود قيود على حسابك.';
+                this.syncUser(); // تشغيل فحص المزامنة لطرده فوراً
             }
 
             return { success: false, msg: finalUserMessage };
@@ -511,6 +548,10 @@ export const DataManager = {
             
             if (code === 'already-exists') finalUserMessage = 'لديك طلب إيداع معلق مسبقاً، يرجى الانتظار لحين معالجته.';
             else if (code === 'resource-exhausted') finalUserMessage = 'الرجاء الانتظار قليلاً قبل إرسال طلب إيداع جديد.';
+            else if (code === 'permission-denied') {
+                finalUserMessage = 'عذراً، لا يمكنك تنفيذ هذه العملية حالياً لوجود قيود على حسابك.';
+                this.syncUser(); 
+            }
             
             return { success: false, msg: finalUserMessage };
         }
