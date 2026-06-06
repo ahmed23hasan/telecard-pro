@@ -24,6 +24,16 @@
         { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "time", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "telecard_orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "price", "order": "ASCENDING" },
+        { "fieldPath": "pricingSnapshot.costUsd", "order": "ASCENDING" },
+        { "fieldPath": "pricingSnapshot.netProfitUsd", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
