@@ -1,7 +1,7 @@
 // ============================================================================
-// 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js)
-// 🎯 الوظيفة: رسم الإحصائيات الرئيسية، التنبيهات السريعة، وسجل النشاطات (Logs) فقط
-// 🚀 التحديث: ربط سجل النشاطات (Logs) بالمنسق الزمني المركزي (SSOT)
+// 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate 🚀
+// 🎯 الوظيفة: رسم الإحصائيات، الرادار الذكي (Smart Alerts)، وسجل النشاطات
+// 🌟 التحديث: ربط الرادار بالكلاسات الأصلية في admin.css (بدون تكرار أكواد)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -10,6 +10,7 @@ import { RenderHelpers } from '../../core/renderHelpers.js';
 
 export const DashboardRender = {
     leaderboardFilter: 'all', 
+    _mainChartInst: null, 
 
     initListeners: function() {
         // يمكن إضافة مستمعات خاصة بلوحة القيادة هنا مستقبلاً
@@ -62,48 +63,67 @@ export const DashboardRender = {
             capsGrid.innerHTML = AdminTemplates.dashGrid(stats, walletsCapsules, couponsHtml, communityHtml); 
         }
 
-        // 5. التنبيهات الذكية السريعة للوحة القيادة (Smart Alerts)
+        // =========================================================
+        // 🚨 5. الرادار الذكي والتنبيهات (Smart Alerts Engine) - V8.3
+        // =========================================================
         const buildAlertHtml = (a) => {
             let type = 'info', icon = 'fa-info-circle', text = '', action = '';
             
             if (a.id === 'vault_empty') { 
                 type = 'danger'; icon = 'fa-box-open'; 
-                text = AdminTemplates.alertVaultEmpty(RenderHelpers._esc(a.poolName)); 
+                text = `مخزون حرج: صندوق <b class="text-danger">${RenderHelpers._esc(a.poolName)}</b> فارغ تماماً!`; 
                 action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; 
             } 
             else if (a.id === 'vault_low') { 
                 type = 'warning'; icon = 'fa-hourglass-half'; 
-                text = AdminTemplates.alertVaultLow(RenderHelpers._esc(a.poolName), a.count); 
+                text = `نقص مخزون: تبقى <b class="num-en text-warning" dir="ltr">${a.count}</b> أكواد في <b class="text-white">${RenderHelpers._esc(a.poolName)}</b>`; 
                 action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; 
             } 
             else if (a.id === 'coupon_used') { 
                 type = 'success'; icon = 'fa-tag'; 
-                text = AdminTemplates.alertCouponUsed(RenderHelpers._esc(a.user), RenderHelpers._esc(a.code)); 
+                text = `استخدم العميل <b class="text-white">${RenderHelpers._esc(a.user)}</b> الكوبون <span class="badge-qty badge-success" dir="ltr">${RenderHelpers._esc(a.code)}</span>`; 
                 action = `data-action="open-order-drawer" data-id="${a.orderId}"`; 
             } 
             else if (a.id === 'offer_expiring') { 
                 type = 'warning'; icon = 'fa-bolt'; 
-                text = AdminTemplates.alertOfferExpiring(RenderHelpers._esc(a.name)); 
+                text = `حملة <b class="text-warning">${RenderHelpers._esc(a.name)}</b> ستنتهي قريباً!`; 
                 action = `data-action="nav" data-target="coupons"`; 
             } 
+            else if (a.id === 'kyc_pending') { 
+                type = 'info'; icon = 'fa-id-card-clip'; 
+                text = `يوجد <b class="num-en text-info" dir="ltr">${a.count}</b> طلبات توثيق هوية بانتظار المراجعة.`; 
+                action = `data-action="nav" data-target="kyc-system"`; 
+            }
             else if (a.id === 'security_stable') { 
                 type = 'security'; icon = 'fa-shield-halved'; 
-                text = AdminTemplates.alertSecurityStable(); 
+                text = `حالة النظام الأمنية مستقرة - لا توجد اختراقات.`; 
             }
-            return AdminTemplates.dashAlertItem({ type, icon, text, time: a.time || Date.now(), action });
+
+            const timeStr = (a.time && a.time !== 0) ? RenderHelpers.formatSafeDate(a.time) : '';
+            
+            // 🌟 الربط المباشر والذكي مع الكلاسات الموجودة في admin.css 
+            // (smart-alert-item, alert-danger, alert-content-wrap, إلخ)
+            return `
+            <div class="smart-alert-item alert-${type} ${action ? 'clickable' : ''}" ${action}>
+                ${timeStr ? `<div class="alert-time num-en" dir="ltr"><i class="fa-regular fa-clock"></i> ${timeStr}</div>` : ''}
+                <div class="alert-content-wrap">
+                    <i class="fa-solid ${icon}"></i>
+                    <span>${text}</span>
+                </div>
+            </div>`;
         };
 
         const alertsCont = document.getElementById('dash-smart-alerts');
         if (alertsCont) {
-            alertsCont.innerHTML = (!stats.alerts || stats.alerts.length === 0) ? AdminTemplates.dashEmptyAlerts() : stats.alerts.map(a => buildAlertHtml(a)).join('');
+            alertsCont.innerHTML = (!stats.alerts || stats.alerts.length === 0) 
+                ? `<div class="empty-alert"><i class="fa-solid fa-check-circle"></i><span>لا توجد تنبيهات حالياً</span></div>` 
+                : stats.alerts.map(a => buildAlertHtml(a)).join('');
         }
-
-        // ... (نهاية دالة renderDashboard السابقة)
         
         this.updateTopBellBadge(stats);
         
-        // 🌟 الإصلاح هنا: تمرير الكائن stats המتطور والمجهز لمحرك المخطط
-        if(typeof this.renderMainChart === 'function') this.renderMainChart(stats);
+        // 🌟 استدعاء محرك المخطط البياني المحدث
+        if (typeof this.renderMainChart === 'function') this.renderMainChart(stats);
     },
 
     updateTopBellBadge: function(stats) {
@@ -141,9 +161,9 @@ export const DashboardRender = {
     },
 
     // =========================================================
-    // 📊 2. رسم المخطط البياني الرئيسي للوحة القيادة
+    // 📊 2. رسم المخطط البياني الرئيسي للوحة القيادة (Cloud Sync)
     // =========================================================
-    renderMainChart: function(stats) { // 🌟 استلام الكائن המُحסَّن כארגומנט
+    renderMainChart: function(stats) { 
         const chartDiv = document.querySelector("#main-revenue-chart");
         if (!chartDiv || typeof window.ApexCharts === 'undefined') return;
 
@@ -154,10 +174,9 @@ export const DashboardRender = {
             const dayKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
             last7Days.push(d);
             
-            // 🌟 الربط مع المصفوفة المحلية الآمنة التي בניناها (بدل הסيرفر المعطل)
             if (stats && stats.daily && stats.daily[dayKey]) { 
-                salesData.push((stats.daily[dayKey].revenue || 0).toFixed(2)); 
-                profitData.push((stats.daily[dayKey].profit || 0).toFixed(2)); 
+                salesData.push(Number(stats.daily[dayKey].revenue || 0).toFixed(2)); 
+                profitData.push(Number(stats.daily[dayKey].profit || 0).toFixed(2)); 
             } else { 
                 salesData.push(0); 
                 profitData.push(0); 
@@ -183,9 +202,8 @@ export const DashboardRender = {
             theme: { mode: themeMode }, tooltip: { theme: themeMode }
         };
 
-        // 🌟 منع تسريب الذاكرة والتجميد
         if (this._mainChartInst) {
-            try { this._mainChartInst.destroy(); } catch (e) {}
+            try { this._mainChartInst.destroy(); } catch (e) { console.warn("Chart destroy failed"); }
         }
         
         chartDiv.innerHTML = '';
@@ -213,13 +231,13 @@ export const DashboardRender = {
             if(action.includes('ADD') || action.includes('APPROVE') || action.includes('ACCEPT')) { 
                 badgeClass = 'badge-success bg-success-10 text-success border-success-15'; 
             } 
-            else if(action.includes('DELETE') || action.includes('REJECT') || action.includes('BAN')) { 
+            else if(action.includes('DELETE') || action.includes('REJECT') || action.includes('BAN') || action.includes('REVOKE')) { 
                 badgeClass = 'badge-danger bg-danger-10 text-danger border-danger-15'; 
             } 
-            else if(action.includes('EDIT') || action.includes('UPDATE') || action.includes('RESTRICT')) { 
+            else if(action.includes('EDIT') || action.includes('UPDATE') || action.includes('RESTRICT') || action.includes('SYNC')) { 
                 badgeClass = 'badge-warning bg-warning-10 text-warning border-warning-15'; 
             } 
-            else if(action.includes('ORDER') || action.includes('PAYMENT') || action.includes('BALANCE')) { 
+            else if(action.includes('ORDER') || action.includes('PAYMENT') || action.includes('BALANCE') || action.includes('KYC')) { 
                 badgeClass = 'badge-info bg-info-10 text-info border-info-15'; 
             }
 

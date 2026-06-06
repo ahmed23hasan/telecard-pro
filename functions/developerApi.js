@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - Pro Version
+// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - Bank Grade 🏦
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🚀 التحديث: دمج معايير (Idempotency) وسد الخلل المحاسبي لتقارير الأرباح
+// 🌟 التحديث: دمج الإشعارات الفرعية (Subcollections)، الرياضيات الآمنة، والأداء العالي
 // ============================================================================
 
 const functions = require('firebase-functions');
@@ -15,10 +15,11 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 // ==========================================
-// 🛠️ دوال مساعدة (Helpers)
+// 🛡️ دوال مساعدة ورياضيات آمنة (Safe Math & Helpers)
 // ==========================================
+const safeAdd = (a, b) => Math.round(Number(a) * 10000 + Number(b) * 10000) / 10000;
+const safeSub = (a, b) => Math.max(0, Math.round(Number(a) * 10000 - Number(b) * 10000) / 10000);
 
-// دالة لحفظ المحاولات الفاشلة في طابور المهام (Queue) لإعادة إرسالها
 async function logFailedWebhook(payload, webhookUrl, errorMsg, userId) {
     await db.collection('telecard_failed_webhooks').add({
         userId: userId,
@@ -31,7 +32,6 @@ async function logFailedWebhook(payload, webhookUrl, errorMsg, userId) {
     });
 }
 
-// دالة لتوليد توقيع رقمي أمني (HMAC) للتأكد من هوية المرسل
 function generateHmacSignature(payload, secret) {
     if (!secret) return '';
     return crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
@@ -143,29 +143,14 @@ exports.cronRetryWebhooks = functions.region('us-east1').pubsub.schedule('every 
                 clearTimeout(timeoutId);
 
                 if (response.ok) {
-                    return doc.ref.update({ 
-                        status: 'success', 
-                        attempts: currentAttempt, 
-                        lastAttempt: admin.firestore.FieldValue.serverTimestamp() 
-                    });
+                    return doc.ref.update({ status: 'success', attempts: currentAttempt, lastAttempt: admin.firestore.FieldValue.serverTimestamp() });
                 } else {
-                    return doc.ref.update({ 
-                        status: isLastAttempt ? 'permanently_failed' : 'failed',
-                        attempts: currentAttempt, 
-                        error: `HTTP ${response.status}`, 
-                        lastAttempt: admin.firestore.FieldValue.serverTimestamp() 
-                    });
+                    return doc.ref.update({ status: isLastAttempt ? 'permanently_failed' : 'failed', attempts: currentAttempt, error: `HTTP ${response.status}`, lastAttempt: admin.firestore.FieldValue.serverTimestamp() });
                 }
             } catch (err) {
                 clearTimeout(timeoutId);
                 const errorMsg = err.name === 'AbortError' ? 'Connection Timeout (10s)' : err.message;
-                
-                return doc.ref.update({ 
-                    status: isLastAttempt ? 'permanently_failed' : 'failed',
-                    attempts: currentAttempt, 
-                    error: errorMsg, 
-                    lastAttempt: admin.firestore.FieldValue.serverTimestamp() 
-                });
+                return doc.ref.update({ status: isLastAttempt ? 'permanently_failed' : 'failed', attempts: currentAttempt, error: errorMsg, lastAttempt: admin.firestore.FieldValue.serverTimestamp() });
             }
         });
 
@@ -174,7 +159,7 @@ exports.cronRetryWebhooks = functions.region('us-east1').pubsub.schedule('every 
     });
 
 // ==========================================
-// 🔌 3. بوابة الـ API الخارجية (External API Gateway - Turbo & Idempotency)
+// 🔌 3. بوابة الـ API الخارجية (External API Gateway - Safe Math & V8 Sync)
 // ==========================================
 exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async (req, res) => {
     if (req.method !== 'POST') {
@@ -182,30 +167,23 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
     }
 
     const apiKeyHeader = req.headers['x-api-key'] || req.headers['authorization'];
-    if (!apiKeyHeader) {
-        return res.status(401).json({ success: false, error: 'Unauthorized: API Key is missing.' });
-    }
+    if (!apiKeyHeader) return res.status(401).json({ success: false, error: 'Unauthorized: API Key is missing.' });
 
     const idempotencyKey = req.headers['idempotency-key'];
     const cleanKey = apiKeyHeader.replace('Bearer ', '').trim();
 
     try {
         const usersQuery = await db.collection('telecard_users').where('apiKey', '==', cleanKey).limit(1).get();
-        if (usersQuery.empty) {
-            return res.status(401).json({ success: false, error: 'Unauthorized: Invalid API Key.' });
-        }
+        if (usersQuery.empty) return res.status(401).json({ success: false, error: 'Unauthorized: Invalid API Key.' });
 
         const userDoc = usersQuery.docs[0];
         const uid = userDoc.id;
-
         const { productId, qty, inputStr } = req.body;
-        if (!productId) {
-            return res.status(400).json({ success: false, error: 'Bad Request: productId is required.' });
-        }
+        
+        if (!productId) return res.status(400).json({ success: false, error: 'Bad Request: productId is required.' });
 
         const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
         let resultData = null;
-
         const cleanOrderId = 'TC-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
 
         await db.runTransaction(async (transaction) => {
@@ -222,7 +200,6 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
 
             const productRef = db.collection('telecard_prods').doc(String(productId));
 
-            // قراءة متوازية للمراجع الأساسية
             const [productSnap, latestUserSnap] = await Promise.all([
                 transaction.get(productRef),
                 transaction.get(userDoc.ref)
@@ -233,7 +210,6 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
             const userData = latestUserSnap.data();
 
             const orderRef = db.collection('telecard_orders').doc(cleanOrderId);
-
             const tierId = String(userData.tierId || userData.tier || 1);
             const tierRef = db.collection('telecard_tiers').doc(tierId);
             const vaultRef = product.vaultPoolId ? db.collection('telecard_vault').doc(String(product.vaultPoolId)) : null;
@@ -245,25 +221,19 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
 
             const userTier = tierSnap.exists ? tierSnap.data() : null;
 
-            // 🌟 الحسبة المالية الدقيقة: التكلفة حقيقية والسعر الثابت منفصلان [1]
             const rawUnitCost = Number(product.costPrice || product.price || 0);
             const isFixed = (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true');
             const fixedUsd = isFixed ? Number(product.fixedPriceUsd || product.fixed_price_usd || 0) : 0;
 
             const pricingSnapshot = FinancialEngine.calculatePrice({
-                costPrice: rawUnitCost, // التكلفة الحقيقية للمورد
-                fixedPrice: fixedUsd,   // السعر الثابت للبيع
-                tier: userTier,
-                offer: null,
-                coupon: null
+                costPrice: rawUnitCost, fixedPrice: fixedUsd, tier: userTier, offer: null, coupon: null
             });
 
-            const exactPrice = Number((pricingSnapshot.finalPrice * finalQty).toFixed(4));
+            // 🌟 استخدام الرياضيات الآمنة (Integer Math) لتجنب أخطاء الفواصل العشرية
+            const exactPrice = safeAdd(0, pricingSnapshot.finalPrice * finalQty);
             const currentBalance = Number(userData.walletBalance || 0);
 
-            if (currentBalance < exactPrice) {
-                throw new Error('Insufficient balance.');
-            }
+            if (currentBalance < exactPrice) throw new Error('Insufficient balance.');
 
             let deliveredCodeText = null;
             let isAutoDelivered = false;
@@ -281,59 +251,49 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                 }
             }
 
-            const costPriceVal = Number((pricingSnapshot.cost * finalQty).toFixed(4));
-            const netProfit = Number((pricingSnapshot.profit * finalQty).toFixed(4));
-            
-            const newBalance = Number(Math.max(0, currentBalance - exactPrice).toFixed(4));
-            const newTotalSpent = Number((Number(userData.totalSpent || 0) + exactPrice).toFixed(4));
-            const newCycleSpent = Number((Number(userData.tierCycleSpent || 0) + exactPrice).toFixed(4));
+            const costPriceVal = safeAdd(0, pricingSnapshot.cost * finalQty);
+            const netProfit = safeAdd(0, pricingSnapshot.profit * finalQty);
+            const newBalance = safeSub(currentBalance, exactPrice);
+            const newTotalSpent = safeAdd(userData.totalSpent || 0, exactPrice);
+            const newCycleSpent = safeAdd(userData.tierCycleSpent || 0, exactPrice);
 
             const newOrder = {
-                id: cleanOrderId,
-                displayId: cleanOrderId, 
-                userId: uid,
-                prodId: productId,
-                product: product.name,
-                price: exactPrice,
-                qty: finalQty,
-                input: inputStr || 'API Request',
-                status: isAutoDelivered ? 'completed' : 'pending',
-                deliveredCode: deliveredCodeText,
-                balanceAfter: newBalance,
-                idempotencyKey: idempotencyKey || null, 
+                id: cleanOrderId, displayId: cleanOrderId, userId: uid, prodId: productId, product: product.name,
+                price: exactPrice, qty: finalQty, input: inputStr || 'API Request',
+                status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText,
+                balanceAfter: newBalance, idempotencyKey: idempotencyKey || null, 
                 pricingSnapshot: { 
-                    costUsd: costPriceVal,
-                    tierPriceUsd: Number((pricingSnapshot.tierPrice * finalQty).toFixed(4)),
-                    originalPriceUsd: Number((pricingSnapshot.originalPrice * finalQty).toFixed(4)),
-                    finalPriceUsd: exactPrice,
-                    tierName: pricingSnapshot.tierName,
-                    netProfitUsd: netProfit,
-                    marginPct: pricingSnapshot.marginPct,
+                    costUsd: costPriceVal, tierPriceUsd: safeAdd(0, pricingSnapshot.tierPrice * finalQty),
+                    originalPriceUsd: safeAdd(0, pricingSnapshot.originalPrice * finalQty), finalPriceUsd: exactPrice,
+                    tierName: pricingSnapshot.tierName, netProfitUsd: netProfit, marginPct: pricingSnapshot.marginPct,
                     isFirewallActive: pricingSnapshot.isFirewallActive
                 },
                 time: admin.firestore.FieldValue.serverTimestamp(),
                 isApiOrder: true
             };
 
-            resultData = {
-                orderId: cleanOrderId,
-                status: newOrder.status,
-                pricePaid: exactPrice,
-                deliveredCode: deliveredCodeText
-            };
+            resultData = { orderId: cleanOrderId, status: newOrder.status, pricePaid: exactPrice, deliveredCode: deliveredCodeText };
 
             transaction.update(userDoc.ref, {
-                walletBalance: newBalance, balance: newBalance,
-                totalSpent: newTotalSpent, tierCycleSpent: newCycleSpent
+                walletBalance: newBalance, balance: newBalance, totalSpent: newTotalSpent, tierCycleSpent: newCycleSpent
             });
             
+            // 🌟 إرسال إشعار للمشترى عبر الـ Subcollection لكي يراه في المتجر أيضاً!
+            if (isAutoDelivered) {
+                const notifId = 'notif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5);
+                const notifRef = userDoc.ref.collection('notifications').doc(notifId);
+                transaction.set(notifRef, {
+                    id: notifId, title: "🔌 تم تسليم طلب API بنجاح!",
+                    message: `تم إكمال طلبك الخارجي لشراء ( ${product.name} ) بنجاح.`,
+                    type: 'notification', jumpTarget: 'order', createdAt: Date.now()
+                });
+            }
+
             transaction.set(orderRef, newOrder);
 
             if (idempotencyRef) {
                 transaction.set(idempotencyRef, {
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                    resultData: resultData,
-                    orderId: cleanOrderId
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(), resultData: resultData, orderId: cleanOrderId
                 });
             }
         });
@@ -342,15 +302,9 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
 
     } catch (error) {
         console.error("API Gateway Error:", error);
-        
-        if (error.message === 'Insufficient balance.') {
-            return res.status(402).json({ success: false, error: 'Insufficient balance' });
-        } else if (error.message === 'Out of stock.') {
-            return res.status(409).json({ success: false, error: 'Product out of stock' });
-        } else if (error.message === 'Product not found.') {
-            return res.status(404).json({ success: false, error: 'Product not found' });
-        }
-        
+        if (error.message === 'Insufficient balance.') return res.status(402).json({ success: false, error: 'Insufficient balance' });
+        else if (error.message === 'Out of stock.') return res.status(409).json({ success: false, error: 'Product out of stock' });
+        else if (error.message === 'Product not found.') return res.status(404).json({ success: false, error: 'Product not found' });
         return res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
 });

@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 متحكم المالية (modules/finance/financeController.js) - Cloud Secured ☁️
-// الوظيفة: معالجة العمليات المنطقية (Business Logic) للإيداعات، بوابات الدفع، والعملات.
-// 🌟 التحديث الفعلي: التحديث المتفائل الحقيقي (0 ثانية) + توجيه (us-east1) + الرفع المباشر
+// 🧠 متحكم المالية (modules/finance/financeController.js) - Bank Grade 🏦
+// الوظيفة: معالجة العمليات المنطقية للإيداعات، بوابات الدفع، والعملات.
+// 🌟 التحديث: أمان مالي صارم (Pessimistic UI) + إشعار نهائي دقيق ومخصص
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -10,8 +10,6 @@ import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { AppController } from '../../core/appController.js';
 import { normalizeRates } from '../../adminConfig.js';
-import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const FinanceController = {
@@ -45,23 +43,19 @@ export const FinanceController = {
 
         if (checks.length > 0 && AdminUI && !await AdminUI.showConfirm(summaryMsg, 'تأكيد الحسبة المالية للبوابة')) return;
 
-        EventBus.emit('req-show-loader', true); 
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات بوابة الدفع...');
 
         try {
             const hasImg = AdminUI?.FinanceUI?.hasImage?.('pay-img-wrap');
             const oldImg = AppController.tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(AppController.tempEditId))?.img : null;
             
-            let finalImg = '';
+            let finalImg = oldImg || '';
             if (hasImg) {
-                // 🌟 سحب الملف مباشرة من عنصر الإدخال لضمان نجاح الرفع
                 const fileInput = document.getElementById('pay-img-input');
                 const fileToUpload = fileInput?.files?.[0];
 
                 if (fileToUpload) {
-                    EventBus.emit('req-show-toast', {message:'جاري رفع شعار البوابة للسحابة...', type:'info'});
                     finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'payments');
-                } else {
-                    finalImg = oldImg || ''; 
                 }
             }
 
@@ -95,7 +89,7 @@ export const FinanceController = {
             console.error("Save Payment Error:", error);
             EventBus.emit('req-show-toast', {message:'فشل الحفظ: ' + (error.message || 'خطأ غير معروف'), type:'error'});
         } finally {
-            EventBus.emit('req-show-loader', false); 
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
@@ -262,53 +256,65 @@ export const FinanceController = {
     },
 
     // =========================================================
-    // 🏦 3. معالجة الإيداعات الآمنة (Optimistic & US-EAST1)
+    // 🏦 3. معالجة الإيداعات الآمنة (أمان مالي + Loader + رسائل دقيقة)
     // =========================================================
+    _isProcessingDeposit: false,
+
     submitDepositReview: async function(action) {
+        if (this._isProcessingDeposit) return;
+        
         const reviewId = AdminUI?.FinanceUI?.currentDepositId || null;
         if (!reviewId) return;
         
         const dep = AdminData.data.deposits.find(d => String(d.id) === String(reviewId));
         if (!dep) return;
-        
+
+        this._isProcessingDeposit = true;
         const note = Utils.escapeHTML(Utils.getVal('dep-drawer-note'));
         const mappedAction = action === 'approve' ? 'approved' : 'rejected';
         
-        // 🌟 1. التحديث المتفائل (Optimistic UI) - تغيير الواجهة محلياً في 0 ثانية!
-        const oldStatus = dep.status;
-        dep.status = mappedAction;
-        AdminUI?.FinanceUI?.closeDepositDrawer?.();
-        EventBus.emit('req-render-deposits');
-        EventBus.emit('req-show-toast', { message: 'جاري تسجيل العملية في السيرفر (US-East1)...', type: 'info' });
+        // 🌟 1. تجهيز الرسالة الدقيقة بناءً على الإجراء والمبلغ
+        const customMessage = action === 'approve' 
+            ? `تم قبول طلب إيداع بقيمة ${dep.amount} ${dep.currency}`
+            : `تم رفض طلب إيداع بقيمة ${dep.amount} ${dep.currency}`;
+        
+        // 🌟 2. تجميد الشاشة وحمايتها من النقر المزدوج (Loader)
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري توثيق العملية وتحديث الرصيد سحابياً...');
         
         try {
-            const app = getApp();
-            // 🌟 2. الاتصال بالمنطقة السريعة
-            const functions = getFunctions(app, 'us-east1');
-            const processDepositFn = httpsCallable(functions, 'adminProcessDeposit');
-            
-            const result = await processDepositFn({
+            // 🌟 3. إرسال الطلب للسيرفر والانتظار لضمان الأمان المالي
+            const result = await FirebaseAdapter.callFunction('adminProcessDeposit', {
                 depositId: String(dep.id),
                 action: mappedAction,
                 adminNote: note
             });
             
-            // 🌟 3. السيرفر أنهى عمله بنجاح، نسجل النشاط فقط
-            if (AdminData?.addLog) {
-                AdminData.addLog(`DEPOSIT_${mappedAction.toUpperCase()}`, `إيداع رقم #${dep.id} بمبلغ ${dep.amount} ${dep.currency} - ${mappedAction === 'approved' ? 'مقبول' : 'مرفوض'}`);
+            // 🌟 4. إذا نجح السيرفر، نقوم بتحديث الشاشة وإظهار الإشعار النهائي فقط
+            if (result && result.success) {
+                dep.status = mappedAction;
+                AdminUI?.FinanceUI?.closeDepositDrawer?.();
+                EventBus.emit('req-render-deposits');
+                
+                if (AdminData?.addLog) {
+                    AdminData.addLog(`DEPOSIT_${mappedAction.toUpperCase()}`, `${customMessage} للعميل ${dep.userName || dep.userId}`);
+                }
+                
+                // إشعار واحد فقط دقيق وجميل!
+                EventBus.emit('req-show-toast', { message: customMessage, type: 'success' });
             }
-            EventBus.emit('req-show-toast', { message: result.data?.message || 'تم الاعتماد سحابياً بنجاح', type: 'success' });
-            
         } catch (error) {
-            console.error("Cloud Function Error:", error);
-            // 🌟 4. التراجع الآمن في حال الفشل (Rollback)
-            dep.status = oldStatus;
-            EventBus.emit('req-render-deposits');
-            EventBus.emit('req-show-toast', { message: error.message || 'تعذر معالجة الإيداع سحابياً. تم التراجع.', type: 'error' });
+            console.error("Deposit Processing Error:", error);
+            EventBus.emit('req-show-toast', { message: `فشل السيرفر: ${error.message}`, type: 'error' });
+        } finally {
+            // 🌟 5. رفع الحظر عن الشاشة دائماً في النهاية
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            this._isProcessingDeposit = false;
         }
     },
     
     reEvaluateDeposit: async function(depId) {
+        if (this._isProcessingDeposit) return;
+
         const dep = AdminData.data.deposits.find(d => String(d.id) === String(depId));
         if (!dep || dep.status !== 'approved') return;
         
@@ -351,43 +357,41 @@ export const FinanceController = {
         }
         
         if (AdminUI && await AdminUI.showConfirm(confirmMsg, confirmTitle)) {
-            
-            // 🌟 1. التحديث المتفائل (0 ثانية)
-            const oldStatus = dep.status;
-            dep.status = 'refunded';
-            AdminUI?.FinanceUI?.closeDepositDrawer?.();
-            EventBus.emit('req-render-deposits');
-            EventBus.emit('req-show-toast', { message: 'جاري استرجاع الإيداع سحابياً (US-East1)...', type: 'info' });
+            this._isProcessingDeposit = true;
+
+            const customMessage = isDeduction 
+                ? `تم إلغاء الخصم وإعادة ${Math.abs(dep.amount)} ${dep.currency}`
+                : `تم استرجاع إيداع بقيمة ${dep.amount} ${dep.currency}`;
+
+            // تجميد الشاشة أثناء انتظار السيرفر
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تصحيح الرصيد سحابياً...');
             
             try {
-                const app = getApp();
-                // 🌟 2. الاتصال بالمنطقة السريعة
-                const functions = getFunctions(app, 'us-east1');
-                const processDepositFn = httpsCallable(functions, 'adminProcessDeposit');
-                
-                const result = await processDepositFn({
+                const result = await FirebaseAdapter.callFunction('adminProcessDeposit', {
                     depositId: String(dep.id),
                     action: 'refunded',
                     adminNote: 'تم استرجاع الإيداع يدوياً من الإدارة'
                 });
                 
-                const curTxt = AdminRender?.getCurrencySymbolText?.(dep.currency || 'USD') || (dep.currency || 'USD');
-                const successLogMsg = isDeduction ?
-                    `تم إلغاء عملية خصم وإعادة ${Math.abs(dep.amount)} ${curTxt} لرصيد العميل ${dep.userName}` :
-                    `تم استرجاع إيداع رقم #${dep.id} للعميل ${dep.userName} وتم خصم ${dep.amount} ${curTxt} من رصيده`;
-                
-                // 🌟 3. تسجيل النشاط
-                if (AdminData?.addLog) {
-                    AdminData.addLog('REFUND_DEPOSIT', successLogMsg);
+                if (result && result.success) {
+                    dep.status = 'refunded';
+                    AdminUI?.FinanceUI?.closeDepositDrawer?.();
+                    EventBus.emit('req-render-deposits');
+                    
+                    if (AdminData?.addLog) {
+                        AdminData.addLog('REFUND_DEPOSIT', `${customMessage} للعميل ${dep.userName || dep.userId}`);
+                    }
+                    
+                    // إشعار واحد فقط دقيق وجميل!
+                    EventBus.emit('req-show-toast', { message: customMessage, type: 'success' });
                 }
-                EventBus.emit('req-show-toast', { message: isDeduction ? 'تم إلغاء الخصم وإعادة الرصيد للعميل' : 'تم استرجاع الإيداع بنجاح', type: 'success' });
                 
             } catch (error) {
-                console.error("Cloud Function Error:", error);
-                // 🌟 4. التراجع الآمن
-                dep.status = oldStatus;
-                EventBus.emit('req-render-deposits');
-                EventBus.emit('req-show-toast', { message: error.message || 'تعذر استرجاع الإيداع سحابياً. تم التراجع.', type: 'error' });
+                console.error("Refund Deposit Error:", error);
+                EventBus.emit('req-show-toast', { message: `فشل السيرفر: ${error.message}`, type: 'error' });
+            } finally {
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+                this._isProcessingDeposit = false;
             }
         }
     }

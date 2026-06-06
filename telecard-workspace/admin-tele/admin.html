@@ -1,51 +1,47 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-
-<script type="module">
-    // تشغيل الكونسول
-    eruda.init();
-
-    async function bootApp() {
-        try {
-            const moduleUrl = './admin.js?bypassCache=' + Date.now();
-            console.log("🚀 جاري محاولة إقلاع النظام ديناميكياً...");
-            await import(moduleUrl);
-        } catch (error) {
-            console.error("🚨 [القبض على المجرم]:", error);
-            
-            // 🌟 السحر هنا: فتح الكونسول تلقائياً فور حدوث الخطأ!
-            eruda.show();
-            
-            // ⏳ تأخير ظهور الشاشة الحمراء لمدة 10 ثوانٍ لكي تتصفح الكونسول براحتك
-            setTimeout(() => {
-                const loader = document.getElementById('loader');
-                if (loader) loader.style.display = 'none';
-                
-                const errorScreen = document.getElementById('system-fatal-error');
-                const errDesc = errorScreen ? errorScreen.querySelector('p') : null;
-                
-                if (errorScreen && errDesc) {
-                    errorScreen.style.display = 'flex';
-                    errDesc.innerHTML = `<b dir="ltr" style="color: #fca5a5; background: #1e293b; padding: 15px; border-radius: 8px; display: block; margin-top: 15px; text-align: left; font-family: monospace; font-size: 14px;">
-                        سبب الانهيار المكتوم:<br><br>
-                        ${error.message}<br><br>
-                        <span style="color:#fbbf24">الملف المفقود موجود في الكونسول الذي فُتح لك للتو! ابحث عن ملف باللون الأحمر 404</span>
-                    </b>`;
-                }
-            }, 10000); // 10000 مللي ثانية = 10 ثواني
-        }
-    }
-
-    bootApp();
-</script>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="color-scheme" content="dark light">
 
     <title>TELE CARD | الإدارة المركزية</title>
+
+    <!-- 🛡️ حارس البوابة السريع (Pre-Auth Gate): يمنع الوميض ويطرد الزوار في 0 ثانية -->
+    <script>
+        if (sessionStorage.getItem('telecard_admin_auth') !== 'true') {
+            window.location.replace('login.html');
+        }
+    </script>
+
+    <script type="module">
+        async function bootApp() {
+            try {
+                const moduleUrl = './admin.js';
+                console.log("🚀 جاري محاولة إقلاع النظام ديناميكياً...");
+                await import(moduleUrl);
+            } catch (error) {
+                console.error("🚨 [القبض على المجرم]:", error);
+                
+                setTimeout(() => {
+                    const loader = document.getElementById('loader');
+                    if (loader) loader.style.display = 'none';
+                    
+                    const errorScreen = document.getElementById('system-fatal-error');
+                    const errDesc = errorScreen ? errorScreen.querySelector('p') : null;
+                    
+                    if (errorScreen && errDesc) {
+                        errorScreen.style.display = 'flex';
+                        errDesc.innerHTML = `<b dir="ltr" style="color: #fca5a5; background: #1e293b; padding: 15px; border-radius: 8px; display: block; margin-top: 15px; text-align: left; font-family: monospace; font-size: 14px;">
+                            ${error.message || 'خطأ غير معروف في تحميل ملفات النظام.'}
+                        </b>`;
+                    }
+                }, 1000); 
+            }
+        }
+        bootApp();
+    </script>
 
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&family=Inter:wght@400;600;700;800;900&family=Roboto:wght@400;500;700;900&family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
@@ -54,14 +50,14 @@
     <link rel="stylesheet" href="admin.css">
 </head>
 <body>
-     <div id="system-fatal-error" style="display: none; position: fixed; inset: 0; background: #111827; color: #f8fafc; z-index: 999999; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; font-family: 'Cairo', sans-serif;">
+    <div id="system-fatal-error" style="display: none; position: fixed; inset: 0; background: #111827; color: #f8fafc; z-index: 999999; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; font-family: 'Cairo', sans-serif;">
         <i class="fa-solid fa-triangle-exclamation fa-4x" style="color: #ef4444; margin-bottom: 20px;"></i>
         <h2 style="font-weight: 800; margin-bottom: 10px;">عذراً، تعذر تحميل النظام</h2>
         <p style="color: #94a3b8; max-width: 400px; margin-bottom: 25px;">يوجد نقص أو خطأ في ملفات النظام الأساسية. يرجى مراجعة مسارات الملفات (Imports) أو تحديث الصفحة.</p>
         <button type="button" onclick="window.location.reload()" style="padding: 12px 24px; background: #38bdf8; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">تحديث الصفحة</button>
     </div>
 
-    <div class="loader-overlay" id="loader"><div class="loader"></div><span>جاري المعالجة...</span></div>
+<div class="loader-overlay" id="loader"><div class="loader"></div><span>جاري المعالجة...</span></div>
     <div class="sidebar-overlay" id="sb-overlay" data-action="toggle-sidebar"></div>
 
     <aside class="sidebar" id="sidebar">
@@ -164,16 +160,15 @@
                 <i class="fa-solid fa-download"></i> حفظ نسخة احتياطية
             </div>
             <div class="nav-item" data-action="trigger-click" data-target="restore-file" role="button" tabindex="0">
-    <i class="fa-solid fa-upload"></i> استعادة البيانات
-</div>
-          <input type="file" id="restore-file" hidden accept=".json">
+                <i class="fa-solid fa-upload"></i> استعادة البيانات
+            </div>
+            <input type="file" id="restore-file" hidden accept=".json">
 
             <div class="nav-item nav-logout" data-action="logout" role="button" tabindex="0">
-    <i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج
-</div>
+                <i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج
+            </div>
         </div>
     </aside>
-
     <main class="main-content">
         <header class="header">
             <div class="header-left">

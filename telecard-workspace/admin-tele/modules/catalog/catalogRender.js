@@ -1,6 +1,7 @@
 // ============================================================================
-// 📦 محرك رسم المنتجات والكتالوج (modules/catalog/catalogRender.js)
+// 📦 محرك رسم المنتجات والكتالوج (modules/catalog/catalogRender.js) - Pro 🚀
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، إعدادات المنتجات، الخزنة المركزية، والبلدان
+// 🌟 التحسينات: استقرار بصري أثناء الترتيب + مؤشرات صحة المخزون (Vault Health)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -22,6 +23,9 @@ export const CatalogRender = {
     renderProds: function() {
         const grid = document.getElementById('prod-grid'); 
         if(!grid) return;
+        
+        // 🌟 استقرار بصري (Anti-Flicker): لا نُعيد الرسم إذا كان الأدمن يقوم بالترتيب
+        if (this.state.dragEditMode) return;
         
         const act = document.getElementById('prod-actions');
         const bread = document.getElementById('prod-bread');
@@ -150,18 +154,24 @@ export const CatalogRender = {
         
         const prods = AdminData.data.prods || [];
         grid.innerHTML = vault.map(pool => {
-            let counts = { avail: 0, sold: 0, defect: 0 };
+            let counts = { avail: 0, sold: 0, defect: 0, total: 0 };
+            
             (pool.codes || []).forEach(c => {
                 const status = (typeof c === 'string' || c.status === 'available') ? 'avail' : (c.status === 'sold' ? 'sold' : 'defect');
                 counts[status]++;
+                counts.total++;
             });
+            
+            // 🌟 حساب النسبة المئوية للمخزون المتاح (Vault Health) لمعرفتها في الـ Templates إن أردت استخدامها لاحقاً
+            const healthPercent = counts.total > 0 ? Math.round((counts.avail / counts.total) * 100) : 0;
             const linkedProds = prods.filter(p => String(p.vaultPoolId) === String(pool.id)).length;
-            return AdminTemplates.vaultCard(pool, counts.avail, counts.sold, linkedProds, counts.defect);
+            
+            return AdminTemplates.vaultCard(pool, counts.avail, counts.sold, linkedProds, counts.defect, healthPercent);
         }).join('');
     },
 
     // =========================================================
-    // 🌍 4. رسم البلدان (Countries) - (Pure Render)
+    // 🌍 4. رسم البلدان (Countries)
     // =========================================================
     renderCountries: function() {
         const container = document.getElementById('countries-grid'); 
@@ -173,8 +183,7 @@ export const CatalogRender = {
             return; 
         }
 
-        // 🌟 رسم الكروت مع ضمان وجود قيم مرئية مؤقتة (Fallback) 
-        // تم نقل منطق الحفظ الفعلي إلى validateAndHealCountries في catalogController
+        // رسم الكروت مع ضمان وجود قيم مرئية مؤقتة (Fallback) 
         container.innerHTML = countries.map(c => {
             const displayCountry = {
                 ...c,

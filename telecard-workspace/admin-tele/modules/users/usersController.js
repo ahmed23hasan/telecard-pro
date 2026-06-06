@@ -1,6 +1,7 @@
 // ============================================================================
-// 🧠 متحكم المستخدمين (modules/users/usersController.js)
+// 🧠 متحكم المستخدمين (modules/users/usersController.js) - Bank Grade 🏦
 // الوظيفة: معالجة العمليات المنطقية (Business Logic) للعملاء، المستويات، ونظام التوثيق.
+// 🌟 التحديث: إصلاح عرض أسماء العملاء (الاسم الكامل/اليوزر) في جميع الإشعارات
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -9,11 +10,14 @@ import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { AppController } from '../../core/appController.js';
 
-// 🌟 استيراد أدوات فايربيز اللازمة لإرسال رابط إعادة تعيين كلمة المرور بأمان
-import { auth } from '../../core/firebaseAdapter.js';
+// 🌟 استيراد البوابة الآمنة وأدوات التوثيق
+import { FirebaseAdapter, auth } from '../../core/firebaseAdapter.js';
 import { sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 export const UsersController = {
+
+    selectedUserId: null,
+    selectedTierId: null,
 
     // =========================================================
     // 👥 1. الإدارة العامة للعملاء
@@ -43,7 +47,7 @@ export const UsersController = {
               country = Utils.escapeHTML(Utils.getVal('user-edit-country'));
 
         if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            EventBus.emit('req-show-toast', {message:'البريد الإلكتروني غير صحيح', type:'error'});
+            EventBus.emit('req-show-toast', {message:'صيغة البريد الإلكتروني غير صحيحة', type:'error'});
             return;
         }
 
@@ -60,93 +64,102 @@ export const UsersController = {
         if (phone) user.phone = phone;
         if (country) user.countryName = country;
 
-        await AdminData?.saveUsers?.();
-        AppController.finishAction('req-render-users', null, 'EDIT_USER', `تم تعديل بيانات العميل: ${user.name}`, 'تم حفظ التعديلات بنجاح');
-        
-        setTimeout(() => {
-            AdminRender?.viewUser?.(userId, true);
-        }, 350);
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ التعديلات...');
+
+        try {
+            await AdminData?.saveUsers?.();
+            const displayName = user.fullName || user.username || user.name || 'العميل';
+            AppController.finishAction('req-render-users', null, 'EDIT_USER', `تم تعديل بيانات العميل: ${displayName}`, `تم تحديث ملف العميل (${displayName}) بنجاح`);
+            
+            setTimeout(() => {
+                AdminRender?.viewUser?.(userId, true);
+            }, 350);
+        } catch (error) {
+            EventBus.emit('req-show-toast', {message:'تعذر حفظ التعديلات سحابياً', type:'error'});
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+        }
     },
 
     openBalanceAdjust: async function(type, userId) {
-    if (!AdminUI) return;
-    const user = AdminData.data.users.find(u => String(u.id) === String(userId));
-    if (!user) return;
-    
-    const curCode = (user.baseCurrency || 'USD').toUpperCase().replace('$', 'USD');
-    const displayCur = AdminRender?.getCurrencySymbolText?.(curCode) || curCode;
-    
-    const amount = await AdminUI.showPrompt(`أدخل المبلغ المراد ${type === 'add' ? 'إضافته' : 'خصمه'} (${displayCur}):`, type === 'add' ? 'إضافة رصيد' : 'خصم رصيد', '');
-    if (!amount || isNaN(amount) || Number(amount) <= 0) return;
-    
-    const currentBal = Number(user.walletBalance ?? user.balance ?? 0);
-    const adjustAmount = Number(amount);
-    
-    if (type === 'subtract' && adjustAmount > currentBal) {
-        EventBus.emit('req-show-toast', { message: 'المبلغ المطلوب خصمه أكبر من الرصيد الحالي', type: 'error' });
-        return;
-    }
-    
-    EventBus.emit('req-show-loader', true);
-    
-    try {
-        const { getApp } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
-        const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js");
+        if (!AdminUI) return;
+        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        if (!user) return;
         
-        // 🌟 الربط الإجباري بالمنطقة السريعة
-        const functions = getFunctions(getApp(), 'us-east1');
-        const adjustBalanceCloud = httpsCallable(functions, 'adminAdjustBalance');
+        const displayName = user.fullName || user.username || user.name || 'العميل';
+        const curCode = (user.baseCurrency || 'USD').toUpperCase().replace('$', 'USD');
+        const displayCur = AdminRender?.getCurrencySymbolText?.(curCode) || curCode;
+        const actionName = type === 'add' ? 'إضافة' : 'خصم';
         
-        const result = await adjustBalanceCloud({
-            userId: userId,
-            type: type,
-            amount: adjustAmount,
-            adminName: AdminData.data.adminProfile?.name || 'المدير'
-        });
+        const amountStr = await AdminUI.showPrompt(`أدخل المبلغ المراد ${actionName}ه (${displayCur}):`, `${actionName} رصيد للعميل (${displayName})`, '');
+        if (!amountStr || isNaN(amountStr) || Number(amountStr) <= 0) return;
         
-        if (result.data.success) {
-            const newBal = result.data.newBalance;
-            
-            // 🌟 تحديث المتغيرات محلياً لتجنب الحاجة لعمل Refresh للصفحة
-            user.walletBalance = newBal;
-            user.balance = newBal;
-            user.wallet_balance = newBal;
-            if (type === 'add') {
-                user.totalDeposit = Number(user.totalDeposit || 0) + adjustAmount;
-            } else {
-                user.totalSpent = Number(user.totalSpent || 0) + adjustAmount;
-            }
-            
-            // 🌟 حيلة الـ Optimistic UI: حشر الفاتورة محلياً لتظهر في قائمة الإيداعات فوراً
-            AdminData.data.deposits.unshift({
-                id: result.data.newDeposit.id,
-                displayId: result.data.newDeposit.id,
+        const adjustAmount = Number(amountStr);
+        const currentBal = Number(user.walletBalance ?? user.balance ?? 0);
+        
+        if (type === 'subtract' && adjustAmount > currentBal) {
+            EventBus.emit('req-show-toast', { message: `رصيد العميل الحالي (${currentBal.toFixed(2)} ${displayCur}) لا يكفي للخصم.`, type: 'error' });
+            return;
+        }
+        
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, `جاري توثيق عملية الـ ${actionName} سحابياً...`);
+        
+        try {
+            const result = await FirebaseAdapter.callFunction('adminAdjustBalance', {
                 userId: String(userId),
-                userName: user.name || user.fullName || '---',
+                type: type,
                 amount: adjustAmount,
-                currency: curCode,
-                creditedAmount: result.data.newDeposit.creditedAmount,
-                targetCurrency: curCode,
-                method: type === 'add' ? 'إيداع من الإدارة' : 'خصم من الإدارة',
-                status: 'approved',
-                time: Date.now() // توقيت تقريبي ريثما يتم جلب الختم من السيرفر عند الريفريش
+                adminName: AdminData.data.adminProfile?.name || 'المدير العام'
             });
             
-            AdminUI?.UsersUI?.animateBalanceUpdate?.(newBal, curCode, type);
-            AppController.finishAction('req-render-users', null, type === 'add' ? 'ADD_BALANCE' : 'SUB_BALANCE', `تم ${type === 'add' ? 'إضافة' : 'خصم'} مبلغ ${adjustAmount} ${displayCur} للعميل ${user.name}`, `تمت العملية بنجاح عبر السحابة ☁️`);
+            if (result && result.success) {
+                const newBal = result.newBalance;
+                
+                user.walletBalance = newBal;
+                user.balance = newBal;
+                user.wallet_balance = newBal;
+                if (type === 'add') {
+                    user.totalDeposit = Number(user.totalDeposit || 0) + adjustAmount;
+                } else {
+                    user.totalSpent = Number(user.totalSpent || 0) + adjustAmount;
+                }
+                
+                // حشر الفاتورة محلياً لتظهر فوراً
+                AdminData.data.deposits.unshift({
+                    id: result.newDeposit?.id || String(Date.now()),
+                    displayId: result.newDeposit?.id || String(Date.now()),
+                    userId: String(userId),
+                    userName: displayName,
+                    amount: adjustAmount,
+                    currency: curCode,
+                    creditedAmount: type === 'add' ? adjustAmount : -adjustAmount,
+                    targetCurrency: curCode,
+                    method: type === 'add' ? 'إيداع من الإدارة' : 'خصم من الإدارة',
+                    status: 'approved',
+                    time: Date.now() 
+                });
+                
+                AdminUI?.UsersUI?.animateBalanceUpdate?.(newBal, curCode, type);
+                if (AppController.refresh) AppController.refresh('deposits');
+
+                const preciseMsg = `تم ${actionName} مبلغ ${adjustAmount} ${displayCur} للعميل ${displayName}`;
+                AppController.finishAction('req-render-users', null, type === 'add' ? 'ADD_BALANCE' : 'SUB_BALANCE', preciseMsg, preciseMsg);
+            }
+        } catch (error) {
+            console.error("Balance Adjust Error:", error);
+            EventBus.emit('req-show-toast', { message: `فشل السيرفر: ${error.message}`, type: 'error' });
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
-    } catch (error) {
-        console.error("Cloud Error:", error);
-        EventBus.emit('req-show-toast', { message: 'خطأ سحابي: ' + error.message, type: 'error' });
-    } finally {
-        EventBus.emit('req-show-loader', false);
-    }
-},
+    },
+
     restrictUser: async function(userId) {
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
-        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من ${user.isRestricted ? 'إلغاء تقييد' : 'تقييد'} الحساب؟`)) {
+        const displayName = user.fullName || user.username || user.name || 'العميل';
+
+        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من ${user.isRestricted ? 'إلغاء تقييد' : 'تقييد'} حساب (${displayName})؟`)) {
             user.isRestricted = !user.isRestricted;
             if (user.isRestricted) {
                 user.isBanned = false;
@@ -156,7 +169,8 @@ export const UsersController = {
             }
             await AdminData?.saveUsers?.();
             AdminRender?.viewUser?.(userId, true);
-            AppController.finishAction('req-render-users', null, user.isRestricted ? 'RESTRICT_USER' : 'UNRESTRICT_USER', `تم ${user.isRestricted ? 'تقييد' : 'إلغاء تقييد'} حساب العميل ${user.name}`, null);
+            const msg = `تم ${user.isRestricted ? 'تقييد' : 'إلغاء تقييد'} حساب العميل ${displayName}`;
+            AppController.finishAction('req-render-users', null, user.isRestricted ? 'RESTRICT_USER' : 'UNRESTRICT_USER', msg, msg);
         }
     },
 
@@ -164,7 +178,9 @@ export const UsersController = {
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
-        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من ${user.isBanned ? 'إلغاء حظر' : 'حظر'} الحساب؟`)) {
+        const displayName = user.fullName || user.username || user.name || 'العميل';
+
+        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من ${user.isBanned ? 'إلغاء حظر' : 'حظر'} حساب (${displayName}) نهائياً؟`)) {
             user.isBanned = !user.isBanned;
             if (user.isBanned) {
                 user.isRestricted = false;
@@ -174,7 +190,8 @@ export const UsersController = {
             }
             await AdminData?.saveUsers?.();
             AdminRender?.viewUser?.(userId, true);
-            AppController.finishAction('req-render-users', null, user.isBanned ? 'BAN_USER' : 'UNBAN_USER', `تم ${user.isBanned ? 'حظر' : 'إلغاء حظر'} حساب العميل ${user.name}`, null);
+            const msg = `تم ${user.isBanned ? 'حظر' : 'إلغاء حظر'} حساب العميل ${displayName}`;
+            AppController.finishAction('req-render-users', null, user.isBanned ? 'BAN_USER' : 'UNBAN_USER', msg, msg);
         }
     },
 
@@ -182,9 +199,10 @@ export const UsersController = {
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
+        const displayName = user.fullName || user.username || user.name || 'العميل';
         const targetIp = user.ipAddress || user.ip || 'غير معروف';
 
-        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من حظر عنوان الـ IP (${targetIp}) للعميل ${user.name}؟\nلن يتمكن أي حساب يستخدم هذا الـ IP من الدخول للمتجر.`)) {
+        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من حظر عنوان الـ IP (${targetIp}) للعميل ${displayName}؟\nلن يتمكن أي حساب يستخدم هذا الـ IP من الدخول للمتجر.`)) {
             user.isIpBanned = !user.isIpBanned;
             
             if (user.isIpBanned) {
@@ -202,7 +220,8 @@ export const UsersController = {
 
             await AdminData?.saveUsers?.();
             AdminRender?.viewUser?.(userId, true);
-            AppController.finishAction('req-render-users', null, user.isIpBanned ? 'BAN_IP' : 'UNBAN_IP', `تم ${user.isIpBanned ? 'حظر الـ IP' : 'إلغاء حظر الـ IP'} للعميل ${user.name} (${targetIp})`, null);
+            const msg = `تم ${user.isIpBanned ? 'حظر' : 'إلغاء حظر'} الـ IP للعميل ${displayName}`;
+            AppController.finishAction('req-render-users', null, user.isIpBanned ? 'BAN_IP' : 'UNBAN_IP', msg, msg);
         }
     },
 
@@ -215,11 +234,12 @@ export const UsersController = {
 
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (user) {
+            const displayName = user.fullName || user.username || user.name || 'العميل';
             user.adminMessage = msg;
             user.hasNewMessage = true;
             await AdminData?.saveUsers?.();
             AdminUI?.UsersUI?.clearCustomNotifInput?.();
-            AppController.finishAction(null, null, 'SEND_NOTIF', `تم إرسال إشعار مخصص للعميل ${user.name}`, 'تم إرسال التنبيه للعميل بنجاح');
+            AppController.finishAction(null, null, 'SEND_NOTIF', `تم إرسال إشعار مخصص للعميل ${displayName}`, `تم إرسال التنبيه للعميل (${displayName}) بنجاح`);
         }
     },
 
@@ -227,16 +247,26 @@ export const UsersController = {
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
-        const confirmMsg = `⚠️ تحذير خطير!\nهل أنت متأكد من حذف الحساب "${user.name}"؟\nاكتب "حذف" للتأكيد:`;
+        const displayName = user.fullName || user.username || user.name || 'العميل';
+        const confirmMsg = `⚠️ تحذير خطير!\nهل أنت متأكد من حذف الحساب "${displayName}"؟\nاكتب "حذف" للتأكيد:`;
+        
         if (AdminUI && await AdminUI.showPrompt(confirmMsg, 'حذف الحساب', '') === 'حذف') {
-            AdminData.data.orders = AdminData.data.orders.filter(o => String(o.userId) !== String(userId));
-            AdminData.data.deposits = AdminData.data.deposits.filter(d => String(d.userId) !== String(userId));
-            AdminData.data.users = AdminData.data.users.filter(u => String(u.id) !== String(userId));
             
-            await AdminData?.saveOrders?.();
-            await AdminData?.saveDeposits?.();
-            await AdminData?.saveUsers?.();
-            AppController.finishAction('req-render-users', null, 'DELETE_USER', `تم حذف حساب العميل ${user.name} وكافة سجلاته`, 'تم حذف الحساب بنجاح');
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح بيانات العميل...');
+            
+            try {
+                AdminData.data.orders = AdminData.data.orders.filter(o => String(o.userId) !== String(userId));
+                AdminData.data.deposits = AdminData.data.deposits.filter(d => String(d.userId) !== String(userId));
+                AdminData.data.users = AdminData.data.users.filter(u => String(u.id) !== String(userId));
+                
+                await AdminData?.saveOrders?.();
+                await AdminData?.saveDeposits?.();
+                await AdminData?.saveUsers?.();
+                
+                AppController.finishAction('req-render-users', null, 'DELETE_USER', `تم حذف حساب العميل ${displayName} وكافة سجلاته`, `تم مسح حساب (${displayName}) من النظام نهائياً`);
+            } finally {
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            }
         }
     },
 
@@ -250,20 +280,18 @@ export const UsersController = {
 
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (user) {
+            const displayName = user.fullName || user.username || user.name || 'العميل';
             user.kycStatus = 'none';
             user.kycData = null;
             await AdminData?.saveUsers?.();
             
-            if (AdminData?.addLog) AdminData.addLog('KYC_REVOKED', `تم إبطال توثيق وحذف مستندات العميل #${userId} (اشتباه أمني)`);
+            if (AdminData?.addLog) AdminData.addLog('KYC_REVOKED', `تم إبطال توثيق وحذف مستندات العميل ${displayName} (اشتباه أمني)`);
             AdminRender?.viewUser?.(userId, true);
             AppController.refresh('users');
-            EventBus.emit('req-show-toast', { message: 'تم إبطال التوثيق وحذف البيانات بنجاح', type: 'success' });
+            EventBus.emit('req-show-toast', { message: `تم إبطال توثيق العميل (${displayName}) بنجاح`, type: 'success' });
         }
     },
     
-    // =========================================================
-    // 🛡️ معالجة قرار توثيق الهوية (قبول / رفض)
-    // =========================================================
     processKycDecision: async function(userId, decision) {
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) {
@@ -271,100 +299,87 @@ export const UsersController = {
             return;
         }
 
+        const displayName = user.fullName || user.username || user.name || 'العميل';
         user.kycStatus = decision === 'approve' ? 'approved' : 'rejected';
         await AdminData?.saveUsers?.();
 
         const actionText = decision === 'approve' ? 'قبول' : 'رفض';
-        AdminData?.addLog?.('KYC_DECISION', `تم ${actionText} توثيق العميل: ${user.fullName || user.name || user.username}`);
+        AdminData?.addLog?.('KYC_DECISION', `تم ${actionText} توثيق العميل: ${displayName}`);
 
         const pendingCount = AdminData.data.users.filter(u => u.kycStatus === 'pending').length;
         AdminUI?.UsersUI?.updateSidebarKycBadge?.(pendingCount);
 
         AppController.finishAction(
-            'req-render-kyc', 
-            null, 
-            null, 
-            null, 
-            `تم ${actionText} طلب التوثيق بنجاح`
+            'req-render-kyc', null, null, null, `تم ${actionText} طلب توثيق العميل (${displayName})`
         );
     },
 
     // =========================================================
     // 👑 3. إدارة المستويات (Tiers)
     // =========================================================
-      saveTier: async function() {
-    const name = Utils.escapeHTML(Utils.getVal('t-name', ''));
-    const icon = Utils.escapeHTML(Utils.getVal('t-icon', 'fa-user'));
-    const profit = Number(Utils.getVal('t-profit', 0));
-    const minP = Number(Utils.getVal('t-min', 0));
-    const cond = Number(Utils.getVal('t-cond', 0));
-    const dur = Number(Utils.getVal('t-dur', 0));
-    const isDef = Utils.getCheck('t-default');
-    
-    if (!name) {
-        EventBus.emit('req-show-toast', { message: 'أدخل اسم المستوى', type: 'error' });
-        return;
-    }
-    
-    // 🛡️ منع نسبة الربح الصفرية والسالبة
-    if (profit <= 0) {
-        EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: لا يمكن تعيين نسبة ربح 0% أو أقل لحماية أرباح المتجر.', type: 'error' });
-        return;
-    }
-    
-    if (minP < 0) {
-        EventBus.emit('req-show-toast', { message: 'قاع الربح (Min Profit) لا يمكن أن يكون سالباً.', type: 'error' });
-        return;
-    }
-    
-    // أخذ نسخة من المستويات للعمل عليها
-    const tiers = Array.isArray(AdminData.data.tiers) ? [...AdminData.data.tiers] : [];
-    const isEdit = !!AppController.tempEditId;
-    let targetId = null;
-    
-    if (isEdit) {
-        targetId = String(AppController.tempEditId);
-        const idx = tiers.findIndex(x => String(x.id) === targetId);
-        if (idx > -1) {
-            tiers[idx] = { ...tiers[idx], name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef };
-        }
-    } else {
-        // 🌟 [الإصلاح الجذري]: التخلص من محرك Max الفاشل في قراءة النصوص، واستخدام مولّد النظام النظيف
-        targetId = 'TIER_' + Utils.generateID();
+    saveTier: async function() {
+        const name = Utils.escapeHTML(Utils.getVal('t-name', ''));
+        const icon = Utils.escapeHTML(Utils.getVal('t-icon', 'fa-user'));
+        const profit = Number(Utils.getVal('t-profit', 0));
+        const minP = Number(Utils.getVal('t-min', 0));
+        const cond = Number(Utils.getVal('t-cond', 0));
+        const dur = Number(Utils.getVal('t-dur', 0));
+        const isDef = Utils.getCheck('t-default');
         
-        tiers.push({
-            id: targetId,
-            name,
-            icon,
-            profit_percent: profit,
-            min_profit_usd: minP,
-            threshold: cond,
-            duration_days: dur,
-            isDefault: isDef,
-            autoAdvance: true
-        });
-    }
-    
-    // 🛡️ التحديث الاحترافي: الاعتماد على ID بدلاً من الاسم لمنع تضارب الأسماء المتشابهة
-    if (isDef) {
-        tiers.forEach(x => {
-            x.isDefault = (String(x.id) === targetId);
-        });
-    }
-    
-    // 🛑 سد الفجوة التي اكتشفتها: منع حفظ النظام بدون أي مستوى افتراضي
-    const hasDefault = tiers.some(t => t.isDefault === true);
-    if (!hasDefault && tiers.length > 0) {
-        EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: يجب أن يحتوي النظام على مستوى افتراضي واحد على الأقل.', type: 'error' });
-        return; // إيقاف العملية وعدم الحفظ
-    }
-    
-    // إذا نجحت كل الفحوصات الأمنية، نحفظ البيانات في السحابة
-    AdminData.data.tiers = tiers;
-    await AdminData?.saveTiers?.();
-    AppController.finishAction('req-render-tiers', null, isEdit ? 'EDIT_TIER' : 'ADD_TIER', `تم ${isEdit ? 'تعديل' : 'إضافة'} مستوى التسعير: ${name}`, 'تم حفظ المستوى بنجاح');
-},
-toggleTierAutoFor: async function(id, on) {
+        if (!name) {
+            EventBus.emit('req-show-toast', { message: 'أدخل اسم المستوى', type: 'error' });
+            return;
+        }
+        
+        if (profit <= 0) {
+            EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: لا يمكن تعيين نسبة ربح 0% أو أقل لحماية المتجر.', type: 'error' });
+            return;
+        }
+        
+        if (minP < 0) {
+            EventBus.emit('req-show-toast', { message: 'قاع الربح لا يمكن أن يكون سالباً.', type: 'error' });
+            return;
+        }
+
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات المستوى...');
+        
+        try {
+            const tiers = Array.isArray(AdminData.data.tiers) ? [...AdminData.data.tiers] : [];
+            const isEdit = !!AppController.tempEditId;
+            let targetId = null;
+            
+            if (isEdit) {
+                targetId = String(AppController.tempEditId);
+                const idx = tiers.findIndex(x => String(x.id) === targetId);
+                if (idx > -1) {
+                    tiers[idx] = { ...tiers[idx], name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef };
+                }
+            } else {
+                targetId = 'TIER_' + Utils.generateID();
+                tiers.push({
+                    id: targetId, name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef, autoAdvance: true
+                });
+            }
+            
+            if (isDef) {
+                tiers.forEach(x => { x.isDefault = (String(x.id) === targetId); });
+            }
+            
+            const hasDefault = tiers.some(t => t.isDefault === true);
+            if (!hasDefault && tiers.length > 0) {
+                EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: يجب أن يحتوي النظام على مستوى افتراضي واحد على الأقل.', type: 'error' });
+                return; 
+            }
+            
+            AdminData.data.tiers = tiers;
+            await AdminData?.saveTiers?.();
+            AppController.finishAction('req-render-tiers', null, isEdit ? 'EDIT_TIER' : 'ADD_TIER', `تحديث مستوى: ${name}`, `تم حفظ مستوى (${name}) بنجاح`);
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+        }
+    },
+
+    toggleTierAutoFor: async function(id, on) {
         const tiers = Array.isArray(AdminData.data.tiers) ? AdminData.data.tiers : [];
         const idx = tiers.findIndex(x => String(x.id) === String(id));
         if (idx > -1) {
@@ -374,7 +389,7 @@ toggleTierAutoFor: async function(id, on) {
             AdminData?.addLog?.('TOGGLE_TIER_AUTO', `مستوى ${tiers[idx].name} - الانتقال التلقائي: ${on}`);
             await AdminData?.autoAdvanceSweep?.();
             EventBus.emit('req-render-tiers');
-            EventBus.emit('req-show-toast', { message: on ? 'تم تفعيل الانتقال التلقائي' : 'تم إيقاف الانتقال التلقائي', type: 'info' });
+            EventBus.emit('req-show-toast', { message: on ? `تم تفعيل الانتقال التلقائي لمستوى (${tiers[idx].name})` : `تم إيقاف الانتقال التلقائي لمستوى (${tiers[idx].name})`, type: 'info' });
         }
     },
 
@@ -385,7 +400,7 @@ toggleTierAutoFor: async function(id, on) {
         
         if (!tierToDelete) return;
         if (tierToDelete.isDefault) {
-            EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: لا يمكن حذف المستوى الافتراضي الأساسي للنظام.', type: 'error' });
+            EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: لا يمكن حذف المستوى الافتراضي الأساسي.', type: 'error' });
             return;
         }
 
@@ -399,44 +414,54 @@ toggleTierAutoFor: async function(id, on) {
         const userCount = usersInTier.length;
         
         let msg = userCount > 0 
-            ? `⚠️ تنبيه أمان هام!\nهذا المستوى ("${tierToDelete.name}") يضم (${userCount}) عميل حالياً.\n\nبمجرد حذفه، سيتم نقل جميع هؤلاء العملاء تلقائياً إلى المستوى الافتراضي (${defaultTier.name}).\n\nهل أنت متأكد من قرار الحذف؟` 
+            ? `⚠️ تنبيه أمان هام!\nهذا المستوى ("${tierToDelete.name}") يضم (${userCount}) عميل حالياً.\nبمجرد حذفه، سيتم نقل جميع هؤلاء العملاء إلى (${defaultTier.name}).\nهل أنت متأكد؟` 
             : `هل أنت متأكد من حذف مستوى "${tierToDelete.name}" نهائياً؟`;
 
         if (AdminUI && await AdminUI.showConfirm(msg, 'تأكيد إزالة المستوى')) {
-            if (userCount > 0) {
-                AdminData.data.users.forEach(u => {
-                    if (String(u.tierId) === strId) u.tierId = String(defaultTier.id);
-                });
-                await AdminData?.saveUsers?.();
-            }
-
-            AdminData.data.tiers = AdminData.data.tiers.filter(t => String(t.id) !== strId);
-            await AdminData?.saveTiers?.();
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حذف المستوى وتحديث العملاء...');
             
-            AdminData?.addLog?.('DELETE_TIER', `تم حذف مستوى: ${tierToDelete.name} ${userCount > 0 ? `ونقل ${userCount} عميل للافتراضي` : ''}`);
-            EventBus.emit('req-render-tiers');
-            EventBus.emit('req-render-users');
-            EventBus.emit('req-show-toast', { message: 'تم الحذف وتحديث بيانات العملاء بنجاح', type: 'success' });
+            try {
+                if (userCount > 0) {
+                    AdminData.data.users.forEach(u => {
+                        if (String(u.tierId) === strId) u.tierId = String(defaultTier.id);
+                    });
+                    await AdminData?.saveUsers?.();
+                }
+
+                AdminData.data.tiers = AdminData.data.tiers.filter(t => String(t.id) !== strId);
+                await AdminData?.saveTiers?.();
+                
+                AdminData?.addLog?.('DELETE_TIER', `تم حذف مستوى: ${tierToDelete.name} ${userCount > 0 ? `ونقل ${userCount} عميل للافتراضي` : ''}`);
+                EventBus.emit('req-render-tiers');
+                EventBus.emit('req-render-users');
+                EventBus.emit('req-show-toast', { message: `تم حذف مستوى (${tierToDelete.name}) بنجاح`, type: 'success' });
+            } finally {
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            }
         }
     },
 
     updateUserTier: async function(userId, tierId) {
         const idx = (AdminData.data.users || []).findIndex(u => String(u.id) === String(userId));
         if (idx > -1) {
+            const user = AdminData.data.users[idx];
+            const displayName = user.fullName || user.username || user.name || 'العميل';
+            const targetTier = AdminData.data.tiers.find(t => String(t.id) === String(tierId));
+            const tierName = targetTier ? targetTier.name : 'مستوى جديد';
+
             AdminData.data.users[idx].tierId = tierId;
             AdminData.data.users[idx].manualTierOverride = true;
             AdminData.data.users[idx].tierCycleSpent = 0;
             AdminData.data.users[idx].tierCycleStartDate = Date.now();
             await AdminData?.saveUsers?.();
             
-            AdminData?.addLog?.('UPDATE_USER_TIER', `تغيير مستوى العميل ${AdminData.data.users[idx].name} إلى المستوى رقم ${tierId}`);
+            AdminData?.addLog?.('UPDATE_USER_TIER', `تغيير مستوى العميل ${displayName} إلى (${tierName})`);
             AdminRender?.renderTierUsersPage?.();
             EventBus.emit('req-render-tiers');
-            EventBus.emit('req-show-toast', { message: 'تم تحديث مستوى العميل وبدء دورة جديدة بنجاح', type: 'success' });
+            EventBus.emit('req-show-toast', { message: `تم ترقية العميل (${displayName}) إلى (${tierName}) بنجاح`, type: 'success' });
         }
     },
     
-    // 🔐 إرسال رابط إعادة تعيين كلمة المرور برمجياً
     sendPasswordReset: async function(userId) {
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user || !user.email) {
@@ -444,39 +469,33 @@ toggleTierAutoFor: async function(id, on) {
             return;
         }
 
+        const displayName = user.fullName || user.username || user.name || 'العميل';
+
         if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من إرسال رابط استعادة وتغيير كلمة المرور إلى البريد (${user.email})؟`)) {
-            EventBus.emit('req-show-loader', true);
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إرسال رابط الاستعادة...');
             try {
                 await sendPasswordResetEmail(auth, user.email);
-                
-                if (AdminData?.addLog) AdminData.addLog('PASSWORD_RESET_SENT', `تم إرسال رابط إعادة تعيين كلمة المرور للعميل: ${user.fullName || user.name}`);
-                
-                EventBus.emit('req-show-toast', { message: 'تم إرسال رابط إعادة التعيين بنجاح إلى بريد العميل', type: 'success' });
+                if (AdminData?.addLog) AdminData.addLog('PASSWORD_RESET_SENT', `إرسال رابط إعادة تعيين كلمة المرور للعميل: ${displayName}`);
+                EventBus.emit('req-show-toast', { message: `تم إرسال رابط الاستعادة إلى (${displayName}) بنجاح`, type: 'success' });
             } catch (error) {
                 console.error("Firebase Auth Error:", error);
                 EventBus.emit('req-show-toast', { message: 'فشل الإرسال: ' + error.message, type: 'error' });
             } finally {
-                EventBus.emit('req-show-loader', false);
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
             }
         }
     },
 
-        confirmTierSelection: function() {
-        // 🛡️ استخدام المتغيرات المحلية بدلاً من AppController
+    confirmTierSelection: function() {
         if (!this.selectedUserId || !this.selectedTierId) {
             EventBus.emit('req-show-toast', { message: 'يرجى تحديد مستوى من القائمة أولاً', type: 'error' });
             return;
         }
 
-        // تنفيذ التحديث وحفظه في السحابة
         this.updateUserTier(this.selectedUserId, this.selectedTierId);
-        
-        // إغلاق النافذة
         AdminUI?.UsersUI?.closeTierSelection?.();
         
-        // تفريغ الذاكرة لمنع تداخل العمليات مستقبلاً
         this.selectedUserId = null;
         this.selectedTierId = null;
     }
-
 };

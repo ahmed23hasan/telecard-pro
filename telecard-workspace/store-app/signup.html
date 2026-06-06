@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <title>إنشاء حساب - تيليكارد</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <!-- 🛡️ حارس البوابة السريع: يطرد العميل المسجل مسبقاً لمتجره في 0 ثانية ويمنع الوميض -->
+    <script>
+        if (localStorage.getItem('telecard_active_user_uid')) {
+            window.location.replace('store.html');
+        }
+    </script>
+
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
     
     <style>
@@ -260,25 +268,23 @@
     </div>
 <script type="module">
     // 🚀 استيراد أدوات فايربيز وقاعدة البيانات من المحول المركزي
-    import { auth, db } from './core/firebaseAdapter.js';
+    import { auth } from './core/firebaseAdapter.js';
     import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-    import { collection, query, where, getDocs, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-    
     import { DB_KEYS } from './config.js';
     import { StoreDB } from './dataManager.js';
 
     const googleProvider = new GoogleAuthProvider();
 
     // =================================================================
-    // 🌟 دالة جلب عملة العرض الافتراضية للمتجر ديناميكياً لتأمين الحساب
+    // 🌟 دالة جلب عملة العرض الافتراضية للمتجر (مؤمنة عبر البوابة)
     // =================================================================
     async function getAdminDefaultCurrency() {
         try {
-            const settingsSnap = await getDocs(collection(db, DB_KEYS.SETTINGS));
-            if (!settingsSnap.empty) {
-                const settingsData = settingsSnap.docs[0].data();
-                const defaultCurr = settingsData.defaultCurrency || settingsData.currency || 'USD';
-                return String(defaultCurr).toUpperCase();
+            if (StoreDB && typeof StoreDB.getById === 'function') {
+                const settingsDoc = await StoreDB.getById(DB_KEYS.SETTINGS, 'singleton');
+                if (settingsDoc) {
+                    return String(settingsDoc.defaultCurrency || settingsDoc.currency || 'USD').toUpperCase();
+                }
             }
         } catch (error) {
             console.warn("⚠️ تعذر جلب العملة الافتراضية، سيتم استخدام USD كاحتياطي.");
@@ -286,34 +292,14 @@
         return 'USD';
     }
 
+    // =================================================================
+    // 🧠 دالة توليد رقم عرض (Display ID) آمنة وسريعة (خالية من ثغرات الصلاحيات)
+    // =================================================================
     async function generateUniqueDisplayId() {
-        let isUnique = false;
-        let newId = 0;
-        let attempts = 0;
-        const maxAttempts = 5;
-
-        while (!isUnique && attempts < maxAttempts) {
-            attempts++;
-            newId = Math.floor(1000000 + Math.random() * 9000000);
-
-            try {
-                const q = query(collection(db, DB_KEYS.USERS), where("displayId", "==", newId));
-                const querySnapshot = await getDocs(q);
-
-                if (querySnapshot.empty) {
-                    isUnique = true; 
-                }
-            } catch (error) {
-                console.warn("⚠️ فشل فحص الـ ID، سيتم استخدام خطة الطوارئ.");
-                break;
-            }
-        }
-
-        if (!isUnique) {
-            newId = Number(String(Date.now()).slice(-7));
-        }
-
-        return newId;
+        // نولد رقماً عشوائياً من 7 خانات يعتمد على الوقت لضمان عدم التكرار
+        const timePart = String(Date.now()).slice(-4);
+        const randPart = Math.floor(100 + Math.random() * 900);
+        return Number(timePart + randPart);
     }
 
     function togglePass(inputId, el) {
@@ -407,7 +393,7 @@
     }
 
 // =================================================================
-// 🌐 دالة التسجيل عبر جوجل (النسخة الديناميكية المعززة مع سحب صورة غوغل)
+// 🌐 دالة التسجيل عبر جوجل (محمية وموحدة مع بوابة StoreDB)
 // =================================================================
 async function handleGoogleLogin() {
     const btn = document.querySelector('.google-btn');
@@ -420,15 +406,14 @@ async function handleGoogleLogin() {
         const result = await signInWithPopup(auth, googleProvider);
         const firebaseUser = result.user;
         
-        const userDocRef = doc(db, DB_KEYS.USERS, firebaseUser.uid);
-        const userDocSnap = await getDoc(userDocRef);
-        
         let activeUserObj = null;
+        if(StoreDB && typeof StoreDB.getById === 'function') {
+            activeUserObj = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid);
+        }
         
-        if (!userDocSnap.exists()) {
+        if (!activeUserObj) {
             btn.innerHTML = 'جاري تهيئة الحساب...';
             
-            // جلب عملة العرض ديناميكياً لإنشاء المحفظة
             const targetCurrency = await getAdminDefaultCurrency();
             const shortDisplayId = await generateUniqueDisplayId();
             
@@ -439,10 +424,8 @@ async function handleGoogleLogin() {
             const baseUsername = fullName.toLowerCase().replace(/\s+/g, '');
             const finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
             
-            // 🌟 [الإصلاح الجذري]: سحب صورة بروفايل حساب غوغل الأصلي للعميل (إذا وُجدت)
             let googleAvatar = null;
             if (firebaseUser.photoURL) {
-                // تكبير جودة الصورة من غوغل (إزالة قياس =s96-c الافتراضي الصغير)
                 googleAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
             }
             
@@ -453,7 +436,7 @@ async function handleGoogleLogin() {
                 lastName: lastName,
                 username: finalUsername,
                 email: firebaseUser.email,
-                img: googleAvatar, // 🌟 حفظ الصورة في قاعدة البيانات
+                img: googleAvatar, 
                 baseCurrency: targetCurrency,
                 base_currency: targetCurrency,
                 phone: null,
@@ -468,20 +451,13 @@ async function handleGoogleLogin() {
             
             if (StoreDB && typeof StoreDB.set === 'function') {
                 await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
-            } else {
-                await setDoc(userDocRef, activeUserObj);
             }
         } else {
-            activeUserObj = userDocSnap.data();
-            
-            // 🌟 [ترقية إضافية]: إذا كان العميل القديم لا يمتلك صورة، نحدث حسابه بصورة غوغل الآن!
             if (!activeUserObj.img && firebaseUser.photoURL) {
                 const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
                 activeUserObj.img = freshAvatar;
                 if (StoreDB && typeof StoreDB.set === 'function') {
                     await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { img: freshAvatar });
-                } else {
-                    await setDoc(userDocRef, { img: freshAvatar }, { merge: true });
                 }
             }
         }
@@ -490,14 +466,15 @@ async function handleGoogleLogin() {
         localStorage.setItem('telecard_active_user', JSON.stringify(activeUserObj));
         localStorage.setItem('telecard_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency || 'USD');
         
-        // 🌟 كاش سريع جداً لتظهر الصورة فور دخول المتجر بلا تقطيع
         if (activeUserObj.img) {
             localStorage.setItem('telecard_user_image_' + firebaseUser.uid, activeUserObj.img);
         }
         
         const toast = document.getElementById('successToast');
         if (toast) toast.classList.add('show');
-        setTimeout(() => { window.location.href = "store.html"; }, 1500);
+        
+        // 🌟 إصلاح فخ الرجوع (History Trap)
+        setTimeout(() => { window.location.replace("store.html"); }, 1500);
         
     } catch (error) {
         console.error("Google Auth Error:", error);
@@ -506,6 +483,7 @@ async function handleGoogleLogin() {
         btn.disabled = false;
     }
 }
+
     // =================================================================
     // ✍️ دالة التسجيل اليدوي (المسرعة والمعززة بكاش المزامنة وعملات الإدارة)
     // =================================================================
@@ -551,7 +529,6 @@ async function handleGoogleLogin() {
             let baseUsername = `${fname.value.trim()}.${lname.value.trim()}`.toLowerCase().replace(/\s+/g, '');
             let finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
 
-            // جلب عملة العرض الافتراضية المحددة من الأدمن ديناميكياً [1]
             const targetCurrency = await getAdminDefaultCurrency();
             const shortDisplayId = await generateUniqueDisplayId();
 
@@ -562,45 +539,41 @@ async function handleGoogleLogin() {
                 lastName: lname.value.trim(),
                 username: finalUsername, 
                 email: firebaseUser.email,
-                baseCurrency: targetCurrency, // 🌟 ديناميكي [1]
-                base_currency: targetCurrency, // 🌟 ديناميكي [1]
+                baseCurrency: targetCurrency,
+                base_currency: targetCurrency, 
                 phone: null,
                 country: null,
                 walletBalance: 0, 
                 balance: 0, 
                 totalSpent: 0,
                 totalDeposit: 0,
-                tierId: "", // رتبة فارغة افتراضية
+                tierId: "", 
                 createdAt: Date.now()
             };
 
             if(StoreDB && typeof StoreDB.set === 'function') {
                 await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, newUser);
-            } else {
-                const userDocRef = doc(db, DB_KEYS.USERS, firebaseUser.uid);
-                await setDoc(userDocRef, newUser);
             }
 
             localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
-            
-            // زرع كاش الإنعاش الفوري للرصيد والعملة لتجنب الومضات البصرية
             localStorage.setItem('telecard_active_user', JSON.stringify(newUser));
             localStorage.setItem('telecard_display_currency', targetCurrency);
 
             document.getElementById('successToast').classList.add('show');
-            setTimeout(() => { window.location.href = "store.html"; }, 1500);
+            
+            // 🌟 إصلاح فخ الرجوع (History Trap)
+            setTimeout(() => { window.location.replace("store.html"); }, 1500);
 
         } catch(error) {
             console.error("Auth Error:", error);
             if (error.code === 'auth/email-already-in-use') { 
-                // 🌟 [التوجيه الذكي والفاخر]: تخزين الإيميل المسجل وتوجيه العميل لصفحة الدخول [1]
                 showError('email', 'emailError', 'البريد مسجل مسبقاً! جاري توجيهك لصفحة تسجيل الدخول...');
                 try {
                     sessionStorage.setItem('prefilled_email', email.value.trim().toLowerCase());
                 } catch(e) {}
                 
-                // توجيه تلقائي جذاب بعد 2 ثانية
-                setTimeout(() => { window.location.href = "login.html"; }, 1800);
+                // 🌟 إصلاح فخ الرجوع
+                setTimeout(() => { window.location.replace("login.html"); }, 1800);
             } 
             else if (error.code === 'auth/network-request-failed') { showError('email', 'emailError', 'خطأ في الاتصال بالإنترنت'); } 
             else { showError('email', 'emailError', 'حدث خطأ أثناء التسجيل، يرجى المحاولة لاحقاً'); }

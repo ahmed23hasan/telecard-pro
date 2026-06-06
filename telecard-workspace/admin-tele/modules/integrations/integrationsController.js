@@ -1,23 +1,20 @@
 // ============================================================================
-// 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js)
+// 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js) - Pro 🚀
 // 🎯 الوظيفة: إدارة واجهة الموردين والتواصل مع المحرك السحابي (Supplier Engine)
-// 🌟 التحديث: الترقية لـ Firebase v10 Modular SDK لحل مشكلة (firebase is not defined)
+// 🌟 التحديث: توحيد البوابة المركزية (Adapter) + حماية الـ Timeout + شاشات احترافية
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
+import { AdminUI } from '../../adminUI.js';
 import { EventBus, Utils } from '../../adminUtils.js';
 import { AppController } from '../../core/appController.js';
+// 🌟 استيراد البوابة المركزية فقط (لا حاجة لاستيراد فايربيز يدوياً بعد الآن)
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
-
-// 🌟 استيراد مكتبات فايربيز الإصدار الحديث (v10)
-import { getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
-import { doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 export const IntegrationsController = {
 
     // ==========================================
-    // 🛡️ 1. حفظ بيانات المورد (آمن سحابياً)
+    // 🛡️ 1. حفظ بيانات المورد (عبر البوابة السحابية)
     // ==========================================
     saveSupplier: async function(id = null) {
         const name = Utils.getVal('supp-name');
@@ -28,60 +25,49 @@ export const IntegrationsController = {
         const autoSyncEl = document.getElementById('supp-auto-sync');
         const autoSync = autoSyncEl ? autoSyncEl.checked : false;
 
-        // تحقق مبدئي من صحة الإدخال
         if (!name || !baseUrl) {
             EventBus.emit('req-show-toast', { message: 'يرجى ملء البيانات الأساسية للمورد (الاسم والرابط)', type: 'error' });
             return;
         }
 
-        EventBus.emit('req-show-loader', true);
+        // 🌟 شاشة تحميل احترافية
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تشفير وحفظ بيانات المورد سحابياً...');
 
         try {
-            // 🌟 1. استدعاء الدالة السحابية بالطريقة الحديثة (v10)
-            const app = getApp();
-            const functions = getFunctions(app);
-            const saveCloud = httpsCallable(functions, 'secureSaveSupplier');
+            // 🌟 1. استدعاء السيرفر عبر البوابة المدرعة (محمية بـ Timeout + موجهة لـ us-east1)
+            const result = await FirebaseAdapter.callFunction('secureSaveSupplier', { 
+                id, name, type, baseUrl, token, defaultMargin: margin, autoSync 
+            });
             
-            const response = await saveCloud({ id, name, type, baseUrl, token, defaultMargin: margin, autoSync });
-            
-            // استلام الـ ID النهائي (سواء كان قديماً أو جديداً تم توليده في السحابة)
-            const finalId = response.data.id;
+            if (result && result.success) {
+                const finalId = result.id;
 
-            // 2. تحديث محلي سريع للواجهة (نحن لا نحفظ الـ token محلياً إطلاقاً لأسباب أمنية)
-            const supplierData = { 
-                id: finalId, 
-                name, 
-                type, 
-                baseUrl, 
-                defaultMargin: margin, 
-                autoSync, 
-                isActive: true,
-                importedCount: id ? (this.getSupplier(id)?.importedCount || 0) : 0,
-                lastSync: id ? (this.getSupplier(id)?.lastSync || null) : null
-            };
+                // 2. تحديث محلي سريع للواجهة (الباسورد/التوكن لا يُحفظ محلياً أبداً)
+                const supplierData = { 
+                    id: finalId, name, type, baseUrl, defaultMargin: margin, autoSync, isActive: true,
+                    importedCount: id ? (this.getSupplier(id)?.importedCount || 0) : 0,
+                    lastSync: id ? (this.getSupplier(id)?.lastSync || null) : null
+                };
 
-            if (!AdminData.data.suppliers) AdminData.data.suppliers = [];
+                if (!AdminData.data.suppliers) AdminData.data.suppliers = [];
 
-            if (id) {
-                const idx = AdminData.data.suppliers.findIndex(s => String(s.id) === String(id));
-                if (idx > -1) {
-                    AdminData.data.suppliers[idx] = Object.assign(AdminData.data.suppliers[idx], supplierData);
+                if (id) {
+                    const idx = AdminData.data.suppliers.findIndex(s => String(s.id) === String(id));
+                    if (idx > -1) AdminData.data.suppliers[idx] = Object.assign(AdminData.data.suppliers[idx], supplierData);
+                } else {
+                    AdminData.data.suppliers.push(supplierData);
                 }
-            } else {
-                AdminData.data.suppliers.push(supplierData);
+
+                // حفظ التحديثات في الذاكرة المحلية (بدون التوكن)
+                if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
+
+                AppController.finishAction('req-render-integrations', 'modal', id ? 'UPDATE_SUPPLIER' : 'ADD_SUPPLIER', `تحديث المورد: ${name}`, 'تم حفظ بيانات المورد بأمان تام');
             }
-
-            // حفظ التحديثات في الذاكرة المحلية
-            if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
-
-
-            AppController.finishAction('req-render-integrations', 'modal', id ? 'UPDATE_SUPPLIER' : 'ADD_SUPPLIER', `المورد: ${name}`, 'تم حفظ بيانات المورد بأمان تام');
-            
         } catch (error) {
             console.error("Save Supplier Error:", error);
-            EventBus.emit('req-show-toast', { message: 'حدث خطأ أثناء الاتصال بالسيرفر لحفظ المورد.', type: 'error' });
+            EventBus.emit('req-show-toast', { message: `فشل الحفظ: ${error.message}`, type: 'error' });
         } finally {
-            EventBus.emit('req-show-loader', false);
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
@@ -93,26 +79,25 @@ export const IntegrationsController = {
         if (!supp) return;
 
         try {
-            // 🌟 1. تحديث قاعدة البيانات السحابية مباشرة بالطريقة الحديثة (v10)
-            const suppRef = doc(FirebaseAdapter.db, 'telecard_suppliers', String(id));
-            await updateDoc(suppRef, {
+            // 🌟 استخدام البوابة المركزية لتحديث حالة المورد في قاعدة البيانات
+            await FirebaseAdapter.set('telecard_suppliers', String(id), {
                 isActive: isChecked,
-                updatedAt: serverTimestamp()
+                updatedAt: Date.now()
             });
 
-            // 2. تحديث الحالة المحلية والذاكرة
+            // تحديث الحالة المحلية والذاكرة
             supp.isActive = isChecked;
-            if (AdminData.saveSettings) await AdminData.saveSettings();
+            if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
 
             EventBus.emit('req-show-toast', { 
-                message: isChecked ? `تم تفعيل المورد: ${supp.name}` : `تم إيقاف المورد: ${supp.name}`, 
-                type: isChecked ? 'success' : 'info' 
+                message: isChecked ? `تم تفعيل المورد (${supp.name}) بنجاح` : `تم إيقاف المورد (${supp.name}) مؤقتاً`, 
+                type: 'success' 
             });
 
         } catch (error) {
             console.error("Toggle Supplier Error:", error);
             // نظام تراجع (Rollback): إذا فشل الاتصال، نعيد الزر لشكله القديم
-            EventBus.emit('req-show-toast', { message: 'فشل تغيير حالة المورد، يرجى التحقق من الاتصال.', type: 'error' });
+            EventBus.emit('req-show-toast', { message: 'فشل تغيير حالة المورد، تأكد من الاتصال بالإنترنت.', type: 'error' });
             EventBus.emit('req-render-integrations'); 
         }
     },
@@ -124,40 +109,42 @@ export const IntegrationsController = {
         const supp = this.getSupplier(id);
         if (!supp) return;
 
-        // لا يمكن مزامنة مورد معطل
         if (!supp.isActive) {
             EventBus.emit('req-show-toast', { message: 'لا يمكن مزامنة مورد وهو في حالة "متوقف". يرجى تفعيله أولاً.', type: 'warning' });
             return;
         }
 
-        EventBus.emit('req-show-loader', true);
+        // 🌟 شاشة تحميل واضحة لمنع الأدمن من العبث أثناء جلب آلاف المنتجات
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, `جاري مزامنة المنتجات من سيرفرات (${supp.name})، قد يستغرق الأمر بعض الوقت...`);
 
         try {
-            // 🌟 استدعاء المزامنة السحابية بالطريقة الحديثة (v10)
-            const app = getApp();
-            const functions = getFunctions(app);
-            const syncData = httpsCallable(functions, 'syncSupplierData');
-            
-            const response = await syncData({ supplierId: id });
-            const result = response.data;
+            // 🌟 استدعاء المزامنة السحابية عبر البوابة المدرعة (محمية من التعليق)
+            const result = await FirebaseAdapter.callFunction('syncSupplierData', { supplierId: id });
 
-            if (result.success) {
-                // تحديث العدادات والإحصائيات بناءً على رد السيرفر الفعلي
+            if (result && result.success) {
+                // تحديث العدادات والإحصائيات محلياً
                 supp.lastSync = Date.now(); 
                 supp.importedCount = result.importedCount || 0;
                 
-                if (AdminData.saveSettings) await AdminData.saveSettings();
+                if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
                 
-                AppController.finishAction('req-render-integrations', null, 'SYNC_SUPPLIER', `مزامنة المورد: ${supp.name}`, result.message);
+                AppController.finishAction(
+                    'req-render-integrations', 
+                    null, 
+                    'SYNC_SUPPLIER', 
+                    `مزامنة المورد: ${supp.name} (${result.importedCount} منتج)`, 
+                    result.message || `تمت المزامنة بنجاح!`
+                );
             }
         } catch (error) {
             console.error("Sync Failed:", error);
-            EventBus.emit('req-show-toast', { 
-                message: error.message || 'فشلت المزامنة. تأكد من صحة الرابط ومفتاح الـ API.', 
-                type: 'error' 
-            });
+            // 🌟 رسالة خطأ دقيقة تظهر للمشرف
+            let errorMsg = error.message || 'فشلت المزامنة. تأكد من صحة الرابط ومفتاح الـ API.';
+            if (errorMsg.includes('Timeout')) errorMsg = `سيرفر المورد (${supp.name}) لا يستجيب حالياً (Timeout).`;
+            
+            EventBus.emit('req-show-toast', { message: errorMsg, type: 'error' });
         } finally {
-            EventBus.emit('req-show-loader', false);
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 

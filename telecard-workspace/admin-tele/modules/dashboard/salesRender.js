@@ -1,6 +1,7 @@
 // ============================================================================
-// 📈 محرك رسم وتحليل المبيعات (modules/dashboard/salesRender.js)
+// 📈 محرك رسم وتحليل المبيعات (modules/dashboard/salesRender.js) - Pro 🚀
 // 🎯 الوظيفة: استهلاك البيانات المركزية، الفلترة الزمنية، ورسم التقارير والتصدير
+// 🌟 التحديث: تنظيف الكود (Clean Code) + ربط آمن مع محرك المخططات السحابي
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -109,7 +110,6 @@ export const SalesRender = {
             .sort((a, b) => b.profit - a.profit);
         
         if (podiumContainer) {
-            // [الإصلاح الجذري]: نقبل بوجود منتج واحد على الأقل ليتم فتح المنصة بدلاً من اشتراط 3
             if (sortedProds.length > 0) {
                 
                 // دالة مساعدة لجلب صورة المنتج من قاعدة البيانات المركزية
@@ -148,7 +148,7 @@ export const SalesRender = {
                     ${buildRankHtml(sortedProds[2], 'rank-3', '3', '<i class="fa-solid fa-award"></i>')}
                 `;
             } else {
-                podiumContainer.innerHTML = `<div class="text-center text-muted w-100 py-20"><i class="fa-solid fa-ghost fs-2 mb-10 opacity-50"></i><br>لا توجد מִﺒِیֵֹּﻋָِਾֵܬ ָﻣֶسׁגֶלִْة פִִَי اَلُُِْנֵָטֶׂאֹקׁ אاَِلָּზَﻤִֵַּِنِيֵּ!</div>`;
+                podiumContainer.innerHTML = `<div class="text-center text-muted w-100 py-20"><i class="fa-solid fa-ghost fs-2 mb-10 opacity-50"></i><br>لا توجد مبيعات في هذه الفترة!</div>`;
             }
         }
 
@@ -175,17 +175,17 @@ export const SalesRender = {
             }
         }
 
-        // 🌟 6. استدعاء راسم المخططات بعد فك الارتباط من السيرفر المكسور (Live Independent Drawing)
+        // 🌟 6. استدعاء راسم المخططات
         this.renderCharts();
     },
 
     /**
-     * رسم المخططات البيانية (ApexCharts) בתيَليֵِد البֲِيانَِات النَّقيֲֶِةِ
+     * رسم المخططات البيانية (ApexCharts) باستقلالية تامة
      */
     renderCharts: function() {
         if (typeof window.ApexCharts === 'undefined') return;
 
-        // 🌟 استقلالية מطلقة عن GlobalStats 
+        // 🌟 استقلالية مطلقة لجمع بيانات المخطط محلياً
         const allCompletedOrders = (AdminData.data.orders || []).filter(o => o.status === 'completed');
         const nowTime = Date.now();
         
@@ -193,7 +193,7 @@ export const SalesRender = {
         let apiCount = 0;
         const dailyAggregations = {};
 
-        // חיشَِد طَلبَاَت الأַרْصִֵדָۃ לبְنِاء מִחוְֲר زִֶמְֵנֲִي שסָرֵי
+        // حشد طلبات الأرصدة لبناء محور زمني للمخطط
         allCompletedOrders.forEach(o => {
             if (o.isApiOrder || o.source === 'api') apiCount++;
             else manualCount++;
@@ -271,10 +271,10 @@ export const SalesRender = {
             this._sourceChartInst = new window.ApexCharts(sourceChartEl, donutOptions);
             this._sourceChartInst.render();
         }
-    }, // 👈 الفاصلة موجودة هنا وتغلق دالة المخطط.
+    },
 
     /**
-     * 🌟 محرك تصدير تقارير المبيعات إلى Excel (CSV)
+     * 🌟 محرك تصدير تقارير المبيعات إلى Excel (CSV) باحترافية
      */
     exportSalesToExcel: function() {
         const stats = AdminData.getFilteredSalesStats(this.state.timeRange);
@@ -285,7 +285,7 @@ export const SalesRender = {
 
         let csv = "\uFEFFالمنتج,الكمية المباعة,إجمالي الإيرادات,إجمالي التكاليف,صافي الربح\n";
         
-        // הِنٌْظִֶיف הַلْمֲُدخلْات עًـן CSV-Injection
+        // 🛡️ تنظيف مدخلات التصدير للحماية من ثغرات الـ Excel (CSV-Injection)
         const sanitizeCSV = (str) => { 
             let c = String(str).replace(/"/g, '""').replace(/,/g, " "); 
             if (/^[=@+-]/.test(c)) c = "'" + c; 
@@ -307,6 +307,6 @@ export const SalesRender = {
         link.click();
         document.body.removeChild(link);
 
-        UIService.showToast(`تم تصدير تقرير (${this.state.timeRange}) بنجاح`, "success");
+        UIService.showToast(`تم تصدير تقرير المبيعات بنجاح`, "success");
     }
 };

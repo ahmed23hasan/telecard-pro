@@ -1,16 +1,16 @@
 // ============================================================================
-// 🗄️ مدير البيانات (adminData.js) - بنية ES Modules نقية 100% ☁️
+// 🗄️ مدير البيانات (adminData.js) - Bank Grade Data Layer 🏦☁️
 // 🎯 الوظيفة: إدارة حالة البيانات، الحسابات المركزية (SSOT)، وتوفير الفلاتر الذكية
-// 🌟 التحديث (V8.1): إصلاح النسخ الاحتياطي الكامل، التوافق مع Subcollections، وجسر التدقيق المالي
+// 🌟 التحديث (V8.3): الرادار الذكي المدمج (KYC, Smart Alerts) + الأسماء الدقيقة
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
-import { Utils } from './adminUtils.js'; 
+import { Utils, EventBus } from './adminUtils.js'; 
 import { FirebaseAdapter } from './core/firebaseAdapter.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 
 export const AdminData = {
-    // 🌟 راية الأمان (Data Loss Firewall): تمنع مسح السحابة بالخطأ في حال فشل الجلب
+    // 🌟 راية الأمان (Data Loss Firewall)
     isCloudSyncSuccessful: false,
 
     data: { 
@@ -63,7 +63,6 @@ export const AdminData = {
             return res ? res : fallback;
         };
 
-        // 🚀 الجلب السريع للوحة التحكم (Limiting)
         const fetchPromises = [
             fetchArray(DB_KEYS.RATES, []),
             fetchArray(DB_KEYS.TIERS, []),
@@ -135,16 +134,14 @@ export const AdminData = {
         if(this.data.tiers.length === 0 || !this.data.tiers.some(t => !!t.isDefault)) await this.seedDefaultTiers();
         const defTier = this.data.tiers.find(t => !!t.isDefault) || this.data.tiers[0];
 
-        // 🚀 تنظيف المستخدمين (إزالة الـ Inbox ليتوافق مع V8 Subcollections)
         this.data.users = arr(rawUsers).map(u => {
             const baseCurrency = u.baseCurrency || u.base_currency || 'USD';
             const walletBalance = (u.walletBalance !== undefined && u.walletBalance !== null) ? u.walletBalance : (u.wallet_balance !== undefined && u.wallet_balance !== null) ? u.wallet_balance : (u.balance !== undefined && u.balance !== null ? u.balance : 0);
             const tierCycleSpent = u.tierCycleSpent || 0;
             const tierCycleStartDate = u.tierCycleStartDate || Date.now();
             
-            // حماية الـ payload من البيانات الميتة
             let cleanUser = { ...u, baseCurrency, base_currency: baseCurrency, walletBalance, wallet_balance: walletBalance, balance: walletBalance, tierCycleSpent, tierCycleStartDate };
-            delete cleanUser.inbox; // وداعاً للمصفوفة القديمة!
+            delete cleanUser.inbox; 
             return cleanUser;
         });
 
@@ -197,25 +194,29 @@ export const AdminData = {
         this.isCloudSyncSuccessful = true;
         
         if (changedTierAssign) await this.saveUsers(); 
-        if (this.calculateAllStoreStats) await this.calculateAllStoreStats();
+        
+        if (this.calculateAllStoreStats) await this.calculateAllStoreStats(true); 
+        
         await this.autoAdvanceSweep();
         
         return true; 
     },
 
     // ==========================================
-    // 💾 دوال الحفظ الذكية والاتصال المباشر (V8 Features)
+    // 💾 دوال الحفظ الذكية والاتصال المباشر
     // ==========================================
     
-    // 🚀 جسر التواصل مع دالة التدقيق المالي السحابية
     auditUser: async function(userId) {
         if (!userId) return { success: false, message: "بيانات المستخدم مفقودة." };
+        EventBus.emit('req-show-loader', true);
         try {
             const result = await FirebaseAdapter.callFunction('adminAuditUserWallet', { userId: String(userId) });
             return result; 
         } catch (error) {
             console.error("Audit Error:", error);
             return { success: false, message: error.message || "فشل الاتصال بخادم التدقيق." };
+        } finally {
+            EventBus.emit('req-show-loader', false);
         }
     },
 
@@ -304,12 +305,9 @@ export const AdminData = {
         } catch (err) { return false; }
     },
 
-    // 🚀 إصلاح ثغرة النسخ الاحتياطي الوهمي (الجلب الكامل الآمن)
     exportData: async function() {
+        EventBus.emit('req-show-loader', true); 
         try {
-            console.warn("⏳ جاري سحب نسخة احتياطية كاملة من قاعدة البيانات (قد يستغرق بعض الوقت)...");
-            
-            // جلب كامل ومباشر من السحابة لضمان عدم ضياع أي طلبات أو إيداعات قديمة
             const fullExport = {
                 users: await FirebaseAdapter.getAll(DB_KEYS.USERS),
                 orders: await FirebaseAdapter.getAll(DB_KEYS.ORDERS),
@@ -331,10 +329,14 @@ export const AdminData = {
             linkElement.click();
             document.body.removeChild(linkElement);
             URL.revokeObjectURL(url);
+            EventBus.emit('req-show-toast', { message: 'تم سحب النسخة الاحتياطية بنجاح', type: 'success' }); 
             return true;
         } catch(err) { 
             console.error("فشل النسخ الاحتياطي السحابي الكامل:", err);
+            EventBus.emit('req-show-toast', { message: 'فشل تصدير البيانات السحابية.', type: 'error' });
             throw err; 
+        } finally {
+            EventBus.emit('req-show-loader', false); 
         }
     },
 
@@ -342,8 +344,9 @@ export const AdminData = {
         return new Promise((resolve, reject) => {
             const file = input.files[0];
             if (!file) return reject(new Error("No file selected"));
+            EventBus.emit('req-show-loader', true);
+
             const reader = new FileReader();
-            
             const propToKey = {
                 prods: DB_KEYS.PRODS, cats: DB_KEYS.CATS, users: DB_KEYS.USERS, orders: DB_KEYS.ORDERS, 
                 deposits: DB_KEYS.DEPOSITS, payments: DB_KEYS.PAYMENTS, banners: DB_KEYS.BANNERS, tiers: DB_KEYS.TIERS, 
@@ -359,12 +362,15 @@ export const AdminData = {
                         const criticalArrays = ['users', 'orders', 'prods', 'cats'];
                         for (let key of criticalArrays) {
                             if (importedData[key] !== undefined && !Array.isArray(importedData[key])) {
+                                EventBus.emit('req-show-loader', false);
                                 return reject(new Error(`الملف المرفوع تالف: البيانات في القسم (${key}) غير صالحة.`));
                             }
                         }
 
-                        // تحذير أمان: لا تقم بحفظ الاستيراد إذا كانت المزامنة الأصلية فاشلة
-                        if (!this.isCloudSyncSuccessful) return reject(new Error("لا يمكن استيراد البيانات، الاتصال الأساسي بالسحابة غير مستقر."));
+                        if (!this.isCloudSyncSuccessful) {
+                            EventBus.emit('req-show-loader', false);
+                            return reject(new Error("لا يمكن استيراد البيانات، الاتصال الأساسي بالسحابة غير مستقر."));
+                        }
 
                         for (const prop in importedData) {
                             if (this.data[prop] !== undefined && propToKey[prop]) {
@@ -372,37 +378,55 @@ export const AdminData = {
                                 await this.saveCollection(propToKey[prop], prop);
                             }
                         }
-                        input.value = ''; resolve(true);
-                    } else { reject(new Error("Invalid Format")); }
-                } catch (err) { reject(err); }
+                        input.value = ''; 
+                        EventBus.emit('req-show-loader', false);
+                        resolve(true);
+                    } else { 
+                        EventBus.emit('req-show-loader', false);
+                        reject(new Error("Invalid Format")); 
+                    }
+                } catch (err) { 
+                    EventBus.emit('req-show-loader', false);
+                    reject(err); 
+                }
             };
             reader.readAsText(file);
         });
     },
 
     seedDefaultCountries: async function() {
-        console.warn("⚠️ جاري تأسيس بنية الدول في السحابة...");
         const defaultCountry = { id: 'COUNTRY_' + Utils.generateID(), name: 'السعودية', code: 'SA', dialCode: '+966', flag: '🇸🇦', currency: 'SAR', isActive: true, createdAt: Date.now() };
         this.data.countries = [defaultCountry];
         await FirebaseAdapter.set(DB_KEYS.COUNTRIES, defaultCountry.id, defaultCountry);
     },
     
     seedDefaultTiers: async function() { 
-        console.warn("⚠️ جاري تأسيس بنية المستويات في السحابة...");
         const defaultTier = { id: 'TIER_' + Utils.generateID(), name: 'عادي', icon: 'fa-user', isDefault: true, threshold: 0, duration: 3650, duration_days: 3650, profit_percent: 5, min_profit_usd: 0, autoAdvance: true, createdAt: Date.now() };
         this.data.tiers = [defaultTier]; 
         await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);
     },
 
-    calculateAllStoreStats: async function() {
+    calculateAllStoreStats: async function(isSilentBoot = false) {
+        if (!isSilentBoot) EventBus.emit('req-show-loader', true);
         try {
             const result = await FirebaseAdapter.callFunction('calculateStoreStatsCloud');
             if (result && result.success) {
                 const sysRef = await FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton');
                 if (sysRef && sysRef.globalStats) this.data.system.globalStats = sysRef.globalStats;
+                
+                if (!isSilentBoot) {
+                    EventBus.emit('req-show-toast', { message: 'تم تحديث الإحصائيات المركزية بنجاح', type: 'success' });
+                    EventBus.emit('req-render-dash'); 
+                }
                 return true;
             }
-        } catch (error) { console.error("❌ فشل الاتصال بالسحابة لحساب الإحصائيات:", error); return false; }
+        } catch (error) { 
+            console.error("❌ فشل الاتصال بالسحابة لحساب الإحصائيات:", error); 
+            if (!isSilentBoot) EventBus.emit('req-show-toast', { message: 'فشل تحديث الإحصائيات', type: 'error' });
+            return false; 
+        } finally {
+            if (!isSilentBoot) EventBus.emit('req-show-loader', false);
+        }
     },
 
     getFilteredSalesStats: function(range = 'all') {
@@ -557,12 +581,42 @@ export const AdminData = {
         stats.users.topThreeSpenders = leaderboard.filter(u => u.spent > 0).sort((a,b) => b.spent - a.spent).slice(0,3);
         stats.users.mostActiveUser = leaderboard.filter(u => u.count > 0).sort((a,b) => b.count - a.count)[0] || null;
 
+        // ==========================================
+        // 🎯 الرادار الذكي (Smart Alerts Engine) - V8.3
+        // ==========================================
         const twoDays = nowTime - 172800000;
-        (d.orders || []).filter(o => o.status === 'completed' && o.couponCode && RenderHelpers.parseTime(o.time || o.createdAt) > twoDays).forEach(o => { stats.alerts.push({ id: 'coupon_used', code: o.couponCode, user: o.userName || 'عميل', orderId: o.id, time: o.time || o.createdAt }); });
-        (d.vault || []).forEach(p => { let av = (p.codes || []).filter(c => typeof c === 'string' || c.status === 'available').length; if (av === 0) stats.alerts.push({ id: 'vault_empty', poolId: p.id, poolName: p.name }); else if (av <= (p.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolId: p.id, poolName: p.name, count: av }); });
-        (d.offers || []).filter(o => o.isActive && o.expiryDate && (o.expiryDate - nowTime) < 259200000).forEach(o => stats.alerts.push({ id: 'offer_expiring', name: o.name, time: o.expiryDate }));
+        
+        // 1. تنبيه استخدام الكوبونات (مع جلب الاسم الدقيق)
+        (d.orders || []).filter(o => o.status === 'completed' && o.couponCode && RenderHelpers.parseTime(o.time || o.createdAt) > twoDays).forEach(o => { 
+            const u = (d.users || []).find(usr => String(usr.id) === String(o.userId));
+            let exactName = u ? (u.fullName || u.username || u.name) : o.userName;
+            if (!exactName || exactName.trim() === '') exactName = 'مجهول';
+            
+            stats.alerts.push({ id: 'coupon_used', code: o.couponCode, user: exactName, orderId: o.id, time: o.time || o.createdAt }); 
+        });
 
-        if (d.users?.length > 0) stats.alerts.push({ id: 'security_stable' });
+        // 2. تنبيهات المخزون (الخزنة المركزية)
+        (d.vault || []).forEach(p => { 
+            let av = (p.codes || []).filter(c => typeof c === 'string' || c.status === 'available').length; 
+            if (av === 0) stats.alerts.push({ id: 'vault_empty', poolId: p.id, poolName: p.name, time: nowTime }); 
+            else if (av <= (p.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolId: p.id, poolName: p.name, count: av, time: nowTime - 1000 }); 
+        });
+
+        // 3. تنبيهات العروض التي ستنتهي قريباً
+        (d.offers || []).filter(o => o.isActive && o.expiryDate && (o.expiryDate - nowTime) > 0 && (o.expiryDate - nowTime) < 259200000).forEach(o => {
+            stats.alerts.push({ id: 'offer_expiring', name: o.name, time: o.expiryDate });
+        });
+
+        // 4. طلبات التوثيق المعلقة (KYC Radar)
+        const pendingKyc = (d.users || []).filter(u => u.kycStatus === 'pending').length;
+        if (pendingKyc > 0) {
+            stats.alerts.push({ id: 'kyc_pending', count: pendingKyc, time: nowTime });
+        }
+
+        // 5. التقرير الأمني الدائم
+        if (d.users?.length > 0) stats.alerts.push({ id: 'security_stable', time: 0 }); 
+        
+        // ترتيب التنبيهات زمنياً
         stats.alerts.sort((a, b) => RenderHelpers.parseTime(b.time || nowTime) - RenderHelpers.parseTime(a.time || nowTime));
         
         return stats;

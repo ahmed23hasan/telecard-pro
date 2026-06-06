@@ -4,9 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TELE CARD | تسجيل دخول الإدارة</title>
+    
+    <!-- 🛡️ حارس البوابة السريع: يطرد المدير المسجل مسبقاً للوحة التحكم في 0 ثانية ويمنع الوميض -->
+    <script>
+        if (sessionStorage.getItem('telecard_admin_auth') === 'true') {
+            window.location.replace('admin.html');
+        }
+    </script>
+
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="admin.css">
+    
     <style>
         .spinner { display: none; margin-left: 10px; animation: fa-spin 1s infinite linear; }
         .btn-loading .spinner { display: inline-block; }
@@ -20,16 +29,24 @@
             75% { transform: translateX(5px); }
             100% { transform: translateX(0); }
         }
+        /* 🌟 جعل النصوص الإنجليزية تُكتب بوضوح دون التأثير على اتجاه النص الإرشادي العربي */
+        .input-en { font-family: monospace, sans-serif; letter-spacing: 1px; text-align: right; }
+        .input-en:not(:placeholder-shown) { text-align: left; direction: ltr; }
+
+        /* 🌟 تنسيق إضافي لظهور نافذة الـ 2FA بشكل أنيق فوق الشاشة الحالية */
+        #admin-2fa-modal { z-index: 9999; background: rgba(5, 9, 16, 0.85); backdrop-filter: blur(10px); }
     </style>
 </head>
 <body>
     
     <script>
+        // حفظ الوضع الليلي/النهاري بسرعة قبل رسم الشاشة
         if (localStorage.getItem('telecard_theme') === 'light') {
             document.body.classList.add('light-mode');
         }
     </script>
 
+    <!-- النافذة الرئيسية لتسجيل الدخول -->
     <div class="auth-overlay active">
         <div class="auth-card">
             <div class="auth-header">
@@ -40,14 +57,14 @@
                 <p>يرجى إدخال بيانات الاعتماد للوصول للوحة القيادة</p>
             </div>
             
-            <form id="admin-login-form">
+            <form id="admin-login-form" autocomplete="off">
                 <div class="auth-input-group">
                     <i class="fa-solid fa-envelope"></i>
-                    <input type="email" id="auth-email" placeholder="البريد الإلكتروني" required>
+                    <input type="email" id="auth-email" class="input-en" placeholder="البريد الإلكتروني" autocomplete="username" required>
                 </div>
                 <div class="auth-input-group">
                     <i class="fa-solid fa-lock"></i>
-                    <input type="password" id="auth-password" placeholder="كلمة المرور" required>
+                    <input type="password" id="auth-password" class="input-en" placeholder="كلمة المرور" autocomplete="current-password" required>
                 </div>
                 
                 <div id="auth-error" class="auth-error-msg hide-element">بيانات الدخول غير صحيحة!</div>
@@ -55,8 +72,31 @@
                 <button type="submit" class="btn btn-primary auth-submit-btn" id="btn-login">
                     <i id="btn-icon" class="fa-solid fa-arrow-right-to-bracket"></i>
                     <span id="btn-text">دخول آمن</span>
+                    <i class="fa-solid fa-circle-notch spinner"></i>
                 </button>
             </form>
+        </div>
+    </div>
+
+    <!-- 🌟 نافذة إدخال كود المصادقة الثنائية (2FA) - معزولة ونظيفة -->
+    <div class="auth-overlay" id="admin-2fa-modal">
+        <div class="auth-card" style="border: 1px solid #10b981; box-shadow: 0 10px 40px rgba(16, 185, 129, 0.2);">
+            <div class="auth-header">
+                <div class="auth-logo" style="color: #10b981; background: rgba(16, 185, 129, 0.1);">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
+                <h2 style="color: #10b981;">مصادقة أمنية (2FA)</h2>
+                <p>حساب الإدارة محمي. أدخل الرمز المكون من 6 أرقام.</p>
+            </div>
+            <div class="auth-input-group" style="margin-bottom: 20px;">
+                <i class="fa-solid fa-key text-success"></i>
+                <input type="text" id="admin-2fa-code" class="input-en" placeholder="000 000" maxlength="6" inputmode="numeric" style="text-align: center; font-size: 24px; letter-spacing: 8px;">
+            </div>
+            <div id="admin-2fa-error" class="auth-error-msg hide-element">الرمز غير صحيح!</div>
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button type="button" class="btn btn-primary auth-submit-btn" id="btn-verify-2fa" style="flex: 2; background: #10b981; border: none; color: #fff;">تحقق ودخول</button>
+                <button type="button" class="btn btn-ghost" id="btn-cancel-2fa" style="flex: 1; border: 1px solid #334155; color: #94a3b8;">إلغاء</button>
+            </div>
         </div>
     </div>
 

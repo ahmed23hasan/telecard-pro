@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Version
+// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Bank Grade 🏦
 // 🎯 الوظيفة: بوابة البيانات المستقلة للتحقق الآمن من هوية المشرفين وإدارتهم
-// 🚀 التحديث: تفعيل الدوال السحابية (Cloud Functions) وتوجيه النطاق الجغرافي
+// 🌟 التحديث: SSOT للمفاتيح + حماية شاملة لعمليات الكتابة والقراءة (100% Timeout)
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -10,19 +10,10 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
-// 🌟 الإضافة الجذرية 1: استيراد مكتبة الدوال السحابية
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-// 🔑 مفاتيح الربط الخاصة بمتجر Telecard 
-const firebaseConfig = {
-    apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
-    authDomain: "telecard-1.firebaseapp.com",
-    projectId: "telecard-1",
-    storageBucket: "telecard-1.firebasestorage.app",
-    messagingSenderId: "698672838633",
-    appId: "1:698672838633:web:743c8809615bd8308bfd78"
-};
-
+// 🌟 الإصلاح 1: استيراد المفاتيح من المصدر الموحد (SSOT) لسهولة الصيانة مستقبلاً
+import { firebaseConfig } from '../adminConfig.js';
 // 🚀 تهيئة الاتصال بـ Firebase
 const app = initializeApp(firebaseConfig);
 
@@ -30,7 +21,8 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app); 
-// 🌟 الإضافة الجذرية 2: توجيه كل الاتصالات إلى سيرفر us-east1 لحل مشكلة CORS نهائياً
+
+// 🌟 توجيه كل الاتصالات إلى سيرفر us-east1 لحل مشكلة CORS نهائياً
 const functions = getFunctions(app, 'us-east1');
 
 export { auth, db, storage, functions };
@@ -90,12 +82,13 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 💾 4. حفظ أو تحديث مستند 
+    // 💾 4. حفظ أو تحديث مستند (🌟 محمي بـ Timeout الآن)
     async set(collectionName, docId, data) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
             const docRef = doc(db, collectionName, String(docId));
-            await setDoc(docRef, data, { merge: true });
+            // 🌟 الإصلاح 2: منع التعليق الأبدي عند انقطاع الإنترنت أثناء الحفظ
+            await this._withTimeout(setDoc(docRef, data, { merge: true }), 10000, `set -> ${collectionName}/${docId}`);
             return true;
         } catch (error) {
             console.error(`🚨 خطأ في حفظ المستند [${docId}]: ${error.message}`);
@@ -103,11 +96,12 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ➕ 5. إضافة مستند جديد
+    // ➕ 5. إضافة مستند جديد (🌟 محمي بـ Timeout الآن)
     async add(collectionName, data) {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
-            const docRef = await addDoc(collection(db, collectionName), data);
+            // 🌟 منع التعليق الأبدي
+            const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, `add -> ${collectionName}`);
             return docRef.id;
         } catch (error) {
             console.error(`🚨 خطأ في الإضافة للمجموعة [${collectionName}]: ${error.message}`);
@@ -115,11 +109,12 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 🗑️ 6. حذف مستند
+    // 🗑️ 6. حذف مستند (🌟 محمي بـ Timeout الآن)
     async delete(collectionName, docId) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
-            await deleteDoc(doc(db, collectionName, String(docId)));
+            // 🌟 منع التعليق الأبدي
+            await this._withTimeout(deleteDoc(doc(db, collectionName, String(docId))), 10000, `delete -> ${collectionName}/${docId}`);
             return true;
         } catch (error) {
             console.error(`🚨 خطأ في حذف المستند [${docId}]: ${error.message}`);
@@ -146,7 +141,7 @@ export const FirebaseAdapter = {
         });
     },
 
-    // 📡 9. الاستماع الحي بفلتر ذكي (بدون تقييد ليتمكن الأدمن من البحث بحرية)
+    // 📡 9. الاستماع الحي بفلتر ذكي 
     listenQuery(collectionName, condition, callback) {
         try {
             const q = query(collection(db, collectionName), where(condition[0], condition[1], condition[2]));
@@ -172,7 +167,8 @@ export const FirebaseAdapter = {
             if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
                 try {
                     const oldImageRef = ref(storage, oldImageUrl);
-                    await deleteObject(oldImageRef);
+                    // تنظيف الخلفية بصمت
+                    deleteObject(oldImageRef).catch(()=>{});
                 } catch (delErr) { }
             }
 
@@ -219,7 +215,6 @@ export const FirebaseAdapter = {
             console.log(`🚀 جاري الاتصال بالسيرفر لاستدعاء [${functionName}]...`);
             const targetFunction = httpsCallable(functions, functionName);
             
-            // إضافة مهلة 15 ثانية لمنع تعليق النظام
             const result = await this._withTimeout(
                 targetFunction(payload), 
                 15000, 
@@ -227,7 +222,6 @@ export const FirebaseAdapter = {
             );
             return result.data;
         } catch (error) {
-            // استخراج رسالة الخطأ الحقيقية
             const errorMessage = error.message || 'فشل الاتصال بالسيرفر أو انتهت المهلة.';
             console.error(`🚨 خطأ في السيرفر أثناء استدعاء [${functionName}]:`, errorMessage);
             throw new Error(errorMessage);
