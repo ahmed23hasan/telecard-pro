@@ -811,6 +811,36 @@
     window.closeCustomAlert = closeCustomAlert;
     window.close2FAModal = close2FAModal;
     window.submit2FALogin = submit2FALogin;
+// إتاحة الدوال للنطاق العام (Global Scope) لتشغيلها من أزرار الـ HTML
+    window.togglePass = togglePass;
+    window.handleGoogleLogin = handleGoogleLogin;
+    window.validateLogin = validateLogin;
+    window.handleForgotPassword = handleForgotPassword;
+    window.closeForgotPasswordModal = closeForgotPasswordModal;
+    window.submitForgotPasswordModal = submitForgotPasswordModal;
+    window.closeCustomAlert = closeCustomAlert;
+    window.close2FAModal = close2FAModal;
+    window.submit2FALogin = submit2FALogin;
+
+    // =================================================================
+    // 🪄 8. التحميل الذكي (استقبال العميل المحول من صفحة التسجيل)
+    // =================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+        const prefilledEmail = sessionStorage.getItem('prefilled_email');
+        if (prefilledEmail) {
+            const emailInput = document.getElementById('identifier');
+            if (emailInput) {
+                emailInput.value = prefilledEmail;
+                
+                // إظهار رسالة ترحيبية تشرح له لماذا تم تحويله
+                setTimeout(() => {
+                    showCustomAlert("أهلاً بعودتك!", "لقد اكتشفنا أن بريدك مسجل لدينا بالفعل. يرجى إدخال كلمة المرور للمتابعة.", true);
+                }, 500);
+            }
+            // تنظيف الذاكرة لكي لا يظهر الإيميل مرة أخرى إذا حدث الصفحة
+            sessionStorage.removeItem('prefilled_email'); 
+        }
+    });
 
 </script>
 

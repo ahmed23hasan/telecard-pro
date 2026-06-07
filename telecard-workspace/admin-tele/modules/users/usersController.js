@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 متحكم المستخدمين (modules/users/usersController.js) - Bank Grade 🏦
-// الوظيفة: معالجة العمليات المنطقية (Business Logic) للعملاء، المستويات، ونظام التوثيق.
-// 🌟 التحديث: إصلاح عرض أسماء العملاء (الاسم الكامل/اليوزر) في جميع الإشعارات
+// الوظيفة: معالجة العمليات المنطقية للعملاء، وتطبيق "الإعدام السحابي" والقوائم السوداء.
+// 🌟 التحديث: دمج دالة adminToggleUserBan وتفخيخ الأجهزة (Device Blacklisting)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -31,7 +31,39 @@ export const UsersController = {
         AppController.updateState({ sortUsers: AppController.sortUsers === 'asc' ? 'desc' : 'asc' });
         EventBus.emit('req-render-users');
     },
+    // =========================================================
+    // 📊 السجل المالي الشامل للعميل (Unified Ledger)
+    // =========================================================
+        openUserFullHistory: async function(userId) {
+        if (!userId) return;
+        
+        // 1. (Optimistic UI): سحب البيانات الموجودة حالياً في الذاكرة لعرضها فوراً
+        const localOrders = (AdminData.data.orders || []).filter(o => String(o.userId) === String(userId)).map(o => ({ ...o, txType: 'order' }));
+        const localDeposits = (AdminData.data.deposits || []).filter(d => String(d.userId) === String(userId)).map(d => ({ ...d, txType: 'deposit' }));
+        
+        let combinedActivity = [...localOrders, ...localDeposits].sort((a, b) => {
+            return (b.time || b.createdAt || b.date) - (a.time || a.createdAt || a.date);
+        });
 
+        // 2. عرض البيانات المحلية فوراً (حتى لو كانت أقل من 50)
+        if (AdminUI?.UsersUI?.renderFullHistoryModal) {
+            AdminUI.UsersUI.renderFullHistoryModal(userId, combinedActivity);
+        }
+        
+        // 3. جلب الـ 50 حركة كاملة من السيرفر في الخلفية لتحديث النافذة
+        try {
+            const fullHistory = await FirebaseAdapter.getCustomerFullHistory(userId, 25);
+            
+            // تحديث النافذة بالبيانات السحابية إذا عادت بنجاح وتحتوي على عناصر
+            if (fullHistory && fullHistory.length > 0) {
+                 AdminUI.UsersUI.renderFullHistoryModal(userId, fullHistory);
+            }
+            
+        } catch (error) {
+            console.error("🚨 السيرفر لم يستجب لجلب السجل الكامل:", error);
+            // لن نزعج المدير برسالة خطأ طالما أننا عرضنا البيانات المحلية بنجاح
+        }
+    },
     changeUserSort: function(sortType) {
         AppController.updateState({ userSortCategory: sortType });
         EventBus.emit('req-render-users');
@@ -174,54 +206,172 @@ export const UsersController = {
         }
     },
 
+    // =========================================================
+    // ⚔️ [الإعدام السحابي]: الحظر الصارم وإدراج الأجهزة في القائمة السوداء
+    // =========================================================
     banUser: async function(userId) {
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
         const displayName = user.fullName || user.username || user.name || 'العميل';
+        const isCurrentlyBanned = user.isBanned;
+        const actionTitle = isCurrentlyBanned ? 'إلغاء الحظر' : 'الإعدام والحظر السحابي';
 
-        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من ${user.isBanned ? 'إلغاء حظر' : 'حظر'} حساب (${displayName}) نهائياً؟`)) {
-            user.isBanned = !user.isBanned;
-            if (user.isBanned) {
-                user.isRestricted = false;
-                user.isActive = false;
-            } else {
-                user.isActive = !user.isRestricted;
+        // 1. تأكيد الإجراء وطلب السبب ليظهر للعميل المطرود
+        let banReason = '';
+        if (!isCurrentlyBanned) {
+            const promptMsg = `⚠️ تحذير: سيتم طرد (${displayName}) وتدمير جلساته عبر كل أجهزته وتفخيخ بصمته.\nأدخل سبب الحظر (سيظهر للعميل):`;
+            banReason = await AdminUI.showPrompt(promptMsg, actionTitle, 'مخالفة الشروط والأحكام');
+            if (banReason === null) return; 
+        } else {
+            const confirmUnban = await AdminUI.showConfirm(`هل أنت متأكد من إلغاء حظر (${displayName})؟`, actionTitle);
+            if (!confirmUnban) return;
+        }
+
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري التواصل مع السيرفر لتطبيق بروتوكول الأمان...');
+
+        try {
+            const newBanStatus = !isCurrentlyBanned;
+
+            // 2. التنفيذ السحابي (Revoke Tokens & Set Custom Claims)
+            const cloudResult = await FirebaseAdapter.callFunction('adminToggleUserBan', {
+                targetUid: String(userId),
+                isBanned: newBanStatus,
+                reason: banReason
+            });
+
+            if (cloudResult && cloudResult.success) {
+                
+                // 3. تحديث بيانات العميل محلياً
+                user.isBanned = newBanStatus;
+                user.banReason = banReason;
+                
+                if (newBanStatus) {
+                    user.isRestricted = false;
+                    user.isActive = false;
+                } else {
+                    user.isActive = !user.isRestricted;
+                    user.banReason = '';
+                }
+
+                // 4. إدراج الأجهزة في القائمة السوداء العالمية (Global Blacklist)
+                if (newBanStatus) {
+                    if (!AdminData.data.settings) AdminData.data.settings = {};
+                    let settingsChanged = false;
+                    
+                    // أ. حظر الـ IP 
+                    const targetIp = user.lastIp || user.ipAddress || user.ip;
+                    if (targetIp && targetIp !== 'غير معروف') {
+                        if (!AdminData.data.settings.bannedIps) AdminData.data.settings.bannedIps = [];
+                        if (!AdminData.data.settings.bannedIps.includes(targetIp)) {
+                            AdminData.data.settings.bannedIps.push(targetIp);
+                            settingsChanged = true;
+                        }
+                    }
+
+                    // ب. حظر الأجهزة (Device Prints) 
+                    if (Array.isArray(user.devicePrints) && user.devicePrints.length > 0) {
+                        if (!AdminData.data.settings.bannedDevices) AdminData.data.settings.bannedDevices = [];
+                        const currentBannedDevices = new Set(AdminData.data.settings.bannedDevices);
+                        
+                        user.devicePrints.forEach(device => {
+                            if (!currentBannedDevices.has(device)) {
+                                AdminData.data.settings.bannedDevices.push(device);
+                                settingsChanged = true;
+                            }
+                        });
+                    }
+
+                    if (settingsChanged) {
+                        await AdminData.saveSystemSettings();
+                        console.log("🛡️ تم تحديث القائمة السوداء العالمية للـ IP والأجهزة.");
+                    }
+                }
+
+                // 5. حفظ البيانات وتحديث الواجهة
+                await AdminData.saveUsers();
+                AdminRender?.viewUser?.(userId, true);
+                
+                const msg = `تم ${newBanStatus ? 'حظر وتدمير جلسات' : 'إلغاء حظر'} العميل ${displayName} بنجاح`;
+                AppController.finishAction('req-render-users', null, newBanStatus ? 'BAN_USER' : 'UNBAN_USER', msg, msg);
             }
-            await AdminData?.saveUsers?.();
-            AdminRender?.viewUser?.(userId, true);
-            const msg = `تم ${user.isBanned ? 'حظر' : 'إلغاء حظر'} حساب العميل ${displayName}`;
-            AppController.finishAction('req-render-users', null, user.isBanned ? 'BAN_USER' : 'UNBAN_USER', msg, msg);
+        } catch (error) {
+            console.error("Cloud Ban Error:", error);
+            EventBus.emit('req-show-toast', { message: `تعذر تطبيق الحظر السحابي: ${error.message}`, type: 'error' });
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
+    // =========================================================
+    // 🛡️ حظر الشبكات والـ IP (IP Blacklist)
+    // =========================================================
     banUserIp: async function(userId) {
         const user = AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
         const displayName = user.fullName || user.username || user.name || 'العميل';
-        const targetIp = user.ipAddress || user.ip || 'غير معروف';
+        const targetIp = user.lastIp || user.ipAddress || user.ip || 'غير معروف';
 
-        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من حظر عنوان الـ IP (${targetIp}) للعميل ${displayName}؟\nلن يتمكن أي حساب يستخدم هذا الـ IP من الدخول للمتجر.`)) {
-            user.isIpBanned = !user.isIpBanned;
+        if (targetIp === 'غير معروف') {
+            EventBus.emit('req-show-toast', { message: 'لا يوجد عنوان IP مسجل لهذا العميل.', type: 'warning' });
+            return;
+        }
+
+        const isCurrentlyIpBanned = user.isIpBanned;
+
+        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من ${isCurrentlyIpBanned ? 'رفع الحظر عن' : 'حظر'} عنوان الـ IP (${targetIp}) للعميل ${displayName}؟\n${!isCurrentlyIpBanned ? 'لن يتمكن أي حساب يستخدم هذا الـ IP من الدخول للمتجر.' : ''}`)) {
             
-            if (user.isIpBanned) {
-                user.isBanned = true;
-                user.isRestricted = false;
-                user.isActive = false;
-            }
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث الجدار الناري للشبكات...');
 
-            if (!AdminData.data.settings) AdminData.data.settings = {};
-            if (!AdminData.data.settings.bannedIps) AdminData.data.settings.bannedIps = [];
-            if (user.isIpBanned && targetIp !== 'غير معروف' && !AdminData.data.settings.bannedIps.includes(targetIp)) {
-                AdminData.data.settings.bannedIps.push(targetIp);
-                await AdminData?.saveSystemSettings?.();
-            }
+            try {
+                user.isIpBanned = !isCurrentlyIpBanned;
+                
+                if (user.isIpBanned) {
+                    user.isBanned = true;
+                    user.isRestricted = false;
+                    user.isActive = false;
+                }
 
-            await AdminData?.saveUsers?.();
-            AdminRender?.viewUser?.(userId, true);
-            const msg = `تم ${user.isIpBanned ? 'حظر' : 'إلغاء حظر'} الـ IP للعميل ${displayName}`;
-            AppController.finishAction('req-render-users', null, user.isIpBanned ? 'BAN_IP' : 'UNBAN_IP', msg, msg);
+                if (!AdminData.data.settings) AdminData.data.settings = {};
+                if (!AdminData.data.settings.bannedIps) AdminData.data.settings.bannedIps = [];
+                
+                let settingsChanged = false;
+
+                if (user.isIpBanned) {
+                    if (!AdminData.data.settings.bannedIps.includes(targetIp)) {
+                        AdminData.data.settings.bannedIps.push(targetIp);
+                        settingsChanged = true;
+                    }
+                } else {
+                    // إزالة الـ IP من القائمة السوداء
+                    const index = AdminData.data.settings.bannedIps.indexOf(targetIp);
+                    if (index > -1) {
+                        AdminData.data.settings.bannedIps.splice(index, 1);
+                        settingsChanged = true;
+                    }
+                }
+
+                if (settingsChanged) {
+                    await AdminData.saveSystemSettings();
+                }
+
+                await AdminData.saveUsers();
+                
+                // استدعاء صامت لـ Cloud Function لتأكيد الحظر على مستوى التوكن
+                if (user.isIpBanned) {
+                    FirebaseAdapter.callFunction('adminToggleUserBan', { targetUid: String(userId), isBanned: true, reason: 'حظر الشبكة والأمان (IP Ban)' }).catch(()=>console.warn("Soft fail on cloud ban"));
+                }
+
+                AdminRender?.viewUser?.(userId, true);
+                const msg = `تم ${user.isIpBanned ? 'حظر' : 'إلغاء حظر'} الـ IP للعميل ${displayName}`;
+                AppController.finishAction('req-render-users', null, user.isIpBanned ? 'BAN_IP' : 'UNBAN_IP', msg, msg);
+
+            } catch (error) {
+                EventBus.emit('req-show-toast', { message: 'حدث خطأ أثناء تحديث حظر الشبكة.', type: 'error' });
+            } finally {
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            }
         }
     },
 

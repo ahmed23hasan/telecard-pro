@@ -274,11 +274,17 @@ export const CatalogController = {
         if (!nameAr || !code || !dialCode) return EventBus.emit('req-show-toast', { message: 'يرجى تعبئة الحقول الأساسية', type: 'error' });
 
         if (!AdminData.data.countries) AdminData.data.countries = [];
-        if (!editId && AdminData.data.countries.find(c => String(c.id).toUpperCase() === code)) {
-            return EventBus.emit('req-show-toast', { message: 'كود الدولة موجود مسبقاً!', type: 'error' });
+        
+        // 🌟 الإصلاح الجذري السحري: التحقق من تكرار كود الدولة بمطابقة الكود والمُعرف معاً لضمان كشف التهيئة التلقائية
+        const isDuplicate = AdminData.data.countries.some(c => 
+            String(c.code).toUpperCase() === code || String(c.id).toUpperCase() === code
+        );
+
+        if (!editId && isDuplicate) {
+            return EventBus.emit('req-show-toast', { message: 'كود الدولة موجود مسبقاً في مناطق الخدمة!', type: 'error' });
         }
 
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري التحديث السحابي...');
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري التحديث السحابي لبيانات الدولة...');
 
         try {
             const oldCountry = editId ? AdminData.data.countries.find(c => String(c.id) === String(editId)) : null;
@@ -297,7 +303,7 @@ export const CatalogController = {
             await AdminData?.saveCountries?.();
             AppController.finishAction('req-render-countries', null, editId ? 'EDIT_COUNTRY' : 'ADD_COUNTRY', `دولة: ${nameAr}`, 'تم حفظ الدولة بنجاح');
         } catch (error) {
-            EventBus.emit('req-show-toast', { message: 'خطأ أثناء الحفظ', type: 'error' });
+            EventBus.emit('req-show-toast', { message: 'حدث خطأ غير متوقع أثناء حفظ الدولة', type: 'error' });
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }

@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧠 الموجه المركزي للنظام (core/appController.js) - Master Orchestrator 🚀
 // الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🌟 التحديث: توحيد شاشات الحماية (Loaders)، تأمين رفع الصور، ومعالجة الأخطاء
+// 🌟 التحديث: تكامل غرفة العمليات (الجدار الناري والقائمة السوداء - Blacklist)
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -124,6 +124,11 @@ export const AppController = {
         EventBus.on('req-apply-filters', (data) => this.applyFilters?.(data.section));
         EventBus.on('req-quick-date', (data) => this.setQuickDateFilter?.(data.range, data.section));
         
+        // 🌟 مستمعات أوامر الجدار الناري والقائمة السوداء
+        EventBus.on('req-add-ban-ip', () => this.addGlobalBanIp());
+        EventBus.on('req-remove-ban-ip', (data) => this.removeGlobalBanIp(data.ip));
+        EventBus.on('req-remove-ban-device', (data) => this.removeGlobalBanDevice(data.device));
+
         EventBus.on('action-triggered', async (data) => {
             const routers = getSystemRouters();
             if (routers[data.action]) await routers[data.action](data);
@@ -236,6 +241,11 @@ export const AppController = {
                 AdminUI?.setupSettingsViews?.(id, this.data); 
             }
 
+            // 🌟 رسم الجدار الناري بمجرد فتح صفحة النظام
+            if (id === 'sys') {
+                this.renderFirewallBlacklist();
+            }
+
             const renderMap = {
                 'dash': 'req-render-dash', 'sales': 'req-render-sales', 'deposits': 'req-render-deposits',
                 'orders': 'req-render-orders', 'products': 'req-render-prods', 'payments': 'req-render-payments',
@@ -256,6 +266,11 @@ export const AppController = {
             await AdminData?.loadData?.(true);
             const refreshMap = { 'deposits': 'req-render-deposits', 'orders': 'req-render-orders', 'users': 'req-render-users', 'products': 'req-render-prods', 'logs': 'req-render-logs', 'wallets': 'req-render-wallets' };
             if (refreshMap[type]) EventBus.emit(refreshMap[type]); else await this.nav(type || 'dash');
+            
+            // تحديث واجهة الجدار الناري لو كنا في صفحتها
+            if (type === 'sys' || document.getElementById('view-sys')?.classList.contains('active')) {
+                this.renderFirewallBlacklist();
+            }
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
@@ -274,6 +289,114 @@ export const AppController = {
     enter: function(id) { 
         this.updateState({ currFolder: id !== null ? String(id) : null }); 
         EventBus.emit('req-render-prods'); 
+    },
+
+    // ==========================================
+    // 🛡️ إدارة الجدار الناري والقائمة السوداء (Firewall & Blacklist)
+    // ==========================================
+    
+    renderFirewallBlacklist: function() {
+        const ipContainer = document.getElementById('global-banned-ips-container');
+        const deviceContainer = document.getElementById('global-banned-devices-container');
+        if (!ipContainer || !deviceContainer) return;
+
+        const settings = AdminData.data.settings || {};
+        const bannedIps = Array.isArray(settings.bannedIps) ? settings.bannedIps : [];
+        const bannedDevices = Array.isArray(settings.bannedDevices) ? settings.bannedDevices : [];
+
+        // رسم عناوين IP
+        if (bannedIps.length === 0) {
+            ipContainer.innerHTML = '<span class="text-muted fs-11"><i class="fa-solid fa-check text-success"></i> لا توجد عناوين IP محظورة.</span>';
+        } else {
+            ipContainer.innerHTML = bannedIps.map(ip => `
+                <div class="badge-tag bg-danger text-white num-en d-flex align-items-center gap-2" dir="ltr">
+                    ${ip} 
+                    <i class="fa-solid fa-xmark clickable ms-2" data-action="remove-global-ban-ip" data-ip="${ip}" title="فك الحظر"></i>
+                </div>
+            `).join('');
+        }
+
+        // رسم الأجهزة
+        if (bannedDevices.length === 0) {
+            deviceContainer.innerHTML = '<span class="text-muted fs-11"><i class="fa-solid fa-check text-success"></i> لا توجد أجهزة مفخخة.</span>';
+        } else {
+            deviceContainer.innerHTML = bannedDevices.map(dev => `
+                <div class="badge-tag bg-info text-white num-en d-flex align-items-center gap-2" dir="ltr">
+                    ${dev.substring(0, 10)}... 
+                    <i class="fa-solid fa-xmark clickable ms-2" data-action="remove-global-ban-device" data-device="${dev}" title="فك الحظر"></i>
+                </div>
+            `).join('');
+        }
+    },
+
+    addGlobalBanIp: async function() {
+        const input = document.getElementById('new-ban-ip-input');
+        if (!input) return;
+        const newIp = input.value.trim();
+        
+        if (!newIp) return AdminUI.showToast('الرجاء إدخال عنوان IP', 'error');
+        
+        // التحقق من صيغة IP صحيحة (IPv4 أو IPv6)
+        if (!/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(newIp) && !newIp.includes(':')) {
+            return AdminUI.showToast('صيغة الـ IP غير صحيحة', 'error');
+        }
+
+        if (!AdminData.data.settings) AdminData.data.settings = {};
+        if (!AdminData.data.settings.bannedIps) AdminData.data.settings.bannedIps = [];
+
+        if (AdminData.data.settings.bannedIps.includes(newIp)) {
+            return AdminUI.showToast('هذا الـ IP محظور مسبقاً', 'warning');
+        }
+
+        if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري حظر الـ IP سحابياً...');
+        try {
+            AdminData.data.settings.bannedIps.push(newIp);
+            await AdminData.saveSystemSettings();
+            input.value = '';
+            this.renderFirewallBlacklist();
+            AdminUI.showToast(`تم حظر الشبكة: ${newIp}`, 'success');
+            if (AdminData.addLog) AdminData.addLog('FIREWALL_ADD_IP', `إضافة IP للقائمة السوداء: ${newIp}`);
+        } catch (e) {
+            AdminUI.showToast('حدث خطأ أثناء الحظر', 'error');
+        } finally {
+            if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+        }
+    },
+
+    removeGlobalBanIp: async function(ip) {
+        if (!AdminUI) return;
+        if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن الشبكة (${ip})؟`, 'إزالة من القائمة السوداء')) return;
+
+        if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري فك الحظر...');
+        try {
+            AdminData.data.settings.bannedIps = AdminData.data.settings.bannedIps.filter(item => item !== ip);
+            await AdminData.saveSystemSettings();
+            this.renderFirewallBlacklist();
+            AdminUI.showToast(`تم فك الحظر عن الـ IP بنجاح`, 'success');
+            if (AdminData.addLog) AdminData.addLog('FIREWALL_REMOVE_IP', `إزالة IP من القائمة السوداء: ${ip}`);
+        } catch (e) {
+            AdminUI.showToast('حدث خطأ أثناء فك الحظر', 'error');
+        } finally {
+            if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+        }
+    },
+
+    removeGlobalBanDevice: async function(device) {
+        if (!AdminUI) return;
+        if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن هذا الجهاز؟\n(${device})`, 'إزالة من القائمة السوداء')) return;
+
+        if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري فك الحظر...');
+        try {
+            AdminData.data.settings.bannedDevices = AdminData.data.settings.bannedDevices.filter(item => item !== device);
+            await AdminData.saveSystemSettings();
+            this.renderFirewallBlacklist();
+            AdminUI.showToast(`تم فك الحظر عن الجهاز بنجاح`, 'success');
+            if (AdminData.addLog) AdminData.addLog('FIREWALL_REMOVE_DEVICE', `إزالة جهاز من القائمة السوداء`);
+        } catch (e) {
+            AdminUI.showToast('حدث خطأ أثناء فك الحظر', 'error');
+        } finally {
+            if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+        }
     },
 
     // ==========================================

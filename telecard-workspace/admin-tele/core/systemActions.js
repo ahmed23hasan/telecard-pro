@@ -46,6 +46,17 @@ export const SystemActions = {
     'open-img-viewer': (data) => AdminUI?.openImageViewer?.(data.src),
     'close-img-viewer': () => AdminUI?.closeImageViewer?.(),
     
+    // 🌟 الإصلاح السحري: إضافة معالج فتح تفاصيل الحركة المالية (طلب منتج أو طلب إيداع) من شاشة السجل المالي الشامل
+    'open-tx-detail': (data) => {
+        const txId = String(data.id);
+        const txType = data.type; // 'order' أو 'deposit'
+        if (txType === 'order') {
+            AdminUI?.openOrderDrawer?.(txId);
+        } else if (txType === 'deposit') {
+            AdminUI?.openDepositDrawer?.(txId);
+        }
+    },
+    
     // --- 4. الموجه الديناميكي (Dynamic Editors) ---
     'edit-item': (data) => {
         if (data.type === 'cat') AdminUI?.CatalogUI?.openCategoryModal?.(data.id);
@@ -86,5 +97,10 @@ export const SystemActions = {
     'copy-to-clipboard': (data) => AdminUI?.copyToClipboard?.(data.element),
     'trigger-click': (data) => document.getElementById(data.target)?.click(),
     'clear-img': (data) => AdminUI?.clearImg?.(data.preview, data.wrap, data.input, data.originalEvent),
-    'upload-img': (data) => AdminUI?.handleImageUpload?.(data.element, data.preview, data.wrap)
+    'upload-img': (data) => AdminUI?.handleImageUpload?.(data.element, data.preview, data.wrap),
+    
+    // --- 7. الجدار الناري والقائمة السوداء (Firewall & Blacklist) ---
+    'add-global-ban-ip': () => EventBus.emit('req-add-ban-ip'),
+    'remove-global-ban-ip': (data) => EventBus.emit('req-remove-ban-ip', { ip: data.ip }),
+    'remove-global-ban-device': (data) => EventBus.emit('req-remove-ban-device', { device: data.device })
 };

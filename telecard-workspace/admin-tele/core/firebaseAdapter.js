@@ -1,7 +1,7 @@
 // ============================================================================
 // ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Bank Grade 🏦
 // 🎯 الوظيفة: بوابة البيانات المستقلة للتحقق الآمن من هوية المشرفين وإدارتهم
-// 🌟 التحديث: SSOT للمفاتيح + حماية شاملة لعمليات الكتابة والقراءة (100% Timeout)
+// 🌟 التحديث: إضافة الاستعلام المتوازي (Parallel Queries) للسجل المالي الموحد
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -14,6 +14,7 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
 
 // 🌟 الإصلاح 1: استيراد المفاتيح من المصدر الموحد (SSOT) لسهولة الصيانة مستقبلاً
 import { firebaseConfig } from '../adminConfig.js';
+
 // 🚀 تهيئة الاتصال بـ Firebase
 const app = initializeApp(firebaseConfig);
 
@@ -226,5 +227,73 @@ export const FirebaseAdapter = {
             console.error(`🚨 خطأ في السيرفر أثناء استدعاء [${functionName}]:`, errorMessage);
             throw new Error(errorMessage);
         }
+    },
+
+    // ==========================================
+    // 🔍 13. الاستعلامات المركبة والمخصصة (Complex Queries)
+    // ==========================================
+    
+    // جلب السجل المالي الشامل للعميل (إيداعات + مشتريات) بتكلفة منخفضة جداً مع حماية Timeout
+// جلب السجل المالي الشامل للعميل (إيداعات + مشتريات) بتكلفة منخفضة جداً مع حماية Timeout
+async getCustomerFullHistory(userId, limitPerCollection = 25) {
+    if (!userId) return [];
+    try {
+        const safeUserId = String(userId);
+        
+        // 🌟 الإصلاح: تعديل أسماء المجموعات لتطابق المجموعات الفعلية 'telecard_orders' و 'telecard_deposits'
+        const ordersQuery = query(
+            collection(db, 'telecard_orders'),
+            where('userId', '==', safeUserId),
+            orderBy('time', 'desc'),
+            limit(limitPerCollection)
+        );
+        
+        const depositsQuery = query(
+            collection(db, 'telecard_deposits'),
+            where('userId', '==', safeUserId),
+            orderBy('time', 'desc'),
+            limit(limitPerCollection)
+        );
+        
+        // التنفيذ المتوازي (Parallel Execution) لاختصار نصف وقت الانتظار
+        const [ordersSnap, depositsSnap] = await this._withTimeout(
+            Promise.all([getDocs(ordersQuery), getDocs(depositsQuery)]),
+            12000,
+            `getCustomerFullHistory -> ${safeUserId}`
+        );
+        
+        const activities = [];
+        
+        // دمج الطلبات مع ختم النوع
+        ordersSnap.forEach(doc => {
+            activities.push({ id: doc.id, txType: 'order', ...doc.data() });
+        });
+        
+        // دمج الإيداعات مع ختم النوع
+        depositsSnap.forEach(doc => {
+            activities.push({ id: doc.id, txType: 'deposit', ...doc.data() });
+        });
+        
+        // دالة مساعدة لتأمين قراءة التاريخ بغض النظر عن صيغته في قاعدة البيانات
+        const parseTimeSafe = (t) => {
+            if (!t) return 0;
+            if (typeof t.toMillis === 'function') return t.toMillis();
+            if (typeof t === 'number') return t;
+            const parsed = new Date(t).getTime();
+            return isNaN(parsed) ? 0 : parsed;
+        };
+        
+        // ترتيب مدمج تنازلياً (الأحدث أولاً)
+        activities.sort((a, b) => {
+            const timeA = parseTimeSafe(a.time || a.createdAt || a.date);
+            const timeB = parseTimeSafe(b.time || b.createdAt || b.date);
+            return timeB - timeA;
+        });
+        
+        return activities;
+        
+    } catch (error) {
+        console.error(`🚨 خطأ في جلب السجل الشامل للعميل [${userId}]: ${error.message}`);
+        return []; // إرجاع مصفوفة فارغة كي لا تنهار الواجهة
     }
-};
+}};

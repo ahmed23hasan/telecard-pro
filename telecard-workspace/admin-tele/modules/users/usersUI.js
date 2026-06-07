@@ -1,11 +1,12 @@
 // ============================================================================
 // 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js)
 // 🎯 الوظيفة: إدارة التفاعلات المرئية فقط (Visual Interactions)
-// 🌟 التحديث: إضافة دالة openTierModal المفقودة لفتح النوافذ
+// 🌟 التحديث: إضافة نافذة "السجل المالي الشامل" وتصميم الفلترة السريعة (Optimistic UI)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminTemplates } from '../../adminTemplates.js';
+import { UsersTemplates } from './usersTemplates.js'; // 🌟 إضافة استيراد قوالب المستخدمين
 import { Utils, EventBus } from '../../adminUtils.js';
 import { UIService } from '../../core/uiService.js';
 
@@ -16,7 +17,6 @@ export const UsersUI = {
     // 👑 1. إدارة المستويات (Tiers)
     // ---------------------------------------------------------
     
-    // 🌟 تمت إضافتها لسد الثغرة: الدالة المسؤولة عن ربط البيانات وفتح النافذة
     openTierModal: function(id = null) {
         EventBus.emit('set-temp-edit-id', id);
         const tier = id ? (AdminData.data.tiers || []).find(t => String(t.id) === String(id)) : null;
@@ -24,11 +24,9 @@ export const UsersUI = {
         EventBus.emit('req-open-modal', 'tier');
     },
 
-    // 🌟 تهيئة النافذة بمعزل عن فتحها لضمان نقاء المعمارية
     setupTierModal: function(tier) {
         const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
         
-        // تعبئة الحقول
         safeSetVal('t-name', tier ? tier.name : '');
         safeSetVal('t-profit', tier ? tier.profit_percent : '');
         safeSetVal('t-min', tier ? tier.min_profit_usd : '');
@@ -38,7 +36,6 @@ export const UsersUI = {
         const defaultCheckbox = document.getElementById('t-default');
         if (defaultCheckbox) defaultCheckbox.checked = tier ? !!tier.isDefault : false;
 
-        // تهيئة الأيقونات
         document.querySelectorAll('.badge-opt').forEach(el => el.classList.remove('active'));
         const iconClass = tier ? (tier.icon || 'fa-user') : 'fa-user';
         const iconEl = document.querySelector(`.badge-opt[data-val="${iconClass}"]`);
@@ -127,6 +124,51 @@ export const UsersUI = {
     // ---------------------------------------------------------
     // 👤 2. إدارة ملفات المستخدمين (Users)
     // ---------------------------------------------------------
+    
+    // 🌟 النافذة الاحترافية لعرض السجل المالي الشامل (الدفتر الموحد)
+        renderFullHistoryModal: function(userId, fullHistory) {
+        const modal = document.getElementById('user-full-history-modal');
+        if (!modal) return;
+
+        // دالة مساعدة لتوليد القوائم
+        const generateListHtml = (list) => {
+            if (!list || list.length === 0) return UsersTemplates.emptyUserActivity();
+            return list.map(tx => UsersTemplates.userActivityItem(tx)).join('');
+        };
+
+        // تحديث العداد
+        const countBadge = document.getElementById('fh-count-badge');
+        if (countBadge) countBadge.innerText = fullHistory.length;
+
+        // حقن البيانات في الحاويات الموجودة مسبقاً
+        document.getElementById('fh-all').innerHTML = generateListHtml(fullHistory);
+        document.getElementById('fh-deposits').innerHTML = generateListHtml(fullHistory.filter(tx => tx.txType === 'deposit'));
+        document.getElementById('fh-orders').innerHTML = generateListHtml(fullHistory.filter(tx => tx.txType === 'order'));
+
+        // إظهار النافذة
+        modal.classList.add('active');
+
+        // تفعيل أزرار التبويبات (تطبق مرة واحدة فقط)
+        if (!modal._boundTabs) {
+            const tabs = modal.querySelectorAll('.fh-tab');
+            const panes = modal.querySelectorAll('.fh-pane');
+            
+            tabs.forEach(tab => {
+                tab.addEventListener('click', (e) => {
+                    tabs.forEach(t => t.classList.remove('active'));
+
+                    panes.forEach(p => p.style.display = 'none');
+                    
+                    const targetTab = e.currentTarget;
+                    targetTab.classList.add('active');
+                    
+                    const targetPane = modal.querySelector('#' + targetTab.dataset.target);
+                    if(targetPane) targetPane.style.display = 'block';
+                });
+            });
+            modal._boundTabs = true;
+        }
+    },
     showTierSelection: function(userId) {
         const u = (AdminData.data.users || []).find(x => String(x.id) === String(userId));
         if(!u) return;
@@ -173,7 +215,6 @@ export const UsersUI = {
         if(modal) modal.classList.remove('active'); 
     },
 
-    // 🌟 تمت إضافتها: مسح حقل الإشعار المخصص بعد الإرسال الناجح
     clearCustomNotifInput: function() {
         const input = document.getElementById('user-custom-notif');
         if (input) {
@@ -291,6 +332,5 @@ export const UsersUI = {
         if (!this.tempKycConfig) return;
         EventBus.emit('req-save-kyc-config', this.tempKycConfig);
         this.tempKycConfig = null;
-    },
-
-    };
+    }
+};

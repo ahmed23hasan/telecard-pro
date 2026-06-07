@@ -32,7 +32,7 @@ allow read, write: if isOwner(userId);
 }
 
 // ==========================================
-// 👤 الصور الشخصية (مفتوحة للقراءة، والكتابة للعميل نفسه)
+// 👤 الصور الشخصية للعملاء
 // ==========================================
 match /avatars/{fileName} {
 allow read: if true;
@@ -40,20 +40,24 @@ allow write: if isAuthenticated() && fileName.matches('avatar_' + request.auth.u
 }
 
 // ==========================================
-// 🛡️ التوثيق الأمني KYC (أعلى درجات السرية)
+// 🛡️ التوثيق الأمني KYC (أعلى درجات السرية والخصوصية للمالك)
 // ==========================================
 match /kyc_docs/{fileName} {
-allow read: if false;
+// 🌟 الإصلاح الجذري: السماح للعميل المالك بمشاهدة ومعاينة وثائق هويته المرفوعة فقط وحظر الغرباء
+allow read: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
 allow write: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
 }
 
 // ==========================================
-// 🖼️ الملفات العامة للمتجر (للعرض فقط)
+// 🖼️ الملفات العامة للمتجر والإدارة (للعرض العام فقط)
 // ==========================================
 match /products/{allPaths=**} { allow read: if true; }
 match /categories/{allPaths=**} { allow read: if true; }
 match /general/{allPaths=**} { allow read: if true; }
 match /banners/{allPaths=**} { allow read: if true; }
 match /brand/{allPaths=**} { allow read: if true; }
+
+// 🌟 تفعيل قراءة صور الملف الشخصي العام لمديري النظام المسجلين
+match /admin/{allPaths=**} { allow read: if true; }
 }
 }

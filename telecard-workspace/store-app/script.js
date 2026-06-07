@@ -40,44 +40,87 @@ const ClientSystem = {
             console.log("🧹 تم تنظيف المستمعات السحابية السابقة بنجاح.");
         }
     },
-
-    // 🛡️ دالة الحارس: تنفيذ قراءة البصمة للمتجر
-    enforceBiometricLock: async function() {
-        const lockScreen = document.getElementById('biometric-lock-screen');
-        if (!lockScreen) return false;
-
-        try {
-            const challenge = new Uint8Array(32);
-            window.crypto.getRandomValues(challenge);
-            
-            const savedRawId = localStorage.getItem('telecard_biometric_key');
-            if (!savedRawId) throw new Error("No credential ID found");
-
-            const rawIdBytes = new Uint8Array(savedRawId.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-
-            await navigator.credentials.get({
-                publicKey: {
-                    challenge: challenge,
-                    timeout: 60000,
-                    userVerification: "required",
-                    allowCredentials: [{
-                        type: "public-key",
-                        id: rawIdBytes
-                    }]
-                }
-            });
-
+// =========================================================
+// 🛡️ دالة الحارس: تنفيذ قراءة البصمة للمتجر (WebAuthn / Passkeys)
+// =========================================================
+enforceBiometricLock: async function() {
+    const lockScreen = document.getElementById('biometric-lock-screen');
+    if (!lockScreen) return false;
+    
+    // 🌟 1. فحص دعم المتصفح (Fallback): إذا كان الجهاز لا يدعم البصمة، نفتح الشاشة تلقائياً
+    if (!window.PublicKeyCredential) {
+        console.warn("🔐 WebAuthn is not supported on this device/browser.");
+        lockScreen.classList.remove('active');
+        return true;
+    }
+    
+    try {
+        const savedRawId = localStorage.getItem('telecard_biometric_key');
+        
+        // 🌟 2. إذا لم يقم العميل بتفعيل البصمة مسبقاً، نفتح الشاشة بهدوء
+        if (!savedRawId) {
             lockScreen.classList.remove('active');
             return true;
-        } catch (error) {
-            console.error("Biometric Login Failed:", error);
-            if (typeof this.showToast === 'function') this.showToast('تعذر التحقق من البصمة. يرجى المحاولة مجدداً أو تسجيل الخروج.', 'error');
-            if (typeof this.sfx === 'function') this.sfx('error');
-            return false;
         }
-    },
-
-    // ============================================================================
+        
+        // 🌟 3. تفاعل بصري (UX): تغيير حالة الزر أثناء انتظار وضع الإصبع (إن وُجد زر)
+        const retryBtn = document.getElementById('btn-biometric-retry');
+        if (retryBtn) {
+            retryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحقق...';
+            retryBtn.disabled = true;
+        }
+        
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+        
+        // تحويل آمن للـ ID
+        const rawIdBytes = new Uint8Array(savedRawId.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+        
+        // استدعاء نظام التشغيل (FaceID / TouchID / Windows Hello)
+        await navigator.credentials.get({
+            publicKey: {
+                challenge: challenge,
+                timeout: 60000,
+                userVerification: "required",
+                allowCredentials: [{
+                    type: "public-key",
+                    id: rawIdBytes
+                }]
+            }
+        });
+        
+        // 🔓 4. فتح القفل بنجاح
+        lockScreen.classList.remove('active');
+        
+        if (typeof this.sfx === 'function') this.sfx('success');
+        if (typeof this.showToast === 'function') this.showToast('تم التحقق من الهوية بنجاح', 'success');
+        
+        return true;
+        
+    } catch (error) {
+        console.error("Biometric Login Failed:", error);
+        
+        // إعادة زر المحاولة لحالته الطبيعية
+        const retryBtn = document.getElementById('btn-biometric-retry');
+        if (retryBtn) {
+            retryBtn.innerHTML = '<i class="fa-solid fa-fingerprint"></i> المحاولة مجدداً';
+            retryBtn.disabled = false;
+        }
+        
+        // 🌟 5. معالجة ذكية للأخطاء (رسائل مخصصة حسب نوع الفشل)
+        if (error.name === 'NotAllowedError') {
+            // العميل ضغط "إلغاء" أو رفض إعطاء الصلاحية
+            if (typeof this.showToast === 'function') this.showToast('تم إلغاء التحقق. يرجى المحاولة مجدداً أو تسجيل الخروج.', 'warning');
+        } else {
+            // خطأ تقني أو بصمة خاطئة عدة مرات
+            if (typeof this.showToast === 'function') this.showToast('فشل التحقق من البصمة. تأكد من إعدادات جهازك.', 'error');
+        }
+        
+        if (typeof this.sfx === 'function') this.sfx('error');
+        return false;
+    }
+},  
+// ============================================================================
     // 🎯 نظام تفويض الأحداث المركزي المحدث والآمن (Global Event Delegation)
     // ============================================================================
     initGlobalListeners: function() {

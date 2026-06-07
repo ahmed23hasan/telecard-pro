@@ -1,6 +1,6 @@
 // ============================================================================
 // 👥 محرك رسم المستخدمين (modules/users/usersRender.js)
-// 🚀 التحديث: تأمين الفرز السحابي وتوحيد التواريخ عبر المنسق المركزي (SSOT)
+// 🚀 التحديث: تأمين الفرز السحابي + الرادار الجنائي لكشف الحسابات المتعددة
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -9,11 +9,44 @@ import { EventBus, Utils } from '../../adminUtils.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
 import { UsersTemplates } from './usersTemplates.js'; 
 
+// 🌟 مفسر التوقيت الشامل والآمن (Universal Timestamp Parser)
+// يعالج كائنات Firestore Timestamp والنصوص ذات التنسيقات المتعددة مثل (DD/MM/YYYY) لمنع أخطاء الـ NaN أثناء الترتيب الحركي
+const parseTimeUniversal = (ts) => {
+    if (!ts) return 0;
+    
+    // 1. إذا كان الكائن عبارة عن Timestamp سحابي من Firestore
+    if (ts.seconds !== undefined) return ts.seconds * 1000;
+    if (typeof ts.toDate === 'function') return ts.toDate().getTime();
+    
+    // 2. إذا كانت القيمة بالأصل رقم ملي ثانية (Timestamp)
+    if (typeof ts === 'number') return ts;
+    
+    // 3. معالجة وتأمين نصوص التواريخ والصيغ البريطانية والعربية (DD/MM/YYYY)
+    if (typeof ts === 'string') {
+        const clean = ts.trim();
+        const match = clean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s*\|\s*(\d{1,2}):(\d{1,2}))?/);
+        if (match) {
+            const day = parseInt(match[1], 10);
+            const month = parseInt(match[2], 10) - 1; // الشهور بأساس 0 في Javascript
+            const year = parseInt(match[3], 10);
+            const hours = match[4] ? parseInt(match[4], 10) : 0;
+            const minutes = match[5] ? parseInt(match[5], 10) : 0;
+            return new Date(year, month, day, hours, minutes).getTime();
+        }
+        const parsed = new Date(clean).getTime();
+        return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+};
+
 export const UsersRender = {
     state: { userSearch: '', sortUsers: 'desc', userSortCategory: 'newest', currentTierId: null, currentEditUserId: null },
 
     initListeners: function() {
         EventBus.on('state-update', (newState) => { this.state = { ...this.state, ...newState }; });
+        
+        // 🌟 تفعيل بروتوكول الاستماع والتحكم الفوري لتبويبات السجل المالي الشامل
+        this.setupFullHistoryTabListeners();
     },
 
     updateUserSortLabel: function() {
@@ -48,7 +81,7 @@ export const UsersRender = {
         const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         const lastMonthKey = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
-        // 3. الترتيب الذكي (Sorting Logic) المحمي بالمترجم الزمني
+        // 3. الترتيب الذكي (Sorting Logic) المحمي بالمترجم الزمني الشامل
         const sortCat = this.state.userSortCategory || 'newest';
         const isAsc = this.state.sortUsers === 'asc';
         const sortDir = isAsc ? 1 : -1;
@@ -57,9 +90,9 @@ export const UsersRender = {
             let valA = 0, valB = 0;
 
             if (sortCat === 'newest') {
-                // 🌟 استخدام المترجم المركزي لمنع انهيار الترتيب بسبب Timestamp
-                valA = RenderHelpers.parseTime(a.time || a.joinDate || a.createdAt);
-                valB = RenderHelpers.parseTime(b.time || b.joinDate || b.createdAt);
+                // 🌟 استخدام المترجم الموحد لمنع انهيار الترتيب بسبب Timestamp
+                valA = parseTimeUniversal(a.time || a.joinDate || a.createdAt);
+                valB = parseTimeUniversal(b.time || b.joinDate || b.createdAt);
             } 
             else if (sortCat === 'spend_all') {
                 valA = Number(a.totalSpent || 0);
@@ -87,7 +120,7 @@ export const UsersRender = {
             }
 
             if (valA === valB) {
-                return (RenderHelpers.parseTime(b.time || b.createdAt) - RenderHelpers.parseTime(a.time || a.createdAt));
+                return (parseTimeUniversal(b.time || b.createdAt) - parseTimeUniversal(a.time || a.createdAt));
             }
             return (valA - valB) * sortDir;
         });
@@ -112,20 +145,60 @@ export const UsersRender = {
         const safeCurrency = Utils.escapeHTML(u.baseCurrency || 'USD');
         const rawName = RenderHelpers._getExplicitName(u);
         
-        // 🌟 استبدال Utils.formatDate القديمة بالمنسق الآمن لتوحيد الواجهة
+        // 🌟 استبدال المنسق القديم بالمنسق الآمن لتوحيد صيغ تواريخ الإقلاع
         const joinDate = (u.joinDate || u.createdAt || u.date) ? RenderHelpers.formatSafeDate(u.joinDate || u.createdAt || u.date) : 'غير متوفر';
 
         const tiers = AdminData.data.tiers || [];
         const userTier = tiers.find(t => String(t.id) === String(u.tierId));
         const tierName = userTier ? Utils.escapeHTML(userTier.name) : 'عادي (افتراضي)';
 
-        const userAllOrders = (AdminData.data.orders || []).filter(o => String(o.userId) === String(id));
+        // 1. جلب الطلبات وإضافة علامة تميزها كطلب
+        const userAllOrders = (AdminData.data.orders || []).filter(o => String(o.userId) === String(id)).map(o => ({ ...o, txType: 'order' }));
         
-        // 🌟 حماية ترتيب آخر الطلبات للعميل باستخدام parseTime
-        const lastOrders = [...userAllOrders].sort((a, b) => RenderHelpers.parseTime(b.date || b.time) - RenderHelpers.parseTime(a.date || a.time)).slice(0, 5); 
-            
-        let ordersHtml = lastOrders.length === 0 ? UsersTemplates.emptyUserOrders() : lastOrders.map(o => UsersTemplates.userOrderItem(o)).join('') + UsersTemplates.userOrdersBtn(id);
-        const uiData = { bal, safeCurrency, rawName, joinDate, tierName, totalOrdersCount: userAllOrders.length, totalSpent: Number(u.totalSpent || 0) };
+        // 2. جلب الإيداعات وإضافة علامة تميزها كإيداع
+        const userAllDeposits = (AdminData.data.deposits || []).filter(d => String(d.userId) === String(id)).map(d => ({ ...d, txType: 'deposit' }));
+
+        // 3. دمج المصفوفتين وترتيبهما زمنياً بشكل صحيح وحمايته بالمرمز الشامل
+        const combinedActivity = [...userAllOrders, ...userAllDeposits].sort((a, b) => {
+            return parseTimeUniversal(b.time || b.date || b.createdAt) - parseTimeUniversal(a.time || a.date || a.createdAt);
+        });
+
+        // 4. اقتطاع أحدث 5 حركات فقط للكرت المصغر بقائمة العميل الشاملة
+        const lastActivities = combinedActivity.slice(0, 5);
+
+        // 5. توليد الـ HTML باستخدام القوالب الجديدة المدمجة
+        let ordersHtml = lastActivities.length === 0 
+            ? UsersTemplates.emptyUserActivity() 
+            : lastActivities.map(tx => UsersTemplates.userActivityItem(tx)).join('') + UsersTemplates.userFullHistoryBtn(id);
+        
+        // =======================================================
+        // 🕵️‍♂️ [الرادار الجنائي]: كشف الحسابات المشتركة (Multi-Accounting)
+        // =======================================================
+        const relatedAccounts = [];
+        const userDevices = Array.isArray(u.devicePrints) ? u.devicePrints : [];
+        
+        if (userDevices.length > 0) {
+            (AdminData.data.users || []).forEach(otherUser => {
+                if (String(otherUser.id) !== String(u.id) && Array.isArray(otherUser.devicePrints)) {
+                    // هل يوجد أي جهاز مشترك بين العميلين؟
+                    const hasCommonDevice = otherUser.devicePrints.some(device => userDevices.includes(device));
+                    if (hasCommonDevice) {
+                        relatedAccounts.push({
+                            id: otherUser.id,
+                            name: RenderHelpers._getExplicitName(otherUser),
+                            isBanned: otherUser.isBanned || otherUser.isIpBanned
+                        });
+                    }
+                }
+            });
+        }
+
+        const uiData = { 
+            bal, safeCurrency, rawName, joinDate, tierName, 
+            totalOrdersCount: userAllOrders.length, 
+            totalSpent: Number(u.totalSpent || 0),
+            relatedAccounts: relatedAccounts // 🌟 تمرير الحسابات المشتركة للقالب
+        };
         
         body.innerHTML = UsersTemplates.userDetailBody(u, uiData, ordersHtml);
         this.switchUserTab('overview');
@@ -225,8 +298,8 @@ export const UsersRender = {
         const htmlArray = list.map(u => {
             let spent = Number(u.tierCycleSpent || 0);
             
-            // 🌟 تأمين الوقت باستخدام المترجم المركزي
-            let cycleStart = RenderHelpers.parseTime(u.tierCycleStartDate || now);
+            // 🌟 تأمين الوقت باستخدام المترجم المركزي الموحد
+            let cycleStart = parseTimeUniversal(u.tierCycleStartDate || now);
             
             if (now - cycleStart > durationMs) {
                 spent = 0;
@@ -293,5 +366,107 @@ export const UsersRender = {
         }
         
         target.innerHTML = UsersTemplates.kycDashboard(kycConfig, tiers) + requestsHtml;
+    },
+
+    // =========================================================
+    // 🌟 تفاعل التبويبات الفوري للـ Full History Modal وتحديث العداد ديناميكياً
+    // =========================================================
+    setupFullHistoryTabListeners: function() {
+        // دالة تحديث العداد ديناميكياً بناءً على اللوح النشط
+        const updateActiveTabCount = () => {
+            const modal = document.getElementById('user-full-history-modal');
+            if (!modal) return;
+            
+            const activeTab = modal.querySelector('.fh-tab.active');
+            if (!activeTab) return;
+            
+            const targetPaneId = activeTab.dataset.target;
+            const targetPane = document.getElementById(targetPaneId);
+            if (targetPane) {
+                let count = targetPane.children.length;
+                
+                // 🌟 الإصلاح الجذري البرمجي: التحقق الشامل من وجود كرت "الحالة الفارغة" بداخل اللوح بالكامل
+                if (targetPane.querySelector('.ud-empty-state, .empty-state')) {
+                    count = 0;
+                }
+                
+                const badge = document.getElementById('fh-count-badge');
+                if (badge) {
+                    badge.innerText = count;
+                    
+                    // تخصيص المسمى العربي المناسب تزامناً مع الفئة المحددة
+                    let labelNode = badge.nextSibling;
+                    if (!labelNode || labelNode.nodeType !== Node.TEXT_NODE) {
+                        labelNode = document.createTextNode('');
+                        badge.parentNode.appendChild(labelNode);
+                    }
+                    
+                    if (targetPaneId === 'fh-deposits') {
+                        labelNode.nodeValue = ' إيداع';
+                    } else if (targetPaneId === 'fh-orders') {
+                        labelNode.nodeValue = ' شراء';
+                    } else {
+                        labelNode.nodeValue = ' حركة';
+                    }
+                }
+            }
+        };
+
+        // 1. الاستماع لنقرات تبديل التبويبات الفئوية اليدوية
+        document.addEventListener('click', (e) => {
+            const tabBtn = e.target.closest('.fh-tab');
+            if (!tabBtn) return;
+            
+            const modal = document.getElementById('user-full-history-modal');
+            if (!modal) return;
+            
+            modal.querySelectorAll('.fh-tab').forEach(btn => btn.classList.remove('active'));
+            tabBtn.classList.add('active');
+            
+            const targetPaneId = tabBtn.dataset.target;
+            modal.querySelectorAll('.fh-pane').forEach(pane => pane.style.display = 'none');
+            
+            const targetPane = document.getElementById(targetPaneId);
+            if (targetPane) {
+                targetPane.style.display = 'block';
+                updateActiveTabCount();
+            }
+        });
+
+        // 2. 🌟 الإصلاح السحري للإقلاع: رصد نقرة فتح السجل المالي الشامل لتحديث العداد تلقائياً فور التحميل
+        document.addEventListener('click', (e) => {
+            const openBtn = e.target.closest('[data-action="view-user-full-history"]');
+            if (!openBtn) return;
+            
+            // مهلة زمنية صغيرة جداً (150ms) للسماح للمودال بالرسم والفتح، ثم تصفير العداد والعد الحقيقي الموحد
+            setTimeout(updateActiveTabCount, 150);
+        });
+        
+        // 3. 🌟 مراقبة المودال سحابياً (MutationObserver) في حال حدوث تحديثات في الخلفية عند اكتمال جلب السيرفر
+        const modal = document.getElementById('user-full-history-modal');
+        if (modal) {
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                        if (modal.classList.contains('active')) {
+                            // المودال أصبح نشطاً، انتظر قليلاً ليتم تعبئة الحركات ثم حدّث العداد
+                            setTimeout(updateActiveTabCount, 150);
+                        }
+                    }
+                });
+            });
+            observer.observe(modal, { attributes: true });
+            
+            // مراقبة ألواح الـ Pane أيضاً في حال تغيير محتواها عند اكتمال جلب السجل السحابي من السيرفر
+            const panes = modal.querySelectorAll('.fh-pane');
+            panes.forEach(pane => {
+                const paneObserver = new MutationObserver(() => {
+                    if (modal.classList.contains('active')) {
+                        updateActiveTabCount();
+                    }
+                });
+                paneObserver.observe(pane, { childList: true });
+            });
+        }
     }
 };

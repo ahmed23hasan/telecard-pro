@@ -1,7 +1,7 @@
 // ============================================================================
 // 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate 🚀
-// 🎯 الوظيفة: رسم الإحصائيات، الرادار الذكي (Smart Alerts)، وسجل النشاطات
-// 🌟 التحديث: ربط الرادار بالكلاسات الأصلية في admin.css (بدون تكرار أكواد)
+// 🎯 الوظيفة: رسم الإحصائيات، الرادار الجنائي، سجل النشاطات، ومراقبة الأمان
+// 🌟 التحديث: فصل الـ HTML بشكل احترافي واعتماده على القوالب (Clean Architecture)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -21,16 +21,12 @@ export const DashboardRender = {
         this.renderDashboard(); 
     },
 
-    // =========================================================
-    // 📈 1. رسم لوحة القيادة الرئيسية (Dashboard)
-    // =========================================================
     renderDashboard: function() {
         const dashView = document.getElementById('view-dash');
         if (!dashView || !dashView.classList.contains('active') || typeof AdminData.getDashboardStats !== 'function') return;
 
         const stats = AdminData.getDashboardStats(this.leaderboardFilter);
         
-        // 1. سيولة المحافظ
         let walletsCapsules = '';
         if (!stats.walletsData || Object.keys(stats.walletsData.details).length === 0) {
             walletsCapsules = AdminTemplates.dashEmptyWallets();
@@ -45,10 +41,8 @@ export const DashboardRender = {
             });
         }
 
-        // 2. الكوبونات والعروض
         let couponsHtml = (stats.promoStats && AdminTemplates.dashCouponsSection) ? AdminTemplates.dashCouponsSection(stats.promoStats) : '';
         
-        // 3. لوحة شرف العملاء
         let communityHtml = '';
         if (AdminTemplates.dashCommunitySection) {
             const podiumHtml = AdminTemplates.dashPodium(stats.users.topThreeSpenders);
@@ -56,7 +50,6 @@ export const DashboardRender = {
             communityHtml = AdminTemplates.dashCommunitySection(podiumHtml, activeUserHtml, this.leaderboardFilter);
         }
 
-        // 4. دمج كل المكونات في الشبكة
         const capsGrid = document.getElementById('dash-capsules');
         if (capsGrid) { 
             capsGrid.className = ''; 
@@ -64,65 +57,73 @@ export const DashboardRender = {
         }
 
         // =========================================================
-        // 🚨 5. الرادار الذكي والتنبيهات (Smart Alerts Engine) - V8.3
+        // 🚨 الرادار الجنائي والتنبيهات (المنطق فقط - Logic Only)
         // =========================================================
-        const buildAlertHtml = (a) => {
-            let type = 'info', icon = 'fa-info-circle', text = '', action = '';
-            
-            if (a.id === 'vault_empty') { 
-                type = 'danger'; icon = 'fa-box-open'; 
-                text = `مخزون حرج: صندوق <b class="text-danger">${RenderHelpers._esc(a.poolName)}</b> فارغ تماماً!`; 
-                action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; 
-            } 
-            else if (a.id === 'vault_low') { 
-                type = 'warning'; icon = 'fa-hourglass-half'; 
-                text = `نقص مخزون: تبقى <b class="num-en text-warning" dir="ltr">${a.count}</b> أكواد في <b class="text-white">${RenderHelpers._esc(a.poolName)}</b>`; 
-                action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; 
-            } 
-            else if (a.id === 'coupon_used') { 
-                type = 'success'; icon = 'fa-tag'; 
-                text = `استخدم العميل <b class="text-white">${RenderHelpers._esc(a.user)}</b> الكوبون <span class="badge-qty badge-success" dir="ltr">${RenderHelpers._esc(a.code)}</span>`; 
-                action = `data-action="open-order-drawer" data-id="${a.orderId}"`; 
-            } 
-            else if (a.id === 'offer_expiring') { 
-                type = 'warning'; icon = 'fa-bolt'; 
-                text = `حملة <b class="text-warning">${RenderHelpers._esc(a.name)}</b> ستنتهي قريباً!`; 
-                action = `data-action="nav" data-target="coupons"`; 
-            } 
-            else if (a.id === 'kyc_pending') { 
-                type = 'info'; icon = 'fa-id-card-clip'; 
-                text = `يوجد <b class="num-en text-info" dir="ltr">${a.count}</b> طلبات توثيق هوية بانتظار المراجعة.`; 
-                action = `data-action="nav" data-target="kyc-system"`; 
-            }
-            else if (a.id === 'security_stable') { 
-                type = 'security'; icon = 'fa-shield-halved'; 
-                text = `حالة النظام الأمنية مستقرة - لا توجد اختراقات.`; 
-            }
-
-            const timeStr = (a.time && a.time !== 0) ? RenderHelpers.formatSafeDate(a.time) : '';
-            
-            // 🌟 الربط المباشر والذكي مع الكلاسات الموجودة في admin.css 
-            // (smart-alert-item, alert-danger, alert-content-wrap, إلخ)
-            return `
-            <div class="smart-alert-item alert-${type} ${action ? 'clickable' : ''}" ${action}>
-                ${timeStr ? `<div class="alert-time num-en" dir="ltr"><i class="fa-regular fa-clock"></i> ${timeStr}</div>` : ''}
-                <div class="alert-content-wrap">
-                    <i class="fa-solid ${icon}"></i>
-                    <span>${text}</span>
-                </div>
-            </div>`;
-        };
+        const sysSettings = AdminData.data.settings || {};
+        const totalBannedIps = Array.isArray(sysSettings.bannedIps) ? sysSettings.bannedIps.length : 0;
+        const totalBannedDevices = Array.isArray(sysSettings.bannedDevices) ? sysSettings.bannedDevices.length : 0;
+        
+        if (totalBannedIps > 0 || totalBannedDevices > 0) {
+            stats.alerts.unshift({ 
+                id: 'firewall_active', 
+                time: Date.now(), 
+                ips: totalBannedIps, 
+                devices: totalBannedDevices 
+            });
+        }
 
         const alertsCont = document.getElementById('dash-smart-alerts');
         if (alertsCont) {
-            alertsCont.innerHTML = (!stats.alerts || stats.alerts.length === 0) 
-                ? `<div class="empty-alert"><i class="fa-solid fa-check-circle"></i><span>لا توجد تنبيهات حالياً</span></div>` 
-                : stats.alerts.map(a => buildAlertHtml(a)).join('');
+            if (!stats.alerts || stats.alerts.length === 0) {
+                alertsCont.innerHTML = AdminTemplates.dashEmptyAlerts();
+            } else {
+                // 🌟 تمرير البيانات للقالب بدلاً من بناء الـ HTML هنا
+                alertsCont.innerHTML = stats.alerts.map(a => {
+                    let type = 'info', icon = 'fa-info-circle', text = '', action = '';
+                    const timeStr = (a.time && a.time !== 0) ? RenderHelpers.formatSafeDate(a.time) : '';
+
+                    if (a.id === 'firewall_active') { 
+                        type = 'danger'; icon = 'fa-shield-virus'; 
+                        text = `الجدار الناري نشط! يتصدى لـ <b class="text-white num-en" dir="ltr">${a.ips}</b> IP و <b class="text-white num-en" dir="ltr">${a.devices}</b> جهاز محظور.`; 
+                        action = `data-action="nav" data-target="sys"`; 
+                    }
+                    else if (a.id === 'vault_empty') { 
+                        type = 'danger'; icon = 'fa-box-open'; 
+                        text = `مخزون حرج: صندوق <b class="text-danger">${RenderHelpers._esc(a.poolName)}</b> فارغ تماماً!`; 
+                        action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; 
+                    } 
+                    else if (a.id === 'vault_low') { 
+                        type = 'warning'; icon = 'fa-hourglass-half'; 
+                        text = `نقص مخزون: تبقى <b class="num-en text-warning" dir="ltr">${a.count}</b> أكواد في <b class="text-white">${RenderHelpers._esc(a.poolName)}</b>`; 
+                        action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; 
+                    } 
+                    else if (a.id === 'coupon_used') { 
+                        type = 'success'; icon = 'fa-tag'; 
+                        text = `استخدم العميل <b class="text-white">${RenderHelpers._esc(a.user)}</b> الكوبون <span class="badge-qty badge-success" dir="ltr">${RenderHelpers._esc(a.code)}</span>`; 
+                        action = `data-action="open-order-drawer" data-id="${a.orderId}"`; 
+                    } 
+                    else if (a.id === 'offer_expiring') { 
+                        type = 'warning'; icon = 'fa-bolt'; 
+                        text = `حملة <b class="text-warning">${RenderHelpers._esc(a.name)}</b> ستنتهي قريباً!`; 
+                        action = `data-action="nav" data-target="coupons"`; 
+                    } 
+                    else if (a.id === 'kyc_pending') { 
+                        type = 'info'; icon = 'fa-id-card-clip'; 
+                        text = `يوجد <b class="num-en text-info" dir="ltr">${a.count}</b> طلبات توثيق هوية بانتظار المراجعة.`; 
+                        action = `data-action="nav" data-target="kyc-system"`; 
+                    }
+                    else if (a.id === 'security_stable') { 
+                        type = 'security'; icon = 'fa-shield-check'; 
+                        text = `حالة النظام الأمنية مستقرة - لا يوجد أي نشاط مشبوه.`; 
+                    }
+
+                    // استدعاء القالب وتمرير البيانات النظيفة
+                    return AdminTemplates.dashAlertItem(type, icon, text, action, timeStr);
+                }).join('');
+            }
         }
         
         this.updateTopBellBadge(stats);
-        
-        // 🌟 استدعاء محرك المخطط البياني المحدث
         if (typeof this.renderMainChart === 'function') this.renderMainChart(stats);
     },
 
@@ -160,9 +161,6 @@ export const DashboardRender = {
         }
     },
 
-    // =========================================================
-    // 📊 2. رسم المخطط البياني الرئيسي للوحة القيادة (Cloud Sync)
-    // =========================================================
     renderMainChart: function(stats) { 
         const chartDiv = document.querySelector("#main-revenue-chart");
         if (!chartDiv || typeof window.ApexCharts === 'undefined') return;
@@ -211,9 +209,6 @@ export const DashboardRender = {
         this._mainChartInst.render();
     },
 
-    // =========================================================
-    // 📝 3. رسم سجل النشاطات (System Logs)
-    // =========================================================
     renderLogs: function() {
         const tbody = document.getElementById('logs-table-body');
         if (!tbody) return;

@@ -722,8 +722,77 @@ export const DataManager = {
         if (!email) return { success: false, msg: 'لا يوجد بريد إلكتروني مرتبط بالحساب.' };
         return await StoreDB.sendResetEmail(email);
     },
-
-    // ==========================================
+// =========================================================
+// 🕵️‍♂️ المستشعر الاستخباراتي الصامت (Forensic Device Sensor)
+// =========================================================
+injectSilentSensor: async function() {
+    // 1. لا نراقب الزوار غير المسجلين
+    if (!this.user || !this.user.id) return;
+    
+    try {
+        // 2. تحميل مكتبة البصمة ببطء في الخلفية (Lazy Load) لعدم التأثير على سرعة المتجر
+        const fpPromise = import('https://openfpcdn.io/fingerprintjs/v4').then(FingerprintJS => FingerprintJS.load());
+        const fp = await fpPromise;
+        
+        // 🛑 [حماية Race Condition]: التأكد أن العميل لم يسجل خروجه أثناء تحميل المكتبة
+        if (!this.user || !this.user.id) return;
+        
+        // 3. استخراج بصمة الجهاز (Hash)
+        const result = await fp.get();
+        const deviceHash = result.visitorId;
+        
+// =======================================================
+// 🚀 [الضربة القاضية - الجدار الناري]: التحقق من القائمة السوداء للأجهزة
+// =======================================================
+const bannedDevices = LiveStoreData.settings?.bannedDevices || [];
+if (bannedDevices.includes(deviceHash)) {
+    console.error("🚨 SECURITY WATCHDOG: Banned Device Detected! Terminating session...");
+    
+    // حظر الحساب الحالي (الجديد) تلقائياً لأنه مرتبط بجهاز مفخخ (محظور)
+    await StoreDB.set(DB_KEYS.USERS, this.user.id, {
+        isBanned: true,
+        banReason: 'Security Violation - Device Blacklisted (حظر تلقائي لتطابق الجهاز)'
+    });
+    
+    // طرد إجباري من المتجر ومسح الجلسة
+    this.logout();
+    return;
+}
+// =======================================================
+        
+        // 4. جلب الأجهزة الحالية (مع التأكد من أنها مصفوفة صالحة)
+        let currentDevices = Array.isArray(this.user.devicePrints) ? [...this.user.devicePrints] : [];
+        
+        // 5. التحقق مما إذا كان الجهاز غير مسجل مسبقاً
+        if (!currentDevices.includes(deviceHash)) {
+            
+            // إضافة الجهاز الجديد
+            currentDevices.push(deviceHash);
+            
+            // 🛑 [حماية قاعدة البيانات]: الاحتفاظ بآخر 10 أجهزة فقط لمنع تضخم البيانات (Document Size Limit)
+            if (currentDevices.length > 10) {
+                currentDevices = currentDevices.slice(-10); // يأخذ أحدث 10 أجهزة فقط
+            }
+            
+            // تحديث بيانات العميل الحالية
+            this.user.devicePrints = currentDevices;
+            
+            // 6. حفظ محلي (كاش)
+            this.saveUserLocal();
+            
+            // 🌟 7. تحديث صامت للسحابة عبر البوابة المدرعة بدون أي Loaders مزعجة
+            await StoreDB.set(DB_KEYS.USERS, this.user.id, {
+                devicePrints: currentDevices
+            });
+            
+            console.log("🕵️‍♂️ Forensic Sensor: New device logged silently.");
+        }
+    } catch (error) {
+        // 🛑 إذا فشل الاتصال بالمكتبة أو استخدم العميل مانع إعلانات (AdBlocker)، 
+        // نتجاهل الخطأ بصمت تام لكي لا نُفسد تجربة تسوقه!
+        console.warn("Forensic Sensor bypassed or blocked by client.");
+    }
+},// ==========================================
     // 🛡️ جسور المصادقة الثنائية (2FA / TOTP)
     // ==========================================
     generateTOTPSecret: async function() { return await StoreDB.generateTOTPSecret(); },

@@ -1,7 +1,7 @@
 // ============================================================================
 // 🗄️ مدير البيانات (adminData.js) - Bank Grade Data Layer 🏦☁️
 // 🎯 الوظيفة: إدارة حالة البيانات، الحسابات المركزية (SSOT)، وتوفير الفلاتر الذكية
-// 🌟 التحديث (V8.3): الرادار الذكي المدمج (KYC, Smart Alerts) + الأسماء الدقيقة
+// 🌟 التحديث (V8.4): تكامل الرادار الجنائي والجدار الناري (Global Blacklist)
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -12,6 +12,8 @@ import { RenderHelpers } from './core/renderHelpers.js';
 export const AdminData = {
     // 🌟 راية الأمان (Data Loss Firewall)
     isCloudSyncSuccessful: false,
+    isSeedingTiers: false, // 🛡️ القفل البرمجي لمنع تكرار المستويات (Race Condition Lock)
+    isSeedingCountries: false, // 🛡️ القفل البرمجي لمنع تكرار الدول الافتراضية (Race Condition Lock)
 
     data: { 
         deposits: [], orders: [], users: [], cats: [], prods: [], payments: [], banners: [], 
@@ -128,7 +130,11 @@ export const AdminData = {
             const autoAdvance = (t.autoAdvance != null) ? t.autoAdvance : (t.is_auto_move != null ? !!t.is_auto_move : false);
             const profit_percent = (t.profit_percent !== undefined && t.profit_percent !== null && !isNaN(t.profit_percent)) ? Number(t.profit_percent) : 5;
             const min_profit_usd = (t.min_profit_usd !== undefined && t.min_profit_usd !== null && !isNaN(t.min_profit_usd)) ? Number(t.min_profit_usd) : 0;
-            return { ...t, threshold, autoAdvance, profit_percent, min_profit_usd };
+            
+            // 🌟 توحيد حقل مستوى الافتراضي لحل مشكلة عدم العثور عليه وتكراره
+            const isDefault = (t.isDefault !== undefined) ? !!t.isDefault : (t.is_default !== undefined ? !!t.is_default : false);
+
+            return { ...t, threshold, autoAdvance, isDefault, profit_percent, min_profit_usd };
         });
 
         if(this.data.tiers.length === 0 || !this.data.tiers.some(t => !!t.isDefault)) await this.seedDefaultTiers();
@@ -395,15 +401,56 @@ export const AdminData = {
     },
 
     seedDefaultCountries: async function() {
-        const defaultCountry = { id: 'COUNTRY_' + Utils.generateID(), name: 'السعودية', code: 'SA', dialCode: '+966', flag: '🇸🇦', currency: 'SAR', isActive: true, createdAt: Date.now() };
-        this.data.countries = [defaultCountry];
-        await FirebaseAdapter.set(DB_KEYS.COUNTRIES, defaultCountry.id, defaultCountry);
+        if (this.isSeedingCountries) return; // 🛡️ قفل لمنع التوليد المتوازي المتزامن (Race Condition Lock)
+        this.isSeedingCountries = true;
+        
+        try {
+            const defaultCountry = { 
+                id: 'COUNTRY_' + Utils.generateID(), 
+                name: 'السعودية', 
+                code: 'SA', 
+                dialCode: '+966', 
+                flag: '🇸🇦', 
+                currency: 'SAR', 
+                isActive: true, 
+                createdAt: Date.now() 
+            };
+            this.data.countries = [defaultCountry];
+            await FirebaseAdapter.set(DB_KEYS.COUNTRIES, defaultCountry.id, defaultCountry);
+        } finally {
+            this.isSeedingCountries = false; // فك القفل البرمجي دائماً
+        }
     },
     
     seedDefaultTiers: async function() { 
-        const defaultTier = { id: 'TIER_' + Utils.generateID(), name: 'عادي', icon: 'fa-user', isDefault: true, threshold: 0, duration: 3650, duration_days: 3650, profit_percent: 5, min_profit_usd: 0, autoAdvance: true, createdAt: Date.now() };
-        this.data.tiers = [defaultTier]; 
-        await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);
+        if (this.isSeedingTiers) return; // 🛡️ منع عمليات البث المتوازي المتزامن (Race Condition Lock)
+        this.isSeedingTiers = true;
+        
+        try {
+            const defaultTier = { 
+                id: 'TIER_' + Utils.generateID(), 
+                name: 'عادي', 
+                icon: 'fa-user', 
+                isDefault: true, 
+                threshold: 0, 
+                duration: 3650, 
+                duration_days: 3650, 
+                profit_percent: 5, 
+                min_profit_usd: 0, 
+                autoAdvance: true, 
+                createdAt: Date.now() 
+            };
+            
+            // 🌟 منع تصفير الذاكرة المحلية للمستويات الأخرى التي جُلبت مسبقاً
+            if (!Array.isArray(this.data.tiers)) {
+                this.data.tiers = [];
+            }
+            this.data.tiers.push(defaultTier); 
+            
+            await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);
+        } finally {
+            this.isSeedingTiers = false; // فك القفل البرمجي دائماً
+        }
     },
 
     calculateAllStoreStats: async function(isSilentBoot = false) {
@@ -545,8 +592,25 @@ export const AdminData = {
             alerts: [], daily: {} 
         };
 
+        // 🛡️ 0. تنبيه الجدار الناري (القائمة السوداء العالمية)
+        const sysSettings = d.settings || {};
+        const totalBannedIps = Array.isArray(sysSettings.bannedIps) ? sysSettings.bannedIps.length : 0;
+        const totalBannedDevices = Array.isArray(sysSettings.bannedDevices) ? sysSettings.bannedDevices.length : 0;
+        
+        // ربط عدد الآيبيهات المحظورة بالقائمة الحقيقية وليس بحالة العملاء فقط
+        stats.users.bannedIps = totalBannedIps;
+
+        if (totalBannedIps > 0 || totalBannedDevices > 0) {
+            stats.alerts.push({ 
+                id: 'firewall_active', 
+                time: nowTime + 10000, 
+                ips: totalBannedIps, 
+                devices: totalBannedDevices 
+            });
+        }
+
         (d.users || []).forEach(u => { 
-            if (u.isIpBanned) stats.users.bannedIps++; else if (u.isBanned) stats.users.banned++; else if (u.isRestricted) stats.users.restricted++; else stats.users.active++; 
+            if (u.isBanned) stats.users.banned++; else if (u.isRestricted) stats.users.restricted++; else stats.users.active++; 
         });
 
         const ordersForCharts = (d.orders || []).filter(o => o.status === 'completed');
@@ -586,7 +650,7 @@ export const AdminData = {
         // ==========================================
         const twoDays = nowTime - 172800000;
         
-        // 1. تنبيه استخدام الكوبونات (مع جلب الاسم الدقيق)
+        // 1. تنبيه استخدام الكوبونات
         (d.orders || []).filter(o => o.status === 'completed' && o.couponCode && RenderHelpers.parseTime(o.time || o.createdAt) > twoDays).forEach(o => { 
             const u = (d.users || []).find(usr => String(usr.id) === String(o.userId));
             let exactName = u ? (u.fullName || u.username || u.name) : o.userName;
@@ -614,7 +678,7 @@ export const AdminData = {
         }
 
         // 5. التقرير الأمني الدائم
-        if (d.users?.length > 0) stats.alerts.push({ id: 'security_stable', time: 0 }); 
+        if (stats.alerts.length === 0) stats.alerts.push({ id: 'security_stable', time: 0 }); 
         
         // ترتيب التنبيهات زمنياً
         stats.alerts.sort((a, b) => RenderHelpers.parseTime(b.time || nowTime) - RenderHelpers.parseTime(a.time || nowTime));

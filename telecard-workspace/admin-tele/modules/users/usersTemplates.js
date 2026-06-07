@@ -1,7 +1,7 @@
 // ============================================================================
 // 👥 قوالب المستخدمين والتوثيق (modules/users/usersTemplates.js)
 // 🎯 الوظيفة: توليد الـ HTML النقي المدمج بالبيانات (Data Binding)
-// 🚀 التحديث: الاعتماد الكامل على النواة المركزية للتواريخ ومعرفات العملاء (SSOT)
+// 🚀 التحديث: دمج النشاط المالي (طلبات + إيداعات) والرادار الجنائي
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -52,7 +52,7 @@ export const UsersTemplates = {
 
         let displaySpend = '';
         if (sortType === 'spend_all') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-trophy text-gold"></i> الإجمالي: <span class="num-en text-gold" dir="ltr">${RenderHelpers.formatMoney(u.totalSpent || 0, 'USD', 2)}</span></div>`;
-        else if (sortType === 'spend_month') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-fire text-orange"></i> هذا الشهر: <span class="num-en text-orange" dir="ltr">${RenderHelpers.formatMoney(Number(u.monthlySpent?.[thisMonthKey] || 0), 'USD', 2)}</span></div>`;
+        else if (sortType === 'spend_month') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-fire text-orange"></i> هذا الشهر: <span class="num-en text-orange" dir="ltr">${RenderHelpers.formatMoney(Number(u.monthlySpent?.[currentMonthKey] || 0), 'USD', 2)}</span></div>`;
         else if (sortType === 'spend_last_month') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-calendar-check text-info"></i> الشهر الماضي: <span class="num-en text-info" dir="ltr">${RenderHelpers.formatMoney(Number(u.monthlySpent?.[lastMonthKey] || 0), 'USD', 2)}</span></div>`;
         else if (sortType === 'orders_all') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-box-open text-primary"></i> إجمالي الطلبات: <span class="num-en text-primary" dir="ltr">${_enNum(u.totalOrdersCount || 0)}</span></div>`;
         else if (sortType === 'orders_month') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-bolt text-success"></i> طلبات هذا الشهر: <span class="num-en text-success" dir="ltr">${_enNum(Number(u.monthlyOrders?.[thisMonthKey] || 0))}</span></div>`;
@@ -70,12 +70,77 @@ export const UsersTemplates = {
                 </div>`;
     },
 
-    emptyUserOrders: () => `<div class="ud-empty-state"><i class="fa-solid fa-box-open"></i><span>لا توجد طلبات سابقة لهذا العميل.</span></div>`,
-    userOrderItem: (o) => {
-        const sText = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع' }[o.status] || o.status;
-        return `<div class="ud-order-item" data-status="${_esc(o.status || 'refunded')}"><div><div class="ud-order-id num-en" dir="ltr" lang="en">#${_esc(RenderHelpers.formatOrderId(o))}</div><div class="ud-order-date num-en" dir="ltr" lang="en">${(o.time || o.date) ? RenderHelpers.formatSafeDate(o.time || o.date) : '---'}</div></div><div class="text-left"><div class="ud-order-price num-en" dir="ltr" lang="en">${RenderHelpers.formatMoney(o.price || 0, o.currency || 'USD', 2)}</div><span class="status-badge ${o.status || 'refunded'}">${sText}</span></div></div>`;
+    emptyUserActivity: () => `<div class="ud-empty-state"><i class="fa-solid fa-receipt"></i><span>لا توجد حركات مالية (طلبات أو إيداعات) مسجلة لهذا العميل.</span></div>`,
+    
+    userActivityItem: (tx) => {
+        const isOrder = tx.txType === 'order';
+        
+        // تحديد الأيقونات والألوان والدلالات بناءً على نوع العملية
+        const iconClass = isOrder ? 'fa-box-open' : 'fa-wallet';
+        const sign = isOrder ? '-' : '+';
+        
+        // 🌟 الإصلاح الجذري لتلوين المبالغ: نتجاوز قيود كلاس .money-pro الافتراضي بستايل مدمج مدعوم بـ !important لفرض اللون الأخضر للإيداع والرمادي/الأبيض للطلب
+        const amountColorStyle = isOrder ? 'color: #cbd5e1 !important;' : 'color: #10b981 !important;'; 
+        
+        // 🌟 الإصلاح الجذري: توحيد كابوس مسميات كبسولات الحالات ومطابقتها لـ CSS الإدارة
+        const classMap = { 
+            pending: 'pending', 
+            processing: 'processing', 
+            completed: 'completed', 
+            approved: 'completed',  // مقبول -> أخضر (مكتمل)
+            rejected: 'rejected',   // مرفوض -> أحمر
+            refunded: 'refunded',   // مسترجع -> رمادي/أزرق مميز
+            returned: 'refunded'
+        };
+        const statusClass = classMap[tx.status] || 'pending';
+        
+        const statusMap = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع', approved: 'مقبول' };
+        const sText = statusMap[tx.status] || tx.status;
+        
+        const amount = isOrder ? (tx.price || 0) : (tx.amount || 0);
+        const currency = tx.currency || 'USD';
+        const shortId = isOrder ? RenderHelpers.formatOrderId(tx) : (RenderHelpers.formatDepositId ? RenderHelpers.formatDepositId(tx) : String(tx.displayId || tx.id).substring(0,8));
+
+        // 🌟 التنسيق المالي المدمج للأرقام الفلكية (Compact Formatting) لحماية ومحاذاة الواجهة الأمامية عند شحن رصيد ضخم
+        const formatMoneyCompact = (amt, curr) => {
+            const num = Number(amt) || 0;
+            const rawDisplayCur = RenderHelpers.getCurrencySymbolText(curr);
+            const safeDisplayCur = _esc(rawDisplayCur);
+            
+            if (num >= 1e6) {
+                const formattedNum = num.toLocaleString('en-US', {
+                    notation: 'compact',
+                    compactDisplay: 'short',
+                    maximumFractionDigits: 2
+                });
+                return `<span class="money-pro" title="${num.toLocaleString('en-US')} ${safeDisplayCur}"><bdi class="num-en money-val">${formattedNum}</bdi><bdi class="cur-symbol cur-single">${safeDisplayCur}</bdi></span>`;
+            } else {
+                return RenderHelpers.formatMoney(amt, curr, 2);
+            }
+        };
+
+        // 🌟 معالجة الأرقام الفلكية (Flex Constraints): تباعد مرن gap-3، حجم كود مقصوص بنقاط متقطعة، وعزل الأرقام للالتفاف ومنع الاصطدام والتداخل
+        return `<div class="ud-order-item d-flex align-items-center justify-content-between gap-3 p-3" style="cursor: pointer; transition: background 0.2s; min-height: 70px;" onmouseover="this.style.background='rgba(var(--primary-rgb), 0.05)'" onmouseout="this.style.background='transparent'" data-action="open-tx-detail" data-id="${_esc(tx.id)}" data-type="${_esc(tx.txType)}">
+            <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;">
+                <div class="ud-order-id num-en d-flex align-items-center gap-2" dir="ltr" lang="en" style="font-weight: 700; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
+                    <i class="fa-solid ${iconClass} ${isOrder ? 'text-muted' : 'text-success'}"></i> #${_esc(shortId)}
+                </div>
+                <div class="ud-order-date num-en text-muted" dir="ltr" lang="en" style="font-size: 11px;">
+                    ${(tx.time || tx.date) ? RenderHelpers.formatSafeDate(tx.time || tx.date) : '---'}
+                </div>
+            </div>
+            <div class="text-left d-flex flex-column align-items-end" style="flex-shrink: 0; max-width: 60%; word-break: break-all;">
+                <div class="ud-order-price num-en" dir="ltr" lang="en" style="font-weight: 800; font-size: 14px; white-space: normal; text-align: left; line-height: 1.2; ${amountColorStyle}">
+                    ${sign}${formatMoneyCompact(amount, currency)}
+                </div>
+                <span class="status-badge ${statusClass}" style="margin-top: 4px; white-space: nowrap;">${sText}</span>
+            </div>
+        </div>`;
     },
-    userOrdersBtn: (id) => `<button class="btn btn-ghost ud-btn-full-ghost" data-action="nav-to-user-orders" data-id="${_esc(id)}">الذهاب لسجل الطلبات الكامل <i class="fa-solid fa-arrow-left"></i></button>`,
+    
+    userFullHistoryBtn: (id) => `<button class="btn btn-ghost ud-btn-full-ghost mt-10" data-action="view-user-full-history" data-id="${_esc(id)}" style="background: rgba(var(--primary-rgb), 0.05); color: var(--primary); border: 1px dashed rgba(var(--primary-rgb), 0.3); font-weight: 800;">
+        الانتقال لسجل الطلبات الكامل <i class="fa-solid fa-arrow-left"></i>
+    </button>`,
 
     userDetailBody: (u, uiData, ordersHtml) => {
         const sm = u.isIpBanned ? { t: 'حظر IP', i: 'network-wired', c: 'danger' } : (u.isBanned ? { t: 'محظور', i: 'ban', c: 'danger' } : (u.isRestricted ? { t: 'مقيّد', i: 'lock', c: 'warning' } : { t: 'نشط', i: 'check-circle', c: 'success' }));
@@ -133,7 +198,7 @@ export const UsersTemplates = {
                         <button class="btn btn-red" data-action="adjust-balance" data-type="subtract" data-id="${u.id}"><i class="fa-solid fa-minus"></i> خصم</button>
                     </div>
                 </div>
-                            <div class="ud-section">
+                <div class="ud-section">
                     <div class="ud-section-header ud-header-clean"><h3 class="ud-section-title"><i class="fa-solid fa-chart-pie"></i> الإحصائيات المالية</h3></div>
                     <div class="ud-stats-grid mt-10">
                         <div class="ud-info-row ud-stat-box"><span class="ud-info-lbl"><i class="fa-solid fa-sack-dollar"></i> المشتريات</span><span class="ud-info-val num-en ud-stat-val-success" dir="ltr" lang="en">${RenderHelpers.formatMoney(uiData.totalSpent, uiData.safeCurrency, 2)}</span></div>
@@ -154,11 +219,44 @@ export const UsersTemplates = {
                         <i class="fa-solid fa-envelope-open-text"></i> إرسال رابط استعادة كلمة المرور لبريد العميل
                     </button>
                     
-                    <div class="ud-status-wrapper mt-15"><span class="ud-info-lbl ud-status-lbl">عنوان IP الأخير:</span><span class="num-en ud-copyable font-lg" dir="ltr" title="انقر للنسخ" data-action="copy-to-clipboard">${u.lastIp ? _esc(u.lastIp) : 'غير متوفر'}</span></div>
-                    <div class="ud-actions-col mt-10">
+                    <div class="ud-status-wrapper mt-15"><span class="ud-info-lbl ud-status-lbl">عنوان IP الأخير:</span><span class="num-en ud-copyable font-lg" dir="ltr" title="انقر للنسخ" data-action="copy-to-clipboard">${u.lastIp || u.ipAddress || u.ip ? _esc(u.lastIp || u.ipAddress || u.ip) : 'غير متوفر'}</span></div>
+                    
+                    <div class="mt-15 p-15" style="background: rgba(0,0,0,0.2); border: 1px dashed var(--border-color); border-radius: 8px;">
+                        <div class="flex-between align-items-center mb-10">
+                            <span class="fs-13 fw-bold text-warning"><i class="fa-solid fa-fingerprint"></i> الأجهزة المسجلة (Device Prints):</span>
+                            <span class="badge-qty">${Array.isArray(u.devicePrints) ? u.devicePrints.length : 0} أجهزة</span>
+                        </div>
+                        
+                        ${Array.isArray(u.devicePrints) && u.devicePrints.length > 0 ? 
+                            `<div class="d-flex flex-wrap gap-2 mb-10">
+                                ${u.devicePrints.map(dp => `<span class="badge-tag num-en fs-10" dir="ltr" style="background: rgba(255,255,255,0.05);">${dp.substring(0,8)}...</span>`).join('')}
+                            </div>` 
+                            : `<div class="text-muted fs-11 mb-10">لم يتم التقاط أي بصمة جهاز لهذا العميل بعد.</div>`
+                        }
+
+                        ${uiData.relatedAccounts && uiData.relatedAccounts.length > 0 ? `
+                            <div class="alert-box alert-danger mt-10" style="padding: 10px;">
+                                <div class="fs-12 fw-bold mb-5"><i class="fa-solid fa-triangle-exclamation"></i> رادار الحسابات المتعددة:</div>
+                                <div class="fs-11">تم اكتشاف أن هذا العميل دخل من نفس أجهزة العملاء التاليين:</div>
+                                <div class="mt-5 d-flex flex-wrap gap-2">
+                                    ${uiData.relatedAccounts.map(acc => `
+                                        <span class="badge-tag clickable ${acc.isBanned ? 'bg-danger text-white' : 'bg-warning text-dark'}" data-action="view-user" data-id="${acc.id}">
+                                            <i class="fa-solid ${acc.isBanned ? 'fa-ban' : 'fa-link'}"></i> ${_esc(acc.name)}
+                                        </span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : `
+                            <div class="alert-box alert-success mt-10" style="padding: 8px 10px;">
+                                <div class="fs-11"><i class="fa-solid fa-shield-check"></i> العميل نظيف (لا يوجد حسابات مشتركة).</div>
+                            </div>
+                        `}
+                    </div>
+
+                    <div class="ud-actions-col mt-15">
                         <button class="btn ud-btn-restrict" data-action="restrict-user" data-id="${u.id}"><i class="fa-solid fa-lock"></i> ${u.isRestricted ? 'رفع التقييد' : 'تقييد الحساب (منع الشراء)'}</button>
-                        <button class="btn ud-btn-ban" data-action="ban-user" data-id="${u.id}"><i class="fa-solid fa-user-slash"></i> ${u.isBanned ? 'رفع الحظر' : 'حظر نهائي (الحساب)'}</button>
-                        <button class="btn ud-btn-ban-ip" data-action="ban-user-ip" data-id="${u.id}" data-ip="${u.lastIp || ''}"><i class="fa-solid fa-network-wired"></i> ${u.isIpBanned ? 'رفع حظر الـ IP' : 'حظر الـ IP (منع الجهاز كامل)'}</button>
+                        <button class="btn ud-btn-ban" data-action="ban-user" data-id="${u.id}"><i class="fa-solid fa-bolt"></i> ${u.isBanned ? 'رفع الحظر' : 'إعدام الحساب والأجهزة سحابياً'}</button>
+                        <button class="btn ud-btn-ban-ip" data-action="ban-user-ip" data-id="${u.id}" data-ip="${u.lastIp || u.ipAddress || u.ip || ''}"><i class="fa-solid fa-network-wired"></i> ${u.isIpBanned ? 'رفع حظر الـ IP' : 'حظر الـ IP (منع الشبكة)'}</button>
                         <div class="ud-divider-dashed"></div>
                         <button class="btn ud-btn-delete" data-action="delete-user" data-id="${u.id}"><i class="fa-solid fa-trash"></i> حذف العميل</button>
                     </div>

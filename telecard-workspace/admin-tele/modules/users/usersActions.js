@@ -13,7 +13,8 @@ export const UsersActions = {
     'view-user': (data) => AdminRender?.viewUser?.(data.id),
     'open-user-edit': (data) => AdminUI?.UsersUI?.openUserEditModal?.(data.id),
     'close-user-edit': () => AdminUI?.UsersUI?.closeUserEditModal?.(),
-    
+    'view-user-full-history': (data) => UsersController.openUserFullHistory?.(data.id),
+
     // 🔗 توجيه الأحداث إلى UsersController
     'save-user-edits': (data) => UsersController.saveUserEdits?.(data.id),
     'delete-user': (data) => UsersController.deleteUser?.(data.id),

@@ -1163,6 +1163,32 @@
             <div id="ud-body" class="ud-modal-body"></div>
         </div>
     </div>
+       <div class="modal-overlay" id="user-full-history-modal">
+        <div class="modal-content modal-md">
+            
+            <div class="modal-close-btn" onclick="document.getElementById('user-full-history-modal').classList.remove('active')">
+                <i class="fa-solid fa-xmark"></i>
+            </div>
+            
+            <h2 class="main-title">
+                <i class="fa-solid fa-clock-rotate-left"></i> السجل المالي الشامل 
+                <span style="font-size: 14px; color: var(--text-muted); font-weight: normal;">(آخر <span id="fh-count-badge" class="num-en">0</span> حركة)</span>
+            </h2>
+            
+            <div class="main-tabs-header mb-15">
+                <button type="button" class="main-tab-btn active fh-tab" data-target="fh-all">الكل</button>
+                <button type="button" class="main-tab-btn tab-success fh-tab" data-target="fh-deposits"><i class="fa-solid fa-wallet"></i> إيداعات</button>
+                <button type="button" class="main-tab-btn tab-info fh-tab" data-target="fh-orders"><i class="fa-solid fa-box-open"></i> مشتريات</button>
+            </div>
+
+            <div class="fh-content-area custom-scrollbar" style="max-height: 60vh; overflow-y: auto; padding-right: 5px;">
+                <div id="fh-all" class="fh-pane animate__animated animate__fadeIn" style="display: block;"></div>
+                <div id="fh-deposits" class="fh-pane animate__animated animate__fadeIn" style="display: none;"></div>
+                <div id="fh-orders" class="fh-pane animate__animated animate__fadeIn" style="display: none;"></div>
+            </div>
+            
+        </div>
+    </div>
 
     <div class="modal-overlay" id="m-user-edit">
         <div class="modal-content modal-sm">
