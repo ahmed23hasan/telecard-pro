@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - النسخة المدرعة للإنتاج V5
+// 🧠 المحرك الرئيسي للمتجر (script.js) - النسخة المدرعة للإنتاج V5.1
 // 🎯 الوظيفة: الإقلاع الشامل، حقن الاعتمادية، ومحرك المزامنة الحي (Real-time)
-// 🚀 التحديث: دمج نظام الربط التفاعلي للإشعارات + البصمة الحيوية + تفويض مركزي شامل
+// 🚀 التحديث: دمج المراقبة الحية للحظر (Live Ban Terminator) + البصمة الحيوية
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
@@ -50,14 +50,11 @@ const ClientSystem = {
             const challenge = new Uint8Array(32);
             window.crypto.getRandomValues(challenge);
             
-            // 🚀 جلب المعرف الذي حفظناه في الخطوة الأولى من الذاكرة المحلية
             const savedRawId = localStorage.getItem('telecard_biometric_key');
             if (!savedRawId) throw new Error("No credential ID found");
 
-            // تحويل النص إلى مصفوفة بايتات ليفهمها المتصفح
             const rawIdBytes = new Uint8Array(savedRawId.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
 
-            // طلب البصمة من العميل للتعرف عليه
             await navigator.credentials.get({
                 publicKey: {
                     challenge: challenge,
@@ -70,12 +67,10 @@ const ClientSystem = {
                 }
             });
 
-            // ✅ إذا تطابقت البصمة: نفتح المتجر بنجاح
             lockScreen.classList.remove('active');
             return true;
         } catch (error) {
             console.error("Biometric Login Failed:", error);
-            // ❌ إذا فشل أو ضغط "إلغاء": يبقى المتجر مقفلاً أمامه
             if (typeof this.showToast === 'function') this.showToast('تعذر التحقق من البصمة. يرجى المحاولة مجدداً أو تسجيل الخروج.', 'error');
             if (typeof this.sfx === 'function') this.sfx('error');
             return false;
@@ -94,7 +89,6 @@ const ClientSystem = {
             }
         });
 
-        // 🌟 التعامل مع حقول الإدخال والبحث (Enter Key)
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 const target = e.target;
@@ -106,7 +100,6 @@ const ClientSystem = {
             }
         });
 
-        // 🌟 التعامل مع قوائم التحديد ورفع الملفات
         document.addEventListener('change', (e) => {
             const target = e.target;
             const action = target.getAttribute('data-action');
@@ -120,17 +113,14 @@ const ClientSystem = {
             if (action === 'upload-avatar' && typeof this.handleAvatarChange === 'function') this.handleAvatarChange(e);
         });
 
-        // 🌟 التعامل مع الكتابة المباشرة (Input Events) لحقول البحث والكوبونات
         document.addEventListener('input', (e) => {
             const target = e.target;
             const action = target.getAttribute('data-action');
             
-            // 1. فلترة الدول أثناء الكتابة
             if (action === 'filter-countries' && typeof this.filterCountries === 'function') {
                 this.filterCountries(target.value);
             }
             
-            // 2. التحقق من حالة حقل الكوبون أثناء الكتابة
             if (action === 'check-coupon-state' && typeof this.checkInputState === 'function') {
                 this.checkInputState();
             }
@@ -159,7 +149,6 @@ const ClientSystem = {
             const target = e.target.closest('[data-action]');
             if (!target) return;
 
-            // 💡 استخراج جميع المتغيرات هنا لمنع أخطاء الـ Scope داخل الـ Switch
             const action = target.getAttribute('data-action');
             const id = target.getAttribute('data-id');
             const val = target.getAttribute('data-val');
@@ -171,17 +160,14 @@ const ClientSystem = {
             const dataTarget = target.getAttribute('data-target');
             const dataText = target.getAttribute('data-text');
 
-            // 🌟 إصلاح الكيبورد: إزالة التركيز عن الأزرار فقط، واستثناء حقول الإدخال
             if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && target.tagName !== 'SELECT') {
                 target.blur();
             }
 
-            // 🎵 تشغيل الصوت الافتراضي للتنقلات
-  const sfxActions = ['open-sidebar', 'open-notif-center', 'nav-home', 'nav-deposit', 'nav-payments', 'nav-orders', 'open-community', 'open-security-modal', 'nav-settings', 'open-rating', 'open-terms', 'open-support', 'logout', 'store-search-btn', 'render-orders', 'render-wallet', 'render-payments'];
+            const sfxActions = ['open-sidebar', 'open-notif-center', 'nav-home', 'nav-deposit', 'nav-payments', 'nav-orders', 'open-community', 'open-security-modal', 'nav-settings', 'open-rating', 'open-terms', 'open-support', 'logout', 'store-search-btn', 'render-orders', 'render-wallet', 'render-payments'];
             if (sfxActions.includes(action) && typeof this.sfx === 'function') this.sfx('nav');
 
             switch (action) {
-                // 🧭 التنقل والروابط الأساسية
                 case 'nav-home': if (typeof this.renderHome === 'function') this.renderHome(); break;
                 case 'nav-deposit': if (typeof this.navigateBalance === 'function') this.navigateBalance(); break;
                 case 'nav-payments': if (typeof this.navigateMyPayments === 'function') this.navigateMyPayments(); break;
@@ -189,7 +175,6 @@ const ClientSystem = {
                 case 'nav-settings': if (typeof this.navigateSettings === 'function') this.navigateSettings(); break;
                 case 'nav-wallet': if (typeof this.openWallet === 'function') this.openWallet(); break;
                 
-                // 📂 النوافذ (Modals) والـ Sidebar
                 case 'open-sidebar': if (typeof this.openSidebar === 'function') this.openSidebar(); break;
                 case 'close-sidebar': if (typeof this.closeSidebar === 'function') this.closeSidebar(); break;
                 case 'open-notif-center': if (typeof this.openNotifCenter === 'function') this.openNotifCenter(); break;
@@ -203,11 +188,9 @@ const ClientSystem = {
                 case 'open-add-balance': if (typeof this.openAddBalance === 'function') this.openAddBalance(); break;
                 case 'open-tier-info': e.stopPropagation(); if (typeof this.openTierInfoModal === 'function') this.openTierInfoModal(); break;
 
-                // 🚪 تسجيل الخروج والبصمة
                 case 'logout': if (typeof this.logout === 'function') this.logout(); else if (DataManager && typeof DataManager.logout === 'function') DataManager.logout(); break;
                 case 'enforce-biometric': if (typeof this.enforceBiometricLock === 'function') this.enforceBiometricLock(); break;
 
-                // ❌ إغلاق النوافذ (Close Overlays)
                 case 'close-orders': if (typeof this.closeOrders === 'function') this.closeOrders(); break;
                 case 'close-wallet': if (typeof this.closeWallet === 'function') this.closeWallet(); break;
                 case 'close-mypayments': if (typeof this.closeMyPayments === 'function') this.closeMyPayments(); break;
@@ -231,7 +214,6 @@ const ClientSystem = {
                 case 'close-security-modal': if (typeof this.closeSecurityModal === 'function') this.closeSecurityModal(); break;
                 case 'close-setup-2fa': if (typeof this.closeModal === 'function') this.closeModal('setup-2fa'); break;
 
-                // 🔄 إجراءات منوعة
                 case 'toggle-currency-menu': if (typeof this.toggleDisplayCurrencyMenu === 'function') this.toggleDisplayCurrencyMenu(); break;
                 case 'toggle-theme': if (typeof this.toggleTheme === 'function') this.toggleTheme(); break;
                 case 'store-search-btn': if (typeof this.applyStoreSearch === 'function') this.applyStoreSearch(); break;
@@ -254,7 +236,6 @@ const ClientSystem = {
                     break;
                 }
 
-                // 🛒 تفاصيل الشراء والكوبونات
                 case 'toggle-fav-modal': if (typeof this.toggleFavoriteFromModal === 'function') this.toggleFavoriteFromModal(); break;
                 case 'update-simple-qty': if (typeof this.updateSimpleQty === 'function') this.updateSimpleQty(parseInt(val)); break;
                 case 'toggle-pkg-dropdown': target.parentElement.classList.toggle('open'); break;
@@ -265,14 +246,12 @@ const ClientSystem = {
                 case 'confirm-purchase': if (typeof this.handlePurchaseSubmit === 'function') this.handlePurchaseSubmit(); break;
                 case 'nav-orders-from-success': if (typeof this.closePurchaseSuccess === 'function') { this.closePurchaseSuccess(); this.openOrders(); } break;
 
-                // 💵 الإيداع وسجل الدفعات
                 case 'select-pay': if (typeof this.selectPay === 'function') this.selectPay(id); break;
                 case 'submit-balance': if (typeof this.handleBalanceSubmit === 'function') this.handleBalanceSubmit(dataCurr); break;
                 case 'toggle-accordion': e.preventDefault(); if (typeof this.togglePayDetail === 'function') this.togglePayDetail(target); break;
                 case 'jump-transaction': if (typeof this.jumpToTransaction === 'function') this.jumpToTransaction(id, dataType); break;
                 case 'open-detail': if (typeof this.openDetail === 'function') this.openDetail(e, dataType, id); break;
                 
-                // 📊 الفلاتر
                 case 'render-orders': if (typeof this.renderOrders === 'function') this.renderOrders(); break;
                 case 'render-wallet': if (typeof this.renderWallet === 'function') this.renderWallet(); break;
                 case 'render-payments': if (typeof this.renderPayments === 'function') this.renderPayments(); break;
@@ -281,7 +260,6 @@ const ClientSystem = {
                 case 'filter-pay': if (typeof this.setPaymentFilter === 'function') this.setPaymentFilter(val, target); break;
                 case 'toggle-wallet-stats': if (typeof this.toggleWalletStats === 'function') this.toggleWalletStats(target); break;
 
-                // 📅 التقويم (Calendar)
                 case 'open-cal-order-start': if (CalendarApp && typeof CalendarApp.open === 'function') CalendarApp.open('order-date-start', e); break;
                 case 'open-cal-order-end': if (CalendarApp && typeof CalendarApp.open === 'function') CalendarApp.open('order-date-end', e); break;
                 case 'open-cal-wallet-start': if (CalendarApp && typeof CalendarApp.open === 'function') CalendarApp.open('wallet-date-start', e); break;
@@ -292,7 +270,6 @@ const ClientSystem = {
                 case 'cal-adj-year': if (CalendarApp && typeof CalendarApp.adjustYear === 'function') CalendarApp.adjustYear(parseInt(val)); break;
                 case 'cal-toggle-list': if (CalendarApp && typeof CalendarApp.toggleList === 'function') CalendarApp.toggleList(dataTarget, e); break;
 
-                // 👤 الهوية والإعدادات (Profile, Settings, Security)
                 case 'toggle-theme-pref': if (typeof this.toggleThemePref === 'function') this.toggleThemePref(); break;
                 case 'toggle-sound-pref': if (typeof this.toggleSoundPref === 'function') this.toggleSoundPref(); break;
                 case 'open-profile-sidebar': setTimeout(() => { if (typeof this.closeSidebar === 'function') this.closeSidebar(); if (typeof this.openProfileInfo === 'function') this.openProfileInfo(); }, 150); break;
@@ -308,19 +285,16 @@ const ClientSystem = {
                 case 'request-account-delete': if (typeof this.toggleSecurityPref === 'function') this.toggleSecurityPref(); break;
                 case 'verify-and-enable-2fa': if (typeof this.verifyAndEnable2FA === 'function') this.verifyAndEnable2FA(); break;
 
-                // 🌍 إكمال الهوية (Identity)
                 case 'toggle-parent-dropdown': target.parentElement.classList.toggle('open'); break;
                 case 'select-reg-currency': e.preventDefault(); if (typeof this.selectRegCurrency === 'function') this.selectRegCurrency(dataName, dataCode); break;
                 case 'select-country': e.preventDefault(); if (typeof this.selectCountry === 'function') this.selectCountry(dataName, dataCode, dataLen); break;
                 case 'save-identity': if (typeof this.saveIdentityData === 'function') this.saveIdentityData(); break;
                 case 'submit-kyc': if (typeof this.submitKycData === 'function') this.submitKycData(); break;
 
-                // 📝 التقييمات
                 case 'select-rating': if (typeof this.selectRatingStar === 'function') this.selectRatingStar(parseInt(val)); break;
                 case 'submit-rating-step': if (typeof this.submitRatingStep === 'function') this.submitRatingStep(); break;
                 case 'submit-private-feedback': if (typeof this.submitPrivateFeedback === 'function') this.submitPrivateFeedback(); break;
 
-                // 🛠️ عام
                 case 'copy-text':
                     e.preventDefault(); e.stopPropagation();
                     if (typeof this.copyToClipboard === 'function') this.copyToClipboard(dataText || target.innerText, target);
@@ -396,25 +370,41 @@ ClientSystem.initFirebaseListeners = function() {
         this.activeListeners.push(unsubAlerts);
     }
     
-    // 🌟 2. المستمعات الخاصة + الترقيم الاحترافي
+    // 🌟 2. المستمعات الخاصة + الترقيم الاحترافي والمراقبة الحية للحظر
     onAuthStateChanged(auth, (firebaseUser) => {
         if (firebaseUser) {
             console.log("🔐 تم تأكيد الهوية. جاري جلب أحدث البيانات المالية...");
             const uidStr = firebaseUser.uid;
             localStorage.setItem('telecard_active_user_uid', uidStr);
             
-            // تهيئة مخزن المؤشرات (Cursors)
             DataManager.cursors = DataManager.cursors || {};
             
             if (StoreDB.listenDoc) {
                 const unsubUser = StoreDB.listenDoc(DB_KEYS.USERS, String(uidStr), (userData) => {
                     if (userData) {
+                        // 🛑 [الدرع الأمني - المراقبة الحية]: التحقق الفوري واللحظي من حالة الحظر
+                        if (userData.isBanned === true || userData.isIpBanned === true) {
+                            console.error("🚨 LIVE BAN DETECTED: Terminating session...");
+                            
+                            if (UIManager && typeof UIManager.triggerLiveBanAlert === 'function') {
+                                UIManager.triggerLiveBanAlert(userData.banReason || 'نعتذر، تم حظر حسابك من قبل الإدارة. سيتم إيقاف الجلسة حالاً.');
+                            }
+                            
+                            // إعدام الجلسة بعد 4 ثوانٍ ليتمكن العميل من قراءة سبب الحظر
+                            setTimeout(() => {
+                                if (DataManager && typeof DataManager.logout === 'function') {
+                                    DataManager.logout();
+                                }
+                            }, 4000);
+                            
+                            return; // إيقاف تنفيذ باقي الكود لمنع أي تسرب للبيانات
+                        }
+
                         LiveStoreData.users = [userData];
                         requestAnimationFrame(() => {
                             if (DataManager.syncUser) DataManager.syncUser();
                             if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
                             
-                            // 🌟 [تفعيل جرس الإشعارات تفاعلياً]
                             if (UIManager && typeof UIManager.updateNotifBadges === 'function') UIManager.updateNotifBadges();
                             if (UIManager && typeof UIManager.processAndDisplayAlerts === 'function') UIManager.processAndDisplayAlerts();
                         });
@@ -424,7 +414,6 @@ ClientSystem.initFirebaseListeners = function() {
             }
             
             if (StoreDB.listenQuery) {
-                // 🌟 جلب أحدث 30 طلب فقط + فحص ذكي
                 const unsubOrders = StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
                     LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
                     DataManager.cursors.orders = data.length < 30 ? null : lastDoc;
@@ -434,7 +423,6 @@ ClientSystem.initFirebaseListeners = function() {
                 });
                 this.activeListeners.push(unsubOrders);
                 
-                // 🌟 جلب أحدث 30 إيداع فقط + فحص ذكي
                 const unsubDeposits = StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
                     LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
                     DataManager.cursors.deposits = data.length < 30 ? null : lastDoc;
@@ -497,12 +485,9 @@ ClientSystem.init = async function() {
         if (DataManager.user && DataManager.user.biometricEnabled === true) {
             const lockScreen = document.getElementById('biometric-lock-screen');
             if (lockScreen) {
-                // إخفاء كل شيء وإظهار شاشة القفل فوراً
                 lockScreen.classList.add('active');
-                // تنفيذ المصادقة
                 const isUnlocked = await this.enforceBiometricLock();
                 if (!isUnlocked) {
-                    // إذا فشل أو ألغى، نوقف الإقلاع ولا ندعه يرى المتجر!
                     return;
                 }
             }
@@ -543,7 +528,6 @@ ClientSystem.init = async function() {
             Promise.all(staticKeys.map(k => StoreDB.getAll(DB_KEYS[k]))).then(results => {
                 let cacheObject = {};
                 
-                // 🌟 [منع الومضة]: الاحتفاظ بالنسخة القديمة المخبأة للمقارنة العميقة النخبوية
                 const oldCats = [...LiveStoreData.cats];
 
                 staticKeys.forEach((keyName, i) => {
@@ -561,10 +545,7 @@ ClientSystem.init = async function() {
                     }
                 });                
                 
-                // حفظ الكاش الجديد في المتصفح
                 localStorage.setItem('telecard_store_cache', JSON.stringify(cacheObject));
-                
-                // تفعيل علم المزامنة الحقيقية
                 LiveStoreData.isInitialSyncDone = true; 
                 
                 RenderHelpers.init({
@@ -577,7 +558,6 @@ ClientSystem.init = async function() {
                 if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
                 if (typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
                 
-                // 🌟 [منع الومضة البصرية - المقارنة العميقة النخبوية]
                 const areCategoriesEqual = (arr1, arr2) => {
                     if (!arr1 || !arr2) return false;
                     if (arr1.length !== arr2.length) return false;
@@ -612,7 +592,6 @@ ClientSystem.init = async function() {
             });
         }
         
-        // ⏱️ مزامنة التوقيت السحابي
         try {
             if (DataManager && typeof DataManager._getCloudFunction === 'function') {
                 DataManager._getCloudFunction('getServerTime')().then(timeRes => {
