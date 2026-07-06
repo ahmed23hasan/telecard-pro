@@ -1,63 +1,94 @@
 rules_version = '2';
 service firebase.storage {
-match /b/{bucket}/o {
+  match /b/{bucket}/o {
 
-// ==========================================
-// 🛠️ دوال التحقق الأساسية
-// ==========================================
-function isMasterAdmin() {
-return request.auth != null && (request.auth.token.email == 'admin@telecard.pro' || request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2');
-}
+    // ==========================================
+    // 🛠️ دوال التحقق الأساسية (Core Functions)
+    // ==========================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
 
-function isAuthenticated() {
-return request.auth != null;
-}
+    function isMasterAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true || 
+        request.auth.token.email == 'admin@telecard.pro' || 
+        request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2'
+      );
+    }
 
-function isOwner(userId) {
-return isAuthenticated() && request.auth.uid == userId;
-}
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
 
-// ==========================================
-// 👑 صلاحيات الإدارة المطلقة
-// ==========================================
-match /{allPaths=**} {
-allow read, write: if isMasterAdmin();
-}
+    // ==========================================
+    // 🛡️ دوال حماية البيانات (تأكدنا من وجود resource لمنع أخطاء الحذف)
+    // ==========================================
+    function isImage() {
+      return request.resource != null && request.resource.contentType.matches('image/.*');
+    }
 
-// ==========================================
-// 🧾 إيصالات الدفع (محمية ومخصصة لكل عميل)
-// ==========================================
-match /receipts/{userId}/{fileName} {
-allow read, write: if isOwner(userId);
-}
+    function isImageOrPdf() {
+      return request.resource != null && (
+             request.resource.contentType.matches('image/.*') || 
+             request.resource.contentType == 'application/pdf');
+    }
 
-// ==========================================
-// 👤 الصور الشخصية للعملاء
-// ==========================================
-match /avatars/{fileName} {
-allow read: if true;
-allow write: if isAuthenticated() && fileName.matches('avatar_' + request.auth.uid + '.*');
-}
+    function isValidSize(maxSizeMB) {
+      return request.resource != null && request.resource.size <= maxSizeMB * 1024 * 1024;
+    }
 
-// ==========================================
-// 🛡️ التوثيق الأمني KYC (أعلى درجات السرية والخصوصية للمالك)
-// ==========================================
-match /kyc_docs/{fileName} {
-// 🌟 الإصلاح الجذري: السماح للعميل المالك بمشاهدة ومعاينة وثائق هويته المرفوعة فقط وحظر الغرباء
-allow read: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
-allow write: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
-}
+    // ==========================================
+    // 👑 صلاحيات الإدارة المطلقة
+    // ==========================================
+    match /{allPaths=**} {
+      allow read, write: if isMasterAdmin();
+    }
 
-// ==========================================
-// 🖼️ الملفات العامة للمتجر والإدارة (للعرض العام فقط)
-// ==========================================
-match /products/{allPaths=**} { allow read: if true; }
-match /categories/{allPaths=**} { allow read: if true; }
-match /general/{allPaths=**} { allow read: if true; }
-match /banners/{allPaths=**} { allow read: if true; }
-match /brand/{allPaths=**} { allow read: if true; }
+    // ==========================================
+    // 🧾 إيصالات الدفع (Create-Only لمنع التلاعب)
+    // ==========================================
+    match /receipts/{userId}/{fileName} {
+      allow read: if isOwner(userId);
+      // 🛡️ [ترقيع أمني]: يسمح بالإنشاء فقط (لا يمكن للعميل تعديل أو حذف الإيصال بعد رفعه لإخفاء الأدلة)
+      allow create: if isOwner(userId) && isImageOrPdf() && isValidSize(5);
+    }
 
-// 🌟 تفعيل قراءة صور الملف الشخصي العام لمديري النظام المسجلين
-match /admin/{allPaths=**} { allow read: if true; }
-}
+    // ==========================================
+    // 👤 الصور الشخصية للعملاء
+    // ==========================================
+    match /avatars/{fileName} {
+      allow read: if true;
+      // 🛡️ [ترقيع أمني]: فصلنا الإنشاء والتحديث عن الحذف لمنع انهيار الكود
+      allow create, update: if isAuthenticated() 
+                   && fileName.matches('avatar_' + request.auth.uid + '.*')
+                   && isImage() 
+                   && isValidSize(3);
+                   
+      allow delete: if isAuthenticated() 
+                   && fileName.matches('avatar_' + request.auth.uid + '.*');
+    }
+
+    // ==========================================
+    // 🛡️ التوثيق الأمني KYC (Create-Only)
+    // ==========================================
+    match /kyc_docs/{fileName} {
+      allow read: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
+      // 🛡️ [ترقيع أمني]: يسمح برفع الهوية مرة واحدة لمنع التلاعب بعد تقديم الطلب
+      allow create: if isAuthenticated() 
+                   && fileName.matches(request.auth.uid + '_.*')
+                   && isImage()
+                   && isValidSize(8);
+    }
+
+    // ==========================================
+    // 🖼️ الملفات العامة للمتجر والإدارة
+    // ==========================================
+    match /products/{allPaths=**} { allow read: if true; }
+    match /categories/{allPaths=**} { allow read: if true; }
+    match /general/{allPaths=**} { allow read: if true; }
+    match /banners/{allPaths=**} { allow read: if true; }
+    match /brand/{allPaths=**} { allow read: if true; }
+    match /admin/{allPaths=**} { allow read: if true; }
+  }
 }

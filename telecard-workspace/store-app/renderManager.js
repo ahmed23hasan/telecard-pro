@@ -1,170 +1,300 @@
 // ============================================================================
-// 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - ES6 Module
+// 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - النسخة الماسية (Pro V5.0)
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
-// 🚀 التحديث: دمج معالجة الوقت المركزية + منع تسرب الذاكرة + حماية مراجع البيانات (Mutation)
+// 🚀 التحديث الأقصى: 
+// 1. [DOM Saver]: منع انهيار المتصفح (Crash) عند فلترة آلاف الطلبات.
+// 2. [Invisible PDF]: تصوير الإيصالات خارج الشاشة (Off-screen) لمنع التشويه البصري.
+// 3. [LRU Cache]: إدارة ذكية للذاكرة العشوائية للصور.
+// 4. [Debounce & Throttle]: كبح إعادة الرسم اللحظي لتقليل استهلاك المعالج.
+// 5. [Event Delegation]: تفويض الأحداث لحماية الذاكرة (Memory Leaks).
+// 6. [Safe Storage]: تحجيم بيانات التخزين المحلي لمنع انهيار المتصفح.
+// 7. [CORS Safe PDF]: تحويل الصور إلى Base64 قبل تصدير الإيصالات.
+// 8. [Native Share]: مشاركة الإيصالات المباشرة الذكية للهواتف.
 // ============================================================================
 
-import { DB_KEYS } from './config.js'; 
+import { DB_KEYS } from './config.js';
 import { Utils } from './utils.js';
 import { DataManager, LiveStoreData, StoreDB } from './dataManager.js';
-import { UIManager } from './ui/uiManager.js'; 
-import { Components } from './components.js'; 
-import { RenderHelpers } from './core/renderHelpers.js'; 
+import { UIManager } from './ui/uiManager.js';
+import { Components } from './components.js';
+import { RenderHelpers } from './core/renderHelpers.js';
+
+// ============================================================================
+// 🛡️ المساعدات العامة للنافذة (Global Namespace) 
+// ============================================================================
+window.StoreRenderApp = window.StoreRenderApp || {
+    imgCache: new Set(),
+
+    revealImg: function(img) {
+        if (!img) return;
+        img.style.transform = 'translateZ(0)'; 
+        img.style.visibility = 'visible';
+        img.classList.add('img-loaded');
+        img.style.transition = 'opacity 0.25s ease-out';
+        img.style.opacity = '1';
+        
+        if (img.parentElement) {
+            img.parentElement.style.transform = 'translateZ(0)'; 
+            img.parentElement.classList.add('shimmer-stop');
+            img.parentElement.style.animation = 'none';
+            img.parentElement.style.transition = 'background-color 0.25s ease-out';
+            img.parentElement.style.backgroundColor = 'transparent';
+        }
+    },
+
+    onImgLoad: function(img) {
+        if (!img) return;
+        const key = img.getAttribute('data-key');
+        if (key) {
+            if (this.imgCache.has(key)) {
+                this.imgCache.delete(key);
+            } else if (this.imgCache.size > 500) {
+                const oldestItem = this.imgCache.values().next().value;
+                this.imgCache.delete(oldestItem);
+            }
+            this.imgCache.add(key);
+        }
+        
+        if (img.complete && img.naturalHeight > 0) {
+            this.revealImg(img);
+            return;
+        }
+
+        if ('decode' in img) {
+            img.decode().then(() => this.revealImg(img)).catch(() => this.revealImg(img));
+        } else {
+            this.revealImg(img);
+        }
+    },
+
+    handleImgError: function(img, type) {
+        if (!img) return;
+        img.style.display = 'none';
+        const wrapper = img.parentElement;
+        if (!wrapper) return;
+        
+        let iconClass = 'fa-box-open';
+        let divClass = 'default-prod-icon';
+        
+        if (type === 'cat') { iconClass = 'fa-layer-group'; }
+        else if (type === 'pay') { iconClass = 'fa-building-columns'; divClass = 'pay-icon-default'; }
+        
+        wrapper.innerHTML = `<div class="${divClass}"><i class="fa-solid ${iconClass}"></i></div>`;
+    }
+};
+
+const _pendingScripts = {};
+const _loadExternalScript = (src) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
+        return _pendingScripts[src] || Promise.resolve();
+    }
+    _pendingScripts[src] = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.crossOrigin = 'anonymous'; 
+        script.onload = () => { resolve(); delete _pendingScripts[src]; };
+        script.onerror = () => { reject(); delete _pendingScripts[src]; };
+        document.head.appendChild(script);
+    });
+    return _pendingScripts[src];
+};
 
 export const RenderManager = {
     highlightId: null,
+    limits: { wallet: 15, orders: 15, payments: 15 },
     
-    // 🌟 عداد عرض العناصر (Pagination Limits)
-    limits: {
-        wallet: 15,
-        orders: 15,
-        payments: 15
+    // 🚀 [UPDATE]: إضافة نظام كبح إعادة الرسم اللحظي (Debouncing)
+    _debounceTimers: {},
+    _debounce: function(key, fn, delay = 150) {
+        return (...args) => {
+            clearTimeout(this._debounceTimers[key]);
+            this._debounceTimers[key] = setTimeout(() => fn.apply(this, args), delay);
+        };
     },
-
-    // =========================================================
-    // 🛠️ دوال مساعدة داخلية (Private Helpers)
-    // =========================================================
     
     _getMappedColor: function(colorStr) {
-        return String(colorStr || 'badge-red')
-            .replace('theme-ruby', 'badge-red').replace('theme-sunset', 'badge-red')
-            .replace('theme-sapphire', 'badge-blue').replace('theme-ocean', 'badge-blue')
-            .replace('theme-emerald', 'badge-green')
-            .replace('theme-gold', 'badge-gold')
-            .replace('theme-amethyst', 'badge-purple').replace('theme-cyber', 'badge-purple')
-            .replace('theme-carbon', 'badge-black').replace('theme-obsidian', 'badge-black');
+        return String(colorStr || 'badge-red').replace('theme-ruby', 'badge-red').replace('theme-sunset', 'badge-red').replace('theme-sapphire', 'badge-blue').replace('theme-ocean', 'badge-blue').replace('theme-emerald', 'badge-green').replace('theme-gold', 'badge-gold').replace('theme-amethyst', 'badge-purple').replace('theme-cyber', 'badge-purple').replace('theme-carbon', 'badge-black').replace('theme-obsidian', 'badge-black');
     },
-
+    
     _getMappedPosition: function(posStr, defaultPos) {
         const posMap = { 'pos-tl': 'top-left', 'pos-tc': 'top-center', 'pos-tr': 'top-right', 'pos-bl': 'bottom-left', 'pos-bc': 'bottom-center', 'pos-br': 'bottom-right' };
         return posMap[posStr] || posStr || defaultPos;
     },
-
+    
     _applyGridLayout: function(gridElement, settings = {}, overrideCols = null) {
         if (!gridElement) return;
-        
         if (settings.syncGridLayout) {
-            const cols = overrideCols || settings.rootLayout || 2;
-            gridElement.style.setProperty('--layout-cols', cols);
-            localStorage.setItem('store_layout_cols', cols); 
+            const cols = overrideCols || settings.rootLayout;
+            if (cols) {
+                gridElement.style.setProperty('--layout-cols', cols);
+                localStorage.setItem('store_layout_cols', cols);
+            } else {
+                gridElement.style.removeProperty('--layout-cols');
+            }
         } else {
             gridElement.style.removeProperty('--layout-cols');
             localStorage.removeItem('store_layout_cols');
         }
     },
 
-    // =========================================================
-    // 🏠 1. رسم الصفحة الرئيسية (الأقسام الرئيسية)
-    // =========================================================
-    // =========================================================
-// 🏠 1. رسم الصفحة الرئيسية (الأقسام الرئيسية - نسخة صامدة ضد الومضات)
-// =========================================================
-renderHome: function(isBackAction = false) {
-    const grid = document.getElementById('store-grid');
-    const titleEl = document.getElementById('grid-title');
-    
-    document.body.classList.add('is-home');
-    
-    if (titleEl) {
-        titleEl.classList.remove('show-correct-title');
-        titleEl.innerText = '';
-    }
-    
-    const performRender = () => {
-        UIManager.toggleHeroSection(true);
-        UIManager.navHistory = [];
-        UIManager.currentCategoryId = null;
+    _getImgLoadVars: function(rawUrl) {
+        if (!rawUrl) return { imgClass: '', wrapperClass: '', lazyAttrs: '', imgStyle: '', wrapperStyle: '', onload: '', cacheKey: '' };
         
-        if (!isBackAction && window.history.replaceState) {
-            window.history.replaceState(null, '', ' ');
-        }
+        let cacheKey = rawUrl;
+        const isCached = window.StoreRenderApp.imgCache.has(cacheKey);
         
-        UIManager.resetGridScroll();
-        UIManager.resetUI();
-        UIManager.renderTicker();
-        
-        const cats = LiveStoreData.cats || [];
-        const settings = LiveStoreData.settings || {};
-        const isSyncDone = LiveStoreData.isInitialSyncDone || false; // 🌟 جلب علم مزامنة البيانات الحقيقي
-        
-        if (grid) {
-            grid.innerHTML = '';
-            UIManager.setGridMode('grid-cats');
-            this._applyGridLayout(grid, settings, null);
-        }
-        
-        if (titleEl) titleEl.innerText = 'الأقسام الرئيسية';
-        
-        const backBtn = document.getElementById('header-back-btn') || document.querySelector('.modern-back-btn') || document.getElementById('smart-back-btn');
-        if (backBtn) {
-            backBtn.classList.remove('show');
-            backBtn.style.display = 'none';
-            backBtn.onclick = null; // تنظيف الحدث بشكل آمن
-        }
-        
-        const fragment = document.createDocumentFragment();
-        const rootCats = cats.filter(c => !c.parentId).sort((a, b) => (a.order || 0) - (b.order || 0));
-        
-        if (rootCats.length === 0) {
-            if (isSyncDone) {
-                // 🌟 لا تظهر هذه الشاشة إلا إذا انتهى التحميل الفعلي من السيرفر وكانت البيانات صفر فعلياً
-                if (grid) {
-                    grid.innerHTML = `
-                            <div class="empty-state-v2">
-                                <i class="fa-solid fa-store-slash"></i>
-                                <h3>المتجر قيد التجهيز</h3>
-                                <p>لا توجد أقسام أو منتجات متاحة في الوقت الحالي، نرجو زيارتنا لاحقاً.</p>
-                            </div>`;
-                }
-            } else {
-                // 🌟 إذا لم ينتهِ التحميل الحقيقي، استمر في عرض الهيكل العظمي (Skeletons) دون أي ومضات سوداء
-                if (typeof this.renderHomeSkeletons === 'function') {
-                    this.renderHomeSkeletons();
-                }
+        return {
+            cacheKey: cacheKey,
+            imgClass: '', 
+            wrapperClass: '',
+            lazyAttrs: isCached ? 'loading="eager" decoding="sync" fetchpriority="high"' : 'loading="lazy" decoding="async"',
+            imgStyle: 'opacity: 0 !important; visibility: hidden !important;', 
+            wrapperStyle: '', 
+            onload: `window.StoreRenderApp.onImgLoad(this)` 
+        };
+    },
+
+    _generateImageHTML: function(rawUrl, safeName, type, isHighPriority = false) {
+        let wrapperClass = '';
+        let wrapperStyle = '';
+        let imgHTML = '';
+
+        let defaultIcon = 'fa-box-open';
+        let defaultClass = 'default-prod-icon';
+        let extraStyle = '';
+
+        if (type === 'cat') defaultIcon = 'fa-layer-group';
+        else if (type === 'pay') { defaultIcon = 'fa-building-columns'; defaultClass = 'pay-icon-default'; }
+        else if (type === 'story') extraStyle = 'width: 100%; height: 100%;';
+
+        const fallbackHTML = `<div class="${defaultClass}" style="${type === 'story' ? 'display: flex; ' + extraStyle : ''}"><i class="fa-solid ${defaultIcon}"></i></div>`;
+
+        if (rawUrl) {
+            const safeUrl = Utils.escapeHtml(rawUrl);
+            const imgVars = this._getImgLoadVars(rawUrl);
+            wrapperClass = imgVars.wrapperClass;
+            wrapperStyle = imgVars.wrapperStyle;
+            const onloadAttr = imgVars.onload ? `onload="${imgVars.onload}"` : '';
+            const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
+            const imgClass = type === 'pay' ? `pay-icon-img ${imgVars.imgClass}` : imgVars.imgClass;
+
+            imgHTML = `<img src="${safeUrl}" data-key="${imgVars.cacheKey}" class="${imgClass}" style="${imgVars.imgStyle}" ${imgVars.lazyAttrs} alt="${safeName}" ${priorityAttr} ${onloadAttr} onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
+            
+            if (type !== 'cat') {
+                imgHTML += `<div class="${defaultClass}" style="display: none; ${extraStyle}"><i class="fa-solid ${defaultIcon}"></i></div>`;
             }
         } else {
-            rootCats.forEach(c => {
-                const div = document.createElement('div');
-                div.className = 'cat-card';
-                div.setAttribute('data-action', 'open-category');
-                div.setAttribute('data-id', c.id);
-                
-                const safeName = Utils.safeText(c.name);
-                
-                const imgHTML = c.img ?
-                    `<img src="${Utils.escapeHtml(c.img)}" alt="${safeName}" fetchpriority="high" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` :
-                    `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
-                
-                div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
-                fragment.appendChild(div);
-            });
-            if (grid) grid.appendChild(fragment);
+            imgHTML = fallbackHTML;
+        }
+
+        return { html: imgHTML, wrapperClass, wrapperStyle };
+    },
+
+    renderHome: function(isBackAction = false) {
+        const grid = document.getElementById('store-grid');
+        const titleEl = document.getElementById('grid-title');
+        
+        const cats = LiveStoreData.cats || [];
+        const rootCats = cats.filter(c => !c.parentId).sort((a, b) => (a.order || 0) - (b.order || 0));
+        
+        const currentCatHash = JSON.stringify(rootCats.map(c => c.id + (c.img || '')));
+        const isAlreadyHome = document.body.classList.contains('is-home');
+        const isCategoryView = (typeof UIManager !== 'undefined' && UIManager.currentCategoryId === null);
+        const hasContent = grid && grid.innerHTML.includes('cat-card');
+        
+        if (!isBackAction && isAlreadyHome && isCategoryView && hasContent) {
+            if (this._lastHomeHash === currentCatHash) {
+                if (typeof UIManager !== 'undefined' && UIManager.closeSidebar) UIManager.closeSidebar();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                return;
+            }
         }
         
-        UIManager.initSlider();
-    };
-    
-    // 🚀 تشغيل فوري وبدون أي فترات انتظار وهمية
-    performRender();
-},
+        this._lastHomeHash = currentCatHash;
+        document.body.classList.add('is-home');
+        document.body.classList.remove('is-favorites');
+        
+        if (titleEl) {
+            titleEl.classList.remove('show-correct-title');
+            titleEl.innerText = 'الأقسام الرئيسية';
+        }
+        
+        const performRender = () => {
+            if (typeof UIManager !== 'undefined') {
+                UIManager.toggleHeroSection(true);
+                UIManager.navHistory = [];
+                UIManager.currentCategoryId = null;
+                UIManager.resetGridScroll();
+                UIManager.resetUI();
+                UIManager.renderTicker();
+            }
+            
+            if (!isBackAction && window.history.replaceState) {
+                window.history.replaceState(null, '', ' ');
+            }
+            
+            const settings = LiveStoreData.settings || {};
+            const isSyncDone = LiveStoreData.isInitialSyncDone || false;
+            
+            if (grid) {
+                grid.innerHTML = '';
+                if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-cats');
+                this._applyGridLayout(grid, settings, null);
+            }
+            
+            const backBtn = document.getElementById('header-back-btn') || document.querySelector('.modern-back-btn') || document.getElementById('smart-back-btn');
+            if (backBtn) {
+                backBtn.classList.remove('show');
+                backBtn.style.display = 'none';
+            }
+            
+            if (rootCats.length > 0) {
+                const fragment = document.createDocumentFragment();
+                rootCats.forEach(c => {
+                    const safeName = Utils.safeText(c.name);
+                    const imgObj = this._generateImageHTML(c.img, safeName, 'cat', true);
+                    const div = document.createElement('div');
+                    div.className = 'cat-card';
+                    div.setAttribute('data-action', 'open-category');
+                    div.setAttribute('data-id', c.id);
+                    div.innerHTML = `<div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
+                    fragment.appendChild(div);
+                });
+                if (grid) grid.appendChild(fragment);
+            }
+            else if (!isSyncDone) {
+                if (typeof this.renderHomeSkeletons === 'function') this.renderHomeSkeletons();
+            }
+            else {
+                setTimeout(() => {
+                    const finalCats = LiveStoreData.cats || [];
+                    if (finalCats.length === 0 && grid) {
+                        grid.innerHTML = `
+                                <div class="empty-state-v2">
+                                    <i class="fa-solid fa-store-slash"></i>
+                                    <h3>المتجر قيد التحديث</h3>
+                                    <p>نحن نقوم بإضافة أقسام ومنتجات جديدة حالياً، يرجى العودة بعد قليل.</p>
+                                </div>`;
+                    } else if (finalCats.length > 0) {
+                        this.renderHome(true);
+                    }
+                }, 1000);
+            }
+            
+            if (typeof UIManager !== 'undefined' && UIManager.initSlider) UIManager.initSlider();
+        };
+        
+        performRender();
+    },
+
     renderHomeSkeletons: function() {
         const grid = document.getElementById('store-grid');
         if (grid) {
-            if (typeof UIManager !== 'undefined' && UIManager.setGridMode) {
-                UIManager.setGridMode('grid-cats');
-            }
-
+            if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-cats');
             const settings = (LiveStoreData && LiveStoreData.settings) ? LiveStoreData.settings : {};
-            let activeCols = window.innerWidth > 768 ? 4 : 2; 
+            this._applyGridLayout(grid, settings, null);
 
-            if (settings.syncGridLayout) {
-                activeCols = settings.rootLayout || parseInt(localStorage.getItem('store_layout_cols')) || 2;
-                grid.style.setProperty('--layout-cols', activeCols);
-            } else {
-                grid.style.removeProperty('--layout-cols');
-            }
-
-            let count = activeCols * 3; 
+            let count = 6; 
             let catSkeletons = '';
             for (let i = 0; i < count; i++) { 
                 catSkeletons += `
@@ -186,35 +316,28 @@ renderHome: function(isBackAction = false) {
         const container = document.getElementById(containerId);
         if (!container) return;
         
-        if (typeof UIManager !== 'undefined' && UIManager.setGridMode) {
-            UIManager.setGridMode('grid-prods');
-        }
+        if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-prods');
 
         const settings = (LiveStoreData && LiveStoreData.settings) ? LiveStoreData.settings : {};
-        let activeCols = window.innerWidth > 768 ? 4 : 2; 
+        let activeCols = null;
 
-        if (settings.syncGridLayout) {
-            activeCols = settings.rootLayout || parseInt(localStorage.getItem('store_layout_cols')) || 2;
-            if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId && LiveStoreData.cats) {
-                const cat = LiveStoreData.cats.find(c => Number(c.id) === Number(UIManager.currentCategoryId));
-                if (cat && cat.layout) activeCols = cat.layout;
-            }
-            container.style.setProperty('--layout-cols', activeCols);
-        } else {
-            container.style.removeProperty('--layout-cols');
+        if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId && LiveStoreData.cats) {
+            const cat = LiveStoreData.cats.find(c => Number(c.id) === Number(UIManager.currentCategoryId));
+            if (cat && cat.layout) activeCols = cat.layout;
         }
+        this._applyGridLayout(container, settings, activeCols);
         
-        let count = overrideCount || (activeCols * 4);
-
+        let count = overrideCount || 8;
         container.innerHTML = '';
         let skeletonsHTML = '';
+        
         for (let i = 0; i < count; i++) {
             skeletonsHTML += `
-                <div class="product-skeleton-card" style="border: none !important; box-shadow: none !important; background: transparent !important;">
+                <div class="product-skeleton-card skeleton-clean">
                     <div class="prod-img-skeleton skeleton-box"></div>
-                    <div class="prod-info-skeleton skeleton-box" style="background: transparent !important; border: none !important;">
-                        <div class="product-name skeleton-box" style="height: 12px; width: 70%; margin: 5px auto;"></div>
-                        <div class="product-price skeleton-box" style="height: 14px; width: 40%; margin: auto;"></div>
+                    <div class="prod-info-skeleton">
+                        <div class="product-name skeleton-box skeleton-text-name"></div>
+                        <div class="product-price skeleton-box skeleton-text-price"></div>
                     </div>
                 </div>`;
         }
@@ -226,11 +349,7 @@ renderHome: function(isBackAction = false) {
         const displayCurrency = DataManager.selectedCurr || 'USD';
 
         let pricing = { unitUsd: 0, oldPriceUsd: null, originalTotalUsd: 0 };
-        try { 
-            pricing = DataManager.calculateFinalPrice(p, DataManager.user, 1, null, null); 
-        } catch(e){
-            console.error("Pricing Error:", e);
-        }
+        try { pricing = DataManager.calculateFinalPrice(p, DataManager.user, 1, null, null); } catch(e){ console.error("Pricing Error:", e); }
 
         let priceSectionHtml = '';
         let nameExpandedStyle = '';
@@ -243,16 +362,7 @@ renderHome: function(isBackAction = false) {
         }
 
         const safeName = Utils.safeText(p.name);
-        
-        let imgSrcHtml = '';
-        if (p.img) {
-            imgSrcHtml = `
-                <img src="${Utils.escapeHtml(p.img)}" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.style.display='none'; this.nextElementSibling.style.display='';">
-                <div class="default-prod-icon" style="display: none;"><i class="fa-solid fa-box-open"></i></div>
-            `;
-        } else {
-            imgSrcHtml = `<div class="default-prod-icon"><i class="fa-solid fa-box-open"></i></div>`;
-        }
+        const imgObj = this._generateImageHTML(p.img, safeName, 'prod');
 
         let visualElementsHtml = '';
         const activeOffer = DataManager.getActiveOffer(p.id);
@@ -269,9 +379,7 @@ renderHome: function(isBackAction = false) {
             
             if (v.timerStyle && v.timerStyle !== 'none') {
                 let timerContent = '--:--:--';
-                if (activeOffer.expiryDate) {
-                    timerContent = `<span class="live-countdown num-en" data-expire="${activeOffer.expiryDate}">--:--:--</span>`;
-                }
+                if (activeOffer.expiryDate) timerContent = `<span class="live-countdown num-en" data-expire="${activeOffer.expiryDate}">--:--:--</span>`;
                 let tIcon = v.timerStyle === 'timer-digital' ? 'fa-stopwatch' : 'fa-clock';
                 visualElementsHtml += `<div class="${v.timerStyle} ${mappedTimerPos}"><i class="fa-regular ${tIcon}"></i> ${timerContent}</div>`;
             }
@@ -282,17 +390,15 @@ renderHome: function(isBackAction = false) {
 
         const div = document.createElement('div'); 
         div.className = 'product-card'; 
-        
         div.setAttribute('data-action', 'open-product');
         div.setAttribute('data-id', p.id);
-        
         if (idx !== undefined) div.style.setProperty('--anim-idx', idx);
         
         div.innerHTML = `
             <svg class="snake-border" viewBox="0 0 120 165" preserveAspectRatio="none"><rect x="0.7" y="0.7" width="118.6" height="163.6"></rect></svg>
-            <div class="card-image">
+            <div class="card-image ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">
                 ${visualElementsHtml} 
-                ${imgSrcHtml}
+                ${imgObj.html}
             </div>
             <div class="card-info">
                 <div class="product-name" style="${nameExpandedStyle}">${safeName}</div>
@@ -305,21 +411,16 @@ renderHome: function(isBackAction = false) {
     updateStoreTimers: function() {
         const timers = document.querySelectorAll('.live-countdown');
         if (timers.length === 0) return;
-        
         const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
         
         timers.forEach(el => {
             const expire = Number(el.dataset.expire);
             if (!expire) return;
             const diff = expire - now;
-            if (diff <= 0) {
-                el.innerText = "انتهى العرض";
-                return;
-            }
+            if (diff <= 0) { el.innerText = "انتهى العرض"; return; }
             const h = Math.floor(diff / (1000 * 60 * 60));
             const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
             const s = Math.floor((diff % (1000 * 60)) / 1000);
-            
             el.innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
         });
     },
@@ -329,7 +430,6 @@ renderHome: function(isBackAction = false) {
         if (!storiesContainer) return;
 
         const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
-        
         const activeOffers = (LiveStoreData.offers || []).filter(o => o.isActive && o.visualConfig?.storyEnabled && (!o.expiryDate || o.expiryDate > now));
 
         if (activeOffers.length === 0) {
@@ -352,40 +452,26 @@ renderHome: function(isBackAction = false) {
 
                 if (v.grid) {
                     bColorClass = this._getMappedColor(v.grid.badgeColor);
-
                     if (v.grid.badgeStyle && v.grid.badgeStyle !== 'none') {
                         const mappedBadgePos = this._getMappedPosition(v.grid.badgePos, 'bottom-center');
-                        const bText = Utils.escapeHtml(v.grid.badgeText || '');
-                        badgeHtml = `<div class="story-badge ${v.grid.badgeStyle} ${bColorClass} ${mappedBadgePos}">${bText}</div>`;
+                        badgeHtml = `<div class="story-badge ${v.grid.badgeStyle} ${bColorClass} ${mappedBadgePos}">${Utils.escapeHtml(v.grid.badgeText || '')}</div>`;
                     }
-
                     if (v.grid.timerStyle && v.grid.timerStyle !== 'none') {
                         const mappedTimerPos = this._getMappedPosition(v.grid.timerPos, 'top-center');
                         let timerContent = '--:--:--';
                         if (offer.expiryDate) timerContent = `<span class="live-countdown num-en" data-expire="${offer.expiryDate}">--:--:--</span>`;
-                        let tIcon = '';
-                        if (['timer-bc-pill', 'timer-minimal'].includes(v.grid.timerStyle)) tIcon = `<i class="fa-regular fa-clock"></i> `;
-                        if (v.grid.timerStyle === 'timer-digital') tIcon = `<i class="fa-solid fa-stopwatch"></i> `;
-                        
+                        let tIcon = ['timer-bc-pill', 'timer-minimal'].includes(v.grid.timerStyle) ? `<i class="fa-regular fa-clock"></i> ` : (v.grid.timerStyle === 'timer-digital' ? `<i class="fa-solid fa-stopwatch"></i> ` : '');
                         timerHtml = `<div class="${v.grid.timerStyle} ${mappedTimerPos}">${tIcon}${timerContent}</div>`;
                     }
                 }
 
-                let storyImgHtml = '';
-                if (prod.img) {
-                    storyImgHtml = `
-                        <img src="${Utils.escapeHtml(prod.img)}" alt="${Utils.escapeHtml(prod.name)}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                        <div class="default-prod-icon" style="display: none; width: 100%; height: 100%;"><i class="fa-solid fa-box-open"></i></div>
-                    `;
-                } else {
-                    storyImgHtml = `<div class="default-prod-icon" style="display: flex; width: 100%; height: 100%;"><i class="fa-solid fa-box-open"></i></div>`;
-                }
+                const imgObj = this._generateImageHTML(prod.img, Utils.escapeHtml(prod.name), 'story');
 
                 storiesHtml += `
                 <div class="story-item clickable" data-action="open-product" data-id="${prod.id}">
                     <div class="story-ring ${shapeClass} ${bColorClass}" style="${shapeStyle}">
-                        <div class="story-img-wrapper ${shapeClass}" style="${shapeStyle}">
-                            ${storyImgHtml}
+                        <div class="story-img-wrapper ${shapeClass} ${imgObj.wrapperClass}" style="${shapeStyle} ${imgObj.wrapperStyle}">
+                            ${imgObj.html}
                         </div>
                         ${badgeHtml}
                         ${timerHtml}
@@ -414,6 +500,7 @@ renderHome: function(isBackAction = false) {
     _renderContent: function(id) {
         UIManager.currentCategoryId = id;
         document.body.classList.remove('is-home');
+        document.body.classList.remove('is-favorites'); 
         UIManager.toggleHeroSection(false);
 
         const grid = document.getElementById('store-grid');
@@ -434,7 +521,6 @@ renderHome: function(isBackAction = false) {
         const subs = cats.filter(c => String(c.parentId) === String(id)).sort((a,b) => (a.order||0)-(b.order||0));
         const items = prods.filter(p => String(p.catId) === String(id)).sort((a,b) => (a.order||0)-(b.order||0));
 
-        // 🌟 التحديث: استخدام إسناد الحدث المباشر بدون استنساخ لتجنب تسرب الذاكرة
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if(backBtn) {
             backBtn.style.display = 'flex'; 
@@ -445,8 +531,7 @@ renderHome: function(isBackAction = false) {
 
         if(grid) {
             const currentCat = cats.find(c => String(c.id) === String(id));
-            const catCols = currentCat?.layout || settings.rootLayout || null;
-            
+            const catCols = currentCat?.layout || null;
             this._applyGridLayout(grid, settings, catCols);
 
             const fragment = document.createDocumentFragment();
@@ -455,12 +540,10 @@ renderHome: function(isBackAction = false) {
                 UIManager.setGridMode('grid-cats');
                 subs.forEach(c => {
                     const safeName = Utils.safeText(c.name);
-                    const imgHTML = c.img 
-                        ? `<img src="${Utils.escapeHtml(c.img)}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
-                        : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
+                    const imgObj = this._generateImageHTML(c.img, safeName, 'cat');
                     
                     const div = document.createElement('div'); div.className = 'cat-card';
-                    div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
+                    div.innerHTML = `<div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
                     div.setAttribute('data-action', 'open-category');
                     div.setAttribute('data-id', c.id);
                     fragment.appendChild(div);
@@ -468,27 +551,20 @@ renderHome: function(isBackAction = false) {
             }
             if(items.length > 0) {
                 UIManager.setGridMode('grid-prods');
-                items.forEach((p, idx) => {
-                    fragment.appendChild(this._createProductCard(p, idx));
-                });
+                items.forEach((p, idx) => fragment.appendChild(this._createProductCard(p, idx)));
             }
             
             grid.appendChild(fragment);
-
-            if(items.length > 0) {
-                if(Components?.initProductShine) Components.initProductShine();
-            }
-            
-            if(subs.length === 0 && items.length === 0) {
-                grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد منتجات</h3></div>`;
-            }
+            if(items.length > 0 && Components?.initProductShine) Components.initProductShine();
+            if(subs.length === 0 && items.length === 0) grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد منتجات</h3></div>`;
         }
     },
 
     searchStoreTerm: function(q) {
         if(!q || !q.trim()) { this.renderHome(); return; }
-        
         UIManager.toggleHeroSection(false);
+        document.body.classList.remove('is-home');
+        document.body.classList.remove('is-favorites'); 
 
         const term = q.trim().toLowerCase();
         const cats = LiveStoreData.cats || [];
@@ -513,7 +589,6 @@ renderHome: function(isBackAction = false) {
         UIManager.resetGridScroll();
         UIManager.setGridMode(null);
 
-        // 🌟 التحديث: استخدام إسناد الحدث المباشر بدون استنساخ
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if(backBtn) {
             backBtn.style.display = 'flex'; 
@@ -537,48 +612,25 @@ renderHome: function(isBackAction = false) {
 
         matchedCats.forEach(c => {
             const safeName = Utils.safeText(c.name);
-            const imgHTML = c.img 
-                ? `<img src="${Utils.escapeHtml(c.img)}" loading="lazy" decoding="async" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'default-prod-icon\\'><i class=\\'fa-solid fa-layer-group\\'></i></div>'">` 
-                : `<div class="default-prod-icon"><i class="fa-solid fa-layer-group"></i></div>`;
+            const imgObj = this._generateImageHTML(c.img, safeName, 'cat');
             
             const div = document.createElement('div'); div.className = 'cat-card';
-            div.innerHTML = `<div class="cat-img-box">${imgHTML}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
+            div.innerHTML = `<div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
             div.setAttribute('data-action', 'open-category');
             div.setAttribute('data-id', c.id);
             fragment.appendChild(div);
         });
 
-        matchedProds.forEach((p, idx) => {
-            fragment.appendChild(this._createProductCard(p, idx));
-        });
-        
+        matchedProds.forEach((p, idx) => fragment.appendChild(this._createProductCard(p, idx)));
         grid.appendChild(fragment);
 
         UIManager.setGridMode(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
         if(Components?.initProductShine) Components.initProductShine();
     },
 
-    _getEffectiveLayoutCols: function() {
-        const settings = LiveStoreData.settings || {};
-        
-        if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId) {
-            const currentCat = (LiveStoreData.cats || []).find(c => Number(c.id) === Number(UIManager.currentCategoryId));
-            if (currentCat && currentCat.layout) return currentCat.layout;
-        }
-
-        if (settings.rootLayout) return settings.rootLayout;
-
-        const saved = localStorage.getItem('store_layout_cols');
-        if (saved) return parseInt(saved);
-
-        return window.innerWidth > 768 ? 4 : 2;
-    },
-
-    // =========================================================
-    // 🌟 2. نافذة المفضلة الفاخرة 
-    // =========================================================
     renderFavorites: function() {
         document.body.classList.remove('is-home');
+        document.body.classList.add('is-favorites'); 
         UIManager.toggleHeroSection(false);
         
         const favIds = DataManager.favs ? Array.from(DataManager.favs).map(String) : [];
@@ -590,11 +642,9 @@ renderHome: function(isBackAction = false) {
         if (!grid) return;
         
         grid.innerHTML = '';
-        
         UIManager.setGridMode(null);
         UIManager.resetGridScroll();
         
-        // 🌟 التحديث: استخدام إسناد الحدث المباشر بدون استنساخ
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if (backBtn) {
             backBtn.style.display = 'flex';
@@ -604,10 +654,7 @@ renderHome: function(isBackAction = false) {
         }
         
         const gridTitle = document.getElementById('grid-title');
-        if (gridTitle) {
-            gridTitle.innerText = 'المفضلة';
-            gridTitle.classList.add('show-correct-title');
-        }
+        if (gridTitle) { gridTitle.innerText = 'المفضلة'; gridTitle.classList.add('show-correct-title'); }
         
         if (favProds.length === 0) {
             grid.innerHTML = `
@@ -616,7 +663,6 @@ renderHome: function(isBackAction = false) {
                     <h3>لا توجد منتجات مفضلة بعد</h3>
                     <p>أضف المنتجات للمفضلة عبر الضغط على أيقونة القلب داخل نافذة الشراء، أو بالنقر مرتين على صورة المنتج.</p>
                 </div>`;
-            
             UIManager.setGridMode('grid-prods');
             return;
         }
@@ -628,24 +674,11 @@ renderHome: function(isBackAction = false) {
         UIManager.setGridMode('grid-prods');
         
         let activeCols = null;
-        
         if (favProds.length > 0 && LiveStoreData.cats) {
-            const firstProdCatId = favProds[0].catId;
-            const parentCat = LiveStoreData.cats.find(c => String(c.id) === String(firstProdCatId));
-            if (parentCat && parentCat.layout) {
-                activeCols = parseInt(parentCat.layout);
-            }
+            const parentCat = LiveStoreData.cats.find(c => String(c.id) === String(favProds[0].catId));
+            if (parentCat && parentCat.layout) activeCols = parentCat.layout;
         }
-        
-        if (!activeCols || isNaN(activeCols)) {
-            activeCols = parseInt(localStorage.getItem('store_layout_cols')) || parseInt(settings.rootLayout) || (window.innerWidth > 768 ? 4 : 2);
-        }
-        
-        if (settings.syncGridLayout) {
-            grid.style.setProperty('--layout-cols', activeCols);
-        } else {
-            grid.style.removeProperty('--layout-cols');
-        }
+        this._applyGridLayout(grid, settings, activeCols);
         
         if (Components?.initProductShine) Components.initProductShine();
     },
@@ -660,10 +693,13 @@ renderHome: function(isBackAction = false) {
         if (icon) icon.className = isFav ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
     },
 
-    // ========================================================================
-    // 💳 3. المحفظة والإيداعات والطلبات
-    // ========================================================================
-    renderWallet: function() {
+    // 🚀 [UPDATE]: تطبيق Debounce لحماية الواجهة من المزامنات المكثفة
+    renderWallet: function(forceRender = false) {
+        if (!forceRender) {
+            if (!this._walletDebounced) this._walletDebounced = this._debounce('wallet', () => this.renderWallet(true), 250);
+            return this._walletDebounced();
+        }
+
         const filterData = Utils.getSearchAndDateFilters('wallet', 'wallet');
         if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
@@ -673,7 +709,11 @@ renderHome: function(isBackAction = false) {
 
         const user = DataManager.user || { id: 0, balance: 0, totalSpent: 0, totalDeposit: 0, baseCurrency: 'USD' };
         const walletCurr = (user.baseCurrency || user.base_currency || 'USD').toUpperCase();
-        const uid = localStorage.getItem('telecard_active_user_uid') || String(user.id);
+        
+        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? String(DataManager.user.id) : null);
+        if (!uid || uid === '0' || uid === 'undefined') {
+            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-wallet"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
+        }
         
         const deps = LiveStoreData.deposits || [];
         const ords = LiveStoreData.orders || [];
@@ -685,8 +725,7 @@ renderHome: function(isBackAction = false) {
                 ...d, type: 'deposit', amountVal: Math.abs(credited),
                 amountCurrency: d.targetCurrency || walletCurr,
                 searchKey: `شحن deposit ${credited} #${d.displayId || d.id} ${formattedDepId}`,
-                isDeduction: credited < 0,
-                sortTime: RenderHelpers.parseUnifiedTime(d) // 🌟 التحديث: استخدام الدالة الموحدة
+                isDeduction: credited < 0, sortTime: RenderHelpers.parseUnifiedTime(d) 
             };
         });
         
@@ -696,7 +735,7 @@ renderHome: function(isBackAction = false) {
                 ...o, type: 'purchase', amountVal: Number(o.price || 0), 
                 amountCurrency: o.priceCurrency || walletCurr, 
                 searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id} ${formattedOrdId}`,
-                sortTime: RenderHelpers.parseUnifiedTime(o) // 🌟 التحديث: استخدام الدالة الموحدة
+                sortTime: RenderHelpers.parseUnifiedTime(o) 
             };
         });
 
@@ -704,7 +743,6 @@ renderHome: function(isBackAction = false) {
         
         const spentDisp = document.getElementById('wallet-total-spent');
         if(spentDisp) spentDisp.innerHTML = RenderHelpers.formatMoney(user.totalSpent || 0, walletCurr);
-        
         const depDisp = document.getElementById('wallet-total-deposit');
         if(depDisp) depDisp.innerHTML = RenderHelpers.formatMoney(user.totalDeposit || 0, walletCurr);
 
@@ -712,13 +750,12 @@ renderHome: function(isBackAction = false) {
 
         let finalView = allTransactions;
         const filters = DataManager.filters || { wallet: 'all' };
-
         const isFilterActive = (filters.wallet !== 'all') || (q && q.length > 0) || tStart || tEnd;
 
         if(filters.wallet !== 'all') {
-            if (filters.wallet === 'deposit') { finalView = finalView.filter(t => t.type === 'deposit' && !t.isDeduction); } 
-            else if (filters.wallet === 'purchase') { finalView = finalView.filter(t => t.type === 'purchase' || (t.type === 'deposit' && t.isDeduction)); } 
-            else { finalView = finalView.filter(t => t.type === filters.wallet); }
+            if (filters.wallet === 'deposit') finalView = finalView.filter(t => t.type === 'deposit' && !t.isDeduction); 
+            else if (filters.wallet === 'purchase') finalView = finalView.filter(t => t.type === 'purchase' || (t.type === 'deposit' && t.isDeduction)); 
+            else finalView = finalView.filter(t => t.type === filters.wallet);
         }
 
         if(q) finalView = finalView.filter(t => t.searchKey.toLowerCase().includes(q));
@@ -726,7 +763,8 @@ renderHome: function(isBackAction = false) {
         if(tEnd) finalView = finalView.filter(t => t.sortTime <= tEnd);
         
         const totalWalletCount = finalView.length;
-        const visibleWallet = (!q && !dStart && !dEnd) ? finalView.slice(0, this.limits.wallet) : finalView;
+        const displayLimit = (!q && !dStart && !dEnd) ? this.limits.wallet : Math.min(finalView.length, 50);
+        const visibleWallet = finalView.slice(0, displayLimit);
 
         let generatedHTML = '';
         visibleWallet.forEach(tx => {
@@ -767,12 +805,14 @@ renderHome: function(isBackAction = false) {
                 runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, walletCurr)}</div>`;
             }
 
+            const safeTxName = Utils.escapeHtml(isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء'));
+
             generatedHTML += `
             <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
                 <div class="th-icon ${iconColorClass}"><i class="fa-solid ${iconName}"></i></div>
                 <div class="th-body">
                     <div class="th-details-col">
-                        <div class="th-row-top"><span class="tx-name-text">${isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء')}</span></div>
+                        <div class="th-row-top"><span class="tx-name-text">${safeTxName}</span></div>
                         <div class="th-row-bottom"><span class="th-date num-en">${formattedDate}</span></div>
                     </div>
                     <div class="th-amount-col">
@@ -789,35 +829,27 @@ renderHome: function(isBackAction = false) {
         }
         list.innerHTML = generatedHTML;
 
-        // 🌟 الترقيم الاحترافي للمحفظة
         const hasMoreData = DataManager.cursors && (DataManager.cursors.orders || DataManager.cursors.deposits);
 
         if (!q && !dStart && !dEnd && (totalWalletCount > this.limits.wallet || hasMoreData)) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            // 🌟 استبدله في المرات الثلاث بهذا الزر المصمم بالهالة الذهبية
-loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+            loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
             
             loadMoreBtn.querySelector('button').onclick = async () => {
                 const btn = loadMoreBtn.querySelector('button');
-                
                 if (totalWalletCount > this.limits.wallet) {
                     this.limits.wallet += 15; 
-                    this.renderWallet(); 
+                    this.renderWallet(true); 
                     return;
                 }
                 
                 if (hasMoreData) {
                     btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`;
                     btn.disabled = true;
-                    
                     const fetchPromises = [];
-                    if (DataManager.cursors.deposits) {
-                        fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.DEPOSITS, ['userId', '==', String(uid)], 'time', DataManager.cursors.deposits, 15).then(res => ({ type: 'dep', res })));
-                    }
-                    if (DataManager.cursors.orders) {
-                        fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15).then(res => ({ type: 'ord', res })));
-                    }
+                    if (DataManager.cursors.deposits) fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.DEPOSITS, ['userId', '==', String(uid)], 'time', DataManager.cursors.deposits, 15).then(res => ({ type: 'dep', res })));
+                    if (DataManager.cursors.orders) fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15).then(res => ({ type: 'ord', res })));
 
                     const results = await Promise.all(fetchPromises);
                     let addedSomething = false;
@@ -825,23 +857,14 @@ loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-ang
                     results.forEach(result => {
                         if (result.res.data && result.res.data.length > 0) {
                             addedSomething = true;
-                            const normData = result.res.data.map(item => {
-                                let norm = { ...item };
-                                if (norm.time) norm.time = RenderHelpers.parseTime(norm.time);
-                                if (norm.createdAt) norm.createdAt = RenderHelpers.parseTime(norm.createdAt);
-                                return norm;
-                            });
-
-                            // 🌟 التحديث: دمج البيانات الجديدة محلياً بذكاء لعدم فقدان الـ Reference ولمنع التكرار
+                            const normData = result.res.data.map(item => ({...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt)}));
                             if (result.type === 'dep') {
-                                const existingDepIds = new Set(LiveStoreData.deposits.map(d => String(d.id)));
-                                const uniqueDeps = normData.filter(d => !existingDepIds.has(String(d.id)));
-                                LiveStoreData.deposits.push(...uniqueDeps);
+                                const existing = new Set(LiveStoreData.deposits.map(d => String(d.id)));
+                                LiveStoreData.deposits = [...LiveStoreData.deposits, ...normData.filter(d => !existing.has(String(d.id)))];
                                 DataManager.cursors.deposits = result.res.newLastDoc;
                             } else {
-                                const existingOrdIds = new Set(LiveStoreData.orders.map(o => String(o.id)));
-                                const uniqueOrders = normData.filter(o => !existingOrdIds.has(String(o.id)));
-                                LiveStoreData.orders.push(...uniqueOrders);
+                                const existing = new Set(LiveStoreData.orders.map(o => String(o.id)));
+                                LiveStoreData.orders = [...LiveStoreData.orders, ...normData.filter(o => !existing.has(String(o.id)))];
                                 DataManager.cursors.orders = result.res.newLastDoc;
                             }
                         } else {
@@ -850,23 +873,17 @@ loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-ang
                         }
                     });
 
-                    if (addedSomething) {
-                        this.limits.wallet += 15;
-                        this.renderWallet();
-                    } else {
-                        btn.innerHTML = `لا توجد حركات أقدم`;
-                        setTimeout(() => loadMoreBtn.remove(), 2000);
-                    }
+                    if (addedSomething) { this.limits.wallet += 15; this.renderWallet(true); } 
+                    else { btn.innerHTML = `لا توجد حركات أقدم`; setTimeout(() => loadMoreBtn.remove(), 2000); }
                 }
             };
             list.appendChild(loadMoreBtn);
         }
-    },    
+    },
 
     renderPayMethods: function() {
         const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container') || document.querySelector('.bal-methods-grid') || document.getElementById('pay-methods-list');
         if (!container) return;
-
         container.innerHTML = '';
         
         const payments = LiveStoreData.payments || [];
@@ -877,9 +894,8 @@ loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-ang
             return;
         }
 
-        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? DataManager.user.id : null);
-        const allDeposits = LiveStoreData.deposits || [];
-        const pendingMethodKeys = allDeposits
+        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? String(DataManager.user.id) : null);
+        const pendingMethodKeys = (LiveStoreData.deposits || [])
             .filter(d => String(d.userId) === String(uid) && d.status === 'pending')
             .map(d => String(d.methodId || d.method).toLowerCase());
 
@@ -887,298 +903,213 @@ loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-ang
 
         validPayments.sort((a,b) => (a.order || 0) - (b.order || 0)).forEach(p => {
             const safeName = Utils.escapeHtml(p.name);
-            const pIdStr = String(p.id).toLowerCase();
-            const pNameStr = String(p.name).toLowerCase();
+            const isLocked = pendingMethodKeys.includes(String(p.id).toLowerCase()) || pendingMethodKeys.includes(String(p.name).toLowerCase());
             
-            const isLocked = pendingMethodKeys.includes(pIdStr) || pendingMethodKeys.includes(pNameStr);
+            const imgObj = this._generateImageHTML(p.img, safeName, 'pay');
 
-            const imgHtml = p.img 
-                ? `<img src="${Utils.escapeHtml(p.img)}" class="pay-icon-img" loading="lazy" decoding="async" alt="${safeName}" onload="this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop');" onerror="this.parentElement.innerHTML='<div class=\\'pay-icon-default\\'><i class=\\'fa-solid fa-building-columns\\'></i></div>'">` 
-                : `<div class="pay-icon-default"><i class="fa-solid fa-building-columns"></i></div>`;
-            
             const card = document.createElement('div');
-            
             if (isLocked) {
                 card.className = 'pay-card-select method-locked';
                 card.style.opacity = '0.65';
                 card.innerHTML = `
-                    <div class="pay-icon-wrapper" style="filter: grayscale(100%);">
-                        ${imgHtml}
-                    </div>
+                    <div class="pay-icon-wrapper ${imgObj.wrapperClass}" style="filter: grayscale(100%); ${imgObj.wrapperStyle}">${imgObj.html}</div>
                     <div class="pay-card-content">
                         <h3 class="pay-card-name" style="color: var(--text-muted);">${safeName}</h3>
                         <span style="display:block; font-size:11px; color:var(--warning); margin-top:4px;"><i class="fa-solid fa-hourglass-half"></i> لديك طلب قيد المعالجة بهذه الطريقة</span>
-                    </div>
-                    <i class="fa-solid fa-lock pay-card-arrow" style="color: var(--text-muted);"></i>
-                `;
-                card.onclick = () => {
-                    if (window.UIManager && window.UIManager.showToast) {
-                        window.UIManager.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة، يرجى الانتظار حتى يتم قبوله أو رفضه.', 'warning');
-                    }
-                };
+                    </div><i class="fa-solid fa-lock pay-card-arrow" style="color: var(--text-muted);"></i>`;
+                card.onclick = () => { if (window.UIManager && window.UIManager.showToast) window.UIManager.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة، يرجى الانتظار حتى يتم قبوله أو رفضه.', 'warning'); };
             } else {
                 card.className = 'pay-card-select clickable';
                 card.setAttribute('data-action', 'select-pay');
                 card.setAttribute('data-id', p.id);
-                card.innerHTML = `
-                    <div class="pay-icon-wrapper">
-                        ${imgHtml}
-                    </div>
-                    <div class="pay-card-content">
-                        <h3 class="pay-card-name">${safeName}</h3>
-                    </div>
-                    <i class="fa-solid fa-chevron-left pay-card-arrow"></i>
-                `;
+                card.innerHTML = `<div class="pay-icon-wrapper ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3></div><i class="fa-solid fa-chevron-left pay-card-arrow"></i>`;
             }
-            
             fragment.appendChild(card);
         });
-        
         container.appendChild(fragment);
     },
 
-    renderPayments: function() {
+    // 🚀 [UPDATE]: تطبيق Debounce وحماية الواجهة
+    renderPayments: function(forceRender = false) {
+        if (!forceRender) {
+            if (!this._payDebounced) this._payDebounced = this._debounce('pay', () => this.renderPayments(true), 250);
+            return this._payDebounced();
+        }
+
         const list = document.getElementById('mypay-list');
-        const template = document.getElementById('payment-card-template');
-        if(!list || !template) return;
+        if(!list) return;
+        
+        // 🚀 [UPDATE]: تطبيق Event Delegation للاستماع لنقرات التصدير بشكل مركزي وحماية الذاكرة
+        if (!list.hasAttribute('data-receipt-listener')) {
+            list.addEventListener('click', (e) => {
+                const btn = e.target.closest('.btn-receipt-export');
+                if (btn) {
+                    e.stopPropagation();
+                    const id = btn.getAttribute('data-id');
+                    if (typeof ClientSystem !== 'undefined' && ClientSystem.exportPaymentReceipt) {
+                        ClientSystem.exportPaymentReceipt(id, btn); // ✅ تم الإصلاح بإضافة btn
+                    }
+                }
+            });
+            list.setAttribute('data-receipt-listener', 'true');
+        }
         
         const filterData = Utils.getSearchAndDateFilters('pay', 'pay');
         if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
 
-        const uid = localStorage.getItem('telecard_active_user_uid');
+        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? String(DataManager.user.uid || DataManager.user.id) : null);
+        if (!uid || uid === '0' || uid === 'undefined') {
+            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
+        }
+
         const user = DataManager.user || { id: 0 };
-        const allDeposits = LiveStoreData.deposits || [];
+        const baseCurrency = (user.baseCurrency || 'USD').toUpperCase();
         
-        // 🌟 التحديث: استخدام الدالة الموحدة
-        let myDeposits = allDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: RenderHelpers.parseUnifiedTime(d) }));
+        let myDeposits = (LiveStoreData.deposits || [])
+            .filter(d => String(d.userId) === String(uid))
+            .map(d => ({ ...d, sortTime: RenderHelpers.parseUnifiedTime(d) }));
 
         const filters = DataManager.filters || { payments: 'all' };
-        
         if (filters.payments !== 'all') {
-            if (filters.payments === 'rejected') {
-                myDeposits = myDeposits.filter(d => ['rejected', 'refunded', 'returned'].includes(d.status));
-            } else {
-                myDeposits = myDeposits.filter(d => d.status === filters.payments);
-            }
+            myDeposits = myDeposits.filter(d => filters.payments === 'rejected' ? ['rejected', 'refunded', 'returned'].includes(d.status) : d.status === filters.payments);
         }
 
         if (q) myDeposits = myDeposits.filter(d => 
-            d.id.toString().includes(q) || 
-            (d.displayId && d.displayId.toLowerCase().includes(q)) ||
             RenderHelpers.formatDepositId(d).toLowerCase().includes(q) || 
-            d.method?.toLowerCase().includes(q)
+            (d.method && d.method.toLowerCase().includes(q))
         );
-
+        
         if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
 
         myDeposits.sort((a, b) => b.sortTime - a.sortTime);
-        
         const totalPaymentsCount = myDeposits.length;
-        const visibleDeposits = (!q && !dStart && !dEnd) ? myDeposits.slice(0, this.limits.payments) : myDeposits;
+        const displayLimit = (!q && !dStart && !dEnd) ? this.limits.payments : Math.min(myDeposits.length, 50);
+        const visibleDeposits = myDeposits.slice(0, displayLimit);
 
-        list.innerHTML = '';
-        if (visibleDeposits.length === 0) {
+        if (visibleDeposits.length === 0) { 
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد عمليات</h3></div>`; 
-            return;
+            return; 
         }
 
-        const fragment = document.createDocumentFragment();
+        let htmlBuffer = '';
+        const userDisplayName = Utils.escapeHtml(user.username ? `@${user.username}` : (user.name || 'العميل'));
+        const userIdString = RenderHelpers.formatUserId(user);
 
         visibleDeposits.forEach(d => {
-            const clone = template.content.cloneNode(true);
-            const card = clone.querySelector('.pay-history-card');
-            const header = clone.querySelector('.ph-header');
-            
             const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
-
-            let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
             
+            let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
             if (['approved', 'completed'].includes(d.status)) { 
                 if (isDeduction) { stClass = 'st-rejected'; stText = 'مخصوم'; icon = 'fa-arrow-up-long'; } 
                 else { stClass = 'st-approved'; stText = 'مقبول'; icon = 'fa-check'; }
-            } else if (d.status === 'rejected') { 
-                stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; 
-            } else if (['refunded', 'returned'].includes(d.status)) { 
-                stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; 
-            }
-
-            card.classList.add(stClass);
-            clone.querySelector('.ph-icon').classList.add('fa-solid', icon);
-            clone.querySelector('.ph-status-mini').textContent = stText;
+            } else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
+            else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
 
             const currency = (d.currency || 'USD').toUpperCase();
             const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
             const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
-            const displayNetCurrency = (d.targetCurrency || currency).toUpperCase();
-
             const feeVal = parseFloat(d.fees || d.fee || 0); 
-            const feeRate = parseFloat(d.feesPercent || d.feePct || d.feeRate || 0); 
-            const feeType = d.feeType || 'fee'; 
-            const feeUnit = d.feeUnit || d.unit || 'percent'; 
-            const totalVal = rawAmount + (feeType === 'bonus' ? 0 : feeVal);
-            const feeRow = clone.querySelector('.ph-fees').closest('.ph-item');
-
-            if (feeVal === 0 && feeRate === 0) {
-                feeRow.innerHTML = `<div class="ph-item-label"><i class="fa-solid fa-tags"></i> الرسوم الإضافية</div><div class="text-muted fs-small">لا يوجد</div>`;
-            } else {
-                const isBonus = (feeType === 'bonus');
-                const isFixed = (feeUnit === 'fixed' || feeUnit === 'amount');
-                const iconClass = isBonus ? 'fa-gift' : 'fa-scissors';
-                const labelText = isBonus ? 'بونص إضافي' : 'العمولة';
-                const colorClass = isBonus ? 'text-success' : 'text-danger';
-                const sign = isBonus ? '+' : '-';
-                const rateDisplay = isFixed ? '(مبلغ ثابت)' : `(<span class="num-en">${feeRate}%</span>)`;
-
-                feeRow.innerHTML = `
-                    <div class="ph-item-label">
-                        <i class="fa-solid ${iconClass}"></i> ${labelText} &nbsp;<span class="fs-xs text-muted">${rateDisplay}</span>
-                    </div>
-                    <div class="ph-item-val num-en ${colorClass}" dir="ltr">
-                        ${sign} ${RenderHelpers.formatMoney(feeVal, currency)}
-                    </div>
-                `;
+            
+            let feeLabel = 'الرسوم الإضافية';
+            let feeValueHtml = '<span class="text-muted">لا يوجد</span>';
+            if (feeVal > 0) {
+                const isBonus = (d.feeType === 'bonus');
+                feeLabel = isBonus ? 'بونص إضافي' : 'العمولة';
+                const feeColor = isBonus ? 'text-success' : 'text-danger';
+                const feeSign = isBonus ? '+' : '-';
+                feeValueHtml = `<span class="${feeColor}" dir="ltr">${feeSign} ${RenderHelpers.formatMoney(feeVal, currency)}</span>`;
             }
-
-            clone.querySelector('.ph-method-name').textContent = d.method || 'شحن رصيد';
             
-            const amountPrefix = isDeduction ? '- ' : (['approved', 'completed'].includes(d.status) && !isDeduction ? '+ ' : '');
-            const amountColorClass = isDeduction ? 'text-danger' : (['approved', 'completed'].includes(d.status) && !isDeduction ? 'text-success' : '');
-
-            const headerAmtEl = clone.querySelector('.ph-amount-header');
-            if(headerAmtEl) headerAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}">${amountPrefix}${RenderHelpers.formatMoney(rawAmount, currency)}</span>`;
-
-            clone.querySelector('.ph-total').innerHTML = RenderHelpers.formatMoney(totalVal, currency);
-            
-            const netAmtEl = clone.querySelector('.ph-net');
-            if(netAmtEl) netAmtEl.innerHTML = `<span dir="ltr" class="${amountColorClass}">${amountPrefix}${RenderHelpers.formatMoney(displayNetAmount, displayNetCurrency)}</span>`;
-
-            const senderRow = clone.querySelector('.ph-sender').closest('.ph-item');
-            const usernameText = user.username ? `@${user.username}` : (user.name || 'العميل');
-            clone.querySelector('.ph-sender').innerHTML = `<span class="num-en">${Utils.escapeHtml(usernameText)}</span>`;
-
-            const userIdString = RenderHelpers.formatUserId(user);
-            const idRow = document.createElement('div');
-            idRow.className = 'ph-item';
-            idRow.innerHTML = `
-                <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرّف العميل</div>
-                <div class="uid-capsule is-copyable" data-action="copy-text" data-text="${userIdString}" dir="ltr" title="اضغط للنسخ">
-                    <span class="num-en">${userIdString}</span>
-                </div>
-            `;
-            senderRow.parentNode.insertBefore(idRow, senderRow.nextSibling);
-
-            let formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
-            const miniDateEl = clone.querySelector('.ph-date-mini');
-            if(miniDateEl) miniDateEl.innerHTML = formattedDate.replace(' | ', ' <span class="date-sep">|</span> ');
-
+            const formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
             const shortDepositId = RenderHelpers.formatDepositId(d);
-            const idEl = clone.querySelector('.ph-id');
-            idEl.textContent = shortDepositId; 
-            idEl.setAttribute('data-action', 'copy-text'); 
-            idEl.setAttribute('data-text', shortDepositId);
-            
-            clone.querySelector('.ph-full-time').textContent = formattedDate;
+            const amountColorClass = isDeduction ? 'text-danger' : (stClass === 'st-approved' ? 'text-success' : '');
+            const amountPrefix = isDeduction ? '-' : (stClass === 'st-approved' ? '+' : '');
 
-            if (d.receiptImage || d.receipt) {
-                const imgBox = clone.querySelector('.ph-receipt-img-box');
-                if (imgBox) {
-                    imgBox.style.display = 'block';
-                    const imgElem = imgBox.querySelector('.ph-img-elem');
-                    const rawUrl = d.receiptImage || d.receipt;
-                    imgElem.src = rawUrl;
-                    imgElem.setAttribute('loading', 'lazy');
-                    imgElem.setAttribute('decoding', 'async');
-                    imgElem.onload = function() { this.classList.add('img-loaded'); this.parentElement.classList.add('shimmer-stop'); };
-                    imgElem.onclick = (e) => {
-                        e.stopPropagation();
-                        const lightbox = document.getElementById('pay-receipt-lightbox');
-                        const lightboxImg = document.getElementById('pay-receipt-img');
-                        if (lightbox && lightboxImg) { lightboxImg.src = rawUrl; lightbox.classList.add('active'); }
-                    };
-                }
-            }
-            const exportBtn = clone.querySelector('.btn-receipt-export');
-            if (exportBtn) {
-                exportBtn.onclick = (e) => { e.stopPropagation(); if (typeof window.ClientSystem.exportPaymentReceipt === 'function') window.ClientSystem.exportPaymentReceipt(d.id); };
-            }
-
-            header.setAttribute('data-action', 'toggle-accordion');
-            if (d.adminNote && d.adminNote.trim() !== '') {
-                const safeAdminNote = Utils.escapeHtml(d.adminNote);
-                const noteStateClass = d.status === 'rejected' ? 'note-rejected' : (['approved', 'completed'].includes(d.status) ? 'note-approved' : '');
-                const noteDiv = document.createElement('div');
-                noteDiv.className = `ph-admin-note ${noteStateClass}`;
-                noteDiv.innerHTML = `
-                    <i class="fa-solid fa-headset"></i>
-                    <div class="ph-admin-note-content">
-                        <div style="flex: 1;">
-                            <span class="ph-admin-note-title">رسالة من الإدارة:</span>
-                            <div class="admin-reply-text">${safeAdminNote}</div>
+            // 🚀 [UPDATE]: تنظيف الزر من الـ onClick المدمج واستخدام الـ data-attributes للتفويض
+            htmlBuffer += `
+                <div class="pay-history-card ${stClass}">
+                    <div class="ph-header" data-action="toggle-accordion">
+                        <div class="ph-right-sec">
+                            <div class="ph-icon-box"><i class="fa-solid ${icon} ph-icon"></i></div>
+                            <div class="ph-info-text">
+                                <span class="ph-method-name">${Utils.escapeHtml(d.method || 'شحن رصيد')}</span>
+                                <span class="ph-date-mini num-en">${formattedDate.replace('|', '<span class="date-sep">|</span>')}</span>
+                            </div>
                         </div>
-                        <button class="reply-copy-btn" data-action="copy-text" data-text="${safeAdminNote.replace(/"/g, '&quot;')}"><i class="fa-regular fa-copy"></i></button>
-                    </div>`;
-                const detailsBody = clone.querySelector('.ph-details-body') || card;
-                const footerAction = clone.querySelector('.ph-footer-action');
-                if (footerAction) detailsBody.insertBefore(noteDiv, footerAction); else detailsBody.appendChild(noteDiv);
-            }
-            fragment.appendChild(clone);
+                        <div class="ph-center-zone">
+                            <span class="ph-amount-header num-en ${amountColorClass}">${amountPrefix} ${RenderHelpers.formatMoney(rawAmount, currency)}</span>
+                            <span class="ph-status-mini">${stText}</span>
+                        </div>
+                        <div class="ph-left-sec"><div class="ph-arrow-btn"><i class="fa-solid fa-chevron-down"></i></div></div>
+                    </div>
+                    <div class="ph-details-body">
+                        <div class="ph-sep-line"></div>
+                        <div class="ph-data-list">
+                            <div class="ph-item">
+                                <div class="ph-item-label"><i class="fa-solid fa-hashtag"></i> رقم العملية</div>
+                                <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${shortDepositId}">${shortDepositId}</div>
+                            </div>
+                            <div class="ph-item">
+                                <div class="ph-item-label"><i class="fa-solid fa-user"></i> اسم المرسل</div>
+                                <div class="ph-item-val">${userDisplayName}</div>
+                            </div>
+                            <div class="ph-item">
+                                <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرّف العميل</div>
+                                <div class="uid-capsule is-copyable" data-action="copy-text" data-text="${userIdString}"><span class="num-en">${userIdString}</span></div>
+                            </div>
+                            <div class="ph-item">
+                                <div class="ph-item-label"><i class="fa-solid fa-tags"></i> ${feeLabel}</div>
+                                <div class="ph-item-val num-en">${feeValueHtml}</div>
+                            </div>
+                            <div class="ph-item item-highlight">
+                                <div class="ph-item-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</div>
+                                <div class="ph-item-val num-en ${amountColorClass}">${RenderHelpers.formatMoney(displayNetAmount, (d.targetCurrency || baseCurrency).toUpperCase())}</div>
+                            </div>
+                            <div class="ph-item">
+                                <div class="ph-item-label"><i class="fa-solid fa-clock"></i> التاريخ والوقت</div>
+                                <div class="ph-item-val num-en">${formattedDate}</div>
+                            </div>
+                        </div>
+                        ${d.adminNote ? `
+                            <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'}">
+                                <i class="fa-solid fa-headset"></i>
+                                <div class="ph-admin-note-content">
+                                    <span class="ph-admin-note-title">رسالة الإدارة:</span>
+                                    <div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div>
+                                </div>
+                            </div>` : ''}
+                        <div class="ph-footer-action">
+                            <button class="btn-receipt-export" data-action="export-receipt" data-id="${d.id}">
+                                <i class="fa-solid fa-file-export"></i> تصدير الإيصال
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
         });
-        
-        const hasMoreServerDeposits = DataManager.cursors && DataManager.cursors.deposits;
 
-        if (!q && !dStart && !dEnd && (totalPaymentsCount > this.limits.payments || hasMoreServerDeposits)) {
-            const loadMoreBtn = document.createElement('div');
-            loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            // 🌟 استبدله في المرات الثلاث بهذا الزر المصمم بالهالة الذهبية
-loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
-            
-            loadMoreBtn.querySelector('button').onclick = async () => {
-                const btn = loadMoreBtn.querySelector('button');
-                
-                if (totalPaymentsCount > this.limits.payments) {
-                    this.limits.payments += 15; 
-                    this.renderPayments(); 
-                    return;
-                }
-                
-                if (hasMoreServerDeposits) {
-                    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`;
-                    btn.disabled = true;
-                    
-                    const res = await StoreDB.fetchMoreWithCursor(DB_KEYS.DEPOSITS, ['userId', '==', String(uid)], 'time', DataManager.cursors.deposits, 15);
-                    
-                    if (res.data && res.data.length > 0) {
-                        const newDeps = res.data.map(item => {
-                            let norm = { ...item };
-                            if (norm.time) norm.time = RenderHelpers.parseTime(norm.time);
-                            if (norm.createdAt) norm.createdAt = RenderHelpers.parseTime(norm.createdAt);
-                            return norm;
-                        });
-                        
-                        // 🌟 التحديث: دمج البيانات وحمايتها من التكرار
-                        const existingDepIds = new Set(LiveStoreData.deposits.map(d => String(d.id)));
-                        const uniqueDeps = newDeps.filter(d => !existingDepIds.has(String(d.id)));
-                        
-                        LiveStoreData.deposits.push(...uniqueDeps);
-                        DataManager.cursors.deposits = res.newLastDoc; 
-                        this.limits.payments += 15;
-                        this.renderPayments();
-                    } else {
-                        DataManager.cursors.deposits = null;
-                        btn.innerHTML = `لا توجد عمليات أقدم`;
-                        setTimeout(() => loadMoreBtn.remove(), 2000);
-                    }
-                }
+        list.innerHTML = htmlBuffer;
+
+        if (!q && !dStart && !dEnd && (totalPaymentsCount > this.limits.payments || (DataManager.cursors && DataManager.cursors.deposits))) {
+            const loadMoreContainer = document.createElement('div');
+            loadMoreContainer.className = 'text-center mt-15 mb-15';
+            loadMoreContainer.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+            loadMoreContainer.onclick = () => {
+                this.limits.payments += 15;
+                this.renderPayments(true);
             };
-            fragment.appendChild(loadMoreBtn);
+            list.appendChild(loadMoreContainer);
         }
-
-        list.appendChild(fragment);
     },
 
-    renderOrders: function() {
+    // 🚀 [UPDATE]: تطبيق Debounce
+    renderOrders: function(forceRender = false) {
+        if (!forceRender) {
+            if (!this._ordersDebounced) this._ordersDebounced = this._debounce('orders', () => this.renderOrders(true), 250);
+            return this._ordersDebounced();
+        }
+
         if (typeof window.updateBottomNavState === 'function') window.updateBottomNavState('orders');
 
         const filterData = Utils.getSearchAndDateFilters('order', 'order');
@@ -1188,34 +1119,26 @@ loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-ang
         const list = document.getElementById('orders-list'); 
         if (!list) return; list.innerHTML = '';
         
-        const uid = localStorage.getItem('telecard_active_user_uid');
-        const allOrders = LiveStoreData.orders || [];
-        const prods = LiveStoreData.prods || [];
+        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? String(DataManager.user.id) : null);
+        if (!uid || uid === '0' || uid === 'undefined') {
+            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
+        }
 
-        // 🌟 التحديث: استخدام الدالة الموحدة
-        let orders = allOrders.filter(o => String(o.userId) === String(uid)).map(o => ({ ...o, sortTime: RenderHelpers.parseUnifiedTime(o) }));
+        let orders = (LiveStoreData.orders || []).filter(o => String(o.userId) === String(uid)).map(o => ({ ...o, sortTime: RenderHelpers.parseUnifiedTime(o) }));
 
         const filters = DataManager.filters || { orders: 'all' };
         if (filters.orders !== 'all') orders = orders.filter(o => o.status === filters.orders);
         
-        if (q) orders = orders.filter(o => 
-            o.id.toString().includes(q) || 
-            (o.displayId && o.displayId.toLowerCase().includes(q)) ||
-            RenderHelpers.formatOrderId(o).toLowerCase().includes(q) || 
-            o.product?.toLowerCase().includes(q)
-        );
-
+        if (q) orders = orders.filter(o => o.id.toString().includes(q) || (o.displayId && o.displayId.toLowerCase().includes(q)) || RenderHelpers.formatOrderId(o).toLowerCase().includes(q) || o.product?.toLowerCase().includes(q));
         if (tStart) orders = orders.filter(o => o.sortTime >= tStart);
         if (tEnd) orders = orders.filter(o => o.sortTime <= tEnd);
 
         orders.sort((a, b) => b.sortTime - a.sortTime);
-        
         const totalOrdersCount = orders.length;
-        const visibleOrders = (!q && !dStart && !dEnd) ? orders.slice(0, this.limits.orders) : orders;
+        const displayLimit = (!q && !dStart && !dEnd) ? this.limits.orders : Math.min(orders.length, 50);
+        const visibleOrders = orders.slice(0, displayLimit);
 
-        if (visibleOrders.length === 0) {
-            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد طلبات</h3></div>`; return; 
-        }
+        if (visibleOrders.length === 0) { list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد طلبات</h3></div>`; return; }
       
         const getCleanInputRows = (str) => {
             if (!str || str === '---' || typeof str === 'object') return [];
@@ -1229,17 +1152,12 @@ loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-ang
         
         visibleOrders.forEach((o, idx) => {
             const status = o.status || 'pending'; 
-            const statusClass = status === 'completed' ? 'completed' : (status === 'rejected' ? 'rejected' : (['returned', 'refunded'].includes(status) ? 'returned' : 'pending'));
-            const prod = prods.find(p => String(p.id) === String(o.prodId)) || {};
-            const productName = o.product || prod.name || 'منتج';
+            const statusClass = status === 'completed' ? 'completed' : (status === 'rejected' ? 'rejected' : (['returned', 'refunded'].includes(status) ? 'returned' : (status === 'processing' ? 'processing' : 'pending')));
+            const productName = Utils.escapeHtml(o.product || (LiveStoreData.prods || []).find(p => String(p.id) === String(o.prodId))?.name || 'منتج');
             
-            const localPrice = Number(o.price || 0);
             const displayCurr = (o.priceCurrency || 'USD').toUpperCase();
-            const amountHtml = RenderHelpers.formatMoney(localPrice, displayCurr);
-            
             const qty = parseFloat(o.qty) || 1; 
             const qtyHtml = qty > 1 ? `<span class="oh-qty-badge num-en">x${qty}</span>` : '';
-
             const inputRows = getCleanInputRows(o.input);
             
             let statusLabel = '<i class="fa-regular fa-clock"></i> قيد التنفيذ';
@@ -1248,123 +1166,119 @@ loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-ang
             else if (status === 'rejected') statusLabel = '<i class="fa-solid fa-circle-xmark"></i> مرفوض';
             else if (['returned', 'refunded'].includes(status)) statusLabel = '<i class="fa-solid fa-rotate-left"></i> مسترجع';
             
-            const cDiscountLocal = Number(o.couponDiscount || 0);
-            const oDiscountLocal = Number(o.saleDiscount || 0);
-            const totalDiscLocal = cDiscountLocal + oDiscountLocal;
-
+            const totalDiscLocal = Number(o.couponDiscount || 0) + Number(o.saleDiscount || 0);
             let discountBadgeHtml = '';
             if (totalDiscLocal > 0) {
-                const isCombo  = (cDiscountLocal > 0 && oDiscountLocal > 0);
-                const isCoupon = cDiscountLocal > 0;
-                const colorClass = isCombo ? 'badge-combo' : (isCoupon ? 'badge-coupon' : 'badge-sale');
-                const discIcon   = isCombo ? 'fa-gift'      : (isCoupon ? 'fa-ticket' : 'fa-tag');
-                const discText   = isCombo ? 'توفير مضاعف' : (isCoupon ? 'كوبون' : 'تخفيض');
-
-                discountBadgeHtml = `<div class="oh-discount-badge ${colorClass}"><i class="fa-solid ${discIcon}"></i> <span>${discText}</span><span class="num-en">(-${RenderHelpers.formatMoney(totalDiscLocal, displayCurr)})</span></div>`;
+                const isCombo = (Number(o.couponDiscount || 0) > 0 && Number(o.saleDiscount || 0) > 0);
+                const isCoupon = Number(o.couponDiscount || 0) > 0;
+                discountBadgeHtml = `<div class="oh-discount-badge ${isCombo ? 'badge-combo' : (isCoupon ? 'badge-coupon' : 'badge-sale')}"><i class="fa-solid ${isCombo ? 'fa-gift' : (isCoupon ? 'fa-ticket' : 'fa-tag')}"></i> <span>${isCombo ? 'توفير مضاعف' : (isCoupon ? 'كوبون' : 'تخفيض')}</span><span class="num-en">(-${RenderHelpers.formatMoney(totalDiscLocal, displayCurr)})</span></div>`;
             }
 
             const cardElement = document.createElement('div');
-            const isJumped = (this.highlightId && String(o.id) === String(this.highlightId)) ? 'jump-highlight' : '';
-            cardElement.className = `oh-card ${isJumped}`.trim();
+            cardElement.className = `oh-card ${(this.highlightId && String(o.id) === String(this.highlightId)) ? 'jump-highlight' : ''}`.trim();
             cardElement.style.setProperty('--anim-idx', idx);
             cardElement.setAttribute('data-action', 'open-detail');
             cardElement.setAttribute('data-type', 'order');
             cardElement.setAttribute('data-id', o.id);
 
-            const shortOrderId = RenderHelpers.formatOrderId(o);
-            let formattedDate = RenderHelpers.formatSafeDate(o.time || o.createdAt);
-
             cardElement.innerHTML = `
                 <div class="oh-right">
                     ${discountBadgeHtml} 
-                    <div class="oh-title">${Utils.escapeHtml(productName)}</div> 
+                    <div class="oh-title">${productName}</div> 
                     <div class="oh-inputs-stack">${inputRows.map(row => `<div class="oh-input-line num-en">${Utils.escapeHtml(row)}</div>`).join('')}</div>
-                    <div class="oh-date-time num-en">${formattedDate}</div>
+                    <div class="oh-date-time num-en">${RenderHelpers.formatSafeDate(o.time || o.createdAt)}</div>
                 </div>
                 <div class="oh-left">
                     <div class="oh-status-box"><span class="oh-status ${statusClass}">${statusLabel}</span></div>
-                    <div class="oh-price-box" dir="ltr"><div class="oh-amount">${amountHtml}</div>${qtyHtml}</div>
-                    <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${shortOrderId}</span></div>
+                    <div class="oh-price-box" dir="ltr"><div class="oh-amount">${RenderHelpers.formatMoney(Number(o.price || 0), displayCurr)}</div>${qtyHtml}</div>
+                    <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${RenderHelpers.formatOrderId(o)}</span></div>
                 </div>`;
-
             fragment.appendChild(cardElement);
         }); 
         
         const hasMoreServerOrders = DataManager.cursors && DataManager.cursors.orders;
-
         if (!q && !dStart && !dEnd && (totalOrdersCount > this.limits.orders || hasMoreServerOrders)) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            // 🌟 استبدله في المرات الثلاث بهذا الزر المصمم بالهالة الذهبية
-loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
-            
+            loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
             loadMoreBtn.querySelector('button').onclick = async () => {
                 const btn = loadMoreBtn.querySelector('button');
-                
-                if (totalOrdersCount > this.limits.orders) {
-                    this.limits.orders += 15; 
-                    this.renderOrders(); 
-                    return;
-                }
-                
+                if (totalOrdersCount > this.limits.orders) { this.limits.orders += 15; this.renderOrders(true); return; }
                 if (hasMoreServerOrders) {
-                    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`;
-                    btn.disabled = true;
-                    
+                    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`; btn.disabled = true;
                     const res = await StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15);
-                    
                     if (res.data && res.data.length > 0) {
-                        const newOrders = res.data.map(item => {
-                            let norm = { ...item };
-                            if (norm.time) norm.time = RenderHelpers.parseTime(norm.time);
-                            if (norm.createdAt) norm.createdAt = RenderHelpers.parseTime(norm.createdAt);
-                            return norm;
-                        });
-                        
-                        // 🌟 التحديث: الدمج الآمن للحفاظ على المراجع وتجنب التكرار
+                        const newOrders = res.data.map(item => ({ ...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt) }));
                         const existingOrdIds = new Set(LiveStoreData.orders.map(o => String(o.id)));
-                        const uniqueOrders = newOrders.filter(o => !existingOrdIds.has(String(o.id)));
-                        
-                        LiveStoreData.orders.push(...uniqueOrders);
+                        LiveStoreData.orders = [...LiveStoreData.orders, ...newOrders.filter(o => !existingOrdIds.has(String(o.id)))];
                         DataManager.cursors.orders = res.newLastDoc; 
-                        this.limits.orders += 15;
-                        this.renderOrders();
+                        this.limits.orders += 15; this.renderOrders(true);
                     } else {
-                        DataManager.cursors.orders = null;
-                        btn.innerHTML = `لا توجد طلبات أقدم`;
-                        setTimeout(() => loadMoreBtn.remove(), 2000);
+                        DataManager.cursors.orders = null; btn.innerHTML = `لا توجد طلبات أقدم`; setTimeout(() => loadMoreBtn.remove(), 2000);
                     }
                 }
             };
             fragment.appendChild(loadMoreBtn);
         }
-
         list.appendChild(fragment);
     },
     
+    // 🚀 [UPDATE]: مساعد استخراج الصور إلى Base64 لحل مشكلة CORS مع الـ PDF بصمت وأمان
+    _getBase64Image: function(imgUrl) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width; canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                resolve(canvas.toDataURL('image/png'));
+            };
+            img.onerror = () => resolve(null); // Fallback if CORS fails completely
+            img.src = imgUrl;
+        });
+    },
+// =========================================================
+    // 🖨️ محرك تصدير الإيصالات الذكي (Direct Action - Zero Popups) 🚀
+    // =========================================================
+    
+    _getSys: function() {
+        if (typeof window.ClientSystem !== 'undefined') return window.ClientSystem;
+        if (typeof window.UIManager !== 'undefined') return window.UIManager;
+        return { showToast: () => {} };
+    },
+
     generatePDFReceipt: async function(config) {
         const printContainer = document.createElement('div');
         printContainer.id = 'pdf-export-container'; 
+        
+        printContainer.style.position = 'absolute';
+        printContainer.style.left = '-9999px';
+        printContainer.style.top = '-9999px';
 
         const settings = LiveStoreData.settings || {};
         const storeName = settings.storeName || 'المتجر';
         const storeLogoForPDF = settings.storeLogoLight || settings.storeLogo || '';
         
-        let nameColor = '#111827'; 
-        if (settings.nameColorType === 'solid' && settings.nameColor1) nameColor = settings.nameColor1;
+        let nameColor = (settings.nameColorType === 'solid' && settings.nameColor1) ? settings.nameColor1 : '#111827'; 
+        
+        const isValidColor = /^#[0-9A-Fa-f]{3,8}$/.test(nameColor) || /^(rgb|rgba|hsl|hsla)\(/.test(nameColor);
+        if (!isValidColor) nameColor = '#111827';
 
-        const brandHTML = `
-            <div style="display: flex; align-items: center; gap: 10px;">
-                ${storeLogoForPDF ? `<img src="${Utils.escapeHtml(storeLogoForPDF)}" style="max-height: 40px; width: auto; object-fit: contain;">` : ''}
-                <div style="color: ${nameColor}; font-size: 22px; font-weight: 900;">${Utils.escapeHtml(storeName)}</div>
-            </div>`;
+        let safeLogoHtml = '';
+        if (storeLogoForPDF) {
+            try {
+                const base64Logo = await this._getBase64Image(storeLogoForPDF);
+                if (base64Logo) safeLogoHtml = `<img src="${base64Logo}" style="max-height: 40px; width: auto; object-fit: contain;">`;
+            } catch (e) {}
+        }
+
+        const brandHTML = `<div style="display: flex; align-items: center; gap: 10px;">${safeLogoHtml}<div style="color: ${nameColor}; font-size: 22px; font-weight: 900;">${Utils.escapeHtml(storeName)}</div></div>`;
 
         const receiptHTML = config.type === 'deposit' ? `
             <div class="receipt-diamond" dir="rtl">
-                <div class="header">
-                    <div>${brandHTML}</div>
-                    <div style="text-align: left;"><div class="doc-title">إيصال إيداع</div><div class="doc-id">${config.data.displayId}</div></div>
-                </div>
+                <div class="header"><div>${brandHTML}</div><div style="text-align: left;"><div class="doc-title">إيصال إيداع</div><div class="doc-id">${config.data.displayId}</div></div></div>
                 <div class="body">
                     <div class="info-grid">
                         <div class="grid-item"><span class="label">اسم المرسل</span><span class="value">${Utils.escapeHtml(config.data.userName)}</span></div>
@@ -1374,19 +1288,12 @@ loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-ang
                         <div class="grid-item"><span class="label">العمولة (${config.data.feePercent}%)</span><span class="value">-${RenderHelpers.formatMoney(config.data.feeVal, config.data.currency)}</span></div>
                         <div class="grid-item"><span class="label">التاريخ والوقت</span><span class="value en">${config.data.dateTime}</span></div>
                     </div>
-                    <div class="deposit-summary">
-                        <div class="label" style="margin-bottom: 10px;">المبلغ المضاف للمحفظة</div>
-                        <div class="dep-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div>
-                    </div>
+                    <div class="deposit-summary"><div class="label" style="margin-bottom: 10px;">المبلغ المضاف للمحفظة</div><div class="dep-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div></div>
                 </div>
                 <div class="footer"><div class="footer-text">${Utils.escapeHtml(storeName)} &copy; ${new Date().getFullYear()} | إيصال إلكتروني معتمد</div></div>
-            </div>
-        ` : `
+            </div>` : `
             <div class="receipt-diamond" dir="rtl">
-                <div class="header">
-                    <div>${brandHTML}</div>
-                    <div style="text-align: left;"><div class="doc-title">إيصال بيع منتج</div><div class="doc-id">${config.data.displayId}</div></div>
-                </div>
+                <div class="header"><div>${brandHTML}</div><div style="text-align: left;"><div class="doc-title">إيصال بيع منتج</div><div class="doc-id">${config.data.displayId}</div></div></div>
                 <div class="body">
                     <div class="info-grid">
                         <div class="grid-item"><span class="label">اسم العميل</span><span class="value">${Utils.escapeHtml(config.data.userName)}</span></div>
@@ -1403,138 +1310,199 @@ loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-ang
                 <div class="footer"><div class="footer-text">${Utils.escapeHtml(storeName)} &copy; ${new Date().getFullYear()} | إيصال إلكتروني معتمد</div></div>
             </div>`;
 
-        const wrapper = document.createElement('div');
-        wrapper.className = 'receipt-container';
-        wrapper.innerHTML = receiptHTML;
-        printContainer.appendChild(wrapper);
-        document.body.appendChild(printContainer);
+        const wrapper = document.createElement('div'); wrapper.className = 'receipt-container'; wrapper.innerHTML = receiptHTML;
+        printContainer.appendChild(wrapper); document.body.appendChild(printContainer);
 
         try {
-            if (!window.html2canvas) await import('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
-            if (!window.jspdf) await import('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+            if (!window.html2canvas) await _loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+            if (!window.jspdf) await _loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
 
             const receiptContent = printContainer.querySelector('.receipt-diamond');
-            const canvas = await window.html2canvas(receiptContent, { scale: 2, useCORS: true });
+            const canvas = await window.html2canvas(receiptContent, { scale: 2, useCORS: true, allowTaint: true });
+            
             const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
             pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 210, (canvas.height * 210) / canvas.width);
-            pdf.save(config.filename);
-            printContainer.remove();
-        } catch(err) {
-            console.error('PDF Error:', err);
-            printContainer.remove();
+            const pdfBlob = pdf.output('blob');
+
+            // 🚀 الحل الاحترافي والمباشر (بدون نوافذ منبثقة أو Lightbox)
+            const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+
+            if (navigator.share && isMobile) {
+                // 1. للموبايل: نفتح نافذة المشاركة الأصلية مباشرة!
+                const file = new File([pdfBlob], config.filename, { type: 'application/pdf' });
+                try {
+                    await navigator.share({ title: 'إيصال العملية', files: [file] });
+                    return true;
+                } catch (e) {
+                    return true; // العميل ألغى المشاركة بنفسه
+                }
+            } else {
+                // 2. للكمبيوتر: تنزيل صامت ومباشر (لتفادي حجب النوافذ)
+                const pdfUrl = URL.createObjectURL(pdfBlob);
+                const link = document.createElement('a');
+                link.href = pdfUrl;
+                link.download = config.filename;
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
+                return true;
+            }
+            
+        } catch(err) { 
+            console.error('Receipt Error:', err); 
+            return false; 
+        } finally { 
+            printContainer.remove(); 
         }
     },
 
-    exportReceipt: function(orderId) {
+    exportReceipt: async function(orderId, btnElement = null) {
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
         if(!o) return;
+        
+        const sys = this._getSys();
+        let originalHtml = '';
+        
+        if (btnElement && btnElement instanceof HTMLElement) {
+            btnElement.disabled = true;
+            originalHtml = btnElement.innerHTML;
+            btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`;
+        }
 
-        const finalDisplayId = RenderHelpers.formatOrderId(o);
-        const userShortId = RenderHelpers.formatUserId(DataManager.user);
-
-        this.generatePDFReceipt({
-            type: 'order', filename: `Order_${finalDisplayId}.pdf`,
-            data: {
-                id: o.id, displayId: finalDisplayId,
-                userName: (typeof UIManager !== 'undefined' && UIManager._getFullName) ? UIManager._getFullName(DataManager.user) : 'العميل',
-                userDisplayId: userShortId,
-                status: o.status, product: o.product, price: o.price, priceCurrency: o.priceCurrency,
-                qty: o.qty || 1, input: o.input || '---', dateTime: RenderHelpers.formatSafeDate(o.time),
-                code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null
-            }
+        // 🚀 توليد مباشر بلا نوافذ
+        const success = await this.generatePDFReceipt({
+            type: 'order', filename: `Order_${RenderHelpers.formatOrderId(o)}.pdf`,
+            data: { id: o.id, displayId: RenderHelpers.formatOrderId(o), userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : 'العميل', userDisplayId: RenderHelpers.formatUserId(DataManager.user), status: o.status, product: o.product, price: o.price, priceCurrency: o.priceCurrency, qty: o.qty || 1, input: o.input || '---', dateTime: RenderHelpers.formatSafeDate(o.time), code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null }
         });
+
+        if (btnElement && btnElement instanceof HTMLElement) {
+            btnElement.disabled = false;
+            btnElement.innerHTML = originalHtml;
+        }
+
+        if (success) {
+            const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+            sys.showToast?.(isMobile ? 'تم التجهيز للمشاركة 📄' : 'تم تنزيل الإيصال بنجاح 📁', 'success');
+        } else {
+            sys.showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
+        }
     },
 
-    exportPaymentReceipt: function(depositId) {
+    exportPaymentReceipt: async function(depositId, btnElement = null) {
         const d = (LiveStoreData.deposits || []).find(x => String(x.id) === String(depositId));
         if(!d) return;
 
-        const finalDisplayId = RenderHelpers.formatDepositId(d);
-        const userShortId = RenderHelpers.formatUserId(DataManager.user);
+        const sys = this._getSys();
+        let originalHtml = '';
+        
+        if (btnElement && btnElement instanceof HTMLElement) {
+            btnElement.disabled = true;
+            originalHtml = btnElement.innerHTML;
+            btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`;
+        }
 
-        this.generatePDFReceipt({
-            type: 'deposit', filename: `Deposit_${finalDisplayId}.pdf`,
-            data: {
-                id: d.id, displayId: finalDisplayId,
-                userName: (typeof UIManager !== 'undefined' && UIManager._getFullName) ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
-                userDisplayId: userShortId, method: d.method || '---',
-                amount: d.amount, currency: d.currency, feePercent: d.feesPercent || 0,
-                feeVal: d.fees || 0, netVal: d.creditedAmount || d.amount,
-                targetCurrency: d.targetCurrency || 'USD', dateTime: RenderHelpers.formatSafeDate(d.time)
-            }
+        // 🚀 توليد مباشر بلا نوافذ
+        const success = await this.generatePDFReceipt({
+            type: 'deposit', filename: `Deposit_${RenderHelpers.formatDepositId(d)}.pdf`,
+            data: { id: d.id, displayId: RenderHelpers.formatDepositId(d), userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'), userDisplayId: RenderHelpers.formatUserId(DataManager.user), method: d.method || '---', amount: d.amount, currency: d.currency, feePercent: d.feesPercent || 0, feeVal: d.fees || 0, netVal: d.creditedAmount || d.amount, targetCurrency: d.targetCurrency || 'USD', dateTime: RenderHelpers.formatSafeDate(d.time) }
         });
+
+        if (btnElement && btnElement instanceof HTMLElement) {
+            btnElement.disabled = false;
+            btnElement.innerHTML = originalHtml;
+        }
+
+        if (success) {
+            const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+            sys.showToast?.(isMobile ? 'تم التجهيز للمشاركة 📄' : 'تم تنزيل الإيصال بنجاح 📁', 'success');
+        } else {
+            sys.showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
+        }
     },
     
+    // 🌟 رسم الإشعارات
     renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;
-
-        const allAlerts = DataManager.getAllUserAlerts ? DataManager.getAllUserAlerts() : [];
-        const readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String);
-
+        
+        let allAlerts = [];
+        try {
+            allAlerts = DataManager.getAllUserAlerts ? DataManager.getAllUserAlerts() : (LiveStoreData.alerts || []);
+        } catch (e) {
+            console.error("Error fetching alerts:", e);
+        }
+        
         if (allAlerts.length === 0) {
-            container.innerHTML = `<div class="nc-empty-state"><i class="fa-regular fa-bell-slash"></i><p>لا توجد إشعارات</p></div>`;
+            container.innerHTML = `<div class="nc-empty-state"><i class="fa-regular fa-bell-slash"></i><p>لا توجد إشعارات حالياً</p></div>`;
             return;
         }
-
-        const unreadCount = allAlerts.filter(a => !readIds.includes(String(a.id))).length;
-        let topBar = unreadCount > 0 ? `
-            <div class="nc-top-action-bar">
-                <span>لديك ${unreadCount} إشعار جديد</span>
-                <button class="btn btn-ghost nc-mark-read-btn" data-action="mark-all-alerts-read">تحديد كمقروء</button>
-            </div>` : '';
-
-        const html = allAlerts.map(alert => {
-            const isRead = readIds.includes(String(alert.id));
-            const iconClass = (alert.jumpTarget === 'order') ? 'fa-box-open' : 'fa-bullhorn';
+        
+        let readIds = [];
+        try {
+            const storedReads = localStorage.getItem(DB_KEYS.NOTIF_READ_LIST);
+            readIds = storedReads ? JSON.parse(storedReads).map(String) : [];
+            
+            if (readIds.length > 100) {
+                readIds = readIds.slice(-100);
+                localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
+            }
+        } catch (e) {
+            console.warn("Corrupted read list in storage, resetting...");
+            localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, "[]");
+        }
+        
+        allAlerts.sort((a, b) => {
+            const timeA = RenderHelpers.parseUnifiedTime(a);
+            const timeB = RenderHelpers.parseUnifiedTime(b);
+            return timeB - timeA;
+        });
+        
+        const displayLimit = 30;
+        const visibleAlerts = allAlerts.slice(0, displayLimit);
+        
+        const unreadCount = allAlerts.filter(a => !readIds.includes(String(a.id)) && !a.isRead).length;
+        
+        let html = unreadCount > 0 ? `
+                <div class="nc-top-action-bar">
+                    <span class="nc-unread-count-text">لديك <span class="nc-unread-count-num">${unreadCount}</span> جديد</span>
+                    <button class="btn btn-ghost nc-mark-read-btn" data-action="mark-all-read">تحديد الكل كمقروء</button>
+                </div>` : '';
+        
+        html += visibleAlerts.map(alert => {
+            const isRead = readIds.includes(String(alert.id)) || alert.isRead;
+            const iconClass = (alert.jumpTarget === 'order') ? 'fa-box-open' : (alert.icon || 'fa-bullhorn');
             
             return `
-            <div class="nc-item ${isRead ? '' : 'unread'}" data-action="mark-alert-read" data-id="${alert.id}">
-                <div class="nc-icon"><i class="fa-solid ${iconClass}"></i></div>
-                <div class="nc-content">
-                    <div class="nc-header"><h4 class="nc-title">${Utils.escapeHtml(alert.title)}</h4></div>
-                    <p class="nc-msg">${Utils.escapeHtml(alert.message)}</p>
-                </div>
-            </div>`;
+                <div class="nc-item ${isRead ? 'is-read' : 'unread'}" 
+                     data-action="mark-single-read" 
+                     data-id="${alert.id}">
+                    <div class="nc-icon"><i class="fa-solid ${iconClass}"></i></div>
+                    <div class="nc-content">
+                        <div class="nc-header">
+                            <h4 class="nc-title">${Utils.escapeHtml(alert.title || 'إشعار جديد')}</h4>
+                            <span class="nc-time">${RenderHelpers.formatSafeDate(alert.createdAt || alert.time).split(' | ')[0]}</span>
+                        </div>
+                        <p class="nc-msg">${Utils.escapeHtml(alert.message || '')}</p>
+                    </div>
+                    ${!isRead ? '<div class="unread-indicator-dot"></div>' : ''}
+                </div>`;
         }).join('');
+        
+        container.innerHTML = html;
+    },    
 
-        container.innerHTML = topBar + html;
-    },
-    
     renderCountryList: function(countries) {
         const listTarget = document.getElementById('countries-list-target');
         if (!listTarget) return;
-        
         const active = (countries || []).filter(c => c.isActive !== false && !c.isBanned);
-        if (active.length === 0) {
-            listTarget.innerHTML = '<div class="dropdown-item">لا توجد دول متاحة</div>';
-            return;
-        }
+        if (active.length === 0) { listTarget.innerHTML = '<div class="dropdown-item">لا توجد دول متاحة</div>'; return; }
         
-        listTarget.innerHTML = active.map(c => {
-            const countryName = Utils.escapeHtml(c.name || c.nameAr || 'دولة غير محددة');
-            const countryFlag = c.flag || c.flagEmoji || '🌍'; 
-            const dialCode = c.dialCode || '';
-            const phoneLen = c.phoneLen || 10;
-
-            return `
-            <div class="dropdown-item" data-action="select-country" data-name="${countryName}" data-code="${dialCode}" data-len="${phoneLen}">
-                <span style="margin-left: 8px;">${countryFlag}</span>
-                <span style="flex: 1;">${countryName}</span>
-                <span class="num-en" style="color: var(--text-muted);">${dialCode}</span>
-            </div>`;
-        }).join('');
+        listTarget.innerHTML = active.map(c => `<div class="dropdown-item" data-action="select-country" data-name="${Utils.escapeHtml(c.name || c.nameAr || 'غير محددة')}" data-code="${c.dialCode || ''}" data-len="${c.phoneLen || 10}"><span style="margin-left: 8px;">${c.flag || c.flagEmoji || '🌍'}</span><span style="flex: 1;">${Utils.escapeHtml(c.name || c.nameAr || 'غير محددة')}</span><span class="num-en" style="color: var(--text-muted);">${c.dialCode || ''}</span></div>`).join('');
     },
 
-    // =========================================================
-    // 📜 رسم الشروط والأحكام ديناميكياً من السيرفر (Unified Document)
-    // =========================================================
     renderTerms: function() {
         const container = document.getElementById('store-terms-content');
         if (!container) return;
-        
-        const settings = LiveStoreData.settings || {};
-        const termsList = settings.terms || [];
+        const termsList = (LiveStoreData.settings || {}).terms || [];
         
         if (typeof termsList === 'string') {
             container.innerHTML = `<div class="terms-unified-card"><div class="term-item-row"><p class="tir-text">${Utils.escapeHtml(termsList)}</p></div></div>`;
@@ -1542,39 +1510,25 @@ loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-ang
         }
         
         if (!Array.isArray(termsList) || termsList.length === 0) {
-            container.innerHTML = `
-                    <div class="empty-state-v2">
-                        <i class="fa-solid fa-file-contract"></i>
-                        <h3>لا توجد سياسة حالياً</h3>
-                        <p>لم تقم الإدارة بنشر شروط وأحكام المتجر بعد.</p>
-                    </div>`;
+            container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-contract"></i><h3>لا توجد سياسة حالياً</h3></div>`;
             return;
         }
         
-        let html = '<div class="terms-unified-card">';
-        
-        termsList.forEach((term, index) => {
-            const safeTitle = Utils.escapeHtml(term.title || `البند ${index + 1}`);
-            const safeText = Utils.escapeHtml(term.text || '');
-            
-            let rawIcon = term.icon || 'fa-file-signature';
-            if (!rawIcon.startsWith('fa-')) rawIcon = 'fa-' + rawIcon;
-            const iconClass = (rawIcon.includes('fa-solid') || rawIcon.includes('fa-regular') || rawIcon.includes('fa-brands')) ? rawIcon : `fa-solid ${rawIcon}`;
-            
-            html += `
+        container.innerHTML = `<div class="terms-unified-card">${termsList.map((term, index) => {
+                let iconName = term.icon || 'file-signature';
+                if (!iconName.startsWith('fa-')) iconName = 'fa-' + iconName;
+                const fullIconClass = `fa-solid ${iconName}`;
+
+                return `
                     <div class="term-item-row">
                         <div class="tir-header">
-                            <h3 class="tir-title">${safeTitle}</h3>
-                            <div class="tir-icon"><i class="${Utils.escapeHtml(iconClass)}"></i></div>
+                            <div class="tir-icon"><i class="${Utils.escapeHtml(fullIconClass)}"></i></div>
+                            <h3 class="tir-title">${Utils.escapeHtml(term.title || `البند ${index + 1}`)}</h3>
                         </div>
                         <div class="tir-body">
-                            <p class="tir-text">${safeText}</p>
+                            <p class="tir-text">${Utils.escapeHtml(term.text || '')}</p>
                         </div>
                     </div>`;
-        });
-        
-        html += '</div>';
-        
-        container.innerHTML = html;
+            }).join('')}</div>`;
     }
 };

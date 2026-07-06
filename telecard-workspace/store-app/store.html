@@ -1,123 +1,140 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<script>
-    window.BootLog = {
-        logs: [],
-        add: function(module, status, msg = '') {
-            const entry = { time: Date.now(), module, status, msg };
-            this.logs.push(entry);
-            console.log(`[🚀 Startup] ${status === 'ok' ? '✅' : '❌'} ${module} ${msg}`);
-        }
-    };
-    window.addEventListener('error', function(e) {
-        if (e.target.tagName === 'SCRIPT') {
-            window.BootLog.add(e.target.src, 'error', 'فشل في تحميل الملف');
-            document.body.insertAdjacentHTML('afterbegin', 
-                `<div style="background:red; color:white; padding:10px; position:fixed; top:0; z-index:99999; width:100%; direction:rtl">
-                   🛑 خلل في المسار: فشل المتصفح في العثور على الملف: <br> ${e.target.src}
-                 </div>`
-            );
-        }
-    }, true);
-    window.onerror = function(msg, url, line) {
-        window.BootLog.add(url, 'crash', `خطأ برمجي في السطر ${line}: ${msg}`);
-        return false;
-    };
-</script>
+    <script>
+        // 🚀 نظام المراقبة المبكر للإقلاع (Boot Watchdog)
+        window.BootLog = {
+            logs: [],
+            add: function(module, status, msg = '') {
+                const entry = { time: Date.now(), module, status, msg };
+                this.logs.push(entry);
+                console.log(`[🚀 Startup] ${status === 'ok' ? '✅' : '❌'} ${module} ${msg}`);
+            }
+        };
+        window.addEventListener('error', function(e) {
+            if (e.target.tagName === 'SCRIPT') {
+                window.BootLog.add(e.target.src, 'error', 'فشل في تحميل الملف');
+                document.body.insertAdjacentHTML('afterbegin', 
+                    `<div style="background:var(--danger, red); color:white; padding:12px; position:fixed; top:0; z-index:999999; width:100%; direction:rtl; font-weight:bold; font-family:sans-serif; text-align:center;">
+                       🛑 خلل في المسار: فشل المتصفح في العثور على الملف: <br> <span style="direction:ltr; display:inline-block; margin-top:5px; font-size:12px;">${e.target.src}</span>
+                     </div>`
+                );
+            }
+        }, true);
+        window.onerror = function(msg, url, line) {
+            window.BootLog.add(url, 'crash', `خطأ برمجي في السطر ${line}: ${msg}`);
+            return false;
+        };
+    </script>
     
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- منع محركات البحث من أرشفة الصفحة إذا كانت لوحة داخلية -->
+    <meta name="robots" content="index, follow">
     <title>TELE CARD | المتجر</title>
     
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-
+    <!-- 🚀 ملف التنسيقات الخاص بالمتجر -->
     <link rel="stylesheet" href="style.css">
 
+    <!-- 🚀 مكتبات النظام الأساسية -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
+
+    <!-- 🚀 إخفاء المحتوى الرئيسي لثوانٍ لمنع القفز البصري (FOUC & Layout Shift Prevention) -->
     <style>
-        /* ستايل نافذة التنبيهات العامة للطرد أو الإشعارات الحرجة */
-        .global-alert-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(5, 9, 16, 0.85); backdrop-filter: blur(10px); 
-            display: none; justify-content: center; align-items: center;
-            z-index: 999999; opacity: 0; transition: opacity 0.3s ease; padding: 15px;
-        }
-        .global-alert-overlay.active { display: flex; opacity: 1; }
-        .global-alert-card {
-            width: 100%; max-width: 380px; background: var(--bg-card, #111a2b);
-            border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px;
-            padding: 35px 24px; text-align: center; box-shadow: 0 25px 60px rgba(0,0,0,0.85);
-            transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-        .global-alert-overlay.active .global-alert-card { transform: scale(1); }
-        .global-icon-box {
-            width: 60px; height: 60px; margin: 0 auto 20px;
-            background: rgba(229, 62, 62, 0.15); border: 1px solid #E53E3E;
-            border-radius: 50%; display: flex; align-items: center; justify-content: center;
-            color: #E53E3E;
-        }
-        .global-icon-box svg { width: 28px; height: 28px; }
-        .global-alert-title { color: #fff; font-size: 18px; font-weight: 800; margin-bottom: 10px; font-family: 'Cairo', sans-serif; }
-        .global-alert-msg { color: #8F9BB3; font-size: 13px; line-height: 1.6; margin-bottom: 25px; font-family: 'Cairo', sans-serif; }
+        .main-scroll { opacity: 0; animation: fadeInMain 0.6s ease 0.4s forwards; }
+        @keyframes fadeInMain { to { opacity: 1; } }
     </style>
 </head>
-
-<body class="store-page is-home">
-
+<body>
     <script>
+        // 🚀 تفعيل الوضع الليلي فوراً قبل رسم الصفحة
         if (localStorage.getItem('telecard_theme') === 'light') {
             document.body.classList.add('light-mode');
         }
     </script>
 
+    <!-- 🚀 شاشة الإقلاع الرئيسية (Native Splash Screen) -->
+    <div id="global-splash-screen" style="position: fixed; inset: 0; z-index: 999999; background-color: #111a2b; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.4s ease, visibility 0.4s ease;">
+        <div style="position: relative; width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+            <i class="fa-solid fa-circle-notch fa-spin" style="position: absolute; font-size: 70px; color: #FFD700; opacity: 0.15;"></i>
+            <i class="fa-solid fa-store" style="font-size: 28px; color: #FFD700;"></i>
+        </div>
+        <h2 id="splash-store-name" style="color: #fff; font-weight: 900; font-size: 22px; letter-spacing: 1px; margin: 0; font-family: 'Cairo', sans-serif;">جاري الإقلاع...</h2>
+    </div>
+
+    <!-- 🛡️ حقن الاسم المخبأ لتسريع شاشة الإقلاع -->
+    <script>
+        var cachedStoreName = localStorage.getItem('telecard_splash_name');
+        if (cachedStoreName) {
+            document.getElementById('splash-store-name').textContent = cachedStoreName;
+        }
+    </script>   
+    
+    <!-- 🚨 نافذة الحماية والطرد المباشر (Security Eviction) -->
     <div class="global-alert-overlay" id="global-security-alert">
         <div class="global-alert-card">
             <div class="global-icon-box">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </div>
             <h3 class="global-alert-title" id="global-alert-title">تم إيقاف الجلسة</h3>
-            <p class="global-alert-msg" id="global-alert-msg">نعتذر، تم حظر حسابك من قبل الإدارة. سيتم تسجيل خروجك الآن.</p>
+            <p class="global-alert-msg" id="global-alert-msg">نعتذر، تم تقييد أو حظر حسابك من قبل الإدارة. سيتم تسجيل خروجك الآن.</p>
         </div>
-    </div>
-
+    </div>    
+    
     <div id="toast-warning" class="toast-warning" style="display: none;"><i class="fa-solid fa-circle-exclamation"></i> تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء</div>
     
+    <!-- ======================= 🔝 الهيدر العلوي ======================= -->
     <header class="store-header">
         <div class="header-actions-right">
-             <div class="action-btn menu-btn" data-action="open-sidebar"><i class="fa-solid fa-bars"></i></div>
+             <div class="action-btn menu-btn" data-action="open-sidebar" aria-label="القائمة الجانبية"><i class="fa-solid fa-bars"></i></div>
              
-             <div class="action-btn notif-bell-btn" data-action="open-notif-center">
+             <div class="action-btn notif-bell-btn" data-action="open-notif-center" aria-label="الإشعارات">
                  <i class="fa-regular fa-bell"></i>
                  <span class="notif-badge hide-element" id="header-notif-badge">0</span>
              </div>
              
-             <div class="ct-wrapper">
-                <button type="button" class="ct-toggle" id="ct-toggle" data-action="toggle-currency-menu">
+             <div class="ct-wrapper hide-element" style="display: none;">
+                <button type="button" class="ct-toggle" id="ct-toggle" data-action="toggle-currency-menu" aria-label="تغيير العملة">
                     <span class="ct-flag-box" id="ct-flag-box"><img class="ct-flag" alt=""></span>
                     <span class="ct-label" id="ct-label">USD</span>
                     <i class="fa-solid fa-caret-down"></i>
                 </button>
                  <div class="ct-menu" id="ct-menu"></div>
-                 <select id="display-currency" class="display-currency-native" data-action="change-currency"></select>
+                 <select id="display-currency" class="display-currency-native" data-action="change-currency" aria-label="العملة المخفية"></select>
              </div>
 
-             <div class="action-btn theme-toggle-btn" data-action="toggle-theme" title="تبديل الوضع">
-                   <i id="theme-toggle-icon" class="sun-dots-icon"></i>
+             <div class="action-btn theme-toggle-btn" data-action="toggle-theme" title="تبديل الوضع" aria-label="تغيير المظهر">
+                 <i id="theme-toggle-icon">
+                     <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="display:inline-block; vertical-align:middle;">
+                         <circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="2" r="1.5"></circle><circle cx="12" cy="22" r="1.5"></circle><circle cx="2" cy="12" r="1.5"></circle><circle cx="22" cy="12" r="1.5"></circle><circle cx="4.93" cy="4.93" r="1.5"></circle><circle cx="19.07" cy="19.07" r="1.5"></circle><circle cx="4.93" cy="19.07" r="1.5"></circle><circle cx="19.07" cy="4.93" r="1.5"></circle>
+                     </svg>
+                 </i>
+                 <script>
+                     if (localStorage.getItem('telecard_theme') === 'light') {
+                         const ti = document.getElementById('theme-toggle-icon');
+                         ti.innerHTML = '';
+                         ti.className = 'fa-solid fa-moon';
+                     }
+                 </script>
              </div>
         </div>
         
-        <div class="logo-area logo-ar" id="store-branding-target" data-action="open-about"></div>
-    </header>
-    
+        <!-- 🚀 توجيه النقر على اللوجو للرئيسية -->
+        <div class="logo-area logo-ar" id="store-branding-target" data-action="nav-home" style="cursor: pointer;"></div>
+    </header>    
+
+    <!-- ======================= 📋 القائمة الجانبية ======================= -->
     <div class="sidebar-overlay" id="sidebarOverlay" data-action="close-sidebar"></div>
     
     <div class="sidebar" id="cs-menu">
         <div class="sidebar-header">
-            <div id="sidebar-branding-target" data-action="open-about"></div>
-            <button class="sidebar-close-btn" data-action="close-sidebar">
+            <!-- 🚀 توجيه النقر على اللوجو للرئيسية -->
+            <div id="sidebar-branding-target" data-action="nav-home" style="cursor: pointer;"></div>
+            <button class="sidebar-close-btn" data-action="close-sidebar" aria-label="إغلاق">
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
@@ -170,7 +187,7 @@
             </div>
         </div>
         
-        <div class="sb-profile-alert" id="sb-profile-alert" data-action="open-identity-sidebar">
+        <div class="sb-profile-alert hide-element d-none" id="sb-profile-alert" data-action="open-identity-sidebar" style="display: none !important;">
             <div class="sb-pa-icon"><i class="fa-solid fa-address-card"></i></div>
             <div class="sb-pa-text">
                 <h4>أكمل بياناتك</h4>
@@ -219,6 +236,13 @@
                 <i class="fa-solid fa-star nav-icon"></i>
                 <span class="nav-item-text">قيمنا</span>
             </div>
+            
+            <!-- 🚀 إضافة قسم من نحن هنا -->
+            <div class="nav-item" data-action="open-about">
+                <i class="fa-solid fa-circle-info nav-icon"></i>
+                <span class="nav-item-text">من نحن</span>
+            </div>
+            
             <div class="nav-item" data-action="open-terms">
                 <i class="fa-solid fa-file-contract nav-icon"></i>
                 <span class="nav-item-text">الشروط والأحكام</span>
@@ -238,7 +262,7 @@
             <button class="logout-btn" id="sidebar-logout-btn" data-action="logout"><i class="fa-solid fa-power-off"></i>تسجيل الخروج</button>
         </div>
     </div>
-
+    <!-- ======================= 🛒 المحتوى الرئيسي ======================= -->
     <div class="main-scroll">
         <div class="hero-block-wrapper">
             <div class="hero-slider-section" id="slider">
@@ -255,9 +279,10 @@
                 </div>
             </div>
         </div>
+        
         <div class="section-header-modern" id="sticky-header-bar">
             <div class="header-right-group">
-                <button id="smart-back-btn" class="modern-back-btn" data-action="nav-home">
+                <button id="smart-back-btn" class="modern-back-btn" data-action="nav-home" aria-label="العودة">
                     <i class="fa-solid fa-arrow-right"></i>
                 </button>
                 <div id="grid-title"></div>
@@ -272,13 +297,16 @@
         </div>
 
         <div class="mf-search-box store-search-box">
-            <input type="text" id="store-search-input" aria-label="بحث عن منتج" placeholder="ابحث عن منتج..." data-action="store-search-enter">
+            <input type="text" id="store-search-input" aria-label="بحث عن منتج" placeholder="ابحث عن قسم أو منتج..." data-action="store-search-enter" autocomplete="off">
             <button class="mf-search-btn" aria-label="تنفيذ البحث" data-action="store-search-btn">
                 <i class="fa-solid fa-magnifying-glass"></i>
             </button>
         </div>
                 
+        <!-- 🦴 الهياكل العظمية المبدئية تم زيادتها إلى 6 لملء الشاشة بالكامل -->
         <div class="grid-layout grid-cats" id="store-grid">
+            <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
+            <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
@@ -286,10 +314,13 @@
         </div>
     </div>
 
+    <!-- ======================= 📦 النوافذ السفلية ======================= -->
+    
+    <!-- نافذة الطلبات -->
     <div class="pm-overlay" id="orders-overlay" data-action="close-orders"></div>
     <div class="modal-sheet bottom-sheet" id="orders-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-orders"><i class="fa-solid fa-xmark"></i></div>            
+            <div class="pm-close-std" data-action="close-orders" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>            
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-box-open"></i> سجل الطلبات</span>
             </div>
@@ -320,14 +351,14 @@
                     </div>
                 </div>
 
-                <button class="btn-filter-action" data-action="render-orders">
+                <button class="btn-filter-action" data-action="render-orders" aria-label="تصفية">
                     <i class="fa-solid fa-filter"></i>
                 </button>
             </div>
             
             <div class="mf-search-box order-search-box">
-                <input type="text" id="order-search-input" placeholder="بحث في الطلبات..." data-action="order-search-enter">
-                <button class="mf-search-btn" data-action="render-orders">
+                <input type="text" id="order-search-input" placeholder="بحث في الطلبات..." data-action="order-search-enter" autocomplete="off">
+                <button class="mf-search-btn" data-action="render-orders" aria-label="بحث">
                     <i class="fa-solid fa-magnifying-glass"></i>
                 </button>
             </div>
@@ -343,10 +374,11 @@
         <div class="pm-scroll-content"><div id="orders-list" class="u-list"></div></div>
     </div>
 
+    <!-- نافذة المحفظة -->
     <div class="pm-overlay" id="wallet-overlay" data-action="close-wallet"></div>
     <div class="modal-sheet bottom-sheet" id="wallet-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-wallet"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-wallet" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-wallet"></i> المحفظة</span>
             </div>
@@ -420,14 +452,14 @@
                     </div>
                 </div>
 
-                <button class="btn-filter-action" data-action="render-wallet">
+                <button class="btn-filter-action" data-action="render-wallet" aria-label="تصفية">
                     <i class="fa-solid fa-filter"></i>
                 </button>
             </div>
             
             <div class="mf-search-box wallet-search-box">
-                <input type="text" id="wallet-search-input" placeholder="بحث في السجل..." data-action="wallet-search-enter">
-                <button class="mf-search-btn" data-action="render-wallet">
+                <input type="text" id="wallet-search-input" placeholder="بحث في السجل..." data-action="wallet-search-enter" autocomplete="off">
+                <button class="mf-search-btn" data-action="render-wallet" aria-label="بحث">
                     <i class="fa-solid fa-magnifying-glass"></i>
                 </button>
             </div>
@@ -448,10 +480,11 @@
         <div class="pm-scroll-content"><div id="wallet-list" class="u-list"></div></div>
     </div>
 
+    <!-- نافذة المدفوعات -->
     <div class="pm-overlay" id="mypay-overlay" data-action="close-mypayments"></div>
     <div class="modal-sheet bottom-sheet" id="mypay-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-mypayments"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-mypayments" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-file-invoice-dollar"></i> سجل الدفعات</span>
             </div>
@@ -482,14 +515,14 @@
                     </div>
                 </div>
 
-                <button class="btn-filter-action" data-action="render-payments">
+                <button class="btn-filter-action" data-action="render-payments" aria-label="تصفية">
                     <i class="fa-solid fa-filter"></i>
                 </button>
             </div>
             
             <div class="mf-search-box pay-search-box">
-                <input type="text" id="pay-search-input" placeholder="بحث في الدفعات..." data-action="pay-search-enter">
-                <button class="mf-search-btn" data-action="render-payments">
+                <input type="text" id="pay-search-input" placeholder="بحث في الدفعات..." data-action="pay-search-enter" autocomplete="off">
+                <button class="mf-search-btn" data-action="render-payments" aria-label="بحث">
                     <i class="fa-solid fa-magnifying-glass"></i>
                 </button>
             </div>
@@ -507,10 +540,11 @@
         </div>
     </div>
 
+    <!-- نافذة الإعدادات -->
     <div class="pm-overlay" id="settings-overlay" data-action="close-settings"></div>
     <div class="modal-sheet bottom-sheet settings-modal" id="settings-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-settings"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-settings" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-gear"></i> تخصيص المتجر</span>
             </div>
@@ -518,35 +552,37 @@
         </div>
         <div class="settings-body">
             <div class="settings-group-title">التخصيص البصري والسمعي</div>
-            <div class="setting-row">
+            
+            <div class="modern-setting-row">
                 <div class="setting-info">
-                    <div class="setting-title"><i class="fa-solid fa-moon"></i> الوضع الليلي / النهاري</div>
-                    <div class="setting-sub">يغيّر خلفية المتجر فقط دون لمس ألوان أو صور المنتجات.</div>
+                    <div class="setting-title"><i class="fa-solid fa-palette"></i> مظهر المتجر</div>
+                    <div class="setting-sub">تبديل بين الوضع الليلي والنهاري.</div>
                 </div>
-                <button type="button" class="setting-toggle" id="setting-theme-toggle" data-action="toggle-theme-pref">
-                    <span class="setting-toggle-knob"></span>
-                    <span class="setting-toggle-label" id="setting-theme-label">ليلي</span>
+                <button type="button" class="modern-switch-btn global-theme-toggle" data-action="toggle-theme-pref" aria-label="تبديل المظهر">
+                    <div class="switch-knob"><i class="fa-solid fa-moon theme-icn"></i></div>
+                    <span class="switch-bg-text theme-lbl">ليلي</span>
                 </button>
             </div>
             
-            <div class="setting-row">
+            <div class="modern-setting-row">
                 <div class="setting-info">
                     <div class="setting-title"><i class="fa-solid fa-volume-high"></i> أصوات الواجهة</div>
-                    <div class="setting-sub">تشغيل/إيقاف نغمات التنقل والتنبيهات الصغيرة.</div>
+                    <div class="setting-sub">تشغيل/إيقاف نغمات التنقل والتنبيهات.</div>
                 </div>
-                <button type="button" class="setting-toggle" id="setting-sound-toggle" data-action="toggle-sound-pref">
-                    <span class="setting-toggle-knob"></span>
-                    <span class="setting-toggle-label" id="setting-sound-label">مفعل</span>
+                <button type="button" class="modern-switch-btn global-sound-toggle" data-action="toggle-sound-pref" aria-label="تبديل الصوت">
+                    <div class="switch-knob"><i class="fa-solid fa-volume-xmark sound-icn"></i></div>
+                    <span class="switch-bg-text sound-lbl">صامت</span>
                 </button>
             </div>
         </div>
     </div>
 
+    <!-- نافذة الإيداع المالي -->
     <div class="pm-overlay" id="balance-overlay" data-action="close-balance"></div>
-    <div class="bottom-sheet" id="balance-modal">
+    <div class="modal-sheet bottom-sheet" id="balance-modal">
         <div class="pm-header-std">
             <span class="title-badge pm-title-badge"><i class="fa-solid fa-wallet"></i> إيداع رصيد</span>
-           <div id="bal-action-btn" class="pm-close-std" data-action="close-balance">
+           <div id="bal-action-btn" class="pm-close-std" data-action="close-balance" aria-label="إغلاق/عودة">
                 <i class="fa-solid fa-xmark"></i>
             </div>
         </div>
@@ -554,7 +590,7 @@
         <div class="pm-scroll-content">
             <div id="bal-step-1">
                 <div id="bal-normal-view" class="bal-normal-view">
-                    <p style="color: #94a3b8; font-size: 13px; text-align: center; margin-bottom: 15px; font-weight: 600;">اختر طريقة الدفع المناسبة لك</p>
+                    <p style="color: var(--text-muted); font-size: 13px; text-align: center; margin-bottom: 15px; font-weight: 600;">اختر طريقة الدفع المناسبة لك</p>
                     <div id="bal-pay-grid" class="pay-grid-select"></div>
                 </div>
             </div>
@@ -565,10 +601,11 @@
         </div>
     </div>
 
+    <!-- نافذة شراء المنتج -->
     <div class="pm-overlay" id="purchase-overlay" data-action="close-purchase"></div>
     <div class="modal-sheet bottom-sheet" id="purchase-modal">
         <div class="pm-header-img-style transparent-header">
-            <div class="pm-close-std" data-action="close-purchase">
+            <div class="pm-close-std" data-action="close-purchase" aria-label="إغلاق">
                 <i class="fa-solid fa-xmark"></i>
             </div>
         </div>
@@ -579,15 +616,16 @@
                     <div id="pm-badge-container"></div> 
                     <h3 class="product-title" id="pm-name">--</h3>
                 </div>
-                <button class="favorite-icon-wrapper pm-fav-btn" id="pm-fav-btn" data-action="toggle-fav-modal">
+                <button class="favorite-icon-wrapper pm-fav-btn" id="pm-fav-btn" data-action="toggle-fav-modal" aria-label="إضافة للمفضلة">
                     <i class="fa-regular fa-heart"></i>
                 </button>
             </div>
+            
             <div id="simple-qty-wrapper" class="mb-20" style="display:none;">
                 <div class="pm-quantity-group">
-                    <button class="pm-qty-btn minus" data-action="update-simple-qty" data-val="-1"><i class="fa-solid fa-minus"></i></button>
+                    <button class="pm-qty-btn minus" data-action="update-simple-qty" data-val="-1" aria-label="إنقاص"><i class="fa-solid fa-minus"></i></button>
                     <input id="simple-qty-val" class="pm-qty-input num-en" value="1" readonly>
-                    <button class="pm-qty-btn plus" data-action="update-simple-qty" data-val="1"><i class="fa-solid fa-plus"></i></button>
+                    <button class="pm-qty-btn plus" data-action="update-simple-qty" data-val="1" aria-label="زيادة"><i class="fa-solid fa-plus"></i></button>
                 </div>
                 <div id="simple-qty-error" class="qty-error"></div>
             </div>
@@ -595,10 +633,10 @@
             <div id="pm-dynamic-ops" style="display:none;">
                 <div class="pm-grid-dark">
                     <div class="pm-dark-box">
-                        <input type="number" class="pm-qty-input" id="pm-qty" value="1">
+                        <input type="tel" class="pm-qty-input num-en" id="pm-qty" value="1" inputmode="numeric">
                     </div>
                     <div class="pm-dark-box">
-                        <input type="text" class="pm-val-lg" id="pm-price-unit" value="0.00 $" disabled>
+                        <input type="text" class="pm-val-lg num-en" id="pm-price-unit" value="0.00 $" disabled>
                     </div>
                 </div>
             </div>
@@ -613,14 +651,14 @@
                         <i class="fa-solid fa-chevron-down arrow-icon"></i>
                     </button>
                     <div class="dropdown-menu" id="pkg-custom-menu"></div>
-                    <select id="pm-pack" style="display:none;"></select>
+                    <select id="pm-pack" style="display:none;" aria-label="اختر باقة"></select>
                 </div>
             </div>
 
             <div id="pm-input-container"></div>
 
             <div class="coupon-section" id="couponSection">
-                <button class="coupon-trigger" data-action="toggle-coupon-ui">
+                <button class="coupon-trigger" data-action="toggle-coupon-ui" aria-label="كوبون الخصم">
                     <span><i class="fa-solid fa-ticket"></i> هل لديك كوبون خصم؟</span>
                     <i class="fa-solid fa-chevron-down"></i>
                 </button>
@@ -628,7 +666,7 @@
                 <div class="coupon-content">
                     <div class="coupon-input-wrapper">
                         <div class="relative-input-container">
-                            <input type="text" class="c-input" id="couponCode" aria-label="كود الخصم" placeholder="أدخل الكود" data-action="check-coupon-state" autocomplete="off">
+                            <input type="text" class="c-input num-en" id="couponCode" aria-label="كود الخصم" placeholder="أدخل الكود" data-action="check-coupon-state" autocomplete="off" spellcheck="false">
                             <i class="fa-solid fa-circle-xmark icon-action clear-icon" id="clearIcon" data-action="remove-coupon"></i>
                             <i class="fa-regular fa-paste icon-action paste-icon" id="pasteIcon" data-action="paste-coupon"></i>
                         </div>
@@ -637,6 +675,7 @@
                     <div class="coupon-msg-box" id="couponMsg"></div>
                 </div>
             </div>
+            
             <div id="pm-desc-container" class="pm-desc-box-styled desc-spaced"></div>
 
             <div class="pm-buttons-row checkout-actions">
@@ -658,6 +697,7 @@
         </div>
     </div>
 
+    <!-- نوافذ النجاح -->
     <div class="pm-overlay" id="success-overlay" data-action="close-success"></div>
     <div class="modal-sheet bottom-sheet success-card" id="success-modal">
         <div class="pm-close-std floating-close" data-action="close-success" aria-label="إغلاق" role="button">
@@ -672,11 +712,28 @@
         </div>
     </div>
 
+    <div class="pm-overlay" id="purchase-success-overlay" data-action="close-purchase-success"></div>
+    <div class="modal-sheet bottom-sheet success-card" id="purchase-success-modal">
+        <div class="pm-close-std floating-close" data-action="close-purchase-success" aria-label="إغلاق" role="button">
+            <i class="fa-solid fa-xmark"></i>
+        </div>
+        <div class="success-icon"><i class="fa-solid fa-check"></i></div> 
+        
+        <h3 class="success-title" id="purchase-success-title">تم استلام طلبك!</h3>
+        <div id="purchase-code-display" class="d-none"></div>
+        
+        <div class="success-meta">
+            <i class="fa-solid fa-bag-shopping"></i>
+            <span id="purchase-success-desc">يمكنك متابعة حالة الطلب في <span class="smart-link" data-action="nav-orders-from-success">سجل الطلبات</span></span>
+        </div>
+    </div>
+
+    <!-- نافذة تفاصيل العملية -->
     <div class="pm-overlay" id="tx-detail-overlay" data-action="close-tx-detail"></div>
     <div class="modal-sheet bottom-sheet tx-modal-sheet" id="tx-detail-modal">
         <div id="tx-top-badge-container"></div>
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-tx-detail">
+            <div class="pm-close-std" data-action="close-tx-detail" aria-label="إغلاق">
                 <i class="fa-solid fa-xmark"></i>
             </div>
             <div class="header-center">
@@ -687,10 +744,11 @@
         <div class="pm-scroll-content" id="tx-detail-content"></div>
     </div>
 
+    <!-- نافذة الملف الشخصي -->
     <div class="pm-overlay" id="profile-info-overlay" data-action="close-profile"></div>
     <div class="modal-sheet bottom-sheet" id="profile-info-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-profile"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-profile" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-user"></i> الملف الشخصي</span>
             </div>
@@ -720,8 +778,8 @@
                 <div class="profile-header-row">
                     <div class="name-wrapper" dir="auto">
                         <h1 class="user-name" id="display-name" data-action="trigger-click" data-target="profile-edit-toggle">--</h1>
-                        <input type="text" id="edit-name-input" class="name-edit-input d-none" value="" placeholder="أدخل اسمك">
-                        <button class="edit-icon-btn" id="profile-edit-toggle" title="تعديل" data-action="toggle-name-edit">
+                        <input type="text" id="edit-name-input" class="name-edit-input d-none" value="" placeholder="أدخل اسمك" autocomplete="name">
+                        <button class="edit-icon-btn" id="profile-edit-toggle" title="تعديل" data-action="toggle-name-edit" aria-label="تعديل الاسم">
                             <i class="fa-solid fa-pen"></i>
                         </button>
                     </div>
@@ -747,7 +805,7 @@
                     <div class="icon-box"><i class="fa-solid fa-at"></i></div>
                     <div class="text-content">
                         <span class="label-text">اسم المستخدم</span>
-                        <span class="value-text" id="profile-info-username">--</span>
+                        <span class="value-text num-en" id="profile-info-username" style="direction: ltr; text-align: right;">--</span>
                     </div>
                 </div>
                 
@@ -755,7 +813,7 @@
                     <div class="icon-box"><i class="fa-solid fa-envelope"></i></div>
                     <div class="text-content">
                         <span class="label-text">البريد الإلكتروني</span>
-                        <span class="value-text" id="profile-info-email">--</span>
+                        <span class="value-text num-en" id="profile-info-email" style="direction: ltr; text-align: right;">--</span>
                     </div>
                 </div>
                 
@@ -763,7 +821,7 @@
                     <div class="icon-box"><i class="fa-solid fa-phone"></i></div>
                     <div class="text-content">
                         <span class="label-text">رقم الهاتف</span>
-                        <span class="value-text ltr-text" id="profile-info-phone">--</span>
+                        <span class="value-text ltr-text num-en" id="profile-info-phone">--</span>
                     </div>
                 </div>
                 
@@ -779,7 +837,7 @@
                     <div class="icon-box"><i class="fa-solid fa-coins"></i></div>
                     <div class="text-content">
                         <span class="label-text">العملة الأساسية</span>
-                        <div class="value-text curr-box" id="profile-info-base-curr">
+                        <div class="value-text curr-box num-en" id="profile-info-base-curr">
                             <span id="profile-base-curr-text">--</span>
                             <i class="fa-solid fa-lock lock-icon"></i>
                         </div>
@@ -794,35 +852,38 @@
         </div>
     </div>
 
+    <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav">
         <div class="nav-icon active" data-action="nav-home"><i class="fa-solid fa-house"></i><span>الرئيسية</span></div>
         <div class="nav-icon" data-action="nav-wallet"><i class="fa-solid fa-wallet nav-lg-icon"></i><span>المحفظة</span></div>
         <div class="nav-icon" data-action="open-favorites"><i class="fa-solid fa-heart"></i><span>المفضلة</span></div>
         <div class="nav-icon" data-action="nav-orders"><i class="fa-solid fa-box-open"></i><span>طلباتي</span></div>
-        <div class="nav-icon" data-action="open-sidebar"><i class="fa-solid fa-user"></i><span>حسابي</span></div>
+        <div class="nav-icon" data-action="open-sidebar"><i class="fa-solid fa-bars"></i><span>القائمة</span></div>
     </nav> 
     
+    <!-- عارض إيصالات الدفع -->
     <div id="pay-receipt-lightbox" class="pay-receipt-lightbox" data-action="close-pay-receipt">
         <div class="pay-receipt-inner">
             <img id="pay-receipt-img" alt="إشعار الدفع">    
-            <div class="pay-receipt-close"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pay-receipt-close" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
         </div>
     </div>
 
+    <!-- التقويم المخصص -->
     <div class="calendar-modal" id="cal-modal">
         <div class="cal-header">
             <div class="selector-box">
                 <div class="arrows-col">
-                    <button class="mini-btn" data-action="cal-adj-month" data-val="1"><i class="fa-solid fa-chevron-up"></i></button>
-                    <button class="mini-btn" data-action="cal-adj-month" data-val="-1"><i class="fa-solid fa-chevron-down"></i></button>
+                    <button class="mini-btn" data-action="cal-adj-month" data-val="1" aria-label="الشهر التالي"><i class="fa-solid fa-chevron-up"></i></button>
+                    <button class="mini-btn" data-action="cal-adj-month" data-val="-1" aria-label="الشهر السابق"><i class="fa-solid fa-chevron-down"></i></button>
                 </div>
                 <div class="selector-text" id="disp-month" data-action="cal-toggle-list" data-target="list-month">January</div>
                 <div class="dropdown-list" id="list-month"></div>
             </div>
             <div class="selector-box">
                 <div class="arrows-col">
-                    <button class="mini-btn" data-action="cal-adj-year" data-val="1"><i class="fa-solid fa-chevron-up"></i></button>
-                    <button class="mini-btn" data-action="cal-adj-year" data-val="-1"><i class="fa-solid fa-chevron-down"></i></button>
+                    <button class="mini-btn" data-action="cal-adj-year" data-val="1" aria-label="السنة التالية"><i class="fa-solid fa-chevron-up"></i></button>
+                    <button class="mini-btn" data-action="cal-adj-year" data-val="-1" aria-label="السنة السابقة"><i class="fa-solid fa-chevron-down"></i></button>
                 </div>
                 <div class="selector-text" id="disp-year" data-action="cal-toggle-list" data-target="list-year">2026</div>
                 <div class="dropdown-list" id="list-year"></div>
@@ -839,90 +900,11 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="purchase-success-overlay" data-action="close-purchase-success"></div>
-    <div class="modal-sheet bottom-sheet success-card" id="purchase-success-modal">
-        <div class="pm-close-std floating-close" data-action="close-purchase-success" aria-label="إغلاق" role="button">
-            <i class="fa-solid fa-xmark"></i>
-        </div>
-        <div class="success-icon"><i class="fa-solid fa-check"></i></div> 
-        
-        <h3 class="success-title" id="purchase-success-title">تم استلام طلبك!</h3>
-        <div id="purchase-code-display" class="d-none"></div>
-        
-        <div class="success-meta">
-            <i class="fa-solid fa-bag-shopping"></i>
-            <span id="purchase-success-desc">يمكنك متابعة حالة الطلب في <span class="smart-link" data-action="nav-orders-from-success">سجل الطلبات</span></span>
-        </div>
-    </div>
-
-    <template id="payment-card-template">
-        <div class="pay-history-card">
-            <div class="ph-header">
-                <div class="ph-right-sec">
-                    <div class="ph-icon-box">
-                        <i class="ph-icon"></i>
-                    </div>
-                    <div class="ph-info-text">
-                        <span class="ph-method-name"></span>
-                        <span class="ph-date-mini num-en"></span>
-                    </div>
-                </div>
-                <div class="ph-center-zone">
-                    <span class="ph-amount-header num-en"></span>
-                    <span class="ph-status-mini"></span>
-                </div>
-                <div class="ph-left-sec">
-                    <div class="ph-arrow-btn">
-                        <i class="fa-solid fa-chevron-down"></i>
-                    </div>
-                </div>
-            </div>
-            <div class="ph-details-body">
-                <div class="ph-sep-line"></div>
-                <div class="ph-data-list">
-                    <div class="ph-item">
-                        <div class="ph-item-label">
-                            <i class="fa-solid fa-hashtag"></i> رقم العملية
-                        </div>
-                        <div class="ph-item-val num-en ph-id copyable-id" title="اضغط لنسخ الرقم"></div>
-                    </div>
-                    <div class="ph-item">
-                        <div class="ph-item-label"><i class="fa-solid fa-user"></i> اسم المرسل</div>
-                        <div class="ph-item-val ph-sender"></div>
-                    </div>
-                    <div class="ph-item">
-                        <div class="ph-item-label"><i class="fa-solid fa-money-bill-wave"></i> المبلغ الكلي</div>
-                        <div class="ph-item-val num-en ph-total"></div>
-                    </div>
-                    <div class="ph-item">
-                        <div class="ph-item-label"><i class="fa-solid fa-scissors"></i> العمولة <span class="ph-fee-pct num-en"></span></div>
-                        <div class="ph-item-val num-en ph-fees"></div>
-                    </div>
-                    <div class="ph-item item-highlight">
-                        <div class="ph-item-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</div>
-                        <div class="ph-item-val num-en ph-net"></div>
-                    </div>
-                    <div class="ph-item">
-                        <div class="ph-item-label"><i class="fa-regular fa-calendar-days"></i> الوقت والتاريخ</div>
-                        <div class="ph-item-val num-en ph-full-time"></div>
-                    </div>
-                </div>
-                <div class="ph-footer-action">
-                    <button class="btn-receipt-export">
-                        <i class="fa-solid fa-file-export"></i> تصدير الإيصال
-                    </button>
-                </div>
-                <div class="ph-receipt-img-box" style="display:none;">
-                    <img src="" class="ph-img-elem">
-                </div>
-            </div>
-        </div>
-    </template>
-
+    <!-- نوافذ الإعدادات الإضافية (شروط، هوية، توثيق) -->
     <div class="pm-overlay" id="terms-overlay" data-action="close-terms"></div>
     <div class="modal-sheet bottom-sheet terms-modal-content" id="terms-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-terms">
+            <div class="pm-close-std" data-action="close-terms" aria-label="إغلاق">
                 <i class="fa-solid fa-xmark"></i>
             </div>
             <div class="header-center">
@@ -947,7 +929,7 @@
     <div class="pm-overlay" id="identity-overlay" data-action="close-identity"></div>
     <div class="modal-sheet bottom-sheet" id="identity-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-identity">
+            <div class="pm-close-std" data-action="close-identity" aria-label="إغلاق">
                 <i class="fa-solid fa-xmark"></i>
             </div>
             <div class="header-center">
@@ -977,7 +959,7 @@
                             <div class="dropdown-menu">
                                 <div class="dropdown-search-header">
                                     <div class="mf-search-box">
-                                        <input type="text" placeholder="ابحث عن دولتك..." data-action="filter-countries">
+                                        <input type="text" placeholder="ابحث عن دولتك..." data-action="filter-countries" autocomplete="off">
                                     </div>
                                 </div>
                                 <div id="countries-list-target" class="dropdown-items-list">
@@ -994,7 +976,7 @@
                             <span class="country-code-label num-en" id="phone-prefix" dir="ltr">
                                 <i class="fa-solid fa-globe"></i>
                             </span>
-                            <input type="tel" id="reg-phone" class="lux-input phone-input" placeholder="أدخل رقم هاتفك">
+                            <input type="tel" id="reg-phone" class="lux-input phone-input num-en" placeholder="أدخل رقم هاتفك" inputmode="tel" autocomplete="tel">
                         </div>
                     </div>
                     
@@ -1041,7 +1023,7 @@
     <div class="pm-overlay" id="kyc-upload-overlay" data-action="close-kyc-upload"></div>
     <div class="modal-sheet bottom-sheet" id="kyc-upload-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-kyc-upload"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-kyc-upload" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge text-warning"><i class="fa-solid fa-shield-halved"></i> توثيق الحساب الرسمي</span>
             </div>
@@ -1050,7 +1032,7 @@
         
         <div class="pm-scroll-content">
             <div class="profile-lux-card glass-form">
-                <div id="kyc-rejection-alert" class="nm-reply-box d-none" style="margin-bottom: 20px; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3);">
+                <div id="kyc-rejection-alert" class="nm-reply-box d-none rating-banner-error kyc-title-margin">
                     <div class="nm-reply-content">
                         <span class="nm-reply-head" style="color: #f43f5e;">
                             <i class="fa-solid fa-circle-xmark"></i> تم رفض طلب التوثيق السابق
@@ -1066,12 +1048,12 @@
                 
                 <div class="input-field-lux mb-15">
                     <label>الاسم الثلاثي الكامل</label>
-                    <input type="text" id="kyc-full-name" class="lux-input w-100" placeholder="مطابق تماماً للوثيقة الرسمية...">
+                    <input type="text" id="kyc-full-name" class="lux-input w-100" placeholder="مطابق تماماً للوثيقة الرسمية..." autocomplete="name" spellcheck="false">
                 </div>
 
                 <div class="input-field-lux mb-15">
                     <label>رقم الهوية الوطنية أو جواز السفر</label>
-                    <input type="text" id="kyc-id-number" class="lux-input w-100" placeholder="أدخل الرقم التعريفي هنا...">
+                    <input type="text" id="kyc-id-number" class="lux-input w-100 num-en" placeholder="أدخل الرقم التعريفي هنا..." autocomplete="off">
                 </div>
 
                 <div class="kyc-upload-grid">
@@ -1079,21 +1061,21 @@
                         <input type="file" accept="image/*" data-action="kyc-upload-front">
                         <i class="fa-regular fa-id-card"></i>
                         <span class="kyc-guide-txt">الوجه الأمامي للوثيقة<br>(يجب أن تكون البيانات واضحة)</span>
-                        <img id="kyc-prev-front" class="kyc-preview">
+                        <img id="kyc-prev-front" class="kyc-preview" alt="أمام">
                     </div>
                     
                     <div class="kyc-upload-box" id="kyc-box-back">
                         <input type="file" accept="image/*" data-action="kyc-upload-back">
                         <i class="fa-solid fa-barcode"></i>
                         <span class="kyc-guide-txt">الوجه الخلفي للوثيقة<br>(تأكد من وضوح الرموز)</span>
-                        <img id="kyc-prev-back" class="kyc-preview">
+                        <img id="kyc-prev-back" class="kyc-preview" alt="خلف">
                     </div>
                     
                     <div class="kyc-upload-box kyc-box-full" id="kyc-box-selfie">
                         <input type="file" accept="image/*" data-action="kyc-upload-selfie">
                         <i class="fa-solid fa-camera-retro"></i>
                         <span class="kyc-guide-txt">صورة سيلفي مع الوثيقة<br>(يرجى الإمساك بها بجانب الوجه)</span>
-                        <img id="kyc-prev-selfie" class="kyc-preview">
+                        <img id="kyc-prev-selfie" class="kyc-preview" alt="سيلفي">
                     </div>
                 </div>
 
@@ -1107,7 +1089,7 @@
     <div class="pm-overlay" id="kyc-status-overlay" data-action="close-kyc-status"></div>
     <div class="modal-sheet bottom-sheet" id="kyc-status-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-kyc-status"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-kyc-status" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-shield-check"></i> حالة التوثيق</span>
             </div>
@@ -1119,7 +1101,7 @@
     <div class="pm-overlay" id="notif-center-overlay" data-action="close-notif-center"></div>
     <div class="modal-sheet bottom-sheet" id="notif-center-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-notif-center"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-notif-center" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge"><i class="fa-solid fa-bell"></i> صندوق الإشعارات</span>
             </div>
@@ -1133,7 +1115,7 @@
     <div class="pm-overlay" id="tier-info-overlay" data-action="close-tier-info"></div>
     <div class="modal-sheet bottom-sheet" id="tier-info-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-tier-info"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-tier-info" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge text-warning"><i class="fa-solid fa-crown"></i> تفاصيل المستوى</span>
             </div>
@@ -1143,21 +1125,21 @@
     </div>
         
     <div class="pm-overlay" id="kyc-celebration-overlay" data-action="close-kyc-celebration"></div>
-    <div class="modal-sheet bottom-sheet success-card" id="kyc-celebration-modal" style="border-top-color: var(--kyc-cyan-main) !important; box-shadow: inset 0 0 15px rgba(14, 165, 233, 0.15), var(--shadow-soft) !important;">
-        <div class="pm-close-std floating-close" data-action="close-kyc-celebration" title="إغلاق">
+    <div class="modal-sheet bottom-sheet success-card kyc-success-card" id="kyc-celebration-modal">
+        <div class="pm-close-std floating-close" data-action="close-kyc-celebration" title="إغلاق" aria-label="إغلاق">
             <i class="fa-solid fa-xmark"></i>
         </div>
         
-        <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 85px; height: 85px; margin-bottom: 20px;">
-            <i class="fa-solid fa-certificate" style="font-size: 85px; background: linear-gradient(135deg, var(--kyc-cyan-light) 0%, var(--kyc-cyan-main) 50%, var(--kyc-cyan-dark) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 4px 15px rgba(14, 165, 233, 0.4)); animation: iconScale 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;"></i>
-            <i class="fa-solid fa-check" style="position: absolute; font-size: 40px; color: var(--bg-body); font-weight: 900; z-index: 2; margin-top: 2px; animation: popBadge 0.5s ease-out 0.2s forwards; opacity: 0;"></i>
+        <div class="kyc-icon-wrapper">
+            <i class="fa-solid fa-certificate kyc-cert-icon"></i>
+            <i class="fa-solid fa-check kyc-check-icon"></i>
         </div>
         
-        <h3 class="success-title" style="margin-bottom: 15px;">تهانينا! تم توثيق حسابك</h3>
+        <h3 class="success-title kyc-title-margin">تهانينا! تم توثيق حسابك</h3>
         
-        <div class="success-meta" style="border-color: rgba(14, 165, 233, 0.3);">
-            <i class="fa-solid fa-shield-halved" style="color: var(--kyc-cyan-main); font-size: 1.3rem;"></i>
-            <span style="white-space: normal !important; text-align: center; line-height: 1.5; flex: 1;">
+        <div class="success-meta kyc-meta-box">
+            <i class="fa-solid fa-shield-halved kyc-meta-icon"></i>
+            <span class="kyc-meta-text">
                 حصلت الآن على شارة التوثيق الرسمية، وتم تفعيل كافة ميزات حسابك بأمان.
             </span>
         </div>
@@ -1166,7 +1148,7 @@
     <div class="pm-overlay" id="community-overlay" data-action="close-community"></div>
     <div class="modal-sheet bottom-sheet" id="community-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-community"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-community" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge text-warning"><i class="fa-solid fa-share-nodes"></i> قنواتنا ومجتمعنا</span>
             </div>
@@ -1178,7 +1160,6 @@
                 <i class="fa-solid fa-bullhorn fa-bounce"></i>
                 <span>تابع قنواتنا الرسمية ومجموعات الدعم لتحصل على التحديثات وأحدث العروض فوراً!</span>
             </div>
-            
             <div class="community-grid-list" id="community-links-target"></div>
         </div>
     </div>  
@@ -1186,7 +1167,7 @@
     <div class="pm-overlay" id="rating-overlay" data-action="close-rating"></div>
     <div class="modal-sheet bottom-sheet" id="rating-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-rating"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-rating" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge text-warning"><i class="fa-solid fa-star"></i> قيم تجربتك معنا</span>
             </div>
@@ -1203,31 +1184,31 @@
                     <i class="fa-regular fa-star rating-star" data-action="select-rating" data-val="4"></i>
                     <i class="fa-regular fa-star rating-star" data-action="select-rating" data-val="5"></i>
                 </div>
-                <button type="button" class="alert-btn" id="btnContinueRating" data-action="submit-rating-step" disabled style="opacity: 0.5;">متابعة</button>
+                <button type="button" class="alert-btn opacity-50" id="btnContinueRating" data-action="submit-rating-step" disabled>متابعة</button>
             </div>
             
-            <div id="rating-step-feedback" class="rating-step-block" style="display: none;">
-                <div class="community-intro-banner" style="background: rgba(239, 68, 68, 0.04); border-color: rgba(239, 68, 68, 0.12); color: var(--text-gray); margin-bottom: 20px;">
-                    <i class="fa-solid fa-face-frown" style="color: var(--error-red); font-size: 1.4rem;"></i>
+            <div id="rating-step-feedback" class="rating-step-block hide-element">
+                <div class="community-intro-banner rating-banner-error">
+                    <i class="fa-solid fa-face-frown rating-icon-error"></i>
                     <span>نأسف لعدم تلبية توقعاتك. يُرجى تدوين الملاحظات بالتفصيل ليتم مراجعتها من قِبل الإدارة واتخاذ الإجراءات اللازمة.</span>
                 </div>
                 
-                <div class="input-group" style="margin-bottom: 25px;">
-                    <textarea class="rating-textarea" id="ratingFeedbackInput" placeholder="اكتب تفاصيل ملاحظاتك أو مقترحاتك هنا لمراجعتها..."></textarea>
+                <div class="input-group rating-input-group">
+                    <textarea class="rating-textarea" id="ratingFeedbackInput" placeholder="اكتب تفاصيل ملاحظاتك أو مقترحاتك هنا لمراجعتها..." spellcheck="false"></textarea>
                 </div>
                 
                 <button type="button" class="alert-btn" id="btnSubmitFeedback" data-action="submit-private-feedback">إرسال للإدارة</button>
             </div>
             
-            <div id="rating-step-share" class="rating-step-block" style="display: none;">
-                <div class="community-intro-banner" style="background: rgba(16, 185, 129, 0.04); border-color: rgba(16, 185, 129, 0.12); color: var(--text-gray); margin-bottom: 20px;">
-                    <i class="fa-solid fa-crown" style="color: var(--gold-main); font-size: 1.4rem; animation: pulse 2s infinite;"></i>
+            <div id="rating-step-share" class="rating-step-block hide-element">
+                <div class="community-intro-banner rating-banner-success">
+                    <i class="fa-solid fa-crown rating-icon-crown"></i>
                     <span>تقديراً لتقييمك المتميز، سنقوم بمراجعة حسابك لترقيته إلى مستوى VIP أفضل.</span>
                 </div>
                 
-                <p class="rating-intro-text" style="margin-bottom: 20px; font-weight: 700;">ندعوك لتوثيق تجربتك ومشاركتها مع مجتمعنا عبر المنصة الرسمية لتقييم المتاجر:</p>
+                <p class="rating-intro-text rating-intro-bold">ندعوك لتوثيق تجربتك ومشاركتها مع مجتمعنا عبر المنصة الرسمية لتقييم المتاجر:</p>
                 
-                <a href="https://www.trustpilot.com" target="_blank" class="submit-btn" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; margin-top: 20px;" data-action="close-rating">
+                <a href="https://www.trustpilot.com" target="_blank" class="submit-btn rating-share-btn" data-action="close-rating">
                     <i class="fa-solid fa-external-link"></i> تقييم الخدمة عبر منصة Trustpilot
                 </a>
             </div>
@@ -1237,7 +1218,7 @@
     <div class="pm-overlay" id="about-overlay" data-action="close-about"></div>
     <div class="modal-sheet bottom-sheet" id="about-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-about"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-about" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge text-warning"><i class="fa-solid fa-circle-info"></i> من نحن</span>
             </div>
@@ -1245,10 +1226,10 @@
         </div>
         
         <div class="pm-scroll-content">
-            <div class="custom-alert-card" style="max-width: 100%; border: none; box-shadow: none; background: transparent; padding: 20px 10px;">
+            <div class="custom-alert-card about-card-clean">
                 <div id="about-logo-box"></div>
-                <h3 class="alert-title" id="about-popup-title" style="color: var(--gold-main); font-size: 20px; margin-bottom: 15px;"></h3>
-                <p class="alert-msg" id="about-popup-desc" style="text-align: justify; text-align-last: center; line-height: 1.8; margin-bottom: 25px;"></p>
+                <h3 class="alert-title about-title" id="about-popup-title"></h3>
+                <p class="alert-msg about-desc" id="about-popup-desc"></p>
                 <button type="button" class="alert-btn" data-action="close-about">أهلاً بك في متجرنا</button>
             </div>
         </div>
@@ -1257,7 +1238,7 @@
     <div class="pm-overlay" id="security-overlay" data-action="close-security-modal"></div>
     <div class="modal-sheet bottom-sheet" id="security-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-security-modal"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-security-modal" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge text-warning"><i class="fa-solid fa-shield-halved"></i> الأمان والخصوصية</span>
             </div>
@@ -1267,26 +1248,26 @@
         <div class="pm-scroll-content">
             <div class="settings-group-title">إعدادات المصادقة وحماية الحساب</div>
             
-            <div class="setting-row">
+            <div class="modern-setting-row">
                 <div class="setting-info">
-                    <div class="setting-title"><i class="fa-solid fa-key"></i> المصادقة الثنائية (2FA)</div>
-                    <div class="setting-sub">إرسال رمز التحقق (OTP) إلى تطبيق المصادقة.</div>
+                    <span class="setting-title"><i class="fa-solid fa-shield-halved"></i> المصادقة الثنائية (2FA)</span>
+                    <span class="setting-sub">حماية إضافية عبر تطبيق Google Authenticator</span>
                 </div>
-                <button type="button" class="setting-toggle ghost" id="setting-2fa-toggle" data-action="toggle-2fa">
-                    <span class="setting-toggle-knob"></span>
-                    <span class="setting-toggle-label" id="setting-2fa-label">غير مفعل</span>
-                </button>
+                <div class="modern-switch-btn" id="setting-2fa-toggle">
+                    <div class="switch-bg-text">مغلق</div>
+                    <div class="switch-knob"></div>
+                </div>
             </div>
-            
-            <div class="setting-row">
+
+            <div class="modern-setting-row">
                 <div class="setting-info">
-                    <div class="setting-title"><i class="fa-solid fa-fingerprint"></i> المصادقة الحيوية</div>
-                    <div class="setting-sub">تسجيل الدخول الفوري وتأكيد العمليات بلمسة إصبع آمنة.</div>
+                    <span class="setting-title"><i class="fa-solid fa-fingerprint"></i> البصمة الحيوية</span>
+                    <span class="setting-sub">استخدام بصمة الإصبع أو الوجه لفك قفل المتجر</span>
                 </div>
-                <button type="button" class="setting-toggle ghost" id="setting-biometric-toggle" data-action="toggle-biometric">
-                    <span class="setting-toggle-knob"></span>
-                    <span class="setting-toggle-label" id="setting-biometric-label">قريباً</span>
-                </button>
+                <div class="modern-switch-btn" id="setting-biometric-toggle">
+                    <div class="switch-bg-text">مغلق</div>
+                    <div class="switch-knob"></div>
+                </div>
             </div>
             
             <div class="settings-group-title">تعديل كلمة المرور</div>
@@ -1313,14 +1294,14 @@
                 </div>
             </div>
             
-            <div class="settings-group-title" style="color: var(--danger);">إجراءات إغلاق الحساب</div>
+            <div class="settings-group-title danger-zone-title">إجراءات إغلاق الحساب</div>
             
             <div class="danger-zone-wrapper">
                 <div class="setting-info">
-                    <div class="setting-title" style="color: var(--danger);"><i class="fa-solid fa-trash-can"></i> حذف الحساب نهائياً</div>
-                    <div class="setting-sub" style="color: var(--text-muted);">هذا الإجراء سيقوم بحذف جميع بياناتك ورصيدك نهائياً ولا يمكن التراجع عنه.</div>
+                    <div class="setting-title danger-zone-title"><i class="fa-solid fa-trash-can"></i> حذف الحساب نهائياً</div>
+                    <div class="setting-sub danger-zone-sub">هذا الإجراء سيقوم بحذف جميع بياناتك ورصيدك نهائياً ولا يمكن التراجع عنه.</div>
                 </div>
-                <button class="alert-btn" style="background: var(--danger); color: #fff; box-shadow: 0 4px 15px rgba(225, 29, 72, 0.2);" data-action="request-account-delete">طلب حذف الحساب</button>
+                <button class="alert-btn btn-danger-glow" data-action="request-account-delete">طلب حذف الحساب</button>
             </div>
         </div>
     </div>
@@ -1328,33 +1309,33 @@
     <div class="pm-overlay" id="setup-2fa-overlay" data-action="close-setup-2fa"></div>
     <div class="modal-sheet bottom-sheet" id="setup-2fa-modal">
         <div class="pm-header-std">
-            <div class="pm-close-std" data-action="close-setup-2fa"><i class="fa-solid fa-xmark"></i></div>
+            <div class="pm-close-std" data-action="close-setup-2fa" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
                 <span class="title-badge text-warning"><i class="fa-solid fa-qrcode"></i> تفعيل المصادقة الثنائية</span>
             </div>
             <div class="pm-header-spacer"></div>
         </div>
         
-        <div class="pm-scroll-content" style="display: flex; flex-direction: column; align-items: center; text-align: center; padding: 15px 20px 40px;">
-            <div class="identity-info-banner" style="width: 100%; margin-bottom: 20px; text-align: right;">
+        <div class="pm-scroll-content setup-2fa-content">
+            <div class="identity-info-banner setup-2fa-banner">
                 <i class="fa-solid fa-shield-halved"></i>
                 <span>حمل تطبيق <b>Google Authenticator</b> وامسح الرمز أدناه لربط حسابك بأمان.</span>
             </div>
             
-            <div id="qrcode-container" style="background: #ffffff; padding: 15px; border-radius: 16px; border: 3px solid var(--primary); box-shadow: 0 0 20px rgba(255,215,0,0.2); margin-bottom: 20px; width: 180px; height: 180px; display: flex; align-items: center; justify-content: center;">
-                <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 30px; color: var(--text-muted);"></i>
+            <div id="qrcode-container" class="qr-code-box">
+                <i class="fa-solid fa-circle-notch fa-spin qr-spinner"></i>
             </div>
             
-            <p style="color: var(--text-muted); font-size: 11px; margin-bottom: 20px; font-weight: 700;">
+            <p class="setup-2fa-instructions">
                 أو أدخل هذا الرمز يدوياً في التطبيق: <br>
-                <span id="manual-2fa-secret" class="num-en" style="color: var(--primary); font-size: 14px; letter-spacing: 2px; user-select: all; margin-top: 5px; display: inline-block; background: rgba(255,215,0,0.1); padding: 4px 10px; border-radius: 6px; cursor: pointer;" data-action="copy-text" title="اضغط للنسخ">------</span>
+                <span id="manual-2fa-secret" class="num-en manual-secret-code" data-action="copy-text" title="اضغط للنسخ">------</span>
             </p>
             
-            <div class="input-field-lux" style="width: 100%; margin-bottom: 20px;">
-                <input type="text" id="otp-verify-input" class="lux-input num-en" placeholder="أدخل الـ 6 أرقام هنا" maxlength="6" inputmode="numeric" style="text-align: center; font-size: 20px; letter-spacing: 8px;">
+            <div class="input-field-lux setup-2fa-input-wrap">
+                <input type="text" id="otp-verify-input" class="lux-input num-en otp-center-input" placeholder="أدخل الـ 6 أرقام هنا" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
             </div>
             
-            <button class="alert-btn" id="btn-confirm-2fa" data-action="verify-and-enable-2fa" style="height: 52px; font-size: 16px;">
+            <button class="alert-btn btn-tall" id="btn-confirm-2fa" data-action="verify-and-enable-2fa">
                 تأكيد وتفعيل الحماية
             </button>
         </div>
@@ -1367,8 +1348,8 @@
             </div>
             <h2 class="bio-title">المتجر مقفل</h2>
             <p class="bio-desc">يرجى استخدام بصمة الإصبع أو الوجه لفك قفل متجر تيليكارد والمتابعة.</p>
-            <button class="alert-btn" data-action="enforce-biometric">فتح القفل <i class="fa-solid fa-unlock-keyhole" style="margin-right: 5px;"></i></button>
-            <button class="alert-btn" style="background: rgba(229, 62, 62, 0.1); color: var(--danger); border: 1px solid rgba(229, 62, 62, 0.3); margin-top: 10px; box-shadow: none;" data-action="logout">تسجيل الخروج</button>
+            <button id="btn-biometric-retry" class="alert-btn" data-action="enforce-biometric">فتح القفل <i class="fa-solid fa-unlock-keyhole mr-5"></i></button>
+            <button class="alert-btn btn-logout-ghost" data-action="logout" style="margin-top: 15px;">تسجيل الخروج</button>
         </div>
     </div>
 

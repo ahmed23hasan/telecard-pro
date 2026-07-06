@@ -1,7 +1,7 @@
 // ============================================================================
 // ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - Bank Grade 🏦
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🌟 التحديث: دمج جدار حماية الحظر (Ban Firewall)، الرياضيات الآمنة، والأداء العالي
+// 🌟 التحديث الأقصى: استدعاء calculateOrderTotal، ترقيع SSRF عسكري، وتفعيل onWrite
 // ============================================================================
 
 const functions = require('firebase-functions');
@@ -19,6 +19,33 @@ const db = admin.firestore();
 // ==========================================
 const safeAdd = (a, b) => Math.round(Number(a) * 10000 + Number(b) * 10000) / 10000;
 const safeSub = (a, b) => Math.max(0, Math.round(Number(a) * 10000 - Number(b) * 10000) / 10000);
+
+// 🛡️ [ترقيع أمني عسكري]: منع SSRF (بما في ذلك IPv6 و Decimal IPs)
+function isSafeWebhookUrl(urlString) {
+    try {
+        const parsedUrl = new URL(urlString);
+        if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') return false;
+        
+        const hostname = parsedUrl.hostname.toLowerCase();
+        
+        // منع IPv6 Localhost والـ Decimal IPs و 0.0.0.0
+        if (hostname.includes('[') || hostname.includes('::') || /^0\.0\.0\.0$/.test(hostname) || /^\d+$/.test(hostname)) {
+            return false;
+        }
+
+        const blockedPatterns = [
+            /^localhost$/,
+            /^127\.\d+\.\d+\.\d+$/,
+            /^10\.\d+\.\d+\.\d+$/,
+            /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/,
+            /^192\.168\.\d+\.\d+$/,
+            /^169\.254\.\d+\.\d+$/ // GCP / AWS Metadata IP
+        ];
+        return !blockedPatterns.some(pattern => pattern.test(hostname));
+    } catch (e) {
+        return false;
+    }
+}
 
 async function logFailedWebhook(payload, webhookUrl, errorMsg, userId) {
     await db.collection('telecard_failed_webhooks').add({
@@ -40,13 +67,19 @@ function generateHmacSignature(payload, secret) {
 // ==========================================
 // 🚀 1. مرسل الإشعارات السحابي (Webhook Dispatcher - Secure)
 // ==========================================
+// 🌟 [إصلاح الخلل المعماري]: استخدام onWrite لالتقاط الطلبات المنشأة حديثاً عبر الـ API والتحديثات معاً
 exports.orderStatusWebhook = functions.region('us-east1').firestore
     .document('telecard_orders/{orderId}')
-    .onUpdate(async (change, context) => {
-        const before = change.before.data();
-        const after = change.after.data();
+    .onWrite(async (change, context) => {
         
-        if (before.status === after.status) return null;
+        // إذا تم حذف الطلب، نتجاهله
+        if (!change.after.exists) return null;
+
+        const after = change.after.data();
+        const before = change.before.exists ? change.before.data() : null;
+        
+        // إذا كان تحديثاً ولم تتغير الحالة، نتجاهله
+        if (before && before.status === after.status) return null;
         
         const userId = after.userId;
         
@@ -56,16 +89,19 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
             
             const userData = userSnap.data();
             
-            // 🛑 [درع توفير الموارد]: عدم إرسال إشعارات Webhook لحساب محظور لتخفيف الحمل على السيرفر
             if (userData.isBanned === true) {
                 console.log(`Webhook blocked for banned user: ${userId}`);
                 return null;
             }
             
-            if (!userData.webhookUrl || !userData.webhookUrl.startsWith('http')) return null;
+            if (!userData.webhookUrl || !isSafeWebhookUrl(userData.webhookUrl)) {
+                return null;
+            }
             
             const payload = {
-                event: 'order_status_changed',
+                // 🛡️ إضافة eventId لمنع تكرار معالجة الإشعار من طرف التاجر (Idempotency)
+                eventId: context.eventId, 
+                event: before ? 'order_status_changed' : 'order_created',
                 orderId: after.displayId || after.id,
                 productId: after.prodId,
                 productName: after.product,
@@ -86,7 +122,7 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'User-Agent': 'Telecard-Cloud-Engine/2.0',
+                        'User-Agent': 'Telecard-Cloud-Engine/2.1',
                         'X-Telecard-Signature': signature 
                     },
                     body: JSON.stringify(payload),
@@ -103,7 +139,6 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
             } catch (fetchErr) {
                 clearTimeout(timeoutId);
                 const errorMsg = fetchErr.name === 'AbortError' ? 'Connection Timeout (10s)' : fetchErr.message;
-                console.error("Fetch Webhook Error:", errorMsg);
                 await logFailedWebhook(payload, userData.webhookUrl, errorMsg, userId);
                 return null;
             }
@@ -140,7 +175,7 @@ exports.cronRetryWebhooks = functions.region('us-east1').pubsub.schedule('every 
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'User-Agent': 'Telecard-Cloud-Engine-Retry/2.0'
+                        'User-Agent': 'Telecard-Cloud-Engine-Retry/2.1'
                     },
                     body: JSON.stringify(data.payload),
                     signal: controller.signal
@@ -178,6 +213,9 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
     const idempotencyKey = req.headers['idempotency-key'];
     const cleanKey = apiKeyHeader.replace('Bearer ', '').trim();
 
+    // 🛡️ [ترقيع أمني]: منع مفاتيح فارغة من تخطي المصادقة
+    if (cleanKey.length < 20) return res.status(401).json({ success: false, error: 'Unauthorized: Invalid API Key format.' });
+
     try {
         const usersQuery = await db.collection('telecard_users').where('apiKey', '==', cleanKey).limit(1).get();
         if (usersQuery.empty) return res.status(401).json({ success: false, error: 'Unauthorized: Invalid API Key.' });
@@ -190,7 +228,9 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
 
         const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
         let resultData = null;
-        const cleanOrderId = 'TC-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
+        
+        // 🛡️ [تحديث أمني]: استخدام crypto لمنع ثغرات التصادم
+        const cleanOrderId = 'TC-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
 
         await db.runTransaction(async (transaction) => {
             
@@ -200,12 +240,11 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                 const existingReq = await transaction.get(idempotencyRef);
                 if (existingReq.exists) {
                     resultData = existingReq.data().resultData;
-                    return; 
+                    return; // إرجاع النتيجة المحفوظة مسبقاً
                 }
             }
 
             const productRef = db.collection('telecard_prods').doc(String(productId));
-
             const [productSnap, latestUserSnap] = await Promise.all([
                 transaction.get(productRef),
                 transaction.get(userDoc.ref)
@@ -215,55 +254,75 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
             const product = productSnap.data();
             const userData = latestUserSnap.data();
 
-            // 🛑 [الدرع الأمني المباشر]: منع التاجر المحظور من إكمال العملية عبر الـ API
             if (userData.isBanned === true || userData.isIpBanned === true) {
                 throw new Error('Unauthorized: Account Banned');
             }
 
             const orderRef = db.collection('telecard_orders').doc(cleanOrderId);
             const tierId = String(userData.tierId || userData.tier || 1);
-            const tierRef = db.collection('telecard_tiers').doc(tierId);
-            const vaultRef = product.vaultPoolId ? db.collection('telecard_vault').doc(String(product.vaultPoolId)) : null;
+            
+            // 🏗️ [التوافق المعماري]: استخدام الـ Subcollections لقراءة المخزون بدلاً من المصفوفات القديمة
+            let vaultKeysQuery = null;
+            if (product.vaultPoolId) {
+                 vaultKeysQuery = db.collection('telecard_vault').doc(String(product.vaultPoolId))
+                                    .collection('keys')
+                                    .where('isSold', '==', false)
+                                    .limit(finalQty);
+            }
 
-            const [tierSnap, vaultSnap] = await Promise.all([
-                transaction.get(tierRef),
-                vaultRef ? transaction.get(vaultRef) : Promise.resolve(null)
+            const [tierSnap, keysSnap] = await Promise.all([
+                transaction.get(db.collection('telecard_tiers').doc(tierId)),
+                vaultKeysQuery ? transaction.get(vaultKeysQuery) : Promise.resolve(null)
             ]);
 
             const userTier = tierSnap.exists ? tierSnap.data() : null;
 
-            const rawUnitCost = Number(product.costPrice || product.price || 0);
-            const isFixed = (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true');
-            const fixedUsd = isFixed ? Number(product.fixedPriceUsd || product.fixed_price_usd || 0) : 0;
+            // 🛡️ [تحديث أمني 💎]: استدعاء المحرك المالي وتمرير الكمية له ليحسب الإجماليات
+            const pricingSnapshot = FinancialEngine.calculateOrderTotal({
+                product: product, 
+                tier: userTier, 
+                offer: null, 
+                coupon: null
+            }, finalQty); // تمرير الكمية هنا
 
-            const pricingSnapshot = FinancialEngine.calculatePrice({
-                costPrice: rawUnitCost, fixedPrice: fixedUsd, tier: userTier, offer: null, coupon: null
-            });
+            // 🚨 🚨 [إغلاق الثغرة]: تفعيل الجدار الناري هنا أيضاً لحماية أرباح المورد!
+            if (pricingSnapshot.isFirewallViolated) {
+                console.error(`[API SECURITY ALERT] Firewall blocked API order! User: ${uid}, Product: ${productId}`);
+                throw new Error('Firewall Violation: Price consistency error.');
+            }
 
-            // 🌟 استخدام الرياضيات الآمنة (Integer Math) لتجنب أخطاء الفواصل العشرية
-            const exactPrice = safeAdd(0, pricingSnapshot.finalPrice * finalQty);
-            const currentBalance = Number(userData.walletBalance || 0);
+            // 💡 سحب السعر الإجمالي جاهزاً من المحرك المالي
+            const exactPrice = pricingSnapshot.totalFinalPrice;
+            const currentBalance = Number(userData.walletBalance || userData.balance || 0);
 
-            if (currentBalance < exactPrice) throw new Error('Insufficient balance.');
+            if (exactPrice <= 0 || currentBalance < exactPrice) throw new Error('Insufficient balance.');
 
             let deliveredCodeText = null;
             let isAutoDelivered = false;
+            let extractedCodes = [];
 
-            if (vaultSnap && vaultSnap.exists) {
-                const vaultData = vaultSnap.data();
-                if (vaultData.codes && vaultData.codes.length >= finalQty) {
-                    const remainingCodes = [...vaultData.codes];
-                    const extractedCodes = remainingCodes.splice(0, finalQty);
-                    deliveredCodeText = extractedCodes.map(c => typeof c === 'object' ? (c.text || c.code || '') : c).join(' | ');
-                    isAutoDelivered = true;
-                    transaction.update(vaultRef, { codes: remainingCodes });
-                } else {
+            // 🏗️ سحب الأكواد من الـ Subcollections وقفلها فوراً 
+            if (vaultKeysQuery) {
+                if (!keysSnap || keysSnap.size < finalQty) {
                     throw new Error('Out of stock.');
                 }
+                
+                keysSnap.forEach(doc => {
+                    const codeData = doc.data();
+                    extractedCodes.push(codeData.codeText);
+                    // قفل الكود وربطه بطلب الـ API
+                    transaction.update(doc.ref, {
+                        isSold: true,
+                        soldAt: admin.firestore.FieldValue.serverTimestamp(),
+                        orderId: cleanOrderId,
+                        userId: uid
+                    });
+                });
+                
+                deliveredCodeText = extractedCodes.join(' | ');
+                isAutoDelivered = true;
             }
 
-            const costPriceVal = safeAdd(0, pricingSnapshot.cost * finalQty);
-            const netProfit = safeAdd(0, pricingSnapshot.profit * finalQty);
             const newBalance = safeSub(currentBalance, exactPrice);
             const newTotalSpent = safeAdd(userData.totalSpent || 0, exactPrice);
             const newCycleSpent = safeAdd(userData.tierCycleSpent || 0, exactPrice);
@@ -274,9 +333,11 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                 status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText,
                 balanceAfter: newBalance, idempotencyKey: idempotencyKey || null, 
                 pricingSnapshot: { 
-                    costUsd: costPriceVal, tierPriceUsd: safeAdd(0, pricingSnapshot.tierPrice * finalQty),
-                    originalPriceUsd: safeAdd(0, pricingSnapshot.originalPrice * finalQty), finalPriceUsd: exactPrice,
-                    tierName: pricingSnapshot.tierName, netProfitUsd: netProfit, marginPct: pricingSnapshot.marginPct,
+                    costUsd: pricingSnapshot.totalCost, // من المحرك مباشرة
+                    originalPriceUsd: pricingSnapshot.totalOriginalPrice, // من المحرك مباشرة
+                    finalPriceUsd: exactPrice,
+                    tierName: pricingSnapshot.tierName, 
+                    netProfitUsd: pricingSnapshot.totalProfit, // الاعتماد التام على المحرك المالي
                     isFirewallActive: pricingSnapshot.isFirewallActive
                 },
                 time: admin.firestore.FieldValue.serverTimestamp(),
@@ -289,11 +350,9 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                 walletBalance: newBalance, balance: newBalance, totalSpent: newTotalSpent, tierCycleSpent: newCycleSpent
             });
             
-            // 🌟 إرسال إشعار للمشترى عبر الـ Subcollection لكي يراه في المتجر أيضاً!
             if (isAutoDelivered) {
-                const notifId = 'notif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5);
-                const notifRef = userDoc.ref.collection('notifications').doc(notifId);
-                transaction.set(notifRef, {
+                const notifId = `notif_api_${cleanOrderId}`;
+                transaction.set(userDoc.ref.collection('notifications').doc(notifId), {
                     id: notifId, title: "🔌 تم تسليم طلب API بنجاح!",
                     message: `تم إكمال طلبك الخارجي لشراء ( ${product.name} ) بنجاح.`,
                     type: 'notification', jumpTarget: 'order', createdAt: Date.now()
@@ -314,14 +373,12 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
     } catch (error) {
         console.error("API Gateway Error:", error);
         
-        // 🛑 التقاط خطأ الحظر وإرسال استجابة 403 Forbidden
-        if (error.message === 'Unauthorized: Account Banned') {
-            return res.status(403).json({ success: false, error: 'Account is banned or restricted.' });
-        }
+        if (error.message === 'Unauthorized: Account Banned') return res.status(403).json({ success: false, error: 'Account is banned.' });
+        if (error.message === 'Insufficient balance.') return res.status(402).json({ success: false, error: 'Insufficient balance.' });
+        if (error.message === 'Out of stock.') return res.status(409).json({ success: false, error: 'Product out of stock.' });
+        if (error.message === 'Product not found.') return res.status(404).json({ success: false, error: 'Product not found.' });
+        if (error.message.includes('Firewall')) return res.status(400).json({ success: false, error: 'Order rejected by security policy.' });
         
-        if (error.message === 'Insufficient balance.') return res.status(402).json({ success: false, error: 'Insufficient balance' });
-        else if (error.message === 'Out of stock.') return res.status(409).json({ success: false, error: 'Product out of stock' });
-        else if (error.message === 'Product not found.') return res.status(404).json({ success: false, error: 'Product not found' });
         return res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
 });

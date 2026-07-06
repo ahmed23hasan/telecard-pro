@@ -1017,31 +1017,134 @@ body.light-mode .cat-img-box, body.light-mode .card-image, body.light-mode .stor
     background-color: rgba(0, 0, 0, 0.05);
     background-image: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.4) 25%, rgba(255, 255, 255, 0.8) 50%, rgba(255, 255, 255, 0.4) 75%, transparent 100%);
 }
-
 /* 🛑 يتم تفعيله برمجياً لإيقاف استنزاف الموارد بعد التحميل */
-.shimmer-stop { background-image: none !important; animation: none !important; background-color: transparent !important; }
-
+.shimmer-stop {
+    background-image: none !important;
+    animation: none !important;
+    /* 🚀 تم إزالة background-color: transparent !important ليتحكم بها الجافاسكريبت بذكاء */
+}
 /* =========================================================
    [ 17. إعدادات المتجر وأزرار التبديل (Settings & Toggles) ]
    ========================================================= */
-.settings-body { padding: 10px 4px 140px; display: flex; flex-direction: column; gap: 12px; }
-.settings-group-title { font-weight: 900; font-size: 13px; color: var(--text-main); letter-spacing: 0.3px; padding: 0 10px; margin-top: 10px; }
 
-.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--bg-card); border: var(--card-border); border-radius: var(--radius-lg); padding: 12px 14px; box-shadow: var(--shadow-soft); }
+/* 🌟 الحاوية الرئيسية للإعدادات */
+.settings-body { 
+    padding: 10px 4px 140px; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 12px; 
+}
+
+/* 🌟 عناوين الأقسام (تم إصلاح الالتصاق بإضافة margin-bottom) */
+.settings-group-title { 
+    font-weight: 900; 
+    font-size: 13px; 
+    color: var(--text-main); 
+    letter-spacing: 0.3px; 
+    padding: 0 10px; 
+    margin-top: 10px; 
+    margin-bottom: 12px; /* 👈 مساحة تنفس مريحة أسفل العنوان */
+}
+
+/* 🌟 حاوية الإعداد الحديثة (Modern Setting Row) */
+.modern-setting-row { 
+    display: flex; 
+    align-items: center; 
+    justify-content: space-between; 
+    gap: 12px; 
+    background: var(--bg-card); 
+    border: var(--card-border); 
+    border-radius: var(--radius-lg); 
+    padding: 16px 14px; 
+    margin-bottom: 12px; 
+    box-shadow: var(--shadow-soft); 
+    transition: all 0.3s ease; 
+}
+.modern-setting-row:hover { 
+    border-color: rgba(var(--primary-rgb), 0.4); 
+}
+
+/* 🌟 النصوص داخل الإعداد */
 .setting-info { display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .setting-title { font-weight: 800; color: var(--text-main); display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .setting-title i { color: var(--primary); }
 .setting-sub { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
 
-/* 🌟 حاوية الزر التفاعلي (Toggle Switch) */
-.setting-toggle { position: relative; width: 85px; height: 34px; border-radius: 40px; background: var(--bg-input); border: var(--card-border); cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); display: flex; align-items: center; overflow: hidden; flex-shrink: 0; }
-.setting-toggle.on { background: rgba(var(--primary-rgb), 0.12); border-color: var(--primary); }
+/* 🌟 المفتاح الديناميكي الفاخر (Modern Smart Switch) */
+.modern-switch-btn {
+    position: relative; 
+    width: 85px; 
+    height: 38px;
+    background: var(--bg-input); 
+    border-radius: 30px; 
+    border: var(--card-border);
+    cursor: pointer; 
+    display: flex; 
+    align-items: center;
+    padding: 4px; 
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+    transition: background 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), border-color 0.3s;
+    overflow: hidden; 
+    flex-shrink: 0;
+}
+body.light-mode .modern-switch-btn { 
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); 
+}
 
-.setting-toggle-label { position: absolute; right: 12px; font-size: 11px; font-weight: 800; color: var(--text-muted); transition: all 0.3s ease; user-select: none; white-space: nowrap; z-index: 1; }
-.setting-toggle.on .setting-toggle-label { color: var(--primary); right: auto; left: 12px; }
+/* 🔘 الدائرة المتحركة التي بداخل الزر (Knob) */
+.switch-knob {
+    position: absolute; 
+    left: 4px; 
+    width: 30px; 
+    height: 30px;
+    background: var(--text-muted); 
+    border-radius: 50%;
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
+    color: var(--bg-body); 
+    font-size: 13px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.3s, color 0.3s;
+    z-index: 2;
+}
 
-.setting-toggle-knob { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; border-radius: 50%; background: var(--text-muted); transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 2; }
-.setting-toggle.on .setting-toggle-knob { left: calc(100% - 28px); background: var(--primary); box-shadow: 0 0 10px rgba(var(--primary-rgb), 0.4); }
+/* 🔤 النص الذي بداخل الزر (ليلي / نهاري / مفعل / صامت) */
+.switch-bg-text {
+    position: absolute; 
+    width: 100%; 
+    text-align: right;
+    padding-right: 12px; 
+    color: var(--text-muted); 
+    font-size: 12px; 
+    font-weight: 800;
+    transition: all 0.3s ease; 
+    z-index: 1; 
+    pointer-events: none;
+}
+
+/* 🌙 حالة التفعيل (Active/Light/On) */
+.modern-switch-btn.is-active, 
+.modern-switch-btn.is-light { 
+    background: rgba(var(--primary-rgb), 0.15); 
+    border-color: var(--primary); 
+}
+
+.modern-switch-btn.is-active .switch-knob, 
+.modern-switch-btn.is-light .switch-knob {
+    transform: translateX(45px); /* تحريك القرص لليمين */
+    background: var(--primary); 
+    color: #fff; 
+    box-shadow: -2px 2px 5px rgba(var(--primary-rgb), 0.4);
+}
+
+.modern-switch-btn.is-active .switch-bg-text, 
+.modern-switch-btn.is-light .switch-bg-text {
+    text-align: left; 
+    padding-left: 12px; 
+    padding-right: 0; 
+    color: var(--primary);
+}
 /* =========================================================
    [ 18. واجهة إتمام الشراء والتفاصيل (Purchase Modal) ]
    ========================================================= */
@@ -3514,7 +3617,7 @@ body.light-mode #kyc-celebration-modal .success-meta {
    [ 📜 41. نافذة الشروط والأحكام (Terms & Conditions VIP) ]
    ========================================================= */
 
-/* 🌟 إعادة ضبط النافذة لتتطابق مع باقي النوافذ (إصلاح زر الإغلاق) */
+/* 🌟 الحاوية الرئيسية للنافذة */
 .terms-modal-content {
     max-width: 500px; 
     background: var(--bg-modal) !important; 
@@ -3526,16 +3629,18 @@ body.light-mode #kyc-celebration-modal .success-meta {
     display: flex !important; 
     flex-direction: column !important; 
     overflow: hidden !important;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 }
 
-/* 🌟 الوثيقة الموحدة (الصندوق الزجاجي الذي يحتوي جميع الشروط) */
+/* 🌟 الصندوق الزجاجي الموحد */
 .terms-unified-card {
     background: var(--bg-glass-dark);
     border: var(--border-nested);
     border-radius: var(--radius-lg);
-    padding: 0 16px; /* حشوة جانبية فقط، الفواصل تتكفل بالباقي */
+    padding: 0 16px;
     display: flex;
     flex-direction: column;
+    margin: 10px;
 }
 
 body.light-mode .terms-unified-card {
@@ -3544,22 +3649,23 @@ body.light-mode .terms-unified-card {
     box-shadow: 0 4px 15px rgba(0,0,0,0.03);
 }
 
-/* 🌟 السطر الفردي لكل بند */
+/* 🌟 تنسيق السطر (البند) */
 .term-item-row {
     padding: 20px 0;
     border-bottom: 1px dashed var(--border-light);
 }
 
-/* إخفاء الخط المنقط عن آخر عنصر لجمالية التصميم */
 .term-item-row:last-child {
     border-bottom: none;
 }
 
+/* 🚀 إصلاح التموضع: الأيقونة على اليمين ثم العنوان */
 .tir-header {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    align-items: center; /* موازاة عمودية */
+    gap: 12px; /* مسافة ثابتة بين الأيقونة والنص */
     margin-bottom: 12px;
+    direction: rtl; /* ضمان الاتجاه العربي */
 }
 
 .tir-title {
@@ -3568,20 +3674,24 @@ body.light-mode .terms-unified-card {
     color: var(--text-main);
     margin: 0;
     line-height: 1.4;
+    text-align: right;
 }
 
-/* 🌟 الأيقونة المصغرة الخضراء الأنيقة بجانب العنوان */
+/* 🌟 الأيقونة: تم نقلها لليمين مع معالجة التشوه */
 .tir-icon {
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
     border-radius: 10px;
-    background: rgba(16, 185, 129, 0.1); 
+    background: rgba(16, 185, 129, 0.15); 
     color: #10b981; 
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 15px;
+    font-size: 16px;
     flex-shrink: 0;
+    /* 🛡️ حماية الأيقونة من التشوه */
+    font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important;
+    font-weight: 900;
 }
 
 .tir-text {
@@ -3591,17 +3701,17 @@ body.light-mode .terms-unified-card {
     font-weight: 600;
     text-align: right;
     margin: 0;
+    padding-right: 48px; /* محاذاة النص تحت العنوان تماماً وترك مسافة للأيقونة */
     white-space: pre-wrap; 
 }
 
-/* 🌟 تصميم زر (قرأت وأوافق) مع خلفية متلاشية لمنع التداخل مع النص */
+/* 🌟 زر الإغلاق (Sticky Footer) */
 .terms-footer {
-    padding: 15px 0 20px 0;
-    background: linear-gradient(to top, var(--bg-modal) 70%, transparent);
+    padding: 15px 15px 25px 15px;
+    background: linear-gradient(to top, var(--bg-modal) 80%, transparent);
     position: sticky;
     bottom: 0;
     z-index: 10;
-    margin-top: -10px; /* لدمج التدرج مع المحتوى بسلاسة */
 }
 
 .terms-footer .terms-btn {
@@ -3613,8 +3723,8 @@ body.light-mode .terms-unified-card {
     font-size: 15px; 
     font-weight: 900;
     border-radius: 50px;
-    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
-    transition: var(--trans-speed); 
+    box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3);
+    transition: all 0.3s ease;
     display: flex; 
     align-items: center; 
     justify-content: center; 
@@ -3622,10 +3732,17 @@ body.light-mode .terms-unified-card {
     cursor: pointer;
 }
 
-@media (hover: hover) and (pointer: fine) { 
-    .terms-footer .terms-btn:hover { filter: brightness(1.1); transform: translateY(-2px); } 
+.terms-footer .terms-btn:active {
+    transform: scale(0.95);
+    box-shadow: 0 4px 10px rgba(16, 185, 129, 0.2);
 }
-.terms-footer .terms-btn:active { transform: translateY(0) scale(0.96); }/* =========================================================
+
+/* 📱 تحسينات إضافية للموبايل */
+@media (max-width: 480px) {
+    .tir-title { font-size: 14px; }
+    .tir-text { font-size: 12px; padding-right: 0; text-align: justify; }
+    .tir-header { gap: 10px; }
+}/* =========================================================
    [ 🛠️ 42. شاشة الصيانة الفاخرة (Maintenance Screen) - نمط العزل ]
    ========================================================= */
 .maintenance-screen {
@@ -5055,3 +5172,136 @@ body.light-mode .modern-fav-btn { color: var(--primary-dim); }
 @keyframes bioPulse { 0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.4); } 70% { box-shadow: 0 0 0 20px rgba(255, 215, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); } }
 .bio-title { color: #fff; font-size: 22px; font-weight: 900; margin-bottom: 10px; }
 .bio-desc { color: var(--text-gray); font-size: 13.5px; line-height: 1.6; margin-bottom: 30px; font-weight: 600; }
+/* =========================================================
+   [ تنظيف الستايلات المدمجة - Cleaned Inline Styles ]
+   ========================================================= */
+
+/* --- 1. نافذة التنبيهات العامة للطرد (Live Ban Overlay) --- */
+.global-alert-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(5, 9, 16, 0.85); backdrop-filter: blur(10px); 
+    display: none; justify-content: center; align-items: center;
+    z-index: 999999; opacity: 0; transition: opacity 0.3s ease; padding: 15px;
+}
+.global-alert-overlay.active { display: flex; opacity: 1; }
+.global-alert-card {
+    width: 100%; max-width: 380px; background: var(--bg-card, #111a2b);
+    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px;
+    padding: 35px 24px; text-align: center; box-shadow: 0 25px 60px rgba(0,0,0,0.85);
+    transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.global-alert-overlay.active .global-alert-card { transform: scale(1); }
+.global-icon-box {
+    width: 60px; height: 60px; margin: 0 auto 20px;
+    background: rgba(229, 62, 62, 0.15); border: 1px solid var(--danger, #E53E3E);
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    color: var(--danger, #E53E3E);
+}
+.global-icon-box svg { width: 28px; height: 28px; }
+.global-alert-title { color: #fff; font-size: 18px; font-weight: 800; margin-bottom: 10px; font-family: 'Cairo', sans-serif; }
+.global-alert-msg { color: #8F9BB3; font-size: 13px; line-height: 1.6; margin-bottom: 25px; font-family: 'Cairo', sans-serif; }
+
+/* --- 2. نافذة الاحتفال بالتوثيق (KYC Celebration) --- */
+.kyc-success-card {
+    border-top-color: var(--kyc-cyan-main) !important;
+    box-shadow: inset 0 0 15px rgba(14, 165, 233, 0.15), var(--shadow-soft) !important;
+}
+.kyc-icon-wrapper {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    width: 85px; height: 85px; margin-bottom: 20px;
+}
+.kyc-cert-icon {
+    font-size: 85px;
+    background: linear-gradient(135deg, var(--kyc-cyan-light) 0%, var(--kyc-cyan-main) 50%, var(--kyc-cyan-dark) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 4px 15px rgba(14, 165, 233, 0.4));
+    animation: iconScale 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+.kyc-check-icon {
+    position: absolute; font-size: 40px; color: var(--bg-body); font-weight: 900;
+    z-index: 2; margin-top: 2px; animation: popBadge 0.5s ease-out 0.2s forwards; opacity: 0;
+}
+.kyc-title-margin { margin-bottom: 15px; }
+.kyc-meta-box { border-color: rgba(14, 165, 233, 0.3); }
+.kyc-meta-icon { color: var(--kyc-cyan-main); font-size: 1.3rem; }
+.kyc-meta-text { white-space: normal !important; text-align: center; line-height: 1.5; flex: 1; }
+
+/* --- 3. نافذة التقييم (Rating Modal) --- */
+.rating-banner-error {
+    background: rgba(239, 68, 68, 0.04); border-color: rgba(239, 68, 68, 0.12);
+    color: var(--text-gray); margin-bottom: 20px;
+}
+.rating-icon-error { color: var(--error-red, #ef4444); font-size: 1.4rem; }
+.rating-input-group { margin-bottom: 25px; }
+.rating-banner-success {
+    background: rgba(16, 185, 129, 0.04); border-color: rgba(16, 185, 129, 0.12);
+    color: var(--text-gray); margin-bottom: 20px;
+}
+.rating-icon-crown { color: var(--gold-main); font-size: 1.4rem; animation: pulse 2s infinite; }
+.rating-intro-bold { margin-bottom: 20px; font-weight: 700; }
+.rating-share-btn { display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; margin-top: 20px; }
+
+/* --- 4. الأمان وحذف الحساب (Security Modal) --- */
+.danger-zone-title { color: var(--danger); }
+.danger-zone-sub { color: var(--text-muted); }
+.btn-danger-glow {
+    background: var(--danger); color: #fff;
+    box-shadow: 0 4px 15px rgba(225, 29, 72, 0.2);
+}
+.btn-logout-ghost {
+    background: rgba(229, 62, 62, 0.1); color: var(--danger);
+    border: 1px solid rgba(229, 62, 62, 0.3); margin-top: 10px; box-shadow: none;
+}
+
+/* --- 5. تفعيل المصادقة الثنائية (Setup 2FA) --- */
+.setup-2fa-content { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 15px 20px 40px; }
+.setup-2fa-banner { width: 100%; margin-bottom: 20px; text-align: right; }
+.qr-code-box {
+    background: #ffffff; padding: 15px; border-radius: 16px; border: 3px solid var(--primary);
+    box-shadow: 0 0 20px rgba(255,215,0,0.2); margin-bottom: 20px; width: 180px; height: 180px;
+    display: flex; align-items: center; justify-content: center;
+}
+.qr-spinner { font-size: 30px; color: var(--text-muted); }
+.setup-2fa-instructions { color: var(--text-muted); font-size: 11px; margin-bottom: 20px; font-weight: 700; }
+.manual-secret-code {
+    color: var(--primary); font-size: 14px; letter-spacing: 2px; user-select: all; margin-top: 5px;
+    display: inline-block; background: rgba(255,215,0,0.1); padding: 4px 10px; border-radius: 6px; cursor: pointer;
+}
+.setup-2fa-input-wrap { width: 100%; margin-bottom: 20px; }
+.otp-center-input { text-align: center; font-size: 20px; letter-spacing: 8px; }
+.btn-tall { height: 52px; font-size: 16px; }
+
+/* --- 6. من نحن (About Modal) --- */
+.about-card-clean { max-width: 100%; border: none; box-shadow: none; background: transparent; padding: 20px 10px; }
+.about-title { color: var(--gold-main); font-size: 20px; margin-bottom: 15px; }
+.about-desc { text-align: justify; text-align-last: center; line-height: 1.8; margin-bottom: 25px; }
+
+/* --- مسافات مساعدة (Utilities) --- */
+.opacity-50 { opacity: 0.5; }
+.mr-5 { margin-right: 5px; }
+/* =========================================================
+   [ إضافات تم ترحيلها من الجافاسكريبت لتنظيف الكود ]
+   ========================================================= */
+
+/* تنظيف خلفية وإطار كرت المنتج الوهمي */
+.product-skeleton-card.skeleton-clean {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+
+/* أبعاد السطر الوهمي لاسم المنتج */
+.skeleton-text-name {
+    height: 12px !important;
+    width: 70% !important;
+    margin: 5px auto !important;
+    border-radius: 4px;
+}
+
+/* أبعاد السطر الوهمي لسعر المنتج */
+.skeleton-text-price {
+    height: 14px !important;
+    width: 40% !important;
+    margin: 8px auto auto auto !important;
+    border-radius: 4px;
+}

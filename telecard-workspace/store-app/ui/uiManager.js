@@ -1,68 +1,108 @@
 // ============================================================================
-// 🎨 الموزع المركزي للواجهات (uiManager.js) - Hub/Aggregator
+// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة الماسية المطلقة
 // 🎯 الوظيفة: تجميع وحدات الواجهة المنفصلة وتصديرها ككائن واحد للنظام
-// 🚀 التحديث: تحسين أداء اللودر وحماية نطاق المتصفح (Global Scope)
+// 🚀 التحديث الأقصى: دمج الخصائص العميقة (Descriptors)، وحماية الـ Watchdog
 // ============================================================================
 
 import { UICore } from './uiCore.js';
 import { UIFinance } from './uiFinance.js';
 import { UIAuth } from './uiAuth.js';
+import { Utils } from '../utils.js'; 
 
-// 🔍 الفاحص الذكي للتأكد من سلامة الاستيراد قبل التجميع
-// وظيفته كشف أي ملف فشل في التحميل بسبب مسار خاطئ أو خطأ برمجي داخلي
+let _loaderActiveRequests = 0;
+
 const verifyModule = (name, mod) => {
     if (!mod || Object.keys(mod).length === 0) {
         console.error(`🚨 فشل استيراد الوحدة: [${name}] غير موجودة أو فارغة!`);
         return false;
     }
     
-    // تسجيل النجاح في نظام المراقبة الخارجي بشكل آمن
     if (typeof window !== 'undefined') {
-        window.ModuleWatchdog = window.ModuleWatchdog || { loadedModules: [] };
-        if (!window.ModuleWatchdog.loadedModules.includes(name)) {
-            window.ModuleWatchdog.loadedModules.push(name);
-        }
+    // 🛡️ [إصلاح أمني]: منع تسمم الكائنات (Prototype Pollution) باستخدام defineProperty
+    if (!window.ModuleWatchdog || !window.ModuleWatchdog.loadedModules) {
+        Object.defineProperty(window, 'ModuleWatchdog', {
+            value: Object.freeze({ loadedModules: new Set() }),
+            writable: false,
+            configurable: false
+        });
     }
-    return true;
+    window.ModuleWatchdog.loadedModules.add(name);
+}    return true;
 };
 
-// تشغيل الفحص على الوحدات الأساسية
 verifyModule('UICore', UICore);
 verifyModule('UIFinance', UIFinance);
 verifyModule('UIAuth', UIAuth);
 
-export const UIManager = {
-    // 🛠️ دمج كافة الدوال من الوحدات الفرعية في كائن واحد (Facade Pattern)
-    ...UICore,
-    ...UIFinance,
-    ...UIAuth,    
-    
-    // 🌟 دالة اللودر المركزية (تم تنظيفها بالكامل لتعمل مع الستايل الجديد)
-    toggleLoader: function(show, text = 'جاري المعالجة...') {
-        let loader = document.getElementById('global-dynamic-loader');
-        
-        if (!loader) {
-            loader = document.createElement('div');
-            loader.id = 'global-dynamic-loader';
-            loader.innerHTML = `
-                <i class="fa-solid fa-circle-notch fa-spin loader-spinner"></i>
-                <div id="dynamic-loader-text" class="loader-text"></div>
-            `;
-            document.body.appendChild(loader);
+const deepMergeModules = (targetObject, ...modules) => {
+    for (const mod of modules) {
+        if (!mod) continue;
+        const descriptors = Object.getOwnPropertyDescriptors(mod);
+        for (const [key, descriptor] of Object.entries(descriptors)) {
+            Object.defineProperty(targetObject, key, descriptor);
         }
-        
-        const textEl = document.getElementById('dynamic-loader-text');
-        if (textEl && textEl.innerText !== text) {
-            textEl.innerText = text;
-        }
-        
-        // استخدام is-active المتوافقة مع ملف CSS الجديد لضمان سلاسة الأنيميشن
-        requestAnimationFrame(() => {
-            if (show) {
-                loader.classList.add('is-active');
-            } else {
-                loader.classList.remove('is-active');
-            }
-        });
     }
+    return targetObject;
 };
+
+export const UIManager = deepMergeModules(
+    {}, 
+    UICore, 
+    UIFinance, 
+    UIAuth
+);
+
+Object.defineProperties(UIManager, {
+    toggleLoader: {
+        value: function(show, text = 'جاري المعالجة...') {
+            if (show) {
+                _loaderActiveRequests++;
+            } else {
+                _loaderActiveRequests = Math.max(0, _loaderActiveRequests - 1);
+            }
+
+            let loader = document.getElementById('global-dynamic-loader');
+            
+            if (!loader) {
+                loader = document.createElement('div');
+                loader.id = 'global-dynamic-loader';
+                loader.innerHTML = `
+                    <i class="fa-solid fa-circle-notch fa-spin loader-spinner"></i>
+                    <div id="dynamic-loader-text" class="loader-text"></div>
+                `;
+                document.body.appendChild(loader);
+            }
+            
+            const textEl = document.getElementById('dynamic-loader-text');
+            
+            if (textEl && _loaderActiveRequests > 0 && textEl.textContent !== text) {
+                textEl.textContent = text;
+            }
+            
+            requestAnimationFrame(() => {
+                if (_loaderActiveRequests > 0) {
+                    loader.classList.add('is-active');
+                } else {
+                    loader.classList.remove('is-active');
+                }
+            });
+        },
+        writable: false, 
+        configurable: false
+    },
+    
+    // 🚀 [تحديث ألماسي]: صمام الأمان لمنع تعليق الشاشة للأبد
+    forceHideLoader: {
+        value: function() {
+            _loaderActiveRequests = 0; // تصفير العداد الجذري
+            const loader = document.getElementById('global-dynamic-loader');
+            if (loader) {
+                requestAnimationFrame(() => {
+                    loader.classList.remove('is-active');
+                });
+            }
+        },
+        writable: false,
+        configurable: false
+    }
+});

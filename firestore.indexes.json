@@ -34,6 +34,15 @@
         { "fieldPath": "pricingSnapshot.costUsd", "order": "ASCENDING" },
         { "fieldPath": "pricingSnapshot.netProfitUsd", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "telecard_deposits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "method", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

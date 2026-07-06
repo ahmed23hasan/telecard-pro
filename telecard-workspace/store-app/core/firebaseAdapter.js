@@ -1,28 +1,23 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version (Store App)
+// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version
 // 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth & Functions
-// 🌟 التحديث: تفعيل دوال السيرفر (us-east1) + التشفير الأمني + المصادقة الثنائية 2FA
+// 🌟 التحديث الأقصى: تفعيل App Check (reCAPTCHA v3) لحماية السيرفر من الهجمات
 // ============================================================================
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+
+// 🛡️ استيراد مكتبة App Check والنسخة الثالثة من ريكاتشا
+import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js";
+
 import { 
     getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-// 🌟 استيراد دوال المصادقة، التشفير، وإدارة الـ 2FA (TOTP)
 import { 
-    getAuth, 
-    sendPasswordResetEmail, 
-    updatePassword, 
-    reauthenticateWithCredential, 
-    EmailAuthProvider,
-    multiFactor, 
-    TotpMultiFactorGenerator 
+    getAuth, sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider, multiFactor, TotpMultiFactorGenerator 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
-
-// 🌟 الإضافة الجذرية: استيراد مكتبة الدوال السحابية لمتجر العملاء
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
 // 🔑 مفاتيح الربط الخاصة بمتجر Telecard 
@@ -35,14 +30,25 @@ const firebaseConfig = {
     appId: "1:698672838633:web:743c8809615bd8308bfd78"
 };
 
-// 🚀 تهيئة الاتصال بـ Firebase
-const app = initializeApp(firebaseConfig);
+// 🚀 تهيئة الاتصال 
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// 🌟 تفعيل الاتصال
+// 🚨 تفعيل درع الحماية (App Check) باستخدام مفتاح الموقع (Site Key)
+try {
+    const appCheck = initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider('6LdzvUQtAAAAAIqefitRy_PV9A9Efyb33HoicX8z'),
+        isTokenAutoRefreshEnabled: true // تجديد تلقائي ومخفي للتوثيق
+    });
+    console.log("🛡️ تم تفعيل درع الحماية App Check بنجاح.");
+} catch (e) {
+    console.warn("⚠️ لم يتم تفعيل App Check:", e.message);
+}
+
+// 🌟 تفعيل باقي الاتصالات
 const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app); 
-// 🌟 توجيه كل اتصالات العملاء إلى سيرفر us-east1 لحل مشكلة CORS
+// توجيه الاتصالات للسيرفر الموحد
 const functions = getFunctions(app, 'us-east1');
 
 export { auth, db, storage, functions };
@@ -52,32 +58,54 @@ export const FirebaseAdapter = {
     storage: storage,
     functions: functions,
 
-    // ==========================================
-    // 🛡️ [الدرع الثاني]: الحماية من التعليق الأبدي (Timeout Wrapper)
-    // ==========================================
+    // 🛡️ [تنظيف المسارات]: منع ثغرات Path Traversal Injection
+    _sanitizeDocId: function(id) {
+        if (!id) return '';
+        return String(id).replace(/[\/\\]/g, '_').trim(); 
+    },
+
+    // 🛡️ [الدرع الثاني]: الحماية من التعليق الأبدي 
     _withTimeout: function(promise, ms = 10000, context = '') {
-        return Promise.race([
-            promise,
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context} خلال ${ms/1000} ثوانٍ`)), ms)
-            )
-        ]);
+        let timeoutId;
+        promise.catch(() => {}); 
+        
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
+                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context} خلال ${ms/1000} ثوانٍ`);
+                err.code = 'deadline-exceeded'; 
+                reject(err);
+            }, ms);
+        });
+        
+        return Promise.race([promise, timeoutPromise]).finally(() => {
+            clearTimeout(timeoutId); 
+        });
     },
 
-    // 📥 1. جلب كل البيانات من مجموعة معينة
-    async getAll(collectionName) {
-        try {
-            if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
-            const snapshot = await this._withTimeout(getDocs(collection(db, collectionName)), 10000, `getAll -> ${collectionName}`);
-            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (error) {
-            console.error(`🚨 خطأ في جلب مجموعة [${collectionName}]: ${error.message}`);
-            return [];
+    // 📥 1. جلب البيانات مع نظام المحاولة الصامتة (Enterprise Retry Pattern)
+async getAll(collectionName, retryCount = 1) {
+    try {
+        if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
+        
+        // نحاول الجلب بمهلة 10 ثوانٍ فقط لضمان سرعة الاستجابة
+        const snapshot = await this._withTimeout(getDocs(collection(db, collectionName)), 10000, `getAll -> ${collectionName}`);
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+    } catch (error) {
+        // 🚀 الحل الاحترافي: إذا كان الخطأ بسبب (Timeout) وصدمة البداية الباردة، نقوم بمحاولة صامتة!
+        const isNetworkTimeout = error.code === 'deadline-exceeded' || error.message.includes('Timeout') || error.message.includes('backend');
+        
+        if (isNetworkTimeout && retryCount > 0) {
+            console.warn(`⏳ اختناق في الشبكة لمجموعة [${collectionName}]. جاري إعادة المحاولة بصمت...`);
+            // نريح المعالج والشبكة لمدة ثانية واحدة (لكي يكتمل بناء قناة الاتصال) ثم نحاول مجدداً
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return this.getAll(collectionName, retryCount - 1); // محاولة أخيرة
         }
-    },
-
-    // 📥 2. جلب أحدث البيانات بحد معين (Pagination)
-    async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
+        
+        console.error(`🚨 خطأ نهائي في جلب مجموعة [${collectionName}]: ${error.message}`);
+        return [];
+    }
+},    async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
             const q = query(collection(db, collectionName), orderBy(orderByField, 'desc'), limit(limitCount));
@@ -89,12 +117,12 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 📄 3. جلب مستند واحد محدد
     async getById(collectionName, docId) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
-            const docRef = doc(db, collectionName, String(docId));
-            const docSnap = await this._withTimeout(getDoc(docRef), 10000, `getById -> ${collectionName}/${docId}`);
+            const safeId = this._sanitizeDocId(docId);
+            const docRef = doc(db, collectionName, safeId);
+            const docSnap = await this._withTimeout(getDoc(docRef), 10000, `getById -> ${collectionName}/${safeId}`);
             return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
         } catch (error) {
             console.error(`🚨 خطأ في جلب المستند [${docId}]: ${error.message}`);
@@ -102,12 +130,12 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 💾 4. حفظ أو تحديث مستند بـ ID محدد
-    async set(collectionName, docId, data) {
+    async set(collectionName, docId, data, options = { merge: true }) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
-            const docRef = doc(db, collectionName, String(docId));
-            await setDoc(docRef, data, { merge: true });
+            const safeId = this._sanitizeDocId(docId);
+            const docRef = doc(db, collectionName, safeId);
+            await setDoc(docRef, data, options);
             return true;
         } catch (error) {
             console.error(`🚨 خطأ في حفظ المستند [${docId}]: ${error.message}`);
@@ -115,7 +143,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ➕ 5. إضافة مستند جديد
     async add(collectionName, data) {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
@@ -127,11 +154,11 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 🗑️ 6. حذف مستند
     async delete(collectionName, docId) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
-            await deleteDoc(doc(db, collectionName, String(docId)));
+            const safeId = this._sanitizeDocId(docId);
+            await deleteDoc(doc(db, collectionName, safeId));
             return true;
         } catch (error) {
             console.error(`🚨 خطأ في حذف المستند [${docId}]: ${error.message}`);
@@ -139,68 +166,77 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 📡 7. الاستماع الحي (Real-time) للمجموعة بالكامل
     listenCollection(collectionName, callback) {
         return onSnapshot(collection(db, collectionName), (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             callback(data);
+        }, (error) => {
+            console.error(`🚨 خطأ في المستمع للمجموعة [${collectionName}]:`, error.message);
         });
     },
 
-    // 📡 8. الاستماع الحي لمستند واحد فقط (ضرورية لملف العميل)
     listenDoc(collectionName, docId, callback) {
-        return onSnapshot(doc(db, collectionName, String(docId)), (snapshot) => {
+        const safeId = this._sanitizeDocId(docId);
+        return onSnapshot(doc(db, collectionName, safeId), (snapshot) => {
             if (snapshot.exists()) {
                 callback({ id: snapshot.id, ...snapshot.data() });
             } else {
                 callback(null);
             }
+        }, (error) => {
+            console.error(`🚨 خطأ في المستمع للمستند [${safeId}]:`, error.message);
         });
     },
 
-    // ==========================================
-    // 🛡️ 9. المستمع الحي بفلتر ذكي (مُرقّى لحماية الفاتورة)
-    // ==========================================
-    listenQuery(collectionName, condition, orderByField = 'time', limitCount = 30, callback) {
+    listenQuery(collectionName, conditions, orderByField = 'time', limitCount = 30, callback) {
         try {
-            const q = query(
-                collection(db, collectionName), 
-                where(condition[0], condition[1], condition[2]),
-                orderBy(orderByField, 'desc'),
-                limit(limitCount) // 🎯 تقييد القراءات لخفض الفاتورة 90%
-            );
+            const queryConstraints = [collection(db, collectionName)];
+            
+            if (conditions && Array.isArray(conditions) && conditions.length > 0) {
+                if (Array.isArray(conditions[0])) {
+                    conditions.forEach(cond => {
+                        if (cond.length === 3) queryConstraints.push(where(cond[0], cond[1], cond[2]));
+                    });
+                } else if (conditions.length === 3) {
+                    queryConstraints.push(where(conditions[0], conditions[1], conditions[2]));
+                }
+            }
+            
+            queryConstraints.push(orderBy(orderByField, 'desc'), limit(limitCount));
+            const q = query(...queryConstraints);
             
             return onSnapshot(q, (snapshot) => {
                 const arr = [];
-                // استخراج آخر مستند لاستخدامه كمؤشر (Cursor) للتحميل المستقبلي
                 const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
-                
                 snapshot.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
-                callback(arr, lastDoc); // إرسال الداتا + المؤشر
+                callback(arr, lastDoc);
             }, (error) => {
                 console.error(`🚨 تم رفض الاستماع للمجموعة [${collectionName}]:`, error.message);
             });
         } catch (error) {
             console.error(`🚨 خطأ في بناء استعلام المجموعة [${collectionName}]: ${error.message}`);
-            return () => {}; 
+            return () => {};
         }
     },
-
-    // ==========================================
-    // 🪄 10. جلب الأرشيف القديم (Cursor Pagination) 
-    // تعمل مرة واحدة فقط عند الضغط على "عرض المزيد"
-    // ==========================================
-    async fetchMoreWithCursor(collectionName, condition, orderByField = 'time', lastDocMarker, limitCount = 15) {
+    
+    async fetchMoreWithCursor(collectionName, conditions, orderByField = 'time', lastDocMarker, limitCount = 15) {
         try {
             if (!lastDocMarker) return { data: [], newLastDoc: null };
             
-            const q = query(
-                collection(db, collectionName),
-                where(condition[0], condition[1], condition[2]),
-                orderBy(orderByField, 'desc'),
-                startAfter(lastDocMarker), // 🎯 يبدأ البحث من حيث توقفنا في المرة السابقة
-                limit(limitCount)
-            );
+            const queryConstraints = [collection(db, collectionName)];
+            
+            if (conditions && Array.isArray(conditions) && conditions.length > 0) {
+                if (Array.isArray(conditions[0])) {
+                    conditions.forEach(cond => {
+                        if (cond.length === 3) queryConstraints.push(where(cond[0], cond[1], cond[2]));
+                    });
+                } else if (conditions.length === 3) {
+                    queryConstraints.push(where(conditions[0], conditions[1], conditions[2]));
+                }
+            }
+            
+            queryConstraints.push(orderBy(orderByField, 'desc'), startAfter(lastDocMarker), limit(limitCount));
+            const q = query(...queryConstraints);
             
             const snapshot = await this._withTimeout(getDocs(q), 10000, `fetchMore -> ${collectionName}`);
             
@@ -214,9 +250,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ==========================================
-    // ☁️ 11. محرك رفع الصور والملفات (Storage Engine)
-    // ==========================================
     async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
         if (!file) return '';
         try {
@@ -227,14 +260,17 @@ export const FirebaseAdapter = {
                 } catch (delErr) { }
             }
 
-            const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'image.jpg';
+            let ext = '.jpg';
+            if (file.type === 'application/pdf') ext = '.pdf';
+            else if (file.type === 'image/png') ext = '.png';
+            else if (file.type === 'image/webp') ext = '.webp';
+
+            const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : `upload${ext}`;
             const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
             const storageRef = ref(storage, `${folderName}/${finalFileName}`);
             
-            const fileBuffer = await file.arrayBuffer();
-
             const snapshot = await this._withTimeout(
-                uploadBytes(storageRef, fileBuffer, { contentType: file.type }), 
+                uploadBytes(storageRef, file, { contentType: file.type }), 
                 15000, 
                 "عملية رفع الصورة"
             );
@@ -248,9 +284,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ==========================================
-    // 🧹 12. دالة الحذف المباشر (Direct Delete) 
-    // ==========================================
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
         try {
@@ -262,27 +295,19 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ==========================================
-    // 🔑 13. إرسال رابط إعادة تعيين كلمة المرور (Password Reset) 
-    // ==========================================
     async sendResetEmail(email) {
         try {
             await sendPasswordResetEmail(auth, email);
             return { success: true };
         } catch (error) {
-            console.error("Firebase Reset Error:", error);
             let errorMsg = 'تعذر إرسال الرابط، يرجى المحاولة لاحقاً.';
             if (error.code === 'auth/user-not-found') errorMsg = 'هذا البريد غير مسجل لدينا.';
             if (error.code === 'auth/too-many-requests') errorMsg = 'طلبات كثيرة جداً، يرجى المحاولة لاحقاً لحماية حسابك.';
             if (error.code === 'auth/invalid-email') errorMsg = 'صيغة البريد الإلكتروني غير صحيحة.';
-            
             return { success: false, msg: errorMsg };
         }
     },
 
-    // ==========================================
-    // 🔒 14. تغيير كلمة المرور بأمان تام (مع إعادة المصادقة)
-    // ==========================================
     async changeUserPassword(currentPassword, newPassword) {
         try {
             const user = auth.currentUser;
@@ -295,53 +320,33 @@ export const FirebaseAdapter = {
             return { success: true };
             
         } catch (error) {
-            console.error("Firebase Password Change Error:", error);
             let errorMsg = 'تعذر تحديث كلمة المرور بسبب خطأ في الخادم.';
-            
-            if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
-                errorMsg = 'كلمة المرور الحالية التي أدخلتها غير صحيحة.';
-            } else if (error.code === 'auth/weak-password') {
-                errorMsg = 'كلمة المرور الجديدة ضعيفة جداً (يجب أن تكون 6 أحرف على الأقل).';
-            } else if (error.code === 'auth/too-many-requests') {
-                errorMsg = 'محاولات خاطئة كثيرة، تم حظر الإجراء مؤقتاً لحمايتك.';
-            } else if (error.code === 'auth/network-request-failed') {
-                errorMsg = 'خطأ في الاتصال بالإنترنت.';
-            }
-            
+            if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') errorMsg = 'كلمة المرور الحالية غير صحيحة.';
+            else if (error.code === 'auth/weak-password') errorMsg = 'كلمة المرور الجديدة ضعيفة جداً.';
+            else if (error.code === 'auth/too-many-requests') errorMsg = 'محاولات خاطئة كثيرة، تم حظر الإجراء مؤقتاً.';
+            else if (error.code === 'auth/network-request-failed') errorMsg = 'خطأ في الاتصال بالإنترنت.';
             return { success: false, msg: errorMsg };
         }
     },
 
-    // ==========================================
-    // 🛡️ 15. نظام المصادقة الثنائية الرسمي (Firebase Native TOTP)
-    // ==========================================
-    
-    // أ. بدء جلسة 2FA وتوليد المفتاح من السيرفر
     async generateTOTPSecret() {
         try {
             const user = auth.currentUser;
             if (!user) throw new Error("لا يوجد مستخدم مسجل");
 
-            // طلب جلسة مصادقة من السيرفر
             const multiFactorSession = await multiFactor(user).getSession();
-            
-            // توليد المفتاح السري من جوجل
             const tfaSecret = await TotpMultiFactorGenerator.generateSecret(multiFactorSession);
-            
             return { success: true, secret: tfaSecret };
         } catch (error) {
             console.error("Generate 2FA Error:", error);
-            return { success: false, msg: 'تعذر توليد المفتاح الأمني من السيرفر. تأكد من تفعيل الميزة في لوحة التحكم.' };
+            return { success: false, msg: 'تعذر توليد المفتاح الأمني. تأكد من تفعيل الميزة في لوحة التحكم.' };
         }
     },
 
-    // ب. إرسال الـ 6 أرقام للسيرفر لتأكيد التفعيل
     async enrollTOTP(tfaSecret, otpCode, displayName = "تطبيق المصدق") {
         try {
             const user = auth.currentUser;
-            // تجهيز بصمة التأكيد
             const assertion = TotpMultiFactorGenerator.assertionForEnrollment(tfaSecret, otpCode);
-            // ربط المصادقة بحساب العميل رسمياً
             await multiFactor(user).enroll(assertion, displayName);
             return { success: true };
         } catch (error) {
@@ -352,14 +357,12 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ج. إيقاف وإلغاء المصادقة الثنائية
     async unenrollMFA() {
         try {
             const user = auth.currentUser;
             const enrolledFactors = multiFactor(user).enrolledFactors;
             
             if (enrolledFactors.length > 0) {
-                // حذف أول عامل مصادقة يجده (وهو الـ TOTP الخاص بنا)
                 await multiFactor(user).unenroll(enrolledFactors[0].uid);
             }
             return { success: true };
@@ -369,15 +372,11 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ==========================================
-    // ⚡ 16. الموجه المركزي للاتصال بالسيرفر (Cloud Functions Gateway)
-    // ==========================================
     async callFunction(functionName, payload = {}) {
         try {
             console.log(`🚀 جاري الاتصال بالسيرفر لاستدعاء [${functionName}]...`);
             const targetFunction = httpsCallable(functions, functionName);
             
-            // إضافة مهلة 15 ثانية لمنع تعليق واجهة العميل
             const result = await this._withTimeout(
                 targetFunction(payload), 
                 15000, 
@@ -385,10 +384,12 @@ export const FirebaseAdapter = {
             );
             return result.data;
         } catch (error) {
-            // استخراج رسالة الخطأ الحقيقية
             const errorMessage = error.message || 'فشل الاتصال بالسيرفر أو انتهت المهلة.';
-            console.error(`🚨 خطأ في السيرفر أثناء استدعاء [${functionName}]:`, errorMessage);
-            throw new Error(errorMessage);
+            const errObj = new Error(errorMessage);
+            errObj.code = error.code || 'unknown'; 
+            
+            console.error(`🚨 خطأ في السيرفر أثناء استدعاء [${functionName}]: [${errObj.code}] ${errorMessage}`);
+            throw errObj;
         }
     }
 };

@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - ES6 Module
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديث: إنهاء الـ DOM Scraping، سد تسريب الذاكرة، وتطبيق تفويض الأحداث الموضعي
+// 🚀 التحديث الأقصى: ترقيع ثغرة (XSS)، منع تسريب الذاكرة، تحسين أداء Observer وتجربة الموبايل
 // ============================================================================
 
 import { DataManager, LiveStoreData } from './dataManager.js';
@@ -45,7 +45,7 @@ export const CalendarApp = {
                 const cell = e.target.closest('.day-cell:not(.empty):not(.disabled-day)');
                 if (cell) {
                     e.stopPropagation();
-                    this.tempSelectedDate = new Date(this.currYear, this.currMonth, parseInt(cell.innerText));
+                    this.tempSelectedDate = new Date(this.currYear, this.currMonth, parseInt(cell.innerText, 10));
                     this.render();
                 }
             });
@@ -73,57 +73,72 @@ export const CalendarApp = {
     },
 
     open: function(inputId, eventOrElement) {
-        this.activeInputId = inputId;
-        let targetElement = null;
+    this.activeInputId = inputId;
+    let targetElement = null;
+    
+    if (eventOrElement) {
+        if (typeof eventOrElement.stopPropagation === 'function') eventOrElement.stopPropagation();
+        if (eventOrElement.currentTarget instanceof Element) targetElement = eventOrElement.currentTarget;
+        else if (eventOrElement.target instanceof Element) targetElement = eventOrElement.target.closest('.custom-field') || eventOrElement.target;
+        else if (eventOrElement instanceof Element || eventOrElement.nodeType === 1) targetElement = eventOrElement;
+    }
+    
+    if (!targetElement && inputId) {
+        const inputEl = document.getElementById(inputId);
+        if (inputEl) targetElement = inputEl.closest('.custom-field');
+    }
+    
+    document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
+    if (targetElement) targetElement.classList.add('active');
+    
+    const hiddenInput = document.getElementById(inputId);
+    const currentVal = hiddenInput ? hiddenInput.value : '';
+    
+    if (currentVal && currentVal.includes('-')) {
+        const parts = currentVal.split('-');
+        this.currYear = parseInt(parts[0], 10);
+        this.currMonth = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        this.tempSelectedDate = isNaN(day) ? new Date() : new Date(this.currYear, this.currMonth, day);
+    } else {
+        const now = new Date();
+        this.currYear = now.getFullYear();
+        this.currMonth = now.getMonth();
+        this.tempSelectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    }
+    
+    this.render();
+    const modal = document.getElementById('cal-modal');
+    
+    if (modal) {
+        if (modal.parentNode !== document.body) document.body.appendChild(modal);
+        modal.classList.add('show');
         
-        if (eventOrElement) {
-            if (typeof eventOrElement.stopPropagation === 'function') eventOrElement.stopPropagation();
-            if (eventOrElement.currentTarget && eventOrElement.currentTarget instanceof Element) targetElement = eventOrElement.currentTarget;
-            else if (eventOrElement.target && eventOrElement.target instanceof Element) targetElement = eventOrElement.target.closest('.custom-field') || eventOrElement.target;
-            else if (eventOrElement instanceof Element || eventOrElement.nodeType === 1) targetElement = eventOrElement; 
-        }
-
-        if (!targetElement && inputId) {
-            const inputEl = document.getElementById(inputId);
-            if (inputEl) targetElement = inputEl.closest('.custom-field');
-        }
-
-        document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
-        if (targetElement && targetElement.classList) targetElement.classList.add('active');
-        
-        const currentVal = document.getElementById(inputId) ? document.getElementById(inputId).value : '';
-        if(currentVal) {
-            const parts = currentVal.split('-');
-            this.currYear = parseInt(parts[0]);
-            this.currMonth = parseInt(parts[1]) - 1;
-            this.tempSelectedDate = new Date(this.currYear, this.currMonth, parseInt(parts[2]));
-        } else {
-            const now = new Date();
-            this.currYear = now.getFullYear(); this.currMonth = now.getMonth();
-            this.tempSelectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        }
-
-        this.render();
-        const modal = document.getElementById('cal-modal');
-        
-        if(modal) {
-            if (modal.parentNode !== document.body) document.body.appendChild(modal);
-            modal.classList.add('show');
-            if (window.innerWidth <= 500) {
-                modal.style.cssText = "position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important;";
-            } else if (targetElement && typeof targetElement.getBoundingClientRect === 'function') {
-                const rect = targetElement.getBoundingClientRect();
-                modal.style.position = "fixed";
-                const spaceBelow = window.innerHeight - rect.bottom;
-                if (spaceBelow < 340) { modal.style.top = "auto"; modal.style.bottom = (window.innerHeight - rect.top + 10) + 'px'; } 
-                else { modal.style.bottom = "auto"; modal.style.top = (rect.bottom + 10) + 'px'; }
-                let leftPos = rect.left; if (leftPos < 10) leftPos = 10;
-                modal.style.left = leftPos + 'px'; modal.style.transform = "none";
+        // 🚀 [إصلاح تجربة الموبايل]: ضمان تمركز التقويم بشكل سليم على جميع الشاشات
+        modal.style.position = "fixed";
+        if (window.innerWidth > 500 && targetElement && typeof targetElement.getBoundingClientRect === 'function') {
+            const rect = targetElement.getBoundingClientRect();
+            const spaceBelow = window.innerHeight - rect.bottom;
+            if (spaceBelow < 340) {
+                modal.style.top = "auto";
+                modal.style.bottom = (window.innerHeight - rect.top + 10) + 'px';
+            } else {
+                modal.style.bottom = "auto";
+                modal.style.top = (rect.bottom + 10) + 'px';
             }
+            let leftPos = rect.left;
+            if (leftPos < 10) leftPos = 10;
+            modal.style.left = leftPos + 'px';
+            modal.style.transform = "none";
+        } else {
+            // وضع الموبايل: توسيط إجباري
+            modal.style.top = "50%";
+            modal.style.left = "50%";
+            modal.style.bottom = "auto";
+            modal.style.transform = "translate(-50%, -50%)";
         }
-    },
-
-    close: function() {
+    }
+},    close: function() {
         const modal = document.getElementById('cal-modal');
         if(modal) modal.classList.remove('show');
         document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
@@ -138,19 +153,34 @@ export const CalendarApp = {
         grid.innerHTML = '';
         const fragment = document.createDocumentFragment();
         
-        this.dayNames.forEach(d => { const div = document.createElement('div'); div.className = 'day-head'; div.innerText = d; fragment.appendChild(div); });
+        this.dayNames.forEach(d => { 
+            const div = document.createElement('div'); 
+            div.className = 'day-head'; div.innerText = d; 
+            fragment.appendChild(div); 
+        });
         
         const firstDay = new Date(this.currYear, this.currMonth, 1).getDay();
         const daysInMonth = new Date(this.currYear, this.currMonth + 1, 0).getDate();
-        for(let i=0; i<firstDay; i++) { const e = document.createElement('div'); e.className = 'day-cell empty'; fragment.appendChild(e); }
+        
+        for(let i = 0; i < firstDay; i++) { 
+            const e = document.createElement('div'); 
+            e.className = 'day-cell empty'; 
+            fragment.appendChild(e); 
+        }
         
         const today = new Date(); today.setHours(0, 0, 0, 0);
         
-        for(let d=1; d<=daysInMonth; d++) {
-            const cell = document.createElement('div'); cell.className = 'day-cell'; cell.innerText = d;
-            if (this.tempSelectedDate && this.tempSelectedDate.getDate() === d && this.tempSelectedDate.getMonth() === this.currMonth && this.tempSelectedDate.getFullYear() === this.currYear) cell.classList.add('selected');
+        for(let d = 1; d <= daysInMonth; d++) {
+            const cell = document.createElement('div'); 
+            cell.className = 'day-cell'; 
+            cell.innerText = d;
+            
+            if (this.tempSelectedDate && this.tempSelectedDate.getDate() === d && this.tempSelectedDate.getMonth() === this.currMonth && this.tempSelectedDate.getFullYear() === this.currYear) {
+                cell.classList.add('selected');
+            }
             const cellDate = new Date(this.currYear, this.currMonth, d);
             if (cellDate > today) cell.classList.add('disabled-day'); 
+            
             fragment.appendChild(cell);
         }
         
@@ -162,19 +192,40 @@ export const CalendarApp = {
         if (this.tempSelectedDate && this.activeInputId) {
             const formatted = this.formatDate(this.tempSelectedDate);
             const hiddenInput = document.getElementById(this.activeInputId);
-            if(hiddenInput) { hiddenInput.value = formatted; const disp = document.getElementById('disp-'+this.activeInputId); if(disp) disp.innerText = formatted; if(hiddenInput.onchange) hiddenInput.onchange(); }
+            if(hiddenInput) { 
+                hiddenInput.value = formatted; 
+                const disp = document.getElementById('disp-' + this.activeInputId); 
+                if(disp) disp.innerText = formatted; 
+                if(typeof hiddenInput.onchange === 'function') hiddenInput.onchange(); 
+            }
         }
         this.close();
     },
 
-    formatDate: function(d) { return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`; },
-    adjustMonth: function(s) { this.currMonth+=s; if(this.currMonth>11){this.currMonth=0;this.currYear++;} if(this.currMonth<0){this.currMonth=11;this.currYear--;} this.render(); },
-    adjustYear: function(s) { this.currYear+=s; this.render(); },
+    formatDate: function(d) { 
+        return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`; 
+    },
+    
+    adjustMonth: function(s) { 
+        this.currMonth += s; 
+        if(this.currMonth > 11) { this.currMonth = 0; this.currYear++; } 
+        if(this.currMonth < 0) { this.currMonth = 11; this.currYear--; } 
+        this.render(); 
+    },
+    
+    adjustYear: function(s) { this.currYear += s; this.render(); },
     
     toggleList: function(id, e) {
         if(e) e.stopPropagation();
-        document.querySelectorAll('.dropdown-list').forEach(l => { if(l.id!==id) l.classList.remove('active'); });
-        const l = document.getElementById(id); if(l) { l.classList.toggle('active'); if(l.classList.contains('active')) { const s=l.querySelector('.selected'); if(s) s.scrollIntoView({block:'center'}); }}
+        document.querySelectorAll('.dropdown-list').forEach(l => { if(l.id !== id) l.classList.remove('active'); });
+        const l = document.getElementById(id); 
+        if(l) { 
+            l.classList.toggle('active'); 
+            if(l.classList.contains('active')) { 
+                const s = l.querySelector('.selected'); 
+                if(s) s.scrollIntoView({block:'center'}); 
+            }
+        }
     },
     
     buildDropdowns: function() {
@@ -185,7 +236,10 @@ export const CalendarApp = {
                 mL.addEventListener('click', (e) => {
                     const item = e.target.closest('.list-item');
                     if (item) {
-                        e.stopPropagation(); this.currMonth = parseInt(item.dataset.idx); this.render(); mL.classList.remove('active');
+                        e.stopPropagation(); 
+                        this.currMonth = parseInt(item.dataset.idx, 10); 
+                        this.render(); 
+                        mL.classList.remove('active');
                     }
                 });
                 mL._boundDelegation = true;
@@ -194,15 +248,20 @@ export const CalendarApp = {
         
         const yL = document.getElementById('list-year'); 
         if(yL) { 
-            const ty=new Date().getFullYear(); 
+            const ty = new Date().getFullYear(); 
             let yearsHtml = '';
-            for(let y=ty-10;y<=ty+10;y++){ yearsHtml += `<div class="list-item" data-year="${y}">${y}</div>`; }
+            for(let y = ty - 10; y <= ty + 10; y++){ 
+                yearsHtml += `<div class="list-item" data-year="${y}">${y}</div>`; 
+            }
             yL.innerHTML = yearsHtml;
             if (!yL._boundDelegation) {
                 yL.addEventListener('click', (e) => {
                     const item = e.target.closest('.list-item');
                     if (item) {
-                        e.stopPropagation(); this.currYear = parseInt(item.dataset.year); this.render(); yL.classList.remove('active');
+                        e.stopPropagation(); 
+                        this.currYear = parseInt(item.dataset.year, 10); 
+                        this.render(); 
+                        yL.classList.remove('active');
                     }
                 });
                 yL._boundDelegation = true;
@@ -211,8 +270,8 @@ export const CalendarApp = {
     },
     
     updateHighlights: function() {
-        document.querySelectorAll('#list-month .list-item').forEach((el,i)=>el.classList.toggle('selected',i===this.currMonth));
-        document.querySelectorAll('#list-year .list-item').forEach((el)=>el.classList.toggle('selected',parseInt(el.innerText)===this.currYear));
+        document.querySelectorAll('#list-month .list-item').forEach((el, i) => el.classList.toggle('selected', i === this.currMonth));
+        document.querySelectorAll('#list-year .list-item').forEach((el) => el.classList.toggle('selected', parseInt(el.innerText, 10) === this.currYear));
     }
 };
 
@@ -222,46 +281,54 @@ export const CalendarApp = {
 export const Components = {
     priceTicker: null,
     _navObserver: null, 
+    _shineBound: false, 
+    _couponMsgTimer: null, 
 
     _getCurrentSelection: function() {
         let qty = 1; let optIdx = null;
         if (!DataManager.currentProd) return { qty, optIdx };
 
-        if (DataManager.currentProd.type === 'counter') {
-            qty = parseFloat(document.getElementById('pm-qty')?.value) || 1;
-        } else if (DataManager.currentProd.type === 'select') {
-            const sel = document.getElementById('pm-pack');
-            optIdx = sel ? Number(sel.value) : 0;
-        } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) {
-            qty = parseInt(document.getElementById('simple-qty-val')?.value) || 1;
-        }
-        return { qty, optIdx };
+        try {
+            if (DataManager.currentProd.type === 'counter') {
+                qty = parseInt(document.getElementById('pm-qty')?.value, 10) || 1;
+            } else if (DataManager.currentProd.type === 'select') {
+                const sel = document.getElementById('pm-pack');
+                optIdx = sel ? parseInt(sel.value, 10) : 0;
+            } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) {
+                qty = parseInt(document.getElementById('simple-qty-val')?.value, 10) || 1;
+            }
+        } catch(e) { console.warn('DOM Parse Warning', e); }
+
+        return { qty: Math.max(1, qty), optIdx };
     },
 
     initProductShine: function() {
-        const cards = document.querySelectorAll('.product-card');
+        if (this._shineBound) return;
+        const container = document.getElementById('store-grid') || document.body;
         
-        cards.forEach((card) => {
-            if (card.dataset.shineBound) return;
-            card.dataset.shineBound = '1';
+        container.addEventListener('mouseover', (e) => {
+            const card = e.target.closest('.product-card');
+            if (!card) return;
             
             const infoEl = card.querySelector('.card-info');
-            if (!infoEl) return;
+            if (!infoEl || infoEl.classList.contains('shine-strong')) return;
+            
+            // 🛡️ [إصلاح تسريب الذاكرة]: تنظيف المؤقتات السابقة قبل إنشاء جديد
+            if (infoEl._shineTimer) clearTimeout(infoEl._shineTimer);
 
-            card.triggerShine = () => {
-                if (infoEl.classList.contains('shine-strong')) return;
-                
-                infoEl.classList.remove('shine-strong', 'shine-soft');
-                void infoEl.offsetWidth; 
+            window.requestAnimationFrame(() => {
+                infoEl.classList.remove('shine-soft');
                 infoEl.classList.add('shine-strong');
-                
-                setTimeout(() => {
-                    if (infoEl.isConnected) infoEl.classList.remove('shine-strong');
-                }, 2000); 
-            };
-
-            card.addEventListener('mouseenter', card.triggerShine);
+            });
+            
+            infoEl._shineTimer = setTimeout(() => {
+                if (infoEl.isConnected) {
+                    window.requestAnimationFrame(() => infoEl.classList.remove('shine-strong'));
+                }
+            }, 2000);
         });
+        
+        this._shineBound = true;
     },
 
     animatePriceChange: function(startVal, endVal, currency) {
@@ -313,38 +380,48 @@ export const Components = {
     },
 
     pasteText: async function() {
-        const sys = window.ClientSystem || window.UIManager;
         const codeInput = document.getElementById('couponCode');
         if (!codeInput) return;
         try {
             const text = await navigator.clipboard.readText();
             if (text) {
+                // الاعتماد الحصري على .value لا يشكل XSS فورياً، لكن يجب تعقيمه قبل العرض
                 codeInput.value = text;
                 this.checkInputState(); 
                 codeInput.focus();
-                if (sys && sys.showToast) sys.showToast('تم إدراج الكوبون', 'success');
+                if (typeof UIManager !== 'undefined') UIManager.showToast('تم إدراج الكوبون', 'success');
             }
         } catch (err) { 
-            if (sys && sys.showToast) sys.showToast('يرجى السماح باللصق', 'error'); 
+            if (typeof UIManager !== 'undefined') UIManager.showToast('يرجى السماح باللصق', 'error'); 
         }
     },
 
-    // =========================================================
-    // 🌟 1. دالة تطبيق الكوبون (الحل الجذري للسعر وجدار الحماية)
-    // =========================================================
+    _showCouponMessage: function(msgBox, htmlContent, className, duration = 4000) {
+        if (!msgBox) return;
+        if (this._couponMsgTimer) clearTimeout(this._couponMsgTimer);
+        
+        msgBox.innerHTML = htmlContent;
+        msgBox.className = `coupon-msg-box ${className}`;
+        msgBox.style.display = 'flex';
+        
+        if (duration > 0) {
+            this._couponMsgTimer = setTimeout(() => {
+                if (msgBox.isConnected) msgBox.style.display = 'none';
+            }, duration);
+        }
+    },
+
     applyCoupon: function() {
         if (!DataManager.currentProd) return; 
-
-        const sys = window.ClientSystem || window.UIManager; 
+        const SysUI = typeof UIManager !== 'undefined' ? UIManager : null;
 
         if (!DataManager.user) {
-            if (sys && sys.showToast) sys.showToast('يرجى تسجيل الدخول أولاً لاستخدام كوبونات الخصم', 'error');
-            if (sys && sys.sfx) sys.sfx('error');
+            if (SysUI) { SysUI.showToast('يرجى تسجيل الدخول أولاً', 'error'); SysUI.sfx?.('error'); }
             return;
         }
         
-        if (DataManager.appliedCoupon || (sys && sys.appliedCoupon)) { 
-            if (sys && sys.showToast) sys.showToast('يوجد كوبون مستخدم بالفعل', 'info'); 
+        if (DataManager.appliedCoupon) { 
+            if (SysUI) SysUI.showToast('يوجد كوبون مستخدم بالفعل', 'info'); 
             return; 
         }
 
@@ -358,56 +435,42 @@ export const Components = {
         const code = codeInput.value.toUpperCase().trim();
 
         if (!code) {
-            if(msgBox) { msgBox.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> يرجى إدخال الكود`; msgBox.className = 'coupon-msg-box error'; msgBox.style.display = 'block'; }
+            this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-xmark"></i> يرجى إدخال الكود`, 'error');
             return;
         }
 
         const selection = this._getCurrentSelection();
-        
-        // 1. التحقق من صلاحية الكوبون برمجياً
         const result = DataManager.validateCoupon(code, DataManager.currentProd, selection.qty, selection.optIdx);
 
         if (!result.valid) {
-            if(msgBox) { 
-                msgBox.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> ${Utils.escapeHtml(result.msg)}`; 
-                msgBox.className = 'coupon-msg-box error'; 
-                msgBox.style.display = 'block'; 
-                setTimeout(() => { msgBox.style.display = 'none'; }, 4000); 
-            }
-            if(sys && sys.showToast) sys.showToast(result.msg, 'error');
-            if(sys && sys.sfx) sys.sfx('error');
+            this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-xmark"></i> ${Utils.escapeHtml(result.msg)}`, 'error');
+            if(SysUI) { SysUI.showToast(result.msg, 'error'); SysUI.sfx?.('error'); }
             return;
         }
 
-        // --- 🛡️ 2. الفحص الاستباقي (Dry Run) لجدار الحماية المالي ---
-        // محاكاة السعر مع الكوبون لاكتشاف ما إذا كان المحرك المالي سيمنع الخصم
         const pricingCheck = DataManager.calculateFinalPrice(DataManager.currentProd, DataManager.user, selection.qty, selection.optIdx, result.coupon);
 
         if (pricingCheck.unitSnapshot.isFirewallActive && pricingCheck.unitSnapshot.couponDiscount === 0) {
-            if(msgBox) { 
-                msgBox.innerHTML = `<i class="fa-solid fa-circle-info"></i> عذراً، هذا المنتج متاح بأفضل سعر ممكن ولا يمكن تخفيضه أكثر.`; 
-                msgBox.className = 'coupon-msg-box error'; 
-                msgBox.style.display = 'block'; 
-                setTimeout(() => { msgBox.style.display = 'none'; }, 5000); 
-            }
-            if(sys && sys.showToast) sys.showToast('السعر الحالي هو أفضل سعر متاح ولا يدعم خصماً إضافياً', 'warning');
-            if(sys && sys.sfx) sys.sfx('error');
+            this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-info"></i> عذراً، هذا المنتج متاح بأفضل سعر ممكن.`, 'error', 5000);
+            if(SysUI) { SysUI.showToast('السعر الحالي هو أفضل سعر متاح', 'warning'); SysUI.sfx?.('error'); }
             return; 
         }
-        // -------------------------------------------------------------
 
-        // 🌟 3. مزامنة حالة الكوبون مع العقل المركزي للمتجر
         DataManager.appliedCoupon = result.coupon; 
-        if (sys) sys.appliedCoupon = result.coupon;
-        if (sys) sys.currentCoupon = result.coupon; 
         
-        // 🌟 4. تحديث الواجهة لشطب السعر اللحظي
-        if (sys && sys.updatePriceDisplay) sys.updatePriceDisplay(); 
-        
-        if(sys && sys.sfx) sys.sfx('success');
+        if (SysUI && typeof SysUI.updatePriceDisplay === 'function') SysUI.updatePriceDisplay(); 
+        if (SysUI) SysUI.sfx?.('success');
 
-        const discountText = result.coupon.type === 'percentage' ? `${result.coupon.value}%` : `${result.coupon.value}$`;
-        if(msgBox) { msgBox.innerHTML = `<i class="fa-solid fa-check"></i> تم تطبيق خصم ${discountText}!`; msgBox.className = 'coupon-msg-box success'; msgBox.style.display = 'block'; }
+        // 🚀 [إصلاح العملة الديناميكية]: عرض العملة الصحيحة للعميل بدلاً من التثبيت على الدولار
+        const safeCouponValue = Utils.escapeHtml(String(result.coupon.value));
+        const displayCurr = DataManager.selectedCurr || DataManager.user.baseCurrency || 'USD';
+        const currencySymbol = RenderHelpers ? RenderHelpers.getCurrencySymbolText(displayCurr) : displayCurr;
+        
+        const discountText = result.coupon.type === 'percentage' 
+                             ? `${safeCouponValue}%` 
+                             : `${RenderHelpers ? RenderHelpers._enNum(safeCouponValue, 2) : safeCouponValue} ${currencySymbol}`;
+        
+        this._showCouponMessage(msgBox, `<i class="fa-solid fa-check"></i> تم تطبيق خصم ${discountText}!`, 'success', 0);
         
         codeInput.disabled = true; 
         if(btnApply) { btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
@@ -415,31 +478,25 @@ export const Components = {
         if(pasteIcon) pasteIcon.style.display = 'none'; 
         if(clearIcon) clearIcon.style.display = 'block'; 
 
-        if(sys && sys.showToast) sys.showToast('تم تطبيق الخصم بنجاح', 'success');
+        if(SysUI) SysUI.showToast('تم تطبيق الخصم بنجاح', 'success');
     },
-
-    // =========================================================
-    // 🌟 2. دالة إزالة الكوبون (إصلاح الإغلاق والإشعار)
-    // =========================================================
-    removeCoupon: function() {
-        const sys = window.ClientSystem || window.UIManager;
+    removeCoupon: function(silent = false) {
+        const SysUI = typeof UIManager !== 'undefined' ? UIManager : null;
         const codeInput = document.getElementById('couponCode');
         const msgBox = document.getElementById('couponMsg');
         const btnApply = document.getElementById('btnApply');
         
-        // مسح الكوبون من الذاكرة لكي يرجع السعر لأصله
         DataManager.appliedCoupon = null; 
-        if (sys) sys.appliedCoupon = null;
-        if (sys) sys.currentCoupon = null;
         
-        // 🌟 تحديث الواجهة مباشرة (لإزالة خط الشطب واسترجاع السعر الأصلي)
-        if (sys && sys.updatePriceDisplay) sys.updatePriceDisplay(); 
+        if (SysUI && typeof SysUI.updatePriceDisplay === 'function') SysUI.updatePriceDisplay(); 
         
-        // 🌟 تفريغ الحقل فقط وعدم استدعاء دالة الإغلاق الشاملة
         if (codeInput) {
             codeInput.value = '';
             codeInput.disabled = false;
-            codeInput.focus();
+            // 🛡️ [تحسين تجربة المستخدم موبايل]: لا تطلب Focus إذا كان المستخدم يتصفح من هاتف لتجنب فتح الكيبورد المزعج
+            if (!silent && window.innerWidth > 768) {
+                codeInput.focus();
+            }
         }
 
         if (btnApply) {
@@ -448,47 +505,85 @@ export const Components = {
         }
         
         if (msgBox) msgBox.style.display = 'none';
+        if (this._couponMsgTimer) clearTimeout(this._couponMsgTimer);
         
-        this.checkInputState(); // تحديث الأيقونات
+        this.checkInputState(); 
 
-        // 🌟 إظهار الإشعار المطلوب
-        if(sys && sys.showToast) sys.showToast('تم إزالة الكوبون بنجاح', 'info');
-        if(sys && sys.sfx) sys.sfx('nav');
+        if(!silent && SysUI) { SysUI.showToast('تم إزالة الكوبون', 'info'); SysUI.sfx?.('nav'); }
     },
 
-    initBottomNavSync: function() {
-        const navIcons = document.querySelectorAll('.bottom-nav .nav-icon');
-        function updateUIState() {
-            setTimeout(() => {
-                const gridTitle = document.getElementById('grid-title'); 
-                const currentTitle = gridTitle ? gridTitle.innerText.trim() : '';
-                const homeIcon = document.querySelector('.bottom-nav .nav-icon:nth-child(1)'); 
-                const favIcon = document.querySelector('.bottom-nav .nav-icon:nth-child(3)');
-
-                navIcons.forEach(icon => icon.classList.remove('active'));
-                if (currentTitle === 'المفضلة') { if (favIcon) favIcon.classList.add('active'); } 
-                else if (document.body.classList.contains('is-home')) { if (homeIcon) homeIcon.classList.add('active'); }
-            }, 50);
-        }
-
-        const gridTitle = document.getElementById('grid-title'); 
-        if (gridTitle) {
-            if (this._navObserver) {
-                this._navObserver.disconnect();
-            }
-            this._navObserver = new MutationObserver(updateUIState);
-            this._navObserver.observe(gridTitle, { characterData: true, childList: true, subtree: true });
-        }
-
-        navIcons.forEach(icon => {
-            if (icon.dataset.navBound) return;
-            icon.dataset.navBound = '1';
+    revalidateAppliedCoupon: function() {
+        if (!DataManager.appliedCoupon || !DataManager.currentProd) return;
+        
+        const selection = this._getCurrentSelection();
+        const result = DataManager.validateCoupon(DataManager.appliedCoupon.code, DataManager.currentProd, selection.qty, selection.optIdx);
+        
+        if (!result.valid) {
+            this.removeCoupon(true); 
+            const msgBox = document.getElementById('couponMsg');
+            this._showCouponMessage(msgBox, `<i class="fa-solid fa-triangle-exclamation"></i> تم إزالة الكوبون: ${Utils.escapeHtml(result.msg)}`, 'error', 5000);
             
-            icon.addEventListener('click', function() {
-                navIcons.forEach(i => i.classList.remove('active'));
-                this.classList.add('active');
+            const SysUI = typeof UIManager !== 'undefined' ? UIManager : null;
+            if (SysUI) SysUI.showToast('تم إلغاء الكوبون بسبب تغير شروط الطلب', 'warning');
+        }
+    },
+
+    // 🚀 [تحسين أداء المتصفح]: استخدام requestAnimationFrame لتجنب الـ Layout Thrashing 
+    initBottomNavSync: function() {
+        const navContainer = document.querySelector('.bottom-nav');
+        if (!navContainer) return;
+        
+        const navIcons = navContainer.querySelectorAll('.nav-icon');
+        let isSyncQueued = false; // لمنع الاستدعاء المكرر في نفس اللحظة
+        
+        function updateUIState() {
+            navIcons.forEach(icon => icon.classList.remove('active'));
+            
+            let activeTarget = 'home';
+            if (document.body.classList.contains('is-favorites')) activeTarget = 'favorites';
+            else if (document.body.classList.contains('is-wallet')) activeTarget = 'wallet';
+            else if (document.body.classList.contains('is-orders')) activeTarget = 'orders';
+            else if (document.body.classList.contains('is-settings')) activeTarget = 'settings';
+
+            navIcons.forEach(icon => {
+                const action = icon.getAttribute('data-action') || '';
+                if (action.includes(activeTarget) || 
+                   (activeTarget === 'home' && (action === 'go-home' || action === ''))) {
+                    icon.classList.add('active');
+                }
             });
+        }
+
+        if (this._navObserver) this._navObserver.disconnect();
+        
+        this._navObserver = new MutationObserver((mutations) => {
+            let shouldUpdate = false;
+            for (let m of mutations) {
+                if (m.attributeName === 'class') { shouldUpdate = true; break; }
+            }
+            
+            if (shouldUpdate && !isSyncQueued) {
+                isSyncQueued = true;
+                window.requestAnimationFrame(() => {
+                    updateUIState();
+                    isSyncQueued = false;
+                });
+            }
         });
+        
+        this._navObserver.observe(document.body, { attributes: true });
+
+        if (!navContainer.dataset.navBound) {
+            navContainer.dataset.navBound = '1';
+            navContainer.addEventListener('click', (e) => {
+                const clickedIcon = e.target.closest('.nav-icon');
+                if (!clickedIcon) return;
+                
+                navIcons.forEach(i => i.classList.remove('active'));
+                clickedIcon.classList.add('active');
+            });
+        }
+        
         updateUIState();
     }
 };

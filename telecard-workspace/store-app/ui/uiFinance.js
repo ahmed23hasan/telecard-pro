@@ -1,7 +1,7 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js)
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة الماسية الشاملة (Pro V4.2)
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديث: ملف نقي ومفلتر 100% + الدرع الهجين والرفع الصامت
+// 🌟 التحديث الأقصى: إصلاح رفع الـ PDF، مسح الكوبونات المعلقة، وإصلاح الروابط الوهمية
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -14,13 +14,17 @@ const getSys = () => {
     if (window.ClientSystem) return window.ClientSystem;
     if (window.UIManager) return window.UIManager;
     
-    console.warn("⚠️ تحذير: تم استدعاء النظام قبل اكتمال الإقلاع.");
-    return new Proxy({}, { get: () => () => {} }); 
+    return new Proxy({}, {
+        get: (target, prop) => () => {
+            console.error(`🚨 تم إيقاف استدعاء [${String(prop)}] لأن النظام (ClientSystem) لم يكتمل إقلاعه بعد!`);
+        }
+    });
 };
 
 export const UIFinance = {
 
     pendingReceiptFile: null,
+    _isProcessingTx: false, 
 
     _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
         getSys().sfx?.('nav');
@@ -66,7 +70,6 @@ export const UIFinance = {
 
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول أولاً للقيام بهذا الإجراء', 'error');
-            getSys().sfx?.('error');
             setTimeout(() => { window.location.href = 'login.html'; }, 1500);
             return false; 
         }
@@ -76,7 +79,6 @@ export const UIFinance = {
         
         if (!DataManager.user.isVerified) {
             getSys().showToast?.('يرجى إكمال بيانات الحساب الأساسية أولاً للمتابعة', 'error');
-            getSys().sfx?.('error');
             setTimeout(() => { getSys().openModal?.('identity'); }, 800); 
             return false; 
         }
@@ -103,7 +105,6 @@ export const UIFinance = {
                     getSys().openKycStatusModal?.('pending');
                 } else {
                     getSys().showToast?.(`حسابك يتطلب التوثيق الأمني (KYC) لتتمكن من ${actionName}`, 'error');
-                    getSys().sfx?.('error');
                     setTimeout(() => { getSys().openModal?.('kyc-upload'); }, 800);
                 }
                 return false; 
@@ -115,29 +116,33 @@ export const UIFinance = {
     openProdModal: function(id) {
         if (!this._validateKycAndSystem('purchase')) return;
    
-        getSys().resetCouponUI?.();
+        // 🚀 [إصلاح الكوبونات الوهمية]: استخدام الدالة الصحيحة من ClientSystem
+        getSys().removeCoupon?.(true);
         getSys().resetUI?.();
 
         const prods = LiveStoreData.prods || [];
-        DataManager.currentProd = prods.find(p => String(p.id) === String(id));
-        if (!DataManager.currentProd) return;
+        const originalProd = prods.find(p => String(p.id) === String(id));
+        if (!originalProd) return;
+
+        try {
+            DataManager.currentProd = structuredClone(originalProd);
+        } catch (e) {
+            DataManager.currentProd = JSON.parse(JSON.stringify(originalProd));
+        }
 
         const badgeContainer = document.getElementById('pm-badge-container');
         if (badgeContainer) {
             badgeContainer.innerHTML = ''; 
             const activeOffer = DataManager.getActiveOffer(DataManager.currentProd.id);
             
-            if (activeOffer?.visualConfig?.grid) {
+            if (activeOffer?.visualConfig?.grid && activeOffer.visualConfig.badgeStyle !== 'none') {
                 const v = activeOffer.visualConfig.grid;
                 const colorClass = RenderManager._getMappedColor(v.badgeColor);
-                
-                if (v.badgeStyle && v.badgeStyle !== 'none') {
-                    badgeContainer.innerHTML = `
-                        <div class="offer-badge-base ${v.badgeStyle} ${colorClass}" 
-                             style="position: relative; top: 0; right: 0; width: fit-content; margin-bottom: 5px;">
-                            ${Utils.escapeHtml(v.badgeText)}
-                        </div>`;
-                }
+                badgeContainer.innerHTML = `
+                    <div class="offer-badge-base ${v.badgeStyle} ${colorClass}" 
+                         style="position: relative; top: 0; right: 0; width: fit-content; margin-bottom: 5px;">
+                        ${Utils.escapeHtml(v.badgeText)}
+                    </div>`;
             } else if (DataManager.currentProd.badgeText) {
                 badgeContainer.innerHTML = `
                     <div class="offer-badge-base prod-badge badge-${DataManager.currentProd.badgeColor || 'red'}" 
@@ -159,8 +164,7 @@ export const UIFinance = {
         if (favBtn) {
             const isFav = DataManager.isFavorite ? DataManager.isFavorite(DataManager.currentProd.id) : false;
             favBtn.classList.toggle('active', isFav);
-            const favIcon = favBtn.querySelector('i');
-            if (favIcon) favIcon.className = isFav ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
+            favBtn.innerHTML = `<i class="${isFav ? 'fa-solid' : 'fa-regular'} fa-heart"></i>`;
         }
         
         const descBox = document.getElementById('pm-desc-container');
@@ -239,7 +243,9 @@ export const UIFinance = {
                         menu.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
                         item.classList.add('active');
                         
-                        this.updatePriceDisplay(); 
+                        this.updatePriceDisplay();
+                        // 🚀 [إصلاح الكوبونات الوهمية]
+                        getSys().revalidateAppliedCoupon?.();
                         getSys().sfx?.('nav');
                     });
                     menu._boundClick = true;
@@ -271,13 +277,19 @@ export const UIFinance = {
                 qInp.value = minQ; 
                 
                 qInp.addEventListener('input', (e) => {
-                    e.target.value = e.target.value.replace(/[^0-9]/g, '');
+                    e.target.value = e.target.value.replace(/[^0-9]/g, ''); 
                     this.updatePriceDisplay(); 
+                    // 🚀 [إصلاح الكوبونات الوهمية]
+                    getSys().revalidateAppliedCoupon?.();
                 });
 
                 qInp.addEventListener('blur', (e) => {
-                    let val = parseInt(e.target.value);
-                    if (isNaN(val) || val < minQ) { e.target.value = minQ; this.updatePriceDisplay(); }
+                    let val = parseInt(e.target.value, 10);
+                    if (isNaN(val) || val < minQ) { 
+                        e.target.value = minQ; 
+                        this.updatePriceDisplay(); 
+                        getSys().revalidateAppliedCoupon?.();
+                    }
                 });
             }
         }
@@ -286,7 +298,8 @@ export const UIFinance = {
     },
 
     closePurchaseModal: function() { 
-        getSys().resetCouponUI?.();
+        // 🚀 [إصلاح الكوبونات الوهمية]
+        getSys().removeCoupon?.(true);
         getSys().closeModal?.('purchase');
 
         const currentTitle = document.getElementById('grid-title')?.innerText?.trim();
@@ -303,8 +316,14 @@ export const UIFinance = {
                 cards.forEach(card => {
                     const nameEl = card.querySelector('.product-name');
                     if (nameEl && nameEl.innerText.trim() === targetProdName) {
-                        if (typeof card.triggerShine === 'function') {
-                            card.triggerShine();
+                        const infoEl = card.querySelector('.card-info');
+                        if (infoEl) {
+                            window.requestAnimationFrame(() => {
+                                infoEl.classList.add('shine-strong');
+                                setTimeout(() => {
+                                    if (infoEl.isConnected) infoEl.classList.remove('shine-strong');
+                                }, 2000);
+                            });
                         }
                     }
                 });
@@ -314,10 +333,18 @@ export const UIFinance = {
         DataManager.currentProd = null;
     },
 
+    closePurchaseSuccess: function() {
+        getSys().closeModal?.('purchase-success');
+    },
+
+    closeGeneralSuccess: function() {
+        getSys().closeModal?.('success');
+    },
+    
     updateSimpleQty: function(change) {
         let el = document.getElementById('simple-qty-val');
         if (!el || !DataManager.currentProd) return;
-        let val = parseInt(el.value);
+        let val = parseInt(el.value, 10);
         let max = DataManager.currentProd.simpleMax || 10;
         let min = DataManager.currentProd.minQty || 1; 
         let newVal = val + change;
@@ -328,37 +355,9 @@ export const UIFinance = {
         el.value = newVal;
         getSys().hideQtyError?.();
         this.updatePriceDisplay(); 
-    },
-
-    showQtyError: function(msg) {
-        const err = document.getElementById('simple-qty-error');
-        if(err) { err.innerText = msg; err.style.display = 'block'; }
-    },
-
-    hideQtyError: function() {
-        const err = document.getElementById('simple-qty-error');
-        if(err) err.style.display = 'none';
-    },
-
-    resetCouponUI: function() {
-        DataManager.appliedCoupon = null; 
-        const cInput = document.getElementById('couponCode'), cMsg = document.getElementById('couponMsg');
-        const btnApply = document.getElementById('btnApply'), clearIcon = document.getElementById('clearIcon');
-        const pasteIcon = document.getElementById('pasteIcon'), priceBox = document.getElementById('priceBox');
-        const couponSection = document.querySelector('.coupon-section');
-
-        if(couponSection) couponSection.classList.remove('open');
-        if(cInput) { cInput.value = ''; cInput.disabled = false; }
-        if(cMsg) cMsg.style.display = 'none';
-        if(btnApply) { btnApply.disabled = false; btnApply.classList.remove('btn-disabled'); }
-        if(clearIcon) clearIcon.style.display = 'none';
-        if(pasteIcon) pasteIcon.style.display = 'block';
-        if(priceBox) priceBox.classList.remove('active');
         
-        if (window.Components && window.Components.priceTicker) { cancelAnimationFrame(window.Components.priceTicker); window.Components.priceTicker = null; }
+        getSys().revalidateAppliedCoupon?.();
     },
-
-    closePurchaseSuccess: function() { getSys().closeModal?.('purchase-success'); },
 
     updatePriceDisplay: function() {
         if (!DataManager.currentProd) return;
@@ -367,7 +366,7 @@ export const UIFinance = {
         let optIdx = null;
 
         if (DataManager.currentProd.type === 'counter') { 
-            qty = parseFloat(document.getElementById('pm-qty')?.value) || 1; 
+            qty = Math.max(1, parseInt(document.getElementById('pm-qty')?.value, 10)) || 1; 
         } 
         else if (DataManager.currentProd.type === 'select') { 
             const selEl = document.getElementById('pm-pack'); 
@@ -375,24 +374,26 @@ export const UIFinance = {
         } 
         else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
             const qtyEl = document.getElementById('simple-qty-val'); 
-            qty = qtyEl ? (parseInt(qtyEl.value) || 1) : 1; 
+            qty = qtyEl ? Math.max(1, parseInt(qtyEl.value, 10) || 1) : 1; 
         }
+
+        if (qty <= 0 || isNaN(qty)) qty = 1;
 
         if (!DataManager || typeof DataManager.getPricingLocal !== 'function') return;
 
         const result = DataManager.getPricingLocal(DataManager.currentProd, qty, optIdx, DataManager.appliedCoupon);
-        if (!result) return;
+        if (!result || typeof result !== 'object') return;
 
         const unitInput = document.getElementById('pm-price-unit');
-        if (unitInput) unitInput.value = result.unitText;
+        if (unitInput) unitInput.value = result.unitText || '';
 
         const beautifulTotalHtml = (typeof RenderHelpers !== 'undefined') 
             ? RenderHelpers.formatMoney(result.totalLocalBase, result.displayCurrency)
-            : result.totalText;
+            : (result.totalText || '0.00');
 
         const totalInput = document.getElementById('pm-total');
         if (totalInput) {
-            if (totalInput.tagName === 'INPUT') totalInput.value = result.totalText;
+            if (totalInput.tagName === 'INPUT') totalInput.value = result.totalText || '';
             else totalInput.innerHTML = beautifulTotalHtml; 
         }
 
@@ -404,7 +405,7 @@ export const UIFinance = {
             if (oldPriceEl) {
                 oldPriceEl.innerHTML = (typeof RenderHelpers !== 'undefined') 
                     ? RenderHelpers.formatMoney(result.oldTotalLocalBase, result.displayCurrency)
-                    : result.oldTotalText; 
+                    : (result.oldTotalText || ''); 
             }
             if (currPriceEl) currPriceEl.innerHTML = beautifulTotalHtml; 
         } else {
@@ -413,7 +414,22 @@ export const UIFinance = {
         }
     },
 
+    _splitCodesToHtml: function(codeString) {
+        if (!codeString) return '';
+        const rawCodes = codeString.split(/\||\n/).map(c => c.trim()).filter(Boolean);
+        return rawCodes.map(code => {
+            const safeCode = Utils.escapeHtml(code);
+            return `
+            <div class="copyable-code-box lux-code-box success-lux-box" data-action="copy-text" data-text="${safeCode}" style="margin-bottom: 8px;">
+                <span class="num-en">${safeCode}</span>
+                <i class="fa-regular fa-copy"></i>
+            </div>`;
+        }).join('');
+    },
+
     handlePurchaseSubmit: async function() { 
+        if (this._isProcessingTx) return; 
+        
         if (!DataManager.currentProd) return;
         if (!this._validateKycAndSystem('purchase')) return;
         
@@ -459,13 +475,13 @@ export const UIFinance = {
         }
 
         if (DataManager.currentProd.type === 'counter') { 
-            qty = parseFloat(document.getElementById('pm-qty')?.value) || 1; 
+            qty = Math.max(1, parseInt(document.getElementById('pm-qty')?.value, 10)) || 1; 
         } else if (DataManager.currentProd.type === 'select') { 
             const selEl = document.getElementById('pm-pack'); 
             optIdx = selEl ? Number(selEl.value) : 0; 
             qty = 1; 
         } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
-            qty = parseInt(qtyEl?.value) || 1; 
+            qty = Math.max(1, parseInt(qtyEl?.value, 10)) || 1; 
             const max = DataManager.currentProd.simpleMax || 10; 
             if(qty > max) { showInlineError(qtyEl.parentNode, `أقصى كمية هي ${max}`); isValid = false; qtyEl.focus(); } 
         }
@@ -473,20 +489,22 @@ export const UIFinance = {
         if(!isValid) { getSys().sfx?.('error'); return; }
         if(!DataManager || typeof DataManager.confirmPurchase !== 'function') return;
 
-        // 🌟 1. استهداف الزر وتحويله إلى لودر مدمج صامت
         const submitBtn = document.getElementById('btn-confirm-buy') || document.querySelector('.pm-btn-gold');
+        
+        this._isProcessingTx = true;
+        
+        if (submitBtn) {
+            submitBtn.classList.add('is-loading');
+            submitBtn.disabled = true;
+        }
 
-        if (submitBtn) submitBtn.classList.add('is-loading');
-
-        // 🛡️ 2. حقن الدرع الخفي لحماية العملية من تداخل نقرات المستخدم
         if (!document.getElementById('invisible-tx-shield')) {
             document.body.insertAdjacentHTML('beforeend', '<div id="invisible-tx-shield"></div>');
         }
 
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await new Promise(resolve => requestAnimationFrame(resolve));
 
         try {
-            // المعالجة السحابية تتم هنا بصمت تام 
             const result = await DataManager.confirmPurchase(DataManager.currentProd, qty, optIdx, finalInputStr, DataManager.appliedCoupon);
 
             if (result.success) {
@@ -506,7 +524,8 @@ export const UIFinance = {
                         if (titleEl) titleEl.innerText = 'تم تنفيذ الطلب بنجاح!';
                         if (descEl) descEl.innerHTML = 'تم تسليم الكود، تجده دائماً في <span class="smart-link" data-action="navigate-orders-success">سجل الطلبات</span>';
                         if (codeDisplayContainer) {
-                            codeDisplayContainer.innerHTML = `<div class="dc-title"><i class="fa-solid fa-key"></i> الكود الخاص بك:</div><div class="copyable-code-box lux-code-box success-lux-box" data-action="copy-text" data-text="${result.deliveredCodeText}"><span class="num-en">${result.deliveredCodeText}</span><i class="fa-regular fa-copy"></i></div>`;
+                            const splitCodesHtml = this._splitCodesToHtml(result.deliveredCodeText);
+                            codeDisplayContainer.innerHTML = `<div class="dc-title"><i class="fa-solid fa-key"></i> الأكواد الخاصة بك:</div><div style="max-height: 200px; overflow-y: auto; padding-right: 5px;">${splitCodesHtml}</div>`;
                             codeDisplayContainer.classList.remove('d-none');
                         }
                     } else {
@@ -526,28 +545,23 @@ export const UIFinance = {
                         });
                         purchaseSuccessModal._boundSuccessLinks = true;
                     }
-
-                    setTimeout(() => {
-                        const shield = document.getElementById('invisible-tx-shield');
-                        if (shield) shield.remove();
-                        if (submitBtn) submitBtn.classList.remove('is-loading');
-                    }, 250);
-
                 }, 150);
                 
             } else {
-                const shield = document.getElementById('invisible-tx-shield');
-                if (shield) shield.remove();
-                if (submitBtn) submitBtn.classList.remove('is-loading');
                 getSys().showToast?.(result.msg || 'عذراً، رصيدك الحالي غير كافٍ.', 'error'); 
                 keepKeyboardOpen();
             }
         } catch (err) {
             console.error("🚨 خطأ أثناء تنفيذ الشراء السحابي:", err);
+            getSys().showToast?.('حدث خطأ في الاتصال بالسيرفر، يرجى المحاولة لاحقاً', 'error');
+        } finally {
             const shield = document.getElementById('invisible-tx-shield');
             if (shield) shield.remove();
-            if (submitBtn) submitBtn.classList.remove('is-loading');
-            getSys().showToast?.('حدث خطأ في الاتصال بالسيرفر، يرجى المحاولة لاحقاً', 'error');
+            if (submitBtn) {
+                submitBtn.classList.remove('is-loading');
+                submitBtn.disabled = false;
+            }
+            this._isProcessingTx = false; 
         }
     },
 
@@ -711,13 +725,15 @@ export const UIFinance = {
                             </div>
                         </div>
                     </div>
-                    <div class="bal-input-field-new" id="bal-amount-wrap">
-                        <span class="bal-input-currency-new" id="bal-amount-curr">${this.currentPayCurrency}</span>
-                        <input type="number" id="bal-amount" class="bal-input-new num-en" placeholder="0.00" inputmode="decimal">
-                        <label class="bal-floating-label">أدخل مبلغ للإيداع</label>
-                    </div>
-                    
-                    <span id="bal-amount-error" class="bal-error-text-new d-none"></span>
+                 <div class="bal-input-field-new" id="bal-amount-wrap">
+    <span class="bal-input-currency-new" id="bal-amount-curr">${this.currentPayCurrency}</span>
+    
+    <!-- 🚀 تطبيق الحل الاحترافي لمنع ظهور مدير كلمات المرور -->
+    <input type="text" id="bal-amount" class="bal-input-new num-en" placeholder="0.00" inputmode="decimal" autocomplete="one-time-code" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false" autocorrect="off">
+
+    <label class="bal-floating-label">أدخل مبلغ للإيداع</label>
+</div>
+<span id="bal-amount-error" class="bal-error-text-new d-none"></span>
                     <div class="bal-input-field-new" id="bal-net-wrap">
                         <span class="bal-input-currency-new" id="bal-net-curr">${baseCurr}</span>
                         <div class="bal-input-new bal-result-field-new num-en" id="calc-net">0.00</div>
@@ -733,11 +749,11 @@ export const UIFinance = {
                     <img id="bal-img-preview" class="bal-receipt-preview-new" style="display:none;">
                 </div>
                 <button id="btn-submit-deposit" class="bal-submit-btn-new btn-pro" data-action="submit-balance" disabled>
-    <span class="btn-content"><i class="fa-solid fa-paper-plane"></i> إرسال الطلب</span>
-    <span class="btn-spinner"><i class="fa-solid fa-spinner fa-spin"></i></span>
-</button>         </div>
+                    <span class="btn-content"><i class="fa-solid fa-paper-plane"></i> إرسال الطلب</span>
+                    <span class="btn-spinner"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                </button>         
+            </div>
         `;
-
         if (!section._boundDelegation) {
             section.addEventListener('input', (e) => {
                 if (e.target.id === 'bal-amount') {
@@ -770,7 +786,7 @@ export const UIFinance = {
             
             section.addEventListener('change', (e) => {
                 if (e.target.id === 'bal-file') {
-                    getSys().previewReceipt?.(e.target);
+                    this.previewReceipt(e.target);
                 }
             });
             
@@ -851,16 +867,28 @@ export const UIFinance = {
 
     previewReceipt: function(inp) { 
         const file = inp.files && inp.files[0];
-        
         if(!file) {
             this.pendingReceiptFile = null;
             this.currentReceiptData = null;
             return;
         }
 
-        this.pendingReceiptFile = file;
+        if (file.size > 10 * 1024 * 1024) {
+            getSys().showToast?.('حجم الملف كبير جداً. الحد الأقصى 10MB.', 'error');
+            inp.value = '';
+            return;
+        }
 
-        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
+        if (!allowedTypes.includes(file.type)) {
+            getSys().showToast?.('نوع الملف غير مدعوم. يرجى رفع صورة أو PDF.', 'error');
+            inp.value = '';
+            this.pendingReceiptFile = null;
+            this.currentReceiptData = null;
+            return;
+        }
+
+        const isPdf = file.type === 'application/pdf';
         const preview = document.getElementById('bal-img-preview');
         const uploadBox = document.getElementById('bal-upload-box'); 
 
@@ -868,34 +896,87 @@ export const UIFinance = {
             if(uploadBox) {
                 uploadBox.classList.add('has-file');
                 const iconClass = type === 'pdf' ? 'fa-file-pdf' : 'fa-check-circle';
-                const text = type === 'pdf' ? 'تم إرفاق ملف PDF' : 'تم إرفاق الصورة';
+                const text = type === 'pdf' ? 'تم إرفاق ملف PDF' : 'تم إرفاق الصورة بنجاح';
                 uploadBox.innerHTML = `<div class="bal-upload-success-row"><i class="fa-solid ${iconClass} bal-upload-success-icon"></i><span class="bal-upload-success-text">${text}</span></div>`;
             }
         };
 
         if(isPdf) {
+            this.pendingReceiptFile = file; 
             const reader = new FileReader();
-            reader.onload = e => { this.currentReceiptData = e.target.result; if(preview) preview.style.display = 'none'; setUploadSuccessUI('pdf'); };
+            reader.onload = e => { 
+                this.currentReceiptData = e.target.result; 
+                if(preview) preview.style.display = 'none'; 
+                setUploadSuccessUI('pdf'); 
+            };
             reader.readAsDataURL(file);
         } else {
+            if(uploadBox) uploadBox.innerHTML = `<div class="bal-upload-success-row"><i class="fa-solid fa-spinner fa-spin bal-upload-success-icon"></i><span class="bal-upload-success-text">جاري معالجة الصورة...</span></div>`;
+
             const reader = new FileReader(); 
             reader.onload = e => { 
                 const img = new Image();
                 img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const MAX_WIDTH = 800; const MAX_HEIGHT = 800; 
-                    let width = img.width; let height = img.height;
-                    if (width > height) { if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; } } 
-                    else { if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; } }
-                    canvas.width = width; canvas.height = height;
-                    const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, width, height);
-                    const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.6);
-                    this.currentReceiptData = compressedDataUrl; 
-                    if(preview) { preview.src = compressedDataUrl; preview.style.display = 'block'; preview.className = 'bal-receipt-preview-new'; }
-                    setUploadSuccessUI('image');
+                    requestAnimationFrame(() => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            let width = img.width, height = img.height;
+                            const MAX_SIZE = 1200; 
+                            
+                            if (width > height) { 
+                                if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } 
+                            } else { 
+                                if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } 
+                            }
+                            
+                            canvas.width = width; 
+                            canvas.height = height;
+                            
+                            const ctx = canvas.getContext('2d'); 
+                            if (!ctx) throw new Error('Canvas not supported');
+                            
+                            ctx.fillStyle = '#ffffff'; 
+                            ctx.fillRect(0, 0, width, height); 
+                            ctx.drawImage(img, 0, 0, width, height);
+                            
+                            canvas.toBlob((blob) => {
+                                if (!blob) throw new Error('Blob failed');
+                                const safeName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "receipt";
+                                const newWebPFile = new File([blob], `${safeName}.webp`, { type: 'image/webp' });
+                                
+                                this.pendingReceiptFile = newWebPFile;
+                                
+                                const previewUrl = URL.createObjectURL(blob);
+                                if(preview) { 
+                                    preview.src = previewUrl; 
+                                    preview.style.display = 'block'; 
+                                    preview.className = 'bal-receipt-preview-new'; 
+                                }
+                                setUploadSuccessUI('image');
+
+                            }, 'image/webp', 0.75);
+                        } catch (err) {
+                            getSys().showToast?.('تعذر معالجة الصورة، قد تكون تالفة أو كبيرة جداً', 'error');
+                            if (uploadBox) uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>';
+                            inp.value = '';
+                        }
+                    });
                 };
+                
+                img.onerror = () => {
+                    getSys().showToast?.('ملف الصورة تالف، يرجى اختيار صورة أخرى', 'error');
+                    if (uploadBox) uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>';
+                    inp.value = '';
+                };
+                
                 img.src = e.target.result;
             }; 
+            
+            reader.onerror = () => {
+                getSys().showToast?.('تعذر قراءة الملف من جهازك', 'error');
+                if (uploadBox) uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>';
+            };
+            
             reader.readAsDataURL(file); 
         }
     },
@@ -1015,72 +1096,94 @@ export const UIFinance = {
         }
     },
 
-    handleBalanceSubmit: async function(currency) {
-        if (!this._validateKycAndSystem('deposit')) return;
-
-        const input = document.getElementById('bal-amount');
-        const amount = parseFloat(input.value) || 0;
-
-        if (amount <= 0 || (input && input.classList.contains('input-invalid'))) {
-            getSys().showToast?.('يرجى إدخال مبلغ صحيح', 'error');
-            return;
+handleBalanceSubmit: async function(currency) {
+    if (this._isProcessingTx) return;
+    
+    if (!this._validateKycAndSystem('deposit')) return;
+    
+    const input = document.getElementById('bal-amount');
+    
+    // 1. قراءة الرقم بأمان وتنظيفه من الفراغات
+    const rawValue = input ? input.value.trim() : '';
+    const amount = parseFloat(rawValue) || 0;
+    
+    // 🛡️ 2. منع الأصفار والقيم الفارغة (NaN)
+    if (isNaN(amount) || amount <= 0) {
+        getSys().showToast?.('يرجى إدخال مبلغ إيداع صحيح أكبر من صفر', 'error');
+        return;
+    }
+    
+    // 🛡️ 3. الحل الجذري للأرقام الفلكية (Anti-Infinity & Overflow Shield)
+    const MAX_DEPOSIT_LIMIT = 1000000;
+    if (amount > MAX_DEPOSIT_LIMIT || amount > Number.MAX_SAFE_INTEGER) {
+        getSys().showToast?.(`عذراً، الحد الأقصى للإيداع في العملية الواحدة هو ${MAX_DEPOSIT_LIMIT}`, 'error');
+        if (input) input.value = ''; // تفريغ الحقل لحماية الواجهة
+        return;
+    }
+    
+    // 4. التحقق من أخطاء الحدود
+    if (input && input.classList.contains('input-invalid')) {
+        getSys().showToast?.('يرجى التأكد من أن المبلغ ضمن الحدود المسموحة لطريقة الدفع', 'error');
+        return;
+    }
+    
+    const submitBtn = document.querySelector('[data-action="submit-balance"]');
+    
+    this._isProcessingTx = true;
+    if (submitBtn) {
+        submitBtn.classList.add('is-loading');
+        submitBtn.disabled = true;
+    }
+    
+    if (!document.getElementById('invisible-tx-shield')) {
+        document.body.insertAdjacentHTML('beforeend', '<div id="invisible-tx-shield"></div>');
+    }
+    
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    
+    try {
+        const payCurr = currency || this.currentPayCurrency || 'USD';
+        let finalReceiptUrl = '';
+        
+        if (this.pendingReceiptFile) {
+            const userId = DataManager.user?.uid || DataManager.user?.id || 'unknown';
+            const isPdf = this.pendingReceiptFile.type === 'application/pdf';
+            const fileExt = isPdf ? 'pdf' : 'webp';
+            const uniqueFileName = `dep_${userId}_${Date.now()}.${fileExt}`;
+            
+            finalReceiptUrl = await FirebaseAdapter.uploadImage(this.pendingReceiptFile, 'receipts', uniqueFileName);
+            if (!finalReceiptUrl) throw new Error("تعذر رفع الإشعار، تأكد من اتصالك بالإنترنت.");
         }
-
-        const submitBtn = document.querySelector('[data-action="submit-balance"]');
-        if (submitBtn) submitBtn.classList.add('is-loading');
-
-        if (!document.getElementById('invisible-tx-shield')) {
-            document.body.insertAdjacentHTML('beforeend', '<div id="invisible-tx-shield"></div>');
+        
+        const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, finalReceiptUrl);
+        
+        if (result.success) {
+            getSys().sfx?.('success');
+            this.closeBalanceModal();
+            if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
+            
+            this.pendingReceiptFile = null;
+            this.currentReceiptData = null;
+            
+            setTimeout(() => {
+                getSys().openModal?.('success');
+            }, 150);
+            
+        } else {
+            getSys().showToast?.(result.msg, 'error');
         }
-
-        await new Promise(resolve => setTimeout(resolve, 20));
-
-        try {
-            const payCurr = currency || this.currentPayCurrency || 'USD';
-            let finalReceiptUrl = '';
-
-            if (this.pendingReceiptFile) {
-                const userId = DataManager.user?.id || 'unknown';
-                finalReceiptUrl = await FirebaseAdapter.uploadImage(this.pendingReceiptFile, `receipts/${userId}`);
-                if (!finalReceiptUrl) throw new Error("تعذر رفع الإشعار، تأكد من اتصالك بالإنترنت.");
-            } else if (this.currentReceiptData) {
-                finalReceiptUrl = this.currentReceiptData;
-            }
-
-            const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, finalReceiptUrl);
-
-            if (result.success) {
-                getSys().sfx?.('success');
-                this.closeBalanceModal();
-                if (typeof DataManager.syncUser === 'function') DataManager.syncUser(); 
-                
-                this.pendingReceiptFile = null; 
-                this.currentReceiptData = null; 
-                
-                setTimeout(() => {
-                    getSys().openModal?.('success'); 
-                    
-                    setTimeout(() => {
-                        const shield = document.getElementById('invisible-tx-shield');
-                        if (shield) shield.remove();
-                        if (submitBtn) submitBtn.classList.remove('is-loading');
-                    }, 250);
-                }, 150);
-
-            } else {
-                const shield = document.getElementById('invisible-tx-shield');
-                if (shield) shield.remove();
-                if (submitBtn) submitBtn.classList.remove('is-loading');
-                getSys().showToast?.(result.msg, 'error');
-            }
-        } catch (error) {
-            const shield = document.getElementById('invisible-tx-shield');
-            if (shield) shield.remove();
-            if (submitBtn) submitBtn.classList.remove('is-loading');
-            getSys().showToast?.(error.message || 'فشل إرسال الطلب.', 'error');
+    } catch (error) {
+        getSys().showToast?.(error.message || 'فشل إرسال الطلب.', 'error');
+    } finally {
+        const shield = document.getElementById('invisible-tx-shield');
+        if (shield) shield.remove();
+        if (submitBtn) {
+            submitBtn.classList.remove('is-loading');
+            submitBtn.disabled = false;
         }
-    },
-
+        this._isProcessingTx = false;
+    }
+},
     togglePayDetail: function(headerElement) {
         if (!headerElement) return;
 
@@ -1163,12 +1266,15 @@ export const UIFinance = {
         if(type === 'deposit') {
             const deposits = LiveStoreData.deposits || [];
             const d = deposits.find(x => String(x.id) === String(id));
-            if(!d) return;
+            if(!d) {
+                getSys().showToast?.('عذراً، لم يتم العثور على الإيداع.', 'error');
+                return;
+            }
 
             const shortDepositId = RenderHelpers.formatDepositId(d);
 
             let stClass = 'pending'; let stTxt = d.status === 'pending' ? 'قيد المراجعة' : d.status; let stIcon = 'fa-clock';
-            if(d.status === 'approved') { stClass = 'completed'; stTxt = 'مقبول'; stIcon = 'fa-check-circle'; }
+            if(d.status === 'approved' || d.status === 'completed') { stClass = 'completed'; stTxt = 'مقبول'; stIcon = 'fa-check-circle'; }
             else if(d.status === 'rejected') { stClass = 'rejected'; stTxt = 'مرفوض'; stIcon = 'fa-times-circle'; }
             
             const badgeContainer = document.getElementById('tx-top-badge-container');
@@ -1202,6 +1308,15 @@ export const UIFinance = {
             }
 
             const depositAmountHtml = RenderHelpers.formatMoney(d.amount, d.currency || 'USD');
+
+            // 🚀 [إصلاح نافذة الإيصال]: جعل الصورة قابلة للنقر لعرضها بوضوح
+            const receiptHtml = d.receipt ? `
+                <div class="nm-universal-card nm-receipt-card" style="cursor: zoom-in;" onclick="window.open('${Utils.escapeHtml(d.receipt)}', '_blank')">
+                    <img src="${Utils.escapeHtml(d.receipt)}" class="nm-receipt-img" alt="Receipt">
+                    <div style="text-align:center; font-size:11px; margin-top:8px; color:var(--text-muted); font-weight:700;">
+                        <i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً
+                    </div>
+                </div>` : '';
 
             html = `
             <div class="nm-container">
@@ -1242,7 +1357,7 @@ export const UIFinance = {
                     </div>
                 </div>
                 ${replyHtml}
-                ${d.receipt ? `<div class="nm-universal-card nm-receipt-card"><img src="${d.receipt}" class="nm-receipt-img" alt="Receipt"></div>` : ''}
+                ${receiptHtml}
             </div>`;
         } else {
             const orders = LiveStoreData.orders || [];
@@ -1302,15 +1417,14 @@ export const UIFinance = {
             }
             
             if (o.status === 'completed' && o.deliveredCode && o.deliveredCode !== 'null') {
+                const splitCodesHtml = this._splitCodesToHtml(o.deliveredCode);
+                
                 replyHtml += `
                 <div class="nm-reply-box auto-delivery-box">
                     <div class="nm-reply-content">
                         <span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم سستم فوري</span>
-                        <div class="nm-reply-body">
-                            <div class="copyable-code-box lux-code-box" data-action="copy-text" data-text="${o.deliveredCode}">
-                                <span class="num-en">${o.deliveredCode}</span>
-                                <i class="fa-regular fa-copy"></i>
-                            </div>
+                        <div class="nm-reply-body" style="max-height: 200px; overflow-y: auto; padding-right: 5px;">
+                            ${splitCodesHtml}
                         </div>
                     </div>
                 </div>`;
@@ -1327,7 +1441,6 @@ export const UIFinance = {
             }
 
             const displayCurr = (o.priceCurrency || 'USD').toUpperCase();
-            
             const formatFn = (amt) => RenderHelpers.formatMoney(amt, displayCurr);
 
             const hasCoupon = cDiscountLocal > 0;
@@ -1376,7 +1489,7 @@ export const UIFinance = {
             html = `
             <div class="nm-container">
                 ${durationHtml} <div class="nm-universal-card">
-                    <div class="nm-title-frame"><div class="nm-prod-title">${o.product}</div></div>
+                    <div class="nm-title-frame"><div class="nm-prod-title">${Utils.escapeHtml(o.product || 'منتج')}</div></div>
                     <div class="nm-card-body">
                         <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${shortOrderId}">
                             <span class="nm-label" style="pointer-events: none;"><i class="fa-solid fa-hashtag"></i> رقم الطلب (ID)</span>
@@ -1403,7 +1516,7 @@ export const UIFinance = {
                 </div>
                 
                 <div class="nm-data-box"><div class="nm-btn-print-magic" id="export-order-pdf-btn" data-id="${id}">
-<i class="fa-solid fa-file-pdf"></i> تصدير الإيصال</div></div>
+                <i class="fa-solid fa-file-pdf"></i> تصدير الإيصال</div></div>
                 
                 ${replyHtml}
             </div>`;
@@ -1416,7 +1529,7 @@ export const UIFinance = {
                 content.addEventListener('click', (e) => {
                     const pdfBtn = e.target.closest('#export-order-pdf-btn');
                     if (pdfBtn && getSys().exportReceipt) {
-                        getSys().exportReceipt(pdfBtn.dataset.id);
+                        getSys().exportReceipt(pdfBtn.dataset.id, pdfBtn); // ✅ تم الإصلاح: تمرير الزر ليتحول إلى حالة التحميل
                     }
                 });
                 content._boundDetailDelegation = true;

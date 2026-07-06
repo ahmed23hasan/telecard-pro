@@ -1,12 +1,13 @@
-// ============================================================================
+
 // ⚙️ وحدة الأساسيات والنواة (uiCore.js) - ES6 Module
 // 🎯 الوظيفة: النوافذ، الإشعارات، القائمة الجانبية، النسخ، الثيم، والتوجيه العام
-// 🚀 التحديث: كود نظيف 100%، خالي من التكرار، + نافذة الطرد المباشر (Live Ban Terminator)
+// 🚀 التحديث الأقصى: ترقيع CSS Injection، تراكم الإشعارات (Toast Stack)، وتوحيد الـ Imports
 // ============================================================================
 
 import { DB_KEYS } from '../config.js';           
 import { Utils } from '../utils.js';             
-import { DataManager, LiveStoreData } from '../dataManager.js'; 
+// 🛡️ [إصلاح معماري]: استيراد StoreDB من مصدر واحد (Singleton) لمنع تكرار الاتصال
+import { DataManager, LiveStoreData, StoreDB } from '../dataManager.js'; 
 import { RenderManager } from '../renderManager.js'; 
 import { Components } from '../components.js';     
 import { RenderHelpers } from '../core/renderHelpers.js'; 
@@ -14,8 +15,12 @@ import { RenderHelpers } from '../core/renderHelpers.js';
 const getSys = () => {
     if (window.ClientSystem) return window.ClientSystem;
     if (window.UIManager) return window.UIManager;
-    console.warn("⚠️ تحذير: تم استدعاء النظام قبل اكتمال الإقلاع.");
-    return new Proxy({}, { get: () => () => {} }); 
+    
+    return new Proxy({}, {
+        get: (target, prop) => () => {
+            console.error(`🚨 تم إيقاف استدعاء [${String(prop)}] لأن النظام (ClientSystem) لم يكتمل إقلاعه بعد!`);
+        }
+    });
 };
 
 export const UICore = {
@@ -27,70 +32,173 @@ export const UICore = {
     historyStateSet: false,
 
     // =========================================================
-    // 🚨 0. نافذة الطرد المباشر (Live Session Terminator)
+    // 🚨 0. نافذة الطرد المباشر وإعدام الجلسات (True Session Eviction)
     // =========================================================
     triggerLiveBanAlert: function(reasonMessage) {
-        const overlay = document.getElementById('global-security-alert');
-        const msgEl = document.getElementById('global-alert-msg');
+        const msgText = Utils.escapeHtml(reasonMessage || 'تم تقييد حسابك.');
         
-        if (overlay) {
-            if (msgEl && reasonMessage) msgEl.textContent = reasonMessage;
+        // 1. تدمير واجهة المستخدم بالكامل فوراً لمنع تفاعل المخترق عبر الـ Console
+        document.body.innerHTML = `
+            <div id="global-security-alert" class="sys-dialog-wrapper active" style="z-index: 999999999; background: #000;">
+                <div class="sys-dialog-card" style="border-color: #ef4444;">
+                    <div class="sys-dialog-header">
+                        <div class="sys-dialog-icon" style="color: #ef4444; background: rgba(239, 68, 68, 0.1);">
+                            <i class="fa-solid fa-ban"></i>
+                        </div>
+                        <h3 class="sys-dialog-title text-danger">تنبيه أمني</h3>
+                    </div>
+                    <div class="sys-dialog-msg-container">
+                        <p class="sys-dialog-msg" id="global-alert-msg">${msgText}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        getSys().sfx?.('error');
+        
+        // 2. تدمير الكاش والجلسة محلياً (مسح شامل لكل المخلفات)
+        try {
+            if (window.localforage) window.localforage.clear();
+            localStorage.removeItem('telecard_store_cache');
+            localStorage.removeItem('telecard_active_user_uid');
+            localStorage.removeItem('telecard_active_user');
+            localStorage.removeItem('telecard_biometric_key'); // 🛡️ مسح البصمة لمنع القفل الأبدي
             
-            // 1. إغلاق أي نافذة أو قائمة مفتوحة لمنع العميل من القيام بأي فعل
-            this.closeAllModals();
-            this.closeSidebar();
-            
-            // 2. إظهار نافذة الطرد الحمراء
-            overlay.classList.add('active');
-            
-            // 3. تشغيل صوت الخطأ/الإنذار
-            getSys().sfx?.('error');
-            
-            // 4. تجميد الواجهة بالكامل (Bank-Grade Freeze)
-            document.body.style.overflow = 'hidden';
-            document.body.style.pointerEvents = 'none';
-        }
+            import('../core/firebaseAdapter.js').then(module => {
+                if (module.auth) module.auth.signOut();
+            }).catch(()=>{});
+        } catch(e) {}
+        
+        // 3. التوجيه لصفحة الدخول
+        setTimeout(() => {
+            window.location.replace('login.html');
+        }, 4000);
     },
 
     // =========================================================
-    // 🌗 1. دوال الثيم والهوية البصرية (Theme & Identity)
+    // ⚙️ نافذة الإعدادات (Settings Modal)
+    // =========================================================
+    openSettings: function() { 
+        getSys().resetUI?.(); 
+        getSys().renderSettingsUI?.(); 
+        getSys().openModal?.('settings'); 
+    },
+    closeSettings: function() { getSys().closeModal?.('settings'); },
+
+    // =========================================================
+    // 🌗 1. دوال الثيم والهوية البصرية والتزامن الذكي
     // =========================================================
     toggleTheme: function() {
-        const isLightMode = document.body.classList.toggle('light-mode');
-        const icon = document.getElementById('theme-toggle-icon');
-        if (icon) icon.className = isLightMode ? 'fa-solid fa-moon' : 'sun-dots-icon';
-        localStorage.setItem('telecard_theme', isLightMode ? 'light' : 'dark');
+        const isCurrentlyLight = document.body.classList.contains('light-mode');
+        getSys().setThemePref(isCurrentlyLight ? 'dark' : 'light');
         getSys().sfx?.('nav');
     },
+    
+    toggleThemePref: function() {
+        getSys().toggleTheme();
+    },
+    
+    setThemePref: function(mode) {
+        const isLight = mode === 'light';
+        
+        document.body.classList.toggle('light-mode', isLight);
+        localStorage.setItem('telecard_theme', isLight ? 'light' : 'dark');
+        
+        if (DataManager.prefs) {
+            DataManager.prefs.theme = isLight ? 'light' : 'dark';
+            if (DataManager.savePrefs) DataManager.savePrefs();
+        }
+        
+        const dottedSunSVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="display:inline-block; vertical-align:middle;"><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="2" r="1.5"></circle><circle cx="12" cy="22" r="1.5"></circle><circle cx="2" cy="12" r="1.5"></circle><circle cx="22" cy="12" r="1.5"></circle><circle cx="4.93" cy="4.93" r="1.5"></circle><circle cx="19.07" cy="19.07" r="1.5"></circle><circle cx="4.93" cy="19.07" r="1.5"></circle><circle cx="19.07" cy="4.93" r="1.5"></circle></svg>`;
+        
+        const headerIcon = document.getElementById('theme-toggle-icon');
+        if (headerIcon) {
+            if (isLight) {
+                headerIcon.innerHTML = '';
+                headerIcon.className = 'fa-solid fa-moon';
+            } else {
+                headerIcon.className = ''; 
+                headerIcon.innerHTML = dottedSunSVG; 
+            }
+        }
+        
+        const themeToggles = document.querySelectorAll('.global-theme-toggle');
+        themeToggles.forEach(btn => {
+            btn.classList.toggle('is-light', isLight);
+            btn.classList.toggle('is-active', isLight);
+            
+            const lbl = btn.querySelector('.theme-lbl');
+            const icn = btn.querySelector('.theme-icn');
+            
+            if (lbl) lbl.textContent = isLight ? 'نهاري' : 'ليلي';
+            if (icn) {
+                if (isLight) {
+                    icn.innerHTML = ''; icn.className = 'fa-solid fa-moon theme-icn';
+                } else {
+                    icn.className = 'theme-icn'; icn.innerHTML = dottedSunSVG;
+                }
+            }
+        });
+    },    
 
     applySavedTheme: function() {
-        const savedTheme = localStorage.getItem('telecard_theme');
-        const icon = document.getElementById('theme-toggle-icon');
-        if (savedTheme === 'light') {
-            document.body.classList.add('light-mode');
-            if (icon) icon.className = 'fa-solid fa-moon';
-        } else {
-            document.body.classList.remove('light-mode');
-            if (icon) icon.className = 'sun-dots-icon';
-        }
+        const savedTheme = localStorage.getItem('telecard_theme') || 'dark';
+        getSys().setThemePref(savedTheme);
+    },
+    
+    initTheme: function() {
+        const saved = (DataManager.prefs && DataManager.prefs.theme) ? DataManager.prefs.theme : (localStorage.getItem('telecard_theme') || 'dark');
+        getSys().setThemePref(saved);
+    },
+    
+    // =========================================================
+    // 🔊 دوال الأصوات وتزامن الأزرار
+    // =========================================================
+    toggleSoundPref: function() {
+        if (!DataManager.prefs) return;
+        DataManager.prefs.sound = !DataManager.prefs.sound;
+        if (DataManager.savePrefs) DataManager.savePrefs();
+        getSys().updateSoundUI();
+        getSys().sfx?.('nav');
+    },
+    
+    updateSoundUI: function() {
+        const soundOn = (DataManager.prefs && DataManager.prefs.sound !== false);
+        const soundToggles = document.querySelectorAll('.global-sound-toggle');
+        
+        soundToggles.forEach(btn => {
+            btn.classList.toggle('is-active', soundOn);
+            const lbl = btn.querySelector('.sound-lbl');
+            const icn = btn.querySelector('.sound-icn');
+            if (lbl) lbl.textContent = soundOn ? 'مفعل' : 'صامت';
+            if (icn) icn.className = soundOn ? 'fa-solid fa-volume-high' : 'fa-solid fa-volume-xmark';
+        });
+    },
+    
+    renderSettingsUI: function() {
+        const prefs = DataManager.prefs || {};
+        const isLight = prefs.theme === 'light' || document.body.classList.contains('light-mode');
+        getSys().setThemePref(isLight ? 'light' : 'dark');
+        getSys().updateSoundUI();
     },
 
+    // =========================================================
+    // 👤 دالة استخراج الاسم الصريح للعميل (Name Sanitization)
+    // =========================================================
     _getFullName: function(user) {
-        const u = user || DataManager.user || {}; 
+        const u = user || DataManager.user || {};
         const isKycApproved = (u.kycStatus === 'approved' || u.kycStatus === 'verified');
-
-        if (isKycApproved) {
-            const verifiedName = u.fullName || (u.kycData && u.kycData.fullName) || '';
-            if (verifiedName.trim()) return verifiedName.trim();
-        }
-
+        
+        if (isKycApproved && u.fullName && u.fullName.trim()) return u.fullName.trim();
+        if (isKycApproved && u.kycData && u.kycData.fullName && u.kycData.fullName.trim()) return u.kycData.fullName.trim();
+        
         const f = u.firstName || u.first_name || u.name || '';
         const l = u.lastName || u.last_name || u.familyName || '';
-        const combined = (f + ' ' + l).trim();
+        const combined = `${f} ${l}`.trim();
         
         if (combined) return combined;
-        if (u.fullName && u.fullName.trim()) return u.fullName;
-        if (u.username) return `@${u.username}`;
+        if (u.fullName && u.fullName.trim()) return u.fullName.trim();
+        if (u.username && u.username.trim()) return `@${u.username.trim()}`;
         
         return 'العميل';
     },
@@ -153,7 +261,9 @@ export const UICore = {
         
         if (modal) {
             modal.classList.remove('active');
-            setTimeout(() => {
+            // 🛡️ مسح مؤقت التمرير إذا تم فتح نافذة أخرى سريعاً
+            if (modal._scrollTimer) clearTimeout(modal._scrollTimer);
+            modal._scrollTimer = setTimeout(() => {
                 modal.scrollTop = 0;
                 const innerScrolls = modal.querySelectorAll('.pm-scroll-content, .scrollable, .modal-content, .profile-container, .profile-pass-body, [id$="-list"]');
                 innerScrolls.forEach(s => s.scrollTop = 0);
@@ -168,8 +278,13 @@ export const UICore = {
                 document.body.classList.remove('no-scroll');
             }
         }
-    },
-
+        
+        const majorModals = ['wallet', 'orders', 'mypay', 'profile-info'];
+        if (majorModals.includes(modalId)) {
+            this.syncBottomNavWithBaseState();
+        }
+    },    
+    
     closeAllModals: function() {
         if (this.activeModals && Array.isArray(this.activeModals)) { 
             [...this.activeModals].forEach(id => this.closeModal(id)); 
@@ -212,6 +327,27 @@ export const UICore = {
         window.scrollTo(0, 0);
         const grid = document.getElementById('store-grid');
         if (grid) { grid.scrollTop = 0; let parent = grid.parentElement; while (parent && parent.tagName !== 'HTML') { parent.scrollTop = 0; parent = parent.parentElement; } }
+    },
+
+    syncBottomNavWithBaseState: function() {
+        setTimeout(() => {
+            const navIcons = document.querySelectorAll('.bottom-nav .nav-icon');
+            if (!navIcons.length) return;
+            
+            navIcons.forEach(icon => icon.classList.remove('active'));
+            
+            const isHome = document.body.classList.contains('is-home');
+            const titleText = document.getElementById('grid-title')?.innerText?.trim();
+            const isFavorites = titleText === 'المفضلة';
+            
+            let targetAction = 'nav-home'; 
+            if (isFavorites) targetAction = 'open-favorites';
+            else if (isHome || this.currentCategoryId) targetAction = 'nav-home';
+            
+            const activeBtn = document.querySelector(`.bottom-nav .nav-icon[data-action="${targetAction}"]`);
+            if (activeBtn) activeBtn.classList.add('active');
+            
+        }, 350);
     },
 
     closeAllSheets: function() { this.resetUI(); },
@@ -278,6 +414,10 @@ export const UICore = {
         if(overlay) overlay.classList.remove('active'); 
         this.removeSidebarClickOutsideDetector();
         getSys().saveDisplayState?.();
+
+        if (typeof this.syncBottomNavWithBaseState === 'function') {
+            this.syncBottomNavWithBaseState();
+        }
     },
 
     bindSidebarProfileTriggers: function() {
@@ -319,7 +459,7 @@ export const UICore = {
                 this.closeSidebar();
             }
         };
-        setTimeout(() => { document.addEventListener('click', this._mainContentClickHandler, true); }, 100);
+        document.addEventListener('click', this._mainContentClickHandler, true);
     },
     
     removeMainContentClickDetector: function() {
@@ -357,10 +497,20 @@ export const UICore = {
         stateObserver.observe(menu, { attributes: true, attributeFilter: ['class'] });
 
         const cleanupPerformance = () => { menu.style.willChange = 'auto'; if(overlay) overlay.style.willChange = 'auto'; };
-        const removeListeners = () => { document.removeEventListener('touchmove', onTouchMove); document.removeEventListener('touchend', onTouchEnd); isDragging = false; isSwipeConfirmed = false; };
+        
+        const removeListeners = () => { 
+            document.removeEventListener('touchmove', onTouchMove); 
+            document.removeEventListener('touchend', onTouchEnd); 
+            document.removeEventListener('touchcancel', onTouchEnd); 
+            isDragging = false; 
+            isSwipeConfirmed = false; 
+        };
 
         const onTouchStart = (e) => {
-            if (e.target.closest('.slider-container, .scrollable-area')) return;
+            if (e.target.closest('.slider-container')) return; 
+            
+            removeListeners();
+            
             startX = e.touches[0].clientX; startY = e.touches[0].clientY;
             initialOpenState = menu.classList.contains('active');
             const isValidStart = initialOpenState || (!initialOpenState && startX > (window.innerWidth - edgeZone));
@@ -371,6 +521,7 @@ export const UICore = {
             
             document.addEventListener('touchmove', onTouchMove, { passive: false });
             document.addEventListener('touchend', onTouchEnd, { passive: true });
+            document.addEventListener('touchcancel', onTouchEnd, { passive: true });
         };
 
         const onTouchMove = (e) => {
@@ -379,6 +530,7 @@ export const UICore = {
 
             if (!isSwipeConfirmed) {
                 if (Math.sqrt(diffX ** 2 + diffY ** 2) < 10) return;
+                // السماح بالتمرير العمودي بحرية
                 if (Math.abs(diffY) > Math.abs(diffX) * 1.5) { isDragging = false; removeListeners(); cleanupPerformance(); return; }
                 isSwipeConfirmed = true;
                 if (!initialOpenState) resetSidebarScroll();
@@ -399,7 +551,7 @@ export const UICore = {
 
         const onTouchEnd = (e) => {
             if (!isDragging || !isSwipeConfirmed) { removeListeners(); cleanupPerformance(); return; }
-            const diffX = e.changedTouches[0].clientX - startX;
+            const diffX = e.changedTouches ? e.changedTouches[0].clientX - startX : 0;
             const time = Date.now() - startTime;
             const isFlick = time < 250 && Math.abs(diffX) > 20;
             const threshold = menuWidth / 3;
@@ -433,7 +585,76 @@ export const UICore = {
         document.addEventListener('touchstart', onTouchStart, { passive: true });
     },
 
-    navigateHome: function() { this.closeSidebar(); if(RenderManager.renderHome) RenderManager.renderHome(); },
+    // =========================================================
+    // 🌟 محرك الانتقالات الفاخر (Native App Transition Engine)
+    // =========================================================
+    _toggleNavLoader: function(show) {
+        let loader = document.getElementById('premium-nav-loader');
+        if (!loader) {
+            const s = LiveStoreData.settings || {};
+            const sName = s.storeName || s.name || 'المتجر';
+            loader = document.createElement('div');
+            loader.id = 'premium-nav-loader';
+            loader.innerHTML = `
+                <div class="pnl-backdrop" style="position:fixed; inset:0; background:var(--bg-main, #111a2b); opacity:0.85; backdrop-filter:blur(8px); z-index:99999; display:flex; align-items:center; justify-content:center; transition:opacity 0.2s ease;">
+                    <div style="display:flex; flex-direction:column; align-items:center; gap:15px; transform:scale(0.9); animation:pnlPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;">
+                        <div style="position:relative; width:60px; height:60px; display:flex; align-items:center; justify-content:center;">
+                            <i class="fa-solid fa-circle-notch fa-spin" style="position:absolute; font-size:60px; color:var(--gold-main, #FFD700); opacity:0.3;"></i>
+                            <i class="fa-solid fa-store" style="font-size:24px; color:var(--gold-main, #FFD700);"></i>
+                        </div>
+                        <div style="color:#fff; font-weight:900; font-size:16px; letter-spacing:1px; font-family:'Cairo', sans-serif;">${Utils.escapeHtml(sName)}</div>
+                    </div>
+                </div>
+                <style>@keyframes pnlPop { to { transform:scale(1); } }</style>
+            `;
+            document.body.appendChild(loader);
+        }
+        
+        const backdrop = loader.querySelector('.pnl-backdrop');
+        if (show) {
+            loader.style.display = 'block';
+            void loader.offsetWidth; 
+            backdrop.style.opacity = '1';
+        } else {
+            backdrop.style.opacity = '0';
+            setTimeout(() => loader.style.display = 'none', 200);
+        }
+    },
+
+    _executePageTransition: function(renderCallback) {
+        const grid = document.getElementById('store-grid');
+        this._toggleNavLoader(true); 
+        
+        if (grid) {
+            grid.style.transition = 'none';
+            grid.style.opacity = '0'; 
+        }
+        
+        requestAnimationFrame(() => {
+            renderCallback(); 
+            setTimeout(() => {
+                this._toggleNavLoader(false); 
+                if (grid) {
+                    grid.style.transition = 'opacity 0.25s ease-out';
+                    grid.style.opacity = '1'; 
+                }
+            }, 250);
+        });
+    },
+
+    // =========================================================
+    // 🚀 تطبيق المحرك على دوال التوجيه
+    // =========================================================
+
+    navigateHome: function() { 
+        this.closeSidebar(); 
+        this.currentCategoryId = null; 
+        this.navHistory = [];
+        
+        this._executePageTransition(() => {
+            if(RenderManager.renderHome) RenderManager.renderHome();
+        });
+    },
     
     openFavorites: function() {
         if (!DataManager || !DataManager.user) {
@@ -454,19 +675,11 @@ export const UICore = {
         this.resetUI();
         this.currentCategoryId = null;
         
-        const grid = document.getElementById('store-grid');
-        if (grid) {
-            grid.style.transition = 'opacity 0.2s ease';
-            grid.style.opacity = '0';
-            
-            setTimeout(() => {
-                if (RenderManager.renderFavorites) RenderManager.renderFavorites();
-                grid.style.opacity = '1';
-            }, 200);
-        } else {
+        this._executePageTransition(() => {
             if (RenderManager.renderFavorites) RenderManager.renderFavorites();
-        }
+        });
     },
+
     navigateBalance: function() { this.closeSidebar(); getSys().openAddBalance?.(); },
     navigateMyPayments: function() { this.closeSidebar(); getSys().openMyPayments?.(); },
     navigateOrders: function() { this.closeSidebar(); getSys().openOrders?.(); },
@@ -496,40 +709,60 @@ export const UICore = {
                 storiesBar = document.createElement('div');
                 storiesBar.id = 'offer-stories-bar';
                 grid.parentNode.insertBefore(storiesBar, grid); 
-            } else {
-                storiesBar.innerHTML = ''; 
-                storiesBar.style.display = 'none';
             }
 
-            grid.innerHTML = '';
             this.setGridMode('grid-prods');
-
-            const performRender = () => {
-                if (RenderManager.renderOfferStories) RenderManager.renderOfferStories(id);
-                if(RenderManager._renderContent) RenderManager._renderContent(id);
-                if (Components && Components.initProductShine) Components.initProductShine();
-            };
-            
-            const hasData = (LiveStoreData.prods && LiveStoreData.prods.length > 0);
+            const hasData = (LiveStoreData.prods && LiveStoreData.prods.length > 0) || (LiveStoreData.cats && LiveStoreData.cats.length > 0);
 
             if (hasData) {
-                performRender(); 
+                this._executePageTransition(() => {
+                    if (RenderManager.renderOfferStories) RenderManager.renderOfferStories(id);
+                    if (RenderManager._renderContent) RenderManager._renderContent(id);
+                    if (Components && Components.initProductShine) Components.initProductShine();
+                });
             } else {
+                storiesBar.style.display = 'none';
+                grid.innerHTML = '';
+                
                 if (RenderManager.renderProductSkeletons) {
                     RenderManager.renderProductSkeletons('store-grid', 8);
                 }
-                setTimeout(performRender, 800);
+                
+                setTimeout(() => {
+                    if (RenderManager.renderOfferStories) RenderManager.renderOfferStories(id);
+                    if (RenderManager._renderContent) RenderManager._renderContent(id);
+                    if (Components && Components.initProductShine) Components.initProductShine();
+                }, 800);
             }
         }
     },
     
     _manualGoBack: function() {
-        if (this.navHistory.length === 0) { if(RenderManager.renderHome) RenderManager.renderHome(true); return; }
+        if (this.navHistory.length === 0) { 
+            this.currentCategoryId = null; 
+            this._executePageTransition(() => {
+                if(RenderManager.renderHome) RenderManager.renderHome(true);
+            });
+            return; 
+        }
+        
         const prevId = this.navHistory.pop();
-        if (prevId === 'HOME' || prevId === null) { if(RenderManager.renderHome) RenderManager.renderHome(true); } 
-        else { this.currentCategoryId = prevId; if(RenderManager._renderContent) RenderManager._renderContent(prevId); }
-    },
-
+        
+        if (prevId === 'HOME' || prevId === null) { 
+            this.currentCategoryId = null; 
+            this._executePageTransition(() => {
+                if(RenderManager.renderHome) RenderManager.renderHome(true);
+            });
+        } else { 
+            this.currentCategoryId = prevId; 
+            this._executePageTransition(() => {
+                if(RenderManager.renderOfferStories) RenderManager.renderOfferStories(prevId);
+                if(RenderManager._renderContent) RenderManager._renderContent(prevId); 
+                if (Components && Components.initProductShine) Components.initProductShine();
+            });
+        }
+    },    
+    
     openOrders: function() { 
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض طلباتك', 'error');
@@ -556,7 +789,6 @@ export const UICore = {
         if(RenderManager.renderWallet) RenderManager.renderWallet(); 
 
         this._syncWalletBlur();
-
         setTimeout(() => { this.openModal('wallet'); }, 10);
     },
 
@@ -580,8 +812,8 @@ export const UICore = {
 
         observer.observe(drawer, { attributes: true, attributeFilter: ['class'] });
         drawer._hasBlurObserver = true;
-    },
-
+    },    
+    
     openMyPayments: function() { 
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض سجل الدفعات', 'error');
@@ -615,14 +847,11 @@ export const UICore = {
             statsDrawer.classList.remove('active');
             statsDrawer.style.removeProperty('max-height');
         }
-        
         if (arrowBtn) arrowBtn.classList.remove('open'); 
-        
         if (walletModal) {
             walletModal.classList.remove('drawer-blur-active');
             walletModal.scrollTop = 0;
         }
-
         if (typeof this._closeAndResetTabs === 'function') {
             this._closeAndResetTabs('wallet', 'wallet', '#wallet-tabs .mf-tab');
         }
@@ -630,24 +859,20 @@ export const UICore = {
 
     setupWalletDrawerClickOutside: function() {
         if (this._walletDrawerListenerBound) return;
-        
         document.addEventListener('click', (e) => {
             const drawer = document.getElementById('walletStatsDrawer');
             const walletModal = document.getElementById('wallet-modal');
-            
             const isClickOnToggleBtn = e.target.closest('[data-action="toggle-wallet-stats"]');
             
             if (drawer && drawer.classList.contains('active')) {
                 if (!drawer.contains(e.target) && !isClickOnToggleBtn) {
                     drawer.classList.remove('active'); 
                     if (walletModal) walletModal.classList.remove('drawer-blur-active'); 
-                    
                     const arrowBtn = document.querySelector('.detail-arrow');
                     if (arrowBtn) arrowBtn.classList.remove('open'); 
                 }
             }
         });
-        
         this._walletDrawerListenerBound = true;
     },
 
@@ -668,7 +893,7 @@ export const UICore = {
         else if(toPage === 'favorites') { if(RenderManager.renderFavorites) RenderManager.renderFavorites(); }
     },
 
-copyToClipboard: function(text, element, type = 'default') {
+    copyToClipboard: function(text, element, type = 'default') {
         getSys().sfx?.('nav'); 
         const successVisuals = () => {
             this.showToast('تم النسخ', 'success');
@@ -690,7 +915,6 @@ copyToClipboard: function(text, element, type = 'default') {
                 }
                 
                 if (element.copyTimer) clearTimeout(element.copyTimer);
-                
                 element.copyTimer = setTimeout(() => { 
                     if (type === 'smartline') {
                         if (icon) icon.className = 'fa-regular fa-copy scl-icon';
@@ -744,7 +968,9 @@ copyToClipboard: function(text, element, type = 'default') {
         } catch (err) {
             this.showToast('يرجى السماح باللصق التلقائي من إعدادات المتصفح (أيقونة القفل 🔒 بأعلى الشاشة)', 'warning');
         }
-    },    showAdminDirectMessage: function(msgText) {
+    },    
+    
+    showAdminDirectMessage: function(msgText) {
         if (document.getElementById('admin-direct-msg-popup')) return;
         const safeMsg = Utils.escapeHtml(msgText);
         
@@ -775,31 +1001,39 @@ copyToClipboard: function(text, element, type = 'default') {
     },
 
     processAndDisplayAlerts: function() {
-        if (!DataManager.getUnreadAlerts) return;
-        const unreadAlerts = DataManager.getUnreadAlerts();
-        if (!unreadAlerts || unreadAlerts.length === 0) return;
-
-        const popupsQueue = unreadAlerts.filter(msg => msg.type === 'popup' || msg.isPopup);
-        const toastsQueue = unreadAlerts.filter(msg => msg.type === 'notification' || !msg.isPopup);
-
-        const shownToastsKey = 'telecard_shown_toasts';
-        const shownToasts = JSON.parse(localStorage.getItem(shownToastsKey) || "[]");
+    if (!DataManager.getUnreadAlerts) return;
+    
+    const unreadAlerts = DataManager.getUnreadAlerts();
+    if (!unreadAlerts || unreadAlerts.length === 0) return;
+    
+    const shownToastsKey = 'telecard_shown_toasts';
+    let shownToasts = [];
+    try { shownToasts = JSON.parse(localStorage.getItem(shownToastsKey) || "[]"); } catch (e) {}
+    
+    unreadAlerts.forEach((msg) => {
+        const msgId = String(msg.id);
         
-        const newToasts = toastsQueue.filter(msg => !shownToasts.includes(String(msg.id)));
-
-        newToasts.forEach((msg, index) => {
-            setTimeout(() => {
-                this.showNotification(msg.title || 'إشعار جديد', 'info');
-                shownToasts.push(String(msg.id));
-                localStorage.setItem(shownToastsKey, JSON.stringify(shownToasts));
-            }, index * 2000); 
-        });
-
-        if (popupsQueue.length > 0) {
-            if (!document.getElementById('advanced-alert-modal')) { this.showAdvancedPopup(popupsQueue[0], popupsQueue.slice(1)); }
+        // 🛡️ درع الحماية: لا تظهر الإشعار إلا إذا كان جديداً ولم يسبق عرضه في هذه الجلسة
+        if (!shownToasts.includes(msgId)) {
+            
+            if (msg.type === 'popup' || msg.isPopup) {
+                this.showAdvancedPopup(msg, []);
+            } else {
+                // 🚀 عرض الإشعار التلقائي بناءً على محتوى الرسالة (نجاح، رفض، استرجاع)
+                this.showToast(msg.message, 'info');
+            }
+            
+            // تسجيل الإشعار كـ "معروض"
+            shownToasts.push(msgId);
+            // الحفاظ على حجم الـ LocalStorage (آخر 50 إشعار فقط)
+            if (shownToasts.length > 50) shownToasts.shift();
+            localStorage.setItem(shownToastsKey, JSON.stringify(shownToasts));
+            
+            // تحديث العدادات في الهيدر والسايدبار
+            this.updateNotifBadges();
         }
-    },
-
+    });
+},
     showAdvancedPopup: function(alertObj, remainingQueue) {
         const title = alertObj.title || 'إشعار هام';
         const message = alertObj.message || '';
@@ -819,7 +1053,7 @@ copyToClipboard: function(text, element, type = 'default') {
         }
 
         if (alertObj.actionLink) {
-            extraHtml += `<a href="${escapeHtml(alertObj.actionLink)}" target="_blank" style="display: block; width: 100%; background: linear-gradient(135deg, #FFD700, #C5A028); color: #000; text-align: center; padding: 12px; border-radius: 10px; font-weight: 900; margin-top: 15px; text-decoration: none; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2); transition: 0.3s;">عرض التفاصيل الآن <i class="fa-solid fa-arrow-left" style="margin-right: 5px;"></i></a>`;
+            extraHtml += `<a href="${Utils.safeUrl(alertObj.actionLink)}" target="_blank" rel="noopener noreferrer" style="display: block; width: 100%; background: linear-gradient(135deg, #FFD700, #C5A028); color: #000; text-align: center; padding: 12px; border-radius: 10px; font-weight: 900; margin-top: 15px; text-decoration: none; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2); transition: 0.3s;">عرض التفاصيل الآن <i class="fa-solid fa-arrow-left" style="margin-right: 5px;"></i></a>`;
         }
 
         const modalHtml = `
@@ -853,7 +1087,7 @@ copyToClipboard: function(text, element, type = 'default') {
         closeBtn.addEventListener('click', () => {
             const modal = document.getElementById('advanced-alert-modal');
             modal.style.transition = '0.3s ease'; modal.style.opacity = '0'; modal.style.transform = 'scale(0.9)';
-            if (DataManager.markAlertAsRead) DataManager.markAlertAsRead(alertObj.id, true, alertObj.maxViews);
+            if (DataManager.markSingleNotificationRead) DataManager.markSingleNotificationRead(alertObj.id, true, alertObj.maxViews);
             this.updateNotifBadges();
             setTimeout(() => { modal.remove(); if (remainingQueue.length > 0) { setTimeout(() => this.showAdvancedPopup(remainingQueue[0], remainingQueue.slice(1)), 500); } }, 300);
         });
@@ -900,8 +1134,35 @@ copyToClipboard: function(text, element, type = 'default') {
             if (sidebarBadge) sidebarBadge.classList.add('hide-element');
         }
     },
-
-    showNotification: function(msg, type = 'error') {
+markAllNotificationsRead: async function() {
+    // ♻️ تم إصلاح اسم الدالة هنا
+    if (!DataManager || typeof DataManager.markAllNotificationsRead !== 'function') return;
+    
+    // 1. تشغيل اللودر لمنع المستخدم من العبث أثناء الاتصال بقاعدة البيانات
+    getSys().toggleLoader?.(true, 'جاري تحديث الإشعارات...');
+    
+    try {
+        // 2. تحديث قاعدة البيانات (استدعاء الاسم الصحيح) ♻️
+        await DataManager.markAllNotificationsRead();
+        
+        // 3. تشغيل تأثير النجاح
+        getSys().sfx?.('success');
+        
+        // 4. تصفير العداد الأحمر في الهيدر والقائمة الجانبية
+        this.updateNotifBadges();
+        
+        // 5. إعادة رسم قائمة الإشعارات لتظهر الحالة الفارغة الأنيقة
+        if (RenderManager && typeof RenderManager.renderNotifCenterList === 'function') {
+            RenderManager.renderNotifCenterList();
+        }
+    } catch (error) {
+        console.error("Mark All Read Error:", error);
+        getSys().showToast?.('حدث خطأ أثناء الاتصال، يرجى المحاولة لاحقاً', 'error');
+    } finally {
+        // 6. إغلاق اللودر دائماً
+        getSys().toggleLoader?.(false);
+    }
+},    showNotification: function(msg, type = 'error') {
         const el = document.getElementById('custom-notification');
         if(!el) { this.showToast(msg, type); return; }
         el.classList.remove('active'); clearTimeout(this.notifTimer);
@@ -917,90 +1178,100 @@ copyToClipboard: function(text, element, type = 'default') {
         }, 50);
     },
 
-    showToast: function(msg, type = 'info') {
-        if (type === 'info') {
-            if (msg.includes('فشل') || msg.includes('خطأ') || msg.includes('عذراً') || msg.includes('تنبيه') || msg.includes('كاف')) type = 'error';
-            if (msg.includes('تم') || msg.includes('نجاح') || msg.includes('شكراً')) type = 'success';
-            if (msg.includes('مراجعة') || msg.includes('انتظار')) type = 'warning'; 
+     showToast: function(msg, type = 'info') {
+    // 🚀 [إصلاح ذكاء الإشعارات]: فلترة الكلمات بأولوية صارمة لمنع تلوين الحذف بالأخضر
+    if (type === 'info') {
+        if (msg.includes('فشل') || msg.includes('خطأ') || msg.includes('عذراً') || msg.includes('تنبيه') || msg.includes('كاف') || msg.includes('تجاوزت') || msg.includes('نفد')) {
+            type = 'error';
+        } else if (msg.includes('مراجعة') || msg.includes('انتظار') || msg.includes('قيد')) {
+            type = 'warning'; 
+        } else if (msg.includes('إزالة') || msg.includes('حذف') || msg.includes('إلغاء') || msg.includes('إيقاف') || msg.includes('مسح')) {
+            type = 'info'; // 🛡️ الأولوية هنا: أي جملة فيها إلغاء أو حذف تبقى بلون حيادي
+        } else if (msg.includes('تم') || msg.includes('نجاح') || msg.includes('شكراً') || msg.includes('أضيف')) {
+            type = 'success';
         }
+    }
 
-        const oldToast = document.getElementById('toast-warning');
-        if (oldToast) oldToast.style.display = 'none';
+    const oldToast = document.getElementById('toast-warning');
+    if (oldToast) oldToast.style.display = 'none';
 
-        const notifEl = document.getElementById('custom-notification');
-        
-        if (notifEl) {
-            notifEl.classList.remove('active', 'success', 'error', 'info', 'warning'); 
-            clearTimeout(this.notifTimer);
-            void notifEl.offsetWidth; 
+    const notifEl = document.getElementById('custom-notification');
+    
+    if (notifEl) {
+        notifEl.classList.remove('active', 'success', 'error', 'info', 'warning'); 
+        clearTimeout(this.notifTimer);
+        void notifEl.offsetWidth; 
 
-            setTimeout(() => {
-                const icon = notifEl.querySelector('.notif-icon');
-                const title = notifEl.querySelector('.notif-title');
-                const message = notifEl.querySelector('.notif-msg');
-                
-                if (message) message.textContent = msg; 
-                if (title) {
-                    if (type === 'error') title.textContent = 'خطأ';
-                    else if (type === 'warning') title.textContent = 'تنبيه'; 
-                    else if (type === 'success') title.textContent = 'نجاح';
-                    else title.textContent = 'معلومة';
-                }
-                
-                notifEl.classList.add(type);
-                
-                if (icon) { 
-                    if (type === 'error') icon.className = 'notif-icon fa-solid fa-circle-xmark';
-                    else if (type === 'warning') icon.className = 'notif-icon fa-solid fa-triangle-exclamation'; 
-                    else if (type === 'success') icon.className = 'notif-icon fa-solid fa-circle-check';
-                    else icon.className = 'notif-icon fa-solid fa-circle-info';
-                }
-                
-                notifEl.classList.add('active');
-                getSys().sfx?.(type === 'error' ? 'error' : 'success');
-                
-                this.notifTimer = setTimeout(() => { notifEl.classList.remove('active'); }, 3000);
-            }, 10);
-        } else {
-            let container = document.querySelector('.custom-toast-container');
-            if (!container) {
-                container = document.createElement('div');
-                container.className = 'custom-toast-container';
-                document.body.appendChild(container);
+        setTimeout(() => {
+            const icon = notifEl.querySelector('.notif-icon');
+            const title = notifEl.querySelector('.notif-title');
+            const message = notifEl.querySelector('.notif-msg');
+            
+            if (message) message.textContent = msg; 
+            if (title) {
+                if (type === 'error') title.textContent = 'خطأ';
+                else if (type === 'warning') title.textContent = 'تنبيه'; 
+                else if (type === 'success') title.textContent = 'نجاح';
+                else title.textContent = 'معلومة';
             }
-
-            container.innerHTML = '';
-
-            const toast = document.createElement('div');
-            toast.className = `custom-toast toast-${type}`;
             
-            let iconClass = 'fa-circle-info';
-            let titleText = 'معلومة';
-            if (type === 'success') { iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
-            if (type === 'error') { iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
-            if (type === 'warning') { iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } 
-
-            toast.innerHTML = `
-                <i class="fa-solid ${iconClass}"></i>
-                <div class="toast-content">
-                    <span class="toast-title">${titleText}</span>
-                    <span class="toast-msg">${msg}</span>
-                </div>
-            `;
+            notifEl.classList.add(type);
             
-            container.appendChild(toast);
+            if (icon) { 
+                if (type === 'error') icon.className = 'notif-icon fa-solid fa-circle-xmark';
+                else if (type === 'warning') icon.className = 'notif-icon fa-solid fa-triangle-exclamation'; 
+                else if (type === 'success') icon.className = 'notif-icon fa-solid fa-circle-check';
+                else icon.className = 'notif-icon fa-solid fa-circle-info';
+            }
+            
+            notifEl.classList.add('active');
             getSys().sfx?.(type === 'error' ? 'error' : 'success');
             
-            setTimeout(() => {
-                if(toast.parentElement) {
-                    toast.style.animation = 'toastOutTop 0.4s forwards';
-                    setTimeout(() => toast.remove(), 400);
-                }
-            }, 3000);
+            this.notifTimer = setTimeout(() => { notifEl.classList.remove('active'); }, 3000);
+        }, 10);
+    } else {
+        let container = document.querySelector('.custom-toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'custom-toast-container';
+            document.body.appendChild(container);
+        } else {
+            // 🚀 [إصلاح التكدس الذكي]: السماح بتراكم 3 إشعارات كحد أقصى، وإزالة الأقدم بلطف
+            if (container.children.length >= 3) {
+                container.firstChild.style.animation = 'toastOutTop 0.2s forwards';
+                setTimeout(() => { if (container.firstChild) container.firstChild.remove(); }, 200);
+            }
         }
-    },
-    
-    sfx: function(type) {
+
+        const toast = document.createElement('div');
+        toast.className = `custom-toast toast-${type}`;
+        
+        let iconClass = 'fa-circle-info';
+        let titleText = 'معلومة';
+        if (type === 'success') { iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
+        if (type === 'error') { iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
+        if (type === 'warning') { iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } 
+
+        toast.innerHTML = `
+            <i class="fa-solid ${iconClass}"></i>
+            <div class="toast-content">
+                <span class="toast-title">${titleText}</span>
+                <span class="toast-msg">${Utils.escapeHtml(msg)}</span>
+            </div>
+        `;
+        
+        container.appendChild(toast);
+        getSys().sfx?.(type === 'error' ? 'error' : 'success');
+        
+        setTimeout(() => {
+            if(toast.parentElement) {
+                toast.style.animation = 'toastOutTop 0.4s forwards';
+                setTimeout(() => toast.remove(), 400);
+            }
+        }, 3000);
+    }
+},
+       sfx: function(type) {
         if(DataManager.prefs && DataManager.prefs.sound === false) return; 
         
         if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
@@ -1033,24 +1304,41 @@ copyToClipboard: function(text, element, type = 'default') {
     // =========================================================
     // ⚙️ 5. إعدادات المتجر العامة والهوية البصرية (General Setup)
     // =========================================================
+    
+    // 🛡️ دالة لتنظيف الـ CSS من الرموز الخبيثة (محصنة ضد حقن الدوال والألوان الخبيثة)
+    _sanitizeCssValue: function(val) {
+        if (!val) return '';
+        const trimmed = val.trim();
+        // السماح حصراً بصيغ الألوان الآمنة: (Hex, RGB, RGBA, HSL, HSLA) أو أسماء الألوان البسيطة
+        const safeColorRegex = /^(#[0-9a-fA-F]{3,8}|rgba?\([\d\s,\.%]+\)|hsla?\([\d\s,\.%deg]+\)|[a-zA-Z]+)$/;
+        return safeColorRegex.test(trimmed) ? trimmed : 'var(--primary)';
+    },
+
     applyStoreIdentity: function() {
         let sys = LiveStoreData.settings || {}; 
         if (Array.isArray(sys)) sys = sys[0] || {}; 
 
         const storeName = (sys.storeName || sys.name || '').trim();
         const logoSize = parseInt(sys.logoSize) || 36;
-        const weight = sys.nameWeight || '900';
+        const rawWeight = String(sys.nameWeight || '900').trim();
+const weight = /^(normal|bold|bolder|lighter|[1-9]00)$/.test(rawWeight) ? rawWeight : '900';
         const type = sys.nameColorType || 'solid';
-        const c1 = sys.nameColor1 || '#ffffff';
-        const c2 = sys.nameColor2 || '#FFD700';
+        
+        const c1 = this._sanitizeCssValue(sys.nameColor1 || '#ffffff');
+        const c2 = this._sanitizeCssValue(sys.nameColor2 || '#FFD700');
         const hasShadow = sys.nameShadow === true || sys.nameShadow === 'true';
         
         const logoDark = sys.storeLogo || sys.logo || '';
         const logoLight = sys.storeLogoLight || sys.logo_light || logoDark; 
         const favicon = sys.storeFavicon || sys.favicon || '';
 
-        const isEnglish = /^[A-Za-z0-9]/.test(storeName);
         const finalStoreName = storeName || 'المتجر';
+
+        const currentConfigHash = `${finalStoreName}_${logoDark}_${logoLight}_${logoSize}_${type}_${c1}_${c2}`;
+        if (this._lastIdentityHash === currentConfigHash) return; 
+        this._lastIdentityHash = currentConfigHash;
+
+        const isEnglish = /^[A-Za-z0-9]/.test(storeName);
 
         document.title = `${finalStoreName} | المتجر`;
         if (favicon) {
@@ -1089,8 +1377,8 @@ copyToClipboard: function(text, element, type = 'default') {
 
         let logoHtml = '';
         if (logoDark || logoLight) {
-            if (logoDark) logoHtml += `<img src="${logoDark}" alt="${Utils.escapeHtml(finalStoreName)}" class="brand-logo-dynamic store-logo-dark">`;
-            if (logoLight) logoHtml += `<img src="${logoLight}" alt="${Utils.escapeHtml(finalStoreName)}" class="brand-logo-dynamic store-logo-light">`;
+            if (logoDark) logoHtml += `<img src="${Utils.escapeHtml(logoDark)}" onload="this.style.opacity='1'" style="opacity: 0; transition: opacity 0.4s ease-in-out;" alt="${Utils.escapeHtml(finalStoreName)}" class="brand-logo-dynamic store-logo-dark">`;
+            if (logoLight) logoHtml += `<img src="${Utils.escapeHtml(logoLight)}" onload="this.style.opacity='1'" style="opacity: 0; transition: opacity 0.4s ease-in-out;" alt="${Utils.escapeHtml(finalStoreName)}" class="brand-logo-dynamic store-logo-light">`;
         }
 
         const nameHtml = `<div class="brand-text-dynamic">${Utils.safeText(finalStoreName)}</div>`;
@@ -1116,13 +1404,14 @@ copyToClipboard: function(text, element, type = 'default') {
         const displayState = { sidebarOpen: document.querySelector('.sidebar.active') !== null, userImage: DataManager.user?.img || null, theme: DataManager.prefs?.theme || 'dark', sound: DataManager.prefs?.sound !== false, lastVisit: Date.now() };
         try { localStorage.setItem('telecard_display_state', JSON.stringify(displayState)); } catch (e) {}
     },
+    
     restoreDisplayState: function() {
         try {
             const savedState = localStorage.getItem('telecard_display_state');
             if (savedState) {
                 const displayState = JSON.parse(savedState);
                 
-                if (displayState.userImage && DataManager.user) { 
+                if (displayState.userImage && DataManager.user && typeof DataManager.user === 'object') { 
                     DataManager.user = { ...DataManager.user, img: displayState.userImage }; 
                     if (typeof this.loadUserImageAutomatically === 'function') this.loadUserImageAutomatically(); 
                 }
@@ -1138,6 +1427,7 @@ copyToClipboard: function(text, element, type = 'default') {
             console.error('Error restoring display state:', e);
         }
     },
+    
     applyFontSettings: function() {
         const s = LiveStoreData.settings || {};
         const family = s.fontFamily || "'Cairo', sans-serif";
@@ -1213,29 +1503,54 @@ copyToClipboard: function(text, element, type = 'default') {
     },
 
     initSlider: function() {
-        if (this.sliderTimer) { clearInterval(this.sliderTimer); this.sliderTimer = null; }
         const banners = LiveStoreData.banners || [];
         const settings = LiveStoreData.settings || {};
+        
+        const currentBannerHash = JSON.stringify(banners.map(b => b.img)) + (settings.sliderTransition || 'fade');
+        if (this._lastBannerHash === currentBannerHash) return;
+        this._lastBannerHash = currentBannerHash;
+
+        if (this.sliderTimer) { clearInterval(this.sliderTimer); this.sliderTimer = null; }
+        
         const container = document.getElementById('slider'); 
         if (!container || banners.length === 0) { if(container) container.innerHTML = ''; return; }
         
         container.innerHTML = '';
         const transition = settings.sliderTransition || 'fade';
-        container.classList.add('slider'); container.classList.remove('slider-fade', 'slider-slide', 'slider-slide-vertical', 'slider-zoom'); container.classList.add(`slider-${transition}`);
+        container.classList.add('slider'); 
+        container.classList.remove('slider-fade', 'slider-slide', 'slider-slide-vertical', 'slider-zoom'); 
+        container.classList.add(`slider-${transition}`);
         
-        banners.forEach((b, i) => { const div = document.createElement('div'); div.className = `slide ${i === 0 ? 'active' : ''}`; div.style.backgroundImage = `url('${b.img}')`; container.appendChild(div); });
+        banners.forEach((b, i) => { 
+            const div = document.createElement('div'); 
+            div.className = `slide ${i === 0 ? 'active' : ''}`; 
+            
+            div.style.opacity = '0'; 
+            div.style.transition = 'opacity 0.5s ease-in-out';
+            
+            const tempImg = new Image();
+            tempImg.onload = () => {
+                // 🚀 [إصلاح الشاشة السوداء]: تم إزالة escapeHtml لأن الـ CSS url() لا يدعم 
+                // التشفير الذي يكسر روابط Firebase التي تحتوي على علامات & و =
+                // نقوم بتشفير علامة الاقتباس إلى %27 لمنع انكسار الـ CSS
+div.style.backgroundImage = `url('${b.img.replace(/'/g, "%27")}')`;
+                div.style.opacity = '1'; 
+            };
+            tempImg.src = b.img;
+            
+            container.appendChild(div); 
+        });
+        
         let idx = 0; const slides = container.querySelectorAll('.slide');
         const intervalMs = (settings.sliderDuration ? Number(settings.sliderDuration) * 1000 : 3000) || 3000;
         
         this.sliderTimer = setInterval(() => {
             if (slides.length === 0 || !slides[0].isConnected) { clearInterval(this.sliderTimer); return; }
-            slides[idx].classList.remove('active'); idx = (idx + 1) % slides.length; slides[idx].classList.add('active');
+            slides[idx].classList.remove('active'); 
+            idx = (idx + 1) % slides.length; 
+            slides[idx].classList.add('active');
         }, intervalMs);
     },
-
-    // =========================================================
-    // 📢 المترجم الموحد للشريط الإخباري
-    // =========================================================
     renderTicker: function() {
         const s = LiveStoreData.settings || {};
         const txtEl = document.getElementById('ticker-text');
@@ -1304,31 +1619,37 @@ copyToClipboard: function(text, element, type = 'default') {
 
     renderDynamicCurrencyMenu: function() {
         const menu = document.getElementById('ct-menu');
+        const nativeSel = document.getElementById('display-currency'); 
+        
         if (!menu) return;
-
+        
         const user = DataManager.user;
         const baseCurr = (user?.baseCurrency || user?.base_currency || 'USD').toUpperCase();
         const rates = typeof DataManager.getRates === 'function' ? DataManager.getRates() : [];
         const availableCodes = new Set();
         
-        availableCodes.add(baseCurr); 
+        availableCodes.add(baseCurr);
         if (Array.isArray(rates)) {
-            rates.forEach(r => { if(r.code) availableCodes.add(r.code.toUpperCase()); });
+            rates.forEach(r => { if (r.code) availableCodes.add(r.code.toUpperCase()); });
         }
-
+        
         const selected = DataManager.selectedCurr || baseCurr;
         let menuHtml = '';
+        let nativeHtml = ''; 
         
         availableCodes.forEach(code => {
             const isActive = code === selected ? 'active' : '';
             menuHtml += `
-                <div class="ct-item ${isActive}" data-curr="${code}">
-                    <div class="ct-flag-box"></div>
-                    <span class="ct-name">${code}</span>
-                </div>`;
+                    <div class="ct-item ${isActive}" data-curr="${code}">
+                        <div class="ct-flag-box"></div>
+                        <span class="ct-name">${code}</span>
+                    </div>`;
+            nativeHtml += `<option value="${code}">${code}</option>`;
         });
-
+        
         menu.innerHTML = menuHtml;
+        if (nativeSel) nativeSel.innerHTML = nativeHtml; 
+        
         this.refreshCurrencyMenuFlags();
         
         if (!menu.dataset.delegated) {
@@ -1367,8 +1688,10 @@ copyToClipboard: function(text, element, type = 'default') {
             const settings = LiveStoreData.settings || {};
             if (settings.showCurrencyToggle === false) {
                 ctWrapper.classList.add('hide-element');
+                ctWrapper.style.display = 'none'; 
             } else {
                 ctWrapper.classList.remove('hide-element');
+                ctWrapper.style.display = ''; 
             }
         }
     },
@@ -1414,7 +1737,10 @@ copyToClipboard: function(text, element, type = 'default') {
     activateSearch: function() {
         this.toggleHeroSection(false);
         const searchInput = document.getElementById('store-search-input');
-        if(searchInput) { searchInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => searchInput.focus(), 300); }
+        if(searchInput) { 
+            searchInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+// تأخير الفوكس قليلاً حتى ينتهي انتقال الشاشة (Smooth Scroll)
+searchInput.focus();        }
     },
 
     applyStoreSearch: function() {
@@ -1500,46 +1826,65 @@ copyToClipboard: function(text, element, type = 'default') {
             console.log(`📊 أداء النظام: وقت التهيئة ${totalTime.toFixed(2)}ms | الذاكرة ${(memoryUsed / 1024 / 1024).toFixed(2)}MB`);
         }, 1000);
     },
-
-    // =========================================================
-    // ❤️ نظام المفضلة السحري (Magic Favorites System) 
-    // =========================================================
-    toggleFavoriteFromModal: function() {
-        const SYS = window.ClientSystem || window.DataManager;
-        if (!DataManager.currentProd || !SYS) return;
-
-        if (!SYS.user) {
+// =========================================================
+// ❤️ نظام المفضلة السحري (Magic Favorites System) - مُحدث
+// =========================================================
+toggleFavoriteFromModal: function() {
+        if (!DataManager.currentProd) return;
+        
+        if (!DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لإضافة المنتجات للمفضلة', 'error');
             getSys().sfx?.('error');
             setTimeout(() => { window.location.href = 'login.html'; }, 1500);
             return;
         }
         
-        const wasFavorite = SYS.isFavorite ? SYS.isFavorite(DataManager.currentProd.id) : false;
-        if (SYS.toggleFavorite) SYS.toggleFavorite(DataManager.currentProd.id);
+        const productId = DataManager.currentProd.id;
+        const wasFavorite = typeof DataManager.isFavorite === 'function' ? DataManager.isFavorite(productId) : false;
+        
+        if (typeof DataManager.toggleFavorite === 'function') {
+            DataManager.toggleFavorite(productId);
+        }
         
         const btn = document.getElementById('pm-fav-btn');
         if (btn) {
-            const isFav = !wasFavorite; 
+            const isFav = !wasFavorite;
             btn.classList.toggle('active', isFav);
             const icon = btn.querySelector('i');
             if (icon) icon.className = isFav ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
         }
         
         getSys().sfx?.('nav');
-        if (wasFavorite) getSys().showToast?.('تمت إزالة المنتج من المفضلة');
-        else getSys().showToast?.('تمت إضافة المنتج إلى المفضلة', 'success');
+        if (wasFavorite) {
+            getSys().showToast?.('تمت إزالة المنتج من المفضلة', 'info');
+            
+            // 🚀 [تحديث معماري]: إزالة الكارد بسلاسة إذا أزلنا المفضلة من داخل المودال أثناء تصفح صفحة المفضلة
+            if (document.body.classList.contains('is-favorites')) {
+                const card = document.querySelector(`.product-card[data-id="${productId}"]`);
+                if (card) {
+                    card.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+                    card.style.opacity = '0';
+                    card.style.transform = 'scale(0.8)';
+                    setTimeout(() => {
+                        card.remove();
+                        const remainingCards = document.querySelectorAll('#store-grid .product-card');
+                        if (remainingCards.length === 0 && RenderManager.renderFavorites) {
+                            RenderManager.renderFavorites();
+                        }
+                    }, 300);
+                }
+            }
+        } else {
+            getSys().showToast?.('تمت إضافة المنتج إلى المفضلة', 'success');
+        }
         
-        getSys().updateFavBadgeCount?.();
+        if (typeof this.updateFavBadgeCount === 'function') this.updateFavBadgeCount();
     },
-
+    
     triggerMagicFavorite: function(e, productId) {
         if (e) {
             e.preventDefault();
         }
-        
-        const SYS = window.ClientSystem || window.DataManager;
-        if (!SYS) return;
         
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لإضافة المنتجات للمفضلة', 'error');
@@ -1548,11 +1893,12 @@ copyToClipboard: function(text, element, type = 'default') {
             return;
         }
         
-        const wasFavorite = SYS.isFavorite ? SYS.isFavorite(productId) : false;
-        if (SYS.toggleFavorite) SYS.toggleFavorite(productId);
+        const wasFavorite = typeof DataManager.isFavorite === 'function' ? DataManager.isFavorite(productId) : false;
+        if (typeof DataManager.toggleFavorite === 'function') {
+            DataManager.toggleFavorite(productId);
+        }
         
         const headerHeart = document.getElementById('sticky-fav-btn');
-        
         const productCard = document.querySelector(`.product-card[data-id="${productId}"]`);
         const imgBox = productCard ? productCard.querySelector('.card-image') : null;
         
@@ -1566,7 +1912,22 @@ copyToClipboard: function(text, element, type = 'default') {
                 imgBox.appendChild(popHeart);
                 setTimeout(() => popHeart.remove(), 800);
             }
-            getSys().updateFavBadgeCount?.();
+            if (typeof this.updateFavBadgeCount === 'function') this.updateFavBadgeCount();
+            
+            // 🚀 [تحديث معماري]: تلاشي وإزالة الكارد فوراً وبسلاسة إذا كنا داخل صفحة المفضلة لمنع الحاجة للتحديث
+            if (document.body.classList.contains('is-favorites') && productCard) {
+                productCard.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+                productCard.style.opacity = '0';
+                productCard.style.transform = 'scale(0.8)';
+                setTimeout(() => {
+                    productCard.remove();
+                    // إذا فرغت المفضلة، نعيد رسم الصفحة لعرض الحالة الفارغة الأنيقة (Empty State)
+                    const remainingCards = document.querySelectorAll('#store-grid .product-card');
+                    if (remainingCards.length === 0 && RenderManager.renderFavorites) {
+                        RenderManager.renderFavorites();
+                    }
+                }, 300);
+            }
             return;
         }
         
@@ -1590,12 +1951,16 @@ copyToClipboard: function(text, element, type = 'default') {
             startY = e.clientY;
         }
         
+        // 🚀 [الإصلاح البصري المتقدم]: حساب إحداثيات الهدف بذكاء لتجنب العناصر المخفية في تصميم الموبايل
         let endX = window.innerWidth / 2;
         let endY = 20;
+        
         if (headerHeart) {
             const rect = headerHeart.getBoundingClientRect();
-            endX = rect.left + (rect.width / 2);
-            endY = rect.top + (rect.height / 2);
+            if (rect.width > 0 && rect.height > 0) {
+                endX = rect.left + (rect.width / 2);
+                endY = rect.top + (rect.height / 2);
+            }
         }
         
         const flyingHeart = document.createElement('i');
@@ -1608,15 +1973,15 @@ copyToClipboard: function(text, element, type = 'default') {
         
         setTimeout(() => {
             flyingHeart.remove();
-            if (headerHeart) {
+            if (headerHeart && headerHeart.getBoundingClientRect().width > 0) {
                 headerHeart.classList.add('pulse-catch');
-                getSys().updateFavBadgeCount?.();
+                if (typeof this.updateFavBadgeCount === 'function') this.updateFavBadgeCount();
                 setTimeout(() => headerHeart.classList.remove('pulse-catch'), 500);
+            } else if (typeof this.updateFavBadgeCount === 'function') {
+                this.updateFavBadgeCount();
             }
         }, 800);
-    },
-
-    openCommunityModal: function() {
+    },    openCommunityModal: function() {
         this.closeSidebar();
         
         const target = document.getElementById('community-links-target');
@@ -1624,16 +1989,16 @@ copyToClipboard: function(text, element, type = 'default') {
         
         const s = LiveStoreData.settings || {};
         
-        const telegramChan = s.telegramChannel || s.telegramLink || '';
-        const telegramGroup = s.telegramGroup || '';
-        const whatsappGroup = s.whatsappGroup || '';
-        const facebookPage = s.facebookPage || '';
+        const telegramChan = Utils.safeUrl(s.telegramChannel || s.telegramLink || '');
+        const telegramGroup = Utils.safeUrl(s.telegramGroup || '');
+        const whatsappGroup = Utils.safeUrl(s.whatsappGroup || '');
+        const facebookPage = Utils.safeUrl(s.facebookPage || '');
         
         let html = '';
         
-        if (telegramChan) {
+        if (telegramChan && telegramChan !== '#') {
             html += `
-                    <a href="${Utils.escapeHtml(telegramChan)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                    <a href="${telegramChan}" target="_blank" rel="noopener noreferrer" class="community-item-card" onclick="ClientSystem.sfx('nav')">
                         <div class="community-left">
                             <div class="community-icon" style="background: #24A1DE;"><i class="fa-brands fa-telegram"></i></div>
                             <div class="community-info">
@@ -1645,9 +2010,9 @@ copyToClipboard: function(text, element, type = 'default') {
                     </a>`;
         }
         
-        if (telegramGroup) {
+        if (telegramGroup && telegramGroup !== '#') {
             html += `
-                    <a href="${Utils.escapeHtml(telegramGroup)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                    <a href="${telegramGroup}" target="_blank" rel="noopener noreferrer" class="community-item-card" onclick="ClientSystem.sfx('nav')">
                         <div class="community-left">
                             <div class="community-icon" style="background: #229ED9;"><i class="fa-solid fa-users"></i></div>
                             <div class="community-info">
@@ -1659,9 +2024,9 @@ copyToClipboard: function(text, element, type = 'default') {
                     </a>`;
         }
         
-        if (whatsappGroup) {
+        if (whatsappGroup && whatsappGroup !== '#') {
             html += `
-                    <a href="${Utils.escapeHtml(whatsappGroup)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                    <a href="${whatsappGroup}" target="_blank" rel="noopener noreferrer" class="community-item-card" onclick="ClientSystem.sfx('nav')">
                         <div class="community-left">
                             <div class="community-icon" style="background: #25D366;"><i class="fa-brands fa-whatsapp"></i></div>
                             <div class="community-info">
@@ -1673,9 +2038,9 @@ copyToClipboard: function(text, element, type = 'default') {
                     </a>`;
         }
         
-        if (facebookPage) {
+        if (facebookPage && facebookPage !== '#') {
             html += `
-                    <a href="${Utils.escapeHtml(facebookPage)}" target="_blank" class="community-item-card" onclick="ClientSystem.sfx('nav')">
+                    <a href="${facebookPage}" target="_blank" rel="noopener noreferrer" class="community-item-card" onclick="ClientSystem.sfx('nav')">
                         <div class="community-left">
                             <div class="community-icon" style="background: #1877F2;"><i class="fa-brands fa-facebook-f"></i></div>
                             <div class="community-info">
@@ -1755,10 +2120,12 @@ copyToClipboard: function(text, element, type = 'default') {
     
     submitPrivateFeedback: async function() {
         const feedbackInput = document.getElementById('ratingFeedbackInput');
-        const feedback = feedbackInput ? feedbackInput.value.trim() : '';
+        // إزالة أي وسوم HTML أو أقواس خبيثة قبل الإرسال للإدارة
+const rawFeedback = feedbackInput ? feedbackInput.value.trim() : '';
+const feedback = rawFeedback.replace(/[<>"{}[\]\\]/g, '');
         
         if (!feedback) {
-            this.showToast("يرجى كتابة تفاصيل مقترحك أو شكواك لمساعدتنا على خدمتك", "warning");
+            getSys().showToast?.("يرجى كتابة تفاصيل مقترحك أو شكواك لمساعدتنا على خدمتك", "warning");
             return;
         }
         
@@ -1770,7 +2137,7 @@ copyToClipboard: function(text, element, type = 'default') {
             const uid = DataManager.user?.id || localStorage.getItem('telecard_active_user_uid') || 'guest';
             const username = DataManager.user?.username || 'ضيف';
             
-            await StoreDB.add('telecard_private_feedbacks', {
+            await StoreDB.add(DB_KEYS.FEEDBACKS, {
                 userId: uid,
                 username: username,
                 rating: this._currentRating || 0,
@@ -1778,18 +2145,18 @@ copyToClipboard: function(text, element, type = 'default') {
                 time: Date.now()
             });
             
-            this.toggleLoader?.(false);
-            this.closeModal('rating');
-            this.showToast("نشكرك جداً على مقترحك الصادق! تم إرساله للإدارة لمراجعته وحل مشكلتك فوراً.", "success");
+            getSys().toggleLoader?.(false);
+            getSys().closeModal?.('rating');
+            getSys().showToast?.("نشكرك جداً على مقترحك الصادق! تم إرساله للإدارة لمراجعته وحل مشكلتك فوراً.", "success");
             getSys().sfx?.('success');
             
         } catch (error) {
             btn.textContent = "إرسال للإدارة";
             btn.disabled = false;
             console.error("Feedback Submission Error:", error);
-            this.showToast("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
+            getSys().showToast?.("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
         }
-    },
+    },    
 
     openAboutModal: function() {
         this.closeSidebar(); 
@@ -1825,42 +2192,12 @@ copyToClipboard: function(text, element, type = 'default') {
     },  
 
     updateFavBadgeCount: function() {
-        const SYS = window.DataManager || window.ClientSystem;
         const countBadge = document.getElementById('sticky-fav-count');
         const headerHeartIcon = document.querySelector('#sticky-fav-btn i');
-        if (!countBadge || !SYS) return;
         
-        const validProds = window.LiveStoreData?.prods;
+        if (!countBadge || !DataManager) return;
         
-        if (!validProds || validProds.length === 0) {
-            const currentFavCount = SYS.favs ? SYS.favs.size : 0;
-            if (currentFavCount > 0) {
-                countBadge.innerText = currentFavCount > 99 ? '+99' : currentFavCount;
-                countBadge.classList.remove('hide-element');
-                if (headerHeartIcon) headerHeartIcon.className = 'fa-solid fa-heart';
-            } else {
-                countBadge.classList.add('hide-element');
-                if (headerHeartIcon) headerHeartIcon.className = 'fa-regular fa-heart';
-            }
-            return;
-        }
-        
-        const validFavs = new Set();
-        
-        if (SYS.favs) {
-            SYS.favs.forEach(favId => {
-                if (validProds.some(p => String(p.id) === String(favId))) {
-                    validFavs.add(favId);
-                }
-            });
-            
-            SYS.favs = validFavs;
-            try {
-                localStorage.setItem('telecard_favorites_' + SYS.user?.id, JSON.stringify(Array.from(validFavs)));
-            } catch (e) {}
-        }
-        
-        const favCount = SYS.favs ? SYS.favs.size : 0;
+        const favCount = DataManager.favs ? DataManager.favs.size : 0;
         
         if (favCount > 0) {
             countBadge.innerText = favCount > 99 ? '+99' : favCount;
