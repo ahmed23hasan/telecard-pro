@@ -67,3 +67,35 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+# ==========================================
+# 💎 Telecard Pro Custom Ignores (Security & OS)
+# ==========================================
+
+# 1. OS Generated Files (لمنع ملفات الماك والويندوز المزعجة)
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 2. Editor & IDE Directories (لمنع رفع إعدادات المحرر الشخصية)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 3. Security & Firebase Credentials (درع حماية الطوارئ)
+# يمنع رفع أي ملف JSON يحتوي على كلمة secret أو key أو credentials بالخطأ
+*serviceAccount*.json
+*secret*.json
+*.pem
+*.key
+
+# 4. Telecard Workspace specific (إذا كنت تستخدم تخزين محلي للاختبار)
+telecard-workspace/admin-tele/temp/
+telecard-workspace/store-app/temp/

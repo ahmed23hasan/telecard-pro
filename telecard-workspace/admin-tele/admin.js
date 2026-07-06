@@ -130,7 +130,10 @@ const startApp = async () => {
             console.log("🟢 4. استجابة Firebase Auth وصلت! المستخدم موجود؟", !!user);
             
             if (user) {
-                console.log("🟢 5. تم تأكيد الهوية. بدء جلب البيانات (AppController.init)...");
+                console.log("🟢 5. تم تأكيد الهوية. مزامنة الجلسة المحلية الفورية...");
+                
+                // 🛡️ [تحديث أمني]: مزامنة التوثيق المحلي مع جلسة فايربيز الحقيقية لمنع الطرد الخاطئ عند فتح تابات جديدة
+                sessionStorage.setItem('telecard_admin_auth', 'true');
                 
                 if (AppController && typeof AppController.init === 'function') {
                     await AppController.init();
@@ -141,6 +144,7 @@ const startApp = async () => {
                 
             } else {
                 console.warn("🚨 لم يتم العثور على جلسة اتصال نشطة للمدير، جاري التوجيه الفوري لمنع التسريب المحاسبي.");
+                sessionStorage.removeItem('telecard_admin_auth'); // تنظيف الاحتياط للأمان
                 window.location.replace("login.html");
             }
         });
@@ -175,9 +179,7 @@ const startApp = async () => {
             }
         }
     }
-};
-
-/**
+};/**
  * 🚀 تنفيذ الإقلاع بناءً على حالة المستند
  */
 if (document.readyState === 'loading') {

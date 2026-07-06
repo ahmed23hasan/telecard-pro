@@ -1,5 +1,7 @@
 // ============================================================================
-// 🔌 قوالب بوابة المطورين والـ API (modules/developer/developerTemplates.js)
+// 👥 قوالب بوابة المطورين والـ API (modules/developer/developerTemplates.js) - النسخة V4.2 💎
+// 🎯 الوظيفة: توليد الـ HTML النقي المدمج بالبيانات (Data Binding) للمطورين
+// 🚀 التحديث الأقصى: إصلاح تعارض الـ IDs لمنع مسح روابط الـ Webhooks الصامت
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -11,11 +13,11 @@ export const DeveloperTemplates = {
     apiKeysCard: (user) => {
         const apiKey = user.apiKey || '';
         const hasKey = apiKey.trim() !== '';
-
+        
         return `
         <div class="card mb-15">
             <div class="card-header">
-                <h3 class="card-title text-primary"><i class="fa-solid fa-key"></i> مفاتيح الربط (API Keys)</h3>
+                <h3 class="card-title text-primary"><i class="fa-solid fa-key"></i> مفاتيح الـ API</h3>
             </div>
             <div class="card-body">
                 <div class="ud-info-list">
@@ -52,7 +54,7 @@ export const DeveloperTemplates = {
             </div>
         </div>`;
     },
-
+    
     webhookCard: (user) => {
         const webhookUrl = user.webhookUrl || '';
         
@@ -66,7 +68,8 @@ export const DeveloperTemplates = {
                 
                 <div class="form-group">
                     <label class="form-label">رابط الـ Webhook الخاص بالعميل (URL)</label>
-                    <input type="url" id="dev-webhook-url" class="form-input num-en" dir="ltr" lang="en" placeholder="https://client-store.com/api/telecard-webhook" value="${_esc(webhookUrl)}">
+                    <!-- 🛡️ [إصلاح حرج]: جعل الـ ID ديناميكياً ومطابقاً للكنترولر لمنع مسح الرابط بالخطأ -->
+                    <input type="url" id="dev-webhook-url-${_esc(user.id)}" class="form-input num-en" dir="ltr" lang="en" placeholder="https://client-store.com/api/telecard-webhook" value="${_esc(webhookUrl)}">
                 </div>
                 
                 <button class="btn btn-green mt-10 w-100" data-action="save-webhook-url" data-id="${_esc(user.id)}">
@@ -75,7 +78,7 @@ export const DeveloperTemplates = {
             </div>
         </div>`;
     },
-
+    
     developerTabContent: (user) => `
         <div id="tab-developer" class="ud-tab-content">
             ${DeveloperTemplates.apiKeysCard(user)}

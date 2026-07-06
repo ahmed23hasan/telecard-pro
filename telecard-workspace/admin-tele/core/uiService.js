@@ -103,41 +103,60 @@ export const UIService = {
             overlay.classList.add('active');
         });
     },
-    showPrompt: function(message, title = 'إدخال البيانات', defaultValue = '') {
-        return new Promise((resolve) => {
-            const overlay = document.getElementById('prompt-overlay');
-            const titleEl = document.getElementById('prompt-title');
-            const msgEl = document.getElementById('prompt-message') || document.getElementById('prompt-msg');
-            const inputEl = document.getElementById('prompt-input');
-            if (!overlay || !inputEl) { resolve(prompt(message, defaultValue)); return; }
-
-            if(titleEl) titleEl.textContent = title;
-            if(msgEl) msgEl.innerHTML = this._esc(message).replace(/\n/g, '<br>');
-            inputEl.value = defaultValue;
-
-            const okBtn = document.getElementById('prompt-ok');
-            const cancelBtn = document.getElementById('prompt-cancel');
-            const newOkBtn = okBtn.cloneNode(true);
-            const newCancelBtn = cancelBtn.cloneNode(true);
-            okBtn.parentNode.replaceChild(newOkBtn, okBtn);
-            cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
-
-            const closeDialog = (isOk) => {
-                const val = inputEl.value.trim();
-                inputEl.blur(); 
-                overlay.classList.add('closing');
-                setTimeout(() => { overlay.classList.remove('active', 'closing'); resolve(isOk ? val : null); }, 400); 
-            };
-            newOkBtn.addEventListener('click', () => closeDialog(true));
-            newCancelBtn.addEventListener('click', () => closeDialog(false));
-            inputEl.addEventListener('keypress', (e) => { if(e.key === 'Enter') closeDialog(true); });
-
-            overlay.classList.add('active');
-            if (window.innerWidth > 768) setTimeout(() => { inputEl.focus(); }, 350);
-        });
-    },
-
-    // ---------------------------------------------------------
+    showPrompt: function(message, title = 'إدخال البيانات', defaultValue = '', isPassword = false) {
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('prompt-overlay');
+        const titleEl = document.getElementById('prompt-title');
+        const msgEl = document.getElementById('prompt-message') || document.getElementById('prompt-msg');
+        const inputEl = document.getElementById('prompt-input');
+        
+        if (!overlay || !inputEl) {
+            resolve(prompt(message, defaultValue));
+            return;
+        }
+        
+        if (titleEl) titleEl.textContent = title;
+        if (msgEl) msgEl.innerHTML = this._esc(message).replace(/\n/g, '<br>');
+        
+        // 🛡️ 1. تطبيق درع الحماية على حقل الإدخال
+        inputEl.value = defaultValue;
+        inputEl.setAttribute('autocomplete', 'new-password'); // الكود السحري لمنع المتصفحات من حفظ الإدخال
+        inputEl.setAttribute('spellcheck', 'false');
+        inputEl.setAttribute('autocorrect', 'off');
+        
+        // 🛡️ 2. إخفاء النص إذا كان الإدخال سرياً
+        inputEl.type = isPassword ? 'password' : 'text';
+        
+        const okBtn = document.getElementById('prompt-ok');
+        const cancelBtn = document.getElementById('prompt-cancel');
+        const newOkBtn = okBtn.cloneNode(true);
+        const newCancelBtn = cancelBtn.cloneNode(true);
+        okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+        
+        const closeDialog = (isOk) => {
+            const val = inputEl.value.trim();
+            inputEl.blur();
+            
+            // 🛡️ 3. التنظيف الفوري للذاكرة (Memory Wipe)
+            inputEl.value = '';
+            inputEl.type = 'text'; // إعادة الحقل لحالته الطبيعية
+            
+            overlay.classList.add('closing');
+            setTimeout(() => {
+                overlay.classList.remove('active', 'closing');
+                resolve(isOk ? val : null);
+            }, 400);
+        };
+        
+        newOkBtn.addEventListener('click', () => closeDialog(true));
+        newCancelBtn.addEventListener('click', () => closeDialog(false));
+        inputEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') closeDialog(true); });
+        
+        overlay.classList.add('active');
+        if (window.innerWidth > 768) setTimeout(() => { inputEl.focus(); }, 350);
+    });
+},    // ---------------------------------------------------------
     // 📋 أدوات الحافظة والنسخ
     // ---------------------------------------------------------
     copyText: function(text, event, element) {

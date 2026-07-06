@@ -2,7 +2,7 @@
 // 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Bank Grade 🏦
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core - Zero Dependencies)
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث: سد ثغرة (Currency XSS) + دعم العزل المزدوج للاتجاهات (BDI)
+// 🌟 التحديث الأقصى: سد ثغرة (Currency XSS) + إعادة دروع الـ (ID & Name XSS)
 // ============================================================================
 
 let _injectedSource = null;
@@ -30,6 +30,7 @@ export const RenderHelpers = Object.freeze({
 
     /**
      * 🛡️ دالة الحماية المركزية (Sanitization) المستقلة 100%
+     * خوارزمية المرور الواحد (Single-Pass) لأداء فائق
      */
     _esc: function(str) {
         if (str === null || str === undefined) return '';
@@ -63,28 +64,33 @@ export const RenderHelpers = Object.freeze({
 
     formatUserId: function(userObj) {
         if (!userObj) return '---';
+        let rawId = '';
         if (typeof userObj === 'object') {
-            if (userObj.displayId) return String(userObj.displayId);
-            const rawId = userObj.id || '';
-            if (!rawId) return '---';
-            return String(rawId).substring(0, 6).toUpperCase();
+            if (userObj.displayId) rawId = String(userObj.displayId);
+            else rawId = String(userObj.id || '').substring(0, 6).toUpperCase();
+        } else {
+            const strId = String(userObj);
+            rawId = strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
         }
-        const strId = String(userObj);
-        return strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
+        if (!rawId) return '---';
+        // 🛡️ إعادة الحماية المفقودة
+        return this._esc(rawId);
     },
 
     formatOrderId: function(orderObj, withPrefix = true) {
         if (!orderObj) return '---';
         const rawId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
         if (!rawId) return '---';
-        return withPrefix ? `ORD-${rawId}` : String(rawId);
+        // 🛡️ إعادة الحماية المفقودة
+        return this._esc(withPrefix ? `ORD-${rawId}` : String(rawId));
     },
 
     formatDepositId: function(depObj, withPrefix = true) {
         if (!depObj) return '---';
         const rawId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
         if (!rawId) return '---';
-        return withPrefix ? `DEP-${rawId}` : String(rawId);
+        // 🛡️ إعادة الحماية المفقودة
+        return this._esc(withPrefix ? `DEP-${rawId}` : String(rawId));
     },
 
     // ============================================================================
@@ -159,7 +165,8 @@ export const RenderHelpers = Object.freeze({
         const f = u.firstName || u.first_name || u.name || '';
         const l = u.lastName || u.last_name || '';
         let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
-        return fullName ? fullName : 'مستخدم جديد';
+        // 🛡️ إعادة الحماية المفقودة
+        return this._esc(fullName ? fullName : 'مستخدم جديد');
     },
 
     _getExplicitName: function(u) {
@@ -167,7 +174,8 @@ export const RenderHelpers = Object.freeze({
         const f = u.firstName || u.first_name || u.name || '';
         const l = u.lastName || u.last_name || '';
         const fullName = (f + ' ' + l).trim();
-        return fullName || u.username || 'مستخدم غير معروف';
+        // 🛡️ إعادة الحماية المفقودة
+        return this._esc(fullName || u.username || 'مستخدم غير معروف');
     },
 
     _getActiveOfferBadge: function(prodId) {

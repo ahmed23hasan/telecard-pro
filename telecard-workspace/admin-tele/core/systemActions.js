@@ -1,7 +1,7 @@
 // ============================================================================
-// ⚙️ خريطة مسارات النظام (System Actions Router)
+// ⚙️ خريطة مسارات النظام (System Actions Router) - 💎 Pure Edition
 // 🎯 الوظيفة: الأحداث المشتركة، النوافذ، الملاحة، التقويم، وإعدادات النظام العامة
-// 🌟 التحديث: فك الارتباط الدائري (Circular Dependency) عبر EventBus
+// 🌟 التحديث الأقصى: تطبيق معايير (SOLID) بإزالة الارتباط الدائري (Decoupling) تماماً
 // ============================================================================
 
 import { AdminUI, AdminCalendar } from '../adminUI.js';
@@ -9,11 +9,7 @@ import { AdminRender } from '../adminRender.js';
 import { EventBus } from '../adminUtils.js';
 import { BackupSystem } from './backupService.js';
 
-// استيراد المتحكمات الفرعية لتوجيه أوامر التعديل والحذف
-import { CatalogController } from '../modules/catalog/catalogController.js';
-import { FinanceController } from '../modules/finance/financeController.js';
-import { MarketingController } from '../modules/marketing/marketingController.js';
-import { UsersController } from '../modules/users/usersController.js';
+// 🚀 [نقاء هندسي]: تم حذف جميع استيرادات المتحكمات (Controllers) لفك الارتباط نهائياً
 
 export const SystemActions = {
     // --- 1. النظام الأساسي والملاحة ---
@@ -32,9 +28,11 @@ export const SystemActions = {
     'save-support': () => EventBus.emit('req-save-support'),
     'save-terms': () => EventBus.emit('req-save-terms'),
     'add-term-card': () => AdminUI?.addTermCardUI?.(),
-    'select-term-icon': (data) => AdminUI?.selectTermIconUI?.(data.element, data.val), // 👈 السطر الجديد لتحديد الأيقونات داخل الكروت
+    'select-term-icon': (data) => AdminUI?.selectTermIconUI?.(data.element, data.val),
     'save-admin-profile': () => EventBus.emit('req-save-admin-profile'),
-    'auto-save-settings': () => MarketingController.autoSaveSettings?.(),
+    
+    // 💎 النسخة النقية: تطلق الحدث فقط دون استدعاء MarketingController
+    'auto-save-settings': () => EventBus.emit('req-auto-save-settings'),
     
     // --- 3. النوافذ المشتركة ---
     'open-modal': (data) => AdminUI?.openModal?.(data.target),
@@ -45,29 +43,16 @@ export const SystemActions = {
     },
     'open-img-viewer': (data) => AdminUI?.openImageViewer?.(data.src),
     'close-img-viewer': () => AdminUI?.closeImageViewer?.(),
-    
-    // 🌟 الإصلاح السحري: إضافة معالج فتح تفاصيل الحركة المالية (طلب منتج أو طلب إيداع) من شاشة السجل المالي الشامل
     'open-tx-detail': (data) => {
         const txId = String(data.id);
-        const txType = data.type; // 'order' أو 'deposit'
-        if (txType === 'order') {
-            AdminUI?.openOrderDrawer?.(txId);
-        } else if (txType === 'deposit') {
-            AdminUI?.openDepositDrawer?.(txId);
-        }
+        if (data.type === 'order') AdminUI?.openOrderDrawer?.(txId);
+        else if (data.type === 'deposit') AdminUI?.openDepositDrawer?.(txId);
     },
     
     // --- 4. الموجه الديناميكي (Dynamic Editors) ---
-    'edit-item': (data) => {
-        if (data.type === 'cat') AdminUI?.CatalogUI?.openCategoryModal?.(data.id);
-        else if (data.type === 'prod') CatalogController.openProductModal?.(data.id);
-        else if (data.type === 'pay') AdminUI?.FinanceUI?.openPaymentModal?.(data.id);
-        else if (data.type === 'country') AdminUI?.CatalogUI?.openCountryModal?.(data.id);
-        else if (data.type === 'coupon') MarketingController.openCouponModal?.(data.id);
-        else if (data.type === 'offer') MarketingController.openOfferModal?.(data.id);
-        else if (data.type === 'vault') AdminUI?.CatalogUI?.openVaultModal?.(data.id);
-        else if (data.type === 'tier') AdminUI?.UsersUI?.openTierModal?.(data.id);
-    },
+    // 💎 النسخة النقية: تطلق الحدث فقط دون الحاجة لمعرفة تفاصيل المتحكمات
+    'edit-item': (data) => EventBus.emit('req-edit-item', { type: data.type, id: data.id }),
+    
     'delete-item': async (data) => {
         if (data.id && AdminUI && await AdminUI.showConfirm('هل أنت متأكد من الحذف نهائياً؟ لا يمكن التراجع.')) {
             EventBus.emit('req-delete-item', { type: data.type, id: data.id });

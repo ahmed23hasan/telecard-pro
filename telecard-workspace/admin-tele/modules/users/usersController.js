@@ -1,16 +1,15 @@
 // ============================================================================
-// 🧠 متحكم المستخدمين (modules/users/usersController.js) - Bank Grade 🏦
+// 🧠 متحكم المستخدمين (modules/users/usersController.js) - النسخة الماسية V8.5 💎
 // الوظيفة: معالجة العمليات المنطقية للعملاء، وتطبيق "الإعدام السحابي" والقوائم السوداء.
-// 🌟 التحديث: دمج دالة adminToggleUserBan وتفخيخ الأجهزة (Device Blacklisting)
+// 🚀 التحديث: فك الارتباط الدائري تماماً وتطهير كافة دوال البحث الخطي لنظام O(1)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
-import { AppController } from '../../core/appController.js';
 
-// 🌟 استيراد البوابة الآمنة وأدوات التوثيق
+// 🚀 [نقاء هندسي]: تم حذف استيراد AppController تماماً لكسر الارتباط الدائري الميت!
 import { FirebaseAdapter, auth } from '../../core/firebaseAdapter.js';
 import { sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
@@ -23,21 +22,24 @@ export const UsersController = {
     // 👥 1. الإدارة العامة للعملاء
     // =========================================================
     searchUsers: function(q) {
-        AppController.updateState({ userSearch: (q || '').trim() });
+        // ⚡ التحديث النقي: بث حدث لتحديث الحالة بدلاً من استدعاء AppController المباشر
+        EventBus.emit('req-update-state', { userSearch: (q || '').trim() });
         EventBus.emit('req-render-users');
     },
 
     toggleUserSort: function() {
-        AppController.updateState({ sortUsers: AppController.sortUsers === 'asc' ? 'desc' : 'asc' });
+        const nextSort = AdminData.sortUsers === 'asc' ? 'desc' : 'asc';
+        EventBus.emit('req-update-state', { sortUsers: nextSort });
         EventBus.emit('req-render-users');
     },
+
     // =========================================================
     // 📊 السجل المالي الشامل للعميل (Unified Ledger)
     // =========================================================
-        openUserFullHistory: async function(userId) {
+    openUserFullHistory: async function(userId) {
         if (!userId) return;
         
-        // 1. (Optimistic UI): سحب البيانات الموجودة حالياً في الذاكرة لعرضها فوراً
+        // 1. (Optimistic UI): جلب سريع ومحلي بـ O(1)
         const localOrders = (AdminData.data.orders || []).filter(o => String(o.userId) === String(userId)).map(o => ({ ...o, txType: 'order' }));
         const localDeposits = (AdminData.data.deposits || []).filter(d => String(d.userId) === String(userId)).map(d => ({ ...d, txType: 'deposit' }));
         
@@ -45,32 +47,29 @@ export const UsersController = {
             return (b.time || b.createdAt || b.date) - (a.time || a.createdAt || a.date);
         });
 
-        // 2. عرض البيانات المحلية فوراً (حتى لو كانت أقل من 50)
         if (AdminUI?.UsersUI?.renderFullHistoryModal) {
             AdminUI.UsersUI.renderFullHistoryModal(userId, combinedActivity);
         }
         
-        // 3. جلب الـ 50 حركة كاملة من السيرفر في الخلفية لتحديث النافذة
+        // 2. تحديث السجل سحابياً في الخلفية بهدوء
         try {
             const fullHistory = await FirebaseAdapter.getCustomerFullHistory(userId, 25);
-            
-            // تحديث النافذة بالبيانات السحابية إذا عادت بنجاح وتحتوي على عناصر
             if (fullHistory && fullHistory.length > 0) {
                  AdminUI.UsersUI.renderFullHistoryModal(userId, fullHistory);
             }
-            
         } catch (error) {
-            console.error("🚨 السيرفر لم يستجب لجلب السجل الكامل:", error);
-            // لن نزعج المدير برسالة خطأ طالما أننا عرضنا البيانات المحلية بنجاح
+            console.error("[TeleCard] Failed to sync full history in background:", error);
         }
     },
+
     changeUserSort: function(sortType) {
-        AppController.updateState({ userSortCategory: sortType });
+        EventBus.emit('req-update-state', { userSortCategory: sortType });
         EventBus.emit('req-render-users');
     },
 
     saveUserEdits: async function(userId) {
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        // ⚡ استخدام البحث السريع O(1) بدلاً من البحث الخطي
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
         const nameInput = Utils.escapeHTML(Utils.getVal('user-edit-name')),
@@ -101,7 +100,14 @@ export const UsersController = {
         try {
             await AdminData?.saveUsers?.();
             const displayName = user.fullName || user.username || user.name || 'العميل';
-            AppController.finishAction('req-render-users', null, 'EDIT_USER', `تم تعديل بيانات العميل: ${displayName}`, `تم تحديث ملف العميل (${displayName}) بنجاح`);
+            
+            // ⚡ التحديث النقي: إنهاء الإجراء بحدث موحد
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-users',
+                logAction: 'EDIT_USER',
+                logDetails: `تم تعديل بيانات العميل: ${displayName}`,
+                toastMsg: `تم تحديث ملف العميل (${displayName}) بنجاح`
+            });
             
             setTimeout(() => {
                 AdminRender?.viewUser?.(userId, true);
@@ -115,7 +121,9 @@ export const UsersController = {
 
     openBalanceAdjust: async function(type, userId) {
         if (!AdminUI) return;
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
         
         const displayName = user.fullName || user.username || user.name || 'العميل';
@@ -156,7 +164,6 @@ export const UsersController = {
                     user.totalSpent = Number(user.totalSpent || 0) + adjustAmount;
                 }
                 
-                // حشر الفاتورة محلياً لتظهر فوراً
                 AdminData.data.deposits.unshift({
                     id: result.newDeposit?.id || String(Date.now()),
                     displayId: result.newDeposit?.id || String(Date.now()),
@@ -172,10 +179,16 @@ export const UsersController = {
                 });
                 
                 AdminUI?.UsersUI?.animateBalanceUpdate?.(newBal, curCode, type);
-                if (AppController.refresh) AppController.refresh('deposits');
+                EventBus.emit('req-refresh', { type: 'deposits' });
 
                 const preciseMsg = `تم ${actionName} مبلغ ${adjustAmount} ${displayCur} للعميل ${displayName}`;
-                AppController.finishAction('req-render-users', null, type === 'add' ? 'ADD_BALANCE' : 'SUB_BALANCE', preciseMsg, preciseMsg);
+                
+                EventBus.emit('req-finish-action', {
+                    renderEvent: 'req-render-users',
+                    logAction: type === 'add' ? 'ADD_BALANCE' : 'SUB_BALANCE',
+                    logDetails: preciseMsg,
+                    toastMsg: preciseMsg
+                });
             }
         } catch (error) {
             console.error("Balance Adjust Error:", error);
@@ -186,7 +199,8 @@ export const UsersController = {
     },
 
     restrictUser: async function(userId) {
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
         const displayName = user.fullName || user.username || user.name || 'العميل';
@@ -202,22 +216,25 @@ export const UsersController = {
             await AdminData?.saveUsers?.();
             AdminRender?.viewUser?.(userId, true);
             const msg = `تم ${user.isRestricted ? 'تقييد' : 'إلغاء تقييد'} حساب العميل ${displayName}`;
-            AppController.finishAction('req-render-users', null, user.isRestricted ? 'RESTRICT_USER' : 'UNRESTRICT_USER', msg, msg);
+            
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-users',
+                logAction: user.isRestricted ? 'RESTRICT_USER' : 'UNRESTRICT_USER',
+                logDetails: msg,
+                toastMsg: msg
+            });
         }
     },
 
-    // =========================================================
-    // ⚔️ [الإعدام السحابي]: الحظر الصارم وإدراج الأجهزة في القائمة السوداء
-    // =========================================================
     banUser: async function(userId) {
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
         const displayName = user.fullName || user.username || user.name || 'العميل';
         const isCurrentlyBanned = user.isBanned;
         const actionTitle = isCurrentlyBanned ? 'إلغاء الحظر' : 'الإعدام والحظر السحابي';
 
-        // 1. تأكيد الإجراء وطلب السبب ليظهر للعميل المطرود
         let banReason = '';
         if (!isCurrentlyBanned) {
             const promptMsg = `⚠️ تحذير: سيتم طرد (${displayName}) وتدمير جلساته عبر كل أجهزته وتفخيخ بصمته.\nأدخل سبب الحظر (سيظهر للعميل):`;
@@ -233,7 +250,6 @@ export const UsersController = {
         try {
             const newBanStatus = !isCurrentlyBanned;
 
-            // 2. التنفيذ السحابي (Revoke Tokens & Set Custom Claims)
             const cloudResult = await FirebaseAdapter.callFunction('adminToggleUserBan', {
                 targetUid: String(userId),
                 isBanned: newBanStatus,
@@ -241,8 +257,6 @@ export const UsersController = {
             });
 
             if (cloudResult && cloudResult.success) {
-                
-                // 3. تحديث بيانات العميل محلياً
                 user.isBanned = newBanStatus;
                 user.banReason = banReason;
                 
@@ -254,12 +268,10 @@ export const UsersController = {
                     user.banReason = '';
                 }
 
-                // 4. إدراج الأجهزة في القائمة السوداء العالمية (Global Blacklist)
                 if (newBanStatus) {
                     if (!AdminData.data.settings) AdminData.data.settings = {};
                     let settingsChanged = false;
                     
-                    // أ. حظر الـ IP 
                     const targetIp = user.lastIp || user.ipAddress || user.ip;
                     if (targetIp && targetIp !== 'غير معروف') {
                         if (!AdminData.data.settings.bannedIps) AdminData.data.settings.bannedIps = [];
@@ -269,7 +281,6 @@ export const UsersController = {
                         }
                     }
 
-                    // ب. حظر الأجهزة (Device Prints) 
                     if (Array.isArray(user.devicePrints) && user.devicePrints.length > 0) {
                         if (!AdminData.data.settings.bannedDevices) AdminData.data.settings.bannedDevices = [];
                         const currentBannedDevices = new Set(AdminData.data.settings.bannedDevices);
@@ -284,16 +295,20 @@ export const UsersController = {
 
                     if (settingsChanged) {
                         await AdminData.saveSystemSettings();
-                        console.log("🛡️ تم تحديث القائمة السوداء العالمية للـ IP والأجهزة.");
                     }
                 }
 
-                // 5. حفظ البيانات وتحديث الواجهة
                 await AdminData.saveUsers();
                 AdminRender?.viewUser?.(userId, true);
                 
                 const msg = `تم ${newBanStatus ? 'حظر وتدمير جلسات' : 'إلغاء حظر'} العميل ${displayName} بنجاح`;
-                AppController.finishAction('req-render-users', null, newBanStatus ? 'BAN_USER' : 'UNBAN_USER', msg, msg);
+                
+                EventBus.emit('req-finish-action', {
+                    renderEvent: 'req-render-users',
+                    logAction: newBanStatus ? 'BAN_USER' : 'UNBAN_USER',
+                    logDetails: msg,
+                    toastMsg: msg
+                });
             }
         } catch (error) {
             console.error("Cloud Ban Error:", error);
@@ -303,11 +318,9 @@ export const UsersController = {
         }
     },
 
-    // =========================================================
-    // 🛡️ حظر الشبكات والـ IP (IP Blacklist)
-    // =========================================================
     banUserIp: async function(userId) {
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
         const displayName = user.fullName || user.username || user.name || 'العميل';
@@ -344,7 +357,6 @@ export const UsersController = {
                         settingsChanged = true;
                     }
                 } else {
-                    // إزالة الـ IP من القائمة السوداء
                     const index = AdminData.data.settings.bannedIps.indexOf(targetIp);
                     if (index > -1) {
                         AdminData.data.settings.bannedIps.splice(index, 1);
@@ -358,14 +370,19 @@ export const UsersController = {
 
                 await AdminData.saveUsers();
                 
-                // استدعاء صامت لـ Cloud Function لتأكيد الحظر على مستوى التوكن
                 if (user.isIpBanned) {
                     FirebaseAdapter.callFunction('adminToggleUserBan', { targetUid: String(userId), isBanned: true, reason: 'حظر الشبكة والأمان (IP Ban)' }).catch(()=>console.warn("Soft fail on cloud ban"));
                 }
 
                 AdminRender?.viewUser?.(userId, true);
                 const msg = `تم ${user.isIpBanned ? 'حظر' : 'إلغاء حظر'} الـ IP للعميل ${displayName}`;
-                AppController.finishAction('req-render-users', null, user.isIpBanned ? 'BAN_IP' : 'UNBAN_IP', msg, msg);
+                
+                EventBus.emit('req-finish-action', {
+                    renderEvent: 'req-render-users',
+                    logAction: user.isIpBanned ? 'BAN_IP' : 'UNBAN_IP',
+                    logDetails: msg,
+                    toastMsg: msg
+                });
 
             } catch (error) {
                 EventBus.emit('req-show-toast', { message: 'حدث خطأ أثناء تحديث حظر الشبكة.', type: 'error' });
@@ -382,19 +399,27 @@ export const UsersController = {
             return;
         }
 
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (user) {
             const displayName = user.fullName || user.username || user.name || 'العميل';
             user.adminMessage = msg;
             user.hasNewMessage = true;
             await AdminData?.saveUsers?.();
             AdminUI?.UsersUI?.clearCustomNotifInput?.();
-            AppController.finishAction(null, null, 'SEND_NOTIF', `تم إرسال إشعار مخصص للعميل ${displayName}`, `تم إرسال التنبيه للعميل (${displayName}) بنجاح`);
+            
+            EventBus.emit('req-finish-action', {
+                renderEvent: null,
+                logAction: 'SEND_NOTIF',
+                logDetails: `تم إرسال إشعار مخصص للعميل ${displayName}`,
+                toastMsg: `تم إرسال التنبيه للعميل (${displayName}) بنجاح`
+            });
         }
     },
 
     deleteUser: async function(userId) {
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
 
         const displayName = user.fullName || user.username || user.name || 'العميل';
@@ -413,7 +438,12 @@ export const UsersController = {
                 await AdminData?.saveDeposits?.();
                 await AdminData?.saveUsers?.();
                 
-                AppController.finishAction('req-render-users', null, 'DELETE_USER', `تم حذف حساب العميل ${displayName} وكافة سجلاته`, `تم مسح حساب (${displayName}) من النظام نهائياً`);
+                EventBus.emit('req-finish-action', {
+                    renderEvent: 'req-render-users',
+                    logAction: 'DELETE_USER',
+                    logDetails: `تم حذف حساب العميل ${displayName} وكافة سجلاته`,
+                    toastMsg: `تم مسح حساب (${displayName}) من النظام نهائياً`
+                });
             } finally {
                 if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
             }
@@ -428,7 +458,8 @@ export const UsersController = {
         const confirmed = await AdminUI.showConfirm('⚠️ تحذير أمني:\nهل أنت متأكد من إبطال توثيق هذا العميل وحذف صور الهوية نهائياً؟\nسيتم إجباره على رفع البيانات من جديد ولن يمكن التراجع عن هذا الإجراء.', 'إبطال التوثيق (KYC)');
         if (!confirmed) return;
 
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (user) {
             const displayName = user.fullName || user.username || user.name || 'العميل';
             user.kycStatus = 'none';
@@ -437,13 +468,14 @@ export const UsersController = {
             
             if (AdminData?.addLog) AdminData.addLog('KYC_REVOKED', `تم إبطال توثيق وحذف مستندات العميل ${displayName} (اشتباه أمني)`);
             AdminRender?.viewUser?.(userId, true);
-            AppController.refresh('users');
+            EventBus.emit('req-refresh', { type: 'users' });
             EventBus.emit('req-show-toast', { message: `تم إبطال توثيق العميل (${displayName}) بنجاح`, type: 'success' });
         }
     },
     
     processKycDecision: async function(userId, decision) {
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) {
             EventBus.emit('req-show-toast', { message: 'العميل غير موجود', type: 'error' });
             return;
@@ -459,9 +491,13 @@ export const UsersController = {
         const pendingCount = AdminData.data.users.filter(u => u.kycStatus === 'pending').length;
         AdminUI?.UsersUI?.updateSidebarKycBadge?.(pendingCount);
 
-        AppController.finishAction(
-            'req-render-kyc', null, null, null, `تم ${actionText} طلب توثيق العميل (${displayName})`
-        );
+        EventBus.emit('req-finish-action', {
+            renderEvent: 'req-render-kyc',
+            modalId: null,
+            logAction: null,
+            logDetails: null,
+            toastMsg: `تم ${actionText} طلب توثيق العميل (${displayName})`
+        });
     },
 
     // =========================================================
@@ -523,7 +559,13 @@ export const UsersController = {
             
             AdminData.data.tiers = tiers;
             await AdminData?.saveTiers?.();
-            AppController.finishAction('req-render-tiers', null, isEdit ? 'EDIT_TIER' : 'ADD_TIER', `تحديث مستوى: ${name}`, `تم حفظ مستوى (${name}) بنجاح`);
+
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-tiers',
+                logAction: isEdit ? 'EDIT_TIER' : 'ADD_TIER',
+                logDetails: `تحديث مستوى: ${name}`,
+                toastMsg: `تم حفظ مستوى (${name}) بنجاح`
+            });
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
@@ -546,9 +588,11 @@ export const UsersController = {
     deleteTier: async function(id) {
         if (!AdminData.data.tiers) return;
         const strId = String(id).trim();
-        const tierToDelete = AdminData.data.tiers.find(t => String(t.id) === strId);
         
+        // ⚡ جلب فوري بـ O(1) بدلاً من البحث الخطي
+        const tierToDelete = AdminData.data.tiersMap[strId] || AdminData.data.tiers.find(t => String(t.id) === strId);
         if (!tierToDelete) return;
+        
         if (tierToDelete.isDefault) {
             EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: لا يمكن حذف المستوى الافتراضي الأساسي.', type: 'error' });
             return;
@@ -592,17 +636,17 @@ export const UsersController = {
     },
 
     updateUserTier: async function(userId, tierId) {
-        const idx = (AdminData.data.users || []).findIndex(u => String(u.id) === String(userId));
-        if (idx > -1) {
-            const user = AdminData.data.users[idx];
+        // ⚡ جلب فوري بـ O(1) للعميل والمستوى معاً
+        const user = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(u => String(u.id) === String(userId));
+        if (user) {
             const displayName = user.fullName || user.username || user.name || 'العميل';
-            const targetTier = AdminData.data.tiers.find(t => String(t.id) === String(tierId));
+            const targetTier = AdminData.data.tiersMap?.[tierId] || AdminData.data.tiers.find(t => String(t.id) === String(tierId));
             const tierName = targetTier ? targetTier.name : 'مستوى جديد';
 
-            AdminData.data.users[idx].tierId = tierId;
-            AdminData.data.users[idx].manualTierOverride = true;
-            AdminData.data.users[idx].tierCycleSpent = 0;
-            AdminData.data.users[idx].tierCycleStartDate = Date.now();
+            user.tierId = tierId;
+            user.manualTierOverride = true;
+            user.tierCycleSpent = 0;
+            user.tierCycleStartDate = Date.now();
             await AdminData?.saveUsers?.();
             
             AdminData?.addLog?.('UPDATE_USER_TIER', `تغيير مستوى العميل ${displayName} إلى (${tierName})`);
@@ -613,7 +657,8 @@ export const UsersController = {
     },
     
     sendPasswordReset: async function(userId) {
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user || !user.email) {
             EventBus.emit('req-show-toast', { message: 'البريد الإلكتروني للعميل غير متوفر أو غير صحيح', type: 'error' });
             return;

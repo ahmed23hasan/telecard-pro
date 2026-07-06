@@ -1,7 +1,7 @@
 // ============================================================================
-// 📈 محرك رسم وتحليل المبيعات (modules/dashboard/salesRender.js) - Pro 🚀
+// 📈 محرك رسم وتحليل المبيعات (modules/dashboard/salesRender.js) - النسخة الماسية V4.4 💎
 // 🎯 الوظيفة: استهلاك البيانات المركزية، الفلترة الزمنية، ورسم التقارير والتصدير
-// 🌟 التحديث: تنظيف الكود (Clean Code) + ربط آمن مع محرك المخططات السحابي
+// 🚀 التحديث الأقصى: القضاء على الـ O(N) في رادار التتويج وحماية الذاكرة الرسومية
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -10,37 +10,27 @@ import { RenderHelpers } from '../../core/renderHelpers.js';
 import { UIService } from '../../core/uiService.js';
 
 export const SalesRender = {
-    // 🌟 الحالة المحلية لفلتر زمن المبيعات
     state: { timeRange: 'all' },
 
     initListeners: function() {
-        // التنصت على تغييرات الفلتر الزمني من الواجهة
         EventBus.on('change-sales-range', (range) => {
             this.state.timeRange = range;
             this.renderSales();
         });
     },
 
-    /**
-     * تغيير الفلتر الزمني وإعادة الرسم
-     */
     changeTimeRange: function(range) {
         this.state.timeRange = range;
         this.renderSales();
     },
 
-    /**
-     * المحرك الرئيسي لرسم صفحة المبيعات
-     */
     renderSales: function() {
         const salesView = document.getElementById('view-sales');
         if (!salesView || !salesView.classList.contains('active')) return;
 
-        // 🌟 1. استدعاء البيانات المفلترة زمنياً من العقل المركزي (SSOT)
         const stats = AdminData.getFilteredSalesStats(this.state.timeRange);
         if (!stats) return;
 
-        // 🌟 2. رسم الملخص التنفيذي (أربع كبسولات شاملة التكاليف)
         const summaryContainer = document.getElementById('sales-executive-summary');
         if (summaryContainer) {
             summaryContainer.className = 'dash-circ-grid mb-20'; 
@@ -76,7 +66,6 @@ export const SalesRender = {
             `;
         }
 
-        // 🌟 3. رسم الأداء التفصيلي للأقسام
         const catsTbody = document.getElementById('sales-detailed-cats');
         if (catsTbody) {
             const sortedCats = Object.values(stats.categories).sort((a, b) => b.profit - a.profit);
@@ -101,10 +90,8 @@ export const SalesRender = {
             }
         }
 
-        // 🌟 4. منصة تتويج المنتجات (Podium)
         const podiumContainer = document.getElementById('sales-podium');
         
-        // تحويل المنتجات إلى مصفوفة مع الاحتفاظ بالـ ID لكي نتمكن من جلب صورها
         const sortedProds = Object.entries(stats.products)
             .map(([id, p]) => ({ ...p, id }))
             .sort((a, b) => b.profit - a.profit);
@@ -112,13 +99,12 @@ export const SalesRender = {
         if (podiumContainer) {
             if (sortedProds.length > 0) {
                 
-                // دالة مساعدة لجلب صورة المنتج من قاعدة البيانات المركزية
+                // ⚡ التحديث الفائق O(1): جلب الصورة فورا من الخريطة بدلا من find
                 const getProdImg = (id) => {
-                    const p = (AdminData.data.prods || []).find(x => String(x.id) === String(id));
+                    const p = AdminData.data.prodsMap?.[id];
                     return p && p.img ? p.img : null;
                 };
 
-                // دالة بناء كرت التتويج المحمية (لا تفشل إذا لم يكن هناك منتج)
                 const buildRankHtml = (prod, rankClass, num, badgeIcon) => {
                     if (!prod) return '';
 
@@ -141,7 +127,6 @@ export const SalesRender = {
                     </div>`;
                 };
 
-                // التوزيع للواجهة بحيث يكون الذهب دائماً في المركز
                 podiumContainer.innerHTML = `
                     ${buildRankHtml(sortedProds[1], 'rank-2', '2', '<i class="fa-solid fa-medal"></i>')}
                     ${buildRankHtml(sortedProds[0], 'rank-1', '1', '<i class="fa-solid fa-crown text-gold"></i>')}
@@ -152,7 +137,6 @@ export const SalesRender = {
             }
         }
 
-        // 🌟 5. عرض كافة المنتجات في الجدول المالي التفصيلي
         const allProdsTbody = document.getElementById('sales-rest-prods');
         if (allProdsTbody) {
             if (sortedProds.length === 0) {
@@ -175,17 +159,12 @@ export const SalesRender = {
             }
         }
 
-        // 🌟 6. استدعاء راسم المخططات
         this.renderCharts();
     },
 
-    /**
-     * رسم المخططات البيانية (ApexCharts) باستقلالية تامة
-     */
     renderCharts: function() {
         if (typeof window.ApexCharts === 'undefined') return;
 
-        // 🌟 استقلالية مطلقة لجمع بيانات المخطط محلياً
         const allCompletedOrders = (AdminData.data.orders || []).filter(o => o.status === 'completed');
         const nowTime = Date.now();
         
@@ -193,7 +172,6 @@ export const SalesRender = {
         let apiCount = 0;
         const dailyAggregations = {};
 
-        // حشد طلبات الأرصدة لبناء محور زمني للمخطط
         allCompletedOrders.forEach(o => {
             if (o.isApiOrder || o.source === 'api') apiCount++;
             else manualCount++;
@@ -242,7 +220,6 @@ export const SalesRender = {
                 legend: { position: 'top', horizontalAlign: 'right' }
             };
 
-            // 🌟 تنظيف الذاكرة (Anti Memory Leak) للمخطط الكبير
             if (this._detailedChartInst) {
                 try { this._detailedChartInst.destroy(); } catch(e){}
             }
@@ -263,7 +240,6 @@ export const SalesRender = {
                 legend: { position: 'bottom' }
             };
 
-            // 🌟 تنظيف الذاكرة (Anti Memory Leak) للمخطط الدائري
             if (this._sourceChartInst) {
                 try { this._sourceChartInst.destroy(); } catch(e){}
             }
@@ -273,9 +249,6 @@ export const SalesRender = {
         }
     },
 
-    /**
-     * 🌟 محرك تصدير تقارير المبيعات إلى Excel (CSV) باحترافية
-     */
     exportSalesToExcel: function() {
         const stats = AdminData.getFilteredSalesStats(this.state.timeRange);
         if (!stats || Object.keys(stats.products).length === 0) {
@@ -285,7 +258,6 @@ export const SalesRender = {
 
         let csv = "\uFEFFالمنتج,الكمية المباعة,إجمالي الإيرادات,إجمالي التكاليف,صافي الربح\n";
         
-        // 🛡️ تنظيف مدخلات التصدير للحماية من ثغرات الـ Excel (CSV-Injection)
         const sanitizeCSV = (str) => { 
             let c = String(str).replace(/"/g, '""').replace(/,/g, " "); 
             if (/^[=@+-]/.test(c)) c = "'" + c; 

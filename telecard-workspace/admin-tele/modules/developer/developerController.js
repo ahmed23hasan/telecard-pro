@@ -1,13 +1,14 @@
 // ============================================================================
-// 🧠 متحكم المطورين والربط (modules/developer/developerController.js) - Pro 🚀
+// 🧠 متحكم المطورين والربط (modules/developer/developerController.js) - النسخة الماسية V3.2 💎
 // 🎯 الوظيفة: معالجة العمليات المنطقية للـ API و Webhooks بأعلى معايير الأمان
-// 🌟 التحديث: شاشات حماية (Loaders) + تراجع آمن (Rollback) + دقة سجلات النظام
+// 🚀 التحديث الأقصى: القضاء على الـ O(N) بـ usersMap وفك الارتباط الدائري تماماً
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { EventBus, Utils } from '../../adminUtils.js';
-import { AppController } from '../../core/appController.js';
 import { AdminUI } from '../../adminUI.js';
+
+// 🚀 [نقاء هندسي]: تم حذف استيراد AppController الميت تماماً لكسر الارتباط الدائري وحماية لوحة الإدارة من الانهيار عند الإقلاع
 
 export const DeveloperController = {
     
@@ -17,25 +18,24 @@ export const DeveloperController = {
     generateApiKey: async function(userId) {
         if (!userId) return;
         
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        // ⚡ التحديث الفائق O(1): جلب العميل فورا من الخريطة بدلا من find
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
         
         const displayName = user.fullName || user.username || user.name || 'العميل';
         
-        // رسالة تأكيد إذا كان يمتلك مفتاحاً قديماً
         if (user.apiKey) {
             const confirmMsg = `العميل (${displayName}) يمتلك مفتاحاً نشطاً بالفعل.\n\n⚠️ تجديد المفتاح سيؤدي إلى إيقاف اتصال متاجره الحالية فوراً ولن تعود تعمل حتى يتم وضع المفتاح الجديد.\n\nهل أنت متأكد من رغبتك بالتجديد؟`;
             const confirm = await AdminUI.showConfirm(confirmMsg, 'تحذير أمني خطير');
             if (!confirm) return;
         }
         
-        // 🌟 التحديث الأمني: توليد مفتاح مشفر حقيقي وآمن جداً (Cryptographically Secure)
         const array = new Uint8Array(16);
         window.crypto.getRandomValues(array);
         const secureString = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
         const newKey = 'tc_live_' + secureString;
         
-        const oldKey = user.apiKey; // لحفظ خط الرجعة
+        const oldKey = user.apiKey;
         
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري توليد وتشفير المفتاح سحابياً...');
         
@@ -48,13 +48,12 @@ export const DeveloperController = {
             }
             EventBus.emit('req-show-toast', { message: `تم توليد وتوثيق المفتاح للعميل (${displayName}) بنجاح`, type: 'success' });
             
-            // إعادة رسم نافذة العميل لظهور المفتاح الجديد
             EventBus.emit('action-triggered', { action: 'view-user', id: userId });
             setTimeout(() => EventBus.emit('action-triggered', { action: 'switch-user-tab', tab: 'developer' }), 50);
             
         } catch (error) {
             console.error("API Key Generation Error:", error);
-            user.apiKey = oldKey; // 🌟 تراجع آمن (Rollback) في حال فشل السيرفر
+            user.apiKey = oldKey; // 🌟 تراجع آمن
             EventBus.emit('req-show-toast', { message: 'تعذر حفظ المفتاح في السحابة، يرجى المحاولة مجدداً.', type: 'error' });
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
@@ -66,7 +65,9 @@ export const DeveloperController = {
     // =========================================================
     revokeApiKey: async function(userId) {
         if (!userId) return;
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user || !user.apiKey) return;
         
         const displayName = user.fullName || user.username || user.name || 'العميل';
@@ -74,7 +75,7 @@ export const DeveloperController = {
         const confirm = await AdminUI.showConfirm(`هل أنت متأكد من إبطال مفتاح العميل (${displayName})؟\nلن يتمكن العميل من الاتصال بمتجرك عبر الـ API بعد الآن.`, 'تأكيد إبطال المفتاح');
         if (!confirm) return;
         
-        const oldKey = user.apiKey; // لحفظ خط الرجعة
+        const oldKey = user.apiKey;
         
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إبطال صلاحيات المفتاح سحابياً...');
         
@@ -104,22 +105,22 @@ export const DeveloperController = {
     // =========================================================
     saveWebhookUrl: async function(userId) {
         if (!userId) return;
-        const user = AdminData.data.users.find(u => String(u.id) === String(userId));
+        
+        // ⚡ جلب فوري بـ O(1)
+        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
         
         const displayName = user.fullName || user.username || user.name || 'العميل';
         const inputEl = document.getElementById(`dev-webhook-url-${userId}`);
         const newUrl = inputEl ? inputEl.value.trim() : '';
         
-        // تحقق مبدئي من صحة الرابط (مهم جداً أمنياً لمنع الروابط الخبيثة)
         if (newUrl !== '' && !newUrl.startsWith('http')) {
             EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: يجب أن يبدأ رابط الـ Webhook بـ http أو https', type: 'error' });
             return;
         }
         
-        const oldUrl = user.webhookUrl || ''; // لحفظ خط الرجعة
+        const oldUrl = user.webhookUrl || '';
         
-        // إذا لم يتغير الرابط لا داعي لإرهاق السيرفر
         if (oldUrl === newUrl) {
             EventBus.emit('req-show-toast', { message: 'لم تقم بإجراء أي تغييرات على الرابط', type: 'info' });
             return;

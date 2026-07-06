@@ -1,7 +1,7 @@
 // ============================================================================
 // 💻 المحاكي المالي للواجهة الأمامية (Client-Side Simulator) - النسخة الماسية 💎
-// 🎯 الوظيفة: محاكاة الأسعار للعميل، عرض الخصومات، إخفاء التكلفة، وتأمين الـ UI
-// 🌟 التحديث الأقصى: توحيد المنطق الرياضي مع السيرفر، إضافة حاسبة الإجماليات
+// 🎯 الوظيفة: محاكاة الأسعار للعميل، عرض الخصومات، وإخفاء الأسرار (التكلفة والأرباح)
+// 🌟 التحديث الأقصى: تطبيق خوارزمية O(1) للعملات لتصبح نسخة كربونية من السيرفر
 // ============================================================================
 
 export const FinancialEngine = {
@@ -27,22 +27,35 @@ export const FinancialEngine = {
         return Math.round((numA / numB) * 10000) / 10000;
     },
     
-    // 🛡️ [ترقيع State Mutation]: أخذ نسخة جديدة (Clone) لمنع تدمير البيانات الأصلية
+    // 🛡️ [تحديث الأداء]: تحويل المصفوفة إلى Dictionary لسرعة بحث O(1) (مطابق للسيرفر)
     normalizeRates: function(raw) {
-        let rates = Array.isArray(raw) ? [...raw] : [];
-        if (!rates.find(c => c.isBase)) {
-            rates.unshift({ code: 'USD', symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true });
+        const ratesArray = Array.isArray(raw) ? raw : [];
+        const ratesMap = {};
+        let hasBase = false;
+        
+        for (const rate of ratesArray) {
+            if (rate && rate.code) {
+                ratesMap[String(rate.code).toUpperCase()] = rate;
+                if (rate.isBase) hasBase = true;
+            }
         }
-        return rates;
+        
+        // تأمين وجود الدولار كقاعدة ارتكاز في حال كان الـ API فارغاً
+        if (!hasBase) {
+            ratesMap['USD'] = { code: 'USD', symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
+        }
+        return ratesMap;
     },
     
     convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel = 'pricing') {
-        const rates = this.normalizeRates(ratesArray);
         const amt = Number(amount) || 0;
-        if (!fromCode || !toCode || String(fromCode).toUpperCase() === String(toCode).toUpperCase()) return amt;
         
-        const fromCurr = rates.find(c => String(c.code).toUpperCase() === String(fromCode).toUpperCase()) || { priceRate: 1, depRate: 1 };
-        const toCurr = rates.find(c => String(c.code).toUpperCase() === String(toCode).toUpperCase()) || { priceRate: 1, depRate: 1 };
+        if (amt === 0 || !fromCode || !toCode || String(fromCode).toUpperCase() === String(toCode).toUpperCase()) return amt;
+        
+        const ratesMap = this.normalizeRates(ratesArray);
+        
+        const fromCurr = ratesMap[String(fromCode).toUpperCase()] || { priceRate: 1, depRate: 1 };
+        const toCurr = ratesMap[String(toCode).toUpperCase()] || { priceRate: 1, depRate: 1 };
         
         const fromRate = channel === 'deposit' ? fromCurr.depRate : fromCurr.priceRate;
         const toRate = channel === 'deposit' ? toCurr.depRate : toCurr.priceRate;

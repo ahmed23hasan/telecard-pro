@@ -1,7 +1,8 @@
 // ============================================================================
-// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js)
-// 🚀 التحديث: دمج المترجم الزمني المركزي، منع التكرار البصري، وتأمين الـ HTML
+// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - النسخة الماسية V4.3 💎
+// 🚀 التحديث: سد ثغرة الانهيار الحرج لدرج الإيداع وسحق التكرار المبطن لـ O(1)
 // ============================================================================
+
 import { AdminData } from '../../adminData.js';
 import { Utils } from '../../adminUtils.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
@@ -20,21 +21,18 @@ export const FinanceTemplates = {
         const localCurr = (d.currency || '').toUpperCase().replace('$', 'USD');
         const target = (targetCurr || 'USD').toUpperCase().replace('$', 'USD');
         
-        // 🌟 استخراج وتنسيق الوقت بأمان تام عبر المنسق المركزي (SSOT)
         const rawTime = d.time || d.createdAt;
         const timeHtml = RenderHelpers.formatSafeDate(rawTime);
 
-        // 🌟 جلب العميل للحصول على الرقم القصير عبر الدالة المركزية
-        const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(d.userId)) || {};
+        // 🌟 ⚡ التحديث الفائق: استدعاء العميل فورا بـ O(1) من الخريطة بدلا من التكرار المبطن البطيء
+        const userRec = AdminData.data.usersMap?.[d.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(d.userId)) || {};
         const shortId = RenderHelpers.formatUserId(userRec);
 
-        // 🌟 الفحص الذكي لمنع تكرار الآيدي إذا كان الاسم غير متوفر
         const isIdAsName = String(userName).trim() === String(shortId).trim() || String(userName).trim() === String(d.userId).trim();
         const clientIdentityHtml = isIdAsName 
             ? `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="uid-capsule copyable-admin" title="انقر لنسخ رقم العميل" data-action="copy-text" data-copy-text="${_esc(shortId)}"><i class="fa-solid fa-hashtag"></i>${_esc(shortId)}</span></div>`
             : `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="user-name-text">${_esc(userName)}</span> <span class="uid-capsule copyable-admin" title="انقر لنسخ رقم العميل" data-action="copy-text" data-copy-text="${_esc(shortId)}"><i class="fa-solid fa-hashtag"></i>${_esc(shortId)}</span></div>`;
 
-        // 🌟 المحرك البصري المالي للكرت (يعكس الأثر الفعلي على المحفظة)
         const absNetBase = Math.abs(netBase);
         const absLocal = Math.abs(localAmount);
         let sign = '';
@@ -93,7 +91,8 @@ export const FinanceTemplates = {
                     <div class="wc-meta"><i class="fa-solid fa-shield-halved"></i> إجمالي السيولة المطلوبة لتغطية أرصدة العملاء</div>
                 </div>`,
 
-    currencySettingRow: (code, displayCode, oldFeeType, oldFeeUnit, oldFee, oldMin, oldMax) => `
+    currencySettingRow: (code, displayCode, oldFeeType, oldFeeUnit, oldFee, oldMin, oldMax) => {
+        return `
         <div class="curr-setting-row" id="curr-setting-${_esc(code)}">
             <div class="curr-setting-title">إعدادات عملة ${_esc(code)} <span class="text-muted fs-11 num-en" dir="ltr">(${_esc(displayCode)})</span></div>
             
@@ -129,7 +128,8 @@ export const FinanceTemplates = {
                     <input type="text" inputmode="decimal" id="pay-max-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldMax)}" placeholder="0.00">
                 </div>
             </div>
-        </div>`,
+        </div>`;
+    },
 
     paymentItem: (p) => {
         const isActive = p.isActive !== false;
@@ -223,13 +223,11 @@ export const FinanceTemplates = {
         </div>`,
         
     depositDrawerBody: (data) => {
-        // 🌟 الفحص الذكي لمنع تكرار عرض الآيدي داخل الدرج أيضاً
         const isIdAsNameDrawer = String(data.displayUser).trim() === String(data.userDisplayId).trim() || String(data.displayUser).trim() === String(data.userId).trim();
         const drawerIdentityHtml = isIdAsNameDrawer
             ? `<span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`
             : `<span class="dr-client-name">${_esc(data.displayUser)}</span><span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`;
 
-        // 🌟 إزالة _esc عن المتغيرات المالية لمنع تحول أكواد HTML (العملة) إلى نصوص عادية
         return `
         <div class="dr-card dr-client" data-action="view-user" data-id="${_esc(data.userId)}">
             <div class="dr-client-left">
@@ -315,4 +313,4 @@ export const FinanceTemplates = {
             </div>`;
         }
     }
-}
+};

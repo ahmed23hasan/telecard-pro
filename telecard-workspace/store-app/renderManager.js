@@ -1,15 +1,12 @@
 // ============================================================================
-// 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - النسخة الماسية (Pro V5.0)
+// 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - النسخة الماسية (Pro V5.1)
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
-// 🚀 التحديث الأقصى: 
-// 1. [DOM Saver]: منع انهيار المتصفح (Crash) عند فلترة آلاف الطلبات.
-// 2. [Invisible PDF]: تصوير الإيصالات خارج الشاشة (Off-screen) لمنع التشويه البصري.
-// 3. [LRU Cache]: إدارة ذكية للذاكرة العشوائية للصور.
-// 4. [Debounce & Throttle]: كبح إعادة الرسم اللحظي لتقليل استهلاك المعالج.
-// 5. [Event Delegation]: تفويض الأحداث لحماية الذاكرة (Memory Leaks).
-// 6. [Safe Storage]: تحجيم بيانات التخزين المحلي لمنع انهيار المتصفح.
-// 7. [CORS Safe PDF]: تحويل الصور إلى Base64 قبل تصدير الإيصالات.
-// 8. [Native Share]: مشاركة الإيصالات المباشرة الذكية للهواتف.
+// 👑 متوافق بالكامل مع هوية: TeleCard
+// 🚀 التحديثات الهندسية (V5.1):
+// 1. [Error Boundaries]: حماية الحلقات التكرارية لمنع انهيار القوائم (White Screen).
+// 2. [CDN Fallbacks]: خوادم بديلة لمكتبات الـ PDF لضمان عمل الفواتير بنسبة 100%.
+// 3. [Timer Cleanup]: تدمير المؤقتات التلقائي لمنع تسرب الذاكرة (Memory Leaks).
+// 4. [Smooth Rendering]: استخدام requestAnimationFrame لرسم ناعم متوافق مع إيماءات الهواتف.
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -20,10 +17,11 @@ import { Components } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 
 // ============================================================================
-// 🛡️ المساعدات العامة للنافذة (Global Namespace) 
+// 🛡️ المساعدات العامة للنافذة وإدارة الذاكرة (Global Namespace) 
 // ============================================================================
 window.StoreRenderApp = window.StoreRenderApp || {
     imgCache: new Set(),
+    timerInterval: null, // 🛡️ [UPDATE]: متغير لحفظ معرّف المؤقت للتحكم فيه
 
     revealImg: function(img) {
         if (!img) return;
@@ -83,27 +81,31 @@ window.StoreRenderApp = window.StoreRenderApp || {
     }
 };
 
-const _pendingScripts = {};
-const _loadExternalScript = (src) => {
-    if (document.querySelector(`script[src="${src}"]`)) {
-        return _pendingScripts[src] || Promise.resolve();
+// 🛡️ [UPDATE]: دالة ذكية لتحميل المكتبات مع روابط احتياطية (CDN Fallback)
+const _loadExternalScriptWithFallback = async (srcArray) => {
+    for (let src of srcArray) {
+        if (document.querySelector(`script[src="${src}"]`)) return Promise.resolve();
+        try {
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.crossOrigin = 'anonymous'; 
+                script.onload = () => resolve();
+                script.onerror = () => reject();
+                document.head.appendChild(script);
+            });
+            return Promise.resolve(); // نجح التحميل
+        } catch (e) {
+            console.warn(`[TeleCard] Failed to load from ${src}, trying fallback...`);
+        }
     }
-    _pendingScripts[src] = new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.crossOrigin = 'anonymous'; 
-        script.onload = () => { resolve(); delete _pendingScripts[src]; };
-        script.onerror = () => { reject(); delete _pendingScripts[src]; };
-        document.head.appendChild(script);
-    });
-    return _pendingScripts[src];
+    return Promise.reject(new Error("All script sources failed to load."));
 };
 
 export const RenderManager = {
     highlightId: null,
     limits: { wallet: 15, orders: 15, payments: 15 },
     
-    // 🚀 [UPDATE]: إضافة نظام كبح إعادة الرسم اللحظي (Debouncing)
     _debounceTimers: {},
     _debounce: function(key, fn, delay = 150) {
         return (...args) => {
@@ -113,7 +115,7 @@ export const RenderManager = {
     },
     
     _getMappedColor: function(colorStr) {
-        return String(colorStr || 'badge-red').replace('theme-ruby', 'badge-red').replace('theme-sunset', 'badge-red').replace('theme-sapphire', 'badge-blue').replace('theme-ocean', 'badge-blue').replace('theme-emerald', 'badge-green').replace('theme-gold', 'badge-gold').replace('theme-amethyst', 'badge-purple').replace('theme-cyber', 'badge-purple').replace('theme-carbon', 'badge-black').replace('theme-obsidian', 'badge-black');
+        return String(colorStr || 'badge-blue').replace('theme-ruby', 'badge-red').replace('theme-sunset', 'badge-red').replace('theme-sapphire', 'badge-blue').replace('theme-ocean', 'badge-blue').replace('theme-emerald', 'badge-green').replace('theme-gold', 'badge-gold').replace('theme-amethyst', 'badge-purple').replace('theme-cyber', 'badge-purple').replace('theme-carbon', 'badge-black').replace('theme-obsidian', 'badge-black');
     },
     
     _getMappedPosition: function(posStr, defaultPos) {
@@ -251,16 +253,22 @@ export const RenderManager = {
             if (rootCats.length > 0) {
                 const fragment = document.createDocumentFragment();
                 rootCats.forEach(c => {
-                    const safeName = Utils.safeText(c.name);
-                    const imgObj = this._generateImageHTML(c.img, safeName, 'cat', true);
-                    const div = document.createElement('div');
-                    div.className = 'cat-card';
-                    div.setAttribute('data-action', 'open-category');
-                    div.setAttribute('data-id', c.id);
-                    div.innerHTML = `<div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
-                    fragment.appendChild(div);
+                    try {
+                        const safeName = Utils.safeText(c.name);
+                        const imgObj = this._generateImageHTML(c.img, safeName, 'cat', true);
+                        const div = document.createElement('div');
+                        div.className = 'cat-card';
+                        div.setAttribute('data-action', 'open-category');
+                        div.setAttribute('data-id', c.id);
+                        div.innerHTML = `<div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
+                        fragment.appendChild(div);
+                    } catch(e) { console.warn("[TeleCard] Skip bad category data", e); }
                 });
-                if (grid) grid.appendChild(fragment);
+                
+                // 🛡️ [UPDATE]: الرسم السلس لحماية الواجهة من التقطيع
+                requestAnimationFrame(() => {
+                    if (grid) grid.appendChild(fragment);
+                });
             }
             else if (!isSyncDone) {
                 if (typeof this.renderHomeSkeletons === 'function') this.renderHomeSkeletons();
@@ -273,7 +281,7 @@ export const RenderManager = {
                                 <div class="empty-state-v2">
                                     <i class="fa-solid fa-store-slash"></i>
                                     <h3>المتجر قيد التحديث</h3>
-                                    <p>نحن نقوم بإضافة أقسام ومنتجات جديدة حالياً، يرجى العودة بعد قليل.</p>
+                                    <p>نحن نقوم بإضافة أقسام ومنتجات جديدة حالياً في TeleCard، يرجى العودة بعد قليل.</p>
                                 </div>`;
                     } else if (finalCats.length > 0) {
                         this.renderHome(true);
@@ -385,7 +393,7 @@ export const RenderManager = {
             }
         } 
         else if (p.badgeText) { 
-            visualElementsHtml += `<div class="offer-badge-base prod-badge badge-${p.badgeColor || 'red'}">${Utils.safeText(p.badgeText)}</div>`;
+            visualElementsHtml += `<div class="offer-badge-base prod-badge badge-${p.badgeColor || 'blue'}">${Utils.safeText(p.badgeText)}</div>`;
         }
 
         const div = document.createElement('div'); 
@@ -408,21 +416,39 @@ export const RenderManager = {
         return div;
     },
 
+    // 🛡️ [UPDATE]: إدارة دورة حياة المؤقتات لمنع Memory Leaks
     updateStoreTimers: function() {
         const timers = document.querySelectorAll('.live-countdown');
         if (timers.length === 0) return;
         const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
         
         timers.forEach(el => {
-            const expire = Number(el.dataset.expire);
-            if (!expire) return;
-            const diff = expire - now;
-            if (diff <= 0) { el.innerText = "انتهى العرض"; return; }
-            const h = Math.floor(diff / (1000 * 60 * 60));
-            const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-            const s = Math.floor((diff % (1000 * 60)) / 1000);
-            el.innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            try {
+                const expire = Number(el.dataset.expire);
+                if (!expire) return;
+                const diff = expire - now;
+                if (diff <= 0) { el.innerText = "انتهى العرض"; return; }
+                const h = Math.floor(diff / (1000 * 60 * 60));
+                const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                const s = Math.floor((diff % (1000 * 60)) / 1000);
+                el.innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            } catch(e) {}
         });
+    },
+
+    initTimersEngine: function() {
+        if (window.StoreRenderApp.timerInterval) {
+            clearInterval(window.StoreRenderApp.timerInterval);
+        }
+        window.StoreRenderApp.timerInterval = setInterval(() => {
+            const timers = document.querySelectorAll('.live-countdown');
+            if (timers.length > 0) {
+                this.updateStoreTimers();
+            } else {
+                clearInterval(window.StoreRenderApp.timerInterval);
+                window.StoreRenderApp.timerInterval = null;
+            }
+        }, 1000);
     },
 
     renderOfferStories: function(categoryId) {
@@ -438,53 +464,55 @@ export const RenderManager = {
 
         let storiesHtml = '';
         activeOffers.forEach(offer => {
-            const v = offer.visualConfig;
-            const storyProdsArray = v.storyProducts?.length > 0 ? v.storyProducts : (offer.targetProds || []);
-            const targetedProds = (LiveStoreData.prods || []).filter(p => String(p.catId) === String(categoryId) && storyProdsArray.includes(String(p.id)));
+            try {
+                const v = offer.visualConfig;
+                const storyProdsArray = v.storyProducts?.length > 0 ? v.storyProducts : (offer.targetProds || []);
+                const targetedProds = (LiveStoreData.prods || []).filter(p => String(p.catId) === String(categoryId) && storyProdsArray.includes(String(p.id)));
 
-            targetedProds.forEach(prod => {
-                let shapeClass = ''; let shapeStyle = '';
-                const adminShape = v.storyShape || 'shape-circle';
-                if (adminShape.includes('%') || adminShape.includes('px')) { shapeStyle = `border-radius: ${adminShape} !important;`; } 
-                else { shapeClass = adminShape.startsWith('shape-') ? adminShape : `shape-${adminShape}`; }
+                targetedProds.forEach(prod => {
+                    let shapeClass = ''; let shapeStyle = '';
+                    const adminShape = v.storyShape || 'shape-circle';
+                    if (adminShape.includes('%') || adminShape.includes('px')) { shapeStyle = `border-radius: ${adminShape} !important;`; } 
+                    else { shapeClass = adminShape.startsWith('shape-') ? adminShape : `shape-${adminShape}`; }
 
-                let badgeHtml = ''; let timerHtml = ''; let bColorClass = ''; 
+                    let badgeHtml = ''; let timerHtml = ''; let bColorClass = ''; 
 
-                if (v.grid) {
-                    bColorClass = this._getMappedColor(v.grid.badgeColor);
-                    if (v.grid.badgeStyle && v.grid.badgeStyle !== 'none') {
-                        const mappedBadgePos = this._getMappedPosition(v.grid.badgePos, 'bottom-center');
-                        badgeHtml = `<div class="story-badge ${v.grid.badgeStyle} ${bColorClass} ${mappedBadgePos}">${Utils.escapeHtml(v.grid.badgeText || '')}</div>`;
+                    if (v.grid) {
+                        bColorClass = this._getMappedColor(v.grid.badgeColor);
+                        if (v.grid.badgeStyle && v.grid.badgeStyle !== 'none') {
+                            const mappedBadgePos = this._getMappedPosition(v.grid.badgePos, 'bottom-center');
+                            badgeHtml = `<div class="story-badge ${v.grid.badgeStyle} ${bColorClass} ${mappedBadgePos}">${Utils.escapeHtml(v.grid.badgeText || '')}</div>`;
+                        }
+                        if (v.grid.timerStyle && v.grid.timerStyle !== 'none') {
+                            const mappedTimerPos = this._getMappedPosition(v.grid.timerPos, 'top-center');
+                            let timerContent = '--:--:--';
+                            if (offer.expiryDate) timerContent = `<span class="live-countdown num-en" data-expire="${offer.expiryDate}">--:--:--</span>`;
+                            let tIcon = ['timer-bc-pill', 'timer-minimal'].includes(v.grid.timerStyle) ? `<i class="fa-regular fa-clock"></i> ` : (v.grid.timerStyle === 'timer-digital' ? `<i class="fa-solid fa-stopwatch"></i> ` : '');
+                            timerHtml = `<div class="${v.grid.timerStyle} ${mappedTimerPos}">${tIcon}${timerContent}</div>`;
+                        }
                     }
-                    if (v.grid.timerStyle && v.grid.timerStyle !== 'none') {
-                        const mappedTimerPos = this._getMappedPosition(v.grid.timerPos, 'top-center');
-                        let timerContent = '--:--:--';
-                        if (offer.expiryDate) timerContent = `<span class="live-countdown num-en" data-expire="${offer.expiryDate}">--:--:--</span>`;
-                        let tIcon = ['timer-bc-pill', 'timer-minimal'].includes(v.grid.timerStyle) ? `<i class="fa-regular fa-clock"></i> ` : (v.grid.timerStyle === 'timer-digital' ? `<i class="fa-solid fa-stopwatch"></i> ` : '');
-                        timerHtml = `<div class="${v.grid.timerStyle} ${mappedTimerPos}">${tIcon}${timerContent}</div>`;
-                    }
-                }
 
-                const imgObj = this._generateImageHTML(prod.img, Utils.escapeHtml(prod.name), 'story');
+                    const imgObj = this._generateImageHTML(prod.img, Utils.escapeHtml(prod.name), 'story');
 
-                storiesHtml += `
-                <div class="story-item clickable" data-action="open-product" data-id="${prod.id}">
-                    <div class="story-ring ${shapeClass} ${bColorClass}" style="${shapeStyle}">
-                        <div class="story-img-wrapper ${shapeClass} ${imgObj.wrapperClass}" style="${shapeStyle} ${imgObj.wrapperStyle}">
-                            ${imgObj.html}
+                    storiesHtml += `
+                    <div class="story-item clickable" data-action="open-product" data-id="${prod.id}">
+                        <div class="story-ring ${shapeClass} ${bColorClass}" style="${shapeStyle}">
+                            <div class="story-img-wrapper ${shapeClass} ${imgObj.wrapperClass}" style="${shapeStyle} ${imgObj.wrapperStyle}">
+                                ${imgObj.html}
+                            </div>
+                            ${badgeHtml}
+                            ${timerHtml}
                         </div>
-                        ${badgeHtml}
-                        ${timerHtml}
-                    </div>
-                    <span class="story-title">${Utils.escapeHtml(prod.name)}</span>
-                </div>`;
-            });
+                        <span class="story-title">${Utils.escapeHtml(prod.name)}</span>
+                    </div>`;
+                });
+            } catch (e) { console.warn("[TeleCard] Story render error:", e); }
         });
 
         if (storiesHtml) {
             storiesContainer.innerHTML = `<div class="stories-wrapper-scroll">${storiesHtml}</div>`;
             storiesContainer.style.display = 'block';
-            if (this.updateStoreTimers) this.updateStoreTimers(); 
+            this.initTimersEngine(); // 🛡️ [UPDATE]: تفعيل محرك المؤقتات الآمن
         } else {
             storiesContainer.style.display = 'none';
         }
@@ -539,24 +567,30 @@ export const RenderManager = {
             if(subs.length > 0) {
                 UIManager.setGridMode('grid-cats');
                 subs.forEach(c => {
-                    const safeName = Utils.safeText(c.name);
-                    const imgObj = this._generateImageHTML(c.img, safeName, 'cat');
-                    
-                    const div = document.createElement('div'); div.className = 'cat-card';
-                    div.innerHTML = `<div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
-                    div.setAttribute('data-action', 'open-category');
-                    div.setAttribute('data-id', c.id);
-                    fragment.appendChild(div);
+                    try {
+                        const safeName = Utils.safeText(c.name);
+                        const imgObj = this._generateImageHTML(c.img, safeName, 'cat');
+                        
+                        const div = document.createElement('div'); div.className = 'cat-card';
+                        div.innerHTML = `<div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
+                        div.setAttribute('data-action', 'open-category');
+                        div.setAttribute('data-id', c.id);
+                        fragment.appendChild(div);
+                    } catch(e) {}
                 });
             }
             if(items.length > 0) {
                 UIManager.setGridMode('grid-prods');
-                items.forEach((p, idx) => fragment.appendChild(this._createProductCard(p, idx)));
+                items.forEach((p, idx) => {
+                    try { fragment.appendChild(this._createProductCard(p, idx)); } catch(e){}
+                });
             }
             
-            grid.appendChild(fragment);
-            if(items.length > 0 && Components?.initProductShine) Components.initProductShine();
-            if(subs.length === 0 && items.length === 0) grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد منتجات</h3></div>`;
+            requestAnimationFrame(() => {
+                grid.appendChild(fragment);
+                if(items.length > 0 && Components?.initProductShine) Components.initProductShine();
+                if(subs.length === 0 && items.length === 0) grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد منتجات</h3></div>`;
+            });
         }
     },
 
@@ -611,21 +645,27 @@ export const RenderManager = {
         const fragment = document.createDocumentFragment();
 
         matchedCats.forEach(c => {
-            const safeName = Utils.safeText(c.name);
-            const imgObj = this._generateImageHTML(c.img, safeName, 'cat');
-            
-            const div = document.createElement('div'); div.className = 'cat-card';
-            div.innerHTML = `<div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
-            div.setAttribute('data-action', 'open-category');
-            div.setAttribute('data-id', c.id);
-            fragment.appendChild(div);
+            try {
+                const safeName = Utils.safeText(c.name);
+                const imgObj = this._generateImageHTML(c.img, safeName, 'cat');
+                
+                const div = document.createElement('div'); div.className = 'cat-card';
+                div.innerHTML = `<div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div>`;
+                div.setAttribute('data-action', 'open-category');
+                div.setAttribute('data-id', c.id);
+                fragment.appendChild(div);
+            } catch(e){}
         });
 
-        matchedProds.forEach((p, idx) => fragment.appendChild(this._createProductCard(p, idx)));
-        grid.appendChild(fragment);
-
-        UIManager.setGridMode(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
-        if(Components?.initProductShine) Components.initProductShine();
+        matchedProds.forEach((p, idx) => {
+            try { fragment.appendChild(this._createProductCard(p, idx)); } catch(e){}
+        });
+        
+        requestAnimationFrame(() => {
+            grid.appendChild(fragment);
+            UIManager.setGridMode(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
+            if(Components?.initProductShine) Components.initProductShine();
+        });
     },
 
     renderFavorites: function() {
@@ -668,19 +708,22 @@ export const RenderManager = {
         }
         
         const fragment = document.createDocumentFragment();
-        favProds.forEach((p, idx) => fragment.appendChild(this._createProductCard(p, idx)));
-        grid.appendChild(fragment);
+        favProds.forEach((p, idx) => {
+            try { fragment.appendChild(this._createProductCard(p, idx)); } catch(e){}
+        });
         
-        UIManager.setGridMode('grid-prods');
-        
-        let activeCols = null;
-        if (favProds.length > 0 && LiveStoreData.cats) {
-            const parentCat = LiveStoreData.cats.find(c => String(c.id) === String(favProds[0].catId));
-            if (parentCat && parentCat.layout) activeCols = parentCat.layout;
-        }
-        this._applyGridLayout(grid, settings, activeCols);
-        
-        if (Components?.initProductShine) Components.initProductShine();
+        requestAnimationFrame(() => {
+            grid.appendChild(fragment);
+            UIManager.setGridMode('grid-prods');
+            
+            let activeCols = null;
+            if (favProds.length > 0 && LiveStoreData.cats) {
+                const parentCat = LiveStoreData.cats.find(c => String(c.id) === String(favProds[0].catId));
+                if (parentCat && parentCat.layout) activeCols = parentCat.layout;
+            }
+            this._applyGridLayout(grid, settings, activeCols);
+            if (Components?.initProductShine) Components.initProductShine();
+        });
     },
 
     updateModalFavButton: function() {
@@ -693,7 +736,6 @@ export const RenderManager = {
         if (icon) icon.className = isFav ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
     },
 
-    // 🚀 [UPDATE]: تطبيق Debounce لحماية الواجهة من المزامنات المكثفة
     renderWallet: function(forceRender = false) {
         if (!forceRender) {
             if (!this._walletDebounced) this._walletDebounced = this._debounce('wallet', () => this.renderWallet(true), 250);
@@ -705,7 +747,7 @@ export const RenderManager = {
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
 
         const list = document.getElementById('wallet-list'); 
-        if(!list) return; list.innerHTML = '';
+        if(!list) return; 
 
         const user = DataManager.user || { id: 0, balance: 0, totalSpent: 0, totalDeposit: 0, baseCurrency: 'USD' };
         const walletCurr = (user.baseCurrency || user.base_currency || 'USD').toUpperCase();
@@ -766,119 +808,124 @@ export const RenderManager = {
         const displayLimit = (!q && !dStart && !dEnd) ? this.limits.wallet : Math.min(finalView.length, 50);
         const visibleWallet = finalView.slice(0, displayLimit);
 
-        let generatedHTML = '';
-        visibleWallet.forEach(tx => {
-            const isDep = tx.type === 'deposit';
-            let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
-            let formattedDate = RenderHelpers.formatSafeDate(tx.time || tx.createdAt);
-
-            if (isDep) {
-                if (tx.status === 'approved') {
-                    amountPrefix = tx.isDeduction ? '-' : '+';
-                    amountClass = tx.isDeduction ? 'amt-out' : 'amt-in';
-                    cardClass = tx.isDeduction ? 'out' : 'in';
-                    iconName = tx.isDeduction ? 'fa-arrow-up-long' : 'fa-arrow-down-long';
-                    iconColorClass = tx.isDeduction ? 'icon-out' : 'icon-green'; 
-                } else {
-                    amountClass = 'amt-neutral'; cardClass = 'neutral';
-                    if (tx.status === 'pending') { iconName = 'fa-clock'; iconColorClass = 'icon-gold'; } 
-                    else if (tx.status === 'rejected') { iconName = 'fa-circle-xmark'; iconColorClass = 'icon-red'; }
-                    else if (['refunded', 'returned'].includes(tx.status)) { iconName = 'fa-rotate-left'; iconColorClass = 'icon-cyan'; }
-                }
-            } else {
-                if (['rejected', 'refunded', 'returned'].includes(tx.status)) {
-                    amountClass = 'amt-neutral'; cardClass = 'neutral';
-                    iconName = ['refunded', 'returned'].includes(tx.status) ? 'fa-rotate-left' : 'fa-circle-xmark';
-                    iconColorClass = ['refunded', 'returned'].includes(tx.status) ? 'icon-cyan' : 'icon-red';
-                } else if (tx.status === 'pending') {
-                    amountPrefix = '-'; amountClass = 'amt-neutral'; cardClass = 'neutral'; iconName = 'fa-clock'; iconColorClass = 'icon-gold';
-                } else {
-                    amountPrefix = '-'; amountClass = 'amt-out'; cardClass = 'out'; iconName = 'fa-arrow-up-long'; iconColorClass = 'icon-out'; 
-                }
-            }
-            
-            const jumpType = isDep ? 'deposit' : 'purchase';
-            const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
-
-            let runningBalanceHtml = '';
-            if (!isFilterActive && tx.balanceAfter !== undefined && tx.balanceAfter !== null) {
-                runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, walletCurr)}</div>`;
-            }
-
-            const safeTxName = Utils.escapeHtml(isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء'));
-
-            generatedHTML += `
-            <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
-                <div class="th-icon ${iconColorClass}"><i class="fa-solid ${iconName}"></i></div>
-                <div class="th-body">
-                    <div class="th-details-col">
-                        <div class="th-row-top"><span class="tx-name-text">${safeTxName}</span></div>
-                        <div class="th-row-bottom"><span class="th-date num-en">${formattedDate}</span></div>
-                    </div>
-                    <div class="th-amount-col">
-                        <span class="th-order num-en is-copyable" data-action="copy-text" data-text="${shortTxId}" title="اضغط لنسخ رقم العملية"><i class="fa-regular fa-copy" style="margin-right:4px; font-size:10px; opacity:0.7;"></i> ${shortTxId}</span>
-                        <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal, tx.amountCurrency)}</div>
-                        ${runningBalanceHtml} 
-                    </div>
-                </div>
-            </div>`;
-        }); 
-
         if (visibleWallet.length === 0) {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-wallet"></i><h3>لا توجد حركات</h3></div>`; return;
         }
-        list.innerHTML = generatedHTML;
 
-        const hasMoreData = DataManager.cursors && (DataManager.cursors.orders || DataManager.cursors.deposits);
+        let generatedHTML = '';
+        visibleWallet.forEach(tx => {
+            try { // 🛡️ [UPDATE]: Error Boundary
+                const isDep = tx.type === 'deposit';
+                let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
+                let formattedDate = RenderHelpers.formatSafeDate(tx.time || tx.createdAt);
 
-        if (!q && !dStart && !dEnd && (totalWalletCount > this.limits.wallet || hasMoreData)) {
-            const loadMoreBtn = document.createElement('div');
-            loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
-            
-            loadMoreBtn.querySelector('button').onclick = async () => {
-                const btn = loadMoreBtn.querySelector('button');
-                if (totalWalletCount > this.limits.wallet) {
-                    this.limits.wallet += 15; 
-                    this.renderWallet(true); 
-                    return;
+                if (isDep) {
+                    if (tx.status === 'approved') {
+                        amountPrefix = tx.isDeduction ? '-' : '+';
+                        amountClass = tx.isDeduction ? 'amt-out' : 'amt-in';
+                        cardClass = tx.isDeduction ? 'out' : 'in';
+                        iconName = tx.isDeduction ? 'fa-arrow-up-long' : 'fa-arrow-down-long';
+                        iconColorClass = tx.isDeduction ? 'icon-out' : 'icon-green'; 
+                    } else {
+                        amountClass = 'amt-neutral'; cardClass = 'neutral';
+                        if (tx.status === 'pending') { iconName = 'fa-clock'; iconColorClass = 'icon-gold'; } 
+                        else if (tx.status === 'rejected') { iconName = 'fa-circle-xmark'; iconColorClass = 'icon-red'; }
+                        else if (['refunded', 'returned'].includes(tx.status)) { iconName = 'fa-rotate-left'; iconColorClass = 'icon-cyan'; }
+                    }
+                } else {
+                    if (['rejected', 'refunded', 'returned'].includes(tx.status)) {
+                        amountClass = 'amt-neutral'; cardClass = 'neutral';
+                        iconName = ['refunded', 'returned'].includes(tx.status) ? 'fa-rotate-left' : 'fa-circle-xmark';
+                        iconColorClass = ['refunded', 'returned'].includes(tx.status) ? 'icon-cyan' : 'icon-red';
+                    } else if (tx.status === 'pending') {
+                        amountPrefix = '-'; amountClass = 'amt-neutral'; cardClass = 'neutral'; iconName = 'fa-clock'; iconColorClass = 'icon-gold';
+                    } else {
+                        amountPrefix = '-'; amountClass = 'amt-out'; cardClass = 'out'; iconName = 'fa-arrow-up-long'; iconColorClass = 'icon-out'; 
+                    }
                 }
                 
-                if (hasMoreData) {
-                    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`;
-                    btn.disabled = true;
-                    const fetchPromises = [];
-                    if (DataManager.cursors.deposits) fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.DEPOSITS, ['userId', '==', String(uid)], 'time', DataManager.cursors.deposits, 15).then(res => ({ type: 'dep', res })));
-                    if (DataManager.cursors.orders) fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15).then(res => ({ type: 'ord', res })));
+                const jumpType = isDep ? 'deposit' : 'purchase';
+                const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
 
-                    const results = await Promise.all(fetchPromises);
-                    let addedSomething = false;
-
-                    results.forEach(result => {
-                        if (result.res.data && result.res.data.length > 0) {
-                            addedSomething = true;
-                            const normData = result.res.data.map(item => ({...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt)}));
-                            if (result.type === 'dep') {
-                                const existing = new Set(LiveStoreData.deposits.map(d => String(d.id)));
-                                LiveStoreData.deposits = [...LiveStoreData.deposits, ...normData.filter(d => !existing.has(String(d.id)))];
-                                DataManager.cursors.deposits = result.res.newLastDoc;
-                            } else {
-                                const existing = new Set(LiveStoreData.orders.map(o => String(o.id)));
-                                LiveStoreData.orders = [...LiveStoreData.orders, ...normData.filter(o => !existing.has(String(o.id)))];
-                                DataManager.cursors.orders = result.res.newLastDoc;
-                            }
-                        } else {
-                            if (result.type === 'dep') DataManager.cursors.deposits = null;
-                            if (result.type === 'ord') DataManager.cursors.orders = null;
-                        }
-                    });
-
-                    if (addedSomething) { this.limits.wallet += 15; this.renderWallet(true); } 
-                    else { btn.innerHTML = `لا توجد حركات أقدم`; setTimeout(() => loadMoreBtn.remove(), 2000); }
+                let runningBalanceHtml = '';
+                if (!isFilterActive && tx.balanceAfter !== undefined && tx.balanceAfter !== null) {
+                    runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, walletCurr)}</div>`;
                 }
-            };
-            list.appendChild(loadMoreBtn);
-        }
+
+                const safeTxName = Utils.escapeHtml(isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء'));
+
+                generatedHTML += `
+                <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
+                    <div class="th-icon ${iconColorClass}"><i class="fa-solid ${iconName}"></i></div>
+                    <div class="th-body">
+                        <div class="th-details-col">
+                            <div class="th-row-top"><span class="tx-name-text">${safeTxName}</span></div>
+                            <div class="th-row-bottom"><span class="th-date num-en">${formattedDate}</span></div>
+                        </div>
+                        <div class="th-amount-col">
+                            <span class="th-order num-en is-copyable" data-action="copy-text" data-text="${shortTxId}" title="اضغط لنسخ رقم العملية"><i class="fa-regular fa-copy" style="margin-right:4px; font-size:10px; opacity:0.7;"></i> ${shortTxId}</span>
+                            <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal, tx.amountCurrency)}</div>
+                            ${runningBalanceHtml} 
+                        </div>
+                    </div>
+                </div>`;
+            } catch (e) { console.warn("[TeleCard] Tx render error ignored", e); }
+        }); 
+
+        requestAnimationFrame(() => {
+            list.innerHTML = generatedHTML;
+
+            const hasMoreData = DataManager.cursors && (DataManager.cursors.orders || DataManager.cursors.deposits);
+
+            if (!q && !dStart && !dEnd && (totalWalletCount > this.limits.wallet || hasMoreData)) {
+                const loadMoreBtn = document.createElement('div');
+                loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
+                loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+                
+                loadMoreBtn.querySelector('button').onclick = async () => {
+                    const btn = loadMoreBtn.querySelector('button');
+                    if (totalWalletCount > this.limits.wallet) {
+                        this.limits.wallet += 15; 
+                        this.renderWallet(true); 
+                        return;
+                    }
+                    
+                    if (hasMoreData) {
+                        btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`;
+                        btn.disabled = true;
+                        const fetchPromises = [];
+                        if (DataManager.cursors.deposits) fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.DEPOSITS, ['userId', '==', String(uid)], 'time', DataManager.cursors.deposits, 15).then(res => ({ type: 'dep', res })));
+                        if (DataManager.cursors.orders) fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15).then(res => ({ type: 'ord', res })));
+
+                        const results = await Promise.all(fetchPromises);
+                        let addedSomething = false;
+
+                        results.forEach(result => {
+                            if (result.res.data && result.res.data.length > 0) {
+                                addedSomething = true;
+                                const normData = result.res.data.map(item => ({...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt)}));
+                                if (result.type === 'dep') {
+                                    const existing = new Set(LiveStoreData.deposits.map(d => String(d.id)));
+                                    LiveStoreData.deposits = [...LiveStoreData.deposits, ...normData.filter(d => !existing.has(String(d.id)))];
+                                    DataManager.cursors.deposits = result.res.newLastDoc;
+                                } else {
+                                    const existing = new Set(LiveStoreData.orders.map(o => String(o.id)));
+                                    LiveStoreData.orders = [...LiveStoreData.orders, ...normData.filter(o => !existing.has(String(o.id)))];
+                                    DataManager.cursors.orders = result.res.newLastDoc;
+                                }
+                            } else {
+                                if (result.type === 'dep') DataManager.cursors.deposits = null;
+                                if (result.type === 'ord') DataManager.cursors.orders = null;
+                            }
+                        });
+
+                        if (addedSomething) { this.limits.wallet += 15; this.renderWallet(true); } 
+                        else { btn.innerHTML = `لا توجد حركات أقدم`; setTimeout(() => loadMoreBtn.remove(), 2000); }
+                    }
+                };
+                list.appendChild(loadMoreBtn);
+            }
+        });
     },
 
     renderPayMethods: function() {
@@ -890,7 +937,7 @@ export const RenderManager = {
         const validPayments = payments.filter(p => p?.name?.trim() && p.isActive !== false && p.is_active !== false);
 
         if (validPayments.length === 0) {
-            container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-building-columns"></i><h3>لا توجد طرق دفع متاحة</h3><p>نعمل على توفير طرق دفع قريباً.</p></div>`;
+            container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-building-columns"></i><h3>لا توجد طرق دفع متاحة</h3><p>نعمل على توفير طرق دفع قريباً في TeleCard.</p></div>`;
             return;
         }
 
@@ -902,34 +949,36 @@ export const RenderManager = {
         const fragment = document.createDocumentFragment();
 
         validPayments.sort((a,b) => (a.order || 0) - (b.order || 0)).forEach(p => {
-            const safeName = Utils.escapeHtml(p.name);
-            const isLocked = pendingMethodKeys.includes(String(p.id).toLowerCase()) || pendingMethodKeys.includes(String(p.name).toLowerCase());
-            
-            const imgObj = this._generateImageHTML(p.img, safeName, 'pay');
+            try {
+                const safeName = Utils.escapeHtml(p.name);
+                const isLocked = pendingMethodKeys.includes(String(p.id).toLowerCase()) || pendingMethodKeys.includes(String(p.name).toLowerCase());
+                
+                const imgObj = this._generateImageHTML(p.img, safeName, 'pay');
 
-            const card = document.createElement('div');
-            if (isLocked) {
-                card.className = 'pay-card-select method-locked';
-                card.style.opacity = '0.65';
-                card.innerHTML = `
-                    <div class="pay-icon-wrapper ${imgObj.wrapperClass}" style="filter: grayscale(100%); ${imgObj.wrapperStyle}">${imgObj.html}</div>
-                    <div class="pay-card-content">
-                        <h3 class="pay-card-name" style="color: var(--text-muted);">${safeName}</h3>
-                        <span style="display:block; font-size:11px; color:var(--warning); margin-top:4px;"><i class="fa-solid fa-hourglass-half"></i> لديك طلب قيد المعالجة بهذه الطريقة</span>
-                    </div><i class="fa-solid fa-lock pay-card-arrow" style="color: var(--text-muted);"></i>`;
-                card.onclick = () => { if (window.UIManager && window.UIManager.showToast) window.UIManager.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة، يرجى الانتظار حتى يتم قبوله أو رفضه.', 'warning'); };
-            } else {
-                card.className = 'pay-card-select clickable';
-                card.setAttribute('data-action', 'select-pay');
-                card.setAttribute('data-id', p.id);
-                card.innerHTML = `<div class="pay-icon-wrapper ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3></div><i class="fa-solid fa-chevron-left pay-card-arrow"></i>`;
-            }
-            fragment.appendChild(card);
+                const card = document.createElement('div');
+                if (isLocked) {
+                    card.className = 'pay-card-select method-locked';
+                    card.style.opacity = '0.65';
+                    card.innerHTML = `
+                        <div class="pay-icon-wrapper ${imgObj.wrapperClass}" style="filter: grayscale(100%); ${imgObj.wrapperStyle}">${imgObj.html}</div>
+                        <div class="pay-card-content">
+                            <h3 class="pay-card-name" style="color: var(--text-muted);">${safeName}</h3>
+                            <span style="display:block; font-size:11px; color:var(--warning); margin-top:4px;"><i class="fa-solid fa-hourglass-half"></i> طلب قيد المعالجة</span>
+                        </div><i class="fa-solid fa-lock pay-card-arrow" style="color: var(--text-muted);"></i>`;
+                    card.onclick = () => { if (window.UIManager && window.UIManager.showToast) window.UIManager.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة، يرجى الانتظار.', 'warning'); };
+                } else {
+                    card.className = 'pay-card-select clickable';
+                    card.setAttribute('data-action', 'select-pay');
+                    card.setAttribute('data-id', p.id);
+                    card.innerHTML = `<div class="pay-icon-wrapper ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3></div><i class="fa-solid fa-chevron-left pay-card-arrow"></i>`;
+                }
+                fragment.appendChild(card);
+            } catch(e) {}
         });
-        container.appendChild(fragment);
+        
+        requestAnimationFrame(() => container.appendChild(fragment));
     },
 
-    // 🚀 [UPDATE]: تطبيق Debounce وحماية الواجهة
     renderPayments: function(forceRender = false) {
         if (!forceRender) {
             if (!this._payDebounced) this._payDebounced = this._debounce('pay', () => this.renderPayments(true), 250);
@@ -939,7 +988,6 @@ export const RenderManager = {
         const list = document.getElementById('mypay-list');
         if(!list) return;
         
-        // 🚀 [UPDATE]: تطبيق Event Delegation للاستماع لنقرات التصدير بشكل مركزي وحماية الذاكرة
         if (!list.hasAttribute('data-receipt-listener')) {
             list.addEventListener('click', (e) => {
                 const btn = e.target.closest('.btn-receipt-export');
@@ -947,7 +995,7 @@ export const RenderManager = {
                     e.stopPropagation();
                     const id = btn.getAttribute('data-id');
                     if (typeof ClientSystem !== 'undefined' && ClientSystem.exportPaymentReceipt) {
-                        ClientSystem.exportPaymentReceipt(id, btn); // ✅ تم الإصلاح بإضافة btn
+                        ClientSystem.exportPaymentReceipt(id, btn); 
                     }
                 }
             });
@@ -998,112 +1046,114 @@ export const RenderManager = {
         const userIdString = RenderHelpers.formatUserId(user);
 
         visibleDeposits.forEach(d => {
-            const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
-            
-            let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
-            if (['approved', 'completed'].includes(d.status)) { 
-                if (isDeduction) { stClass = 'st-rejected'; stText = 'مخصوم'; icon = 'fa-arrow-up-long'; } 
-                else { stClass = 'st-approved'; stText = 'مقبول'; icon = 'fa-check'; }
-            } else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
-            else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
+            try { // 🛡️ [UPDATE]: Error Boundary
+                const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
+                
+                let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
+                if (['approved', 'completed'].includes(d.status)) { 
+                    if (isDeduction) { stClass = 'st-rejected'; stText = 'مخصوم'; icon = 'fa-arrow-up-long'; } 
+                    else { stClass = 'st-approved'; stText = 'مقبول'; icon = 'fa-check'; }
+                } else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
+                else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
 
-            const currency = (d.currency || 'USD').toUpperCase();
-            const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
-            const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
-            const feeVal = parseFloat(d.fees || d.fee || 0); 
-            
-            let feeLabel = 'الرسوم الإضافية';
-            let feeValueHtml = '<span class="text-muted">لا يوجد</span>';
-            if (feeVal > 0) {
-                const isBonus = (d.feeType === 'bonus');
-                feeLabel = isBonus ? 'بونص إضافي' : 'العمولة';
-                const feeColor = isBonus ? 'text-success' : 'text-danger';
-                const feeSign = isBonus ? '+' : '-';
-                feeValueHtml = `<span class="${feeColor}" dir="ltr">${feeSign} ${RenderHelpers.formatMoney(feeVal, currency)}</span>`;
-            }
-            
-            const formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
-            const shortDepositId = RenderHelpers.formatDepositId(d);
-            const amountColorClass = isDeduction ? 'text-danger' : (stClass === 'st-approved' ? 'text-success' : '');
-            const amountPrefix = isDeduction ? '-' : (stClass === 'st-approved' ? '+' : '');
+                const currency = (d.currency || 'USD').toUpperCase();
+                const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
+                const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
+                const feeVal = parseFloat(d.fees || d.fee || 0); 
+                
+                let feeLabel = 'الرسوم الإضافية';
+                let feeValueHtml = '<span class="text-muted">لا يوجد</span>';
+                if (feeVal > 0) {
+                    const isBonus = (d.feeType === 'bonus');
+                    feeLabel = isBonus ? 'بونص إضافي' : 'العمولة';
+                    const feeColor = isBonus ? 'text-success' : 'text-danger';
+                    const feeSign = isBonus ? '+' : '-';
+                    feeValueHtml = `<span class="${feeColor}" dir="ltr">${feeSign} ${RenderHelpers.formatMoney(feeVal, currency)}</span>`;
+                }
+                
+                const formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
+                const shortDepositId = RenderHelpers.formatDepositId(d);
+                const amountColorClass = isDeduction ? 'text-danger' : (stClass === 'st-approved' ? 'text-success' : '');
+                const amountPrefix = isDeduction ? '-' : (stClass === 'st-approved' ? '+' : '');
 
-            // 🚀 [UPDATE]: تنظيف الزر من الـ onClick المدمج واستخدام الـ data-attributes للتفويض
-            htmlBuffer += `
-                <div class="pay-history-card ${stClass}">
-                    <div class="ph-header" data-action="toggle-accordion">
-                        <div class="ph-right-sec">
-                            <div class="ph-icon-box"><i class="fa-solid ${icon} ph-icon"></i></div>
-                            <div class="ph-info-text">
-                                <span class="ph-method-name">${Utils.escapeHtml(d.method || 'شحن رصيد')}</span>
-                                <span class="ph-date-mini num-en">${formattedDate.replace('|', '<span class="date-sep">|</span>')}</span>
-                            </div>
-                        </div>
-                        <div class="ph-center-zone">
-                            <span class="ph-amount-header num-en ${amountColorClass}">${amountPrefix} ${RenderHelpers.formatMoney(rawAmount, currency)}</span>
-                            <span class="ph-status-mini">${stText}</span>
-                        </div>
-                        <div class="ph-left-sec"><div class="ph-arrow-btn"><i class="fa-solid fa-chevron-down"></i></div></div>
-                    </div>
-                    <div class="ph-details-body">
-                        <div class="ph-sep-line"></div>
-                        <div class="ph-data-list">
-                            <div class="ph-item">
-                                <div class="ph-item-label"><i class="fa-solid fa-hashtag"></i> رقم العملية</div>
-                                <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${shortDepositId}">${shortDepositId}</div>
-                            </div>
-                            <div class="ph-item">
-                                <div class="ph-item-label"><i class="fa-solid fa-user"></i> اسم المرسل</div>
-                                <div class="ph-item-val">${userDisplayName}</div>
-                            </div>
-                            <div class="ph-item">
-                                <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرّف العميل</div>
-                                <div class="uid-capsule is-copyable" data-action="copy-text" data-text="${userIdString}"><span class="num-en">${userIdString}</span></div>
-                            </div>
-                            <div class="ph-item">
-                                <div class="ph-item-label"><i class="fa-solid fa-tags"></i> ${feeLabel}</div>
-                                <div class="ph-item-val num-en">${feeValueHtml}</div>
-                            </div>
-                            <div class="ph-item item-highlight">
-                                <div class="ph-item-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</div>
-                                <div class="ph-item-val num-en ${amountColorClass}">${RenderHelpers.formatMoney(displayNetAmount, (d.targetCurrency || baseCurrency).toUpperCase())}</div>
-                            </div>
-                            <div class="ph-item">
-                                <div class="ph-item-label"><i class="fa-solid fa-clock"></i> التاريخ والوقت</div>
-                                <div class="ph-item-val num-en">${formattedDate}</div>
-                            </div>
-                        </div>
-                        ${d.adminNote ? `
-                            <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'}">
-                                <i class="fa-solid fa-headset"></i>
-                                <div class="ph-admin-note-content">
-                                    <span class="ph-admin-note-title">رسالة الإدارة:</span>
-                                    <div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div>
+                htmlBuffer += `
+                    <div class="pay-history-card ${stClass}">
+                        <div class="ph-header" data-action="toggle-accordion">
+                            <div class="ph-right-sec">
+                                <div class="ph-icon-box"><i class="fa-solid ${icon} ph-icon"></i></div>
+                                <div class="ph-info-text">
+                                    <span class="ph-method-name">${Utils.escapeHtml(d.method || 'شحن رصيد')}</span>
+                                    <span class="ph-date-mini num-en">${formattedDate.replace('|', '<span class="date-sep">|</span>')}</span>
                                 </div>
-                            </div>` : ''}
-                        <div class="ph-footer-action">
-                            <button class="btn-receipt-export" data-action="export-receipt" data-id="${d.id}">
-                                <i class="fa-solid fa-file-export"></i> تصدير الإيصال
-                            </button>
+                            </div>
+                            <div class="ph-center-zone">
+                                <span class="ph-amount-header num-en ${amountColorClass}">${amountPrefix} ${RenderHelpers.formatMoney(rawAmount, currency)}</span>
+                                <span class="ph-status-mini">${stText}</span>
+                            </div>
+                            <div class="ph-left-sec"><div class="ph-arrow-btn"><i class="fa-solid fa-chevron-down"></i></div></div>
                         </div>
-                    </div>
-                </div>`;
+                        <div class="ph-details-body">
+                            <div class="ph-sep-line"></div>
+                            <div class="ph-data-list">
+                                <div class="ph-item">
+                                    <div class="ph-item-label"><i class="fa-solid fa-hashtag"></i> رقم العملية</div>
+                                    <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${shortDepositId}">${shortDepositId}</div>
+                                </div>
+                                <div class="ph-item">
+                                    <div class="ph-item-label"><i class="fa-solid fa-user"></i> اسم المرسل</div>
+                                    <div class="ph-item-val">${userDisplayName}</div>
+                                </div>
+                                <div class="ph-item">
+                                    <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرّف العميل</div>
+                                    <div class="uid-capsule is-copyable" data-action="copy-text" data-text="${userIdString}"><span class="num-en">${userIdString}</span></div>
+                                </div>
+                                <div class="ph-item">
+                                    <div class="ph-item-label"><i class="fa-solid fa-tags"></i> ${feeLabel}</div>
+                                    <div class="ph-item-val num-en">${feeValueHtml}</div>
+                                </div>
+                                <div class="ph-item item-highlight">
+                                    <div class="ph-item-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</div>
+                                    <div class="ph-item-val num-en ${amountColorClass}">${RenderHelpers.formatMoney(displayNetAmount, (d.targetCurrency || baseCurrency).toUpperCase())}</div>
+                                </div>
+                                <div class="ph-item">
+                                    <div class="ph-item-label"><i class="fa-solid fa-clock"></i> التاريخ والوقت</div>
+                                    <div class="ph-item-val num-en">${formattedDate}</div>
+                                </div>
+                            </div>
+                            ${d.adminNote ? `
+                                <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'}">
+                                    <i class="fa-solid fa-headset"></i>
+                                    <div class="ph-admin-note-content">
+                                        <span class="ph-admin-note-title">رسالة الإدارة:</span>
+                                        <div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div>
+                                    </div>
+                                </div>` : ''}
+                            <div class="ph-footer-action">
+                                <button class="btn-receipt-export" data-action="export-receipt" data-id="${d.id}">
+                                    <i class="fa-solid fa-file-export"></i> تصدير الإيصال
+                                </button>
+                            </div>
+                        </div>
+                    </div>`;
+            } catch(e) { console.warn("[TeleCard] Skip invalid payment rendering", e); }
         });
 
-        list.innerHTML = htmlBuffer;
+        requestAnimationFrame(() => {
+            list.innerHTML = htmlBuffer;
 
-        if (!q && !dStart && !dEnd && (totalPaymentsCount > this.limits.payments || (DataManager.cursors && DataManager.cursors.deposits))) {
-            const loadMoreContainer = document.createElement('div');
-            loadMoreContainer.className = 'text-center mt-15 mb-15';
-            loadMoreContainer.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
-            loadMoreContainer.onclick = () => {
-                this.limits.payments += 15;
-                this.renderPayments(true);
-            };
-            list.appendChild(loadMoreContainer);
-        }
+            if (!q && !dStart && !dEnd && (totalPaymentsCount > this.limits.payments || (DataManager.cursors && DataManager.cursors.deposits))) {
+                const loadMoreContainer = document.createElement('div');
+                loadMoreContainer.className = 'text-center mt-15 mb-15';
+                loadMoreContainer.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+                loadMoreContainer.onclick = () => {
+                    this.limits.payments += 15;
+                    this.renderPayments(true);
+                };
+                list.appendChild(loadMoreContainer);
+            }
+        });
     },
 
-    // 🚀 [UPDATE]: تطبيق Debounce
     renderOrders: function(forceRender = false) {
         if (!forceRender) {
             if (!this._ordersDebounced) this._ordersDebounced = this._debounce('orders', () => this.renderOrders(true), 250);
@@ -1117,7 +1167,7 @@ export const RenderManager = {
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
         
         const list = document.getElementById('orders-list'); 
-        if (!list) return; list.innerHTML = '';
+        if (!list) return; 
         
         const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? String(DataManager.user.id) : null);
         if (!uid || uid === '0' || uid === 'undefined') {
@@ -1140,6 +1190,9 @@ export const RenderManager = {
 
         if (visibleOrders.length === 0) { list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد طلبات</h3></div>`; return; }
       
+        list.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+        
         const getCleanInputRows = (str) => {
             if (!str || str === '---' || typeof str === 'object') return [];
             const rawStr = String(str);
@@ -1148,82 +1201,83 @@ export const RenderManager = {
             return [rawStr.trim()];
         };
         
-        const fragment = document.createDocumentFragment();
-        
         visibleOrders.forEach((o, idx) => {
-            const status = o.status || 'pending'; 
-            const statusClass = status === 'completed' ? 'completed' : (status === 'rejected' ? 'rejected' : (['returned', 'refunded'].includes(status) ? 'returned' : (status === 'processing' ? 'processing' : 'pending')));
-            const productName = Utils.escapeHtml(o.product || (LiveStoreData.prods || []).find(p => String(p.id) === String(o.prodId))?.name || 'منتج');
-            
-            const displayCurr = (o.priceCurrency || 'USD').toUpperCase();
-            const qty = parseFloat(o.qty) || 1; 
-            const qtyHtml = qty > 1 ? `<span class="oh-qty-badge num-en">x${qty}</span>` : '';
-            const inputRows = getCleanInputRows(o.input);
-            
-            let statusLabel = '<i class="fa-regular fa-clock"></i> قيد التنفيذ';
-            if (status === 'completed') statusLabel = '<i class="fa-solid fa-circle-check"></i> مكتمل';
-            else if (status === 'processing') statusLabel = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ';
-            else if (status === 'rejected') statusLabel = '<i class="fa-solid fa-circle-xmark"></i> مرفوض';
-            else if (['returned', 'refunded'].includes(status)) statusLabel = '<i class="fa-solid fa-rotate-left"></i> مسترجع';
-            
-            const totalDiscLocal = Number(o.couponDiscount || 0) + Number(o.saleDiscount || 0);
-            let discountBadgeHtml = '';
-            if (totalDiscLocal > 0) {
-                const isCombo = (Number(o.couponDiscount || 0) > 0 && Number(o.saleDiscount || 0) > 0);
-                const isCoupon = Number(o.couponDiscount || 0) > 0;
-                discountBadgeHtml = `<div class="oh-discount-badge ${isCombo ? 'badge-combo' : (isCoupon ? 'badge-coupon' : 'badge-sale')}"><i class="fa-solid ${isCombo ? 'fa-gift' : (isCoupon ? 'fa-ticket' : 'fa-tag')}"></i> <span>${isCombo ? 'توفير مضاعف' : (isCoupon ? 'كوبون' : 'تخفيض')}</span><span class="num-en">(-${RenderHelpers.formatMoney(totalDiscLocal, displayCurr)})</span></div>`;
-            }
+            try { // 🛡️ [UPDATE]: Error Boundary
+                const status = o.status || 'pending'; 
+                const statusClass = status === 'completed' ? 'completed' : (status === 'rejected' ? 'rejected' : (['returned', 'refunded'].includes(status) ? 'returned' : (status === 'processing' ? 'processing' : 'pending')));
+                const productName = Utils.escapeHtml(o.product || (LiveStoreData.prods || []).find(p => String(p.id) === String(o.prodId))?.name || 'منتج');
+                
+                const displayCurr = (o.priceCurrency || 'USD').toUpperCase();
+                const qty = parseFloat(o.qty) || 1; 
+                const qtyHtml = qty > 1 ? `<span class="oh-qty-badge num-en">x${qty}</span>` : '';
+                const inputRows = getCleanInputRows(o.input);
+                
+                let statusLabel = '<i class="fa-regular fa-clock"></i> قيد التنفيذ';
+                if (status === 'completed') statusLabel = '<i class="fa-solid fa-circle-check"></i> مكتمل';
+                else if (status === 'processing') statusLabel = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ';
+                else if (status === 'rejected') statusLabel = '<i class="fa-solid fa-circle-xmark"></i> مرفوض';
+                else if (['returned', 'refunded'].includes(status)) statusLabel = '<i class="fa-solid fa-rotate-left"></i> مسترجع';
+                
+                const totalDiscLocal = Number(o.couponDiscount || 0) + Number(o.saleDiscount || 0);
+                let discountBadgeHtml = '';
+                if (totalDiscLocal > 0) {
+                    const isCombo = (Number(o.couponDiscount || 0) > 0 && Number(o.saleDiscount || 0) > 0);
+                    const isCoupon = Number(o.couponDiscount || 0) > 0;
+                    discountBadgeHtml = `<div class="oh-discount-badge ${isCombo ? 'badge-combo' : (isCoupon ? 'badge-coupon' : 'badge-sale')}"><i class="fa-solid ${isCombo ? 'fa-gift' : (isCoupon ? 'fa-ticket' : 'fa-tag')}"></i> <span>${isCombo ? 'توفير مضاعف' : (isCoupon ? 'كوبون' : 'تخفيض')}</span><span class="num-en">(-${RenderHelpers.formatMoney(totalDiscLocal, displayCurr)})</span></div>`;
+                }
 
-            const cardElement = document.createElement('div');
-            cardElement.className = `oh-card ${(this.highlightId && String(o.id) === String(this.highlightId)) ? 'jump-highlight' : ''}`.trim();
-            cardElement.style.setProperty('--anim-idx', idx);
-            cardElement.setAttribute('data-action', 'open-detail');
-            cardElement.setAttribute('data-type', 'order');
-            cardElement.setAttribute('data-id', o.id);
+                const cardElement = document.createElement('div');
+                cardElement.className = `oh-card ${(this.highlightId && String(o.id) === String(this.highlightId)) ? 'jump-highlight' : ''}`.trim();
+                cardElement.style.setProperty('--anim-idx', idx);
+                cardElement.setAttribute('data-action', 'open-detail');
+                cardElement.setAttribute('data-type', 'order');
+                cardElement.setAttribute('data-id', o.id);
 
-            cardElement.innerHTML = `
-                <div class="oh-right">
-                    ${discountBadgeHtml} 
-                    <div class="oh-title">${productName}</div> 
-                    <div class="oh-inputs-stack">${inputRows.map(row => `<div class="oh-input-line num-en">${Utils.escapeHtml(row)}</div>`).join('')}</div>
-                    <div class="oh-date-time num-en">${RenderHelpers.formatSafeDate(o.time || o.createdAt)}</div>
-                </div>
-                <div class="oh-left">
-                    <div class="oh-status-box"><span class="oh-status ${statusClass}">${statusLabel}</span></div>
-                    <div class="oh-price-box" dir="ltr"><div class="oh-amount">${RenderHelpers.formatMoney(Number(o.price || 0), displayCurr)}</div>${qtyHtml}</div>
-                    <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${RenderHelpers.formatOrderId(o)}</span></div>
-                </div>`;
-            fragment.appendChild(cardElement);
+                cardElement.innerHTML = `
+                    <div class="oh-right">
+                        ${discountBadgeHtml} 
+                        <div class="oh-title">${productName}</div> 
+                        <div class="oh-inputs-stack">${inputRows.map(row => `<div class="oh-input-line num-en">${Utils.escapeHtml(row)}</div>`).join('')}</div>
+                        <div class="oh-date-time num-en">${RenderHelpers.formatSafeDate(o.time || o.createdAt)}</div>
+                    </div>
+                    <div class="oh-left">
+                        <div class="oh-status-box"><span class="oh-status ${statusClass}">${statusLabel}</span></div>
+                        <div class="oh-price-box" dir="ltr"><div class="oh-amount">${RenderHelpers.formatMoney(Number(o.price || 0), displayCurr)}</div>${qtyHtml}</div>
+                        <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${RenderHelpers.formatOrderId(o)}</span></div>
+                    </div>`;
+                fragment.appendChild(cardElement);
+            } catch (e) { console.warn("[TeleCard] Skip corrupted order UI", e); }
         }); 
         
-        const hasMoreServerOrders = DataManager.cursors && DataManager.cursors.orders;
-        if (!q && !dStart && !dEnd && (totalOrdersCount > this.limits.orders || hasMoreServerOrders)) {
-            const loadMoreBtn = document.createElement('div');
-            loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
-            loadMoreBtn.querySelector('button').onclick = async () => {
-                const btn = loadMoreBtn.querySelector('button');
-                if (totalOrdersCount > this.limits.orders) { this.limits.orders += 15; this.renderOrders(true); return; }
-                if (hasMoreServerOrders) {
-                    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`; btn.disabled = true;
-                    const res = await StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15);
-                    if (res.data && res.data.length > 0) {
-                        const newOrders = res.data.map(item => ({ ...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt) }));
-                        const existingOrdIds = new Set(LiveStoreData.orders.map(o => String(o.id)));
-                        LiveStoreData.orders = [...LiveStoreData.orders, ...newOrders.filter(o => !existingOrdIds.has(String(o.id)))];
-                        DataManager.cursors.orders = res.newLastDoc; 
-                        this.limits.orders += 15; this.renderOrders(true);
-                    } else {
-                        DataManager.cursors.orders = null; btn.innerHTML = `لا توجد طلبات أقدم`; setTimeout(() => loadMoreBtn.remove(), 2000);
+        requestAnimationFrame(() => {
+            const hasMoreServerOrders = DataManager.cursors && DataManager.cursors.orders;
+            if (!q && !dStart && !dEnd && (totalOrdersCount > this.limits.orders || hasMoreServerOrders)) {
+                const loadMoreBtn = document.createElement('div');
+                loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
+                loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+                loadMoreBtn.querySelector('button').onclick = async () => {
+                    const btn = loadMoreBtn.querySelector('button');
+                    if (totalOrdersCount > this.limits.orders) { this.limits.orders += 15; this.renderOrders(true); return; }
+                    if (hasMoreServerOrders) {
+                        btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`; btn.disabled = true;
+                        const res = await StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15);
+                        if (res.data && res.data.length > 0) {
+                            const newOrders = res.data.map(item => ({ ...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt) }));
+                            const existingOrdIds = new Set(LiveStoreData.orders.map(o => String(o.id)));
+                            LiveStoreData.orders = [...LiveStoreData.orders, ...newOrders.filter(o => !existingOrdIds.has(String(o.id)))];
+                            DataManager.cursors.orders = res.newLastDoc; 
+                            this.limits.orders += 15; this.renderOrders(true);
+                        } else {
+                            DataManager.cursors.orders = null; btn.innerHTML = `لا توجد طلبات أقدم`; setTimeout(() => loadMoreBtn.remove(), 2000);
+                        }
                     }
-                }
-            };
-            fragment.appendChild(loadMoreBtn);
-        }
-        list.appendChild(fragment);
+                };
+                fragment.appendChild(loadMoreBtn);
+            }
+            list.appendChild(fragment);
+        });
     },
     
-    // 🚀 [UPDATE]: مساعد استخراج الصور إلى Base64 لحل مشكلة CORS مع الـ PDF بصمت وأمان
     _getBase64Image: function(imgUrl) {
         return new Promise((resolve) => {
             const img = new Image();
@@ -1235,12 +1289,13 @@ export const RenderManager = {
                 ctx.drawImage(img, 0, 0);
                 resolve(canvas.toDataURL('image/png'));
             };
-            img.onerror = () => resolve(null); // Fallback if CORS fails completely
+            img.onerror = () => resolve(null); 
             img.src = imgUrl;
         });
     },
-// =========================================================
-    // 🖨️ محرك تصدير الإيصالات الذكي (Direct Action - Zero Popups) 🚀
+
+    // =========================================================
+    // 🖨️ محرك تصدير الإيصالات الذكي مع حماية الخوادم
     // =========================================================
     
     _getSys: function() {
@@ -1258,7 +1313,7 @@ export const RenderManager = {
         printContainer.style.top = '-9999px';
 
         const settings = LiveStoreData.settings || {};
-        const storeName = settings.storeName || 'المتجر';
+        const storeName = settings.storeName || 'TeleCard'; // 🛡️ [UPDATE]: الهوية المعتمدة
         const storeLogoForPDF = settings.storeLogoLight || settings.storeLogo || '';
         
         let nameColor = (settings.nameColorType === 'solid' && settings.nameColor1) ? settings.nameColor1 : '#111827'; 
@@ -1314,8 +1369,21 @@ export const RenderManager = {
         printContainer.appendChild(wrapper); document.body.appendChild(printContainer);
 
         try {
-            if (!window.html2canvas) await _loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
-            if (!window.jspdf) await _loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+            // 🛡️ [UPDATE]: استخدام محمل الخوادم البديلة لضمان التصدير
+            if (!window.html2canvas) {
+                await _loadExternalScriptWithFallback([
+                    'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+                    'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+                    'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js'
+                ]);
+            }
+            if (!window.jspdf) {
+                await _loadExternalScriptWithFallback([
+                    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+                    'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js',
+                    'https://unpkg.com/jspdf@latest/dist/jspdf.umd.min.js'
+                ]);
+            }
 
             const receiptContent = printContainer.querySelector('.receipt-diamond');
             const canvas = await window.html2canvas(receiptContent, { scale: 2, useCORS: true, allowTaint: true });
@@ -1324,20 +1392,17 @@ export const RenderManager = {
             pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 210, (canvas.height * 210) / canvas.width);
             const pdfBlob = pdf.output('blob');
 
-            // 🚀 الحل الاحترافي والمباشر (بدون نوافذ منبثقة أو Lightbox)
             const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 
             if (navigator.share && isMobile) {
-                // 1. للموبايل: نفتح نافذة المشاركة الأصلية مباشرة!
                 const file = new File([pdfBlob], config.filename, { type: 'application/pdf' });
                 try {
-                    await navigator.share({ title: 'إيصال العملية', files: [file] });
+                    await navigator.share({ title: 'إيصال العملية - TeleCard', files: [file] });
                     return true;
                 } catch (e) {
-                    return true; // العميل ألغى المشاركة بنفسه
+                    return true; 
                 }
             } else {
-                // 2. للكمبيوتر: تنزيل صامت ومباشر (لتفادي حجب النوافذ)
                 const pdfUrl = URL.createObjectURL(pdfBlob);
                 const link = document.createElement('a');
                 link.href = pdfUrl;
@@ -1348,7 +1413,7 @@ export const RenderManager = {
             }
             
         } catch(err) { 
-            console.error('Receipt Error:', err); 
+            console.error('[TeleCard] Receipt Error:', err); 
             return false; 
         } finally { 
             printContainer.remove(); 
@@ -1368,7 +1433,6 @@ export const RenderManager = {
             btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`;
         }
 
-        // 🚀 توليد مباشر بلا نوافذ
         const success = await this.generatePDFReceipt({
             type: 'order', filename: `Order_${RenderHelpers.formatOrderId(o)}.pdf`,
             data: { id: o.id, displayId: RenderHelpers.formatOrderId(o), userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : 'العميل', userDisplayId: RenderHelpers.formatUserId(DataManager.user), status: o.status, product: o.product, price: o.price, priceCurrency: o.priceCurrency, qty: o.qty || 1, input: o.input || '---', dateTime: RenderHelpers.formatSafeDate(o.time), code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null }
@@ -1400,7 +1464,6 @@ export const RenderManager = {
             btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`;
         }
 
-        // 🚀 توليد مباشر بلا نوافذ
         const success = await this.generatePDFReceipt({
             type: 'deposit', filename: `Deposit_${RenderHelpers.formatDepositId(d)}.pdf`,
             data: { id: d.id, displayId: RenderHelpers.formatDepositId(d), userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'), userDisplayId: RenderHelpers.formatUserId(DataManager.user), method: d.method || '---', amount: d.amount, currency: d.currency, feePercent: d.feesPercent || 0, feeVal: d.fees || 0, netVal: d.creditedAmount || d.amount, targetCurrency: d.targetCurrency || 'USD', dateTime: RenderHelpers.formatSafeDate(d.time) }
@@ -1419,7 +1482,6 @@ export const RenderManager = {
         }
     },
     
-    // 🌟 رسم الإشعارات
     renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;
@@ -1446,7 +1508,6 @@ export const RenderManager = {
                 localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
             }
         } catch (e) {
-            console.warn("Corrupted read list in storage, resetting...");
             localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, "[]");
         }
         
@@ -1468,26 +1529,28 @@ export const RenderManager = {
                 </div>` : '';
         
         html += visibleAlerts.map(alert => {
-            const isRead = readIds.includes(String(alert.id)) || alert.isRead;
-            const iconClass = (alert.jumpTarget === 'order') ? 'fa-box-open' : (alert.icon || 'fa-bullhorn');
-            
-            return `
-                <div class="nc-item ${isRead ? 'is-read' : 'unread'}" 
-                     data-action="mark-single-read" 
-                     data-id="${alert.id}">
-                    <div class="nc-icon"><i class="fa-solid ${iconClass}"></i></div>
-                    <div class="nc-content">
-                        <div class="nc-header">
-                            <h4 class="nc-title">${Utils.escapeHtml(alert.title || 'إشعار جديد')}</h4>
-                            <span class="nc-time">${RenderHelpers.formatSafeDate(alert.createdAt || alert.time).split(' | ')[0]}</span>
+            try {
+                const isRead = readIds.includes(String(alert.id)) || alert.isRead;
+                const iconClass = (alert.jumpTarget === 'order') ? 'fa-box-open' : (alert.icon || 'fa-bullhorn');
+                
+                return `
+                    <div class="nc-item ${isRead ? 'is-read' : 'unread'}" 
+                         data-action="mark-single-read" 
+                         data-id="${alert.id}">
+                        <div class="nc-icon"><i class="fa-solid ${iconClass}"></i></div>
+                        <div class="nc-content">
+                            <div class="nc-header">
+                                <h4 class="nc-title">${Utils.escapeHtml(alert.title || 'إشعار جديد')}</h4>
+                                <span class="nc-time">${RenderHelpers.formatSafeDate(alert.createdAt || alert.time).split(' | ')[0]}</span>
+                            </div>
+                            <p class="nc-msg">${Utils.escapeHtml(alert.message || '')}</p>
                         </div>
-                        <p class="nc-msg">${Utils.escapeHtml(alert.message || '')}</p>
-                    </div>
-                    ${!isRead ? '<div class="unread-indicator-dot"></div>' : ''}
-                </div>`;
+                        ${!isRead ? '<div class="unread-indicator-dot"></div>' : ''}
+                    </div>`;
+            } catch(e) { return ''; }
         }).join('');
         
-        container.innerHTML = html;
+        requestAnimationFrame(() => container.innerHTML = html);
     },    
 
     renderCountryList: function(countries) {
@@ -1510,11 +1573,12 @@ export const RenderManager = {
         }
         
         if (!Array.isArray(termsList) || termsList.length === 0) {
-            container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-contract"></i><h3>لا توجد سياسة حالياً</h3></div>`;
+            container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-contract"></i><h3>لا توجد سياسة حالياً في TeleCard</h3></div>`;
             return;
         }
         
         container.innerHTML = `<div class="terms-unified-card">${termsList.map((term, index) => {
+            try {
                 let iconName = term.icon || 'file-signature';
                 if (!iconName.startsWith('fa-')) iconName = 'fa-' + iconName;
                 const fullIconClass = `fa-solid ${iconName}`;
@@ -1529,6 +1593,7 @@ export const RenderManager = {
                             <p class="tir-text">${Utils.escapeHtml(term.text || '')}</p>
                         </div>
                     </div>`;
-            }).join('')}</div>`;
+            } catch(e) { return ''; }
+        }).join('')}</div>`;
     }
 };

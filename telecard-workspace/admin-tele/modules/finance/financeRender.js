@@ -1,7 +1,7 @@
 // ============================================================================
-// 💰 محرك رسم المالية (modules/finance/financeRender.js)
+// 💰 محرك رسم المالية (modules/finance/financeRender.js) - النسخة الماسية V4.3 💎
 // 🎯 الوظيفة: رسم الإيداعات، بوابات الدفع، المحافظ، والعملات، وتصديرها
-// 🚀 التحديث: تأمين الفلترة والفرز وتصدير الإكسل باستخدام المترجم الزمني المركزي ومحرك المعرفات
+// 🚀 التحديث: القضاء على تداخل المصفوفات والتحول الشامل للبحث السريع بـ O(1)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -56,16 +56,15 @@ export const FinanceRender = {
                 let mS = true, mD = true;
                 if(f.search) {
                     const s = String(f.search).toLowerCase();
-                    // 🌟 التحديث الذكي: جلب العميل لمطابقة البحث مع الرقم القصير (displayId)
-                    const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
+                    // ⚡ جلب العميل فورا بـ O(1) لمطابقة البحث مع الرقم القصير
+                    const userRec = AdminData.data.usersMap?.[d.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
                     const dId = userRec && userRec.displayId ? String(userRec.displayId).toLowerCase() : '';
                     
                     mS = String(d.id).toLowerCase().includes(s) || 
                          String(d.userName).toLowerCase().includes(s) ||
-                         dId.includes(s); // 👈 البحث بالرقم القصير
+                         dId.includes(s); 
                 }
                 
-                // 🌟 استخدام المترجم الزمني المركزي لحماية المقارنة
                 const itemTime = RenderHelpers.parseTime(d.time || d.createdAt);
                 if(startD && itemTime < startD) mD = false;
                 if(endD && itemTime > endD) mD = false;
@@ -89,9 +88,8 @@ export const FinanceRender = {
         data.sort((a, b) => {
             const isA_Pending = (a.status === 'pending') ? 1 : 0;
             const isB_Pending = (b.status === 'pending') ? 1 : 0;
-            if (isA_Pending !== isB_Pending) return isB_Pending - isA_Pending; 
+            if (isA_Pending !== isB_Pending) return_isB_Pending - isA_Pending; 
             
-            // 🌟 استخدام المترجم الزمني لضمان فرز دقيق وخالٍ من الأخطاء
             const timeA = RenderHelpers.parseTime(a.time || a.createdAt);
             const timeB = RenderHelpers.parseTime(b.time || b.createdAt);
             return timeB - timeA;
@@ -106,7 +104,8 @@ export const FinanceRender = {
         const paginatedDeposits = isAppend ? data.slice(this.depositsLimit - 50, this.depositsLimit) : data.slice(0, this.depositsLimit);
 
         let newHtml = paginatedDeposits.map(d => {
-            const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
+            // ⚡ جلب العميل فورا بـ O(1) بدلا من البحث الخطي البطيء
+            const userRec = AdminData.data.usersMap?.[d.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
             const userName = userRec ? RenderHelpers._getTxName(userRec) : (d.userName || 'مستخدم جديد');
             const bankName = d.method || d.methodName || 'إيداع';
             
@@ -114,7 +113,6 @@ export const FinanceRender = {
             const targetCurr = (d.targetCurrency || payCurr).toUpperCase();
             const target = Utils.escapeHTML(targetCurr);
             
-            // 🌟 الإصلاح الحسابي: دعم النسبة المئوية والمبلغ الثابت بشكل ديناميكي
             const feeVal = Number(d.feePct ?? d.fee ?? 0);
             const feeType = d.feeType || 'fee';
             const feeUnit = d.feeUnit || d.unit || d.calcMethod || 'percent';
@@ -152,11 +150,12 @@ export const FinanceRender = {
         const container = document.getElementById('wallets-overview-grid');
         if(!container) return;
         const liquidityData = AdminData.getWalletsLiquidity();
-        const rates = normalizeRates(AdminData.data.rates);
         const htmlArray = [];
+        
         Object.keys(liquidityData.details).forEach(cc => {
             const d = liquidityData.details[cc];
-            const rateInfo = rates.find(r => r.code === cc);
+            // ⚡ جلب سعر صرف العملة بـ O(1) من الخريطة بدلا من find
+            const rateInfo = AdminData.data.ratesMap?.[cc] || AdminData.data.rates.find(r => r.code === cc);
             if (rateInfo || d.count > 0) htmlArray.push(AdminTemplates.walletCard(cc, d, rateInfo));
         });
         htmlArray.push(AdminTemplates.walletTotal(liquidityData.totalUsd));
@@ -200,18 +199,14 @@ export const FinanceRender = {
             return; 
         }
         
-        // 🌟 التحديث: إضافة عمود "المعرف القصير" ليكون التقرير احترافياً
         let csvContent = "\uFEFFرقم الإيداع,التاريخ,اسم العميل,المعرف القصير,البنك/الطريقة,المبلغ,العملة,الحالة\n";
         
         dataToExport.forEach(d => {
-            // 🌟 استخدام المنسق الزمني المركزي للتقرير
             const dateStr = RenderHelpers.formatSafeDate(d.time || d.createdAt);
-            
-            // دالة التنظيف للحماية من ثغرات الإكسل وتنظيف الفواصل
             const sanitizeCSV = (str) => { let c = String(str).replace(/,/g, " "); if (/^[=@+-]/.test(c)) c = "'" + c; return c; };
 
-            // 🌟 التحديث: جلب بيانات العميل واستخراج الرقم القصير باستخدام المحرك المركزي
-            const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
+            // ⚡ جلب العميل فورا بـ O(1) من الخريطة
+            const userRec = AdminData.data.usersMap?.[d.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
             const displayId = RenderHelpers.formatUserId(userRec);
             const customerName = sanitizeCSV(userRec ? (userRec.name || d.userName) : (d.userName || d.userId));
 
@@ -220,7 +215,6 @@ export const FinanceRender = {
             const curr = sanitizeCSV((d.currency || 'USD').toUpperCase());
             const status = d.status === 'approved' ? 'مقبول' : (d.status === 'rejected' ? 'مرفوض' : (d.status === 'refunded' ? 'مسترجع' : d.status));
             
-            // 🌟 التحديث: تنسيق رقم الإيداع
             const formattedDepositId = RenderHelpers.formatDepositId(d);
             
             csvContent += `${formattedDepositId},${dateStr},${customerName},${displayId},${method},${amount},${curr},${status}\n`;

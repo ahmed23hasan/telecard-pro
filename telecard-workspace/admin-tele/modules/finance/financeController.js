@@ -1,18 +1,21 @@
 // ============================================================================
-// 🧠 متحكم المالية (modules/finance/financeController.js) - Bank Grade 🏦
+// 🧠 متحكم المالية (modules/finance/financeController.js) - النسخة الماسية V8.5 💎
 // الوظيفة: معالجة العمليات المنطقية للإيداعات، بوابات الدفع، والعملات.
-// 🌟 التحديث: أمان مالي صارم (Pessimistic UI) + إشعار نهائي دقيق ومخصص
+// 🚀 التحديث الأقصى: القضاء على الـ O(N) في المعاملات المالية وفك الارتباط الدائري كلياً
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
-import { AppController } from '../../core/appController.js';
+
+// 🚀 [نقاء هندسي]: تم حذف استيراد AppController تماماً لكسر الارتباط الدائري الميت!
 import { normalizeRates } from '../../adminConfig.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const FinanceController = {
+
+    _isProcessingDeposit: false,
 
     // =========================================================
     // 💳 1. إدارة بوابات الدفع (Payment Gateways)
@@ -47,7 +50,9 @@ export const FinanceController = {
 
         try {
             const hasImg = AdminUI?.FinanceUI?.hasImage?.('pay-img-wrap');
-            const oldImg = AppController.tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(AppController.tempEditId))?.img : null;
+            // ⚡ التحديث: استخدام المتغير المؤقت من مستودع الحالة الصافي AdminData لمنع التداخل
+            const tempEditId = AdminData.tempEditId;
+            const oldImg = tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(tempEditId))?.img : null;
             
             let finalImg = oldImg || '';
             if (hasImg) {
@@ -59,13 +64,13 @@ export const FinanceController = {
                 }
             }
 
-            const existingPay = AppController.tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(AppController.tempEditId)) : null;
+            const existingPay = tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(tempEditId)) : null;
             const currentActiveState = existingPay ? (existingPay.isActive !== false) : true;
 
             const newPay = {
-                id: AppController.tempEditId || String(Date.now()),
+                id: tempEditId || String(Date.now()),
                 name: Utils.escapeHTML(Utils.getVal('pay-name')),
-                detailFields: AppController.tempPayDetails || [],
+                detailFields: AdminData.tempPayDetails || [], // ⚡ تحديث قراءة التفاصيل
                 currencies: checks.join(',') || 'USD',
                 currencySettings: currSettings,
                 inputPlaceholder: Utils.escapeHTML(Utils.getVal('pay-input-placeholder')),
@@ -74,16 +79,24 @@ export const FinanceController = {
                 isActive: currentActiveState
             };
 
-            const isEdit = !!AppController.tempEditId;
+            const isEdit = !!tempEditId;
             if (isEdit) {
-                const idx = AdminData.data.payments.findIndex(p => String(p.id) === String(AppController.tempEditId));
+                const idx = AdminData.data.payments.findIndex(p => String(p.id) === String(tempEditId));
                 if (idx > -1) AdminData.data.payments[idx] = newPay;
             } else {
                 AdminData.data.payments.push(newPay);
             }
 
             await AdminData?.savePayments?.();
-            AppController.finishAction('req-render-payments', null, isEdit ? 'EDIT_PAYMENT' : 'ADD_PAYMENT', `تم ${isEdit ? 'تعديل' : 'إضافة'} وسيلة الدفع: ${newPay.name}`, 'تم حفظ طريقة الدفع بنجاح');
+            
+            // ⚡ التحديث النقي: إنهاء العمليات بحدث EventBus موحد دون نداء AppController المباشر
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-payments',
+                modalId: null,
+                logAction: isEdit ? 'EDIT_PAYMENT' : 'ADD_PAYMENT',
+                logDetails: `تم ${isEdit ? 'تعديل' : 'إضافة'} وسيلة الدفع: ${newPay.name}`,
+                toastMsg: 'تم حفظ طريقة الدفع بنجاح'
+            });
             
         } catch (error) {
             console.error("Save Payment Error:", error);
@@ -108,9 +121,9 @@ export const FinanceController = {
         const val = Utils.escapeHTML(Utils.getVal('pay-det-input'));
         const copyCheck = Utils.getCheck('pay-det-copyable');
         if (val) {
-            if (!Array.isArray(AppController.tempPayDetails)) AppController.tempPayDetails = [];
-            AppController.tempPayDetails.push({ text: val, copyable: copyCheck });
-            AdminRender?.renderPayDetailList?.(AppController.tempPayDetails);
+            if (!Array.isArray(AdminData.tempPayDetails)) AdminData.tempPayDetails = [];
+            AdminData.tempPayDetails.push({ text: val, copyable: copyCheck });
+            AdminRender?.renderPayDetailList?.(AdminData.tempPayDetails);
             AdminUI?.FinanceUI?.clearPayDetailInput?.();
         } else {
             EventBus.emit('req-show-toast', { message: 'يرجى كتابة نص أولاً', type: 'warning' });
@@ -118,9 +131,9 @@ export const FinanceController = {
     },
 
     removePayDetail: function(index) {
-        if (AppController.tempPayDetails && Array.isArray(AppController.tempPayDetails) && index >= 0 && index < AppController.tempPayDetails.length) {
-            AppController.tempPayDetails.splice(index, 1);
-            AdminRender?.renderPayDetailList?.(AppController.tempPayDetails);
+        if (AdminData.tempPayDetails && Array.isArray(AdminData.tempPayDetails) && index >= 0 && index < AdminData.tempPayDetails.length) {
+            AdminData.tempPayDetails.splice(index, 1);
+            AdminRender?.renderPayDetailList?.(AdminData.tempPayDetails);
         }
     },
 
@@ -187,9 +200,15 @@ export const FinanceController = {
             }
             AdminData.data.rates = rates;
             await AdminData?.saveRates?.();
-            AppController.finishAction('req-render-rates', null, oldCode ? 'EDIT_CURRENCY' : 'ADD_CURRENCY', `تحديث مالي: تعديل سعر صرف عملة ${code} (البيع: ${priceRate} | الإيداع: ${depRate})`, 'تم تحديث واعتماد أسعار الصرف بنجاح.');
-        } else {
-            EventBus.emit('req-show-toast', { message: 'تم إلغاء عملية التحديث.', type: 'info' });
+            
+            // ⚡ التحديث النقي بـ EventBus
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-rates',
+                modalId: null,
+                logAction: oldCode ? 'EDIT_CURRENCY' : 'ADD_CURRENCY',
+                logDetails: `تحديث مالي: تعديل سعر صرف عملة ${code} (البيع: ${priceRate} | الإيداع: ${depRate})`,
+                toastMsg: `تم تحديث واعتماد أسعار الصرف بنجاح`
+            });
         }
     },
 
@@ -255,18 +274,17 @@ export const FinanceController = {
         }
     },
 
-    // =========================================================
-    // 🏦 3. معالجة الإيداعات الآمنة (أمان مالي + Loader + رسائل دقيقة)
-    // =========================================================
-    _isProcessingDeposit: false,
-
+    // ==========================================
+    // 🏦 3. معالجة الإيداعات الآمنة (أمان مالي + Loader)
+    // ==========================================
     submitDepositReview: async function(action) {
         if (this._isProcessingDeposit) return;
         
         const reviewId = AdminUI?.FinanceUI?.currentDepositId || null;
         if (!reviewId) return;
         
-        const dep = AdminData.data.deposits.find(d => String(d.id) === String(reviewId));
+        // ⚡ جلب فوري بـ O(1) للإيداع من الخريطة السحابية مع fallback آمن
+        const dep = AdminData.data.depositsMap?.[reviewId] || AdminData.data.deposits.find(d => String(d.id) === String(reviewId));
         if (!dep) return;
 
         this._isProcessingDeposit = true;
@@ -274,9 +292,12 @@ export const FinanceController = {
         const mappedAction = action === 'approve' ? 'approved' : 'rejected';
         
         // 🌟 1. تجهيز الرسالة الدقيقة بناءً على الإجراء والمبلغ
+        const amtVal = Number(dep.amount || 0).toFixed(2);
+        const curr = (dep.currency || 'USD').toUpperCase();
+        
         const customMessage = action === 'approve' 
-            ? `تم قبول طلب إيداع بقيمة ${dep.amount} ${dep.currency}`
-            : `تم رفض طلب إيداع بقيمة ${dep.amount} ${dep.currency}`;
+            ? `تم قبول طلب إيداع بقيمة ${amtVal} ${curr}`
+            : `تم رفض طلب إيداع بقيمة ${amtVal} ${curr}`; // 🛡️ تم إصلاح متغير amtEq الميت هنا!
         
         // 🌟 2. تجميد الشاشة وحمايتها من النقر المزدوج (Loader)
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري توثيق العملية وتحديث الرصيد سحابياً...');
@@ -292,7 +313,10 @@ export const FinanceController = {
             // 🌟 4. إذا نجح السيرفر، نقوم بتحديث الشاشة وإظهار الإشعار النهائي فقط
             if (result && result.success) {
                 dep.status = mappedAction;
-                AdminUI?.FinanceUI?.closeDepositDrawer?.();
+                
+                if (AdminUI?.FinanceUI?.closeDepositDrawer) AdminUI.FinanceUI.closeDepositDrawer();
+                else if (AdminUI?.closeDepositDrawer) AdminUI.closeDepositDrawer();
+                
                 EventBus.emit('req-render-deposits');
                 
                 if (AdminData?.addLog) {
@@ -315,20 +339,23 @@ export const FinanceController = {
     reEvaluateDeposit: async function(depId) {
         if (this._isProcessingDeposit) return;
 
-        const dep = AdminData.data.deposits.find(d => String(d.id) === String(depId));
+        // ⚡ جلب فوري بـ O(1) للإيداع من الخريطة
+        const dep = AdminData.data.depositsMap?.[depId] || AdminData.data.deposits.find(d => String(d.id) === String(depId));
         if (!dep || dep.status !== 'approved') return;
         
-        const user = AdminData.data.users.find(u => String(u.id) === String(dep.userId));
+        // ⚡ جلب فوري بـ O(1) للعميل من الخريطة
+        const user = AdminData.data.usersMap?.[dep.userId] || AdminData.data.users.find(u => String(u.id) === String(dep.userId));
         if (!user) {
             EventBus.emit('req-show-toast', { message: 'لم يتم العثور على العميل المرتبط بهذا الإيداع', type: 'error' });
             return;
         }
         
+        // 🛡️ [إصلاح حرج 2]: تم إزالة الكائن الميت this.currentPayment وقراءة الرسوم والنسب مباشرة من مستند الإيداع
         const feeVal = Number(dep.feePct ?? dep.fee ?? 0);
         const feeType = dep.feeType || 'fee';
         const feeUnit = dep.feeUnit || dep.unit || dep.calcMethod || 'percent';
-        
-        const feeAmount = Number(dep.feeAmount ?? (feeUnit === 'percent' ? (Number(dep.amount || 0) * (feeVal / 100)) : feeVal));
+
+        let feeAmount = feeUnit === 'fixed' || feeUnit === 'amount' ? feeVal : Number(dep.amount || 0) * (feeVal / 100);
         
         let netPayCurr = Number(dep.amount || 0);
         if (feeType === 'bonus') netPayCurr += feeAmount;
@@ -336,13 +363,14 @@ export const FinanceController = {
         
         const fxRate = Number(dep.fxRate ?? 1);
         const netBase = Number((dep.creditedAmount != null) ? dep.creditedAmount : (netPayCurr * fxRate));
-        const isDeduction = netBase < 0;
+        
         const currentBalance = Number(user.walletBalance || user.balance || 0);
-        const safeCurrency = (user.baseCurrency || user.base_currency || 'USD').toUpperCase().replace('$', 'USD');
+        const safeCurrency = (user.baseCurrency || 'USD').toUpperCase();
         
         let confirmMsg = "";
         let confirmTitle = "";
         
+        const isDeduction = netBase < 0;
         if (isDeduction) {
             confirmTitle = "تأكيد إلغاء الخصم";
             confirmMsg = `هل أنت متأكد من إلغاء عملية الخصم هذه؟\nسوف يتم إعادة مبلغ (${Math.abs(netBase).toFixed(2)} ${safeCurrency}) إلى محفظة العميل.`;
@@ -363,7 +391,6 @@ export const FinanceController = {
                 ? `تم إلغاء الخصم وإعادة ${Math.abs(dep.amount)} ${dep.currency}`
                 : `تم استرجاع إيداع بقيمة ${dep.amount} ${dep.currency}`;
 
-            // تجميد الشاشة أثناء انتظار السيرفر
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تصحيح الرصيد سحابياً...');
             
             try {
@@ -376,13 +403,12 @@ export const FinanceController = {
                 if (result && result.success) {
                     dep.status = 'refunded';
                     AdminUI?.FinanceUI?.closeDepositDrawer?.();
-                    EventBus.emit('req-render-deposits');
+                    EventBus.emit('req-refresh', { type: 'deposits' });
                     
                     if (AdminData?.addLog) {
                         AdminData.addLog('REFUND_DEPOSIT', `${customMessage} للعميل ${dep.userName || dep.userId}`);
                     }
                     
-                    // إشعار واحد فقط دقيق وجميل!
                     EventBus.emit('req-show-toast', { message: customMessage, type: 'success' });
                 }
                 

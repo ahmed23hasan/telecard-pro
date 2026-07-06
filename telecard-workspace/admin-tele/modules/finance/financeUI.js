@@ -1,7 +1,7 @@
 // ============================================================================
-// 💰 وحدة المالية والإيداعات (modules/finance/financeUI.js)
+// 💰 وحدة المالية والإيداعات (modules/finance/financeUI.js) - النسخة الماسية V4.4 💎
 // 🎯 الوظيفة: إدارة واجهات الإيداعات وإعدادات العملات وبوابات الدفع
-// 🚀 التحديث: تأمين صارم ضد أخطاء الـ Null والـ Undefined لمنع كراش المتصفح
+// 🚀 التحديث الأقصى: ترقية تعديل العملة لـ O(1) وتأمين الواجهة بحارس المعاملات
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -20,15 +20,14 @@ export const FinanceUI = {
 
     openEditCurrency: function(id = null) {
         EventBus.emit('set-temp-edit-id', id);
-        // 🌟 حماية من المصفوفات التي قد تحتوي على عناصر Null
-        const cur = id ? (AdminData?.data?.rates || []).find(r => r && r.code === id) : null;
+        // ⚡ التحديث الفائق O(1): استدعاء العملة فورا من الخريطة بدلا من find
+        const cur = id ? (AdminData?.data?.ratesMap?.[id] || (AdminData?.data?.rates || []).find(r => r && r.code === id)) : null;
         this.setupCurrencyModal(cur);
         EventBus.emit('req-open-modal', 'currency');
     },
 
-        openPaymentModal: function(id = null) {
+    openPaymentModal: function(id = null) {
         try {
-            // كود الدالة الطبيعي
             EventBus.emit('set-temp-edit-id', id);
             const pay = id ? (AdminData?.data?.payments || []).find(p => p && String(p.id) === String(id)) : null;
             const rates = AdminData?.data?.rates || [];
@@ -36,7 +35,6 @@ export const FinanceUI = {
             EventBus.emit('req-open-modal', 'payment');
             
         } catch (error) {
-            // 🚨 هذا هو الكمين! سيفضح الخطأ رغماً عن المتصفح
             console.error("🚨 المجرم الحقيقي تم القبض عليه:", error);
             alert("تم اصطياد الخطأ بنجاح:\n\nالسبب: " + error.message + "\n\nالمكان: " + error.stack);
         }
@@ -70,13 +68,11 @@ export const FinanceUI = {
         
         if (chkContainer && Array.isArray(rates)) {
             chkContainer.innerHTML = rates.map(r => {
-                // 🌟 حماية ضد كائنات العملة الفارغة
                 if (!r) return '';
                 
                 const displayCode = r.symbol || r.code;
                 const isChecked = curSet.has(r.code) || (!p && r.code === 'USD');
                 
-                // 🌟 التغليف الإجباري (String Coercion) قبل دالة الهروب لمنع خطأ replace is not a function
                 const safeCode = r.code != null ? String(r.code) : '';
                 const safeName = r.name != null ? String(r.name) : '';
                 const safeDisplayCode = displayCode != null ? String(displayCode) : '';
@@ -156,7 +152,6 @@ export const FinanceUI = {
                 f = currentInputs[code].fee; min = currentInputs[code].min; max = currentInputs[code].max;
             } 
             else if (isInitialLoad && this.currentEditPaymentId && AdminData?.data?.payments) {
-                // 🌟 حماية البحث الداخلي من عناصر المصفوفة الفارغة
                 const pay = AdminData.data.payments.find(p => p && String(p.id) === String(this.currentEditPaymentId));
                 if (pay && pay.currencySettings && pay.currencySettings[code]) {
                     const s = pay.currencySettings[code];
@@ -170,7 +165,6 @@ export const FinanceUI = {
             
             const displayCode = RenderHelpers.getCurrencySymbolText(code); 
             
-            // 🌟 التغليف الآمن للنصوص
             const safeDisplayCode = displayCode != null ? String(displayCode) : '';
             const safeF = f != null ? String(f) : '';
             const safeMin = min != null ? String(min) : '';
@@ -191,13 +185,13 @@ export const FinanceUI = {
 
         chkBoxes.forEach(code => {
             const ftVal = currentInputs[code]?.feeType || (isInitialLoad ? document.getElementById(`pay-feetype-${code}`)?.getAttribute('data-val') : 'fee');
-            const fuVal = currentInputs[code]?.feeUnit || (isInitialLoad ? document.getElementById(`pay-feeunit-${code}`)?.getAttribute('data-val') : 'percent');
+            const fuVal = currentInputs[code]?.feeUnit || (isInitialLoad ? document.getElementById(`pay-feeunit-${code}`)?.value : 'percent');
             
-            const typeEl = document.getElementById(`pay-feetype-${code}`);
-            const unitEl = document.getElementById(`pay-feeunit-${code}`);
+            const typeSel = document.getElementById(`pay-feetype-${code}`);
+            const unitSel = document.getElementById(`pay-feeunit-${code}`);
             
-            if (typeEl && ftVal) typeEl.value = ftVal;
-            if (unitEl && fuVal) unitEl.value = fuVal;
+            if (typeSel && ftVal) typeSel.value = ftVal;
+            if (unitSel && fuVal) unitSel.value = fuVal;
         });
     },
 
@@ -207,9 +201,9 @@ export const FinanceUI = {
 
     openDepositDrawer: function(depositId) {
         let dep = null;
-        if(AdminData && AdminData.data && AdminData.data.deposits) {
-            // 🌟 حماية إضافية للدرج أيضاً
-            dep = AdminData.data.deposits.find(d => d && String(d.id) === String(depositId));
+        if(AdminData && AdminData.data && AdminData.data.depositsMap) {
+            // ⚡ جلب فوري بـ O(1) للإيداع السحابي من الخريطة المركزية المانعة للاحتكاك
+            dep = AdminData.data.depositsMap[depositId];
         }
         if(!dep) return;
 
@@ -252,7 +246,8 @@ export const FinanceUI = {
             idBadge.onclick = function(e) { UIService.copyText(formattedDepId, e, this); };
         }
 
-        const user = (AdminData.data.users || []).find(u => u && String(u.id) === String(dep.userId)) || {};
+        // ⚡ جلب فوري بـ O(1) للعميل
+        const user = AdminData.data.usersMap?.[dep.userId] || (AdminData.data.users || []).find(u => u && String(u.id) === String(dep.userId)) || {};
         const displayUser = Utils.escapeHTML(user.fullName || user.name || user.username || 'مستخدم');
         const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
 

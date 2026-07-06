@@ -1,7 +1,7 @@
 // ============================================================================
-// 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js)
+// 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js) - النسخة الماسية V4.4 💎
 // 🎯 الوظيفة: إدارة التفاعلات المرئية فقط (Visual Interactions)
-// 🌟 التحديث: إضافة نافذة "السجل المالي الشامل" وتصميم الفلترة السريعة (Optimistic UI)
+// 🚀 التحديث الأقصى: القضاء على الـ O(N) وإصلاح الـ TypeError المسببة لانهيار الواجهة
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -9,6 +9,7 @@ import { AdminTemplates } from '../../adminTemplates.js';
 import { UsersTemplates } from './usersTemplates.js'; // 🌟 إضافة استيراد قوالب المستخدمين
 import { Utils, EventBus } from '../../adminUtils.js';
 import { UIService } from '../../core/uiService.js';
+import { RenderHelpers } from '../../core/renderHelpers.js';
 
 export const UsersUI = {
     tempKycConfig: null,
@@ -19,7 +20,8 @@ export const UsersUI = {
     
     openTierModal: function(id = null) {
         EventBus.emit('set-temp-edit-id', id);
-        const tier = id ? (AdminData.data.tiers || []).find(t => String(t.id) === String(id)) : null;
+        // ⚡ جلب فوري بـ O(1) للمستوى من الخريطة بدلاً من البحث الخطي البطيء
+        const tier = id ? (AdminData.data.tiersMap?.[id] || AdminData.data.tiers.find(t => String(t.id) === String(id))) : null;
         this.setupTierModal(tier);
         EventBus.emit('req-open-modal', 'tier');
     },
@@ -126,29 +128,24 @@ export const UsersUI = {
     // ---------------------------------------------------------
     
     // 🌟 النافذة الاحترافية لعرض السجل المالي الشامل (الدفتر الموحد)
-        renderFullHistoryModal: function(userId, fullHistory) {
+    renderFullHistoryModal: function(userId, fullHistory) {
         const modal = document.getElementById('user-full-history-modal');
         if (!modal) return;
 
-        // دالة مساعدة لتوليد القوائم
         const generateListHtml = (list) => {
             if (!list || list.length === 0) return UsersTemplates.emptyUserActivity();
             return list.map(tx => UsersTemplates.userActivityItem(tx)).join('');
         };
 
-        // تحديث العداد
         const countBadge = document.getElementById('fh-count-badge');
         if (countBadge) countBadge.innerText = fullHistory.length;
 
-        // حقن البيانات في الحاويات الموجودة مسبقاً
         document.getElementById('fh-all').innerHTML = generateListHtml(fullHistory);
         document.getElementById('fh-deposits').innerHTML = generateListHtml(fullHistory.filter(tx => tx.txType === 'deposit'));
         document.getElementById('fh-orders').innerHTML = generateListHtml(fullHistory.filter(tx => tx.txType === 'order'));
 
-        // إظهار النافذة
         modal.classList.add('active');
 
-        // تفعيل أزرار التبويبات (تطبق مرة واحدة فقط)
         if (!modal._boundTabs) {
             const tabs = modal.querySelectorAll('.fh-tab');
             const panes = modal.querySelectorAll('.fh-pane');
@@ -156,7 +153,6 @@ export const UsersUI = {
             tabs.forEach(tab => {
                 tab.addEventListener('click', (e) => {
                     tabs.forEach(t => t.classList.remove('active'));
-
                     panes.forEach(p => p.style.display = 'none');
                     
                     const targetTab = e.currentTarget;
@@ -169,8 +165,10 @@ export const UsersUI = {
             modal._boundTabs = true;
         }
     },
+
     showTierSelection: function(userId) {
-        const u = (AdminData.data.users || []).find(x => String(x.id) === String(userId));
+        // ⚡ جلب فوري بـ O(1) للعميل من خريطة العملاء
+        const u = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(x => String(x.id) === String(userId));
         if(!u) return;
 
         let modal = document.getElementById('tier-selection-modal');
@@ -182,7 +180,8 @@ export const UsersUI = {
         }
         
         const tiers = AdminData.data.tiers || [];
-        modal.innerHTML = AdminTemplates.tierSelectionModal(u, tiers);
+        // 🛡️ [إصلاح حرج 1]: استدعاء القالب من الموديل الصحيح UsersTemplates لتفادي انهيار الواجهة
+        modal.innerHTML = UsersTemplates.tierSelectionModal(u, tiers);
         modal.classList.add('active');
     },
 
@@ -198,12 +197,14 @@ export const UsersUI = {
     },
 
     openUserEditModal: function(userId) {
-        const u = (AdminData.data.users || []).find(x => String(x.id) === String(userId));
+        // ⚡ جلب فوري بـ O(1) للعميل من الخريطة
+        const u = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(x => String(x.id) === String(userId));
         if(!u) return UIService.showToast('لم يتم العثور على العميل', 'error');
 
         const container = document.getElementById('user-edit-form-container');
         if(container) {
-            container.innerHTML = AdminTemplates.userEditForm(u);
+            // 🛡️ [إصلاح حرج 2]: استدعاء القالب من الموديل الصحيح UsersTemplates لتفادي انهيار الواجهة
+            container.innerHTML = UsersTemplates.userEditForm(u);
         }
 
         const modal = document.getElementById('m-user-edit');
@@ -249,8 +250,8 @@ export const UsersUI = {
             if (!emptySearch) {
                 emptySearch = document.createElement('div');
                 emptySearch.id = 'kyc-search-empty-state';
-                emptySearch.className = 'empty-state mt-20 animate__animated animate__fadeIn';
-                emptySearch.innerHTML = `<i class="fa-solid fa-magnifying-glass"></i><span>لا توجد طلبات تطابق بحثك...</span>`;
+                emptySearch.className = 'empty-state mt-20';
+                emptySearch.innerHTML = `<i class="fa-solid fa-magnifying-glass"></i><span>لا توجد نتائج تطابق بحثك...</span>`;
                 container.appendChild(emptySearch);
             }
         } else if (emptySearch) {
@@ -289,7 +290,7 @@ export const UsersUI = {
         } else if (mode === 'specific' || mode === 'spec') {
             msg = 'هل تريد تخصيص نظام التوثيق ليتم فرضه على مستويات (Tiers) محددة فقط؟';
         } else {
-            msg = 'هل أنت متأكد من إيقاف نظام التوثيق بالكامل لجميع العملاء؟';
+            msg = 'هل أنت متأكد من إيقاف نظام التوثيق بالكامل لجميع العملاء exchange؟';
         }
 
         const confirmed = await UIService.showConfirm(msg, title);

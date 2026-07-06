@@ -1,7 +1,7 @@
 // ============================================================================
-// 📦 قوالب الطلبات (modules/orders/ordersTemplates.js)
+// 📦 قوالب الطلبات (modules/orders/ordersTemplates.js) - النسخة الماسية V4.3 💎
 // 🎯 الوظيفة: توليد الـ HTML بنظام الهيكلة المرنة (Flexbox) وبدون ترقيعات
-// 🚀 التحديث: الاعتماد الكامل على محرك المُعرّفات والتواريخ المركزي (SSOT)
+// 🚀 التحديث: القضاء على ثغرة التكرار المبطن في الكروت باستخدام الخرائط السريعة
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -21,15 +21,13 @@ export const OrdersTemplates = {
         const lockCls = (isRej || isRef) ? 'locked' : '';
         const qty = o.qty || 1;
 
-        // 🌟 استخراج وتنسيق الوقت بأمان تام عبر المنسق المركزي
         const rawTime = o.time || o.createdAt;
         const timeHtml = RenderHelpers.formatSafeDate(rawTime);
 
-        // 🌟 جلب العميل واستخراج الرقم القصير الآمن عبر المحرك المركزي (SSOT)
-        const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(o.userId)) || {};
+        // 🌟 ⚡ التحديث الفائق: استدعاء العميل فورا بـ O(1) من الخريطة بدلا من التكرار المبطن البطيء
+        const userRec = AdminData.data.usersMap?.[o.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(o.userId)) || {};
         const shortId = RenderHelpers.formatUserId(userRec);
 
-        // 🌟 الفحص الذكي لمنع تكرار الآيدي إذا كان الاسم غير متوفر
         const isIdAsName = String(userName).trim() === String(shortId).trim() || String(userName).trim() === String(o.userId).trim();
         const clientIdentityHtml = isIdAsName 
             ? `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="uid-capsule copyable-admin" title="انقر لنسخ رقم العميل" data-action="copy-text" data-copy-text="${_esc(shortId)}"><i class="fa-solid fa-hashtag"></i>${_esc(shortId)}</span></div>`
@@ -70,7 +68,6 @@ export const OrdersTemplates = {
             finalPriceHtml = `<span class="single-price ${priceColor}">${sign} ${RenderHelpers.formatMoney(absPrice, cCode, 2)}</span>`;
         }
 
-        // 🌟 تنسيق رقم الطلب مركزياً لحماية الواجهة من الآيديات الطويلة لفايربيز
         const orderIdHtml = RenderHelpers.formatOrderId(o);
 
         return `
@@ -98,7 +95,6 @@ export const OrdersTemplates = {
     // =========================================================
 
     orderDrawerHeader: (orderId) => {
-        // 🌟 تنسيق رقم الطلب داخل شريط الدرج علوياً عبر المحرك المركزي
         const formattedOrderId = RenderHelpers.formatOrderId(orderId);
         return `
         <div class="dh-title-wrap">
@@ -170,85 +166,109 @@ export const OrdersTemplates = {
         </div>`,
     
     financialSnapshotBlock: (snap, status) => {
-    const isCompleted = status === 'completed';
-    const isRefundedOrRejected = status === 'refunded' || status === 'rejected' || status === 'returned';
-    
-    // 🌟 [الإصلاح הגذري]: الفلترة الذكية للبيانات القادمة من المتجر (دعم كافة المسميات القديمة والحديثة بلاحقة Usd)
-    const sCost = Number(snap.costUsd ?? snap.cost ?? 0);
-    const sTierPrice = Number(snap.tierPriceUsd ?? snap.tierPrice ?? snap.originalPriceUsd ?? snap.originalPrice ?? snap.baseSellPrice ?? 0);
-    const sOfferDisc = Number(snap.offerDiscountUsd ?? snap.offerDiscount ?? 0);
-    const sCouponDisc = Number(snap.couponDiscountUsd ?? snap.couponDiscount ?? 0);
-    const sFinalPrice = Number(snap.finalPriceUsd ?? snap.finalPrice ?? 0);
-    const sProfit = Number(snap.netProfitUsd ?? snap.profit ?? 0);
-    const sMargin = Number(snap.marginPct ?? 0);
-    
-    const profitClass = sProfit >= 0 ? 'text-success' : 'text-danger';
-    const profitSign = sProfit > 0 ? '+' : '';
-    
-    let finalSign = '';
-    let finalColorClass = '';
-    let finalBgClass = '';
-    let finalLabel = '';
-    
-    if (isRefundedOrRejected) {
-        finalSign = '+';
-        finalColorClass = 'text-success';
-        finalBgClass = 'highlight-success';
-        finalLabel = '<i class="fa-solid fa-hand-holding-dollar"></i> إجمالي المسترجع للمحفظة';
-    } else if (isCompleted) {
-        finalSign = '-';
-        finalColorClass = 'text-danger';
-        finalBgClass = 'highlight-danger';
-        finalLabel = '<i class="fa-solid fa-hand-holding-dollar"></i> إجمالي المخصوم من المحفظة';
-    } else {
-        finalSign = '-';
-        finalColorClass = 'text-warning';
-        finalBgClass = '';
-        finalLabel = '<i class="fa-solid fa-hand-holding-dollar"></i> إجمالي المخصوم (معلق)';
-    }
-    
-    let discountsHtml = '';
-    if (snap.offerName) discountsHtml += `<div class="fs-11 text-muted mb-5"><i class="fa-solid fa-bolt text-warning"></i> تخفيض عرض (${_esc(snap.offerName)}): <span class="num-en text-danger" dir="ltr">-${RenderHelpers.formatMoney(sOfferDisc, 'USD', 4)}</span></div>`;
-    if (snap.couponCode) discountsHtml += `<div class="fs-11 text-muted"><i class="fa-solid fa-ticket text-purple"></i> كوبون خصم (${_esc(snap.couponCode)}): <span class="num-en text-danger" dir="ltr">-${RenderHelpers.formatMoney(sCouponDisc, 'USD', 4)}</span></div>`;
-    
-    const firewallHtml = snap.isFirewallActive || snap.isFirewallTriggered ? `<div class="mt-10 p-8" style="background: var(--glass-bg); border: 1px dashed var(--danger); border-radius: 6px; font-size: 11px; color: var(--danger);"><i class="fa-solid fa-shield-halved"></i> <b>تنبيه حماية:</b> تم منع البيع بخسارة! تم رفع السعر ليعادل رأس المال.</div>` : '';
-    
-    let formattedTierName = '(السعر المخصص)';
-    if (snap.tierName) {
-        let safeName = _esc(snap.tierName);
-        safeName = safeName.replace(/\s*\(/g, '_').replace(/\)/g, '').trim();
-        formattedTierName = `(مستوى ${safeName})`;
-    }
-    
-    return `
-        <div class="financial-snapshot-box mb-15" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
-            <div class="fs-12 fw-bold text-primary mb-10"><i class="fa-solid fa-microchip"></i> التحليل المالي الذكي للطلب</div>
+        const isCompleted = status === 'completed';
+        const isRefundedOrRejected = status === 'refunded' || status === 'rejected' || status === 'returned';
+        
+        const sCost = Number(snap.costUsd ?? snap.cost ?? 0);
+        const sTierPrice = Number(snap.tierPriceUsd ?? snap.tierPrice ?? snap.originalPriceUsd ?? snap.originalPrice ?? snap.baseSellPrice ?? 0);
+        const sOfferDisc = Number(snap.offerDiscountUsd ?? snap.offerDiscount ?? 0);
+        const sCouponDisc = Number(snap.couponDiscountUsd ?? snap.couponDiscount ?? 0);
+        const sFinalPrice = Number(snap.finalPriceUsd ?? snap.finalPrice ?? 0);
+        const sProfit = Number(snap.netProfitUsd ?? snap.profit ?? 0);
+        const sMargin = Number(snap.marginPct ?? 0);
+        
+        const profitClass = sProfit >= 0 ? 'text-success' : 'text-danger';
+        const profitSign = sProfit > 0 ? '+' : '';
+        
+        let finalSign = '';
+        let finalColorClass = '';
+        let finalBgClass = '';
+        let finalLabel = '';
+        
+        if (isRefundedOrRejected) {
+            finalSign = '+';
+            finalColorClass = 'text-success';
+            finalBgClass = 'highlight-success';
+            finalLabel = '<i class="fa-solid fa-hand-holding-dollar"></i> إجمالي المسترجع للمحفظة';
+        } else if (isCompleted) {
+            finalSign = '-';
+            finalColorClass = 'text-danger';
+            finalBgClass = 'highlight-danger';
+            finalLabel = '<i class="fa-solid fa-hand-holding-dollar"></i> إجمالي المخصوم من المحفظة';
+        } else {
+            finalSign = '-';
+            finalColorClass = 'text-warning';
+            finalBgClass = '';
+            finalLabel = '<i class="fa-solid fa-hand-holding-dollar"></i> إجمالي المخصوم (معلق)';
+        }
+        
+        let discountsHtml = '';
+        if (snap.offerName) discountsHtml += `<div class="fs-11 text-muted mb-5"><i class="fa-solid fa-bolt text-warning"></i> تخفيض عرض (${_esc(snap.offerName)}): <span class="num-en text-danger" dir="ltr">-${RenderHelpers.formatMoney(sOfferDisc, 'USD', 4)}</span></div>`;
+        if (snap.couponCode) {
+            discountsHtml += `<div class="nm-receipt-line discount-line">
+                <span class="line-lbl"><i class="fa-solid fa-ticket"></i> كوبون (${_esc(snap.couponCode)})</span>
+                <span class="num-en" dir="ltr">-${RenderHelpers.formatMoney(couponDiscount, 'USD')}</span>
+            </div>`;
+        }
+        
+        let priceSectionHtml = '';
+        
+        const hasCoupon = couponDiscount > 0;
+        const hasSale = offerDiscount > 0;
+        
+        let breakdownDetails = `
+            <div class="nm-receipt-line">
+                <span class="line-lbl"><i class="fa-solid fa-box-open"></i> السعر الأساسي</span>
+                <span class="old-amt num-en" dir="ltr">${RenderHelpers.formatMoney(originalPrice, 'USD')}</span>
+            </div>`;
             
-            <div class="dr-receipt-row">
-                <span class="dr-receipt-lbl"><i class="fa-solid fa-box-open text-warning"></i> تكلفة المنتج (رأس المال)</span>
-                <span class="dr-receipt-val num-en text-warning" dir="ltr" lang="en">${RenderHelpers.formatMoney(sCost, 'USD', 4)}</span>
-            </div>
-            
-            <div class="dr-receipt-row">
-                <span class="dr-receipt-lbl"><i class="fa-solid fa-crown text-gold"></i> سعر البيع <span class="text-muted fs-11">${formattedTierName}</span></span>
-                <span class="dr-receipt-val num-en" dir="ltr" lang="en">${RenderHelpers.formatMoney(sTierPrice, 'USD', 4)}</span>
-            </div>
+        if (hasSale) {
+            breakdownDetails += `
+            <div class="nm-receipt-line sale-line">
+                <span class="line-lbl"><i class="fa-solid fa-tag"></i> تخفيض العرض</span>
+                <span class="num-en" dir="ltr">-${RenderHelpers.formatMoney(offerDiscount, 'USD')}</span>
+            </div>`;
+        }
+        
+        const firewallHtml = snap.isFirewallActive || snap.isFirewallTriggered ? `<div class="mt-10 p-8" style="background: var(--glass-bg); border: 1px dashed var(--danger); border-radius: 6px; font-size: 11px; color: var(--danger);"><i class="fa-solid fa-shield-halved"></i> <b>تنبيه حماية:</b> تم منع البيع بخسارة! تم رفع السعر ليعادل رأس المال.</div>` : '';
+        
+        let formattedTierName = '(السعر المخصص)';
+        if (snap.tierName) {
+            let safeName = _esc(snap.tierName);
+            safeName = safeName.replace(/\s*\(/g, '_').replace(/\)/g, '').trim();
+            formattedTierName = `(مستوى ${safeName})`;
+        }
+        
+        return `
+            <div class="financial-snapshot-box mb-15" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+                <div class="fs-12 fw-bold text-primary mb-10"><i class="fa-solid fa-microchip"></i> التحليل المالي الذكي للطلب</div>
+                
+                <div class="dr-receipt-row">
+                    <span class="dr-receipt-lbl"><i class="fa-solid fa-box-open text-warning"></i> تكلفة المنتج (رأس المال)</span>
+                    <span class="dr-receipt-val num-en text-warning" dir="ltr" lang="en">${RenderHelpers.formatMoney(sCost, 'USD', 4)}</span>
+                </div>
+                
+                <div class="dr-receipt-row">
+                    <span class="dr-receipt-lbl"><i class="fa-solid fa-crown text-gold"></i> سعر البيع <span class="text-muted fs-11">${formattedTierName}</span></span>
+                    <span class="dr-receipt-val num-en" dir="ltr" lang="en">${RenderHelpers.formatMoney(sTierPrice, 'USD', 4)}</span>
+                </div>
 
-            ${discountsHtml ? `<div class="mt-10 mb-10 p-10" style="background: var(--primary-glow); border: 1px solid var(--line-color); border-radius: 6px;">${discountsHtml}</div>` : ''}
+                ${discountsHtml ? `<div class="mt-10 mb-10 p-10" style="background: var(--primary-glow); border: 1px solid var(--line-color); border-radius: 6px;">${discountsHtml}</div>` : ''}
 
-            <div class="dr-receipt-row mt-10 ${finalBgClass}" style="border-top: 1px dashed var(--border); padding-top: 10px;">
-                <span class="dr-receipt-lbl fw-bold ${finalColorClass}">${finalLabel}</span>
-                <span class="dr-receipt-val price num-en fw-bold ${finalColorClass}" dir="ltr" lang="en">${finalSign} ${RenderHelpers.formatMoney(Math.abs(sFinalPrice), 'USD', 4)}</span>
-            </div>
+                <div class="dr-receipt-row mt-10 ${finalBgClass}" style="border-top: 1px dashed var(--border); padding-top: 10px;">
+                    <span class="dr-receipt-lbl fw-bold ${finalColorClass}">${finalLabel}</span>
+                    <span class="dr-receipt-val price num-en fw-bold ${finalColorClass}" dir="ltr" lang="en">${finalSign} ${RenderHelpers.formatMoney(Math.abs(sFinalPrice), 'USD', 4)}</span>
+                </div>
 
-            <div class="dr-receipt-row mt-10">
-                <span class="dr-receipt-lbl fw-bold"><i class="fa-solid fa-chart-pie ${profitClass}"></i> الربح الصافي</span>
-                <span class="dr-receipt-val num-en fw-bold ${profitClass}" dir="ltr" lang="en">${isCompleted ? profitSign + RenderHelpers.formatMoney(sProfit, 'USD', 4) : '<span class="text-muted fs-11">يُحسب عند الاكتمال</span>'} <span class="fs-11 text-muted">(${_enNum(sMargin, 1)}%)</span></span>
-            </div>
+                <div class="dr-receipt-row mt-10">
+                    <span class="dr-receipt-lbl fw-bold"><i class="fa-solid fa-chart-pie ${profitClass}"></i> الربح الصافي</span>
+                    <span class="dr-receipt-val num-en fw-bold ${profitClass}" dir="ltr" lang="en">${isCompleted ? profitSign + RenderHelpers.formatMoney(sProfit, 'USD', 4) : '<span class="text-muted fs-11">يُحسب عند الاكتمال</span>'} <span class="fs-11 text-muted">(${_enNum(sMargin, 1)}%)</span></span>
+                </div>
 
-            ${firewallHtml}
-        </div>`;
-},
+                ${firewallHtml}
+            </div>`;
+    },
+
     orderDrawerBody: (data) => {
         const isRefRej = data.statusClass === 'refunded' || data.statusClass === 'rejected' || data.statusClass === 'returned';
         const isComp = data.statusClass === 'completed';
@@ -260,7 +280,6 @@ export const OrdersTemplates = {
 
         const cleanPriceTxt = data.priceTxt ? data.priceTxt.replace(/[-+]/g, '').trim() : '';
 
-        // 🌟 الفحص الذكي لمنع تكرار عرض الآيدي داخل الدرج الجانبي
         const isIdAsNameDrawer = String(data.displayUser).trim() === String(data.userDisplayId).trim() || String(data.displayUser).trim() === String(data.userId).trim();
         const drawerIdentityHtml = isIdAsNameDrawer
             ? `<span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`

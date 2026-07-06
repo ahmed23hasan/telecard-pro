@@ -102,9 +102,16 @@ export const CalendarService = {
         grid.innerHTML = daysHtml.join('');
     },
 
-    changeMonth: function(dir) { this.currentDate.setMonth(this.currentDate.getMonth() + dir); this.renderCalendar(); },
-    changeYear: function(dir) { this.currentDate.setFullYear(this.currentDate.getFullYear() + dir); this.renderCalendar(); },
-    selectDay: function(day) { this.selectedDate = new Date(this.currentDate.getFullYear(), this.currentDate.getMonth(), day); this.renderCalendar(); },
+    changeMonth: function(dir) {
+        this.currentDate.setDate(1); // 🛡️ منع تخطي الأشهر القصيرة (Date Overflow)
+        this.currentDate.setMonth(this.currentDate.getMonth() + dir);
+        this.renderCalendar();
+    },
+    changeYear: function(dir) {
+        this.currentDate.setDate(1); // 🛡️ حماية إضافية للسنوات الكبيسة
+        this.currentDate.setFullYear(this.currentDate.getFullYear() + dir);
+        this.renderCalendar();
+    },
 
     confirm: function() {
         if (this.selectedDate) {

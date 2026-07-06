@@ -1,10 +1,11 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة V4.0 (Diamond Edition)
+// 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة V4.1 (Diamond Edition)
 // 🎯 الوظيفة: معالجة الطلبات، الإيداعات، الإحصائيات، والإشعارات المتوازية
 // 🌟 التحديث الأقصى:
-// 1. [تشفير عالي]: استخدام crypto.randomBytes لمنع ثغرات تكرار أرقام الطلبات.
-// 2. [الجدار الناري]: تفعيل إشارة isFirewallViolated لمنع البيع تحت التكلفة.
-// 3. [تأمين الفواصل]: استخدام المحرك المالي في الإيداعات لمنع ثغرات الـ Floating Point.
+// 1. [جدار حماية الـ IP]: التحقق الفعلي من الـ IP القادم من الطلب لصد المحتالين.
+// 2. [تشفير عالي]: استخدام crypto.randomBytes لمنع ثغرات تكرار أرقام الطلبات.
+// 3. [الجدار الناري]: تفعيل إشارة isFirewallViolated لمنع البيع تحت التكلفة.
+// 4. [تأمين الفواصل]: استخدام المحرك المالي في الإيداعات لمنع ثغرات الـ Floating Point.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -12,7 +13,7 @@ const { onDocumentWritten, onDocumentUpdated } = require("firebase-functions/v2/
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
-const crypto = require('crypto'); // 🛡️ [تحديث أمني]: إضافة مكتبة التشفير
+const crypto = require('crypto');
 const { FinancialEngine } = require('./financialEngine.js'); 
 
 const ROOT_OWNER_UID = defineSecret('ROOT_OWNER_UID');
@@ -123,7 +124,6 @@ const checkBanStatus = (request) => {
 const safeAdd = (a, b) => Math.round((Number(a) + Number(b) + Number.EPSILON) * 10000) / 10000;
 const safeSub = (a, b) => Math.max(0, Math.round((Number(a) - Number(b) + Number.EPSILON) * 10000) / 10000);
 
-// 🛡️ [تحديث أمني]: استخدام التشفير لتوليد ID مستحيل التكرار لمنع ثغرات التصادم
 const generateUniqueId = () => {
     const timestamp = Date.now().toString(36).toUpperCase();
     const randomHex = crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -150,12 +150,21 @@ exports.createOrder = onCall({ region: 'us-east1', memory: '512MiB' }, async (re
     const serverNow = Date.now();
 
     try {
+        const cache = await loadOrderCache();
+
+        // 🚨 🚨 جدار الحماية (IP Firewall) 🚨 🚨
+        const clientIp = request.rawRequest?.headers?.['x-forwarded-for']?.split(',')[0].trim() || request.rawRequest?.connection?.remoteAddress || request.rawRequest?.ip || 'unknown';
+        const bannedIps = cache.settings?.bannedIps || [];
+        if (bannedIps.includes(clientIp)) {
+            console.error(`[SECURITY ALERT] Blocked order request from banned IP: ${clientIp}`);
+            throw new HttpsError('permission-denied', 'عذراً، هذا الاتصال محظور نهائياً.');
+        }
+
         const cleanOrderId = generateUniqueId();
         const userRef = db.collection('telecard_users').doc(uid);
         const productRef = db.collection('telecard_prods').doc(productId);
         const orderRef = db.collection('telecard_orders').doc(cleanOrderId); 
         
-        const cache = await loadOrderCache();
         let activeOffer = cache.offers.find(off => off.targetProds?.includes(productId) && (!off.expiryDate || off.expiryDate > serverNow));
         let couponRef = couponCode ? (await db.collection('telecard_coupons').where('code', '==', couponCode).limit(1).get()).docs[0]?.ref : null;
 
@@ -208,26 +217,23 @@ exports.createOrder = onCall({ region: 'us-east1', memory: '512MiB' }, async (re
                 if (liveCouponData.expiryDate && liveCouponData.expiryDate < serverNow) throw new HttpsError('failed-precondition', 'انتهت صلاحية الكوبون.');
                 if (liveCouponData.maxUses > 0 && (liveCouponData.usedCount || 0) >= liveCouponData.maxUses) throw new HttpsError('resource-exhausted', 'نفدت كمية استخدام الكوبون.');
             }
-// 🛡️ [تحديث أمني 💎]: استدعاء الدرع المالي المطور (calculateOrderTotal) وتمرير الكمية له مباشرة
+
             const pricingSnapshot = FinancialEngine.calculateOrderTotal({
                 product: product, 
                 tier: tierSnap.exists ? tierSnap.data() : null, 
                 offer: activeOffer, 
                 coupon: liveCouponData,
                 optIdx: optIdx
-            }, finalQty); // <-- تمرير الكمية هنا ليتكفل المحرك بحساب الإجماليات
+            }, finalQty); 
 
-            // 🚨 🚨 الجدار الناري (DIAMOND SHIELD) 🚨 🚨
             if (pricingSnapshot.isFirewallViolated) {
                 console.error(`[SECURITY ALERT] Firewall blocked order! User: ${uid}, Product: ${productId}`);
                 throw new HttpsError('permission-denied', 'تم اكتشاف تضارب في التسعير، تم إيقاف العملية لحماية المتجر.');
             }
 
-            // 💡 الآن نأخذ الإجمالي النهائي مباشرة من المحرك المالي دون أي عمليات حسابية يدوية
             const totalRequired = pricingSnapshot.totalFinalPrice; 
-            const currentBalance = Number(userData.walletBalance || userData.balance || 0); // تأمين قراءة الرصيد
+            const currentBalance = Number(userData.walletBalance || userData.balance || 0);
 
-            // منع الشراء إذا كان الرصيد لا يغطي، أو تم التلاعب لتصبح القيمة الإجمالية 0 أو سالبة!
             if (totalRequired <= 0 || currentBalance < totalRequired) {
                 throw new HttpsError('failed-precondition', 'رصيدك غير كافٍ لإتمام العملية.');
             }
@@ -282,7 +288,6 @@ exports.createOrder = onCall({ region: 'us-east1', memory: '512MiB' }, async (re
                 });
             }
 
-            // 💡 تحديث حفظ الطلب لاستخدام الإجماليات الجاهزة من المحرك المالي
             transaction.set(orderRef, {
                 id: cleanOrderId, displayId: cleanOrderId, userId: uid, prodId: productId, product: product.name,
                 price: totalRequired, qty: finalQty, input: finalInputStr, status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText,
@@ -291,13 +296,13 @@ exports.createOrder = onCall({ region: 'us-east1', memory: '512MiB' }, async (re
                 saleDiscount: safeAdd(0, pricingSnapshot.offerDiscount * finalQty), 
                 balanceAfter: newBalance,
                 pricingSnapshot: { 
-                    costUsd: pricingSnapshot.totalCost, // من المحرك مباشرة
+                    costUsd: pricingSnapshot.totalCost, 
                     tierPriceUsd: safeAdd(0, pricingSnapshot.tierPrice * finalQty), 
-                    originalPriceUsd: pricingSnapshot.totalOriginalPrice, // من المحرك مباشرة
+                    originalPriceUsd: pricingSnapshot.totalOriginalPrice, 
                     finalPriceUsd: totalRequired, 
                     tierName: pricingSnapshot.tierName, 
                     offerName: pricingSnapshot.offerName, 
-                    netProfitUsd: pricingSnapshot.totalProfit // من المحرك مباشرة
+                    netProfitUsd: pricingSnapshot.totalProfit 
                 },
                 time: admin.firestore.FieldValue.serverTimestamp()
             });
@@ -327,6 +332,15 @@ exports.submitBalanceRequest = onCall({ region: 'us-east1' }, async (request) =>
 
     try {
         const cache = await loadDepositCache();
+
+        // 🚨 🚨 جدار الحماية (IP Firewall) 🚨 🚨
+        const clientIp = request.rawRequest?.headers?.['x-forwarded-for']?.split(',')[0].trim() || request.rawRequest?.connection?.remoteAddress || request.rawRequest?.ip || 'unknown';
+        const bannedIps = cache.settings?.bannedIps || [];
+        if (bannedIps.includes(clientIp)) {
+            console.error(`[SECURITY ALERT] Blocked deposit request from banned IP: ${clientIp}`);
+            throw new HttpsError('permission-denied', 'عذراً، هذا الاتصال محظور نهائياً.');
+        }
+
         const paymentMethod = cache.payments.find(p => p.name === paymentMethodName);
         if (!paymentMethod) throw new HttpsError('not-found', 'طريقة الدفع غير متوفرة.');
 
@@ -355,7 +369,6 @@ exports.submitBalanceRequest = onCall({ region: 'us-east1' }, async (request) =>
             let feeAmount = feeUnit === 'fixed' || feeUnit === 'amount' ? fee : amount * (fee / 100);
             let netPayCurr = feeType === 'bonus' ? amount + feeAmount : amount - feeAmount;
 
-            // 🛡️ [تحديث أمني]: استخدام المحرك المالي لمنع ثغرات الفواصل العشرية عند تحويل العملات
             let safeNetBase = netPayCurr;
             if (payCurr !== baseCurr) {
                  safeNetBase = FinancialEngine.convertViaUSD(netPayCurr, payCurr, baseCurr, cache.rates, 'deposit');

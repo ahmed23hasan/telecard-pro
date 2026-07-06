@@ -45,15 +45,16 @@ service firebase.storage {
       allow read, write: if isMasterAdmin();
     }
 
-    // ==========================================
-    // 🧾 إيصالات الدفع (Create-Only لمنع التلاعب)
-    // ==========================================
-    match /receipts/{userId}/{fileName} {
-      allow read: if isOwner(userId);
-      // 🛡️ [ترقيع أمني]: يسمح بالإنشاء فقط (لا يمكن للعميل تعديل أو حذف الإيصال بعد رفعه لإخفاء الأدلة)
-      allow create: if isOwner(userId) && isImageOrPdf() && isValidSize(5);
-    }
-
+// ==========================================
+// 🧾 إيصالات الدفع (Create-Only لمنع التلاعب)
+// ==========================================
+match /receipts/{fileName} {
+allow read: if isAuthenticated() && fileName.matches('dep_' + request.auth.uid + '_.*');
+allow create: if isAuthenticated()
+&& fileName.matches('dep_' + request.auth.uid + '_.*')
+&& isImageOrPdf()
+&& isValidSize(5);
+}
     // ==========================================
     // 👤 الصور الشخصية للعملاء
     // ==========================================

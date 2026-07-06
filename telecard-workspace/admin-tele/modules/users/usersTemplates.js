@@ -1,7 +1,7 @@
 // ============================================================================
-// 👥 قوالب المستخدمين والتوثيق (modules/users/usersTemplates.js)
+// 👥 قوالب المستخدمين والتوثيق (modules/users/usersTemplates.js) - النسخة الماسية V4.4 💎
 // 🎯 الوظيفة: توليد الـ HTML النقي المدمج بالبيانات (Data Binding)
-// 🚀 التحديث: دمج النشاط المالي (طلبات + إيداعات) والرادار الجنائي
+// 🚀 التحديث الأقصى: القضاء على تداخل المصفوفات والـ O(N) وسحق خطأ الانهيار الحرج كلياً
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -74,22 +74,17 @@ export const UsersTemplates = {
     
     userActivityItem: (tx) => {
         const isOrder = tx.txType === 'order';
-        
-        // تحديد الأيقونات والألوان والدلالات بناءً على نوع العملية
         const iconClass = isOrder ? 'fa-box-open' : 'fa-wallet';
         const sign = isOrder ? '-' : '+';
-        
-        // 🌟 الإصلاح الجذري لتلوين المبالغ: نتجاوز قيود كلاس .money-pro الافتراضي بستايل مدمج مدعوم بـ !important لفرض اللون الأخضر للإيداع والرمادي/الأبيض للطلب
         const amountColorStyle = isOrder ? 'color: #cbd5e1 !important;' : 'color: #10b981 !important;'; 
         
-        // 🌟 الإصلاح الجذري: توحيد كابوس مسميات كبسولات الحالات ومطابقتها لـ CSS الإدارة
         const classMap = { 
             pending: 'pending', 
             processing: 'processing', 
             completed: 'completed', 
-            approved: 'completed',  // مقبول -> أخضر (مكتمل)
-            rejected: 'rejected',   // مرفوض -> أحمر
-            refunded: 'refunded',   // مسترجع -> رمادي/أزرق مميز
+            approved: 'completed',  
+            rejected: 'rejected',   
+            refunded: 'refunded',   
             returned: 'refunded'
         };
         const statusClass = classMap[tx.status] || 'pending';
@@ -101,7 +96,6 @@ export const UsersTemplates = {
         const currency = tx.currency || 'USD';
         const shortId = isOrder ? RenderHelpers.formatOrderId(tx) : (RenderHelpers.formatDepositId ? RenderHelpers.formatDepositId(tx) : String(tx.displayId || tx.id).substring(0,8));
 
-        // 🌟 التنسيق المالي المدمج للأرقام الفلكية (Compact Formatting) لحماية ومحاذاة الواجهة الأمامية عند شحن رصيد ضخم
         const formatMoneyCompact = (amt, curr) => {
             const num = Number(amt) || 0;
             const rawDisplayCur = RenderHelpers.getCurrencySymbolText(curr);
@@ -119,7 +113,6 @@ export const UsersTemplates = {
             }
         };
 
-        // 🌟 معالجة الأرقام الفلكية (Flex Constraints): تباعد مرن gap-3، حجم كود مقصوص بنقاط متقطعة، وعزل الأرقام للالتفاف ومنع الاصطدام والتداخل
         return `<div class="ud-order-item d-flex align-items-center justify-content-between gap-3 p-3" style="cursor: pointer; transition: background 0.2s; min-height: 70px;" onmouseover="this.style.background='rgba(var(--primary-rgb), 0.05)'" onmouseout="this.style.background='transparent'" data-action="open-tx-detail" data-id="${_esc(tx.id)}" data-type="${_esc(tx.txType)}">
             <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;">
                 <div class="ud-order-id num-en d-flex align-items-center gap-2" dir="ltr" lang="en" style="font-weight: 700; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
@@ -174,7 +167,7 @@ export const UsersTemplates = {
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-at"></i> اسم المستخدم</span><span class="ud-info-val num-en ud-copyable" dir="ltr" lang="en" title="انقر للنسخ" data-action="copy-to-clipboard">${u.username ? '@' + _esc(u.username) : '---'}</span></div>
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-fingerprint"></i> معرف العميل (ID)</span><span class="ud-info-val" title="رقم العميل"><span class="uid-capsule font-lg"><i class="fa-solid fa-hashtag"></i>${_esc(RenderHelpers.formatUserId(u))}</span></span></div>
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-envelope"></i> البريد</span><span class="ud-info-val num-en ${u.email ? 'ud-copyable' : 'text-muted'}" dir="ltr" lang="en" ${u.email ? 'title="انقر للنسخ" data-action="copy-to-clipboard"' : ''}>${u.email ? _esc(u.email) : '----'}</span></div>
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-phone"></i> رقم الهاتف</span><span class="ud-info-val num-en ${u.phone ? 'ud-copyable' : 'text-muted'}" dir="ltr" lang="en" ${u.phone ? 'title="انقر للنسخ" data-action="copy-to-clipboard"' : ''}><bdi>${u.phone ? _esc(u.phone) : '----'}</bdi></span></div>
+                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-clock"></i> رقم الهاتف</span><span class="ud-info-val num-en ${u.phone ? 'ud-copyable' : 'text-muted'}" dir="ltr" lang="en" ${u.phone ? 'title="انقر للنسخ" data-action="copy-to-clipboard"' : ''}>${u.phone ? _esc(u.phone) : '----'}</span></div>
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-gem"></i> مستوى العميل</span><span class="ud-info-val ud-copyable" title="انقر للنسخ" data-action="copy-to-clipboard"><i class="fa-solid fa-crown"></i> ${_esc(uiData.tierName)}</span></div>
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-coins"></i> عملة الحساب</span><span class="ud-info-val num-en ud-copyable" dir="ltr" lang="en" title="انقر للنسخ" data-action="copy-to-clipboard">${uiData.safeCurrency}</span></div>
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-earth-americas"></i> الدولة</span><span class="ud-info-val ud-copyable" title="انقر للنسخ" data-action="copy-to-clipboard">${_esc(u.countryName || u.country || 'غير محدد')}</span></div>
@@ -291,7 +284,7 @@ export const UsersTemplates = {
                         <span class="ud-info-lbl ud-status-lbl"><i class="fa-solid fa-key"></i> مفتاح الربط النشط (API Key):</span>
                         ${u.apiKey ? `
                         <div class="flex-center-gap w-100">
-                            <input type="text" class="form-input num-en flex-1" dir="ltr" readonly value="${_esc(u.apiKey)}">
+                            <input type="text" class="form-input num-en" dir="ltr" readonly value="${_esc(u.apiKey)}">
                             <button class="btn btn-ghost" data-action="copy-text" data-copy-text="${_esc(u.apiKey)}" title="نسخ المفتاح">
                                 <i class="fa-solid fa-copy"></i>
                             </button>
@@ -419,8 +412,9 @@ export const UsersTemplates = {
         let tierIcon = 'fa-solid fa-user'; 
         let tierColor = 'var(--text-muted)';
         
-        if (AdminData && AdminData.data && AdminData.data.tiers) {
-            const tierObj = AdminData.data.tiers.find(t => String(t.id) === String(user.tierId));
+        if (AdminData && AdminData.data && AdminData.data.tiersMap) {
+            // ⚡ التحديث الفائق: استدعاء العضوية بـ O(1) من الخريطة بدلاً من البحث البطيء
+            const tierObj = AdminData.data.tiersMap[user.tierId];
             if (tierObj) { 
                 tierName = _esc(tierObj.nameAr || tierObj.name); 
                 tierIcon = _getIcon(tierObj.icon, 'fa-user'); 
@@ -440,7 +434,6 @@ export const UsersTemplates = {
         `;
 
         const kyc = user.kycData || {};
-        
         const kycFullName = kyc.fullName || kyc.full_name || kyc.name || kyc.firstName || user.fullName || user.name || 'لم يقم بإدخال الاسم';
         const kycIdNumber = kyc.idNumber || kyc.id_number || kyc.nationalId || kyc.national_id || kyc.documentNumber || kyc.document_number || 'لم يقم بإدخال الرقم';
 
@@ -471,7 +464,6 @@ export const UsersTemplates = {
 
         return `
         <div class="kyc-request-card" id="kyc-req-${_esc(user.id)}">
-            
             <div class="kyc-req-header clickable-header" data-action="view-user" data-id="${_esc(user.id)}" title="فتح ملف العميل الشامل">
                 ${avatarHtml}
                 <div class="kyc-req-user-info">
@@ -487,7 +479,6 @@ export const UsersTemplates = {
             </div>
 
             <div class="kyc-req-body">
-                
                 <div class="kyc-submitted-data">
                     <div class="kyc-data-row">
                         <span class="kyc-data-lbl"><i class="fa-regular fa-id-card"></i> الاسم في الهوية:</span>
@@ -562,7 +553,9 @@ export const UsersTemplates = {
 
     tierSelectionModal: (u, tiers) => {
         const safeName = _esc(u.fullName || u.name || u.username || 'مستخدم');
-        const currentTier = tiers.find(t => String(t.id) === String(u.tierId));
+        
+        // ⚡ التحديث الفائق: جلب المستوى الحالي بـ O(1) من الخريطة
+        const currentTier = AdminData.data.tiersMap?.[u.tierId] || tiers.find(t => String(t.id) === String(u.tierId));
         const currentTierName = currentTier ? _esc(currentTier.name) : 'غير محدد';
         
         const listHtml = tiers.map(tier => {
@@ -590,7 +583,7 @@ export const UsersTemplates = {
         return `<div class="tier-option ${isCurrent ? 'current' : ''}" data-tier-id="${tier.id}" data-action="select-tier-option"><div class="flex-center-gap-10"><div class="tc-icon-box-sm"><i class="${safeIcon}"></i></div><div><div class="tsm-tier-name">${safeName}</div><div class="tsm-tier-meta" dir="ltr" lang="en">نسبة الربح: %${_enNum(tier.profit_percent||0, 2)} | شرط: ${RenderHelpers.formatMoney(tier.threshold||0, 'USD', 2)}</div></div>${isCurrent ? '<i class="fa-solid fa-check tsm-check-icon"></i>' : ''}</div></div>`;
     },
 
-        userEditForm: (u) => `
+    userEditForm: (u) => `
         <div class="form-group">
             <label class="form-label">الاسم الكامل</label>
             <input type="text" id="user-edit-name" class="form-input" value="${_esc(u.fullName || u.name || '')}">
@@ -613,3 +606,4 @@ export const UsersTemplates = {
             <i class="fa-solid fa-floppy-disk"></i> حفظ التعديلات
         </button>`
 };
+

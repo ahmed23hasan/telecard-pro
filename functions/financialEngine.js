@@ -1,12 +1,12 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - Master Engine V10.1 (Max Security)
+// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - Master Engine V10.2 (Max Security)
 // 🎯 الوظيفة: حساب الأسعار بأمان تام، حماية الأرباح، منع الخصم العكسي، وحماية الكميات
-// 🌟 التحديث الأقصى: تطبيق معقم التكلفة، ودرع الكمية (Qty Shield) لحساب الفواتير الكلية
+// 🌟 التحديث الأقصى: تطبيق معقم التكلفة (Strict Extract)، وتسريع البحث O(1)، واعتماد ES6
 // ============================================================================
 
 const FinancialEngineDef = {
   
-  // 🛡️ دوال الرياضيات الآمنة الداخلية (محصنة ضد NaN و Infinity وثغرات الفواصل)
+  // 🛡️ دوال الرياضيات الآمنة الداخلية
   safeAdd: function(a, b) {
     return Math.round((Number(a) || 0) * 10000 + (Number(b) || 0) * 10000) / 10000;
   },
@@ -22,80 +22,70 @@ const FinancialEngineDef = {
   safeDiv: function(a, b) {
     const numA = Number(a) || 0;
     let numB = Number(b);
-    if (isNaN(numB) || numB === 0) numB = 1; // منع قطعي للقسمة على صفر (تمنع ثغرة Crash السيرفر)
+    if (isNaN(numB) || numB === 0) numB = 1; 
     return Math.round((numA / numB) * 10000) / 10000;
   },
   
-  // 🛡️ استخراج الأرقام بقواعد رياضية صارمة (Absolute Math) لمنع الحقن السالب
+  // 🛡️ [تحديث أمني]: معقم الأرقام الصارم (Strict Number Sanitizer)
   extractNum: function(val) {
     if (val === undefined || val === null || val === '') return 0;
     const num = Number(val);
-    // إذا أرسل الهاكر نصاً (NaN) نرجع 0، وإذا أرسل سالباً نرجعه موجباً إجبارياً
-    return isNaN(num) ? 0 : Math.abs(num);
+    if (isNaN(num)) return 0;
+    if (num < 0) {
+        // 🚨 إطلاق إنذار في سجلات السيرفر عند رصد قيمة سالبة مجهولة المصدر
+        console.warn(`[SECURITY WARNING] Attempted negative value injection blocked: ${num}`);
+        return 0; 
+    }
+    return num;
   },
   
-  // 🛡️ نسخ المصفوفة قبل التعديل عليها (منع Memory Leak و Prototype Pollution)
+  // 🛡️ [تحديث الأداء]: تحويل المصفوفة إلى Dictionary لسرعة O(1)
   normalizeRates: function(raw) {
-    var rates = Array.isArray(raw) ? [...raw] : [];
-    var hasBase = false;
-    for (var i = 0; i < rates.length; i++) {
-      if (rates[i].isBase) {
-        hasBase = true;
-        break;
-      }
+    const ratesArray = Array.isArray(raw) ? raw : [];
+    const ratesMap = {};
+    let hasBase = false;
+    
+    for (const rate of ratesArray) {
+        if (rate && rate.code) {
+            ratesMap[String(rate.code).toUpperCase()] = rate;
+            if (rate.isBase) hasBase = true;
+        }
     }
+    
     if (!hasBase) {
-      rates.unshift({ code: 'USD', symbol: '$', name: 'US Dollar', priceRate: 1, depRate: 1, isBase: true });
+        ratesMap['USD'] = { code: 'USD', symbol: '$', name: 'US Dollar', priceRate: 1, depRate: 1, isBase: true };
     }
-    return rates;
+    return ratesMap;
   },
   
-  convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel) {
-    var ch = channel || 'pricing';
-    var rates = this.normalizeRates(ratesArray);
-    var amt = Number(amount) || 0;
+  convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel = 'pricing') {
+    const amt = Number(amount) || 0;
     
-    // إذا كان المبلغ 0 أو العملات متطابقة، لا ترهق السيرفر بالعمليات
     if (amt === 0 || !fromCode || !toCode || String(fromCode).toUpperCase() === String(toCode).toUpperCase()) return amt;
     
-    var fromCurr = { priceRate: 1, depRate: 1 };
-    var toCurr = { priceRate: 1, depRate: 1 };
+    const ratesMap = this.normalizeRates(ratesArray);
     
-    for (var i = 0; i < rates.length; i++) {
-      if (String(rates[i].code).toUpperCase() === String(fromCode).toUpperCase()) {
-        fromCurr = rates[i];
-      }
-      if (String(rates[i].code).toUpperCase() === String(toCode).toUpperCase()) {
-        toCurr = rates[i];
-      }
-    }
+    const fromCurr = ratesMap[String(fromCode).toUpperCase()] || { priceRate: 1, depRate: 1 };
+    const toCurr = ratesMap[String(toCode).toUpperCase()] || { priceRate: 1, depRate: 1 };
     
-    var fromRate = ch === 'deposit' ? fromCurr.depRate : fromCurr.priceRate;
-    var toRate = ch === 'deposit' ? toCurr.depRate : toCurr.priceRate;
+    const fromRate = channel === 'deposit' ? fromCurr.depRate : fromCurr.priceRate;
+    const toRate = channel === 'deposit' ? toCurr.depRate : toCurr.priceRate;
     
-    var inUSD = this.safeDiv(amt, fromRate);
-    var finalAmount = this.safeMul(inUSD, toRate || 1);
-    
-    return finalAmount;
+    const inUSD = this.safeDiv(amt, fromRate);
+    return this.safeMul(inUSD, toRate || 1);
   },
   
-  // ==========================================
-  // 🚀 المحرك المالي الذكي لحساب "القطعة الواحدة" (Unit Price)
-  // ==========================================
-  calculatePrice: function(params) {
-    var p = params || {};
-    var product = p.product || {};
-    var tier = p.tier || null;
-    var offer = p.offer || null;
-    var coupon = p.coupon || null;
-    var optIdx = p.optIdx !== undefined ? p.optIdx : null;
+  calculatePrice: function(params = {}) {
+    const product = params.product || {};
+    const tier = params.tier || null;
+    const offer = params.offer || null;
+    const coupon = params.coupon || null;
+    const optIdx = params.optIdx !== undefined ? params.optIdx : null;
     
-    // 🛡️ [تحديث أمني]: استخدام extractNum لمنع أخطاء الإدارة (مثلاً وضع تكلفة بالسالب بالخطأ)
-    var cost = this.extractNum(product.costPrice || product.cost_price || 0);
-    var isFixed = (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true');
-    var activeOption = null;
+    let cost = this.extractNum(product.costPrice || product.cost_price || 0);
+    let isFixed = (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true');
+    let activeOption = null;
     
-    // دعم نظام الباقات (Options) بأمان
     if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && product.options[optIdx]) {
       activeOption = product.options[optIdx];
       cost = this.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
@@ -104,7 +94,7 @@ const FinancialEngineDef = {
       }
     }
     
-    var baseSellingPrice = 0;
+    let baseSellingPrice = 0;
     
     if (isFixed) {
       baseSellingPrice = activeOption ? this.extractNum(activeOption.fixedPriceUsd || activeOption.price || 0) : this.extractNum(product.fixedPriceUsd || product.fixed_price_usd || 0);
@@ -114,14 +104,13 @@ const FinancialEngineDef = {
       } else if (!activeOption && product.tierPrices && product.tierPrices[tier.id]) {
         baseSellingPrice = this.extractNum(product.tierPrices[tier.id]);
       } else {
-        var basePriceForMath = activeOption ? this.extractNum(activeOption.price || 0) : this.extractNum(product.price || 0);
+        const basePriceForMath = activeOption ? this.extractNum(activeOption.price || 0) : this.extractNum(product.price || 0);
         
-        // 🛡️ [تحديث أمني]: منع هوامش الربح السالبة
-        var profitPercent = this.extractNum(tier.profitPercent || tier.profit_percent || tier.profitMargin || 0);
-        var minProfitUsd = this.extractNum(tier.minProfitUsd || tier.min_profit_usd || tier.minProfit || 0);
+        const profitPercent = this.extractNum(tier.profitPercent || tier.profit_percent || tier.profitMargin || 0);
+        const minProfitUsd = this.extractNum(tier.minProfitUsd || tier.min_profit_usd || tier.minProfit || 0);
         
         if (profitPercent > 0 || minProfitUsd > 0) {
-          var profitAdded = this.safeMul(cost, profitPercent / 100);
+          let profitAdded = this.safeMul(cost, profitPercent / 100);
           if (profitAdded < minProfitUsd) profitAdded = minProfitUsd;
           baseSellingPrice = this.safeAdd(cost, profitAdded);
         } else {
@@ -132,17 +121,16 @@ const FinancialEngineDef = {
       baseSellingPrice = activeOption ? this.extractNum(activeOption.price || 0) : this.extractNum(product.price || 0);
     }
     
-    var tierPrice = Number(baseSellingPrice) || 0;
-    var currentPrice = tierPrice;
-    var originalPrice = tierPrice;
-    var tierName = tier ? (tier.nameAr || tier.name || tier.id || 'عضو') : (isFixed ? 'سعر ثابت' : null);
+    const tierPrice = Number(baseSellingPrice) || 0;
+    let currentPrice = tierPrice;
+    const originalPrice = tierPrice;
+    const tierName = tier ? (tier.nameAr || tier.name || tier.id || 'عضو') : (isFixed ? 'سعر ثابت' : null);
     
-    // 2. تطبيق خصومات العروض النشطة
-    var offerName = null;
-    var offerDiscount = 0;
+    let offerName = null;
+    let offerDiscount = 0;
     if (offer && offer.type !== 'fake') {
       offerName = offer.name;
-      var offerVal = this.extractNum(offer.value);
+      const offerVal = this.extractNum(offer.value);
       if (offer.type === 'percentage') {
         offerDiscount = this.safeMul(originalPrice, offerVal / 100);
       } else if (offer.type === 'fixed' || offer.type === 'amount') {
@@ -151,17 +139,16 @@ const FinancialEngineDef = {
       currentPrice = Math.max(0, this.safeSub(currentPrice, offerDiscount));
     }
     
-    // 3. تطبيق خصومات الكوبونات
-    var couponCode = null;
-    var couponDiscount = 0;
-    var isFirewallActive = false;
-    var isFirewallViolated = false; // 🚩 مؤشر أمني لرفض العمليات المشبوهة
+    let couponCode = null;
+    let couponDiscount = 0;
+    let isFirewallActive = false;
+    let isFirewallViolated = false; 
     
     if (product.disableCoupons === true || isFixed) {
       isFirewallActive = true;
     } else if (coupon) {
       couponCode = coupon.code;
-      var couponVal = this.extractNum(coupon.value);
+      const couponVal = this.extractNum(coupon.value);
       if (coupon.type === 'percentage') {
         couponDiscount = this.safeMul(currentPrice, couponVal / 100);
       } else if (coupon.type === 'fixed' || coupon.type === 'amount') {
@@ -170,63 +157,52 @@ const FinancialEngineDef = {
       currentPrice = Math.max(0, this.safeSub(currentPrice, couponDiscount));
     }
     
-    // 🛡️ الجدار الناري المتقدم (Profit Protection Firewall)
     if (currentPrice < cost) {
       isFirewallActive = true;
-      isFirewallViolated = true; // 🚨 إشارة للدالة الأم للتعامل مع العملية الخبيثة!
+      isFirewallViolated = true; 
       
-      currentPrice = cost; // التعديل الآمن
+      currentPrice = cost; 
       
-      var maxAllowedDiscount = Math.max(0, this.safeSub(originalPrice, cost));
-      var totalRequestedDiscount = this.safeAdd(offerDiscount, couponDiscount);
+      const maxAllowedDiscount = Math.max(0, this.safeSub(originalPrice, cost));
+      const totalRequestedDiscount = this.safeAdd(offerDiscount, couponDiscount);
       
       if (totalRequestedDiscount > 0) {
-        var ratio = this.safeDiv(maxAllowedDiscount, totalRequestedDiscount);
+        const ratio = this.safeDiv(maxAllowedDiscount, totalRequestedDiscount);
         offerDiscount = this.safeMul(offerDiscount, ratio);
         couponDiscount = this.safeMul(couponDiscount, ratio);
       }
     }
     
-    var finalPrice = currentPrice;
-    var totalDiscountVal = this.safeAdd(offerDiscount, couponDiscount);
-    var profit = Math.max(0, this.safeSub(finalPrice, cost));
-    var marginPct = cost > 0 ? (profit / cost) * 100 : 0;
+    const finalPrice = currentPrice;
+    const totalDiscountVal = this.safeAdd(offerDiscount, couponDiscount);
+    const profit = Math.max(0, this.safeSub(finalPrice, cost));
+    const marginPct = cost > 0 ? (profit / cost) * 100 : 0;
     
     return {
-      cost: cost,
-      tierPrice: tierPrice,
-      originalPrice: originalPrice,
-      finalPrice: finalPrice,
-      tierName: tierName,
-      offerName: offerName,
-      offerDiscount: offerDiscount,
-      couponCode: couponCode,
-      couponDiscount: couponDiscount,
-      totalDiscountVal: totalDiscountVal,
-      profit: profit,
+      cost,
+      tierPrice,
+      originalPrice,
+      finalPrice,
+      tierName,
+      offerName,
+      offerDiscount,
+      couponCode,
+      couponDiscount,
+      totalDiscountVal,
+      profit,
       marginPct: Number(marginPct.toFixed(2)),
-      isFirewallActive: isFirewallActive,
-      isFirewallViolated: isFirewallViolated
+      isFirewallActive,
+      isFirewallViolated
     };
   },
   
-  // ==========================================
-  // 🛡️ [الدرع الجديد]: الدالة التي يجب استدعاؤها لحساب إجمالي الفاتورة
-  // ==========================================
   calculateOrderTotal: function(params, rawQty) {
-    // 1. فلترة الكمية (الكسور، الصفر، السوالب مرفوضة تماماً)
-    // أمثلة: (0.5 => 1)، (-5 => 1)، ("abc" => 1)، (5 => 5)
     const safeQty = Math.max(1, Math.floor(Number(rawQty) || 1));
-    
-    // 2. حساب سعر القطعة الواحدة
     const unitMath = this.calculatePrice(params);
     
-    // 3. إرجاع النتيجة مضروبة في الكمية بأمان
     return {
-      ...unitMath, // تفاصيل القطعة الواحدة (للأرشفة)
-      qty: safeQty, // الكمية المعتمدة (يجب حفظها في الداتابيز)
-      
-      // الإجماليات (Totals)
+      ...unitMath, 
+      qty: safeQty, 
       totalCost: this.safeMul(unitMath.cost, safeQty),
       totalOriginalPrice: this.safeMul(unitMath.originalPrice, safeQty),
       totalFinalPrice: this.safeMul(unitMath.finalPrice, safeQty),
@@ -236,5 +212,4 @@ const FinancialEngineDef = {
   }
 };
 
-// إغلاق الكائن لمنع ثغرات تعديل النماذج في بيئة Node.js (Prototype Pollution)
 exports.FinancialEngine = Object.freeze(FinancialEngineDef);

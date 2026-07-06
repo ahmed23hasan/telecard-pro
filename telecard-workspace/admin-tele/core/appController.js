@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 الموجه المركزي للنظام (core/appController.js) - Master Orchestrator 🚀
+// 🧠 الموجه المركزي للنظام (core/appController.js) - Master Orchestrator V9.1 🚀
 // الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🌟 التحديث: تكامل غرفة العمليات (الجدار الناري والقائمة السوداء - Blacklist)
+// 🌟 التحديث الأقصى: زراعة مستمعات فك الارتباط الدائري المتبقية وترقية الملاحة لـ O(1)
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -111,39 +111,69 @@ export const AppController = {
     },
 
     setupEventBusListeners: function() {
+        // --- 1. أحداث النظام والملاحة الأساسية ---
         EventBus.on('req-logout', () => this.logoutAdmin());
-        EventBus.on('req-save-system', () => this.saveSystem());
-        EventBus.on('req-save-admin-profile', () => this.saveAdminProfile());
-        
+        EventBus.on('req-navigate', (data) => this.nav?.(data.page, data.btnEl));
         EventBus.on('req-navigate-filter', (data) => this.navWithFilter?.(data.section, data.status));
         EventBus.on('req-refresh', (data) => this.refresh?.(data.type));
+        
+        // --- 2. أحداث حفظ الإعدادات والهوية ---
+        EventBus.on('req-save-system', () => this.saveSystem());
+        EventBus.on('req-save-admin-profile', () => this.saveAdminProfile());
         EventBus.on('req-toggle-system', (data) => this.confirmSystemToggle?.(data.type, data.element));
         EventBus.on('req-save-support', () => this.saveSupportSettings?.());
         EventBus.on('req-save-terms', () => this.saveTerms?.());
+        
+        // مستمع الحفظ التلقائي لإعدادات التسويق
+        EventBus.on('req-auto-save-settings', () => {
+            MarketingController.autoSaveSettings?.();
+        });
+        
+        // --- 3. أحداث الحذف والفلاتر ---
         EventBus.on('req-delete-item', (data) => this.delItem?.(data.type, data.id));
         EventBus.on('req-apply-filters', (data) => this.applyFilters?.(data.section));
         EventBus.on('req-quick-date', (data) => this.setQuickDateFilter?.(data.range, data.section));
         
-        // 🌟 مستمعات أوامر الجدار الناري والقائمة السوداء
+        // --- 4. أوامر الجدار الناري والقائمة السوداء (Firewall) 🛡️ ---
         EventBus.on('req-add-ban-ip', () => this.addGlobalBanIp());
         EventBus.on('req-remove-ban-ip', (data) => this.removeGlobalBanIp(data.ip));
         EventBus.on('req-remove-ban-device', (data) => this.removeGlobalBanDevice(data.device));
+        
+        // --- 5. الموجه الديناميكي للأقسام (Dynamic Routing) 💎 ---
+        EventBus.on('req-edit-item', (data) => {
+            if (data.type === 'cat') AdminUI?.CatalogUI?.openCategoryModal?.(data.id);
+            else if (data.type === 'prod') CatalogController.openProductModal?.(data.id);
+            else if (data.type === 'pay') AdminUI?.FinanceUI?.openPaymentModal?.(data.id);
+            else if (data.type === 'country') AdminUI?.CatalogUI?.openCountryModal?.(data.id);
+            else if (data.type === 'coupon') MarketingController.openCouponModal?.(data.id);
+            else if (data.type === 'offer') MarketingController.openOfferModal?.(data.id);
+            else if (data.type === 'vault') AdminUI?.CatalogUI?.openVaultModal?.(data.id);
+            else if (data.type === 'tier') AdminUI?.UsersUI?.openTierModal?.(data.id);
+        });
 
+        // 🛡️ [تحديث أمني V9.1]: مستمع تحديث الحالة الإدارية الموحد (لفك الارتباط عن الموديولات)
+        EventBus.on('req-update-state', (newState) => this.updateState(newState));
+
+        // 🛡️ [تحديث أمني V9.1]: مستمع إنهاء العمليات الإدارية والمالية الموحد (لأمان الـ Loaders والـ Modals)
+        EventBus.on('req-finish-action', (data) => {
+            this.finishAction(data.renderEvent, data.modalId, data.logAction, data.logDetails, data.toastMsg, data.toastType);
+        });
+        
+        // --- 6. معالج أحداث HTML الديناميكية (Action Trigger) ---
         EventBus.on('action-triggered', async (data) => {
             const routers = getSystemRouters();
             if (routers[data.action]) await routers[data.action](data);
             else console.warn(`⚠️ حدث غير مبرمج في النظام: ${data.action}`);
         });
         
-        EventBus.on('req-navigate', (data) => this.nav?.(data.page, data.btnEl));
+        // --- 7. أحداث النوافذ والـ UI ---
         EventBus.on('req-show-toast', (data) => AdminUI?.showToast?.(data.message, data.type || 'success'));
-        EventBus.on('modals-closed', () => this.updateState({ tempEditId: null, tempPackages: [], tempPayDetails: [] }));
-        
         EventBus.on('req-open-modal', (modalId) => AdminUI?.openModal?.(modalId));
+        EventBus.on('modals-closed', () => this.updateState({ tempEditId: null, tempPackages: [], tempPayDetails: [] }));
         EventBus.on('set-temp-edit-id', (id) => this.updateState({ tempEditId: id !== null ? String(id) : null }));
-        
         EventBus.on('tier-option-selected', (tierId) => this.updateState({ selectedTierId: tierId }));
         
+        // --- 8. إعدادات الأمان والتوثيق (KYC) ---
         EventBus.on('req-save-kyc-config', async (newKycConfig) => {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات التوثيق...');
             try {
@@ -241,7 +271,6 @@ export const AppController = {
                 AdminUI?.setupSettingsViews?.(id, this.data); 
             }
 
-            // 🌟 رسم الجدار الناري بمجرد فتح صفحة النظام
             if (id === 'sys') {
                 this.renderFirewallBlacklist();
             }
@@ -267,7 +296,6 @@ export const AppController = {
             const refreshMap = { 'deposits': 'req-render-deposits', 'orders': 'req-render-orders', 'users': 'req-render-users', 'products': 'req-render-prods', 'logs': 'req-render-logs', 'wallets': 'req-render-wallets' };
             if (refreshMap[type]) EventBus.emit(refreshMap[type]); else await this.nav(type || 'dash');
             
-            // تحديث واجهة الجدار الناري لو كنا في صفحتها
             if (type === 'sys' || document.getElementById('view-sys')?.classList.contains('active')) {
                 this.renderFirewallBlacklist();
             }
@@ -278,7 +306,8 @@ export const AppController = {
 
     back: function() { 
         if (this.currFolder) { 
-            const curr = this.data.cats.find(x => String(x.id) === String(this.currFolder)); 
+            // ⚡ التحديث المعماري O(1) للعودة للخلف بالكتالوج باستخدام الخرائط السريعة
+            const curr = AdminData.data.catsMap?.[this.currFolder] || this.data.cats.find(x => String(x.id) === String(this.currFolder)); 
             if (curr) { 
                 this.updateState({ currFolder: curr.parentId !== null && curr.parentId !== 'null' ? String(curr.parentId) : null }); 
                 EventBus.emit('req-render-prods'); 
@@ -304,7 +333,6 @@ export const AppController = {
         const bannedIps = Array.isArray(settings.bannedIps) ? settings.bannedIps : [];
         const bannedDevices = Array.isArray(settings.bannedDevices) ? settings.bannedDevices : [];
 
-        // رسم عناوين IP
         if (bannedIps.length === 0) {
             ipContainer.innerHTML = '<span class="text-muted fs-11"><i class="fa-solid fa-check text-success"></i> لا توجد عناوين IP محظورة.</span>';
         } else {
@@ -316,7 +344,6 @@ export const AppController = {
             `).join('');
         }
 
-        // رسم الأجهزة
         if (bannedDevices.length === 0) {
             deviceContainer.innerHTML = '<span class="text-muted fs-11"><i class="fa-solid fa-check text-success"></i> لا توجد أجهزة مفخخة.</span>';
         } else {
@@ -336,7 +363,6 @@ export const AppController = {
         
         if (!newIp) return AdminUI.showToast('الرجاء إدخال عنوان IP', 'error');
         
-        // التحقق من صيغة IP صحيحة (IPv4 أو IPv6)
         if (!/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(newIp) && !newIp.includes(':')) {
             return AdminUI.showToast('صيغة الـ IP غير صحيحة', 'error');
         }
@@ -399,9 +425,6 @@ export const AppController = {
         }
     },
 
-    // ==========================================
-    // ⚙️ إعدادات النظام العامة والحذف (محمية بالـ Loaders)
-    // ==========================================
     saveSystem: async function() { 
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات النظام...');
         try {
@@ -479,7 +502,6 @@ export const AppController = {
               
         if (!name || !email) return AdminUI?.showToast('الاسم والبريد مطلوبان', 'error'); 
         
-        // 🌟 تشغيل اللودر لحماية رفع الصورة
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث الملف الشخصي...');
 
         try {
@@ -522,7 +544,6 @@ export const AppController = {
         
         let itemName = "عنصر";
         
-        // 🌟 حماية الحذف بشاشة تحميل (لأنها تتضمن حذف صور من السحابة)
         if (type === 'pay') {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح البوابة السحابية...');
             try {

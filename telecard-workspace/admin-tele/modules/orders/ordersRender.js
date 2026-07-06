@@ -1,7 +1,7 @@
 // ============================================================================
-// 📦 محرك رسم الطلبات (modules/orders/ordersRender.js)
+// 📦 محرك رسم الطلبات (modules/orders/ordersRender.js) - النسخة الماسية V4.3 💎
 // 🎯 الوظيفة: التكفل برسم قوائم الطلبات، الفلترة، والتحميل التدريجي وتصدير الإكسل
-// 🚀 التحديث: حماية التقارير المحاسبية بربط التصدير بالمعرفات والتواريخ المركزية
+// 🚀 التحديث: القضاء على تداخل المصفوفات والتحول الشامل للبحث السريع بـ O(1)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -54,7 +54,9 @@ export const OrdersRender = {
                 let mS = true, mD = true;
                 if(f.search) {
                     const s = String(f.search).toLowerCase();
-                    const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
+                    
+                    // ⚡ استدعاء العميل فورا بـ O(1) من خريطة البحث السريع
+                    const userRec = AdminData.data.usersMap?.[o.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
                     const dId = userRec && userRec.displayId ? String(userRec.displayId).toLowerCase() : '';
                     
                     mS = String(o.id).includes(s) || 
@@ -112,7 +114,8 @@ export const OrdersRender = {
         const paginatedOrders = isAppend ? data.slice(this.ordersLimit - 50, this.ordersLimit) : data.slice(0, this.ordersLimit);
 
         let newHtml = paginatedOrders.map(o => {
-            const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
+            // ⚡ جلب العميل فورا بـ O(1)
+            const userRec = AdminData.data.usersMap?.[o.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
             const userName = userRec ? RenderHelpers._getTxName(userRec) : (o.userName || 'مستخدم جديد');
             
             const cleanInput = (str) => { 
@@ -163,13 +166,12 @@ export const OrdersRender = {
         let csvContent = "\uFEFFرقم الطلب,التاريخ,اسم العميل,المعرف القصير,المنتج,الكمية,السعر الاجمالي($),التكلفة($),الربح($),المصدر,الحالة\n";
         
         dataToExport.forEach(o => {
-            // 🌟 استخدام المنسق الموحد لضمان ثبات التواريخ داخل ملف الإكسل
             const dateStr = RenderHelpers.formatSafeDate(o.time || o.createdAt);
             const sanitizeCSV = (str) => { let c = String(str).replace(/,/g, " "); if (/^[=@+-]/.test(c)) c = "'" + c; return c; };
 
-            const userRec = (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
+            // ⚡ جلب العميل فورا بـ O(1) بدلا من التكرار المبطن البطيء
+            const userRec = AdminData.data.usersMap?.[o.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
             
-            // 🌟 استدعاء المنسق المركزي لطباعة المعرف المحاسبي الموحد داخل التقرير
             const displayId = RenderHelpers.formatUserId(userRec);
             const customerName = sanitizeCSV(userRec ? (userRec.name || o.userName) : (o.userName || o.userId));
 

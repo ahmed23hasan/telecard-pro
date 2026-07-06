@@ -14,7 +14,7 @@ service cloud.firestore {
     function isMasterAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2' // ⚠️ باب طوارئ (يفضل إزالته مستقبلاً إذا تم الاعتماد كلياً على الـ token)
+        request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2' // ⚠️ باب طوارئ للإدارة العليا
       );
     }
 
@@ -26,15 +26,13 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.token.banned != true;
     }
 
-    // 🛡️ [تحديث أمني]: القائمة البيضاء للحقول المسموح للعميل بتعديلها (Whitelist Firewall)
-    // هذا يمنع الهاكرز من حقن حقول عشوائية لتضخيم قاعدة البيانات
+    // 🛡️ القائمة البيضاء للحقول المسموح للعميل بتعديلها (Whitelist Firewall)
     function isOnlyUpdatingAllowedProfileFields() {
       let allowedKeys = [
         'name', 'firstName', 'lastName', 'fullName', 'username',
         'img', 'phone', 'country', 'theme', 'devicePrints', 
         'passwordChangeHistory', 'adminMessage'
       ];
-      // التأكد من أن التحديث يحتوي فقط على الحقول المسموحة
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
     }
 
@@ -93,7 +91,6 @@ service cloud.firestore {
     // ==========================================
     // 🔒 الكوبونات والمنتجات الأصلية (السيرفر والإدارة فقط)
     // ==========================================
-    // ⚠️ يتم التحقق من الكوبون والأسعار بأمان داخل Cloud Function وهذا هو المعيار البنكي.
     match /telecard_coupons/{docId} { allow read, write: if isMasterAdmin(); }
     match /telecard_prods/{docId} { allow read, write: if isMasterAdmin(); }
 
@@ -102,29 +99,42 @@ service cloud.firestore {
     // ==========================================
     match /telecard_orders/{docId} {
       allow read: if (isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
-      allow write: if isMasterAdmin(); // السيرفر (Cloud Functions) فقط من ينشئ أو يعدل
+      allow write: if isMasterAdmin(); // السيرفر فقط
     }
 
     match /telecard_deposits/{docId} {
       allow read: if (isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
-      allow write: if isMasterAdmin();
+      allow write: if isMasterAdmin(); // السيرفر فقط
     }
 
     // ==========================================
-    // 💬 التقييمات وتأكيد التوثيق (Spam Protection)
+    // 💬 التقييمات وتأكيد التوثيق (Spam & Bloat Protection)
     // ==========================================
     match /telecard_private_feedbacks/{docId} {
-      // السماح بإنشاء التقييم مع التأكد من أن الحجم ليس ضخماً لمنع الـ Database Bloat
       allow create: if isNotBanned() 
+                    // 1. التحقق من الهوية
                     && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.keys().hasAll(['userId', 'text'])
-                    && request.resource.data.text.size() < 1000; // منع النصوص العملاقة
+                    // 2. الجدار الناري للتضخيم (Whitelist) لمنع الحقول الخبيثة
+                    && request.resource.data.keys().hasOnly(['userId', 'username', 'rating', 'feedback', 'time'])
+                    // 3. التحقق الصارم من التقييم كأرقام صحيحة
+                    && request.resource.data.rating is int 
+                    && request.resource.data.rating >= 0 
+                    && request.resource.data.rating <= 5
+                    // 4. التحقق من نوع وطول النص
+                    && request.resource.data.feedback is string
+                    && request.resource.data.feedback.size() < 1000;
+                    
       allow read, update, delete: if isMasterAdmin();
     }
 
     match /telecard_kyc/{docId} {
       allow read: if isOwner(resource.data.userId) || isMasterAdmin();
-      allow create: if isOwner(request.resource.data.userId) && isNotBanned();
+      allow create: if isOwner(request.resource.data.userId) 
+                    && isNotBanned()
+                    // 🛡️ حماية من تضخيم قاعدة البيانات عند إرسال ملفات الـ KYC
+                    && request.resource.data.keys().hasOnly(['userId', 'fullName', 'documentUrl', 'selfieUrl', 'status', 'createdAt', 'updatedAt'])
+                    && request.resource.data.status == 'pending';
+                    
       allow update, delete: if isMasterAdmin();
     }
 

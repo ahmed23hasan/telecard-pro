@@ -1,12 +1,14 @@
 // ============================================================================
-// 🗺️ خريطة مسارات المستخدمين (Users Actions Router)
+// 🗺️ خريطة مسارات المستخدمين (Users Actions Router) - النسخة الماسية V4.2 💎
 // 💡 الوظيفة: استلام أحداث العملاء، المستويات، ونظام التوثيق الأمني (KYC)
+// 🚀 التحديث المعماري: كسر الارتباط الدائري الميت تماماً بحذف الاستيراد غير المستخدم
 // ============================================================================
 
-import { AppController } from '../../core/appController.js';
-import { UsersController } from './usersController.js'; 
+import { UsersController } from './usersController.js';
 import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
+
+// 🚀 [نقاء هندسي]: تم حذف استيراد AppController تماماً لحماية لوحة الإدارة من الانهيار عند الإقلاع
 
 export const UsersActions = {
     // --- 1. الإدارة العامة للمستخدمين ---
@@ -14,8 +16,8 @@ export const UsersActions = {
     'open-user-edit': (data) => AdminUI?.UsersUI?.openUserEditModal?.(data.id),
     'close-user-edit': () => AdminUI?.UsersUI?.closeUserEditModal?.(),
     'view-user-full-history': (data) => UsersController.openUserFullHistory?.(data.id),
-
-    // 🔗 توجيه الأحداث إلى UsersController
+    
+    // 🔗 توجيه الأحداث إلى UsersController المطور بـ O(1)
     'save-user-edits': (data) => UsersController.saveUserEdits?.(data.id),
     'delete-user': (data) => UsersController.deleteUser?.(data.id),
     'restrict-user': (data) => UsersController.restrictUser?.(data.id),
@@ -24,7 +26,7 @@ export const UsersActions = {
     'adjust-balance': (data) => UsersController.openBalanceAdjust?.(data.type, data.id),
     'send-custom-notif': (data) => UsersController.sendCustomNotification?.(data.id),
     
-    // 🔐 التحديث: توجيه حدث إرسال رابط استعادة كلمة المرور
+    // 🔐 إرسال رابط استعادة كلمة المرور المطور
     'send-password-reset': (data) => UsersController.sendPasswordReset?.(data.id),
     
     'switch-user-tab': (data) => AdminRender?.switchUserTab?.(data.tab),
@@ -42,12 +44,12 @@ export const UsersActions = {
     
     // 🌟 التحديث الاحترافي لحفظ حالة الـ IDs قبل فتح النافذة وعند الاختيار
     'change-tier': (data) => {
-        UsersController.selectedUserId = data.id; 
-        UsersController.selectedTierId = null;    
+        UsersController.selectedUserId = data.id;
+        UsersController.selectedTierId = null;
         AdminUI?.UsersUI?.showTierSelection?.(data.id);
     },
     'select-tier-option': (data) => {
-        UsersController.selectedTierId = data.element.dataset.tierId; 
+        UsersController.selectedTierId = data.element.dataset.tierId;
         AdminUI?.UsersUI?.selectTierOption?.(data.element);
     },
     'close-tier-selection': () => {
@@ -64,7 +66,7 @@ export const UsersActions = {
     // --- 3. نظام التوثيق (KYC) ---
     'save-kyc': () => AdminUI?.UsersUI?.saveKycSettings?.(),
     'handle-kyc': (data) => UsersController.processKycDecision?.(data.id, data.decision),
-
+    
     'revoke-kyc': (data) => UsersController.revokeUserKyc?.(data.id),
     'update-kyc-mode': (data) => AdminUI?.UsersUI?.updateKycMode?.(data.mode),
     'toggle-kyc-tier': (data) => AdminUI?.UsersUI?.toggleKycForTier?.(data.id, data.element.checked),

@@ -1,7 +1,7 @@
 // ============================================================================
-// 📦 وحدة الطلبات (modules/orders/ordersUI.js)
+// 📦 وحدة الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V4.3 💎
 // 🎯 الوظيفة: إدارة واجهات ونوافذ الطلبات (معزولة بالكامل عن باقي النظام)
-// 🚀 التحديث: الاعتماد الكامل على النواة المركزية للتواريخ والأرقام (SSOT)
+// 🚀 التحديث الأقصى: القضاء على الـ 4 عمليات الخطية المسببة للبطء والتحول لـ O(1)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -14,14 +14,14 @@ export const OrdersUI = {
     currentOrderId: null,
 
     openOrderDrawer: function(orderId) {
-        // إغلاق الشريط الجانبي في الشاشات الصغيرة عبر النواة
         if (window.innerWidth < 992 && typeof UIService.closeSidebar === 'function') {
             UIService.closeSidebar();
         }
 
+        // ⚡ 1. جلب الطلب فورا بـ O(1) من خريطة الطلبات المركزية مع fallback آمن
         let order = null;
-        if(AdminData && AdminData.data && AdminData.data.orders) {
-            order = AdminData.data.orders.find(o => String(o.id) === String(orderId));
+        if(AdminData && AdminData.data) {
+            order = AdminData.data.ordersMap?.[orderId] || AdminData.data.orders.find(o => String(o.id) === String(orderId));
         }
         if(!order) return;
 
@@ -56,17 +56,17 @@ export const OrdersUI = {
             else noteWrapper.classList.add('hide-element');
         }
 
-        // 🌟 تمرير الـ ID للقالب وسيقوم القالب بتنسيقه عبر المحرك المركزي
         headerContent.innerHTML = AdminTemplates.orderDrawerHeader(order.id);
         
-        const user = (AdminData.data.users || []).find(u => String(u.id) === String(order.userId)) || {};
+        // ⚡ 2. جلب تفاصيل العميل فورا بـ O(1) من خريطة العملاء
+        const user = AdminData.data.usersMap?.[order.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(order.userId)) || {};
         const displayUser = Utils.escapeHTML(user.fullName || user.name || user.username || 'مستخدم جديد');
         const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
 
         const avatarHtml = AdminTemplates.drawerAvatar(user.img ? Utils.escapeHTML(user.img) : null, firstLetter);
 
-        const prods = AdminData.data.prods || [];
-        const prod = prods.find(p => String(p.id) === String(order.prodId)) || {};
+        // ⚡ 3. جلب تفاصيل المنتج الأصلي بـ O(1) من خريطة المنتجات
+        const prod = AdminData.data.prodsMap?.[order.prodId] || (AdminData.data.prods || []).find(p => String(p.id) === String(order.prodId)) || {};
         const prodName = Utils.escapeHTML(order.product || prod.name || 'منتج');
         const qty = order.qty || 1;
         
@@ -96,7 +96,9 @@ export const OrdersUI = {
 
             if (order.couponCode) {
                 let originalUsd = exactPriceUsd;
-                const coupon = (AdminData.data.coupons || []).find(c => c.code === order.couponCode);
+                
+                // ⚡ 4. جلب الكوبون فورا بـ O(1) باستخدام الرمز المشفر الموحد
+                const coupon = AdminData.data.couponsMap?.[String(order.couponCode).toUpperCase()] || (AdminData.data.coupons || []).find(c => c.code === order.couponCode);
                 
                 if (coupon) {
                     if (coupon.type === 'percentage') originalUsd = exactPriceUsd / (1 - (coupon.value / 100));
@@ -114,7 +116,6 @@ export const OrdersUI = {
             }
         }
 
-        // 🌟 استخدام المنسق الزمني المركزي (SSOT) للتواريخ بدلاً من دوال المتصفح الأصلية
         const dateTxt = RenderHelpers.formatSafeDate(order.time || order.createdAt);
         
         const statusDict = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع', returned:'مسترجع' };
@@ -122,8 +123,6 @@ export const OrdersUI = {
         const statusClass = order.status; 
 
         let durationHtml = '';
-        
-        // 🌟 استخدام المترجم الزمني لضمان حساب دقيق للمدة (حتى لو كانت البيانات Timestamp)
         const startTime = RenderHelpers.parseTime(order.time || order.createdAt);
         const endTime = RenderHelpers.parseTime(order.actionTime || order.updatedAt || order.completedAt); 
 
@@ -175,7 +174,7 @@ export const OrdersUI = {
         const baseCurrText = RenderHelpers.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText('USD') : 'USD';
         const fxRateStr = order.fxRate ? `1 ${baseCurrText} = ${RenderHelpers.formatMoney(order.fxRate, cCode, 4)}` : null;
 
-        // 🌟 استخراج الرقم القصير مركزياً لضمان الحماية ضد الانهيارات وتوحيد الطول
+        // ⚡ جلب الرقم القصير للعميل بـ O(1)
         const shortId = RenderHelpers.formatUserId(user) || RenderHelpers.formatUserId(order.userId);
 
         bodyContent.innerHTML = AdminTemplates.orderDrawerBody({
