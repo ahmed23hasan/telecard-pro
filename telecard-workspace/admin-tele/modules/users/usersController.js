@@ -543,6 +543,9 @@ deleteUser: async function(userId) {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات المستوى...');
         
         try {
+            // 🌟 هذا هو السطر السحري الذي سيمنع الشاشة الحمراء نهائياً!
+            const { AppController } = await import('../../core/appController.js');
+            
             const tiers = Array.isArray(AdminData.data.tiers) ? [...AdminData.data.tiers] : [];
             const isEdit = !!AppController.tempEditId;
             let targetId = null;
@@ -560,6 +563,7 @@ deleteUser: async function(userId) {
                 });
             }
             
+            // 🛡️ هذا الجزء سيقوم بمسح الافتراضي من المستويات القديمة وتعيينه للجديد
             if (isDef) {
                 tiers.forEach(x => { x.isDefault = (String(x.id) === targetId); });
             }
@@ -579,25 +583,13 @@ deleteUser: async function(userId) {
                 logDetails: `تحديث مستوى: ${name}`,
                 toastMsg: `تم حفظ مستوى (${name}) بنجاح`
             });
+        } catch (error) {
+            console.error(error);
+            EventBus.emit('req-show-toast', { message: 'حدث خطأ غير متوقع', type: 'error' });
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
-
-    toggleTierAutoFor: async function(id, on) {
-        const tiers = Array.isArray(AdminData.data.tiers) ? AdminData.data.tiers : [];
-        const idx = tiers.findIndex(x => String(x.id) === String(id));
-        if (idx > -1) {
-            tiers[idx].autoAdvance = !!on;
-            AdminData.data.tiers = tiers;
-            await AdminData?.saveTiers?.();
-            AdminData?.addLog?.('TOGGLE_TIER_AUTO', `مستوى ${tiers[idx].name} - الانتقال التلقائي: ${on}`);
-            await AdminData?.autoAdvanceSweep?.();
-            EventBus.emit('req-render-tiers');
-            EventBus.emit('req-show-toast', { message: on ? `تم تفعيل الانتقال التلقائي لمستوى (${tiers[idx].name})` : `تم إيقاف الانتقال التلقائي لمستوى (${tiers[idx].name})`, type: 'info' });
-        }
-    },
-
     deleteTier: async function(id) {
         if (!AdminData.data.tiers) return;
         const strId = String(id).trim();

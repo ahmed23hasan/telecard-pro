@@ -437,7 +437,9 @@ export const AdminData = {
         
         return true;
     },
-
+saveCountries: function() { return this.saveCollection(DB_KEYS.COUNTRIES, 'countries'); },
+saveCoupons: function() { return this.saveCollection(DB_KEYS.COUPONS, 'coupons'); },
+saveTiers: function() { return this.saveCollection(DB_KEYS.TIERS, 'tiers'); },
     saveProducts: function() { return this.saveCollection(DB_KEYS.PRODS, 'prods'); },
     saveUsers: function() { return this.saveCollection(DB_KEYS.USERS, 'users'); },
     saveOrders: function() { return this.saveCollection(DB_KEYS.ORDERS, 'orders'); },
@@ -468,30 +470,42 @@ export const AdminData = {
         if (changed) await this.saveUsers();
     },
 
-    seedDefaultTiers: async function() { 
+    seedDefaultTiers: async function() {
         if (this.isSeedingTiers) return;
         this.isSeedingTiers = true;
         try {
-            const defaultTier = { id: 'TIER_' + Utils.generateID(), name: 'عضو جديد', isDefault: true, threshold: 0, duration_days: 3650, profit_percent: 5, autoAdvance: true, createdAt: Date.now() };
+            // 🛡️ الإصلاح: استخدام ID ثابت لمنع التكرار نهائياً
+            const defaultTierId = 'TIER_DEFAULT_INITIAL';
+            
+            // التأكد من عدم وجوده محلياً لمنع تكرار الرسم في الشاشة
+            if (this.data.tiers.some(t => t.id === defaultTierId || t.isDefault)) return;
+            
+            const defaultTier = { id: defaultTierId, name: 'عضو جديد', isDefault: true, threshold: 0, duration_days: 3650, profit_percent: 5, autoAdvance: true, createdAt: Date.now() };
             if (!Array.isArray(this.data.tiers)) this.data.tiers = [];
-            this.data.tiers.push(defaultTier); 
+            this.data.tiers.push(defaultTier);
             await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);
         } finally { this.isSeedingTiers = false; }
     },
-
+    
     seedDefaultCountries: async function() {
         if (this.isSeedingCountries) return;
         this.isSeedingCountries = true;
         try {
-            const defaultCountry = { 
-                id: 'COUNTRY_' + Utils.generateID(), 
-                name: 'السعودية', 
-                code: 'SA', 
-                dialCode: '+966', 
-                flag: '🇸🇦', 
-                currency: 'SAR', 
-                isActive: true, 
-                createdAt: Date.now() 
+            // 🛡️ الإصلاح: استخدام ID ثابت للدولة الافتراضية
+            const defaultCountryId = 'COUNTRY_DEFAULT_SA';
+            
+            // التأكد من عدم وجود الدولة محلياً بناءً على الكود لمنع التكرار البصري
+            if (this.data.countries.some(c => c.id === defaultCountryId || c.code === 'SA')) return;
+            
+            const defaultCountry = {
+                id: defaultCountryId,
+                name: 'السعودية',
+                code: 'SA',
+                dialCode: '+966',
+                flag: '🇸🇦',
+                currency: 'SAR',
+                isActive: true,
+                createdAt: Date.now()
             };
             if (!Array.isArray(this.data.countries)) this.data.countries = [];
             this.data.countries.push(defaultCountry);
@@ -499,5 +513,4 @@ export const AdminData = {
         } finally {
             this.isSeedingCountries = false;
         }
-    }
-};
+    }};
