@@ -915,14 +915,13 @@ export const UIAuth = {
         const btn = document.querySelector('[data-action="save-identity"]');
         if (this._isSavingIdentity || (btn && btn.classList.contains('is-loading'))) return;
         
-        if (DataManager.user && (DataManager.user.baseCurrency || DataManager.user.base_currency)) {
-            getSys().showToast?.('عملية مرفوضة: لا يمكن تغيير عملة المحفظة الأساسية.', 'error');
-            getSys().sfx?.('error');
-            getSys().closeModal?.('identity');
-            return;
-        }
-        
-        const countryEl = document.getElementById('selected-country-text');
+        // ✅ تم الإصلاح: القفل يعتمد الآن على إكمال البيانات (isVerified) وليس العملة
+if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
+    getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
+    getSys().sfx?.('error');
+    getSys().closeModal?.('identity');
+    return;
+}        const countryEl = document.getElementById('selected-country-text');
         const phoneEl = document.getElementById('reg-phone');
         const hiddenCurrency = document.getElementById('reg-currency');
         

@@ -637,10 +637,10 @@ exports.completeUserIdentity = onCall({ region: 'us-east1', enforceAppCheck: tru
         const userSnap = await transaction.get(userRef);
         const userData = userSnap.data();
         
-        if (userData.baseCurrency || userData.isVerified) {
-            throw new HttpsError('permission-denied', 'لقد قمت بإكمال بيانات حسابك مسبقاً.');
-        }
-        transaction.update(userRef, {
+        // ✅ تم الإصلاح: السماح بتسجيل العملة ما دام الحساب غير موثق نهائياً
+if (userData.isVerified === true) {
+    throw new HttpsError('permission-denied', 'لقد قمت بإكمال بيانات حسابك مسبقاً.');
+}        transaction.update(userRef, {
             country: String(country || '').trim(), phone: String(phone || '').trim(),
             baseCurrency: cleanCurrency, base_currency: cleanCurrency,
             isVerified: true, identityCompletedAt: admin.firestore.FieldValue.serverTimestamp()
