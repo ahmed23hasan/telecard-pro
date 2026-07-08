@@ -1,169 +1,151 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (core/financialEngine.js) - Admin Edition V10.4 👑
+// 💰 المحرك المالي المركزي (core/financialEngine.js) - Admin Edition V11.0 👑
 // 🎯 الوظيفة: محاكاة أسعار البيع، الخصومات، وكشف التكلفة والأرباح لمدير النظام
-// 🌟 التحديث الأقصى: توحيد (O(1))، سد ثغرة السوالب، ودعم الباقات (Options)
+// 🌟 التحديث الأقصى: التطابق التام مع السيرفر (Guardian V11) لحماية الـ USD وتوحيد O(1)
 // ============================================================================
 
 export const FinancialEngine = Object.freeze({
     
-    // 🛡️ دوال الرياضيات الآمنة (محصنة ضد تسرب الفواصل العشرية - Floating Point Leak)
+    // 🛡️ 1. ثوابت النظام
+    CONFIG: {
+        BASE_CURRENCY: 'USD',
+        PRECISION: 10000
+    },
+
+    // 🛡️ 2. دوال الرياضيات الآمنة الداخلية
     safeAdd: function(a, b) {
-        return Math.round((Number(a) || 0) * 10000 + (Number(b) || 0) * 10000) / 10000;
+        return Math.round((Number(a) || 0) * this.CONFIG.PRECISION + (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
     
     safeSub: function(a, b) {
-        return Math.round((Number(a) || 0) * 10000 - (Number(b) || 0) * 10000) / 10000;
+        return Math.round((Number(a) || 0) * this.CONFIG.PRECISION - (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
     
     safeMul: function(a, b) {
-        return Math.round((Number(a) || 0) * (Number(b) || 0) * 10000) / 10000;
+        return Math.round((Number(a) || 0) * (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
     
     safeDiv: function(a, b) {
-        const numA = Number(a) || 0;
-        let numB = Number(b);
-        if (isNaN(numB) || numB === 0) numB = 1;
-        return Math.round((numA / numB) * 10000) / 10000;
+        const numB = Number(b) || 1;
+        return Math.round(((Number(a) || 0) / numB) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
+    },
+
+    // 🛡️ 3. معقم الأرقام الصارم
+    extractNum: function(val, allowZero = true) {
+        if (val === undefined || val === null || val === '') return 0;
+        const num = Number(val);
+        if (isNaN(num)) return 0;
+        const absNum = Math.abs(num); // منع السوالب
+        if (!allowZero && absNum === 0) return 1;
+        return absNum;
     },
     
-    // 🚀 [تحسين الأداء]: تحويل المصفوفة إلى Hash Map لسرعة بحث O(1) (مطابق للسيرفر)
-    normalizeRates: function(raw) {
-        const ratesArray = Array.isArray(raw) ? raw : [];
+    // 🛡️ 4. إدارة أسعار الصرف بـ O(1) (مطابق لنسخة السيرفر لحماية الدولار)
+    normalizeRates: function(rawArray) {
         const ratesMap = {};
-        let hasBase = false;
         
-        for (const rate of ratesArray) {
-            if (rate && rate.code) {
-                ratesMap[String(rate.code).toUpperCase()] = rate;
-                if (rate.isBase) hasBase = true;
+        ratesMap[this.CONFIG.BASE_CURRENCY] = { 
+            code: this.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true 
+        };
+
+        if (Array.isArray(rawArray)) {
+            for (const rate of rawArray) {
+                if (rate && rate.code && rate.code !== this.CONFIG.BASE_CURRENCY) {
+                    const code = String(rate.code).toUpperCase();
+                    ratesMap[code] = {
+                        code: code,
+                        priceRate: this.extractNum(rate.priceRate, false),
+                        depRate: this.extractNum(rate.depRate, false)
+                    };
+                }
             }
-        }
-        
-        if (!hasBase) {
-            ratesMap['USD'] = { code: 'USD', symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
         }
         return ratesMap;
     },
     
     convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel = 'pricing') {
-        const amt = Number(amount) || 0;
-        
-        if (amt === 0 || !fromCode || !toCode || String(fromCode).toUpperCase() === String(toCode).toUpperCase()) return amt;
-        
+        const amt = this.extractNum(amount);
+        const fCode = String(fromCode || this.CONFIG.BASE_CURRENCY).toUpperCase();
+        const tCode = String(toCode || this.CONFIG.BASE_CURRENCY).toUpperCase();
+
+        if (amt === 0 || fCode === tCode) return amt;
+
         const ratesMap = this.normalizeRates(ratesArray);
-        
-        const fromCurr = ratesMap[String(fromCode).toUpperCase()] || { priceRate: 1, depRate: 1 };
-        const toCurr = ratesMap[String(toCode).toUpperCase()] || { priceRate: 1, depRate: 1 };
-        
-        const fromRate = channel === 'deposit' ? fromCurr.depRate : fromCurr.priceRate;
-        const toRate = channel === 'deposit' ? toCurr.depRate : toCurr.priceRate;
-        
-        const inUSD = this.safeDiv(amt, fromRate);
-        const finalAmount = this.safeMul(inUSD, (toRate || 1));
-        
-        return finalAmount;
+        const from = ratesMap[fCode] || { priceRate: 1, depRate: 1 };
+        const to = ratesMap[tCode] || { priceRate: 1, depRate: 1 };
+
+        const fRate = channel === 'deposit' ? from.depRate : from.priceRate;
+        const tRate = channel === 'deposit' ? to.depRate : to.priceRate;
+
+        return this.safeMul(this.safeDiv(amt, fRate), tRate);
     },
     
-    // 🛡️ المحرك الرياضي المكتمل للأدمن (مع دعم الباقات، وإظهار الأرباح)
+    // 🛡️ 5. المحرك الرياضي لمحاكاة أسعار الباقات والخصومات
     calculatePrice: function(params = {}) {
-        // دعم التمرير المباشر (Legacy) أو تمرير كائن الـ Product بالكامل (للباقات)
         const { product = {}, costPrice = 0, fixedPrice = 0, tier = null, offer = null, coupon = null, optIdx = null } = params;
         
-        let cost = Number(costPrice) || Number(product.costPrice) || Number(product.cost_price) || 0;
-        let isFixed = (fixedPrice > 0) || (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true');
+        let cost = this.extractNum(costPrice || product.costPrice || product.cost_price || 0);
+        let isFixed = (fixedPrice > 0) || (String(product.isFixedPrice).toLowerCase() === 'true');
         let activeOption = null;
         
-        // 🌟 استخراج سعر الباقة والتكلفة إذا كان المنتج من نوع select
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && product.options[optIdx]) {
             activeOption = product.options[optIdx];
-            cost = Number(activeOption.costPrice) || Number(activeOption.cost_price) || cost;
+            cost = this.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
             if (activeOption.isFixedPrice !== undefined) {
-                isFixed = (activeOption.isFixedPrice === true || String(activeOption.isFixedPrice).toLowerCase() === 'true');
+                isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
             }
         }
         
         let currentPrice = cost;
         let tierName = null;
         
-        // 🛡️ [سد الثغرة]: إجبار القيم على أن تكون موجبة باستخدام Math.abs
-        const extractNum = (val) => {
-            if (val === undefined || val === null || val === '') return 0;
-            const num = Number(val);
-            return isNaN(num) ? 0 : Math.abs(num);
-        };
-        
-        // 1. حساب سعر البيع الأساسي بناءً على مستوى العميل أو السعر الثابت
         if (isFixed) {
-            currentPrice = activeOption ? Number(activeOption.fixedPriceUsd || activeOption.price || 0) : (Number(fixedPrice) || Number(product.fixedPriceUsd) || Number(product.price) || 0);
+            currentPrice = activeOption ? this.extractNum(activeOption.fixedPriceUsd || activeOption.price) : this.extractNum(fixedPrice || product.fixedPriceUsd || product.price);
             tierName = "سعر ثابت";
         } else if (tier && typeof tier === 'object') {
             tierName = tier.nameAr || tier.name || tier.id || 'عضو';
             
-            // قراءة الأسعار المخصصة للمستويات (إن وجدت)
-            if (activeOption && activeOption.tierPrices && activeOption.tierPrices[tier.id]) {
-                currentPrice = Number(activeOption.tierPrices[tier.id]);
-            } else if (!activeOption && product.tierPrices && product.tierPrices[tier.id]) {
-                currentPrice = Number(product.tierPrices[tier.id]);
+            const tierPriceField = activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id];
+            
+            if (tierPriceField) {
+                currentPrice = this.extractNum(tierPriceField);
             } else {
-                // الحساب الديناميكي للربح
-                const profitPercent = extractNum(
-                    tier.profitPercent ?? tier.profit_percent ??
-                    tier.profitMargin ?? tier.profit_margin ??
-                    tier.profit ?? tier.margin ?? tier.percentage ?? 0
-                );
-                const minProfitUsd = extractNum(
-                    tier.minProfitUsd ?? tier.min_profit_usd ??
-                    tier.minProfit ?? tier.min_profit ?? tier.minUsd ?? 0
-                );
+                const profitPercent = this.extractNum(tier.profitPercent || tier.profit_percent || tier.profitMargin);
+                const minProfitUsd = this.extractNum(tier.minProfitUsd || tier.min_profit_usd || tier.minProfit);
                 
                 if (profitPercent > 0 || minProfitUsd > 0) {
                     let profitAdded = this.safeMul(cost, profitPercent / 100);
                     if (profitAdded < minProfitUsd) profitAdded = minProfitUsd;
                     currentPrice = this.safeAdd(cost, profitAdded);
                 } else {
-                    currentPrice = activeOption ? Number(activeOption.price || 0) : Number(product.price || 0);
+                    currentPrice = activeOption ? this.extractNum(activeOption.price) : this.extractNum(product.price);
                 }
             }
         } else {
-            currentPrice = activeOption ? Number(activeOption.price || 0) : Number(product.price || 0);
+            currentPrice = activeOption ? this.extractNum(activeOption.price) : this.extractNum(product.price);
         }
         
         const tierPrice = currentPrice;
         const originalPrice = tierPrice;
         
-        // 2. تطبيق خصومات العروض النشطة
-        let offerName = null;
-        let offerDiscount = 0;
-        if (offer && offer.type !== 'fake') {
+        let offerName = null, offerDiscount = 0;
+        if (offer && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name;
-            const val = extractNum(offer.value);
-            if (offer.type === 'percentage') {
-                offerDiscount = this.safeMul(originalPrice, val / 100);
-            } else if (offer.type === 'fixed' || offer.type === 'amount') {
-                offerDiscount = val;
-            }
+            const val = this.extractNum(offer.value);
+            offerDiscount = offer.type === 'percentage' ? this.safeMul(originalPrice, val / 100) : val;
             currentPrice = Math.max(0, this.safeSub(currentPrice, offerDiscount));
         }
         
-        // 3. تطبيق خصومات الكوبونات
-        let couponCode = null;
-        let couponDiscount = 0;
-        let isFirewallActive = false;
-        
+        let couponCode = null, couponDiscount = 0, isFirewallActive = false;
         if (product.disableCoupons === true || isFixed) {
             isFirewallActive = true;
-        } else if (coupon) {
+        } else if (coupon && coupon.isActive !== false) {
             couponCode = coupon.code;
-            const val = extractNum(coupon.value);
-            if (coupon.type === 'percentage') {
-                couponDiscount = this.safeMul(currentPrice, val / 100);
-            } else if (coupon.type === 'fixed' || coupon.type === 'amount') {
-                couponDiscount = val;
-            }
+            const val = this.extractNum(coupon.value);
+            couponDiscount = coupon.type === 'percentage' ? this.safeMul(originalPrice, val / 100) : val;
             currentPrice = Math.max(0, this.safeSub(currentPrice, couponDiscount));
         }
         
-        // 4. 🛡️ جدار الحماية المالي (النسبي) لمنع الخسارة
         let isFirewallViolated = false;
         if (currentPrice < cost) {
             isFirewallActive = true;
@@ -186,20 +168,11 @@ export const FinancialEngine = Object.freeze({
         const marginPct = cost > 0 ? this.safeMul(this.safeDiv(profit, cost), 100) : 0;
         
         return {
-            cost: cost,
-            tierPrice: tierPrice,
-            originalPrice: originalPrice,
-            finalPrice: finalPrice,
-            tierName: tierName,
-            offerName: offerName,
-            offerDiscount: offerDiscount,
-            couponCode: couponCode,
-            couponDiscount: couponDiscount,
-            totalDiscountVal: totalDiscountVal,
-            profit: profit,
-            marginPct: Number(marginPct.toFixed(2)),
-            isFirewallActive: isFirewallActive,
-            isFirewallViolated: isFirewallViolated
+            cost, tierPrice, originalPrice, finalPrice,
+            tierName, offerName, offerDiscount,
+            couponCode, couponDiscount, totalDiscountVal,
+            profit, marginPct: Number(marginPct.toFixed(2)),
+            isFirewallActive, isFirewallViolated
         };
     }
 });

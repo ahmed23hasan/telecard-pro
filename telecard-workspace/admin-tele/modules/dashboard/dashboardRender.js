@@ -1,12 +1,13 @@
 // ============================================================================
 // 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate 🚀
 // 🎯 الوظيفة: رسم الإحصائيات، الرادار الجنائي، سجل النشاطات، ومراقبة الأمان
-// 🌟 التحديث: فصل الـ HTML بشكل احترافي واعتماده على القوالب (Clean Architecture)
+// 🌟 التحديث الأقصى: إصلاح الرسم البياني الميت، وتصحيح أسماء المدراء في السجلات 💎
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminTemplates } from '../../adminTemplates.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
+import { FinancialEngine } from '../../core/financialEngine.js'; // 🛡️ لضمان الدقة في المخطط
 
 export const DashboardRender = {
     leaderboardFilter: 'all', 
@@ -28,15 +29,15 @@ export const DashboardRender = {
         const stats = AdminData.getDashboardStats(this.leaderboardFilter);
         
         let walletsCapsules = '';
-        if (!stats.walletsData || Object.keys(stats.walletsData.details).length === 0) {
+        if (!stats.wallets || Object.keys(stats.wallets.details).length === 0) {
             walletsCapsules = AdminTemplates.dashEmptyWallets();
         } else {
-            walletsCapsules += AdminTemplates.dashWalletCapsule('إجمالي التزامات المحافظ', stats.walletsData.totalUsd, 'USD');
-            const details = stats.walletsData.details;
+            walletsCapsules += AdminTemplates.dashWalletCapsule('إجمالي التزامات المحافظ', stats.wallets.totalUsd, 'USD');
+            const details = stats.wallets.details;
             Object.keys(details).forEach(cc => {
                 const d = details[cc];
                 if (d.count > 0 || d.name !== 'عملة غير مدرجة') {
-                    walletsCapsules += AdminTemplates.dashWalletCapsule(`محفظة ${d.name}`, d.sum, cc);
+                    walletsCapsules += AdminTemplates.dashWalletCapsule(`محفظة ${cc}`, d.sum, cc);
                 }
             });
         }
@@ -45,8 +46,12 @@ export const DashboardRender = {
         
         let communityHtml = '';
         if (AdminTemplates.dashCommunitySection) {
-            const podiumHtml = AdminTemplates.dashPodium(stats.users.topThreeSpenders);
-            const activeUserHtml = AdminTemplates.dashActiveUserCapsule(stats.users.mostActiveUser);
+            const topSpenders = stats.users.topThree || [];
+            const podiumHtml = AdminTemplates.dashPodium(topSpenders);
+            
+            const theMostActive = topSpenders.length > 0 ? topSpenders[0] : null;
+            const activeUserHtml = AdminTemplates.dashActiveUserCapsule(theMostActive);
+            
             communityHtml = AdminTemplates.dashCommunitySection(podiumHtml, activeUserHtml, this.leaderboardFilter);
         }
 
@@ -57,7 +62,7 @@ export const DashboardRender = {
         }
 
         // =========================================================
-        // 🚨 الرادار الجنائي والتنبيهات (المنطق فقط - Logic Only)
+        // 🚨 الرادار الجنائي والتنبيهات 
         // =========================================================
         const sysSettings = AdminData.data.settings || {};
         const totalBannedIps = Array.isArray(sysSettings.bannedIps) ? sysSettings.bannedIps.length : 0;
@@ -77,7 +82,6 @@ export const DashboardRender = {
             if (!stats.alerts || stats.alerts.length === 0) {
                 alertsCont.innerHTML = AdminTemplates.dashEmptyAlerts();
             } else {
-                // 🌟 تمرير البيانات للقالب بدلاً من بناء الـ HTML هنا
                 alertsCont.innerHTML = stats.alerts.map(a => {
                     let type = 'info', icon = 'fa-info-circle', text = '', action = '';
                     const timeStr = (a.time && a.time !== 0) ? RenderHelpers.formatSafeDate(a.time) : '';
@@ -102,11 +106,6 @@ export const DashboardRender = {
                         text = `استخدم العميل <b class="text-white">${RenderHelpers._esc(a.user)}</b> الكوبون <span class="badge-qty badge-success" dir="ltr">${RenderHelpers._esc(a.code)}</span>`; 
                         action = `data-action="open-order-drawer" data-id="${a.orderId}"`; 
                     } 
-                    else if (a.id === 'offer_expiring') { 
-                        type = 'warning'; icon = 'fa-bolt'; 
-                        text = `حملة <b class="text-warning">${RenderHelpers._esc(a.name)}</b> ستنتهي قريباً!`; 
-                        action = `data-action="nav" data-target="coupons"`; 
-                    } 
                     else if (a.id === 'kyc_pending') { 
                         type = 'info'; icon = 'fa-id-card-clip'; 
                         text = `يوجد <b class="num-en text-info" dir="ltr">${a.count}</b> طلبات توثيق هوية بانتظار المراجعة.`; 
@@ -117,14 +116,13 @@ export const DashboardRender = {
                         text = `حالة النظام الأمنية مستقرة - لا يوجد أي نشاط مشبوه.`; 
                     }
 
-                    // استدعاء القالب وتمرير البيانات النظيفة
                     return AdminTemplates.dashAlertItem(type, icon, text, action, timeStr);
                 }).join('');
             }
         }
         
         this.updateTopBellBadge(stats);
-        if (typeof this.renderMainChart === 'function') this.renderMainChart(stats);
+        if (typeof this.renderMainChart === 'function') this.renderMainChart();
     },
 
     updateTopBellBadge: function(stats) {
@@ -161,24 +159,36 @@ export const DashboardRender = {
         }
     },
 
-    renderMainChart: function(stats) { 
+    // 🛡️ [تحديث ماسي]: حساب المبيعات اليومية ديناميكياً لإنقاذ الرسم البياني الميت
+    renderMainChart: function() { 
         const chartDiv = document.querySelector("#main-revenue-chart");
         if (!chartDiv || typeof window.ApexCharts === 'undefined') return;
 
-        const last7Days = [], salesData = [], profitData = [];
+        const dailyAggregations = {};
+        const allCompletedOrders = (AdminData.data.orders || []).filter(o => o.status === 'completed');
         
+        allCompletedOrders.forEach(o => {
+            const timeMs = RenderHelpers.parseTime(o.time || o.createdAt || Date.now());
+            const dateObj = new Date(timeMs);
+            const dKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+            
+            if (!dailyAggregations[dKey]) dailyAggregations[dKey] = { revenue: 0, profit: 0 };
+            const pricing = o.pricingSnapshot;
+            const rev = Number(pricing?.finalPriceUsd || o.price || 0);
+            const prof = Number(pricing?.netProfitUsd || pricing?.profit || 0);
+            
+            dailyAggregations[dKey].revenue = FinancialEngine.safeAdd(dailyAggregations[dKey].revenue, rev);
+            dailyAggregations[dKey].profit = FinancialEngine.safeAdd(dailyAggregations[dKey].profit, prof);
+        });
+
+        const last7Days = [], salesData = [], profitData = [];
         for (let i = 6; i >= 0; i--) {
             const d = new Date(); d.setDate(d.getDate() - i);
             const dayKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
             last7Days.push(d);
             
-            if (stats && stats.daily && stats.daily[dayKey]) { 
-                salesData.push(Number(stats.daily[dayKey].revenue || 0).toFixed(2)); 
-                profitData.push(Number(stats.daily[dayKey].profit || 0).toFixed(2)); 
-            } else { 
-                salesData.push(0); 
-                profitData.push(0); 
-            }
+            salesData.push((dailyAggregations[dayKey]?.revenue || 0).toFixed(2));
+            profitData.push((dailyAggregations[dayKey]?.profit || 0).toFixed(2));
         }
 
         const daysNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -209,6 +219,7 @@ export const DashboardRender = {
         this._mainChartInst.render();
     },
 
+    // 🛡️ [تحديث ماسي]: قراءة adminUid من السيرفر وجلب الاسم الحقيقي للمدير عبر الخريطة
     renderLogs: function() {
         const tbody = document.getElementById('logs-table-body');
         if (!tbody) return;
@@ -221,7 +232,7 @@ export const DashboardRender = {
         let html = '';
         logs.forEach(log => {
             let badgeClass = 'badge-default';
-            const action = log.action.toUpperCase();
+            const action = (log.action || '').toUpperCase();
             
             if(action.includes('ADD') || action.includes('APPROVE') || action.includes('ACCEPT')) { 
                 badgeClass = 'badge-success bg-success-10 text-success border-success-15'; 
@@ -237,10 +248,14 @@ export const DashboardRender = {
             }
 
             const safeDateTime = RenderHelpers.formatSafeDate(log.timestamp);
+            
+            // 🛡️ استخراج اسم الأدمن الحقيقي (حتى لو كان مخفياً تحت adminUid)
+            const adminUser = AdminData.data.usersMap?.[log.adminUid];
+            const displayAdminName = log.admin || (adminUser ? (adminUser.name || adminUser.fullName || adminUser.username) : 'مدير النظام');
 
             html += `<tr>
                 <td><div class="log-date-cell"><span class="d-date num-en" dir="ltr">${safeDateTime}</span></div></td>
-                <td><div class="log-user-cell"><i class="fa-solid fa-user-shield text-primary"></i> <span>${RenderHelpers._esc(log.admin)}</span></div></td>
+                <td><div class="log-user-cell"><i class="fa-solid fa-user-shield text-primary"></i> <span>${RenderHelpers._esc(displayAdminName)}</span></div></td>
                 <td><span class="log-action-badge num-en ${badgeClass}" dir="ltr" style="padding: 4px 10px; border-radius: 6px; border-width: 1px; border-style: solid; font-size: 11px;">${RenderHelpers._esc(action)}</span></td>
                 <td class="log-details-cell">${RenderHelpers._esc(log.details)}</td>
             </tr>`;

@@ -9,6 +9,7 @@ import { AdminUI } from '../../adminUI.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
+import { FinancialEngine } from '../../core/financialEngine.js';
 
 export const OrdersController = {
   
@@ -82,12 +83,12 @@ export const OrdersController = {
   },
   
   navToUserOrders: function(userId) {
-  if (!AdminData.filters.orders) AdminData.filters.orders = {};
-  AdminData.filters.orders.search = userId;
-  
-  // 🛡️ التحديث المعماري: كسر الارتباط الدائري الميت عبر إطلاق حدث ملاحة سحابي بدلاً من استدعاء الكنترولر مباشرة
-  EventBus.emit('req-navigate', { page: 'orders', btnEl: null });
-  
-  if (AdminUI?.closeModal) AdminUI.closeModal();
-}
+    if (!AdminData.filters.orders) AdminData.filters.orders = {};
+    AdminData.filters.orders.search = userId;
+    
+    // 🛡️ التحديث المعماري: كسر الارتباط الدائري الميت عبر إطلاق حدث ملاحة سحابي بدلاً من استدعاء الكنترولر مباشرة
+    EventBus.emit('req-navigate', { page: 'orders', btnEl: null });
+    
+    if (AdminUI?.closeModal) AdminUI.closeModal();
+  }
 };

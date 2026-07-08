@@ -1,14 +1,14 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة V4.1 (Diamond Edition)
+// 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة V4.4 (Ultimate Fortress) 🛡️
 // 🎯 الوظيفة: معالجة الطلبات، الإيداعات، الإحصائيات، والإشعارات المتوازية
 // 🌟 التحديث الأقصى:
-// 1. [جدار حماية الـ IP]: التحقق الفعلي من الـ IP القادم من الطلب لصد المحتالين.
-// 2. [تشفير عالي]: استخدام crypto.randomBytes لمنع ثغرات تكرار أرقام الطلبات.
-// 3. [الجدار الناري]: تفعيل إشارة isFirewallViolated لمنع البيع تحت التكلفة.
-// 4. [تأمين الفواصل]: استخدام المحرك المالي في الإيداعات لمنع ثغرات الـ Floating Point.
+// 1. [Smart Error Handling]: التقاط أخطاء الـ Fail-Fast من المحرك المالي بذكاء.
+// 2. [Unified Sync Engine]: إجبار المزامنة على استخدام المحرك المالي لضمان تطابق الأسعار.
+// 3. [Titanium Limits]: سقف صارم للعمليات المالية لمنع الأرقام الفلكية.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onRequest } = require("firebase-functions/v2/https"); 
 const { onDocumentWritten, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require('firebase-functions/params');
@@ -17,11 +17,31 @@ const crypto = require('crypto');
 const { FinancialEngine } = require('./financialEngine.js'); 
 
 const ROOT_OWNER_UID = defineSecret('ROOT_OWNER_UID');
+const SUPPLIER_WEBHOOK_TOKEN = defineSecret('SUPPLIER_WEBHOOK_TOKEN'); 
 
 if (!admin.apps.length) {
     admin.initializeApp();
 }
 const db = admin.firestore();
+
+// 🛡️ [درع التيتانيوم]
+const SYSTEM_LIMITS = {
+    MAX_QTY_PER_ORDER: 1000,
+    MAX_SAFE_AMOUNT: 100000000 
+};
+
+// ==========================================
+// 🛡️ نظام التدوين الجنائي (Audit Logging)
+// ==========================================
+const logAdminAction = async (adminUid, action, details) => {
+    try {
+        await db.collection('telecard_audit_logs').add({
+            adminUid, action, details, timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (e) {
+        console.error("Audit Log Error:", e);
+    }
+};
 
 // ==========================================
 // 🚀 1. نظام التخزين المؤقت المنيع (Anti-Stampede Cache)
@@ -121,8 +141,8 @@ const checkBanStatus = (request) => {
     }
 };
 
-const safeAdd = (a, b) => Math.round((Number(a) + Number(b) + Number.EPSILON) * 10000) / 10000;
-const safeSub = (a, b) => Math.max(0, Math.round((Number(a) - Number(b) + Number.EPSILON) * 10000) / 10000);
+const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
+const safeSub = (a, b) => Math.max(0, FinancialEngine.safeSub(a, b));
 
 const generateUniqueId = () => {
     const timestamp = Date.now().toString(36).toUpperCase();
@@ -133,14 +153,16 @@ const generateUniqueId = () => {
 // ==========================================
 // 🛒 3. إنشاء الطلبات للعملاء (محصن بالكامل)
 // ==========================================
-exports.createOrder = onCall({ region: 'us-east1', memory: '512MiB' }, async (request) => {
+exports.createOrder = onCall({ region: 'us-east1', memory: '512MiB', enforceAppCheck: true }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
     checkBanStatus(request);
 
     const uid = request.auth.uid;
     const { data } = request;
     const productId = String(data.productId || '');
-    const finalQty = Math.max(1, Math.min(1000, Math.floor(Number(data.qty) || 1)));
+    
+    const finalQty = Math.max(1, Math.min(SYSTEM_LIMITS.MAX_QTY_PER_ORDER, Math.floor(Number(data.qty) || 1)));
+    
     const optIdx = data.optIdx !== null && data.optIdx !== undefined ? Number(data.optIdx) : null;
     const finalInputStr = String(data.finalInputStr || '---').substring(0, 500);
     const couponCode = data.couponCode ? String(data.couponCode).trim() : null;
@@ -152,7 +174,6 @@ exports.createOrder = onCall({ region: 'us-east1', memory: '512MiB' }, async (re
     try {
         const cache = await loadOrderCache();
 
-        // 🚨 🚨 جدار الحماية (IP Firewall) 🚨 🚨
         const clientIp = request.rawRequest?.headers?.['x-forwarded-for']?.split(',')[0].trim() || request.rawRequest?.connection?.remoteAddress || request.rawRequest?.ip || 'unknown';
         const bannedIps = cache.settings?.bannedIps || [];
         if (bannedIps.includes(clientIp)) {
@@ -232,6 +253,12 @@ exports.createOrder = onCall({ region: 'us-east1', memory: '512MiB' }, async (re
             }
 
             const totalRequired = pricingSnapshot.totalFinalPrice; 
+            
+            if (totalRequired > SYSTEM_LIMITS.MAX_SAFE_AMOUNT) {
+                console.error(`[SECURITY ALERT] Astronomical order blocked. Value: ${totalRequired}`);
+                throw new HttpsError('out-of-range', 'قيمة الطلب تتجاوز الحد الأقصى المسموح به في النظام.');
+            }
+
             const currentBalance = Number(userData.walletBalance || userData.balance || 0);
 
             if (totalRequired <= 0 || currentBalance < totalRequired) {
@@ -312,13 +339,20 @@ exports.createOrder = onCall({ region: 'us-east1', memory: '512MiB' }, async (re
     } catch (error) {
         console.error("Order Error:", error);
         if (error instanceof HttpsError) throw error;
+        
+        // 🌟 [تحديث أمني V4.4]: ترجمة رفض المحرك المالي إلى رسالة مقروءة للعميل بدلاً من "خطأ غير متوقع"
+        if (error.message && error.message.includes('[SECURITY]')) {
+            throw new HttpsError('out-of-range', 'مرفوض: الطلب يتجاوز الحدود المالية الآمنة للنظام.');
+        }
+        
         throw new HttpsError('internal', 'حدث خطأ غير متوقع في السيرفر.');
     }
 });
+
 // ==========================================
 // 💰 4. إرسال طلبات الإيداع (محصن بالكامل)
 // ==========================================
-exports.submitBalanceRequest = onCall({ region: 'us-east1' }, async (request) => {
+exports.submitBalanceRequest = onCall({ region: 'us-east1', enforceAppCheck: true }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
     checkBanStatus(request);
 
@@ -328,12 +362,13 @@ exports.submitBalanceRequest = onCall({ region: 'us-east1' }, async (request) =>
     const paymentMethodName = String(data.paymentMethodName || '').trim();
     const payCurr = String(data.payCurr || 'USD').toUpperCase();
     
-    if (isNaN(amount) || amount <= 0) throw new HttpsError('invalid-argument', 'المبلغ المدخل غير صالح.');
+    if (isNaN(amount) || amount <= 0 || amount > SYSTEM_LIMITS.MAX_SAFE_AMOUNT) {
+        throw new HttpsError('out-of-range', 'المبلغ المدخل غير صالح أو يتجاوز الحد الأقصى المسموح به.');
+    }
 
     try {
         const cache = await loadDepositCache();
 
-        // 🚨 🚨 جدار الحماية (IP Firewall) 🚨 🚨
         const clientIp = request.rawRequest?.headers?.['x-forwarded-for']?.split(',')[0].trim() || request.rawRequest?.connection?.remoteAddress || request.rawRequest?.ip || 'unknown';
         const bannedIps = cache.settings?.bannedIps || [];
         if (bannedIps.includes(clientIp)) {
@@ -375,7 +410,10 @@ exports.submitBalanceRequest = onCall({ region: 'us-east1' }, async (request) =>
             }
             
             safeNetBase = Math.floor(safeNetBase * 10000) / 10000; 
-            if (safeNetBase <= 0 || isNaN(safeNetBase)) throw new HttpsError('invalid-argument', 'خطأ في حساب قيمة الإيداع.');
+            
+            if (safeNetBase <= 0 || isNaN(safeNetBase) || safeNetBase > SYSTEM_LIMITS.MAX_SAFE_AMOUNT) {
+                throw new HttpsError('invalid-argument', 'خطأ في حساب قيمة الإيداع أو تجاوز للحد الأقصى.');
+            }
 
             const cleanId = generateUniqueId(); 
             transaction.update(userRef, { lastDepositReqTime: Date.now() });
@@ -407,6 +445,9 @@ exports.adminToggleUserBan = onCall({ region: 'us-east1' }, async (request) => {
         currentClaims.banned = isBanned;
         await admin.auth().setCustomUserClaims(targetUid, currentClaims);
         if (isBanned) await admin.auth().revokeRefreshTokens(targetUid);
+
+        await logAdminAction(request.auth.uid, 'TOGGLE_BAN', `Target: ${targetUid}, isBanned: ${isBanned}, Reason: ${reason}`);
+
         return { success: true, message: isBanned ? 'تم حظر المستخدم وتدمير جلساته بنجاح.' : 'تم رفع الحظر بنجاح.' };
     } catch (error) { throw new HttpsError('internal', `فشل تطبيق إجراء الحظر: ${error.message}`); }
 });
@@ -448,6 +489,9 @@ exports.adminProcessOrder = onCall({ region: 'us-east1' }, async (request) => {
         let orderUpdateObj = { status: action, adminNote: String(adminNote || ''), actionTime: admin.firestore.FieldValue.serverTimestamp() };
         if (isRefundingAction && !wasAlreadyRefunded) orderUpdateObj.balanceAfter = newWalletBal;
         transaction.update(orderRef, orderUpdateObj);
+
+        await logAdminAction(request.auth.uid, 'PROCESS_ORDER', `Order: ${orderId}, Action: ${action}, Note: ${adminNote}`);
+
         return { success: true, message: `تم تحديث الطلب إلى ${action}.` };
     });
 });
@@ -484,6 +528,9 @@ exports.adminProcessDeposit = onCall({ region: 'us-east1' }, async (request) => 
         let depUpdateObj = { status: action, adminNote: String(adminNote || ''), actionTime: admin.firestore.FieldValue.serverTimestamp() };
         if (action === 'approved' || action === 'refunded') depUpdateObj.balanceAfter = newWalletBal;
         transaction.update(depRef, depUpdateObj);
+
+        await logAdminAction(request.auth.uid, 'PROCESS_DEPOSIT', `Deposit: ${depositId}, Action: ${action}, Note: ${adminNote}`);
+
         return { success: true, message: `تم تحويل الحالة إلى ${action}.` };
     });
 });
@@ -492,7 +539,10 @@ exports.adminAdjustBalance = onCall({ region: 'us-east1' }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'عملية غير مصرح بها.');
     const { userId, type, amount, adminName } = request.data;
     const adjustAmount = Number(amount);
-    if (isNaN(adjustAmount) || adjustAmount <= 0) throw new HttpsError('invalid-argument', 'مبلغ غير صالح.');
+    
+    if (isNaN(adjustAmount) || adjustAmount <= 0 || adjustAmount > SYSTEM_LIMITS.MAX_SAFE_AMOUNT) {
+        throw new HttpsError('out-of-range', 'مبلغ غير صالح أو يتجاوز السقف الآمن المسموح به للإدارة.');
+    }
 
     const userRef = db.collection('telecard_users').doc(String(userId));
     try {
@@ -520,6 +570,9 @@ exports.adminAdjustBalance = onCall({ region: 'us-east1' }, async (request) => {
                 method: type === 'add' ? 'إيداع إداري' : 'خصم إداري', status: 'approved', balanceAfter: newBal, 
                 time: admin.firestore.FieldValue.serverTimestamp(), admin: String(adminName || 'النظام').substring(0, 100)
             });
+
+            await logAdminAction(request.auth.uid, 'ADJUST_BALANCE', `User: ${userId}, Type: ${type}, Amount: ${amount}`);
+
             return { success: true, newBalance: newBal };
         });
     } catch (error) { throw new HttpsError('internal', error.message || 'فشلت العملية المالية.'); }
@@ -547,6 +600,9 @@ exports.adminAuditUserWallet = onCall({ region: 'us-east1' }, async (request) =>
         const expectedBalance = Math.max(0, safeSub(realTotalDeposit, realTotalSpent));
 
         await userRef.update({ totalSpent: realTotalSpent, totalDeposit: realTotalDeposit, walletBalance: expectedBalance, balance: expectedBalance });
+
+        await logAdminAction(request.auth.uid, 'AUDIT_WALLET', `User: ${targetUserId} audited. Corrected Balance: ${expectedBalance}`);
+
         return { success: true, message: 'تم التصحيح بنجاح!', data: { spent: realTotalSpent, deposit: realTotalDeposit, balance: expectedBalance } };
     } catch (error) { throw new HttpsError('internal', `فشل التدقيق: ${error.message}`); }
 });
@@ -558,6 +614,9 @@ exports.grantAdminRole = onCall({ region: 'us-east1', secrets: [ROOT_OWNER_UID] 
     try {
         const user = await admin.auth().getUserByEmail(targetEmail);
         await admin.auth().setCustomUserClaims(user.uid, { admin: true });
+
+        await logAdminAction(request.auth.uid, 'GRANT_ADMIN', `Granted admin role to: ${targetEmail}`);
+
         return { success: true, message: `تم منح رتبة الأدمن للحساب: ${targetEmail}` };
     } catch (error) { throw new HttpsError('internal', `فشل المنح: ${error.message}`); }
 });
@@ -565,7 +624,7 @@ exports.grantAdminRole = onCall({ region: 'us-east1', secrets: [ROOT_OWNER_UID] 
 // ==========================================
 // 🪪 6. استكمال هوية الحساب (KYC)
 // ==========================================
-exports.completeUserIdentity = onCall({ region: 'us-east1' }, async (request) => {
+exports.completeUserIdentity = onCall({ region: 'us-east1', enforceAppCheck: true }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
     checkBanStatus(request);
     
@@ -627,6 +686,11 @@ exports.calculateStoreStatsCloud = onCall({ region: 'us-east1' }, async (request
 
 exports.getServerTime = onCall({ region: 'us-east1' }, (request) => { return { success: true, serverTime: Date.now() }; });
 
+exports.onSettingsUpdate = onDocumentUpdated({ document: 'telecard_settings/singleton', region: 'us-east1' }, async (event) => {
+    cacheOrder.lastFetch = 0;
+    cacheDeposit.lastFetch = 0;
+    console.log("[SECURITY ALERT] Cache purged due to settings update.");
+});
 
 // ==========================================
 // 🛡️ 8. المزامنة الآمنة (Product & Tier Sync)
@@ -638,13 +702,17 @@ exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{produ
     if (!event.data.after.exists) return publicProdRef.delete(); 
     
     const prodData = event.data.after.data();
-    const costPrice = Number(prodData.costPrice || prodData.cost_price || 0);
     const tiersData = await loadTiersCache(); 
     const tierPrices = {};
     
+    // 🌟 [تحديث أمني V4.4]: إجبار المزامنة على استخدام المحرك المالي
     tiersData.forEach(tier => {
-        let profitAdded = Math.max(Number(tier.minProfitUsd || 0), costPrice * (Number(tier.profitPercent || 0) / 100));
-        tierPrices[tier.id] = safeAdd(costPrice, profitAdded);
+        try {
+            const pricing = FinancialEngine.calculatePrice({ product: prodData, tier: tier });
+            tierPrices[tier.id] = pricing.finalPrice;
+        } catch(e) {
+            console.error(`Sync error for prod ${productId} tier ${tier.id}:`, e);
+        }
     });
     
     const publicData = { ...prodData, tierPrices };
@@ -665,12 +733,15 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
     let count = 0;
 
     prodsSnap.forEach(doc => {
-        const costPrice = Number(doc.data().costPrice || 0);
-        const profitAdded = Math.max(Number(newTier.minProfitUsd || 0), costPrice * (Number(newTier.profitPercent || 0) / 100));
-        const newTierPrice = safeAdd(costPrice, profitAdded);
-
-        currentBatch.set(db.collection('telecard_prods_public').doc(doc.id), { tierPrices: { [tierId]: newTierPrice } }, { merge: true });
-        count++;
+        const prodData = doc.data();
+        try {
+            // 🌟 [تحديث أمني V4.4]: إجبار تحديث المستويات على استخدام المحرك المالي
+            const pricing = FinancialEngine.calculatePrice({ product: prodData, tier: newTier });
+            currentBatch.set(db.collection('telecard_prods_public').doc(doc.id), { tierPrices: { [tierId]: pricing.finalPrice } }, { merge: true });
+            count++;
+        } catch(e) {
+            console.error(`Tier Update error for prod ${doc.id}:`, e);
+        }
         if (count === 450) { batchChunks.push(currentBatch); currentBatch = db.batch(); count = 0; }
     });
 
@@ -724,7 +795,17 @@ exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposi
 const developerApi = require('./developerApi.js');
 const supplierEngine = require('./supplierEngine.js');
 
-exports.orderStatusWebhook = developerApi.orderStatusWebhook;
+exports.orderStatusWebhook = onRequest({ region: 'us-east1', secrets: [SUPPLIER_WEBHOOK_TOKEN] }, async (req, res) => {
+    const token = req.headers['x-telecard-webhook-token'];
+    
+    if (!token || token !== SUPPLIER_WEBHOOK_TOKEN.value()) {
+        console.error(`[SECURITY ALERT] Unauthorized Webhook Attempt from IP: ${req.ip}`);
+        return res.status(401).send('Unauthorized: Invalid Security Token');
+    }
+
+    return developerApi.orderStatusWebhook(req, res);
+});
+
 exports.externalCreateOrder = developerApi.externalCreateOrder;
 exports.syncSupplierData = supplierEngine.syncSupplierData;
 exports.scheduledSupplierSync = supplierEngine.scheduledSupplierSync;

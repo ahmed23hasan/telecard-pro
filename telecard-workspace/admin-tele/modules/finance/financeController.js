@@ -8,7 +8,7 @@ import { AdminData } from '../../adminData.js';
 import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
-
+import { FinancialEngine } from '../../core/financialEngine.js';
 // 🚀 [نقاء هندسي]: تم حذف استيراد AppController تماماً لكسر الارتباط الدائري الميت!
 import { normalizeRates } from '../../adminConfig.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
@@ -350,21 +350,27 @@ export const FinanceController = {
             return;
         }
         
-        // 🛡️ [إصلاح حرج 2]: تم إزالة الكائن الميت this.currentPayment وقراءة الرسوم والنسب مباشرة من مستند الإيداع
-        const feeVal = Number(dep.feePct ?? dep.fee ?? 0);
-        const feeType = dep.feeType || 'fee';
-        const feeUnit = dep.feeUnit || dep.unit || dep.calcMethod || 'percent';
+  // 🛡️ [تحديث ماسي 💎]: استخدام المحرك المالي السيادي لمنع أخطاء الفواصل العشرية
+const amount = FinancialEngine.extractNum(dep.amount);
+const feeVal = FinancialEngine.extractNum(dep.feePct ?? dep.fee);
+const feeType = dep.feeType || 'fee';
+const feeUnit = dep.feeUnit || dep.unit || dep.calcMethod || 'percent';
 
-        let feeAmount = feeUnit === 'fixed' || feeUnit === 'amount' ? feeVal : Number(dep.amount || 0) * (feeVal / 100);
-        
-        let netPayCurr = Number(dep.amount || 0);
-        if (feeType === 'bonus') netPayCurr += feeAmount;
-        else netPayCurr -= feeAmount;
-        
-        const fxRate = Number(dep.fxRate ?? 1);
-        const netBase = Number((dep.creditedAmount != null) ? dep.creditedAmount : (netPayCurr * fxRate));
-        
-        const currentBalance = Number(user.walletBalance || user.balance || 0);
+// حساب الرسوم بأمان (أرقام صحيحة خالية من كسور الجافاسكريبت)
+let feeAmount = (feeUnit === 'fixed' || feeUnit === 'amount') ?
+    feeVal :
+    FinancialEngine.safeMul(amount, FinancialEngine.safeDiv(feeVal, 100));
+
+// حساب الصافي (بونص أو خصم)
+let netPayCurr = (feeType === 'bonus') ?
+    FinancialEngine.safeAdd(amount, feeAmount) :
+    FinancialEngine.safeSub(amount, feeAmount);
+
+// حساب المعادل بالدولار أو العملة الأساسية بدقة 100%
+const fxRate = FinancialEngine.extractNum(dep.fxRate, false);
+const netBase = (dep.creditedAmount != null) ?
+    FinancialEngine.extractNum(dep.creditedAmount) :
+    FinancialEngine.safeMul(netPayCurr, fxRate);        const currentBalance = Number(user.walletBalance || user.balance || 0);
         const safeCurrency = (user.baseCurrency || 'USD').toUpperCase();
         
         let confirmMsg = "";

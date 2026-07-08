@@ -1,14 +1,13 @@
 // ============================================================================
-// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Pro Version 🚀
+// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - النسخة النهائية V4.0 🛡️
 // الوظيفة: الكوبونات، العروض، الإشعارات، وإعدادات البنرات (الهوية البصرية).
-// 🌟 التحديث: سحب الصور من DOM + التنظيف التلقائي للسحابة (Storage GC) + الأمان
+// 🚀 التحديث الأقصى: استعلامات O(1)، استرجاع آمن (Safe Rollback)، فك ارتباط كامل، وحماية قسوى.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
-import { AppController } from '../../core/appController.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const MarketingController = {
@@ -18,8 +17,9 @@ export const MarketingController = {
     // =========================================================
     openOfferModal: function(id = null) {
         let strId = id ? String(id) : null;
-        AppController.updateState({ tempEditId: strId });
-        const offer = strId ? (AdminData.data.offers || []).find(o => String(o.id) === strId) : null;
+        EventBus.emit('req-update-state', { tempEditId: strId });
+        
+        const offer = strId ? (AdminData.data.offersMap?.[strId] || (AdminData.data.offers || []).find(o => String(o.id) === strId)) : null;
         AdminUI?.MarketingUI?.setupOfferModal?.(offer);
         
         if (AdminRender?.populateSmartTreeTargets) {
@@ -42,7 +42,7 @@ export const MarketingController = {
         for (const prodId of targetProds) {
             for (const oldOffer of otherActiveOffers) {
                 if (oldOffer.targetProds && oldOffer.targetProds.includes(String(prodId))) {
-                    const prodObj = (AdminData.data.prods || []).find(p => String(p.id) === String(prodId));
+                    const prodObj = AdminData.data.prodsMap?.[prodId] || (AdminData.data.prods || []).find(p => String(p.id) === String(prodId));
                     collisions.push({
                         prodId: String(prodId),
                         prodName: prodObj ? prodObj.name : `المنتج #${prodId}`,
@@ -78,7 +78,6 @@ export const MarketingController = {
             EventBus.emit('req-show-toast', { message: 'تم إفراغ العرض الجديد بعد استبعاد التضاربات. تم إلغاء الحفظ.', type: 'error' });
             return false;
         }
-        
         return true;
     },
 
@@ -86,11 +85,10 @@ export const MarketingController = {
         if (!newOffer.visualConfig || !newOffer.visualConfig.storyEnabled || !newOffer.visualConfig.storyProducts.length) return true;
         
         const newShape = newOffer.visualConfig.storyShape;
-        const prods = AdminData.data.prods || [];
         const targetCatIds = new Set();
         
         newOffer.visualConfig.storyProducts.forEach(pId => {
-            const p = prods.find(x => String(x.id) === String(pId));
+            const p = AdminData.data.prodsMap?.[pId] || (AdminData.data.prods || []).find(x => String(x.id) === String(pId));
             if (p && p.catId) targetCatIds.add(String(p.catId));
         });
         
@@ -104,7 +102,7 @@ export const MarketingController = {
             if (oldShape !== newShape) {
                 const oldStoryProds = oldOffer.visualConfig.storyProducts || [];
                 const hasSharedCat = oldStoryProds.some(pId => {
-                    const p = prods.find(x => String(x.id) === String(pId));
+                    const p = AdminData.data.prodsMap?.[pId] || (AdminData.data.prods || []).find(x => String(x.id) === String(pId));
                     return p && p.catId && targetCatIds.has(String(p.catId));
                 });
                 if (hasSharedCat) {
@@ -149,10 +147,10 @@ export const MarketingController = {
         } else { currentVisualConfig.storyProducts = []; }
 
         if (!AdminData.data.offers) AdminData.data.offers = [];
-        const isEdit = !!AppController.tempEditId;
-        const oIdx = isEdit ? AdminData.data.offers.findIndex(o => String(o.id) === String(AppController.tempEditId)) : -1;
+        const isEdit = !!AdminData.tempEditId;
+        const oIdx = isEdit ? AdminData.data.offers.findIndex(o => String(o.id) === String(AdminData.tempEditId)) : -1;
         
-        const offerData = { id: isEdit ? AppController.tempEditId : 'off_' + Date.now(), name, type, value, isActive, expiryDate, targetTiers: selectedTiers, targetProds: selectedProds, visualConfig: currentVisualConfig };
+        const offerData = { id: isEdit ? AdminData.tempEditId : 'off_' + Date.now(), name, type, value, isActive, expiryDate, targetTiers: selectedTiers, targetProds: selectedProds, visualConfig: currentVisualConfig };
 
         const passedCollision = await this._checkOfferCollisions(offerData);
         if (!passedCollision) return;
@@ -163,35 +161,61 @@ export const MarketingController = {
         if (isEdit && oIdx !== -1) AdminData.data.offers[oIdx] = offerData;
         else AdminData.data.offers.push(offerData);
 
+        // 🛡️ الحماية: تحديث الـ Map فورياً محلياً لتجنب الأخطاء
+        if (!AdminData.data.offersMap) AdminData.data.offersMap = {};
+        AdminData.data.offersMap[offerData.id] = offerData;
+
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحفظ سحابياً...');
         try {
             await AdminData?.saveOffers?.();
-            AppController.finishAction('req-render-offers', 'offer', isEdit ? 'EDIT_OFFER' : 'ADD_OFFER', `حملة تخفيض: ${name}`, isEdit ? 'تم التعديل بنجاح' : 'تمت الإضافة بنجاح');
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-offers',
+                modalId: 'offer',
+                logAction: isEdit ? 'EDIT_OFFER' : 'ADD_OFFER',
+                logDetails: `حملة تخفيض: ${name}`,
+                toastMsg: isEdit ? 'تم التعديل بنجاح' : 'تمت الإضافة بنجاح'
+            });
         } finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
     },
 
     deleteOffer: async function(id) {
         if (!AdminData.data.offers) return;
         if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من حذف العرض نهائياً؟')) return;
-        const offer = AdminData.data.offers.find(o => String(o.id) === String(id));
+        
+        const offer = AdminData.data.offersMap?.[id] || AdminData.data.offers.find(o => String(o.id) === String(id));
+        const offersBackup = [...AdminData.data.offers]; // 🛡️ حفظ نسخة أصلية من المصفوفة
         
         AdminData.data.offers = AdminData.data.offers.filter(o => String(o.id) !== String(id));
-        EventBus.emit('req-render-offers'); EventBus.emit('req-show-toast', {message:'جاري الحذف...', type:'info'});
+        if(AdminData.data.offersMap) delete AdminData.data.offersMap[id]; // 🛡️ الحذف من الخريطة أيضاً
+
+        EventBus.emit('req-render-offers'); 
+        EventBus.emit('req-show-toast', {message:'جاري الحذف...', type:'info'});
+        
         try {
             await AdminData?.saveOffers?.();
             if (offer) AdminData?.addLog?.('DELETE_OFFER', `حذف حملة: ${offer.name}`);
             EventBus.emit('req-show-toast', {message:'تم الحذف بنجاح', type:'success'});
-        } catch(e) { AdminData.data.offers.push(offer); EventBus.emit('req-render-offers'); }
+        } catch(e) { 
+            // 🛡️ استرجاع آمن للمصفوفة الأصلية بنفس الترتيب
+            AdminData.data.offers = offersBackup; 
+            if(offer && AdminData.data.offersMap) AdminData.data.offersMap[id] = offer;
+            EventBus.emit('req-render-offers'); 
+            EventBus.emit('req-show-toast', {message:'فشل الحذف، حدث خطأ سحابي', type:'error'});
+        }
     },
 
     toggleOfferStatus: async function(id, isActive) {
-        const offer = AdminData.data.offers.find(o => String(o.id) === String(id));
+        const offer = AdminData.data.offersMap?.[id] || AdminData.data.offers.find(o => String(o.id) === String(id));
         if (offer) {
-            offer.isActive = isActive; EventBus.emit('req-render-offers');
+            offer.isActive = isActive; 
+            EventBus.emit('req-render-offers');
             try {
                 await AdminData?.saveOffers?.();
                 EventBus.emit('req-show-toast', { message: isActive ? 'تم تفعيل العرض' : 'تم الإيقاف', type: 'success' });
-            } catch(e) { offer.isActive = !isActive; EventBus.emit('req-render-offers'); }
+            } catch(e) { 
+                offer.isActive = !isActive; 
+                EventBus.emit('req-render-offers'); 
+            }
         }
     },
 
@@ -199,9 +223,10 @@ export const MarketingController = {
     // 🎟️ 2. إدارة الكوبونات (Coupons)
     // =========================================================
     openCouponModal: function(id = null) {
-        AppController.updateState({ tempEditId: id });
+        EventBus.emit('req-update-state', { tempEditId: id });
         const isEdit = !!id;
-        const coupon = isEdit ? AdminData.data.coupons.find(c => String(c.id) === String(id)) : null;
+        
+        const coupon = isEdit ? (AdminData.data.couponsMap?.[id] || AdminData.data.coupons.find(c => String(c.id) === String(id))) : null;
         AdminUI?.MarketingUI?.setupCouponModal?.(coupon, isEdit);
         AdminRender?.populateSmartTreeTargets?.('coupon-target', coupon ? (coupon.targetTiers||[]) : [], coupon ? (coupon.targetProds||[]) : []);
         EventBus.emit('req-open-modal', 'coupon');
@@ -228,11 +253,17 @@ export const MarketingController = {
             return EventBus.emit('req-show-toast', { message: 'يجب تحديد مستوى ومنتج واحد على الأقل', type: 'error' });
         }
 
-        const isEdit = !!AppController.tempEditId;
-        const cIdx = isEdit ? AdminData.data.coupons.findIndex(c => String(c.id) === String(AppController.tempEditId)) : -1;
+        const isEdit = !!AdminData.tempEditId;
+        const cIdx = isEdit ? AdminData.data.coupons.findIndex(c => String(c.id) === String(AdminData.tempEditId)) : -1;
         
-        if (!isEdit && AdminData.data.coupons.find(c => c.code === code)) {
-            return EventBus.emit('req-show-toast', { message: 'هذا الكود مستخدم مسبقاً', type: 'error' });
+        // 🛡️ [ترقيع أمني V4.1]: التحقق الدقيق من عدم تكرار الكود لمنع التضارب
+        // النظام سيبحث إذا كان الكود موجوداً مسبقاً، وسيتجاهل الكوبون الحالي إذا كنا في وضع "التعديل"
+        const isCodeDuplicate = (AdminData.data.coupons || []).some(c => 
+            c.code === code && (!isEdit || String(c.id) !== String(AdminData.tempEditId))
+        );
+
+        if (isCodeDuplicate) {
+            return EventBus.emit('req-show-toast', { message: 'هذا الكود مستخدم مسبقاً في متجرنا', type: 'error' });
         }
 
         const expiryVal = Utils.getVal('coupon-expiry');
@@ -240,7 +271,7 @@ export const MarketingController = {
         const allowedUsers = allowedUsersStr ? allowedUsersStr.split(',').map(s => Number(s.trim())).filter(n => !isNaN(n) && n > 0) : [];
 
         const couponData = {
-            id: isEdit ? AppController.tempEditId : Date.now(),
+            id: isEdit ? AdminData.tempEditId : 'coup_' + Date.now(), // 🌟 توحيد شكل الـ ID
             code, type, value,
             minOrder: Number(Utils.getVal('coupon-min-order')) || 0,
             maxUses: Number(Utils.getVal('coupon-max-uses')) || 0,
@@ -255,31 +286,54 @@ export const MarketingController = {
         if (isEdit && cIdx !== -1) AdminData.data.coupons[cIdx] = couponData;
         else AdminData.data.coupons.push(couponData);
 
+        // 🛡️ الحماية: تحديث الـ Map فورياً محلياً (بناءً على الـ ID كما اتفقنا)
+        if (!AdminData.data.couponsMap) AdminData.data.couponsMap = {};
+        AdminData.data.couponsMap[couponData.id] = couponData;
+
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحفظ...');
         try {
             await AdminData?.saveCoupons?.();
-            AppController.finishAction('req-render-coupons', 'coupon', isEdit ? 'EDIT_COUPON' : 'ADD_COUPON', `كوبون: ${code}`, 'تم حفظ الكوبون بنجاح');
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-coupons',
+                modalId: 'coupon',
+                logAction: isEdit ? 'EDIT_COUPON' : 'ADD_COUPON',
+                logDetails: `كوبون: ${code}`,
+                toastMsg: 'تم حفظ الكوبون بنجاح'
+            });
         } finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
     },
-
-    deleteCoupon: async function(id) {
+        deleteCoupon: async function(id) {
         if (!AdminData.data.coupons) return;
         if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من الحذف؟')) return;
-        const coupon = AdminData.data.coupons.find(c => String(c.id) === String(id));
+        
+        const coupon = AdminData.data.couponsMap?.[id] || AdminData.data.coupons.find(c => String(c.id) === String(id));
+        const couponsBackup = [...AdminData.data.coupons]; // 🛡️ حفظ نسخة
+        
         AdminData.data.coupons = AdminData.data.coupons.filter(c => String(c.id) !== String(id));
-        EventBus.emit('req-render-coupons'); EventBus.emit('req-show-toast', { message: 'جاري الحذف...', type: 'info' });
+        if(AdminData.data.couponsMap) delete AdminData.data.couponsMap[id];
+
+        EventBus.emit('req-render-coupons'); 
+        EventBus.emit('req-show-toast', { message: 'جاري الحذف...', type: 'info' });
+        
         try {
             await AdminData?.saveCoupons?.();
             if (coupon) AdminData?.addLog?.('DELETE_COUPON', `حذف الكوبون: ${coupon.code}`);
             EventBus.emit('req-show-toast', { message: 'تم الحذف', type: 'success' });
-        } catch(e) { AdminData.data.coupons.push(coupon); EventBus.emit('req-render-coupons'); }
+        } catch(e) { 
+            // 🛡️ استرجاع آمن
+            AdminData.data.coupons = couponsBackup; 
+            if(coupon && AdminData.data.couponsMap) AdminData.data.couponsMap[id] = coupon;
+            EventBus.emit('req-render-coupons'); 
+        }
     },
 
     toggleCouponStatus: async function(id, isActive) {
-        const coupon = AdminData.data.coupons.find(c => String(c.id) === String(id));
+        const coupon = AdminData.data.couponsMap?.[id] || AdminData.data.coupons.find(c => String(c.id) === String(id));
         if (coupon) {
-            coupon.isActive = isActive; EventBus.emit('req-render-coupons');
-            try { await AdminData?.saveCoupons?.(); } catch(e) { coupon.isActive = !isActive; EventBus.emit('req-render-coupons'); }
+            coupon.isActive = isActive; 
+            EventBus.emit('req-render-coupons');
+            try { await AdminData?.saveCoupons?.(); } 
+            catch(e) { coupon.isActive = !isActive; EventBus.emit('req-render-coupons'); }
         }
     },
 
@@ -298,11 +352,10 @@ export const MarketingController = {
 
         const targetType = Utils.getVal('alert-target-type', 'all');
         let targetId = null;
-        if (targetType === 'tier') targetId = Utils.getVal('alert-target-tier');
-        else if (targetType === 'user') {
+        if (targetType === 'user') {
             const inputVal = Utils.escapeHTML(Utils.getVal('alert-target-user'));
-            const userExists = (AdminData.data.users || []).find(u => String(u.id) === String(inputVal) || String(u.displayId) === String(inputVal));
-            if (!userExists) return EventBus.emit('req-show-toast', { message: 'العميل غير موجود', type: 'error' });
+            const userExists = AdminData.data.usersMap?.[inputVal] || (AdminData.data.users || []).find(u => String(u.id) === String(inputVal) || String(u.displayId) === String(inputVal));
+            if (!userExists) return EventBus.emit('req-show-toast', { message: 'العميل غير موجود في متجرنا', type: 'error' });
             targetId = userExists.id; 
         }
         
@@ -333,13 +386,20 @@ export const MarketingController = {
                 AdminData.data.alerts.push(newAlert);
                 await AdminData.saveAlerts();
             }
-            AppController.finishAction('req-render-alerts', null, null, null, 'تم الإرسال بنجاح!');
+            
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-alerts',
+                modalId: null,
+                logAction: null,
+                logDetails: null,
+                toastMsg: 'تم الإرسال بنجاح!'
+            });
         } finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
     },
 
     deleteAlert: async function(id) {
         if (!AdminData.data.alerts) return;
-        let alertBackup = [...AdminData.data.alerts];
+        const alertBackup = [...AdminData.data.alerts];
         AdminData.data.alerts = AdminData.data.alerts.filter(a => a.id !== id);
         EventBus.emit('req-render-alerts');
         try {
@@ -352,7 +412,10 @@ export const MarketingController = {
                 if (userUpdated) await AdminData.saveUsers();
             }
             EventBus.emit('req-show-toast', { message: 'تم الحذف', type: 'success' });
-        } catch(e) { AdminData.data.alerts = alertBackup; EventBus.emit('req-render-alerts'); }
+        } catch(e) { 
+            AdminData.data.alerts = alertBackup; 
+            EventBus.emit('req-render-alerts'); 
+        }
     },
 
     // =========================================================
@@ -369,7 +432,14 @@ export const MarketingController = {
             if(!AdminData.data.banners) AdminData.data.banners = [];
             AdminData.data.banners.push({ id: String(Date.now()), img: finalImgUrl, link: Utils.escapeHTML(Utils.getVal('ban-link')) });
             await AdminData?.saveBanners?.();
-            AppController.finishAction('req-render-banners', null, 'ADD_BANNER', 'إضافة بانر', 'تم إضافة بانر بنجاح');
+            
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-banners',
+                modalId: null,
+                logAction: 'ADD_BANNER',
+                logDetails: 'إضافة بانر جديد في المتجر',
+                toastMsg: 'تم إضافة بانر بنجاح'
+            });
         } catch (error) { EventBus.emit('req-show-toast', {message: 'خطأ أثناء الرفع', type: 'error'}); } 
         finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
     },
@@ -377,7 +447,6 @@ export const MarketingController = {
     deleteBanner: async function(id) {
         const bnr = AdminData.data.banners.find(x => String(x.id) === String(id));
         if (bnr && bnr.img && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
-            // 🌟 تنظيف السحابة من الصورة القديمة لتوفير المساحة والمال
             try { await FirebaseAdapter.deleteImageByUrl(bnr.img); } catch(e){ console.warn("تعذر تنظيف صورة البنر"); }
         }
         AdminData.data.banners = AdminData.data.banners.filter(x => String(x.id) !== String(id));
@@ -402,14 +471,12 @@ export const MarketingController = {
             const inputEl = document.getElementById(`${baseId}-input`) || document.getElementById(baseId);
             const wrapEl = document.getElementById(`${baseId}-wrap`);
             
-            // 🌟 تنظيف السحابة: إذا مسح الأدمن الصورة، نمسحها من السيرفر
             if (wrapEl && !wrapEl.classList.contains('has-img')) {
                 if (currentUrl) await FirebaseAdapter.deleteImageByUrl(currentUrl).catch(()=>{});
                 return '';
             }
             
             if (inputEl && inputEl.files && inputEl.files.length > 0) {
-                // 🌟 تنظيف السحابة: إذا رفع صورة جديدة، نمسح القديمة
                 if (currentUrl) await FirebaseAdapter.deleteImageByUrl(currentUrl).catch(()=>{});
                 const file = inputEl.files[0];
                 return await FirebaseAdapter.uploadImage(file, 'brand');
@@ -418,7 +485,7 @@ export const MarketingController = {
             return currentUrl || '';
         };
 
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث هوية المتجر...');
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث هوية المتجر السحابية...');
         try {
             const [newLogo, newLogoLight, newFavicon] = await Promise.all([
                 processBrandImage('store-logo', sys.storeLogo),
@@ -431,7 +498,7 @@ export const MarketingController = {
             sys.storeFavicon = newFavicon;
 
             if (AdminData?.saveSystemSettings) await AdminData.saveSystemSettings();
-            EventBus.emit('req-show-toast', { message: 'تم حفظ هوية المتجر', type: 'success' });
+            EventBus.emit('req-show-toast', { message: 'تم حفظ هوية المتجر بنجاح وتحديث السحاب', type: 'success' });
         } catch (error) { EventBus.emit('req-show-toast', {message: 'خطأ أثناء رفع الهوية', type: 'error'}); } 
         finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
     },

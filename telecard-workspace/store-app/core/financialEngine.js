@@ -1,178 +1,159 @@
 // ============================================================================
-// 💻 المحاكي المالي للواجهة الأمامية (Client-Side Simulator) - النسخة الماسية 💎
+// 💻 المحاكي المالي للواجهة الأمامية (Client-Side Simulator) - النسخة الماسية V11.0 💎
 // 🎯 الوظيفة: محاكاة الأسعار للعميل، عرض الخصومات، وإخفاء الأسرار (التكلفة والأرباح)
-// 🌟 التحديث الأقصى: تطبيق خوارزمية O(1) للعملات لتصبح نسخة كربونية من السيرفر
+// 🌟 التحديث الأقصى: تطبيق التطابق التام مع معايير السيرفر (Guardian V11)
 // ============================================================================
 
-export const FinancialEngine = {
+export const FinancialEngine = Object.freeze({
     
+    CONFIG: {
+        BASE_CURRENCY: 'USD',
+        PRECISION: 10000
+    },
+
     // 🛡️ دوال الرياضيات الآمنة (محصنة ضد NaN للحفاظ على استقرار الواجهة)
     safeAdd: function(a, b) {
-        return Math.round((Number(a) || 0) * 10000 + (Number(b) || 0) * 10000) / 10000;
+        return Math.round((Number(a) || 0) * this.CONFIG.PRECISION + (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
     
     safeSub: function(a, b) {
-        return Math.round((Number(a) || 0) * 10000 - (Number(b) || 0) * 10000) / 10000;
+        return Math.round((Number(a) || 0) * this.CONFIG.PRECISION - (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
     
     safeMul: function(a, b) {
-        return Math.round((Number(a) || 0) * (Number(b) || 0) * 10000) / 10000;
+        return Math.round((Number(a) || 0) * (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
     
     safeDiv: function(a, b) {
         const numA = Number(a) || 0;
         let numB = Number(b);
-        // منع القسمة على صفر أو على قيم فاسدة لضمان عدم ظهور (Infinity)
         if (isNaN(numB) || numB === 0) numB = 1;
-        return Math.round((numA / numB) * 10000) / 10000;
+        return Math.round((numA / numB) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
+    },
+
+    // 🛡️ معقم الأرقام الصارم (متطابق مع السيرفر)
+    extractNum: function(val, allowZero = true) {
+        if (val === undefined || val === null || val === '') return 0;
+        const num = Number(val);
+        if (isNaN(num)) return 0;
+        const absNum = Math.abs(num); // منع السوالب
+        if (!allowZero && absNum === 0) return 1;
+        return absNum;
     },
     
-    // 🛡️ [تحديث الأداء]: تحويل المصفوفة إلى Dictionary لسرعة بحث O(1) (مطابق للسيرفر)
-    normalizeRates: function(raw) {
-        const ratesArray = Array.isArray(raw) ? raw : [];
+    // 🛡️ [تحديث الأداء]: تحويل المصفوفة إلى Dictionary لسرعة بحث O(1)
+    normalizeRates: function(rawArray) {
         const ratesMap = {};
-        let hasBase = false;
         
-        for (const rate of ratesArray) {
-            if (rate && rate.code) {
-                ratesMap[String(rate.code).toUpperCase()] = rate;
-                if (rate.isBase) hasBase = true;
+        // تأمين وجود الدولار كقاعدة ارتكاز
+        ratesMap[this.CONFIG.BASE_CURRENCY] = { 
+            code: this.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true 
+        };
+
+        if (Array.isArray(rawArray)) {
+            for (const rate of rawArray) {
+                if (rate && rate.code && rate.code !== this.CONFIG.BASE_CURRENCY) {
+                    const code = String(rate.code).toUpperCase();
+                    ratesMap[code] = {
+                        code: code,
+                        priceRate: this.extractNum(rate.priceRate, false),
+                        depRate: this.extractNum(rate.depRate, false)
+                    };
+                }
             }
-        }
-        
-        // تأمين وجود الدولار كقاعدة ارتكاز في حال كان الـ API فارغاً
-        if (!hasBase) {
-            ratesMap['USD'] = { code: 'USD', symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
         }
         return ratesMap;
     },
     
     convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel = 'pricing') {
-        const amt = Number(amount) || 0;
-        
-        if (amt === 0 || !fromCode || !toCode || String(fromCode).toUpperCase() === String(toCode).toUpperCase()) return amt;
-        
+        const amt = this.extractNum(amount);
+        const fCode = String(fromCode || this.CONFIG.BASE_CURRENCY).toUpperCase();
+        const tCode = String(toCode || this.CONFIG.BASE_CURRENCY).toUpperCase();
+
+        if (amt === 0 || fCode === tCode) return amt;
+
         const ratesMap = this.normalizeRates(ratesArray);
         
-        const fromCurr = ratesMap[String(fromCode).toUpperCase()] || { priceRate: 1, depRate: 1 };
-        const toCurr = ratesMap[String(toCode).toUpperCase()] || { priceRate: 1, depRate: 1 };
+        const from = ratesMap[fCode] || { priceRate: 1, depRate: 1 };
+        const to = ratesMap[tCode] || { priceRate: 1, depRate: 1 };
         
-        const fromRate = channel === 'deposit' ? fromCurr.depRate : fromCurr.priceRate;
-        const toRate = channel === 'deposit' ? toCurr.depRate : toCurr.priceRate;
+        const fRate = channel === 'deposit' ? from.depRate : from.priceRate;
+        const tRate = channel === 'deposit' ? to.depRate : to.priceRate;
         
-        const inUSD = this.safeDiv(amt, fromRate);
-        const finalAmount = this.safeMul(inUSD, (toRate || 1));
-        
-        return finalAmount;
+        return this.safeMul(this.safeDiv(amt, fRate), tRate);
     },
     
     // 🚀 المحرك المالي النظيف والآمن لحساب "القطعة الواحدة" (خالي من الأسرار التجارية)
     calculatePrice: function(params = {}) {
         const { product = {}, tier = null, offer = null, coupon = null, optIdx = null } = params;
         
-        // 🛡️ 1. تحديد السعر الأساسي بناءً على نوع المنتج (منتج عادي أو باقات)
         let baseSellingPrice = 0;
-        let isFixed = (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true' || product.is_fixed_price === true);
+        let isFixed = (String(product.isFixedPrice).toLowerCase() === 'true' || product.is_fixed_price === true);
         let activeOption = null;
         
-        // 🌟 استخراج سعر الباقة إذا كان المنتج من نوع select
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && product.options[optIdx]) {
             activeOption = product.options[optIdx];
-            // الباقة قد تمتلك إعداد (السعر الثابت) الخاص بها منفصلاً عن المنتج الأب
             if (activeOption.isFixedPrice !== undefined) {
-                isFixed = (activeOption.isFixedPrice === true || String(activeOption.isFixedPrice).toLowerCase() === 'true');
+                isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
             }
         }
         
-        // حساب السعر النهائي للقطعة (سواء كانت منتجاً عادياً أو باقة)
         if (isFixed) {
-            baseSellingPrice = activeOption ? Number(activeOption.fixedPriceUsd || activeOption.price || 0) : Number(product.fixedPriceUsd || product.fixed_price_usd || 0);
+            baseSellingPrice = activeOption ? this.extractNum(activeOption.fixedPriceUsd || activeOption.price) : this.extractNum(product.fixedPriceUsd || product.fixed_price_usd);
         } else if (tier) {
-            // الأولوية لسعر الباقة الخاص بالمستوى، ثم سعر المنتج الخاص بالمستوى، ثم السعر العادي
-            if (activeOption && activeOption.tierPrices && activeOption.tierPrices[tier.id]) {
-                baseSellingPrice = Number(activeOption.tierPrices[tier.id]);
-            } else if (!activeOption && product.tierPrices && product.tierPrices[tier.id]) {
-                baseSellingPrice = Number(product.tierPrices[tier.id]);
+            const tierPriceField = activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id];
+            if (tierPriceField) {
+                baseSellingPrice = this.extractNum(tierPriceField);
             } else {
-                baseSellingPrice = activeOption ? Number(activeOption.price || 0) : Number(product.price || 0);
+                baseSellingPrice = activeOption ? this.extractNum(activeOption.price) : this.extractNum(product.price);
             }
         } else {
-            baseSellingPrice = activeOption ? Number(activeOption.price || 0) : Number(product.price || 0);
+            baseSellingPrice = activeOption ? this.extractNum(activeOption.price) : this.extractNum(product.price);
         }
         
-        // منع أي سعر من أن يكون NaN
-        let currentPrice = Number(baseSellingPrice) || 0;
+        let currentPrice = baseSellingPrice;
         const originalPrice = currentPrice;
         
-        // 🛡️ [تحديث أمني]: دالة مساعدة لانتزاع الأرقام بقواعد صارمة (Absolute Math) متطابقة مع السيرفر
-        const extractNum = (val) => {
-            if (val === undefined || val === null || val === '') return 0;
-            const num = Number(val);
-            return isNaN(num) ? 0 : Math.abs(num);
-        };
-        
-        // 2. تطبيق خصومات العروض النشطة
         let offerName = null;
         let offerDiscount = 0;
-        if (offer && offer.type !== 'fake') {
+        if (offer && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name;
-            const val = extractNum(offer.value);
-            if (offer.type === 'percentage') {
-                offerDiscount = this.safeMul(originalPrice, val / 100);
-            } else if (offer.type === 'fixed' || offer.type === 'amount') {
-                offerDiscount = val;
-            }
+            const val = this.extractNum(offer.value);
+            offerDiscount = offer.type === 'percentage' ? this.safeMul(originalPrice, val / 100) : val;
             currentPrice = Math.max(0, this.safeSub(currentPrice, offerDiscount));
         }
         
-        // 3. تطبيق خصومات الكوبونات
         let couponCode = null;
         let couponDiscount = 0;
         let isFirewallActive = false;
         
-        // 🛡️ تفعيل الجدار الناري: المنتجات الثابتة السعر أو التي يمنع فيها الكوبون لا تتأثر بالخصم
         if (product.disableCoupons === true || isFixed) {
             isFirewallActive = true;
-        } else if (coupon) {
+        } else if (coupon && coupon.isActive !== false) {
             couponCode = coupon.code;
-            const val = extractNum(coupon.value);
-            if (coupon.type === 'percentage') {
-                // الكوبون يطبق على السعر (بعد) العرض، لحماية أرباح التاجر (Compound Discounting Guard)
-                couponDiscount = this.safeMul(currentPrice, val / 100);
-            } else if (coupon.type === 'fixed' || coupon.type === 'amount') {
-                couponDiscount = val;
-            }
+            const val = this.extractNum(coupon.value);
+            couponDiscount = coupon.type === 'percentage' ? this.safeMul(currentPrice, val / 100) : val;
             currentPrice = Math.max(0, this.safeSub(currentPrice, couponDiscount));
         }
         
-        const finalPrice = currentPrice;
-        const totalDiscountVal = this.safeAdd(offerDiscount, couponDiscount);
-        
-        // 🌟 إرجاع البيانات النظيفة والمفصلة للواجهة الأمامية
         return {
-            originalPrice: originalPrice,
-            finalPrice: finalPrice,
+            originalPrice,
+            finalPrice: currentPrice,
             tierName: tier ? (tier.nameAr || tier.name || tier.id) : null,
-            offerName: offerName,
-            offerDiscount: offerDiscount,
-            couponCode: couponCode,
-            couponDiscount: couponDiscount,
-            totalDiscountVal: totalDiscountVal,
-            isFirewallActive: isFirewallActive
+            offerName,
+            offerDiscount,
+            couponCode,
+            couponDiscount,
+            totalDiscountVal: this.safeAdd(offerDiscount, couponDiscount),
+            isFirewallActive
         };
     },
     
-    // ==========================================
-    // 🛡️ [الدرع الجديد]: الدالة التي يجب استدعاؤها لحساب إجمالي السلة في الواجهة
-    // ==========================================
+    // 🛡️ الدالة التي يجب استدعاؤها لحساب إجمالي السلة في الواجهة
     calculateOrderTotalUi: function(params = {}, rawQty = 1) {
-        // 1. فلترة الكمية لمنع إدخال نصوص أو سوالب في الواجهة الأمامية
-        const safeQty = Math.max(1, Math.floor(Number(rawQty) || 1));
-        
-        // 2. استدعاء سعر القطعة الواحدة
+        const safeQty = Math.max(1, Math.floor(this.extractNum(rawQty) || 1));
         const unitMath = this.calculatePrice(params);
         
-        // 3. إرجاع النتيجة مضروبة في الكمية لعرضها للعميل
         return {
             ...unitMath,
             qty: safeQty,
@@ -181,4 +162,4 @@ export const FinancialEngine = {
             totalDiscountVal: this.safeMul(unitMath.totalDiscountVal, safeQty)
         };
     }
-};
+});

@@ -103,6 +103,7 @@ export const UIService = {
             overlay.classList.add('active');
         });
     },
+    
     showPrompt: function(message, title = 'إدخال البيانات', defaultValue = '', isPassword = false) {
     return new Promise((resolve) => {
         const overlay = document.getElementById('prompt-overlay');
@@ -120,7 +121,7 @@ export const UIService = {
         
         // 🛡️ 1. تطبيق درع الحماية على حقل الإدخال
         inputEl.value = defaultValue;
-        inputEl.setAttribute('autocomplete', 'new-password'); // الكود السحري لمنع المتصفحات من حفظ الإدخال
+        inputEl.setAttribute('autocomplete', 'new-password');
         inputEl.setAttribute('spellcheck', 'false');
         inputEl.setAttribute('autocorrect', 'off');
         
@@ -138,15 +139,16 @@ export const UIService = {
             const val = inputEl.value.trim();
             inputEl.blur();
             
-            // 🛡️ 3. التنظيف الفوري للذاكرة (Memory Wipe)
-            inputEl.value = '';
-            inputEl.type = 'text'; // إعادة الحقل لحالته الطبيعية
-            
             overlay.classList.add('closing');
             setTimeout(() => {
                 overlay.classList.remove('active', 'closing');
+                
+                // 🛡️ 3. التنظيف الفوري للذاكرة (Memory Wipe) يتم هنا بعد إغلاق النافذة!
+                inputEl.value = '';
+                inputEl.type = 'text'; // إعادة الحقل لحالته الطبيعية
+                
                 resolve(isOk ? val : null);
-            }, 400);
+            }, 400); // إنتظار نهاية تأثير الإغلاق (CSS Transition)
         };
         
         newOkBtn.addEventListener('click', () => closeDialog(true));

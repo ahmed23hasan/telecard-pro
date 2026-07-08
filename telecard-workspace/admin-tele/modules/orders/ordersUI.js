@@ -1,7 +1,7 @@
 // ============================================================================
-// 📦 وحدة الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V4.3 💎
+// 📦 وحدة الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V4.4 💎
 // 🎯 الوظيفة: إدارة واجهات ونوافذ الطلبات (معزولة بالكامل عن باقي النظام)
-// 🚀 التحديث الأقصى: القضاء على الـ 4 عمليات الخطية المسببة للبطء والتحول لـ O(1)
+// 🚀 التحديث الأقصى: إصلاح تضارب خرائط الكوبونات وتوحيد الدقة المالية O(1)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -9,6 +9,7 @@ import { AdminTemplates } from '../../adminTemplates.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { UIService } from '../../core/uiService.js'; 
 import { RenderHelpers } from '../../core/renderHelpers.js'; 
+import { FinancialEngine } from '../../core/financialEngine.js'; // 🛡️ استيراد المحرك المالي
 
 export const OrdersUI = {
     currentOrderId: null,
@@ -18,11 +19,8 @@ export const OrdersUI = {
             UIService.closeSidebar();
         }
 
-        // ⚡ 1. جلب الطلب فورا بـ O(1) من خريطة الطلبات المركزية مع fallback آمن
-        let order = null;
-        if(AdminData && AdminData.data) {
-            order = AdminData.data.ordersMap?.[orderId] || AdminData.data.orders.find(o => String(o.id) === String(orderId));
-        }
+        // ⚡ 1. جلب الطلب فورا بـ O(1)
+        const order = AdminData.data.ordersMap?.[orderId] || (AdminData.data.orders || []).find(o => String(o.id) === String(orderId));
         if(!order) return;
 
         this.currentOrderId = order.id;
@@ -36,15 +34,16 @@ export const OrdersUI = {
 
         if(!drawer || !bodyContent || !headerContent) return;
         
+        // تصفير شريط التمرير
         const scrollArea = drawer.querySelector('.drawer-scroll-area');
         if(scrollArea) scrollArea.scrollTop = 0;
 
+        // تهيئة حقل الملاحظات
         if(noteInput) {
             noteInput.value = ''; 
             noteInput.onfocus = function() {
                 const drawerContainer = document.querySelector('.order-drawer');
                 if(drawerContainer) drawerContainer.classList.add('typing-mode');
-                setTimeout(() => { this.scrollIntoView({ behavior: 'auto', block: 'nearest' }); }, 300); 
             };
             noteInput.onblur = function() {
                 const drawerContainer = document.querySelector('.order-drawer');
@@ -52,22 +51,21 @@ export const OrdersUI = {
             };
 
             const noteWrapper = noteInput.parentElement; 
-            if (order.status === 'pending') noteWrapper.classList.remove('hide-element');
+            if (order.status === 'pending' || order.status === 'processing') noteWrapper.classList.remove('hide-element');
             else noteWrapper.classList.add('hide-element');
         }
 
         headerContent.innerHTML = AdminTemplates.orderDrawerHeader(order.id);
         
-        // ⚡ 2. جلب تفاصيل العميل فورا بـ O(1) من خريطة العملاء
-        const user = AdminData.data.usersMap?.[order.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(order.userId)) || {};
+        // ⚡ 2. جلب العميل فورا بـ O(1)
+        const user = AdminData.data.usersMap?.[order.userId] || {};
         const displayUser = Utils.escapeHTML(user.fullName || user.name || user.username || 'مستخدم جديد');
         const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
-
         const avatarHtml = AdminTemplates.drawerAvatar(user.img ? Utils.escapeHTML(user.img) : null, firstLetter);
 
-        // ⚡ 3. جلب تفاصيل المنتج الأصلي بـ O(1) من خريطة المنتجات
-        const prod = AdminData.data.prodsMap?.[order.prodId] || (AdminData.data.prods || []).find(p => String(p.id) === String(order.prodId)) || {};
-        const prodName = Utils.escapeHTML(order.product || prod.name || 'منتج');
+        // ⚡ 3. جلب المنتج فورا بـ O(1)
+        const prod = AdminData.data.prodsMap?.[order.prodId] || {};
+        const prodName = Utils.escapeHTML(order.product || prod.name || 'منتج غير معرف');
         const qty = order.qty || 1;
         
         const cCode = (order.priceCurrency || 'USD').toUpperCase().replace('$', 'USD');
@@ -83,32 +81,28 @@ export const OrdersUI = {
         if (order.pricingSnapshot && AdminTemplates.financialSnapshotBlock) {
             financialSnapshotHtml = AdminTemplates.financialSnapshotBlock(order.pricingSnapshot, order.status);
         } else {
-            const absPrice = Math.abs(order.price || 0);
-            priceTxt = RenderHelpers.formatMoney(absPrice, cCode, 2);
+            // 🛡️ حسابات Fallback للطلبات القديمة باستخدام المحرك المالي
+            const exactPriceUsd = FinancialEngine.extractNum(order.baseUsd || order.price);
+            priceTxt = RenderHelpers.formatMoney(exactPriceUsd, 'USD', 2);
             
-            const unitCostUsd = Number(order.costPrice || order.unitCost || 0);
-            const totalCostUsd = unitCostUsd * Number(qty);
+            const totalCostUsd = FinancialEngine.safeMul(FinancialEngine.extractNum(order.costPrice || order.unitCost), qty);
             unitCostTxt = RenderHelpers.formatMoney(totalCostUsd, 'USD', 2); 
-
-            const exactPriceUsd = Number(order.baseUsd || order.price || 0);
-            const absExactPrice = Math.abs(exactPriceUsd);
-            exactPriceTxt = isUSD ? null : RenderHelpers.formatMoney(absExactPrice, 'USD', 2);
 
             if (order.couponCode) {
                 let originalUsd = exactPriceUsd;
-                
-                // ⚡ 4. جلب الكوبون فورا بـ O(1) باستخدام الرمز المشفر الموحد
-                const coupon = AdminData.data.couponsMap?.[String(order.couponCode).toUpperCase()] || (AdminData.data.coupons || []).find(c => c.code === order.couponCode);
+                // ⚡ 4. [إصلاح جراحي]: البحث عن الكوبون بالرمز (Code) وليس الـ ID من المصفوفة مباشرة
+                const coupon = (AdminData.data.coupons || []).find(c => String(c.code).toUpperCase() === String(order.couponCode).toUpperCase());
                 
                 if (coupon) {
-                    if (coupon.type === 'percentage') originalUsd = exactPriceUsd / (1 - (coupon.value / 100));
-                    else originalUsd = exactPriceUsd + coupon.value;
-                } else if (order.discountValue) {
-                    originalUsd = exactPriceUsd + Number(order.discountValue);
+                    if (coupon.type === 'percentage') {
+                        const ratio = FinancialEngine.safeSub(1, FinancialEngine.safeDiv(coupon.value, 100));
+                        originalUsd = FinancialEngine.safeDiv(exactPriceUsd, ratio);
+                    } else {
+                        originalUsd = FinancialEngine.safeAdd(exactPriceUsd, coupon.value);
+                    }
                 }
 
-                const origPriceTxt = RenderHelpers.formatMoney(Math.abs(originalUsd), 'USD', 2);
-                
+                const origPriceTxt = RenderHelpers.formatMoney(originalUsd, 'USD', 2);
                 if (AdminTemplates.orderReceiptRow) {
                     couponRowHtml = AdminTemplates.orderReceiptRow('fa-solid fa-tags text-primary', 'كوبون خصم مفعّل', `<b class="num-en text-primary">${Utils.escapeHTML(order.couponCode)}</b>`);
                     originalPriceRowHtml = AdminTemplates.orderReceiptRow('fa-solid fa-money-bill-trend-up text-muted', 'السعر قبل الكوبون', `<del class="num-en text-muted">${origPriceTxt}</del>`);
@@ -117,32 +111,23 @@ export const OrdersUI = {
         }
 
         const dateTxt = RenderHelpers.formatSafeDate(order.time || order.createdAt);
-        
-        const statusDict = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع', returned:'مسترجع' };
+        const statusDict = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع' };
         const sText = statusDict[order.status] || order.status;
-        const statusClass = order.status; 
 
+        // حساب مدة التنفيذ
         let durationHtml = '';
         const startTime = RenderHelpers.parseTime(order.time || order.createdAt);
-        const endTime = RenderHelpers.parseTime(order.actionTime || order.updatedAt || order.completedAt); 
+        const endTime = RenderHelpers.parseTime(order.actionTime || order.updatedAt); 
 
-        if ((order.status === 'completed' || order.status === 'rejected' || order.status === 'refunded' || order.status === 'returned') && startTime && endTime) {
+        if (startTime && endTime && startTime < endTime) {
             const diffMs = endTime - startTime;
-            if (diffMs >= 0) {
-                const diffMins = Math.floor(diffMs / 60000);
-                const diffHours = Math.floor(diffMins / 60);
-                const diffDays = Math.floor(diffHours / 24);
-                let durationTxt = ''; 
-                
-                if (diffDays > 0) durationTxt = `${Utils.enNum(diffDays)} Day & ${Utils.enNum(diffHours % 24)} Hr`;
-                else if (diffHours > 0) durationTxt = `${Utils.enNum(diffHours)} Hr & ${Utils.enNum(diffMins % 60)} Min`;
-                else if (diffMins > 0) durationTxt = `${Utils.enNum(diffMins)} Min`;
-                else durationTxt = `${Utils.enNum(Math.floor(diffMs / 1000))} Sec`; 
-                
-                durationHtml = AdminTemplates.orderDurationRow(durationTxt);
-            }
+            const diffMins = Math.floor(diffMs / 60000);
+            let dTxt = diffMins > 60 ? `${Math.floor(diffMins/60)} Hr & ${diffMins%60} Min` : `${diffMins} Min`;
+            if (diffMins === 0) dTxt = "لحظي ⚡";
+            durationHtml = AdminTemplates.orderDurationRow(dTxt);
         }
 
+        // معالجة المدخلات (Labels & Values)
         const rawInputs = (order.input || '').trim().split('|').map(p=>p.trim()).filter(Boolean);
         let inputsCardHtml = ''; 
         if (rawInputs.length > 0) {
@@ -154,50 +139,31 @@ export const OrdersUI = {
             inputsCardHtml = AdminTemplates.orderInputsCard(parsedInputs);
         }
 
-        let codeHtml = '';
-        const dCode = order.deliveredCode; 
-        let codeText = '';
-        if (Array.isArray(dCode)) codeText = dCode.map(c => (typeof c === 'object' && c !== null) ? (c.text || c.code || '') : c).join(' | ');
-        else if (typeof dCode === 'object' && dCode !== null) codeText = dCode.text || dCode.code || '';
-        else codeText = dCode || '';
+        const codeText = Array.isArray(order.deliveredCode) ? order.deliveredCode.join(' | ') : (order.deliveredCode || '');
+        const codeHtml = codeText ? AdminTemplates.orderCodeCard(Utils.escapeHTML(codeText)) : '';
 
-        if (codeText) codeHtml = AdminTemplates.orderCodeCard(Utils.escapeHTML(codeText));
-
-        let replyHtml = '';
-        const adminManualReply = order.adminNote || ''; 
-        if (adminManualReply && adminManualReply.trim() !== '') {
-            replyHtml = AdminTemplates.adminReplyCard(Utils.escapeHTML(adminManualReply));
-        }
-
+        const replyHtml = (order.adminNote) ? AdminTemplates.adminReplyCard(Utils.escapeHTML(order.adminNote)) : '';
         const imgHtml = AdminTemplates.drawerProdImg(prod.img ? Utils.escapeHTML(prod.img) : null);
         
-        const baseCurrText = RenderHelpers.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText('USD') : 'USD';
-        const fxRateStr = order.fxRate ? `1 ${baseCurrText} = ${RenderHelpers.formatMoney(order.fxRate, cCode, 4)}` : null;
-
-        // ⚡ جلب الرقم القصير للعميل بـ O(1)
-        const shortId = RenderHelpers.formatUserId(user) || RenderHelpers.formatUserId(order.userId);
+        // جلب الرقم القصير للعميل
+        const shortId = RenderHelpers.formatUserId(user) || '--';
 
         bodyContent.innerHTML = AdminTemplates.orderDrawerBody({
             userId: Utils.escapeHTML(order.userId || '--'),
             userDisplayId: Utils.escapeHTML(shortId), 
             displayUser, avatarHtml, imgHtml, prodName, 
-            qty: Utils.enNum(qty), priceTxt, exactPriceTxt, unitCostTxt, statusClass, sText, dateTxt,
-            durationHtml, fxRateStr, inputsCardHtml, codeHtml, replyHtml,
+            qty: Utils.enNum(qty), priceTxt, exactPriceTxt, unitCostTxt, 
+            statusClass: order.status, sText, dateTxt,
+            durationHtml, fxRateStr: order.fxRate ? `1 USD = ${order.fxRate} ${cCode}` : null, 
+            inputsCardHtml, codeHtml, replyHtml,
             couponRowHtml, originalPriceRowHtml,
             financialSnapshotHtml 
         });
 
         footerActions.innerHTML = AdminTemplates.orderDrawerFooter(order.status, order.id);
-
-        const finalScrollArea = drawer.querySelector('.drawer-scroll-area');
-        const drawerPanel = drawer.firstElementChild; 
-        
-        if(finalScrollArea) finalScrollArea.scrollTop = 0;
-        if(drawerPanel) drawerPanel.scrollTop = 0;
-        drawer.scrollTop = 0;
-
         drawer.classList.add('active');
     },
+
     closeOrderDrawer: function() {
         const drawer = document.getElementById('order-drawer-overlay');
         if(drawer) drawer.classList.remove('active');

@@ -95,46 +95,53 @@ export const MarketingRender = {
       .map(a => AdminTemplates.unifiedAlertCard(a)).join('');
   },
   
-  // =========================================================
-  // 🌳 5. شجرة الاستهداف الذكية (Smart Tree) للكوبونات والعروض
-  // =========================================================
-  populateSmartTreeTargets: function(prefix, savedTiers = [], savedProds = []) {
-    const d = AdminData.data;
-    const tiersContainer = document.getElementById(`${prefix}-tiers`),
-      prodsContainer = document.getElementById(`${prefix}-prods`);
+// =========================================================
+// 🌳 5. شجرة الاستهداف الذكية (Smart Tree) للكوبونات والعروض
+// =========================================================
+populateSmartTreeTargets: function(prefix, savedTiers = [], savedProds = []) {
+  const d = AdminData.data;
+  const tiersContainer = document.getElementById(`${prefix}-tiers`),
+    prodsContainer = document.getElementById(`${prefix}-prods`);
+  
+  if (!tiersContainer || !prodsContainer) return;
+  
+  // 🛡️ التحديث الماسي: حماية اسم المستوى
+  let tiersHtml = (d.tiers || []).map(t =>
+    AdminTemplates.smartTreeTier(t.id, Utils.escapeHTML(t.name), t.icon || 'fa-user', savedTiers.includes(String(t.id)))
+  ).join('');
+  tiersContainer.innerHTML = `${tiersHtml || 'لا توجد مستويات'}`;
+  
+  const catMap = {};
+  (d.cats || []).forEach(c => catMap[c.id] = { name: c.name, prods: [] });
+  
+  const orphanProds = [];
+  (d.prods || []).forEach(p => {
+    if (p.catId && catMap[p.catId]) catMap[p.catId].prods.push(p);
+    else orphanProds.push(p);
+  });
+  
+  let treeHtml = Object.keys(catMap).map(catId => {
+    const category = catMap[catId];
+    if (category.prods.length === 0) return '';
     
-    if (!tiersContainer || !prodsContainer) return;
-    
-    let tiersHtml = (d.tiers || []).map(t =>
-      AdminTemplates.smartTreeTier(t.id, t.name, t.icon || 'fa-user', savedTiers.includes(String(t.id)))
+    let childrenHtml = category.prods.map(p =>
+      // 🛡️ التحديث الماسي: حماية اسم المنتج
+      AdminTemplates.smartTreeChild(p.id, Utils.escapeHTML(p.name), p.img, savedProds.includes(String(p.id)), String(p.id).slice(-4))
     ).join('');
-    tiersContainer.innerHTML = `${tiersHtml || 'لا توجد مستويات'}`;
     
-    const catMap = {};
-    (d.cats || []).forEach(c => catMap[c.id] = { name: c.name, prods: [] });
+    // 🛡️ التحديث الماسي: حماية اسم القسم
+    return AdminTemplates.smartTreeParent(catId, Utils.escapeHTML(category.name), childrenHtml, category.prods.some(p => savedProds.includes(String(p.id))));
+  }).join('');
+  
+  if (orphanProds.length > 0) {
+    let orphanHtml = orphanProds.map(p =>
+      // 🛡️ التحديث الماسي: حماية اسم المنتج
+      AdminTemplates.smartTreeChild(p.id, Utils.escapeHTML(p.name), p.img, savedProds.includes(String(p.id)), String(p.id).slice(-4))
+    ).join('');
     
-    const orphanProds = [];
-    (d.prods || []).forEach(p => {
-      if (p.catId && catMap[p.catId]) catMap[p.catId].prods.push(p);
-      else orphanProds.push(p);
-    });
-    
-    let treeHtml = Object.keys(catMap).map(catId => {
-      const category = catMap[catId];
-      if (category.prods.length === 0) return '';
-      let childrenHtml = category.prods.map(p =>
-        AdminTemplates.smartTreeChild(p.id, p.name, p.img, savedProds.includes(String(p.id)), String(p.id).slice(-4))
-      ).join('');
-      return AdminTemplates.smartTreeParent(catId, category.name, childrenHtml, category.prods.some(p => savedProds.includes(String(p.id))));
-    }).join('');
-    
-    if (orphanProds.length > 0) {
-      let orphanHtml = orphanProds.map(p =>
-        AdminTemplates.smartTreeChild(p.id, p.name, p.img, savedProds.includes(String(p.id)), String(p.id).slice(-4))
-      ).join('');
-      treeHtml += AdminTemplates.smartTreeParent('orphans', 'منتجات بدون قسم', orphanHtml, orphanProds.some(p => savedProds.includes(String(p.id))));
-    }
-    
-    prodsContainer.innerHTML = `${treeHtml || 'لا توجد منتجات'}`;
+    treeHtml += AdminTemplates.smartTreeParent('orphans', 'منتجات بدون قسم', orphanHtml, orphanProds.some(p => savedProds.includes(String(p.id))));
   }
+  
+  prodsContainer.innerHTML = `${treeHtml || 'لا توجد منتجات'}`;
+}
 };

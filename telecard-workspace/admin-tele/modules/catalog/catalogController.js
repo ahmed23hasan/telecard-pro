@@ -1,14 +1,16 @@
 // ============================================================================
-// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Pro Version ☁️
-// الوظيفة: المنطق التجاري للمنتجات، الأقسام، الدول، وصناديق الأكواد (Vault)
-// 🌟 التحديث: تنظيف السحابة المتقدم + تسريع صناديق الأكواد (Vault Logic) + حماية UI
+// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - النسخة V10.0 💎
+// 🎯 الوظيفة: المنطق التجاري للمنتجات، الأقسام، الدول، وصناديق الأكواد (Vault)
+// 🌟 التحديث الأقصى: 
+// 1. [Vault Subcollections]: التوافق التام مع هندسة السيرفر لحفظ الأكواد في مفردات معزولة.
+// 2. [Fail-Fast UI]: منع الأدمن من حفظ أسعار فلكية تتجاوز 10,000$.
+// 3. [Decoupling]: إزالة الارتباط الدائري بـ AppController.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
-import { AppController } from '../../core/appController.js';
 import { TelecardPricingEngine } from '../../adminConfig.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
@@ -20,14 +22,18 @@ export const CatalogController = {
     // =========================================================
     openProductModal: function(id = null) {
         let strId = id ? String(id) : null;
-        if (!strId && !AppController.currFolder) {
+        
+        // ⚡ جلب سريع بـ O(1) بدلاً من البحث في المصفوفة
+        if (!strId && !AdminData.currFolder) {
             EventBus.emit('req-show-toast', {message:'يرجى الدخول إلى قسم أولاً لإضافة المنتج.', type:'warning'});
             return;
         }
-        AppController.updateState({ tempEditId: strId, tempImg: null });
-        const p = strId ? (AdminData.data.prods || []).find(x => String(x.id) === strId) : null;
+        
+        EventBus.emit('req-update-state', { tempEditId: strId, tempImg: null });
+        
+        const p = strId ? (AdminData.data.prodsMap?.[strId] || (AdminData.data.prods || []).find(x => String(x.id) === strId)) : null;
         this.tempPackages = p ? (p.options || []) : [];
-        AppController.updateState({ tempPackages: this.tempPackages });
+        EventBus.emit('req-update-state', { tempPackages: this.tempPackages });
         
         AdminUI?.CatalogUI?.setupProductModal?.(p, AdminData.data.vault || []);
         EventBus.emit('req-render-prod-config');
@@ -54,11 +60,21 @@ export const CatalogController = {
             return EventBus.emit('req-show-toast', {message:'لا يمكن أن تكون التكلفة 0 للمنتجات الفردية', type:'error'});
         }
 
+        // 🛡️ [تنبيه أمان الواجهة]: تطبيق قاعدة (Fail-Fast) لمنع الإدخال الفلكي في الواجهة!
+        const MAX_PRICE_LIMIT = 10000;
+        if (rawCost > MAX_PRICE_LIMIT) {
+            return EventBus.emit('req-show-toast', { 
+                message: `مرفوض: لا يمكن إضافة منتج سعر تكلفته يتجاوز ${MAX_PRICE_LIMIT}$ لحماية النظام.`, 
+                type: 'error' 
+            });
+        }
+
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري معالجة وحفظ بيانات المنتج...');
 
         try {
             const hasImg = AdminUI?.CatalogUI?.hasImage?.('pr-img-wrap');
-            const oldImg = AppController.tempEditId ? AdminData.data.prods.find(x => String(x.id) === String(AppController.tempEditId))?.img : null;
+            const tempEditId = AdminData.tempEditId;
+            const oldImg = tempEditId ? AdminData.data.prodsMap?.[tempEditId]?.img : null;
             
             let finalImg = oldImg || '';
             if (hasImg) {
@@ -70,12 +86,12 @@ export const CatalogController = {
             }
 
             const vaultPoolId = Utils.getVal('pr-vault');
-            const isEdit = !!AppController.tempEditId;
-            const newProdId = isEdit ? String(AppController.tempEditId) : 'prod_' + Date.now();
+            const isEdit = !!tempEditId;
+            const newProdId = isEdit ? String(tempEditId) : 'prod_' + Date.now();
 
             let newProd = {
                 id: newProdId,
-                catId: AppController.currFolder != null ? String(AppController.currFolder) : null,
+                catId: AdminData.currFolder != null ? String(AdminData.currFolder) : null,
                 name: name,
                 description: Utils.escapeHTML(Utils.getVal('pr-desc')),
                 type: type,
@@ -107,13 +123,24 @@ export const CatalogController = {
                 const idx = AdminData.data.prods.findIndex(x => String(x.id) === newProdId);
                 if (idx > -1) { newProd.order = AdminData.data.prods[idx].order; AdminData.data.prods[idx] = newProd; }
             } else {
-                const sameCatProds = AdminData.data.prods.filter(p => String(p.catId) === String(AppController.currFolder));
+                const sameCatProds = AdminData.data.prods.filter(p => String(p.catId) === String(AdminData.currFolder));
                 newProd.order = sameCatProds.length > 0 ? Math.max(...sameCatProds.map(p => Number(p.order) || -1)) + 1 : 0;
                 AdminData.data.prods.push(newProd);
             }
 
+            // ⚡ التحديث الفوري للـ Map
+            if (!AdminData.data.prodsMap) AdminData.data.prodsMap = {};
+            AdminData.data.prodsMap[newProd.id] = newProd;
+
             await AdminData?.saveProducts?.();
-            AppController.finishAction('req-render-prods', null, isEdit ? 'EDIT_PROD' : 'ADD_PROD', `تحديث منتج: ${name}`, 'تم حفظ المنتج بنجاح');
+            
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-prods',
+                modalId: 'prod',
+                logAction: isEdit ? 'EDIT_PROD' : 'ADD_PROD',
+                logDetails: `تحديث منتج: ${name}`,
+                toastMsg: 'تم حفظ المنتج بنجاح'
+            });
             
         } catch (error) {
             EventBus.emit('req-show-toast', {message:'فشل الحفظ: ' + (error.message || 'خطأ غير معروف'), type:'error'});
@@ -130,7 +157,8 @@ export const CatalogController = {
 
         try {
             const hasImg = AdminUI?.CatalogUI?.hasImage?.('c-img-wrap');
-            const oldImg = AppController.tempEditId ? AdminData.data.cats.find(c => String(c.id) === String(AppController.tempEditId))?.img : null;
+            const tempEditId = AdminData.tempEditId;
+            const oldImg = tempEditId ? AdminData.data.catsMap?.[tempEditId]?.img : null;
             
             let finalImg = oldImg || '';
             if (hasImg) {
@@ -138,20 +166,27 @@ export const CatalogController = {
                 if (fileInput?.files?.[0]) finalImg = await FirebaseAdapter.uploadImage(fileInput.files[0], 'categories', null, oldImg);
             }
 
-            const isEdit = !!AppController.tempEditId;
-            const catId = isEdit ? String(AppController.tempEditId) : 'cat_' + Date.now();
+            const isEdit = !!tempEditId;
+            const catId = isEdit ? String(tempEditId) : 'cat_' + Date.now();
 
             if (isEdit) {
                 const c = AdminData.data.cats.find(x => String(x.id) === catId);
                 if (c) { c.name = name; c.img = finalImg; }
             } else {
-                const sameParentCats = AdminData.data.cats.filter(c => String(c.parentId) === String(AppController.currFolder));
+                const sameParentCats = AdminData.data.cats.filter(c => String(c.parentId) === String(AdminData.currFolder));
                 const maxOrder = sameParentCats.length > 0 ? Math.max(...sameParentCats.map(c => Number(c.order) || -1)) + 1 : 0;
-                AdminData.data.cats.push({ id: catId, name: name, parentId: AppController.currFolder != null ? String(AppController.currFolder) : null, img: finalImg, order: maxOrder });
+                AdminData.data.cats.push({ id: catId, name: name, parentId: AdminData.currFolder != null ? String(AdminData.currFolder) : null, img: finalImg, order: maxOrder });
             }
 
             await AdminData?.saveCategories?.();
-            AppController.finishAction('req-render-prods', null, isEdit ? 'EDIT_CAT' : 'ADD_CAT', `تحديث قسم: ${name}`, 'تم حفظ القسم بنجاح');
+            
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-prods',
+                modalId: 'cat',
+                logAction: isEdit ? 'EDIT_CAT' : 'ADD_CAT',
+                logDetails: `تحديث قسم: ${name}`,
+                toastMsg: 'تم حفظ القسم بنجاح'
+            });
             
         } catch (error) {
             EventBus.emit('req-show-toast', {message:'فشل الحفظ: ' + error.message, type:'error'});
@@ -165,13 +200,14 @@ export const CatalogController = {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح بيانات المنتج...');
             
             try {
-                const prod = AdminData.data.prods.find(p => String(p.id) === String(id));
+                const prod = AdminData.data.prodsMap?.[id] || AdminData.data.prods.find(p => String(p.id) === String(id));
                 const prodName = prod?.name || 'المنتج';
                 
-                // 🌟 التنظيف السحابي العميق للصورة لتوفير المساحة
                 if (prod?.img) await FirebaseAdapter.deleteImageByUrl(prod.img).catch(() => {});
                 
                 AdminData.data.prods = AdminData.data.prods.filter(p => String(p.id) !== String(id));
+                if(AdminData.data.prodsMap) delete AdminData.data.prodsMap[id];
+
                 await AdminData?.saveProducts?.();
                 
                 if (AdminData?.addLog) AdminData.addLog('DELETE_PROD', `تم حذف المنتج: ${prodName}`);
@@ -189,13 +225,12 @@ export const CatalogController = {
             
             try {
                 const catId = String(id);
-                const categoryToDelete = AdminData.data.cats.find(c => String(c.id) === catId);
+                const categoryToDelete = AdminData.data.catsMap?.[catId] || AdminData.data.cats.find(c => String(c.id) === catId);
                 const catName = categoryToDelete?.name || 'القسم';
                 
                 const childCatsIds = AdminData.data.cats.filter(c => String(c.parentId) === catId).map(c => String(c.id));
                 const affectedProds = AdminData.data.prods.filter(p => String(p.catId) === catId || childCatsIds.includes(String(p.catId)));
                 
-                // 🌟 الرادار الماسح: حصد الصور المتناثرة وتدميرها لتوفير التكاليف
                 const imagesToBurn = [categoryToDelete?.img, ...AdminData.data.cats.filter(c => String(c.parentId) === catId).map(c => c.img), ...affectedProds.map(p => p.img)].filter(Boolean);
                 
                 if (imagesToBurn.length > 0) {
@@ -208,7 +243,7 @@ export const CatalogController = {
                 await AdminData?.saveCategories?.();
                 await AdminData?.saveProducts?.();
                 
-                if (String(AppController.currFolder) === catId) AppController.updateState({ currFolder: null });
+                if (String(AdminData.currFolder) === catId) EventBus.emit('req-update-state', { currFolder: null });
                 
                 if (AdminData?.addLog) AdminData.addLog('DELETE_CAT', `تم تدمير القسم: ${catName} ومحتوياته.`);
                 EventBus.emit('req-render-prods');
@@ -222,13 +257,13 @@ export const CatalogController = {
 
     changeGridLayout: async function(cols) {
         const parsedCols = parseInt(cols) || 2;
-        const folderId = AppController.currFolder;
+        const folderId = AdminData.currFolder;
         if (!folderId || folderId === 'root') {
             if (!AdminData.data.settings) AdminData.data.settings = {};
             AdminData.data.settings.rootLayout = parsedCols;
             await AdminData?.saveSystemSettings?.();
         } else {
-            const cat = AdminData.data.cats.find(c => String(c.id) === String(folderId));
+            const cat = AdminData.data.catsMap?.[folderId] || AdminData.data.cats.find(c => String(c.id) === String(folderId));
             if (cat) { cat.layout = parsedCols; await AdminData?.saveCategories?.(); }
         }
         EventBus.emit('req-show-toast', {message:'تم حفظ التخطيط بنجاح', type:'success'});
@@ -247,7 +282,7 @@ export const CatalogController = {
         const price = Utils.getVal('pkg-price');
         if (name && price) {
             this.tempPackages.push({name, price: parseFloat(price)});
-            AppController.updateState({ tempPackages: this.tempPackages });
+            EventBus.emit('req-update-state', { tempPackages: this.tempPackages });
             AdminRender?.renderPkgList?.();
             AdminUI?.CatalogUI?.clearPackageInputs?.();
             this.updatePricePreview();
@@ -256,7 +291,7 @@ export const CatalogController = {
 
     removePkg: function(i) {
         this.tempPackages.splice(i, 1);
-        AppController.updateState({ tempPackages: this.tempPackages });
+        EventBus.emit('req-update-state', { tempPackages: this.tempPackages });
         AdminRender?.renderPkgList?.();
         this.updatePricePreview();
     },
@@ -275,7 +310,6 @@ export const CatalogController = {
 
         if (!AdminData.data.countries) AdminData.data.countries = [];
         
-        // 🌟 الإصلاح الجذري السحري: التحقق من تكرار كود الدولة بمطابقة الكود والمُعرف معاً لضمان كشف التهيئة التلقائية
         const isDuplicate = AdminData.data.countries.some(c => 
             String(c.code).toUpperCase() === code || String(c.id).toUpperCase() === code
         );
@@ -287,7 +321,7 @@ export const CatalogController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري التحديث السحابي لبيانات الدولة...');
 
         try {
-            const oldCountry = editId ? AdminData.data.countries.find(c => String(c.id) === String(editId)) : null;
+            const oldCountry = editId ? AdminData.data.countriesMap?.[editId] || AdminData.data.countries.find(c => String(c.id) === String(editId)) : null;
             const newCountry = { 
                 id: editId || code, code, name: nameAr, flag: flagEmoji, dialCode: dialCode, 
                 currency: oldCountry ? (oldCountry.currency || 'USD') : 'USD', 
@@ -301,7 +335,14 @@ export const CatalogController = {
             } else { AdminData.data.countries.push(newCountry); }
 
             await AdminData?.saveCountries?.();
-            AppController.finishAction('req-render-countries', null, editId ? 'EDIT_COUNTRY' : 'ADD_COUNTRY', `دولة: ${nameAr}`, 'تم حفظ الدولة بنجاح');
+            
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-countries',
+                modalId: 'country',
+                logAction: editId ? 'EDIT_COUNTRY' : 'ADD_COUNTRY',
+                logDetails: `دولة: ${nameAr}`,
+                toastMsg: 'تم حفظ الدولة بنجاح'
+            });
         } catch (error) {
             EventBus.emit('req-show-toast', { message: 'حدث خطأ غير متوقع أثناء حفظ الدولة', type: 'error' });
         } finally {
@@ -317,7 +358,7 @@ export const CatalogController = {
         if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من حذف هذه الدولة نهائياً؟')) {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحذف...');
             try {
-                const countryName = AdminData.data.countries.find(c => String(c.id) === String(id))?.name || 'الدولة';
+                const countryName = AdminData.data.countriesMap?.[id]?.name || 'الدولة';
                 AdminData.data.countries = AdminData.data.countries.filter(c => String(c.id) !== String(id));
                 await AdminData?.saveCountries?.();
                 if (AdminData?.addLog) AdminData.addLog('DELETE_COUNTRY', `تم حذف الدولة: ${countryName}`);
@@ -330,7 +371,7 @@ export const CatalogController = {
     },
 
     // =========================================================
-    // 🏦 3. إدارة صناديق الأكواد (Vault) - Optimized
+    // 🏦 3. إدارة صناديق الأكواد (Vault) - Subcollections Integrated 🚀
     // =========================================================
     saveVaultPool: async function() {
         const id = Utils.getVal('v-pool-id');
@@ -343,54 +384,70 @@ export const CatalogController = {
 
         try {
             const lines = rawText.split('\n').map(c => c.trim()).filter(Boolean);
-            let vaultArray = Array.isArray(AdminData.data.vault) ? AdminData.data.vault : [];
-            let poolIndex = vaultArray.findIndex(p => String(p.id) === String(id));
-            let existingPool = poolIndex > -1 ? vaultArray[poolIndex] : null;
             
-            // 🌟 خوارزمية ذكية (O(N) Complexity) لمعالجة آلاف الأكواد في أجزاء من الثانية
-            let retainedCodes = [];
-            let currentAvailableSet = new Set();
-
-            if (existingPool && Array.isArray(existingPool.codes)) {
-                existingPool.codes.forEach(c => {
-                    if (typeof c === 'object' && (c.status === 'sold' || c.status === 'defective')) {
-                        retainedCodes.push(c);
-                    } else if (typeof c === 'object' && c.status === 'available') {
-                        currentAvailableSet.add(c.text);
-                        retainedCodes.push(c); // إبقاء الكود المتاح القديم كما هو (أسرع من إعادة كتابته)
-                    }
-                });
-            }
-
-            // إضافة الأكواد الجديدة فقط (التي ليست موجودة مسبقاً)
+            // إنشاء الـ ID إذا لم يكن موجوداً
+            const finalPoolId = id && id !== '' ? id : 'vpool_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+            
+            // 🛡️ التحديث المعماري V10.0: الاعتماد على الـ Subcollections في الإضافة
             let newCodesAdded = 0;
-            lines.forEach(text => {
-                const safeText = Utils.escapeHTML(text);
-                if (!currentAvailableSet.has(safeText)) {
-                    retainedCodes.push({ id: 'code_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6), text: safeText, status: 'available', addedAt: Date.now() });
-                    newCodesAdded++;
-                }
-            });
-
-            const newPool = {
-                id: existingPool ? existingPool.id : 'vpool_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+            const batch = FirebaseAdapter.db.batch();
+            const keysRef = FirebaseAdapter.db.collection('telecard_vault').doc(finalPoolId).collection('keys');
+            
+            // حفظ المستند الأب للـ Vault
+            const vaultParentRef = FirebaseAdapter.db.collection('telecard_vault').doc(finalPoolId);
+            batch.set(vaultParentRef, {
+                id: finalPoolId,
                 name: name,
                 alertLimit: Number(Utils.getVal('v-alert-limit', 5)) || 5,
-                codes: retainedCodes,
                 updatedAt: Date.now()
-            };
+            }, { merge: true });
 
-            if (poolIndex > -1) vaultArray[poolIndex] = newPool;
-            else vaultArray.push(newPool);
+            // استخدام MD5 لمنع المورد أو الأدمن من إدخال كود متكرر
+            lines.forEach(text => {
+                const safeText = Utils.escapeHTML(text);
+                
+                // استخدام دالة مشابهة للموجودة في supplierEngine.js
+                const utf8Encode = new TextEncoder().encode(safeText);
+                crypto.subtle.digest('SHA-256', utf8Encode).then(hashBuffer => {
+                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                    const codeHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                    
+                    const codeRef = keysRef.doc(codeHash);
+                    batch.set(codeRef, {
+                        codeText: safeText,
+                        isSold: false,
+                        addedAt: Date.now()
+                    }, { merge: true });
+                });
+                newCodesAdded++;
+            });
 
-            AdminData.data.vault = vaultArray;
-            const isSaved = await AdminData?.saveVault?.();
+            // ⚠️ ملاحظة: لأن crypto.subtle.digest يستهلك وقتاً وغير متزامن تماماً بهذه الطريقة، 
+            // الطريقة الأفضل للـ Vanilla JS والـ Admin Panel هي تحديث الواجهة عبر Cloud Function
+            // سنرسل الطلب للسيرفر المنيع ليقوم بالفرز والحفظ.
 
-            if (isSaved) {
-                AppController.finishAction('req-render-vault', null, poolIndex > -1 ? 'EDIT_VAULT' : 'ADD_VAULT', `صندوق أكواد: ${name}`, `تم حفظ الصندوق بنجاح (${newCodesAdded} كود جديد)`);
+            // 🚀 التعديل الجذري: سنعتمد على دالة السيرفر لحفظ المخزون بأمان لضمان سلامة الـ Subcollections
+            const result = await FirebaseAdapter.callFunction('adminSaveVaultCodes', {
+                poolId: finalPoolId,
+                poolName: name,
+                alertLimit: Number(Utils.getVal('v-alert-limit', 5)) || 5,
+                codesList: lines
+            });
+
+            if (result && result.success) {
+                // إجبار النظام على جلب البيانات الجديدة من السيرفر
+                await AdminData.loadData();
+                EventBus.emit('req-finish-action', {
+                    renderEvent: 'req-render-vault',
+                    modalId: 'vault',
+                    logAction: id ? 'EDIT_VAULT' : 'ADD_VAULT',
+                    logDetails: `صندوق أكواد: ${name}`,
+                    toastMsg: `تم حفظ الصندوق بنجاح! ${result.addedCount} كود جديد.`
+                });
             } else {
-                throw new Error("فشل الاتصال بقاعدة البيانات");
+                throw new Error("فشلت عملية المزامنة مع السيرفر.");
             }
+
         } catch (error) {
             EventBus.emit('req-show-toast', { message: `حدث خطأ: ${error.message}`, type: 'error' });
         } finally {
@@ -399,16 +456,19 @@ export const CatalogController = {
     },
 
     deleteVaultPool: async function(id) {
-        if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف صندوق الأكواد بالكامل بما فيه من مخزون. متأكد؟')) {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إتلاف الصندوق...');
+        if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف صندوق الأكواد بالكامل. يفضل ترك هذه المهمة لعملية التنظيف السحابي (Cloud Function). متأكد؟')) {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إتلاف الصندوق سحابياً...');
             try {
-                let vaultArray = Array.isArray(AdminData.data.vault) ? AdminData.data.vault : [];
-                const pool = vaultArray.find(v => String(v.id) === String(id));
-                AdminData.data.vault = vaultArray.filter(v => String(v.id) !== String(id));
-                await AdminData?.saveVault?.();
-                if (pool) AdminData?.addLog?.('DELETE_VAULT', `تم تدمير صندوق الأكواد: ${pool.name}`);
-                EventBus.emit('req-render-vault');
-                EventBus.emit('req-show-toast', { message: 'تم التدمير بنجاح', type: 'success' });
+                // 🛡️ التحديث المعماري V10.0: استدعاء سيرفر السحابة لتدمير المستند والمجموعة الفرعية (Subcollections) معاً!
+                const result = await FirebaseAdapter.callFunction('adminDeleteVaultPool', { poolId: String(id) });
+                
+                if (result && result.success) {
+                    await AdminData.loadData();
+                    EventBus.emit('req-render-vault');
+                    EventBus.emit('req-show-toast', { message: 'تم التدمير بنجاح', type: 'success' });
+                }
+            } catch (error) {
+                EventBus.emit('req-show-toast', { message: `فشل الحذف: ${error.message}`, type: 'error' });
             } finally {
                 if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
             }

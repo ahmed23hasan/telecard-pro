@@ -49,6 +49,10 @@ export const AppController = {
 
     init: async function() {
         if (this.isInitialized) return; 
+        
+        // 🚨 1. بوابة الأمان أولاً (لا تقم بتحميل أي بيانات قبل التأكد)
+        if (!this.setupAuthGate()) return; 
+
         try {
             AdminUI?.initTheme?.();
             this.setupEventBusListeners();
@@ -59,6 +63,7 @@ export const AppController = {
                 AdminUI.onResize();
             }
             
+            // 🚀 2. الآن، وبما أننا متأكدون من هويته، نحمل البيانات بأمان
             if (AdminData?.loadData) {
                 await AdminData.loadData();
                 RenderHelpers?.init?.(AdminData.data);
@@ -72,7 +77,8 @@ export const AppController = {
                 }
             }
             
-            this.setupAuthGate();
+            // 3. توجيه الأدمن للوحة القيادة
+            this.nav?.('dash', null);
             
             window.addEventListener('storage', async () => {
                 await AdminData?.loadData?.();
@@ -84,12 +90,7 @@ export const AppController = {
         } catch (error) { 
             const actualErrorMsg = error.message || error.toString();
             console.error("🚨 خطأ داخلي أثناء رسم الواجهات:", actualErrorMsg); 
-            
-            if (typeof AdminUI !== 'undefined' && AdminUI.showToast) {
-                AdminUI.showToast("خطأ يعيق رسم البيانات: " + actualErrorMsg, 'error', 7000);
-            } else {
-                alert("خطأ يعيق رسم البيانات: " + actualErrorMsg);
-            }
+            AdminUI?.showToast?.("خطأ يعيق رسم البيانات: " + actualErrorMsg, 'error', 7000);
         } 
         finally { 
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
@@ -100,12 +101,13 @@ export const AppController = {
         const isLogged = sessionStorage.getItem('telecard_admin_auth') === 'true'; 
         if (!isLogged) {
             window.location.replace('login.html');
-            return;
+            return false; // إيقاف الإقلاع
         }
-        this.nav?.('dash', null);
+        return true; // السماح بالإقلاع
     },
-    
-    logoutAdmin: function() { 
+
+
+        logoutAdmin: function() { 
         sessionStorage.removeItem('telecard_admin_auth'); 
         window.location.replace('login.html'); 
     },
@@ -357,39 +359,41 @@ export const AppController = {
     },
 
     addGlobalBanIp: async function() {
-        const input = document.getElementById('new-ban-ip-input');
-        if (!input) return;
-        const newIp = input.value.trim();
-        
-        if (!newIp) return AdminUI.showToast('الرجاء إدخال عنوان IP', 'error');
-        
-        if (!/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(newIp) && !newIp.includes(':')) {
-            return AdminUI.showToast('صيغة الـ IP غير صحيحة', 'error');
-        }
-
-        if (!AdminData.data.settings) AdminData.data.settings = {};
-        if (!AdminData.data.settings.bannedIps) AdminData.data.settings.bannedIps = [];
-
-        if (AdminData.data.settings.bannedIps.includes(newIp)) {
-            return AdminUI.showToast('هذا الـ IP محظور مسبقاً', 'warning');
-        }
-
-        if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري حظر الـ IP سحابياً...');
-        try {
-            AdminData.data.settings.bannedIps.push(newIp);
-            await AdminData.saveSystemSettings();
-            input.value = '';
-            this.renderFirewallBlacklist();
-            AdminUI.showToast(`تم حظر الشبكة: ${newIp}`, 'success');
-            if (AdminData.addLog) AdminData.addLog('FIREWALL_ADD_IP', `إضافة IP للقائمة السوداء: ${newIp}`);
-        } catch (e) {
-            AdminUI.showToast('حدث خطأ أثناء الحظر', 'error');
-        } finally {
-            if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
-        }
-    },
-
-    removeGlobalBanIp: async function(ip) {
+    const input = document.getElementById('new-ban-ip-input');
+    if (!input) return;
+    const newIp = input.value.trim();
+    
+    if (!newIp) return AdminUI.showToast('الرجاء إدخال عنوان IP', 'error');
+    
+    // تحقق صارم (Strict Regex) لـ IPv4 و IPv6 الحقيقي فقط
+    const isValidIPv4 = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/.test(newIp);
+    const isValidIPv6 = /^(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}$/.test(newIp) || newIp === '::1'; // دعم مبسط لـ IPv6
+    
+    if (!isValidIPv4 && !isValidIPv6) {
+        return AdminUI.showToast('صيغة الـ IP غير صحيحة، يرجى إدخال IP حقيقي', 'error');
+    }
+    
+    if (!AdminData.data.settings) AdminData.data.settings = {};
+    if (!AdminData.data.settings.bannedIps) AdminData.data.settings.bannedIps = [];
+    
+    if (AdminData.data.settings.bannedIps.includes(newIp)) {
+        return AdminUI.showToast('هذا الـ IP محظور مسبقاً', 'warning');
+    }
+    
+    if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري حظر الـ IP سحابياً...');
+    try {
+        AdminData.data.settings.bannedIps.push(newIp);
+        await AdminData.saveSystemSettings();
+        input.value = '';
+        this.renderFirewallBlacklist();
+        AdminUI.showToast(`تم حظر الشبكة: ${newIp}`, 'success');
+        if (AdminData.addLog) AdminData.addLog('FIREWALL_ADD_IP', `إضافة IP للقائمة السوداء: ${newIp}`);
+    } catch (e) {
+        AdminUI.showToast('حدث خطأ أثناء الحظر', 'error');
+    } finally {
+        if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+    }
+},    removeGlobalBanIp: async function(ip) {
         if (!AdminUI) return;
         if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن الشبكة (${ip})؟`, 'إزالة من القائمة السوداء')) return;
 

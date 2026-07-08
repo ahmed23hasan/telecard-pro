@@ -228,21 +228,28 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
 
         const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
         let resultData = null;
-        
-        // 🛡️ [تحديث أمني]: استخدام crypto لمنع ثغرات التصادم
-        const cleanOrderId = 'TC-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
 
+// 🛡️ [تحديث أمني]: استخدام crypto لمنع ثغرات التصادم
+const cleanOrderId = 'TC-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+
+// 🛡️ [ترقيع أمني]: إنشاء بصمة مشفرة لبيانات الطلب لمنع استغلال الـ Idempotency
+const requestPayload = JSON.stringify({ productId, finalQty, inputStr });
+const requestHash = crypto.createHash('sha256').update(requestPayload).digest('hex');
         await db.runTransaction(async (transaction) => {
             
             let idempotencyRef = null;
             if (idempotencyKey) {
                 idempotencyRef = db.collection('telecard_idempotency_keys').doc(`${uid}_${idempotencyKey}`);
                 const existingReq = await transaction.get(idempotencyRef);
-                if (existingReq.exists) {
-                    resultData = existingReq.data().resultData;
-                    return; // إرجاع النتيجة المحفوظة مسبقاً
-                }
-            }
+               if (existingReq.exists) {
+    const savedData = existingReq.data();
+    // 🚨 🚨 [إغلاق الثغرة]: التحقق من أن الطلب المكرر يحمل نفس البيانات بالضبط!
+    if (savedData.requestHash !== requestHash) {
+        throw new Error('Idempotency Conflict: Key already used with different payload.');
+    }
+    resultData = savedData.resultData;
+    return; // إرجاع النتيجة المحفوظة بأمان تام
+}      }
 
             const productRef = db.collection('telecard_prods').doc(String(productId));
             const [productSnap, latestUserSnap] = await Promise.all([
@@ -362,11 +369,13 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
             transaction.set(orderRef, newOrder);
 
             if (idempotencyRef) {
-                transaction.set(idempotencyRef, {
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(), resultData: resultData, orderId: cleanOrderId
-                });
-            }
-        });
+    transaction.set(idempotencyRef, {
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        resultData: resultData,
+        orderId: cleanOrderId,
+        requestHash: requestHash // 🛡️ حفظ البصمة لمقارنتها في المستقبل
+    });
+}        });
 
         return res.status(200).json({ success: true, data: resultData });
 

@@ -1,7 +1,7 @@
 // ============================================================================
-// 📦 قوالب المنتجات والكتالوج (modules/catalog/catalogTemplates.js)
+// 📦 قوالب المنتجات والكتالوج (modules/catalog/catalogTemplates.js) - V10.3 💎
 // 🎯 الوظيفة: توليد الـ HTML المتقدم للأقسام، المنتجات، الخزنة، والبلدان
-// 🌟 التحديث: إصلاح قابلية النقر لفتح الأقسام والمنتجات مباشرة (UX Fix)
+// 🌟 التحديث الأقصى: إصلاح تسعير الكروت، منع الـ Double-Escaping للأكواد.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -91,8 +91,20 @@ export const CatalogTemplates = {
 
     prodCard: (p, index) => {
         const orderValue = (p.order !== undefined) ? Number(p.order) : index;
-        // استخدام RenderHelpers الموحد لعرض السعر بشكل احترافي
-        const safePrice = (p.type === 'select') ? 'باقات متعددة' : RenderHelpers.formatMoney(p.price || p.unitCost || p.costPrice || 0, 'USD', 2);
+        
+        // 🛡️ [إصلاح العرض البصري للسعر]: إظهار "التكلفة" إذا كان السعر الثابت 0 لمنع ذعر الأدمن
+        let safePrice = '0.00 $';
+        if (p.type === 'select') {
+            safePrice = 'باقات متعددة';
+        } else {
+            const displayPrice = Number(p.price || 0);
+            if (displayPrice > 0) {
+                safePrice = RenderHelpers.formatMoney(displayPrice, 'USD', 2);
+            } else {
+                const cost = Number(p.costPrice || p.unitCost || 0);
+                safePrice = cost > 0 ? `<span class="text-muted fs-9">(تكلفة)</span> ${RenderHelpers.formatMoney(cost, 'USD', 2)}` : 'يعتمد على المستوى';
+            }
+        }
         
         return `
         <div id="prod-card-${_esc(p.id)}" class="item-box click-shrink" data-action="open-prod-modal" data-type="prod" data-id="${_esc(p.id)}" data-order="${orderValue}">
@@ -114,7 +126,7 @@ export const CatalogTemplates = {
     /**
      * 4. الخزنة المركزية (Central Vault)
      */
-    vaultCard: (pool, availCount, soldCount, linkedProdsCount, defectiveCount) => {
+    vaultCard: (pool, availCount, soldCount, linkedProdsCount, defectiveCount, healthPercent) => {
         let status = 'active';
         if (availCount === 0) status = 'empty';
         else if (availCount <= Number(pool.alertLimit || 5)) status = 'low';
@@ -131,7 +143,7 @@ export const CatalogTemplates = {
             <div class="vault-details">
                 <h3 class="vault-title">${_esc(pool.name)}</h3>
                 <div class="vault-stats-row">
-                    <div class="v-stat-chip ${status === 'empty' ? 'chip-danger' : (status === 'low' ? 'chip-warning' : 'chip-success')}" title="متاح">
+                    <div class="v-stat-chip ${status === 'empty' ? 'chip-danger' : (status === 'low' ? 'chip-warning' : 'chip-success')}" title="متاح (${healthPercent}%)">
                         <i class="fa-solid fa-check-circle"></i>
                         <span class="num-en">${_enNum(availCount)}</span>
                     </div>
@@ -162,14 +174,18 @@ export const CatalogTemplates = {
     `,
 
     defectiveModal: (poolName, codes) => {
-        const codesHtml = codes.map(c => `
-            <div class="copy-row success-copy-row" data-action="copy-text" data-copy-text="${_esc(c.text)}" title="اضغط للنسخ">
+        // 🛡️ [إصلاح الثغرة]: استخدام c.text مباشرة دون _esc لأنها محمية مسبقاً من السيرفر (تجنباً لـ Double Escape للأكواد)
+        const codesHtml = codes.map(c => {
+            const rawText = c.text || '';
+            const safeTextForHtml = rawText.replace(/"/g, '&quot;'); // فقط هروب للعلامة لتجنب كسر الـ Attribute
+            return `
+            <div class="copy-row success-copy-row" data-action="copy-text" data-copy-text="${safeTextForHtml}" title="اضغط للنسخ">
                 <div class="cr-content cr-content-center w-100">
-                    <span class="cr-value num-en text-danger" dir="ltr">${_esc(c.text)}</span>
+                    <span class="cr-value num-en text-danger" dir="ltr">${_esc(rawText)}</span>
                 </div>
                 <div class="cr-icon text-danger"><i class="fa-solid fa-copy"></i></div>
             </div>
-        `).join('');
+        `}).join('');
 
         return `
         <div id="defective-codes-overlay" class="modal-overlay">
@@ -213,7 +229,7 @@ export const CatalogTemplates = {
             <input type="checkbox" class="tree-checkbox tree-child-cb" value="${prodId}" ${isChecked ? 'checked' : ''} data-action="tree-child-check">
             ${imgSrc ? `<img src="${imgSrc}" class="tree-thumb">` : `<div class="tree-thumb-fallback"><i class="fa-solid fa-box"></i></div>`}
             <div class="flex-col">
-                <span class="fs-12 fw-bold text-main">${_esc(prodName)}</span>
+                <span class="fs-12 fw-bold text-main">${prodName}</span>
                 <span class="fs-10 text-muted">ID: <span class="num-en text-warning">#${shortId}</span></span>
             </div>
         </label>`,
@@ -224,7 +240,7 @@ export const CatalogTemplates = {
             <div class="tree-thumb-fallback text-gold">
                 <i class="fa-solid ${_esc(icon || 'fa-user')}"></i>
             </div>
-            <span class="fs-12 fw-bold text-main">${_esc(tierName)}</span>
+            <span class="fs-12 fw-bold text-main">${tierName}</span>
         </label>`,
 
     /**
@@ -272,6 +288,7 @@ export const CatalogTemplates = {
                 </div>
             </div>
         </div>`,
+        
     emptyFolder: () => `<div class="empty-state"><i class="fa-solid fa-folder-open"></i><span>القسم فارغ.. ابدأ بإضافة منتجاتك الآن</span></div>`,
     emptyCountries: () => `<div class="empty-state"><i class="fa-solid fa-flag-checkered"></i><span>لم يتم تفعيل أي دول بعد.</span></div>`,
     emptyVault: () => `<div class="empty-state"><i class="fa-solid fa-vault"></i><span>الخزنة لا تحتوي على صناديق.</span></div>`,

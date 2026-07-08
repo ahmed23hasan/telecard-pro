@@ -15,37 +15,42 @@ export const CatalogUI = {
   // 🪟 1. دوال فتح النوافذ المنبثقة (Modal Triggers)
   // =========================================================
   
-  openCategoryModal: function(id = null) {
-      EventBus.emit('set-temp-edit-id', id);
-      const cat = id ? (AdminData.data.cats || []).find(c => String(c.id) === String(id)) : null;
-      const isSubCat = window.AdminApp ? !!window.AdminApp.currFolder : false;
-      this.setupCategoryModal(cat, isSubCat);
-      EventBus.emit('req-open-modal', 'cat');
-  },
-
-  openProductModal: function(id = null) {
-      EventBus.emit('set-temp-edit-id', id);
-      const prod = id ? (AdminData.data.prods || []).find(p => String(p.id) === String(id)) : null;
-      const vaultData = AdminData.data.vault || [];
-      this.setupProductModal(prod, vaultData);
-      EventBus.emit('req-open-modal', 'prod');
-  },
-
-  openCountryModal: function(id = null) {
-      EventBus.emit('set-temp-edit-id', id);
-      const country = id ? (AdminData.data.countries || []).find(c => String(c.id) === String(id)) : null;
-      this.setupCountryModal(country);
-      EventBus.emit('req-open-modal', 'country');
-  },
-
-  openVaultModal: function(id = null) {
-      EventBus.emit('set-temp-edit-id', id);
-      const pool = id ? (AdminData.data.vault || []).find(v => String(v.id) === String(id)) : null;
-      this.setupVaultModal(pool);
-      EventBus.emit('req-open-modal', 'vault');
-  },
-
   // =========================================================
+// 🪟 1. دوال فتح النوافذ المنبثقة (Modal Triggers - O(1) Optimized)
+// =========================================================
+
+openCategoryModal: function(id = null) {
+    EventBus.emit('set-temp-edit-id', id);
+    // ⚡ جلب سريع جداً بـ O(1)
+    const cat = id ? (AdminData.data.catsMap?.[id] || (AdminData.data.cats || []).find(c => String(c.id) === String(id))) : null;
+    const isSubCat = window.AdminApp ? !!window.AdminApp.currFolder : false;
+    this.setupCategoryModal(cat, isSubCat);
+    EventBus.emit('req-open-modal', 'cat');
+  },
+  
+  openProductModal: function(id = null) {
+    EventBus.emit('set-temp-edit-id', id);
+    // ⚡ جلب سريع جداً بـ O(1)
+    const prod = id ? (AdminData.data.prodsMap?.[id] || (AdminData.data.prods || []).find(p => String(p.id) === String(id))) : null;
+    const vaultData = AdminData.data.vault || [];
+    this.setupProductModal(prod, vaultData);
+    EventBus.emit('req-open-modal', 'prod');
+  },
+  
+  openCountryModal: function(id = null) {
+    EventBus.emit('set-temp-edit-id', id);
+    // ⚡ جلب سريع جداً بـ O(1)
+    const country = id ? (AdminData.data.countriesMap?.[id] || (AdminData.data.countries || []).find(c => String(c.id) === String(id))) : null;
+    this.setupCountryModal(country);
+    EventBus.emit('req-open-modal', 'country');
+  },
+  
+  openVaultModal: function(id = null) {
+    EventBus.emit('set-temp-edit-id', id);
+    const pool = id ? (AdminData.data.vault || []).find(v => String(v.id) === String(id)) : null;
+    this.setupVaultModal(pool);
+    EventBus.emit('req-open-modal', 'vault');
+  },  // =========================================================
   // 🎨 2. تهيئة النوافذ المنبثقة (Modal Setups) - DOM Isolation
   // =========================================================
   

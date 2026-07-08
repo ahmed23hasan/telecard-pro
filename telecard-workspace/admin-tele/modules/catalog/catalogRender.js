@@ -1,14 +1,16 @@
 // ============================================================================
 // 📦 محرك رسم المنتجات والكتالوج (modules/catalog/catalogRender.js) - Pro 🚀
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، إعدادات المنتجات، الخزنة المركزية، والبلدان
-// 🌟 التحسينات: استقرار بصري أثناء الترتيب + مؤشرات صحة المخزون (Vault Health)
+// 🌟 التحديث الأقصى: 
+// 1. [Subcollections Compatibility]: توافق رادار المخزون مع الـ Cloud Counters.
+// 2. [O(1) Optimization]: بناء فهارس سريعة قبل الرسم لتحسين الأداء.
+// 3. [Visual Stability]: منع الارتعاش أثناء إعادة الترتيب.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminTemplates } from '../../adminTemplates.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
-import { AdminUI } from '../../adminUI.js';
 
 export const CatalogRender = {
     state: { currFolder: null, dragEditMode: false, tempPackages: [] },
@@ -31,13 +33,12 @@ export const CatalogRender = {
         const bread = document.getElementById('prod-bread');
         const currCatId = this.state.currFolder != null ? String(this.state.currFolder) : null;
 
-        // تحديد التخطيط المختار للقسم الحالي مع اعتماد العمودين كمقياس بصري أساسي
         let currentLayout = (currCatId === null || currCatId === 'root') 
             ? (AdminData.data.settings?.rootLayout || 2) 
             : 2;
 
         if (currCatId && currCatId !== 'root') {
-            const cat = (AdminData.data.cats || []).find(c => String(c.id) === currCatId);
+            const cat = AdminData.data.catsMap?.[currCatId]; // ⚡ جلب O(1)
             if (cat?.layout) currentLayout = cat.layout;
         }
 
@@ -54,7 +55,7 @@ export const CatalogRender = {
             grid.innerHTML = mainCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
             EventBus.emit('req-init-sortable', { container: grid, type: 'cat' });
         } else {
-            const parent = (AdminData.data.cats || []).find(x => String(x.id) === currCatId);
+            const parent = AdminData.data.catsMap?.[currCatId]; // ⚡ جلب O(1)
             if(!parent) { 
                 this.state.currFolder = null; 
                 EventBus.emit('state-update', { currFolder: null }); 
@@ -77,13 +78,11 @@ export const CatalogRender = {
                 let prodsHtml = prods.map((p, i) => {
                     const baseCard = AdminTemplates.prodCard(p, i);
                     const offerBadge = RenderHelpers._getActiveOfferBadge(p.id);
-                    // حقن شارة العرض النشط بذكاء داخل الكرت
                     return offerBadge ? baseCard.replace('<div class="item-info">', `<div class="item-info">${offerBadge}`) : baseCard;
                 }).join('');
                 grid.innerHTML = AdminTemplates.gridContainer(catsHtml, prodsHtml);
             }
             
-            // تهيئة السحب والإفلات للحاويات الفرعية
             const catCont = grid.querySelector('.cats-grid.sortable-container'); 
             const prodCont = grid.querySelector('.prods-grid.sortable-container');
             if(catCont) EventBus.emit('req-init-sortable', { container: catCont, type: 'cat' });
@@ -129,7 +128,6 @@ export const CatalogRender = {
         
         if(container) container.innerHTML = html;
         
-        // استخدام المُتحكم الرئيسي للنافذة
         EventBus.emit('req-update-price-preview');
     },
 
@@ -140,7 +138,7 @@ export const CatalogRender = {
     },
 
     // =========================================================
-    // 🏦 3. رسم الخزنة المركزية (Vault)
+    // 🏦 3. رسم الخزنة المركزية (Vault) - Optimized for Subcollections
     // =========================================================
     renderVault: function() {
         const grid = document.getElementById('vault-grid'); 
@@ -152,21 +150,27 @@ export const CatalogRender = {
             return; 
         }
         
-        const prods = AdminData.data.prods || [];
+        // ⚡ بناء فهرس لعد المنتجات المرتبطة بـ O(N) مرة واحدة فقط خارج الـ Loop
+        const linkedProdsMap = {};
+        (AdminData.data.prods || []).forEach(p => {
+            if (p.vaultPoolId) {
+                linkedProdsMap[p.vaultPoolId] = (linkedProdsMap[p.vaultPoolId] || 0) + 1;
+            }
+        });
+        
         grid.innerHTML = vault.map(pool => {
-            let counts = { avail: 0, sold: 0, defect: 0, total: 0 };
+            // 🛡️ التحديث الجذري: قراءة العداد القادم من السيرفر مباشرة (Subcollection Counters)
+            const availableCount = Number(pool.stockCount || 0); 
+            // بما أن الأكواد المباعة تنقل، نعتبر المباع صفر للواجهة أو نستخدم عداداً إذا كان موجوداً
+            const soldCount = Number(pool.soldCount || 0); 
+            const defectCount = Number(pool.defectCount || 0);
             
-            (pool.codes || []).forEach(c => {
-                const status = (typeof c === 'string' || c.status === 'available') ? 'avail' : (c.status === 'sold' ? 'sold' : 'defect');
-                counts[status]++;
-                counts.total++;
-            });
+            const totalCount = availableCount + soldCount + defectCount;
+            const healthPercent = totalCount > 0 ? Math.round((availableCount / totalCount) * 100) : 0;
+            const linkedProds = linkedProdsMap[String(pool.id)] || 0;
             
-            // 🌟 حساب النسبة المئوية للمخزون المتاح (Vault Health) لمعرفتها في الـ Templates إن أردت استخدامها لاحقاً
-            const healthPercent = counts.total > 0 ? Math.round((counts.avail / counts.total) * 100) : 0;
-            const linkedProds = prods.filter(p => String(p.vaultPoolId) === String(pool.id)).length;
-            
-            return AdminTemplates.vaultCard(pool, counts.avail, counts.sold, linkedProds, counts.defect, healthPercent);
+            // تمرير الأرقام الدقيقة للقالب
+            return AdminTemplates.vaultCard(pool, availableCount, soldCount, linkedProds, defectCount, healthPercent);
         }).join('');
     },
 
@@ -183,7 +187,6 @@ export const CatalogRender = {
             return; 
         }
 
-        // رسم الكروت مع ضمان وجود قيم مرئية مؤقتة (Fallback) 
         container.innerHTML = countries.map(c => {
             const displayCountry = {
                 ...c,

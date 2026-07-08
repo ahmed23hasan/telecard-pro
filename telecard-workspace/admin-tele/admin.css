@@ -625,21 +625,97 @@ select.select-micro option {
 .rank-2 { order: 1; z-index: 2; opacity: 0.95; }
 .rank-3 { order: 3; z-index: 1; opacity: 0.9; }
 
-.podium-avatar-wrap { position: relative; width: 60px; height: 60px; border-radius: 50%; padding: 4px; margin-bottom: 15px; box-shadow: 0 10px 20px rgba(0,0,0,0.3); transition: all 0.3s ease; }
-.rank-1 .podium-avatar-wrap { width: 75px; height: 75px; background: linear-gradient(135deg, var(--gold), #b8860b); box-shadow: 0 12px 25px var(--primary-glow); transform: translateY(-10px) scale(1.05); }
+/* --- 🏆 مجتمع الأبطال (لوحة الشرف) - النسخة المحصنة --- */
+
+.podium-avatar-wrap { 
+    position: relative; 
+    width: 60px; 
+    height: 60px; 
+    border-radius: 50%; 
+    padding: 4px; 
+    margin-bottom: 15px; 
+    box-shadow: 0 10px 20px rgba(0,0,0,0.3); 
+    transition: all 0.3s ease;
+    
+    /* 🛡️ أهم إضافة: منع خروج الصورة عن الدائرة */
+    overflow: hidden; 
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-card);
+}
+
+/* 🛡️ ترويض صورة العميل داخل الدائرة */
+.podium-img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important; /* لقص الصورة بشكل متناسق */
+    border-radius: 50%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+}
+
+.rank-1 .podium-avatar-wrap { 
+    width: 85px; /* زيادة بسيطة لإعطاء هيبة للمركز الأول */
+    height: 85px; 
+    background: linear-gradient(135deg, var(--gold), #b8860b); 
+    box-shadow: 0 12px 25px var(--primary-glow); 
+    transform: translateY(-10px) scale(1.05); 
+}
+
 .rank-2 .podium-avatar-wrap { background: linear-gradient(135deg, #E0E0E0, #708090); }
 .rank-3 .podium-avatar-wrap { background: linear-gradient(135deg, #CD7F32, #8b4513); }
 
-.podium-rank-num { width: 100%; height: 100%; border-radius: 50%; background: var(--bg-card); display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 26px; font-family: 'Inter', sans-serif !important; border: 3px solid var(--bg-card); box-shadow: inset 0 3px 6px rgba(0,0,0,0.4); text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+.podium-rank-num { 
+    width: 100%; 
+    height: 100%; 
+    border-radius: 50%; 
+    background: var(--bg-card); 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    font-weight: 900; 
+    font-size: 26px; 
+    font-family: 'Inter', sans-serif !important; 
+    border: 3px solid var(--bg-card); 
+    box-shadow: inset 0 3px 6px rgba(0,0,0,0.4); 
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    position: relative;
+    z-index: 2; /* يبقى الرقم فوق الصورة إذا لم تكن الصورة تغطي الدائرة بالكامل */
+}
+
+/* 🛡️ إذا وُجدت صورة، نجعل الرقم يختفي ليظهر وجه البطل */
+.podium-avatar-wrap:has(.podium-img) .podium-rank-num {
+    display: none;
+}
+
 .rank-1 .podium-rank-num { color: var(--gold); font-size: 34px; }
 .rank-2 .podium-rank-num { color: #E0E0E0; }
 .rank-3 .podium-rank-num { color: #CD7F32; }
 
-.rank-badge { position: absolute; bottom: -6px; right: -6px; width: 26px; height: 26px; border-radius: 50%; background: var(--text-main); display: flex; align-items: center; justify-content: center; font-size: 13px; box-shadow: 0 4px 8px rgba(0,0,0,0.4); border: 2px solid var(--bg-card); color: var(--bg-card); }
-.rank-1 .rank-badge { background: var(--gold); color: #000; width: 30px; height: 30px; bottom: -8px; right: -8px; font-size: 15px; }
+.rank-badge { 
+    position: absolute; 
+    bottom: -6px; 
+    right: -6px; 
+    width: 26px; 
+    height: 26px; 
+    border-radius: 50%; 
+    background: var(--text-main); 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    font-size: 13px; 
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4); 
+    border: 2px solid var(--bg-card); 
+    color: var(--bg-card);
+    z-index: 3; /* يبقى التاج أو الميدالية فوق كل شيء */
+}
+
+.rank-1 .rank-badge { background: var(--gold); color: #000; width: 32px; height: 32px; bottom: -5px; right: -5px; font-size: 16px; }
 .rank-2 .rank-badge { background: #E0E0E0; color: #000; }
 .rank-3 .rank-badge { background: #CD7F32; color: #fff; }
-
 .podium-info { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
 .podium-value { font-size: 14px; font-weight: 900; letter-spacing: 0.5px; line-height: 1; color: #ffffff; }
 

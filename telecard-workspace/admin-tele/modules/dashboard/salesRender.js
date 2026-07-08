@@ -1,13 +1,14 @@
 // ============================================================================
 // 📈 محرك رسم وتحليل المبيعات (modules/dashboard/salesRender.js) - النسخة الماسية V4.4 💎
 // 🎯 الوظيفة: استهلاك البيانات المركزية، الفلترة الزمنية، ورسم التقارير والتصدير
-// 🚀 التحديث الأقصى: القضاء على الـ O(N) في رادار التتويج وحماية الذاكرة الرسومية
+// 🚀 التحديث الأقصى: القضاء على الـ O(N) في رادار التتويج وحماية الذاكرة الرسومية من Infinity
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { EventBus, Utils } from '../../adminUtils.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
 import { UIService } from '../../core/uiService.js';
+import { FinancialEngine } from '../../core/financialEngine.js'; // 🛡️ استيراد المحرك المالي للحماية من NaN
 
 export const SalesRender = {
     state: { timeRange: 'all' },
@@ -74,7 +75,10 @@ export const SalesRender = {
                 catsTbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-20">لا توجد مبيعات في هذه الفترة.</td></tr>`;
             } else {
                 catsTbody.innerHTML = sortedCats.map(c => {
-                    const margin = c.revenue > 0 ? ((c.profit / c.revenue) * 100) : 0;
+                    // 🛡️ [إصلاح حرج]: حساب الهامش باستخدام المحرك المالي لمنع أخطاء Infinity و NaN
+                    const marginRaw = FinancialEngine.safeDiv(c.profit, c.revenue);
+                    const margin = FinancialEngine.safeMul(marginRaw, 100);
+                    
                     const safeCatName = Utils.escapeHTML(c.name);
                     return `
                         <tr>
@@ -82,7 +86,7 @@ export const SalesRender = {
                             <td class="num-en">${Utils.enNum(c.count)}</td>
                             <td class="num-en text-primary" dir="ltr">${RenderHelpers.formatMoney(c.revenue, 'USD')}</td>
                             <td class="num-en text-gold fw-bold" dir="ltr">${RenderHelpers.formatMoney(c.profit, 'USD')}</td>
-                            <td class="num-en text-muted" dir="ltr">${RenderHelpers.formatMoney(c.count > 0 ? c.revenue/c.count : 0, 'USD')}</td>
+                            <td class="num-en text-muted" dir="ltr">${RenderHelpers.formatMoney(c.count > 0 ? FinancialEngine.safeDiv(c.revenue, c.count) : 0, 'USD')}</td>
                             <td class="num-en ${margin >= 20 ? 'text-success' : 'text-warning'}" dir="ltr">${Utils.enNum(margin, 1)}%</td>
                         </tr>
                     `;
@@ -99,7 +103,7 @@ export const SalesRender = {
         if (podiumContainer) {
             if (sortedProds.length > 0) {
                 
-                // ⚡ التحديث الفائق O(1): جلب الصورة فورا من الخريطة بدلا من find
+                // ⚡ التحديث الفائق O(1): جلب الصورة فورا من الخريطة
                 const getProdImg = (id) => {
                     const p = AdminData.data.prodsMap?.[id];
                     return p && p.img ? p.img : null;
@@ -143,7 +147,9 @@ export const SalesRender = {
                 allProdsTbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">لا توجد مبيعات.</td></tr>`;
             } else {
                 allProdsTbody.innerHTML = sortedProds.map(p => {
-                    const margin = p.revenue > 0 ? ((p.profit / p.revenue) * 100) : 0;
+                    // 🛡️ [إصلاح حرج]: حساب الهامش باستخدام المحرك المالي
+                    const marginRaw = FinancialEngine.safeDiv(p.profit, p.revenue);
+                    const margin = FinancialEngine.safeMul(marginRaw, 100);
                     const safeName = Utils.escapeHTML(p.name);
                     
                     return `
@@ -186,8 +192,8 @@ export const SalesRender = {
             const rev = Number(pricing?.finalPriceUsd || pricing?.finalPrice || o.baseUsd || o.price || 0);
             const prof = Number(pricing?.netProfitUsd || pricing?.profit || 0);
             
-            dailyAggregations[dKey].revenue += rev;
-            dailyAggregations[dKey].profit += prof;
+            dailyAggregations[dKey].revenue = FinancialEngine.safeAdd(dailyAggregations[dKey].revenue, rev);
+            dailyAggregations[dKey].profit = FinancialEngine.safeAdd(dailyAggregations[dKey].profit, prof);
         });
 
         const dates = [], revenues = [], profits = [];

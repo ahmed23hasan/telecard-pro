@@ -417,40 +417,53 @@ export const UsersController = {
         }
     },
 
-    deleteUser: async function(userId) {
-        // ⚡ جلب فوري بـ O(1)
-        const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
-        if (!user) return;
-
-        const displayName = user.fullName || user.username || user.name || 'العميل';
-        const confirmMsg = `⚠️ تحذير خطير!\nهل أنت متأكد من حذف الحساب "${displayName}"؟\nاكتب "حذف" للتأكيد:`;
-        
-        if (AdminUI && await AdminUI.showPrompt(confirmMsg, 'حذف الحساب', '') === 'حذف') {
-            
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح بيانات العميل...');
-            
-            try {
-                AdminData.data.orders = AdminData.data.orders.filter(o => String(o.userId) !== String(userId));
-                AdminData.data.deposits = AdminData.data.deposits.filter(d => String(d.userId) !== String(userId));
-                AdminData.data.users = AdminData.data.users.filter(u => String(u.id) !== String(userId));
-                
-                await AdminData?.saveOrders?.();
-                await AdminData?.saveDeposits?.();
-                await AdminData?.saveUsers?.();
-                
-                EventBus.emit('req-finish-action', {
-                    renderEvent: 'req-render-users',
-                    logAction: 'DELETE_USER',
-                    logDetails: `تم حذف حساب العميل ${displayName} وكافة سجلاته`,
-                    toastMsg: `تم مسح حساب (${displayName}) من النظام نهائياً`
-                });
-            } finally {
-                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-            }
-        }
-    },
-
     // =========================================================
+// 🗑️ حذف العميل وتطهير السجلات (Cloud Purge Protocol)
+// =========================================================
+deleteUser: async function(userId) {
+    // ⚡ 1. جلب فوري بـ O(1) للبيانات من الخريطة المركزية
+    const user = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(u => String(u.id) === String(userId));
+    if (!user) return;
+    
+    const displayName = user.fullName || user.username || user.name || 'العميل';
+    const confirmMsg = `⚠️ تحذير أمني خطير!\nأنت على وشك حذف الحساب "${displayName}" وكل سجلاته المالية نهائياً.\nهذا الإجراء سيقوم بتطهير السحابة من كل طلباته وإيداعاته السابقة.\nاكتب كلمة "حذف" للتأكيد النهائي:`;
+    
+    // 🛡️ 2. التحقق البشري الصارم لمنع الحذف بالخطأ
+    const confirmation = await AdminUI?.showPrompt?.(confirmMsg, 'بروتوكول تطهير حساب عميل', '');
+    if (confirmation !== 'حذف') return;
+    
+    if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تنفيذ بروتوكول التطهير السحابي...');
+    
+    try {
+        // 🚀 3. [تحديث سحابي]: استدعاء دالة المسح الشامل (التي بنيناها في السيرفر)
+        // هذه الدالة ستقوم بمسح: (حساب الـ Auth، بيانات المستخدم، كل طلباته، وكل إيداعاته)
+        const result = await FirebaseAdapter.callFunction('adminDeleteUserData', { targetUid: String(userId) });
+        
+        if (result && result.success) {
+            
+            // ⚡ 4. التحديث المحلي الفوري لضمان نظافة الذاكرة (Memory Cleanup)
+            AdminData.data.users = AdminData.data.users.filter(u => String(u.id) !== String(userId));
+            if (AdminData.data.usersMap) delete AdminData.data.usersMap[userId];
+            
+            // تنظيف الطلبات والإيداعات المعروضة حالياً أمام الأدمن
+            AdminData.data.orders = (AdminData.data.orders || []).filter(o => String(o.userId) !== String(userId));
+            AdminData.data.deposits = (AdminData.data.deposits || []).filter(d => String(d.userId) !== String(userId));
+            
+            // 🌟 5. إنهاء الإجراء وإصدار أوامر الرسم السحابية
+            EventBus.emit('req-finish-action', {
+                renderEvent: 'req-render-users',
+                logAction: 'DELETE_USER',
+                logDetails: `تم حذف حساب العميل ${displayName} وتطهير كافة سجلاته من السحابة بنجاح.`,
+                toastMsg: `تم تطهير بيانات الحساب (${displayName}) نهائياً`
+            });
+        }
+    } catch (error) {
+        console.error("Delete User Critical Error:", error);
+        EventBus.emit('req-show-toast', { message: `فشل التطهير السحابي: ${error.message}`, type: 'error' });
+    } finally {
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+    }
+},    // =========================================================
     // 🛡️ 2. نظام التوثيق (KYC)
     // =========================================================
     revokeUserKyc: async function(userId) {
