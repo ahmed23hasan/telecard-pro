@@ -478,25 +478,38 @@ exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposi
         id: notifId, title, message, type: 'notification', jumpTarget: 'wallet', createdAt: Date.now()
     });
 });
-
-// ==========================================
-// 🔗 10. تصدير دوال ربط الموردين
-// ==========================================
+// ============================================================================
+// 🔗 10. تصدير دوال ربط الموردين (النسخة النهائية المصلحة) 💎
+// ============================================================================
 const developerApi = require('./developerApi.js');
 const supplierEngine = require('./supplierEngine.js');
 
-exports.orderStatusWebhook = onRequest({ region: 'us-east1', secrets: [SUPPLIER_WEBHOOK_TOKEN] }, async (req, res) => {
+// 1. دالة الويبهوك (HTTPS) - محمية بذاكرة منخفضة وسر
+exports.orderStatusWebhook = onRequest({
+    region: 'us-east1',
+    memory: '256MiB',
+    secrets: [SUPPLIER_WEBHOOK_TOKEN]
+}, async (req, res) => {
     const token = req.headers['x-telecard-webhook-token'];
-    
     if (!token || token !== SUPPLIER_WEBHOOK_TOKEN.value()) {
-        console.error(`[SECURITY ALERT] Unauthorized Webhook Attempt from IP: ${req.ip}`);
-        return res.status(401).send('Unauthorized: Invalid Security Token');
+        console.error(`[SECURITY ALERT] Unauthorized Webhook Attempt`);
+        return res.status(401).send('Unauthorized');
     }
-
     return developerApi.orderStatusWebhook(req, res);
 });
 
-exports.externalCreateOrder = developerApi.externalCreateOrder;
-exports.syncSupplierData = supplierEngine.syncSupplierData;
-exports.scheduledSupplierSync = supplierEngine.scheduledSupplierSync;
-exports.secureSaveSupplier = supplierEngine.secureSaveSupplier;
+// 2. دالة إنشاء طلب خارجي (API) - بذاكرة 256MB
+exports.externalCreateOrder = onCall({ memory: '256MiB' }, developerApi.externalCreateOrder);
+
+// 3. دالة مزامنة بيانات الموردين (يدوي) - بذاكرة 256MB
+exports.syncSupplierData = onCall({ memory: '256MiB' }, supplierEngine.syncSupplierData);
+
+// 4. دالة مزامنة الموردين المجدولة (كل 24 ساعة) - بذاكرة 256MB
+exports.scheduledSupplierSync = onSchedule({
+    schedule: 'every 24 hours',
+    region: 'us-east1',
+    memory: '256MiB'
+}, supplierEngine.scheduledSupplierSync);
+
+// 5. دالة حفظ بيانات المورد بأمان - بذاكرة 256MB
+exports.secureSaveSupplier = onCall({ memory: '256MiB' }, supplierEngine.secureSaveSupplier);
