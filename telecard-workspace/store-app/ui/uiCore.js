@@ -1618,53 +1618,66 @@ div.style.backgroundImage = `url('${b.img.replace(/'/g, "%27")}')`;
     selectDisplayCurrency: function(curr) { this.setDisplayCurrency(curr); this.updateDisplayCurrencyUI(curr); this.closeDisplayCurrencyMenu(); },
 
     renderDynamicCurrencyMenu: function() {
-        const menu = document.getElementById('ct-menu');
-        const nativeSel = document.getElementById('display-currency'); 
-        
-        if (!menu) return;
-        
-        const user = DataManager.user;
-        const baseCurr = (user?.baseCurrency || user?.base_currency || 'USD').toUpperCase();
-        const rates = typeof DataManager.getRates === 'function' ? DataManager.getRates() : [];
-        const availableCodes = new Set();
-        
+    const menu = document.getElementById('ct-menu');
+    const nativeSel = document.getElementById('display-currency');
+    
+    if (!menu) return;
+    
+    const user = DataManager.user;
+    const baseCurr = (user?.baseCurrency || user?.base_currency || 'USD').toUpperCase();
+    
+    // جلب العملات (قد تكون مصفوفة أو كائناً بناءً على إصدار المحرك المالي)
+    const rawRates = typeof DataManager.getRates === 'function' ? DataManager.getRates() : [];
+    
+    const availableCodes = new Set();
+    if (baseCurr && baseCurr.trim() !== "") {
         availableCodes.add(baseCurr);
-        if (Array.isArray(rates)) {
-            rates.forEach(r => { if (r.code) availableCodes.add(r.code.toUpperCase()); });
-        }
-        
-        const selected = DataManager.selectedCurr || baseCurr;
-        let menuHtml = '';
-        let nativeHtml = ''; 
-        
-        availableCodes.forEach(code => {
-            const isActive = code === selected ? 'active' : '';
-            menuHtml += `
+    }
+    
+    // ✅ الإصلاح: تحويل الكائن إلى مصفوفة قيم إذا لزم الأمر لمعالجة كافة العملات
+    const ratesArray = Array.isArray(rawRates) ? rawRates : Object.values(rawRates);
+    
+    if (ratesArray.length > 0) {
+        ratesArray.forEach(r => {
+            if (r && r.code && r.isActive !== false) {
+                availableCodes.add(r.code.toUpperCase());
+            }
+        });
+    }
+    
+    // ضمان وجود USD دائماً كخيار عرض احتياطي
+    availableCodes.add('USD');
+    
+    const selected = (DataManager.selectedCurr || baseCurr || 'USD').toUpperCase();
+    let menuHtml = '';
+    let nativeHtml = '';
+    
+    availableCodes.forEach(code => {
+        const isActive = code === selected ? 'active' : '';
+        menuHtml += `
                     <div class="ct-item ${isActive}" data-curr="${code}">
                         <div class="ct-flag-box"></div>
                         <span class="ct-name">${code}</span>
                     </div>`;
-            nativeHtml += `<option value="${code}">${code}</option>`;
+        nativeHtml += `<option value="${code}" ${code === selected ? 'selected' : ''}>${code}</option>`;
+    });
+    
+    menu.innerHTML = menuHtml;
+    if (nativeSel) nativeSel.innerHTML = nativeHtml;
+    
+    this.refreshCurrencyMenuFlags();
+    
+    if (!menu.dataset.delegated) {
+        menu.addEventListener('click', (e) => {
+            const item = e.target.closest('.ct-item');
+            if (item) {
+                const code = item.dataset.curr;
+                this.selectDisplayCurrency(code);
+            }
         });
-        
-        menu.innerHTML = menuHtml;
-        if (nativeSel) nativeSel.innerHTML = nativeHtml; 
-        
-        this.refreshCurrencyMenuFlags();
-        
-        if (!menu.dataset.delegated) {
-            menu.addEventListener('click', (e) => {
-                const item = e.target.closest('.ct-item');
-                if (item) {
-                    const code = item.dataset.curr;
-                    this.selectDisplayCurrency(code);
-                }
-            });
-            menu.dataset.delegated = "true";
-        }
-    },
-
-    updateDisplayCurrencyUI: function(curr) {
+        menu.dataset.delegated = "true";
+    }
+},    updateDisplayCurrencyUI: function(curr) {
         const code = curr || 'USD';
         
         this.renderDynamicCurrencyMenu();

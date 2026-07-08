@@ -911,90 +911,93 @@ export const UIAuth = {
         getSys().sfx?.('nav');
     },
 
-    saveIdentityData: async function() {
-        const btn = document.querySelector('[data-action="save-identity"]');
-        if (this._isSavingIdentity || (btn && btn.classList.contains('is-loading'))) return;
+saveIdentityData: async function() {
+    const btn = document.querySelector('[data-action="save-identity"]');
+    if (this._isSavingIdentity || (btn && btn.classList.contains('is-loading'))) return;
+    
+    // ✅ [قفل أمني]: يعتمد على isVerified (إكمال البيانات) لمنع التلاعب بالعملة بعد الاختيار الأول
+    if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
+        getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
+        getSys().sfx?.('error');
+        getSys().closeModal?.('identity');
+        return;
+    }
+    
+    const countryEl = document.getElementById('selected-country-text');
+    const phoneEl = document.getElementById('reg-phone');
+    const hiddenCurrency = document.getElementById('reg-currency');
+    
+    const country = countryEl ? countryEl.innerText.trim() : '';
+    const phone = phoneEl ? phoneEl.value.trim() : '';
+    const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
+    
+    if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
+        getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
+        getSys().sfx?.('error');
+        return;
+    }
+    
+    if (!/^[\d\s\+\-\(\)]+$/.test(phone)) {
+        getSys().showToast?.('رقم الهاتف غير صالح، يرجى استخدام الأرقام فقط.', 'error');
+        return;
+    }
+    
+    this._isSavingIdentity = true;
+    if (btn) {
+        btn.classList.add('is-loading');
+        btn.disabled = true;
+    }
+    getSys().toggleLoader?.(true, 'جاري تأمين وربط المحفظة...');
+    
+    try {
+        const result = await StoreDB.callFunction('completeUserIdentity', {
+            country: country,
+            phone: phone,
+            currency: currency
+        });
         
-        // ✅ تم الإصلاح: القفل يعتمد الآن على إكمال البيانات (isVerified) وليس العملة
-if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
-    getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
-    getSys().sfx?.('error');
-    getSys().closeModal?.('identity');
-    return;
-}        const countryEl = document.getElementById('selected-country-text');
-        const phoneEl = document.getElementById('reg-phone');
-        const hiddenCurrency = document.getElementById('reg-currency');
-        
-        const country = countryEl ? countryEl.innerText.trim() : '';
-        const phone = phoneEl ? phoneEl.value.trim() : '';
-        const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
-        
-        if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
-            getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
-            getSys().sfx?.('error');
-            return;
-        }
-        
-        if (!/^[\d\s\+\-\(\)]+$/.test(phone)) {
-            getSys().showToast?.('رقم الهاتف غير صالح، يرجى استخدام الأرقام فقط.', 'error');
-            return;
-        }
-        
-        this._isSavingIdentity = true;
-        if (btn) {
-            btn.classList.add('is-loading');
-            btn.disabled = true;
-        }
-        getSys().toggleLoader?.(true, 'جاري تأمين وربط المحفظة...');
-        
-        try {
-            const result = await StoreDB.callFunction('completeUserIdentity', {
-                country: country,
-                phone: phone,
-                currency: currency
-            });
+        if (result && result.success) {
+            const finalCurr = result.lockedCurrency || currency;
             
-            if (result && result.success) {
-                const finalCurr = result.lockedCurrency || currency;
-                
-                localStorage.setItem('telecard_display_currency', finalCurr);
-                DataManager.selectedCurr = finalCurr;
-                
-                DataManager.user.country = country;
-                DataManager.user.phone = phone;
-                DataManager.user.baseCurrency = finalCurr;
-                DataManager.user.isVerified = true;
-                
-                if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
-                if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(finalCurr);
-                if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
-                
-                const inputsWrap = document.getElementById('identity-inputs-wrap');
-                const statusWrap = document.getElementById('identity-verified-status');
-                if (inputsWrap) inputsWrap.style.display = 'none';
-                if (statusWrap) statusWrap.classList.remove('hide-element');
-                
-                getSys().sfx?.('success');
-                getSys().showToast?.(result.message || 'تم ربط المحفظة وتأكيد الهوية بنجاح!', 'success');
-                
-                setTimeout(() => {
-                    getSys().closeModal?.('identity');
-                }, 1500);
-            }
-        } catch (error) {
-            console.error("Identity Error:", error);
-            getSys().sfx?.('error');
-            getSys().showToast?.(error.message || 'فشلت العملية، يرجى المحاولة لاحقاً.', 'error');
-            if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
-        } finally {
-            this._isSavingIdentity = false;
-            if (btn) {
-                btn.classList.remove('is-loading');
-                btn.disabled = false;
-            }
-            getSys().toggleLoader?.(false);
+            // تحديث الذاكرة المحلية والعملة
+            localStorage.setItem('telecard_display_currency', finalCurr);
+            DataManager.selectedCurr = finalCurr;
+            
+            DataManager.user.country = country;
+            DataManager.user.phone = phone;
+            DataManager.user.baseCurrency = finalCurr;
+            DataManager.user.isVerified = true; // تم الربط بنجاح
+            
+            if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
+            if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(finalCurr);
+            if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
+            
+            // إخفاء الحقول وإظهار رسالة التوثيق داخل النافذة
+            const inputsWrap = document.getElementById('identity-inputs-wrap');
+            const statusWrap = document.getElementById('identity-verified-status');
+            if (inputsWrap) inputsWrap.style.display = 'none';
+            if (statusWrap) statusWrap.classList.remove('hide-element');
+            
+            getSys().sfx?.('success');
+            // رسالة واضحة تخبر العميل بالنجاح وتدعوه للإغلاق يدوياً
+            getSys().showToast?.(result.message || 'تم ربط المحفظة وتأكيد البيانات بنجاح! يمكنك الآن إغلاق النافذة.', 'success');
+            
+            // 🛑 [تم الحذف]: سطر setTimeout الذي كان يغلق النافذة تلقائياً
         }
-    },
+    } catch (error) {
+        console.error("Identity Error:", error);
+        getSys().sfx?.('error');
+        getSys().showToast?.(error.message || 'فشلت العملية، يرجى المحاولة لاحقاً.', 'error');
+        if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
+    } finally {
+        this._isSavingIdentity = false;
+        if (btn) {
+            btn.classList.remove('is-loading');
+            btn.disabled = false;
+        }
+        getSys().toggleLoader?.(false);
+    }
+},
 
     loadDynamicCurrenciesForModal: function() {
         const listTarget = document.getElementById('reg-currency-list-target');
@@ -1135,13 +1138,16 @@ if (DataManager.user && (DataManager.user.isVerified === true || String(DataMana
         const user = DataManager.user;
         const status = user.kycStatus || 'none';
         
-        // 🚀 [إصلاح منطقي]: توحيد حالة التوثيق
-        const isKycApproved = (user.isVerified === true || String(user.isVerified) === 'true' || status === 'approved' || status === 'verified');
+        // ✅ التعديل الاحترافي: الشارة تظهر فقط عند قبول الهوية (KYC) من الإدارة
+        // تم إلغاء ربطها بـ (isVerified) لأنها تعني فقط إكمال البيانات الأساسية
+        const isKycApproved = (status === 'approved' || status === 'verified');
         
         const userNames = document.querySelectorAll('.user-display-name, .sb-name, #display-name, #cs-name');
         userNames.forEach(el => {
             const oldBadge = el.querySelector('.pro-verified-badge');
             if (oldBadge) oldBadge.remove();
+            
+            // إضافة الشارة فقط إذا كان الحساب موثقاً بقرار إداري (approved)
             if (isKycApproved) {
                 el.insertAdjacentHTML('beforeend', `<span class="pro-verified-badge" title="حساب موثق"><i class="fa-solid fa-certificate badge-star"></i><i class="fa-solid fa-check badge-check"></i></span>`);
             }
@@ -1153,6 +1159,7 @@ if (DataManager.user && (DataManager.user.isVerified === true || String(DataMana
         const settings = LiveStoreData.settings || {};
         const kycConfig = settings.kycConfig || { mode: 'off', targetedTiers: [] };
         
+        // التحقق هل النظام يفرض KYC على هذا المستخدم حالياً؟
         let isRequiredBySystem = false;
         if (kycConfig.mode === 'all') {
             isRequiredBySystem = true;
@@ -1163,18 +1170,19 @@ if (DataManager.user && (DataManager.user.isVerified === true || String(DataMana
             }
         }
 
+        // إذا تم قبول التوثيق فعلياً، أو لم يكن التوثيق مطلوباً، نفرغ الحاوية الجانبية
         if (isKycApproved || !isRequiredBySystem) {
             kycContainer.innerHTML = ''; return;
         }
 
+        // عرض بانر الحالة في القائمة الجانبية (قيد المراجعة أو مطلوب الرفع)
         if (status === 'pending') {
             kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-pending" data-action="open-kyc-status" data-state="pending"><span><i class="fa-solid fa-hourglass-half"></i> هويتك قيد المراجعة</span><i class="fa-solid fa-chevron-left"></i></div>`;
         } else {
+            // تظهر فقط إذا لم يرفع الوثائق أو تم رفضه سابقاً
             kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-required" data-action="open-kyc-upload"><span><i class="fa-solid fa-shield-halved"></i> التحقق من الهوية (KYC)</span><i class="fa-solid fa-chevron-left"></i></div>`;
         }
-    },
-    
-    prepareKycModalState: function() {
+    },    prepareKycModalState: function() {
         const user = DataManager.user;
         const alertBox = document.getElementById('kyc-rejection-alert');
         const reasonText = document.getElementById('kyc-rejection-reason');
