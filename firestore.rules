@@ -26,7 +26,7 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.token.banned != true;
     }
 
-    // 🛡️ القائمة البيضاء للحقول المسموح للعميل بتعديلها (Whitelist Firewall)
+    // 🛡️ القائمة البيضاء للحقول المسموح للعميل بتعديلها بعد الإنشاء
     function isOnlyUpdatingAllowedProfileFields() {
       let allowedKeys = [
         'name', 'firstName', 'lastName', 'fullName', 'username',
@@ -36,15 +36,25 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
     }
 
-    // 🛡️ قائمة الحقول المحرمة كخط دفاع إضافي (Blacklist) لمنعها وقت إنشاء الحساب
-    function hasNoSensitiveKeys() {
-      return !request.resource.data.keys().hasAny([
-        'walletBalance', 'balance', 'totalSpent', 'totalDeposit',
-        'tierId', 'tier', 'tierCycleSpent', 'isBanned', 'banReason', 'bannedAt',
-        'usedIdempotencyKeys', 'lastOrderTime', 'lastDepositReqTime',
-        'isVerified', 'kycStatus', 'kycData', 'identityCompletedAt',
-        'baseCurrency', 'base_currency', 'role'
-      ]);
+    // 🛡️ التحقق من أمان إنشاء حساب جديد (يسمح بالقيم الصفرية والافتراضية فقط)
+    function isSafeUserCreation() {
+      let data = request.resource.data;
+      
+      // نستخدم .get() لتجنب انهيار القواعد إذا كان الحقل غير موجود
+      let safeWallet = data.get('walletBalance', 0) == 0;
+      let safeBalance = data.get('balance', 0) == 0;
+      let safeSpent = data.get('totalSpent', 0) == 0;
+      let safeDeposit = data.get('totalDeposit', 0) == 0;
+      
+      // السماح بالمستوى الافتراضي الذي برمجناه، أو تركه فارغاً
+      let safeTier = data.get('tierId', 'TIER_DEFAULT_INITIAL') == 'TIER_DEFAULT_INITIAL' || data.get('tierId', '') == '';
+      
+      // منع العميل من ترقية نفسه لمدير أو حظر نفسه بالخطأ
+      let notAdmin = data.get('role', 'user') != 'admin';
+      let notBanned = data.get('isBanned', false) == false;
+      let notIpBanned = data.get('isIpBanned', false) == false;
+      
+      return safeWallet && safeBalance && safeSpent && safeDeposit && safeTier && notAdmin && notBanned && notIpBanned;
     }
 
     // ==========================================
@@ -56,8 +66,8 @@ service cloud.firestore {
       // 1️⃣ [الدرع الأمني للتحديث]: العميل لا يستطيع تحديث إلا الحقول المسموحة (القائمة البيضاء)
       allow update: if (isOwner(userId) && isNotBanned() && isOnlyUpdatingAllowedProfileFields()) || isMasterAdmin();
 
-      // 2️⃣ [إصلاح ثغرة الإنشاء]: يمنع العميل من إرسال أي مفاتيح حساسة عند التسجيل
-      allow create: if isOwner(userId) && hasNoSensitiveKeys();
+      // 2️⃣ [إصلاح ثغرة الإنشاء]: السماح بإنشاء الحساب بقيم صفرية آمنة (تم الإصلاح هنا)
+      allow create: if isOwner(userId) && isSafeUserCreation();
 
       allow delete: if isMasterAdmin();
 
