@@ -14,14 +14,14 @@ const { FinancialEngine } = require('./financialEngine.js');
 // 🛡️ [تحديث ألماسي]: استيراد أداة التحكم بالموارد العالمية
 const { setGlobalOptions } = require("firebase-functions/v2");
 
-// 🚀 [حل مشكلة Quota]: تضييق استهلاك المعالج والذاكرة لكي يتسع السيرفر لجميع الدوال
-setGlobalOptions({ 
-    region: 'us-east1', 
-    memory: '256MiB', // تقليل الذاكرة الافتراضية لكل الدوال لتوفير الحصة
-    cpu: 0.08,        // طلب 8% فقط من قوة المعالج لكل دالة بدلاً من 100%
-    maxInstances: 5   // منع الدوال من التوسع العشوائي واستهلاك الموارد
+// 🛡️ [تعديل ذهبي]: موازنة المعالج والذاكرة ليتوافق مع قوانين جوجل us-east1
+// هذا التعديل يضمن قبول جميع الدوال الـ 21 معاً دون تجاوز الحصة
+setGlobalOptions({
+    region: 'us-east1',
+    memory: '256MiB', // تقليل الذاكرة لـ 256 لكي تسمح جوجل بمعالج صغير
+    cpu: 0.17, // رفع المعالج إلى 0.17 (القيمة الذهبية المستقرة لهذا الحجم)
+    maxInstances: 3 // تقليل عدد النسخ المتوازية لتوفير حصة المعالج الكلية
 });
-
 const ROOT_OWNER_UID = defineSecret('ROOT_OWNER_UID');
 const SUPPLIER_WEBHOOK_TOKEN = defineSecret('SUPPLIER_WEBHOOK_TOKEN'); 
 
