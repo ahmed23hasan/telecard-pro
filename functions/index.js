@@ -622,7 +622,7 @@ exports.grantAdminRole = onCall({ region: 'us-east1', secrets: [ROOT_OWNER_UID] 
 });
 
 // ==========================================
-// 🪪 6. استكمال هوية الحساب (KYC)
+// 🪪 6. استكمال هوية الحساب (KYC) - مصفح بالكامل
 // ==========================================
 exports.completeUserIdentity = onCall({ region: 'us-east1', enforceAppCheck: true }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
@@ -637,18 +637,25 @@ exports.completeUserIdentity = onCall({ region: 'us-east1', enforceAppCheck: tru
         const userSnap = await transaction.get(userRef);
         const userData = userSnap.data();
         
-        // ✅ تم الإصلاح: السماح بتسجيل العملة ما دام الحساب غير موثق نهائياً
-if (userData.isVerified === true) {
-    throw new HttpsError('permission-denied', 'لقد قمت بإكمال بيانات حسابك مسبقاً.');
-}        transaction.update(userRef, {
-            country: String(country || '').trim(), phone: String(phone || '').trim(),
-            baseCurrency: cleanCurrency, base_currency: cleanCurrency,
-            isVerified: true, identityCompletedAt: admin.firestore.FieldValue.serverTimestamp()
+        // 🛑 [الدرع المزدوج العبقري]: يمنع تغيير العملة إذا كان الحساب موثقاً، أو إذا كان يمتلك أي رصيد!
+        const hasBalance = Number(userData.walletBalance || userData.balance || 0) > 0;
+        
+        if (userData.isVerified === true || hasBalance) {
+            throw new HttpsError('permission-denied', 'عملية مرفوضة: لا يمكن تغيير عملة المحفظة الأساسية بعد اعتمادها أو وجود رصيد مالي.');
+        }
+        
+        transaction.update(userRef, {
+            country: String(country || '').trim(),
+            phone: String(phone || '').trim(),
+            baseCurrency: cleanCurrency,
+            base_currency: cleanCurrency,
+            isVerified: true, // 🔒 قفل الحساب للأبد
+            identityCompletedAt: admin.firestore.FieldValue.serverTimestamp()
         });
+        
         return { success: true, lockedCurrency: cleanCurrency };
     });
 });
-
 // ==========================================
 // 📊 7. محرك الإحصائيات (العودة لبر الأمان عبر Aggregation)
 // ==========================================
