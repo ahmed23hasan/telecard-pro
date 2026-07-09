@@ -9,7 +9,8 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const crypto = require('crypto');
-const { FinancialEngine } = require('./financialEngine.js'); 
+// ✅ الاستيراد الصحيح للمحرك المالي لمنع الانهيار
+const FinancialEngine = require('./financialEngine.js');
 const { setGlobalOptions } = require("firebase-functions/v2");
 
 // 🛡️ [تعديل الحصة العالمي]: موازنة الموارد لضمان عمل كافة الدوال (21 دالة) بدون تجاوز الحصة
