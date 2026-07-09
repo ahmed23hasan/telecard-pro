@@ -1304,17 +1304,10 @@ export const RenderManager = {
         return { showToast: () => {} };
     },
 generatePDFReceipt: async function(config) {
-    // 1. إنشاء حاوية للإيصال
+    // 🚀 [الحل الاحترافي]: وضع الإيصال خلف واجهة المتجر (لن يراه العميل، لكن المتصفح سيراه ويرسم الحروف بدقة)
     const printContainer = document.createElement('div');
     printContainer.id = 'pdf-export-container';
-    
-    // 🚀 [الإصلاح الجذري 1]: إبعاد العنصر خارج الشاشة بدلاً من جعله شفافاً
-    // المتصفح لن يقوم بتركيب الحروف العربية (Text Shaping) إذا كان العنصر مخفياً أو شفافاً
-    printContainer.style.position = 'fixed';
-    printContainer.style.top = '0';
-    printContainer.style.left = '-9999px'; // إبعاده خارج الشاشة
-    printContainer.style.zIndex = '-9999';
-    printContainer.style.opacity = '1'; // يجب أن يكون 1 لكي يرسم المتصفح الخطوط بشكل صحيح
+    printContainer.style.cssText = 'position: absolute; top: 0; right: 0; width: 600px; z-index: -9999; opacity: 1; pointer-events: none; background: #0f172a;';
     
     const settings = LiveStoreData.settings || {};
     const storeName = settings.storeName || 'المتجر';
@@ -1347,7 +1340,7 @@ generatePDFReceipt: async function(config) {
                 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Share+Tech+Mono&display=swap');
                 
                 * { box-sizing: border-box; }
-                .receipt-pro { font-family: 'Cairo', sans-serif; background-color: ${bgDark}; color: ${textColor}; width: 600px; padding: 25px; direction: rtl !important; text-align: right; }
+                .receipt-pro { font-family: 'Cairo', sans-serif; background-color: ${bgDark}; color: ${textColor}; width: 600px; padding: 25px; direction: rtl !important; text-align: right; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
                 .r-content { background: ${cardBg}; border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; }
                 
                 .r-title-box { background: rgba(234, 179, 8, 0.1); padding: 10px 15px; border-radius: 8px; border: 1px solid ${accentColor}; margin-bottom: 20px; text-align: center; }
@@ -1423,43 +1416,27 @@ generatePDFReceipt: async function(config) {
     document.body.appendChild(printContainer);
     
     try {
-        // 🚀 [الإصلاح الجذري 2]: تغيير المحرك إلى html2canvas الإصدار 1.4.1+ (الذي يدعم اللغة العربية بشكل أصلي)
-        if (!window.html2canvas) {
-            await _loadExternalScriptWithFallback([
-                'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
-                'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'
-            ]);
-        }
-        if (!window.jspdf) {
-            await _loadExternalScriptWithFallback([
-                'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
-                'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'
-            ]);
-        }
-        
-        // 🚀 ضمان تحميل الخط (Cairo) بالكامل قبل التقاط الصورة (مهم جداً للغة العربية)
+        // انتظار تحميل الخطوط
         if (document.fonts && document.fonts.ready) await document.fonts.ready;
-        // زيادة المهلة قليلاً لضمان رسم المتصفح للعنصر
-        await new Promise(r => setTimeout(r, 1200));
+        
+        // 🚀 وقت كافٍ للمتصفح ليرسم الترابط بين الحروف العربية (خلف الكواليس)
+        await new Promise(r => setTimeout(r, 800));
         
         const receiptContent = printContainer.querySelector('.receipt-pro');
         
-        // 🚀 التقاط الصورة بالمحرك الجديد
-        const canvas = await window.html2canvas(receiptContent, {
-            backgroundColor: bgDark,
-            scale: 2, // دقة عالية
-            useCORS: true, // السماح بتحميل الصور الخارجية (اللوجو)
-            allowTaint: true,
-            logging: false
+        // تحويل HTML إلى صورة
+        const dataUrl = await window.domtoimage.toPng(receiptContent, {
+            bgcolor: bgDark,
+            scale: 2,
+            quality: 1.0,
+            copyDefaultStyles: false // لمنع التداخل مع تنسيقات الموقع
         });
-        
-        const dataUrl = canvas.toDataURL('image/png', 1.0);
         
         const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
         const imgWidth = 190;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        const imgHeight = (receiptContent.offsetHeight * imgWidth) / receiptContent.offsetWidth;
         
-        pdf.setFillColor(15, 23, 42); // تعيين لون الخلفية
+        pdf.setFillColor(15, 23, 42);
         pdf.rect(0, 0, 210, 297, 'F');
         pdf.addImage(dataUrl, 'PNG', 10, 10, imgWidth, imgHeight);
         const pdfBlob = pdf.output('blob');
@@ -1494,9 +1471,10 @@ generatePDFReceipt: async function(config) {
         console.error('[Receipt Error]:', err);
         return false;
     } finally {
-        printContainer.remove(); // تنظيف الـ DOM بعد الانتهاء
+        // 🚀 تنظيف الحاوية المخفية فور الانتهاء
+        if (printContainer) printContainer.remove();
     }
-},     // =====================================================================
+},   // =====================================================================
 // الدوال المسؤولة عن تشغيل زر التصدير وتغيير حالته إلى "جاري التحضير"
 // =====================================================================
 
