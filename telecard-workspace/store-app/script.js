@@ -14,6 +14,7 @@ import { UIManager } from './ui/uiManager.js';
 import { RenderManager } from './renderManager.js';
 import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
+import { UIFinance } from './uiFinance.js'; // 🚀 [الإضافة]: استيراد وحدة المالية
 
 const _normalizeDataTime = (dataArray) => {
     if (!Array.isArray(dataArray)) return [];
@@ -171,6 +172,7 @@ const ClientSystem = {
             'close-mypayments': () => this.closeMyPayments?.(),
             'close-settings': () => this.closeSettings?.(),
             'close-balance': () => this.closeBalanceModal?.(),
+            'back-balance-step': () => { if (typeof this.backToPayMethods === 'function') this.backToPayMethods(); }, // 🚀 [الإضافة]: زر الرجوع الموحد
             'close-purchase': () => this.closeModal?.('purchase'),
             'close-success': () => this.closeModal?.('success'),
             'close-purchase-success': () => this.closePurchaseSuccess?.(), 
@@ -255,15 +257,25 @@ const ClientSystem = {
             },
             'show-phone-toast': () => this.showToast?.('هذا الرقم مرتبط بحسابك الأساسي.', 'info'),
             
-            // 🚀 [إصلاح الإشعارات]: التأثير البصري الفوري لتحديد الكل (Optimistic UI)
+            // 🚀 [الإضافة]: دالة مركزية لتصدير الفواتير تلغي الحاجة للمستمعات المتفرقة
+            'export-receipt': (e, id, val, target) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (RenderManager && typeof RenderManager.exportReceipt === 'function' && target.closest('.nm-btn-print-magic')) {
+                    RenderManager.exportReceipt(id, target);
+                } else if (RenderManager && typeof RenderManager.exportPaymentReceipt === 'function' && target.closest('.btn-receipt-export')) {
+                    RenderManager.exportPaymentReceipt(id, target);
+                } else if (typeof this.exportReceipt === 'function') {
+                    this.exportReceipt(id, target);
+                }
+            },
+            
             'mark-all-read': () => {
-                // 1. إخفاء الشريط العلوي والزر فوراً
                 const notifContainer = document.getElementById('notif-center-list');
                 if (notifContainer) {
                     const topBar = notifContainer.querySelector('.nc-top-action-bar');
                     if (topBar) topBar.style.display = 'none';
                     
-                    // 2. تحويل جميع الإشعارات للون المقروء وإخفاء النقاط الحمراء فوراً
                     const unreadItems = notifContainer.querySelectorAll('.nc-item.unread');
                     unreadItems.forEach(item => {
                         item.classList.remove('unread');
@@ -273,13 +285,11 @@ const ClientSystem = {
                     });
                 }
                 
-                // 3. إرسال الأوامر للذاكرة والسيرفر في الخلفية
                 if (typeof this.markAllNotificationsRead === 'function') this.markAllNotificationsRead();
             },
             'mark-single-read': (e, id) => {
-                e.stopPropagation(); // لمنع الإغلاق العشوائي للقائمة
+                e.stopPropagation(); 
                 
-                // 🚀 1. التأثير البصري الفوري (Optimistic UI): إزالة اللون والنقطة الحمراء في 0 ثانية!
                 const targetItem = e.target.closest('.nc-item');
                 if (targetItem) {
                     targetItem.classList.remove('unread');
@@ -288,12 +298,10 @@ const ClientSystem = {
                     if (redDot) redDot.style.display = 'none';
                 }
                 
-                // 2. إرسال أمر التحديث للبيانات (والذي سيعمل في الخلفية بهدوء)
                 if (typeof this.markSingleNotificationRead === 'function') {
                     this.markSingleNotificationRead(id);
                 }
                 
-                // 3. تنفيذ القفز (Jump) إذا كان الإشعار مرتبطاً بطلب أو محفظة
                 if (targetItem && targetItem.hasAttribute('data-target-id')) {
                     const targetId = targetItem.getAttribute('data-target-id');
                     const jumpType = targetItem.getAttribute('data-jump-type') || 'order';
@@ -305,7 +313,6 @@ const ClientSystem = {
         document.body.addEventListener('click', (e) => {
             const target = e.target;
             
-            // 1️⃣ [المستشعر العالمي]: إغلاق أي نافذة عند النقر على الخلفية المظللة
             if (target.classList.contains('pm-overlay') || target.classList.contains('modal-overlay')) {
                 e.preventDefault();
                 const modalId = target.id.replace('-overlay', '');
@@ -320,12 +327,10 @@ const ClientSystem = {
             const action = actionBtn.getAttribute('data-action');
             const prodId = actionBtn.getAttribute('data-id');
             
-            // 2️⃣ [إصلاح أمني]: تمرير البيانات كاملة عند النقر لمنع ضياع الـ Context
             if (action === 'open-product') {
                 const isClickOnImage = target.closest('.card-image');
                 if (isClickOnImage) {
                     if (this._prodClickTimer && this._clickedProdId === prodId) {
-                        // 💖 نقرة ثانية (Double Click - للمفضلة)
                         clearTimeout(this._prodClickTimer);
                         this._prodClickTimer = null;
                         this._clickedProdId = null;
@@ -334,7 +339,6 @@ const ClientSystem = {
                         }
                         return;
                     } else {
-                        // ⏳ نقرة أولى (استخراج كامل المتغيرات قبل الـ setTimeout)
                         if (this._prodClickTimer) clearTimeout(this._prodClickTimer);
                         this._clickedProdId = prodId;
                         
@@ -359,7 +363,6 @@ const ClientSystem = {
                 }
             }
             
-            // 3️⃣ [نظام الصوت والتركيز]:
             if (typeof this.sfx === 'function') {
                 const silentActions = ['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigger-click', 'update-simple-qty', 'delete-avatar', 'open-product', 'mark-single-read'];
                 if (!silentActions.includes(action)) {
@@ -371,7 +374,6 @@ const ClientSystem = {
                 target.blur();
             }
             
-            // 4️⃣ [تنفيذ المعالج]:
             const handler = ActionDictionary[action];
             if (handler) {
                 handler(
@@ -392,8 +394,8 @@ const ClientSystem = {
     }
 };
 
-// 🔗 دمج الوحدات (Facade Pattern)
-const modules = [DataManager, UIManager, RenderManager, Components, Utils];
+// 🔗 [الإضافة]: دمج وحدة المالية مع بقية الوحدات بشكل صريح في المصفوفة
+const modules = [DataManager, UIManager, RenderManager, Components, Utils, UIFinance];
 modules.forEach(mod => {
     if (!mod) return;
     Object.keys(mod).forEach(key => {
@@ -417,7 +419,6 @@ ClientSystem.initFirebaseListeners = function() {
     console.log("📡 جاري تشغيل مستمعات السحابة الحية (النظام التفاعلي)...");
     this.clearFirebaseListeners();
     
-    // 1️⃣ مستمع الإعدادات العامة (Settings & Identity)
     if (DB_KEYS.SETTINGS) {
         this.activeListeners.push(StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
             const incoming = Array.isArray(data) ? (data[0] || null) : (data || null);
@@ -437,7 +438,6 @@ ClientSystem.initFirebaseListeners = function() {
         }));
     }
     
-    // 2️⃣ مستمع التنبيهات العامة (System Alerts/Banners)
     if (DB_KEYS.ALERTS) {
         this.activeListeners.push(StoreDB.listenCollection(DB_KEYS.ALERTS, (data) => {
             LiveStoreData.alerts = _normalizeDataTime(Array.isArray(data) ? data : []);
@@ -455,14 +455,12 @@ ClientSystem.initFirebaseListeners = function() {
             const uidStr = firebaseUser.uid;
             localStorage.setItem('telecard_active_user_uid', uidStr);
             
-            // 🚀 [إصلاح الذاكرة]: الاحتفاظ بمرجع لدالة إلغاء الإشعارات لمنع التسرب
             if (typeof this.listenToUserNotifications === 'function') {
                 const notifUnsub = this.listenToUserNotifications(() => {
                     requestAnimationFrame(() => {
                         if (typeof this.processAndDisplayAlerts === 'function') {
                             this.processAndDisplayAlerts();
                         }
-                        // 🚀 [تكامل العداد المباشر 💎]: إجبار الجرس على التحديث فور تبدل أو مزامنة إشعارات العميل
                         if (typeof this.updateNotifBadges === 'function') {
                             this.updateNotifBadges();
                         }
@@ -473,11 +471,9 @@ ClientSystem.initFirebaseListeners = function() {
                 }
             }
 
-            // 3️⃣ مستمع بيانات العميل (الرصيد اللحظي والحظر)
             if (StoreDB.listenDoc) {
                 this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.USERS, String(uidStr), (userData) => {
                     if (userData) {
-                        // درع الحماية اللحظي: طرد فوري إذا تم حظر الحساب من الأدمن
                         if (userData.isBanned === true || userData.isIpBanned === true) {
                             if (this.triggerLiveBanAlert) this.triggerLiveBanAlert(userData.banReason || 'نعتذر، تم حظر حسابك.');
                             signOut(auth).catch(()=>{});
@@ -495,7 +491,6 @@ ClientSystem.initFirebaseListeners = function() {
                 }));
             }
             
-            // 4️⃣ مستمع العمليات المالية (الطلبات والإيداعات)
             if (StoreDB.listenQuery) {
                 this.activeListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
                     LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
@@ -623,13 +618,11 @@ ClientSystem.init = async function() {
                 if (window.localforage) localforage.setItem('telecard_store_cache', cacheObject).catch(()=>{});
                 else try { localStorage.setItem('telecard_store_cache_fallback', JSON.stringify({ settings: cacheObject.settings, rates: LiveStoreData.rates, tiers: LiveStoreData.tiers })); } catch(e){}
 
-                // 🚀 [إصلاح حماية الكاش]: عدم مسح البيانات إذا انقطع الإنترنت
                 setTimeout(() => {
                     const secondaryKeys = ['RATES', 'TIERS', 'COUPONS', 'COUNTRIES', 'PAYMENTS'];
                     Promise.allSettled(secondaryKeys.map(k => StoreDB.getAll(DB_KEYS[k]))).then(secResults => {
                         secondaryKeys.forEach((keyName, i) => {
                             const property = keyName.toLowerCase();
-                            // التحديث فقط في حالة النجاح
                             if (secResults[i].status === 'fulfilled' && secResults[i].value) {
                                 LiveStoreData[property] = [...secResults[i].value];
                                 if (property === 'rates' || property === 'tiers') cacheObject[property] = LiveStoreData[property];

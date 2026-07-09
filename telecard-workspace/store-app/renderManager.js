@@ -988,19 +988,6 @@ export const RenderManager = {
         const list = document.getElementById('mypay-list');
         if(!list) return;
         
-        if (!list.hasAttribute('data-receipt-listener')) {
-            list.addEventListener('click', (e) => {
-                const btn = e.target.closest('.btn-receipt-export');
-                if (btn) {
-                    e.stopPropagation();
-                    const id = btn.getAttribute('data-id');
-                    if (typeof ClientSystem !== 'undefined' && ClientSystem.exportPaymentReceipt) {
-                        ClientSystem.exportPaymentReceipt(id, btn); 
-                    }
-                }
-            });
-            list.setAttribute('data-receipt-listener', 'true');
-        }
         
         const filterData = Utils.getSearchAndDateFilters('pay', 'pay');
         if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }

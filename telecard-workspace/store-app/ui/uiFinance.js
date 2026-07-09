@@ -856,31 +856,26 @@ export const UIFinance = {
         getSys().sfx?.('nav');
     },
 
-    _toggleBalHeaderBtn: function(mode) {
+            _toggleBalHeaderBtn: function(mode) {
         const actionBtn = document.querySelector('#balance-modal .pm-close-std') || document.getElementById('bal-action-btn');
         const titleEl = document.querySelector('#balance-modal .title-badge') || document.querySelector('#balance-modal .pm-title-badge');
         
         if (actionBtn) {
-            actionBtn.dataset.mode = mode;
+            if (actionBtn._boundBalClose) {
+                const clone = actionBtn.cloneNode(true);
+                actionBtn.parentNode.replaceChild(clone, actionBtn);
+                actionBtn._boundBalClose = false;
+            }
+
+            const newBtn = document.querySelector('#balance-modal .pm-close-std') || document.getElementById('bal-action-btn');
             
-            if (actionBtn.hasAttribute('onclick')) {
-                actionBtn.removeAttribute('onclick');
+            if (mode === 'back') {
+                newBtn.setAttribute('data-action', 'back-balance-step');
+                newBtn.innerHTML = '<i class="fa-solid fa-arrow-right"></i>';
+            } else {
+                newBtn.setAttribute('data-action', 'close-balance');
+                newBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
             }
-
-            if (!actionBtn._boundBalClose) {
-                actionBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopImmediatePropagation(); 
-
-                    if (actionBtn.dataset.mode === 'back') {
-                        this.backToPayMethods();
-                    } else {
-                        this.closeBalanceModal();
-                    }
-                });
-                actionBtn._boundBalClose = true;
-            }
-            actionBtn.innerHTML = mode === 'back' ? '<i class="fa-solid fa-arrow-right"></i>' : '<i class="fa-solid fa-xmark"></i>';
         }
 
         if (titleEl) {
@@ -891,7 +886,7 @@ export const UIFinance = {
             }
         }
     },
-    
+
     // 🛡️ [تحديث الأداء]: إغلاق آمن للنافذة لمنع تداخل الحركات
     closeBalanceModal: function() {
         const modal = document.getElementById('balance-modal');
@@ -1554,23 +1549,9 @@ export const UIFinance = {
         }
         
         if (content) {
-    content.innerHTML = html;
-    
-    if (!content._boundDetailDelegation) {
-        content.addEventListener('click', (e) => {
-            const pdfBtn = e.target.closest('#export-order-pdf-btn');
-            // ✅ الإصلاح: استدعاء الدالة مباشرة من RenderManager
-            if (pdfBtn && RenderManager && typeof RenderManager.exportReceipt === 'function') {
-                RenderManager.exportReceipt(pdfBtn.dataset.id, pdfBtn);
-            }
-            // كخيار احتياطي إذا كانت موجودة في نظام الـ Client
-            else if (pdfBtn && getSys().exportReceipt) {
-                getSys().exportReceipt(pdfBtn.dataset.id, pdfBtn);
-            }
-        });
-        content._boundDetailDelegation = true;
-    }
-}        
+            content.innerHTML = html;
+        }
+        
         getSys().openModal?.('tx-detail');
     },
 
