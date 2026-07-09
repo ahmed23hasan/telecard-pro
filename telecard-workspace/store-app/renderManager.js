@@ -1304,16 +1304,16 @@ export const RenderManager = {
         return { showToast: () => {} };
     },
 generatePDFReceipt: async function(config) {
+    // إنشاء حاوية للإيصال
     const printContainer = document.createElement('div');
     printContainer.id = 'pdf-export-container';
     
-    // 🛡️ [الإصلاح الجذري 1]: إبقاء العنصر داخل الشاشة لضمان تحميل الخطوط والاتجاهات، مع إخفائه بشفافية
+    // إبقاء العنصر في الصفحة ولكن مخفي خلف العناصر الأخرى لضمان رسم المتصفح له
     printContainer.style.position = 'fixed';
     printContainer.style.top = '0';
     printContainer.style.right = '0';
     printContainer.style.zIndex = '-9999';
     printContainer.style.opacity = '0.001';
-    printContainer.style.pointerEvents = 'none';
     
     const settings = LiveStoreData.settings || {};
     const storeName = settings.storeName || 'المتجر';
@@ -1324,7 +1324,6 @@ generatePDFReceipt: async function(config) {
     const cardBg = '#1e293b';
     const textColor = '#f8fafc';
     const textMuted = '#94a3b8';
-    const successColor = '#10b981';
     
     let safeLogoHtml = '';
     if (storeLogoForPDF) {
@@ -1335,19 +1334,13 @@ generatePDFReceipt: async function(config) {
     }
     
     const brandHTML = `
-                <div style="display: table; width: 100%; margin-bottom: 20px; border-bottom: 2px dashed rgba(234, 179, 8, 0.3); padding-bottom: 15px;">
-                    <div style="display: table-cell; vertical-align: middle;">
-                        <div style="color: ${textColor}; font-size: 24px; font-weight: bold; font-family: 'Cairo', sans-serif;">${Utils.escapeHtml(storeName)}</div>
-                    </div>
-                    <div style="display: table-cell; vertical-align: middle; text-align: left;">
-                        ${safeLogoHtml}
-                    </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px dashed rgba(234, 179, 8, 0.3); padding-bottom: 15px;">
+                    <div style="color: ${textColor}; font-size: 24px; font-weight: bold; font-family: 'Cairo', sans-serif;">${Utils.escapeHtml(storeName)}</div>
+                    ${safeLogoHtml}
                 </div>`;
     
-    // فرض الأرقام الإنجليزية بشكل آمن
-    const toEnNum = (str) => `<span dir="ltr" style="font-family: 'Share Tech Mono', monospace; display: inline-block; direction: ltr; unicode-bidi: embed;">${str}</span>`;
+    const toEnNum = (str) => `<span dir="ltr" style="font-family: 'Share Tech Mono', monospace; display: inline-block;">${str}</span>`;
     
-    // 🛡️ [الإصلاح الجذري 2]: استخدام CSS مبسط (Block & Inline-Block بدلاً من Flexbox المعقد) مدعوم 100% في html2canvas
     const styles = `
                 <style>
                     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Share+Tech+Mono&display=swap');
@@ -1360,25 +1353,22 @@ generatePDFReceipt: async function(config) {
                     .r-title { font-size: 16px; color: ${accentColor}; font-weight: bold; margin-bottom: 5px; }
                     .r-id { font-size: 18px; color: ${textColor}; font-weight: bold; }
                     
-                    .r-grid { width: 100%; display: block; margin-bottom: 20px; }
-                    .r-item { display: inline-block; width: 48%; background: rgba(15, 23, 42, 0.6); padding: 12px; border-radius: 8px; border-right: 4px solid ${accentColor}; margin-bottom: 12px; vertical-align: top; }
-                    .r-item:nth-child(even) { margin-right: 2%; }
-                    
-                    .r-item-full { display: block; width: 100%; background: rgba(234, 179, 8, 0.05); padding: 12px; border-radius: 8px; border: 1px dashed ${accentColor}; margin-bottom: 12px; text-align: center; }
+                    .r-grid { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
+                    .r-item { width: calc(50% - 7.5px); background: rgba(15, 23, 42, 0.6); padding: 12px; border-radius: 8px; border-right: 4px solid ${accentColor}; }
+                    .r-item-full { width: 100%; background: rgba(234, 179, 8, 0.05); padding: 12px; border-radius: 8px; border: 1px dashed ${accentColor}; text-align: center; }
                     
                     .r-label { font-size: 13px; color: ${textMuted}; display: block; margin-bottom: 5px; font-weight: 600; }
                     .r-value { font-size: 16px; color: ${textColor}; font-weight: bold; word-break: break-word; }
                     .r-code-val { font-size: 20px; color: ${accentColor}; letter-spacing: 2px; }
                     
-                    .r-total-box { background: ${accentColor}; padding: 15px; border-radius: 8px; margin-top: 15px; display: table; width: 100%; color: #000; }
-                    .r-total-label { display: table-cell; font-size: 18px; font-weight: bold; text-align: right; vertical-align: middle; color: #000; }
-                    .r-total-val { display: table-cell; font-size: 24px; font-weight: 900; text-align: left; vertical-align: middle; color: #000; direction: ltr; }
+                    .r-total-box { background: ${accentColor}; padding: 15px; border-radius: 8px; margin-top: 15px; display: flex; justify-content: space-between; align-items: center; color: #000; }
+                    .r-total-label { font-size: 18px; font-weight: bold; color: #000; }
+                    .r-total-val { font-size: 24px; font-weight: 900; color: #000; direction: ltr; }
                     
                     .r-footer { text-align: center; margin-top: 20px; font-size: 13px; color: ${textMuted}; }
                 </style>
             `;
     
-    // 🛡️ [الإصلاح الجذري 3]: إضافة dir="rtl" ولغة عربية صريحة في كل الحاويات
     const receiptHTML = config.type === 'deposit' ? `
                 ${styles}
                 <div class="receipt-pro" dir="rtl" lang="ar">
@@ -1432,11 +1422,11 @@ generatePDFReceipt: async function(config) {
     document.body.appendChild(printContainer);
     
     try {
-        // تحميل المكتبات
-        if (!window.html2canvas) {
+        // 🚀 استخدام المحرك الجديد (dom-to-image-more) الداعم للغة العربية بدلاً من القديم المكسور
+        if (!window.domtoimage) {
             await _loadExternalScriptWithFallback([
-                'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
-                'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'
+                'https://cdnjs.cloudflare.com/ajax/libs/dom-to-image-more/3.1.6/dom-to-image-more.min.js',
+                'https://cdn.jsdelivr.net/npm/dom-to-image-more@3.1.6/dist/dom-to-image-more.min.js'
             ]);
         }
         if (!window.jspdf) {
@@ -1446,32 +1436,26 @@ generatePDFReceipt: async function(config) {
             ]);
         }
         
-        // 🛡️ [الإصلاح الجذري 4]: الانتظار لثانية كاملة للتأكد من تطبيق متصفح الهاتف لخط Cairo وربط الحروف العربية
-        await new Promise(r => setTimeout(r, 1000));
+        // انتظار تحميل الخطوط
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+        await new Promise(r => setTimeout(r, 800));
         
         const receiptContent = printContainer.querySelector('.receipt-pro');
         
-        // إعدادات احترافية لضمان عدم تشوه الأبعاد والنصوص
-        const canvas = await window.html2canvas(receiptContent, {
+        // 🚀 تحويل الـ HTML إلى صورة باستخدام المحرك الجديد
+        const dataUrl = await window.domtoimage.toPng(receiptContent, {
+            bgcolor: bgDark,
             scale: 2,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: bgDark,
-            logging: false,
-            onclone: (clonedDoc) => {
-                clonedDoc.getElementById('pdf-export-container').style.opacity = '1';
-            }
+            quality: 1.0
         });
         
         const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
         const imgWidth = 190;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        const imgHeight = (receiptContent.offsetHeight * imgWidth) / receiptContent.offsetWidth;
         
-        // إضافة خلفية داكنة للـ PDF لتجنب الحواف البيضاء
         pdf.setFillColor(15, 23, 42);
         pdf.rect(0, 0, 210, 297, 'F');
-        
-        pdf.addImage(canvas.toDataURL('image/png', 1.0), 'PNG', 10, 10, imgWidth, imgHeight);
+        pdf.addImage(dataUrl, 'PNG', 10, 10, imgWidth, imgHeight);
         const pdfBlob = pdf.output('blob');
         
         const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -1485,7 +1469,7 @@ generatePDFReceipt: async function(config) {
                     sharedSuccessfully = true;
                 }
             } catch (e) {
-                console.warn("المشاركة الأصلية فشلت، جاري التحميل التلقائي.");
+                console.warn("المشاركة الأصلية فشلت، سيتم التحميل المباشر");
             }
         }
         
@@ -1504,11 +1488,9 @@ generatePDFReceipt: async function(config) {
         console.error('[Receipt Error]:', err);
         return false;
     } finally {
-        // إزالة العنصر بعد الانتهاء
         printContainer.remove();
     }
-},
-        
+},        
             renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;
