@@ -1303,14 +1303,17 @@ export const RenderManager = {
         if (typeof window.UIManager !== 'undefined') return window.UIManager;
         return { showToast: () => {} };
     },
-
-        generatePDFReceipt: async function(config) {
+generatePDFReceipt: async function(config) {
     const printContainer = document.createElement('div');
     printContainer.id = 'pdf-export-container';
     
-    printContainer.style.position = 'absolute';
-    printContainer.style.left = '-9999px';
-    printContainer.style.top = '-9999px';
+    // 🛡️ [الإصلاح الجذري 1]: إبقاء العنصر داخل الشاشة لضمان تحميل الخطوط والاتجاهات، مع إخفائه بشفافية
+    printContainer.style.position = 'fixed';
+    printContainer.style.top = '0';
+    printContainer.style.right = '0';
+    printContainer.style.zIndex = '-9999';
+    printContainer.style.opacity = '0.001';
+    printContainer.style.pointerEvents = 'none';
     
     const settings = LiveStoreData.settings || {};
     const storeName = settings.storeName || 'المتجر';
@@ -1327,62 +1330,70 @@ export const RenderManager = {
     if (storeLogoForPDF) {
         try {
             const base64Logo = await this._getBase64Image(storeLogoForPDF);
-            if (base64Logo) safeLogoHtml = `<img src="${base64Logo}" style="max-height: 45px; width: auto; object-fit: contain; margin-left: 10px;">`;
+            if (base64Logo) safeLogoHtml = `<img src="${base64Logo}" style="max-height: 40px; width: auto; object-fit: contain; margin-left: 12px;">`;
         } catch (e) {}
     }
     
     const brandHTML = `
-                <div style="display: flex; align-items: center;">
-                    ${safeLogoHtml}
-                    <div style="color: ${textColor}; font-size: 24px; font-weight: 800; font-family: 'Cairo', sans-serif;">${Utils.escapeHtml(storeName)}</div>
+                <div style="display: table; width: 100%; margin-bottom: 20px; border-bottom: 2px dashed rgba(234, 179, 8, 0.3); padding-bottom: 15px;">
+                    <div style="display: table-cell; vertical-align: middle;">
+                        <div style="color: ${textColor}; font-size: 24px; font-weight: bold; font-family: 'Cairo', sans-serif;">${Utils.escapeHtml(storeName)}</div>
+                    </div>
+                    <div style="display: table-cell; vertical-align: middle; text-align: left;">
+                        ${safeLogoHtml}
+                    </div>
                 </div>`;
     
-    const toEnNum = (str) => `<span style="font-family: 'Share Tech Mono', monospace; direction: ltr; display: inline-block;">${str}</span>`;
+    // فرض الأرقام الإنجليزية بشكل آمن
+    const toEnNum = (str) => `<span dir="ltr" style="font-family: 'Share Tech Mono', monospace; display: inline-block; direction: ltr; unicode-bidi: embed;">${str}</span>`;
     
-    // [الإصلاح المعماري لـ CSS]: استبدال Grid بـ Flexbox مدعوم 100% لتجنب التداخل والتراكب
+    // 🛡️ [الإصلاح الجذري 2]: استخدام CSS مبسط (Block & Inline-Block بدلاً من Flexbox المعقد) مدعوم 100% في html2canvas
     const styles = `
                 <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@500;700;800&family=Share+Tech+Mono&display=swap');
-                    .receipt-pro { font-family: 'Cairo', sans-serif; background-color: ${bgDark}; color: ${textColor}; width: 650px; padding: 30px; border-radius: 16px; position: relative; overflow: hidden; direction: rtl; border: 2px solid ${accentColor}; }
-                    .r-content { position: relative; z-index: 1; background: ${cardBg}; border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-                    .r-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px dashed rgba(234, 179, 8, 0.3); padding-bottom: 15px; margin-bottom: 20px; }
-                    .r-title-box { text-align: left; background: rgba(234, 179, 8, 0.1); padding: 8px 15px; border-radius: 8px; border: 1px solid ${accentColor}; }
-                    .r-title { font-size: 13px; color: ${accentColor}; font-weight: 700; text-transform: uppercase; margin-bottom: 3px; }
-                    .r-id { font-size: 15px; color: ${textColor}; font-weight: bold; }
+                    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Share+Tech+Mono&display=swap');
                     
-                    /* استخدام Flexbox بأسطر آمنة بديلة عن Grid لضمان عدم تداخل الكروت */
-                    .r-flex-container { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
-                    .r-item { width: calc(50% - 8px); background: rgba(15, 23, 42, 0.6); padding: 12px; border-radius: 10px; border-right: 4px solid ${accentColor}; box-sizing: border-box; }
-                    .r-code-box { width: 100% !important; background: rgba(234, 179, 8, 0.05); border: 1px dashed ${accentColor}; text-align: center; margin-top: 5px; }
+                    * { box-sizing: border-box; }
+                    .receipt-pro { font-family: 'Cairo', sans-serif; background-color: ${bgDark}; color: ${textColor}; width: 600px; padding: 25px; direction: rtl !important; text-align: right; }
+                    .r-content { background: ${cardBg}; border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; }
                     
-                    .r-label { font-size: 12px; color: ${textMuted}; display: block; margin-bottom: 3px; font-weight: 600; }
-                    .r-value { font-size: 15px; color: ${textColor}; font-weight: 700; word-break: break-word; }
-                    .r-status-badge { display: inline-block; background: rgba(16, 185, 129, 0.15); color: ${successColor}; padding: 3px 10px; border-radius: 20px; font-size: 13px; border: 1px solid ${successColor}; }
-                    .r-total-box { display: flex; justify-content: space-between; align-items: center; background: ${accentColor}; padding: 15px; border-radius: 12px; margin-top: 10px; color: #000; }
-                    .r-total-label { font-size: 16px; font-weight: 800; color: #000; }
-                    .r-total-val { font-size: 24px; font-weight: 900; color: #000; }
-                    .r-footer { text-align: center; margin-top: 25px; font-size: 12px; color: ${textMuted}; font-weight: 600; }
-                    .r-code-val { font-size: 20px; color: ${accentColor}; letter-spacing: 2px; font-family: 'Share Tech Mono', monospace; }
+                    .r-title-box { background: rgba(234, 179, 8, 0.1); padding: 10px 15px; border-radius: 8px; border: 1px solid ${accentColor}; margin-bottom: 20px; text-align: center; }
+                    .r-title { font-size: 16px; color: ${accentColor}; font-weight: bold; margin-bottom: 5px; }
+                    .r-id { font-size: 18px; color: ${textColor}; font-weight: bold; }
+                    
+                    .r-grid { width: 100%; display: block; margin-bottom: 20px; }
+                    .r-item { display: inline-block; width: 48%; background: rgba(15, 23, 42, 0.6); padding: 12px; border-radius: 8px; border-right: 4px solid ${accentColor}; margin-bottom: 12px; vertical-align: top; }
+                    .r-item:nth-child(even) { margin-right: 2%; }
+                    
+                    .r-item-full { display: block; width: 100%; background: rgba(234, 179, 8, 0.05); padding: 12px; border-radius: 8px; border: 1px dashed ${accentColor}; margin-bottom: 12px; text-align: center; }
+                    
+                    .r-label { font-size: 13px; color: ${textMuted}; display: block; margin-bottom: 5px; font-weight: 600; }
+                    .r-value { font-size: 16px; color: ${textColor}; font-weight: bold; word-break: break-word; }
+                    .r-code-val { font-size: 20px; color: ${accentColor}; letter-spacing: 2px; }
+                    
+                    .r-total-box { background: ${accentColor}; padding: 15px; border-radius: 8px; margin-top: 15px; display: table; width: 100%; color: #000; }
+                    .r-total-label { display: table-cell; font-size: 18px; font-weight: bold; text-align: right; vertical-align: middle; color: #000; }
+                    .r-total-val { display: table-cell; font-size: 24px; font-weight: 900; text-align: left; vertical-align: middle; color: #000; direction: ltr; }
+                    
+                    .r-footer { text-align: center; margin-top: 20px; font-size: 13px; color: ${textMuted}; }
                 </style>
             `;
     
+    // 🛡️ [الإصلاح الجذري 3]: إضافة dir="rtl" ولغة عربية صريحة في كل الحاويات
     const receiptHTML = config.type === 'deposit' ? `
                 ${styles}
-                <div class="receipt-pro">
+                <div class="receipt-pro" dir="rtl" lang="ar">
                     <div class="r-content">
-                        <div class="r-header">
-                            ${brandHTML}
-                            <div class="r-title-box">
-                                <div class="r-title">إيصال إيداع رصيد</div>
-                                <div class="r-id">${toEnNum(config.data.displayId)}</div>
-                            </div>
+                        ${brandHTML}
+                        <div class="r-title-box">
+                            <div class="r-title">إيصال إيداع رصيد</div>
+                            <div class="r-id">${toEnNum(config.data.displayId)}</div>
                         </div>
-                        <div class="r-flex-container">
+                        <div class="r-grid">
                             <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
                             <div class="r-item"><span class="r-label">رقم العميل (ID)</span><span class="r-value">${toEnNum(Utils.escapeHtml(config.data.userDisplayId))}</span></div>
                             <div class="r-item"><span class="r-label">طريقة الدفع</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
                             <div class="r-item"><span class="r-label">التاريخ والوقت</span><span class="r-value">${toEnNum(config.data.dateTime)}</span></div>
-                            <div class="r-item"><span class="r-label">إجمالي المبلغ</span><span class="r-value">${toEnNum(RenderHelpers.formatMoney(config.data.amount, config.data.currency))}</span></div>
+                            <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value">${toEnNum(RenderHelpers.formatMoney(config.data.amount, config.data.currency))}</span></div>
                             <div class="r-item"><span class="r-label">العمولة (${toEnNum(config.data.feePercent + '%')})</span><span class="r-value" style="color:#ef4444;">-${toEnNum(RenderHelpers.formatMoney(config.data.feeVal, config.data.currency))}</span></div>
                         </div>
                         <div class="r-total-box">
@@ -1390,42 +1401,38 @@ export const RenderManager = {
                             <div class="r-total-val">${toEnNum(RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency))}</div>
                         </div>
                     </div>
-                    <div class="r-footer">${Utils.escapeHtml(storeName)} &copy; ${toEnNum(new Date().getFullYear())} | جميع الأسعار بالدولار الأمريكي ($).</div>
+                    <div class="r-footer">${Utils.escapeHtml(storeName)} &copy; ${toEnNum(new Date().getFullYear())} | إيصال إلكتروني معتمد</div>
                 </div>` : `
                 ${styles}
-                <div class="receipt-pro">
+                <div class="receipt-pro" dir="rtl" lang="ar">
                     <div class="r-content">
-                        <div class="r-header">
-                            ${brandHTML}
-                            <div class="r-title-box">
-                                <div class="r-title">إيصال استلام طلب</div>
-                                <div class="r-id">${toEnNum(config.data.displayId)}</div>
-                            </div>
+                        ${brandHTML}
+                        <div class="r-title-box">
+                            <div class="r-title">إيصال استلام طلب</div>
+                            <div class="r-id">${toEnNum(config.data.displayId)}</div>
                         </div>
-                        <div class="r-flex-container">
+                        <div class="r-grid">
                             <div class="r-item"><span class="r-label">المنتج</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
-                            <div class="r-item"><span class="r-label">حالة الطلب</span><span class="r-value"><span class="r-status-badge">${Utils.escapeHtml(config.data.status)}</span></span></div>
+                            <div class="r-item"><span class="r-label">حالة الطلب</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
                             <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
                             <div class="r-item"><span class="r-label">الوقت والتاريخ</span><span class="r-value">${toEnNum(config.data.dateTime)}</span></div>
-                            <div class="r-item"><span class="r-label">بيانات الحساب</span><span class="r-value">${toEnNum(Utils.escapeHtml(config.data.input))}</span></div>
                             <div class="r-item"><span class="r-label">الكمية</span><span class="r-value">${toEnNum(config.data.qty)}</span></div>
-                            ${config.data.code ? `<div class="r-item r-code-box"><span class="r-label">بيانات الطلب المكتمل</span><span class="r-value r-code-val">${toEnNum(Utils.escapeHtml(config.data.code))}</span></div>` : ''}
+                            <div class="r-item"><span class="r-label">تفاصيل الحساب</span><span class="r-value">${toEnNum(Utils.escapeHtml(config.data.input))}</span></div>
                         </div>
+                        ${config.data.code ? `<div class="r-item-full"><span class="r-label">بيانات الطلب المكتمل (الكود)</span><span class="r-value r-code-val">${toEnNum(Utils.escapeHtml(config.data.code))}</span></div>` : ''}
                         <div class="r-total-box">
                             <div class="r-total-label">المجموع الإجمالي</div>
                             <div class="r-total-val">${toEnNum(RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency))}</div>
                         </div>
                     </div>
-                    <div class="r-footer">شكراً لثقتكم بـ ${Utils.escapeHtml(storeName)}. جميع الأسعار بالدولار الأمريكي ($).</div>
+                    <div class="r-footer">شكراً لثقتكم بـ ${Utils.escapeHtml(storeName)} | إيصال إلكتروني معتمد</div>
                 </div>`;
     
-    const wrapper = document.createElement('div');
-    wrapper.className = 'receipt-container';
-    wrapper.innerHTML = receiptHTML;
-    printContainer.appendChild(wrapper);
+    printContainer.innerHTML = receiptHTML;
     document.body.appendChild(printContainer);
     
     try {
+        // تحميل المكتبات
         if (!window.html2canvas) {
             await _loadExternalScriptWithFallback([
                 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
@@ -1439,29 +1446,32 @@ export const RenderManager = {
             ]);
         }
         
-        // [الإصلاح الذكي للخطوط]: الانتظار الفعلي والآمن حتى يكتمل تحميل الخطوط في المتصفح لمنع تشوه النصوص العربية
-        if (document.fonts && document.fonts.ready) {
-            await document.fonts.ready;
-        } else {
-            await new Promise(r => setTimeout(r, 600));
-        }
+        // 🛡️ [الإصلاح الجذري 4]: الانتظار لثانية كاملة للتأكد من تطبيق متصفح الهاتف لخط Cairo وربط الحروف العربية
+        await new Promise(r => setTimeout(r, 1000));
         
         const receiptContent = printContainer.querySelector('.receipt-pro');
+        
+        // إعدادات احترافية لضمان عدم تشوه الأبعاد والنصوص
         const canvas = await window.html2canvas(receiptContent, {
-            scale: 2.5, // رفع دقة الإيصال ليظهر بجودة HD
+            scale: 2,
             useCORS: true,
             allowTaint: true,
             backgroundColor: bgDark,
-            scrollX: 0,
-            scrollY: 0,
-            windowWidth: document.documentElement.offsetWidth,
-            windowHeight: document.documentElement.offsetHeight
+            logging: false,
+            onclone: (clonedDoc) => {
+                clonedDoc.getElementById('pdf-export-container').style.opacity = '1';
+            }
         });
         
         const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
         const imgWidth = 190;
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, imgWidth, imgHeight);
+        
+        // إضافة خلفية داكنة للـ PDF لتجنب الحواف البيضاء
+        pdf.setFillColor(15, 23, 42);
+        pdf.rect(0, 0, 210, 297, 'F');
+        
+        pdf.addImage(canvas.toDataURL('image/png', 1.0), 'PNG', 10, 10, imgWidth, imgHeight);
         const pdfBlob = pdf.output('blob');
         
         const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -1470,98 +1480,36 @@ export const RenderManager = {
         if (navigator.share && isMobile) {
             try {
                 const file = new File([pdfBlob], config.filename, { type: 'application/pdf' });
-                
-                // التحقق مما إذا كان المتصفح يدعم مشاركة هذا الملف بالتحديد برمجياً
-                const canShare = navigator.canShare && navigator.canShare({ files: [file] });
-                
-                if (canShare) {
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
                     await navigator.share({ title: 'إيصال العملية', files: [file] });
                     sharedSuccessfully = true;
                 }
             } catch (e) {
-                console.warn("[TeleCard] تم إلغاء المشاركة الأصلية أو انقضت مهلة نقرة المستخدم، سيتم الانتقال للتنزيل المباشر:", e);
+                console.warn("المشاركة الأصلية فشلت، جاري التحميل التلقائي.");
             }
         }
         
-        // في حال نجاح المشاركة الأصلية، نتوقف هنا
-        if (sharedSuccessfully) {
-            return true;
+        if (!sharedSuccessfully) {
+            const pdfUrl = URL.createObjectURL(pdfBlob);
+            const link = document.createElement('a');
+            link.href = pdfUrl;
+            link.download = config.filename;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
         }
         
-        // الخيار الاحتياطي الآمن (تحميل مباشر للملف): يعمل تلقائياً عند فشل المشاركة أو انتهاء مهلة النقرة
-        const pdfUrl = URL.createObjectURL(pdfBlob);
-        const link = document.createElement('a');
-        link.href = pdfUrl;
-        link.download = config.filename;
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
         return true;
         
     } catch (err) {
         console.error('[Receipt Error]:', err);
         return false;
     } finally {
+        // إزالة العنصر بعد الانتهاء
         printContainer.remove();
     }
-},       exportReceipt: async function(orderId, btnElement = null) {
-        const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
-        if(!o) return;
+},
         
-        const sys = this._getSys();
-        let originalHtml = '';
-        
-        if (btnElement && btnElement instanceof HTMLElement) {
-            btnElement.disabled = true;
-            originalHtml = btnElement.innerHTML;
-            btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`;
-        }
-
-        const success = await this.generatePDFReceipt({
-            type: 'order', filename: `Order_${RenderHelpers.formatOrderId(o)}.pdf`,
-            data: { id: o.id, displayId: RenderHelpers.formatOrderId(o), userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : 'العميل', userDisplayId: RenderHelpers.formatUserId(DataManager.user), status: o.status, product: o.product, price: o.price, priceCurrency: o.priceCurrency, qty: o.qty || 1, input: o.input || '---', dateTime: RenderHelpers.formatSafeDate(o.time), code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null }
-        });
-
-        if (btnElement && btnElement instanceof HTMLElement) {
-            btnElement.disabled = false;
-            btnElement.innerHTML = originalHtml;
-        }
-
-        // تم إزالة إشعار النجاح، والإبقاء على إشعار الفشل فقط
-        if (!success) {
-            sys.showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
-        }
-    },
-
-    exportPaymentReceipt: async function(depositId, btnElement = null) {
-        const d = (LiveStoreData.deposits || []).find(x => String(x.id) === String(depositId));
-        if(!d) return;
-
-        const sys = this._getSys();
-        let originalHtml = '';
-        
-        if (btnElement && btnElement instanceof HTMLElement) {
-            btnElement.disabled = true;
-            originalHtml = btnElement.innerHTML;
-            btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`;
-        }
-
-        const success = await this.generatePDFReceipt({
-            type: 'deposit', filename: `Deposit_${RenderHelpers.formatDepositId(d)}.pdf`,
-            data: { id: d.id, displayId: RenderHelpers.formatDepositId(d), userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'), userDisplayId: RenderHelpers.formatUserId(DataManager.user), method: d.method || '---', amount: d.amount, currency: d.currency, feePercent: d.feesPercent || 0, feeVal: d.fees || 0, netVal: d.creditedAmount || d.amount, targetCurrency: d.targetCurrency || 'USD', dateTime: RenderHelpers.formatSafeDate(d.time) }
-        });
-
-        if (btnElement && btnElement instanceof HTMLElement) {
-            btnElement.disabled = false;
-            btnElement.innerHTML = originalHtml;
-        }
-
-        // تم إزالة إشعار النجاح، والإبقاء على إشعار الفشل فقط
-        if (!success) {
-            sys.showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
-        }
-    },
-    
-    renderNotifCenterList: function() {
+            renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;
         
