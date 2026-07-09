@@ -1553,20 +1553,24 @@ export const UIFinance = {
             </div>`;
         }
         
-        if(content) {
-            content.innerHTML = html; 
-
-            if (!content._boundDetailDelegation) {
-                content.addEventListener('click', (e) => {
-                    const pdfBtn = e.target.closest('#export-order-pdf-btn');
-                    if (pdfBtn && getSys().exportReceipt) {
-                        getSys().exportReceipt(pdfBtn.dataset.id, pdfBtn);
-                    }
-                });
-                content._boundDetailDelegation = true;
+        if (content) {
+    content.innerHTML = html;
+    
+    if (!content._boundDetailDelegation) {
+        content.addEventListener('click', (e) => {
+            const pdfBtn = e.target.closest('#export-order-pdf-btn');
+            // ✅ الإصلاح: استدعاء الدالة مباشرة من RenderManager
+            if (pdfBtn && RenderManager && typeof RenderManager.exportReceipt === 'function') {
+                RenderManager.exportReceipt(pdfBtn.dataset.id, pdfBtn);
             }
-        }
-        
+            // كخيار احتياطي إذا كانت موجودة في نظام الـ Client
+            else if (pdfBtn && getSys().exportReceipt) {
+                getSys().exportReceipt(pdfBtn.dataset.id, pdfBtn);
+            }
+        });
+        content._boundDetailDelegation = true;
+    }
+}        
         getSys().openModal?.('tx-detail');
     },
 

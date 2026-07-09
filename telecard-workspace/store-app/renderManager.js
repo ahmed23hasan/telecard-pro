@@ -1583,7 +1583,7 @@ exportReceipt: async function(orderId, btnElement = null) {
         }
     },
 
-// =====================================================================   
+
             renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;
