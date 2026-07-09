@@ -1304,16 +1304,17 @@ export const RenderManager = {
         return { showToast: () => {} };
     },
 generatePDFReceipt: async function(config) {
-    // إنشاء حاوية للإيصال
+    // 1. إنشاء حاوية للإيصال
     const printContainer = document.createElement('div');
     printContainer.id = 'pdf-export-container';
     
-    // إبقاء العنصر في الصفحة ولكن مخفي خلف العناصر الأخرى لضمان رسم المتصفح له
+    // 🚀 [الإصلاح الجذري 1]: إبعاد العنصر خارج الشاشة بدلاً من جعله شفافاً
+    // المتصفح لن يقوم بتركيب الحروف العربية (Text Shaping) إذا كان العنصر مخفياً أو شفافاً
     printContainer.style.position = 'fixed';
     printContainer.style.top = '0';
-    printContainer.style.right = '0';
+    printContainer.style.left = '-9999px'; // إبعاده خارج الشاشة
     printContainer.style.zIndex = '-9999';
-    printContainer.style.opacity = '0.001';
+    printContainer.style.opacity = '1'; // يجب أن يكون 1 لكي يرسم المتصفح الخطوط بشكل صحيح
     
     const settings = LiveStoreData.settings || {};
     const storeName = settings.storeName || 'المتجر';
@@ -1334,99 +1335,99 @@ generatePDFReceipt: async function(config) {
     }
     
     const brandHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px dashed rgba(234, 179, 8, 0.3); padding-bottom: 15px;">
-                    <div style="color: ${textColor}; font-size: 24px; font-weight: bold; font-family: 'Cairo', sans-serif;">${Utils.escapeHtml(storeName)}</div>
-                    ${safeLogoHtml}
-                </div>`;
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px dashed rgba(234, 179, 8, 0.3); padding-bottom: 15px;">
+                <div style="color: ${textColor}; font-size: 24px; font-weight: bold; font-family: 'Cairo', sans-serif;">${Utils.escapeHtml(storeName)}</div>
+                ${safeLogoHtml}
+            </div>`;
     
     const toEnNum = (str) => `<span dir="ltr" style="font-family: 'Share Tech Mono', monospace; display: inline-block;">${str}</span>`;
     
     const styles = `
-                <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Share+Tech+Mono&display=swap');
-                    
-                    * { box-sizing: border-box; }
-                    .receipt-pro { font-family: 'Cairo', sans-serif; background-color: ${bgDark}; color: ${textColor}; width: 600px; padding: 25px; direction: rtl !important; text-align: right; }
-                    .r-content { background: ${cardBg}; border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; }
-                    
-                    .r-title-box { background: rgba(234, 179, 8, 0.1); padding: 10px 15px; border-radius: 8px; border: 1px solid ${accentColor}; margin-bottom: 20px; text-align: center; }
-                    .r-title { font-size: 16px; color: ${accentColor}; font-weight: bold; margin-bottom: 5px; }
-                    .r-id { font-size: 18px; color: ${textColor}; font-weight: bold; }
-                    
-                    .r-grid { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
-                    .r-item { width: calc(50% - 7.5px); background: rgba(15, 23, 42, 0.6); padding: 12px; border-radius: 8px; border-right: 4px solid ${accentColor}; }
-                    .r-item-full { width: 100%; background: rgba(234, 179, 8, 0.05); padding: 12px; border-radius: 8px; border: 1px dashed ${accentColor}; text-align: center; }
-                    
-                    .r-label { font-size: 13px; color: ${textMuted}; display: block; margin-bottom: 5px; font-weight: 600; }
-                    .r-value { font-size: 16px; color: ${textColor}; font-weight: bold; word-break: break-word; }
-                    .r-code-val { font-size: 20px; color: ${accentColor}; letter-spacing: 2px; }
-                    
-                    .r-total-box { background: ${accentColor}; padding: 15px; border-radius: 8px; margin-top: 15px; display: flex; justify-content: space-between; align-items: center; color: #000; }
-                    .r-total-label { font-size: 18px; font-weight: bold; color: #000; }
-                    .r-total-val { font-size: 24px; font-weight: 900; color: #000; direction: ltr; }
-                    
-                    .r-footer { text-align: center; margin-top: 20px; font-size: 13px; color: ${textMuted}; }
-                </style>
-            `;
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Share+Tech+Mono&display=swap');
+                
+                * { box-sizing: border-box; }
+                .receipt-pro { font-family: 'Cairo', sans-serif; background-color: ${bgDark}; color: ${textColor}; width: 600px; padding: 25px; direction: rtl !important; text-align: right; }
+                .r-content { background: ${cardBg}; border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; }
+                
+                .r-title-box { background: rgba(234, 179, 8, 0.1); padding: 10px 15px; border-radius: 8px; border: 1px solid ${accentColor}; margin-bottom: 20px; text-align: center; }
+                .r-title { font-size: 16px; color: ${accentColor}; font-weight: bold; margin-bottom: 5px; }
+                .r-id { font-size: 18px; color: ${textColor}; font-weight: bold; }
+                
+                .r-grid { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
+                .r-item { width: calc(50% - 7.5px); background: rgba(15, 23, 42, 0.6); padding: 12px; border-radius: 8px; border-right: 4px solid ${accentColor}; }
+                .r-item-full { width: 100%; background: rgba(234, 179, 8, 0.05); padding: 12px; border-radius: 8px; border: 1px dashed ${accentColor}; text-align: center; }
+                
+                .r-label { font-size: 13px; color: ${textMuted}; display: block; margin-bottom: 5px; font-weight: 600; }
+                .r-value { font-size: 16px; color: ${textColor}; font-weight: bold; word-break: break-word; }
+                .r-code-val { font-size: 20px; color: ${accentColor}; letter-spacing: 2px; }
+                
+                .r-total-box { background: ${accentColor}; padding: 15px; border-radius: 8px; margin-top: 15px; display: flex; justify-content: space-between; align-items: center; color: #000; }
+                .r-total-label { font-size: 18px; font-weight: bold; color: #000; }
+                .r-total-val { font-size: 24px; font-weight: 900; color: #000; direction: ltr; }
+                
+                .r-footer { text-align: center; margin-top: 20px; font-size: 13px; color: ${textMuted}; }
+            </style>
+        `;
     
     const receiptHTML = config.type === 'deposit' ? `
-                ${styles}
-                <div class="receipt-pro" dir="rtl" lang="ar">
-                    <div class="r-content">
-                        ${brandHTML}
-                        <div class="r-title-box">
-                            <div class="r-title">إيصال إيداع رصيد</div>
-                            <div class="r-id">${toEnNum(config.data.displayId)}</div>
-                        </div>
-                        <div class="r-grid">
-                            <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                            <div class="r-item"><span class="r-label">رقم العميل (ID)</span><span class="r-value">${toEnNum(Utils.escapeHtml(config.data.userDisplayId))}</span></div>
-                            <div class="r-item"><span class="r-label">طريقة الدفع</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
-                            <div class="r-item"><span class="r-label">التاريخ والوقت</span><span class="r-value">${toEnNum(config.data.dateTime)}</span></div>
-                            <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value">${toEnNum(RenderHelpers.formatMoney(config.data.amount, config.data.currency))}</span></div>
-                            <div class="r-item"><span class="r-label">العمولة (${toEnNum(config.data.feePercent + '%')})</span><span class="r-value" style="color:#ef4444;">-${toEnNum(RenderHelpers.formatMoney(config.data.feeVal, config.data.currency))}</span></div>
-                        </div>
-                        <div class="r-total-box">
-                            <div class="r-total-label">الرصيد المضاف للمحفظة</div>
-                            <div class="r-total-val">${toEnNum(RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency))}</div>
-                        </div>
+            ${styles}
+            <div class="receipt-pro" dir="rtl" lang="ar">
+                <div class="r-content">
+                    ${brandHTML}
+                    <div class="r-title-box">
+                        <div class="r-title">إيصال إيداع رصيد</div>
+                        <div class="r-id">${toEnNum(config.data.displayId)}</div>
                     </div>
-                    <div class="r-footer">${Utils.escapeHtml(storeName)} &copy; ${toEnNum(new Date().getFullYear())} | إيصال إلكتروني معتمد</div>
-                </div>` : `
-                ${styles}
-                <div class="receipt-pro" dir="rtl" lang="ar">
-                    <div class="r-content">
-                        ${brandHTML}
-                        <div class="r-title-box">
-                            <div class="r-title">إيصال استلام طلب</div>
-                            <div class="r-id">${toEnNum(config.data.displayId)}</div>
-                        </div>
-                        <div class="r-grid">
-                            <div class="r-item"><span class="r-label">المنتج</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
-                            <div class="r-item"><span class="r-label">حالة الطلب</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
-                            <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                            <div class="r-item"><span class="r-label">الوقت والتاريخ</span><span class="r-value">${toEnNum(config.data.dateTime)}</span></div>
-                            <div class="r-item"><span class="r-label">الكمية</span><span class="r-value">${toEnNum(config.data.qty)}</span></div>
-                            <div class="r-item"><span class="r-label">تفاصيل الحساب</span><span class="r-value">${toEnNum(Utils.escapeHtml(config.data.input))}</span></div>
-                        </div>
-                        ${config.data.code ? `<div class="r-item-full"><span class="r-label">بيانات الطلب المكتمل (الكود)</span><span class="r-value r-code-val">${toEnNum(Utils.escapeHtml(config.data.code))}</span></div>` : ''}
-                        <div class="r-total-box">
-                            <div class="r-total-label">المجموع الإجمالي</div>
-                            <div class="r-total-val">${toEnNum(RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency))}</div>
-                        </div>
+                    <div class="r-grid">
+                        <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
+                        <div class="r-item"><span class="r-label">رقم العميل (ID)</span><span class="r-value">${toEnNum(Utils.escapeHtml(config.data.userDisplayId))}</span></div>
+                        <div class="r-item"><span class="r-label">طريقة الدفع</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
+                        <div class="r-item"><span class="r-label">التاريخ والوقت</span><span class="r-value">${toEnNum(config.data.dateTime)}</span></div>
+                        <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value">${toEnNum(RenderHelpers.formatMoney(config.data.amount, config.data.currency))}</span></div>
+                        <div class="r-item"><span class="r-label">العمولة (${toEnNum(config.data.feePercent + '%')})</span><span class="r-value" style="color:#ef4444;">-${toEnNum(RenderHelpers.formatMoney(config.data.feeVal, config.data.currency))}</span></div>
                     </div>
-                    <div class="r-footer">شكراً لثقتكم بـ ${Utils.escapeHtml(storeName)} | إيصال إلكتروني معتمد</div>
-                </div>`;
+                    <div class="r-total-box">
+                        <div class="r-total-label">الرصيد المضاف للمحفظة</div>
+                        <div class="r-total-val">${toEnNum(RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency))}</div>
+                    </div>
+                </div>
+                <div class="r-footer">${Utils.escapeHtml(storeName)} &copy; ${toEnNum(new Date().getFullYear())} | إيصال إلكتروني معتمد</div>
+            </div>` : `
+            ${styles}
+            <div class="receipt-pro" dir="rtl" lang="ar">
+                <div class="r-content">
+                    ${brandHTML}
+                    <div class="r-title-box">
+                        <div class="r-title">إيصال استلام طلب</div>
+                        <div class="r-id">${toEnNum(config.data.displayId)}</div>
+                    </div>
+                    <div class="r-grid">
+                        <div class="r-item"><span class="r-label">المنتج</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
+                        <div class="r-item"><span class="r-label">حالة الطلب</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
+                        <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
+                        <div class="r-item"><span class="r-label">الوقت والتاريخ</span><span class="r-value">${toEnNum(config.data.dateTime)}</span></div>
+                        <div class="r-item"><span class="r-label">الكمية</span><span class="r-value">${toEnNum(config.data.qty)}</span></div>
+                        <div class="r-item"><span class="r-label">تفاصيل الحساب</span><span class="r-value">${toEnNum(Utils.escapeHtml(config.data.input))}</span></div>
+                    </div>
+                    ${config.data.code ? `<div class="r-item-full"><span class="r-label">بيانات الطلب المكتمل (الكود)</span><span class="r-value r-code-val">${toEnNum(Utils.escapeHtml(config.data.code))}</span></div>` : ''}
+                    <div class="r-total-box">
+                        <div class="r-total-label">المجموع الإجمالي</div>
+                        <div class="r-total-val">${toEnNum(RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency))}</div>
+                    </div>
+                </div>
+                <div class="r-footer">شكراً لثقتكم بـ ${Utils.escapeHtml(storeName)} | إيصال إلكتروني معتمد</div>
+            </div>`;
     
     printContainer.innerHTML = receiptHTML;
     document.body.appendChild(printContainer);
     
     try {
-        // 🚀 استخدام المحرك الجديد (dom-to-image-more) الداعم للغة العربية بدلاً من القديم المكسور
-        if (!window.domtoimage) {
+        // 🚀 [الإصلاح الجذري 2]: تغيير المحرك إلى html2canvas الإصدار 1.4.1+ (الذي يدعم اللغة العربية بشكل أصلي)
+        if (!window.html2canvas) {
             await _loadExternalScriptWithFallback([
-                'https://cdnjs.cloudflare.com/ajax/libs/dom-to-image-more/3.1.6/dom-to-image-more.min.js',
-                'https://cdn.jsdelivr.net/npm/dom-to-image-more@3.1.6/dist/dom-to-image-more.min.js'
+                'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+                'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'
             ]);
         }
         if (!window.jspdf) {
@@ -1436,24 +1437,29 @@ generatePDFReceipt: async function(config) {
             ]);
         }
         
-        // انتظار تحميل الخطوط
+        // 🚀 ضمان تحميل الخط (Cairo) بالكامل قبل التقاط الصورة (مهم جداً للغة العربية)
         if (document.fonts && document.fonts.ready) await document.fonts.ready;
-        await new Promise(r => setTimeout(r, 800));
+        // زيادة المهلة قليلاً لضمان رسم المتصفح للعنصر
+        await new Promise(r => setTimeout(r, 1200));
         
         const receiptContent = printContainer.querySelector('.receipt-pro');
         
-        // 🚀 تحويل الـ HTML إلى صورة باستخدام المحرك الجديد
-        const dataUrl = await window.domtoimage.toPng(receiptContent, {
-            bgcolor: bgDark,
-            scale: 2,
-            quality: 1.0
+        // 🚀 التقاط الصورة بالمحرك الجديد
+        const canvas = await window.html2canvas(receiptContent, {
+            backgroundColor: bgDark,
+            scale: 2, // دقة عالية
+            useCORS: true, // السماح بتحميل الصور الخارجية (اللوجو)
+            allowTaint: true,
+            logging: false
         });
+        
+        const dataUrl = canvas.toDataURL('image/png', 1.0);
         
         const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
         const imgWidth = 190;
-        const imgHeight = (receiptContent.offsetHeight * imgWidth) / receiptContent.offsetWidth;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
         
-        pdf.setFillColor(15, 23, 42);
+        pdf.setFillColor(15, 23, 42); // تعيين لون الخلفية
         pdf.rect(0, 0, 210, 297, 'F');
         pdf.addImage(dataUrl, 'PNG', 10, 10, imgWidth, imgHeight);
         const pdfBlob = pdf.output('blob');
@@ -1488,10 +1494,9 @@ generatePDFReceipt: async function(config) {
         console.error('[Receipt Error]:', err);
         return false;
     } finally {
-        printContainer.remove();
+        printContainer.remove(); // تنظيف الـ DOM بعد الانتهاء
     }
-},        
-     // =====================================================================
+},     // =====================================================================
 // الدوال المسؤولة عن تشغيل زر التصدير وتغيير حالته إلى "جاري التحضير"
 // =====================================================================
 
