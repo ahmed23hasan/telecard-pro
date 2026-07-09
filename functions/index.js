@@ -1,5 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة الماسية المطلقة V5.0 💎
+// 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة الماسية المطلقة V5.1 💎
+// 🎯 الوظيفة: إنشاء الطلبات، المحفظة، المزامنة، حماية الثغرات، والربط
+// 🚀 التحديث: ترقيع ثغرة الكوبونات، تفعيل KYC للإيداعات، وإصلاح فاتورة الأسعار
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -9,16 +11,15 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const crypto = require('crypto');
-// ✅ الاستيراد الصحيح للمحرك المالي لمنع الانهيار
 const FinancialEngine = require('./financialEngine.js');
 const { setGlobalOptions } = require("firebase-functions/v2");
 
-// 🛡️ [تعديل الحصة العالمي]: موازنة الموارد لضمان عمل كافة الدوال (21 دالة) بدون تجاوز الحصة
+// 🛡️ موازنة الموارد لضمان عمل كافة الدوال بدون تجاوز الحصة
 setGlobalOptions({
     region: 'us-east1',
-    memory: '256MiB', // تقليل الذاكرة الافتراضية
-    cpu: 0.17,        // رفع المعالج إلى 0.17 كحد أدنى مستقر
-    maxInstances: 3   // تقليل عدد النسخ المتوازية لتوفير الحصة الكلية
+    memory: '256MiB', 
+    cpu: 0.17,        
+    maxInstances: 3   
 });
 
 const ROOT_OWNER_UID = defineSecret('ROOT_OWNER_UID');
@@ -29,7 +30,7 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-// 🛡️ [درع التيتانيوم]
+// 🛡️ درع التيتانيوم
 const SYSTEM_LIMITS = {
     MAX_QTY_PER_ORDER: 1000,
     MAX_SAFE_AMOUNT: 100000000 
@@ -50,7 +51,6 @@ const logAdminAction = async (adminUid, action, details) => {
 
 const isMasterAdmin = (request) => request.auth?.token?.admin === true;
 
-// ✅ [استعادة الدالة المفقودة]: فحص حالة الحظر
 const checkBanStatus = (request) => {
     if (request.auth?.token?.banned === true) {
         throw new HttpsError('permission-denied', 'عذراً، هذا الحساب محظور من قبل الإدارة.');
@@ -59,6 +59,7 @@ const checkBanStatus = (request) => {
 
 const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
 const safeSub = (a, b) => Math.max(0, FinancialEngine.safeSub(a, b));
+const safeMul = (a, b) => FinancialEngine.safeMul(a, b);
 
 const generateUniqueId = () => {
     const timestamp = Date.now().toString(36).toUpperCase();
@@ -205,9 +206,12 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
 
             if (userData.isBanned === true || userData.isIpBanned === true) throw new HttpsError('permission-denied', 'العملية مرفوضة.');
 
+            // 🛡️ التحقق من نظام التوثيق (KYC)
             const kycConfig = cache.settings?.kycConfig || { mode: 'off', targetedTiers: [] };
             let needsKyc = kycConfig.mode === 'all' || ((kycConfig.mode === 'specific' || kycConfig.mode === 'spec') && (kycConfig.targetedTiers || []).map(String).includes(String(userData.tierId || userData.tier || 1)));
-            if (needsKyc && userData.kycStatus !== 'approved' && userData.kycStatus !== 'verified') throw new HttpsError('permission-denied', 'يتطلب التوثيق الرسمي (KYC) قبل الشراء.');
+            if (needsKyc && userData.kycStatus !== 'approved' && userData.kycStatus !== 'verified') {
+                throw new HttpsError('permission-denied', 'يتطلب التوثيق الرسمي (KYC) قبل الشراء.');
+            }
 
             let idempotencyRef = null;
             if (idempotencyKey) {
@@ -233,13 +237,35 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 couponRef ? transaction.get(couponRef) : Promise.resolve(null)
             ]);
 
+            // 🛡️ [تحديث أمني]: فحص الكوبونات الصارم (ترقيع الثغرة)
             let liveCouponData = null;
             if (couponRef) {
                 if (!currentCouponSnap.exists) throw new HttpsError('not-found', 'الكوبون غير موجود.');
                 liveCouponData = currentCouponSnap.data();
+                
                 if (String(liveCouponData.isActive) === 'false') throw new HttpsError('failed-precondition', 'الكوبون معطل حالياً.');
                 if (liveCouponData.expiryDate && liveCouponData.expiryDate < serverNow) throw new HttpsError('failed-precondition', 'انتهت صلاحية الكوبون.');
                 if (liveCouponData.maxUses > 0 && (liveCouponData.usedCount || 0) >= liveCouponData.maxUses) throw new HttpsError('resource-exhausted', 'نفدت كمية استخدام الكوبون.');
+                
+                if (liveCouponData.targetProds?.length > 0 && !liveCouponData.targetProds.includes(productId) && !liveCouponData.targetProds.includes(String(product.catId))) {
+                    throw new HttpsError('failed-precondition', 'الكوبون غير مخصص لهذا المنتج.');
+                }
+                if (liveCouponData.targetTiers?.length > 0 && !liveCouponData.targetTiers.includes(tierId)) {
+                    throw new HttpsError('failed-precondition', 'الكوبون غير متاح لمستوى عضويتك.');
+                }
+                if (liveCouponData.allowedUsers?.length > 0 && !liveCouponData.allowedUsers.includes(uid)) {
+                    throw new HttpsError('failed-precondition', 'الكوبون مخصص لعملاء محددين.');
+                }
+                if (liveCouponData.maxPerUser > 0) {
+                    const userUsage = (liveCouponData.usageHistory?.[`user_${uid}`]) || 0;
+                    if (userUsage >= liveCouponData.maxPerUser) throw new HttpsError('resource-exhausted', `استنفدت الحد الأقصى للاستخدام الكوبون (${liveCouponData.maxPerUser} مرات).`);
+                }
+                
+                const unitMathForMinCheck = FinancialEngine.calculatePrice({ product, tier: tierSnap.exists ? tierSnap.data() : null, optIdx });
+                const totalBeforeDiscount = safeMul(unitMathForMinCheck.originalPrice, finalQty);
+                if (liveCouponData.minOrder > 0 && totalBeforeDiscount < liveCouponData.minOrder) {
+                    throw new HttpsError('failed-precondition', `الحد الأدنى لاستخدام الكوبون هو ${liveCouponData.minOrder}$.`);
+                }
             }
 
             const pricingSnapshot = FinancialEngine.calculateOrderTotal({
@@ -294,7 +320,10 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
             const newBalance = safeSub(currentBalance, totalRequired);
             
             if (pricingSnapshot.couponCode && couponRef && liveCouponData) {
-                transaction.update(couponRef, { usedCount: admin.firestore.FieldValue.increment(1) });
+                transaction.update(couponRef, { 
+                    usedCount: admin.firestore.FieldValue.increment(1),
+                    [`usageHistory.user_${uid}`]: admin.firestore.FieldValue.increment(1)
+                });
             }
 
             transaction.update(userRef, { 
@@ -318,17 +347,17 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 });
             }
 
+            // 🛡️ [تحديث أمني]: إصلاح الفاتورة السحابية و NaN
             transaction.set(orderRef, {
                 id: cleanOrderId, displayId: cleanOrderId, userId: uid, prodId: productId, product: product.name,
                 price: totalRequired, qty: finalQty, input: finalInputStr, status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText,
                 couponCode: pricingSnapshot.couponCode || null, 
-                couponDiscount: safeAdd(0, pricingSnapshot.couponDiscount * finalQty),
-                saleDiscount: safeAdd(0, pricingSnapshot.offerDiscount * finalQty), 
+                couponDiscount: pricingSnapshot.totalDiscount, // إجمالي الخصم
+                saleDiscount: safeMul(pricingSnapshot.offerDiscount, finalQty), 
                 balanceAfter: newBalance,
                 pricingSnapshot: { 
                     costUsd: pricingSnapshot.totalCost, 
-                    tierPriceUsd: safeAdd(0, pricingSnapshot.tierPrice * finalQty), 
-                    originalPriceUsd: pricingSnapshot.totalOriginalPrice, 
+                    originalPriceUsd: safeMul(pricingSnapshot.originalPrice, finalQty), // الإصلاح هنا
                     finalPriceUsd: totalRequired, 
                     tierName: pricingSnapshot.tierName, 
                     offerName: pricingSnapshot.offerName, 
@@ -363,6 +392,7 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: true }, async (request)
     const amount = Number(data.amount);
     const paymentMethodName = String(data.paymentMethodName || '').trim();
     const payCurr = String(data.payCurr || 'USD').toUpperCase();
+    const idempotencyKey = data.idempotencyKey ? String(data.idempotencyKey) : null;
     
     if (isNaN(amount) || amount <= 0 || amount > SYSTEM_LIMITS.MAX_SAFE_AMOUNT) {
         throw new HttpsError('out-of-range', 'المبلغ المدخل غير صالح أو يتجاوز الحد الأقصى المسموح به.');
@@ -382,16 +412,33 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: true }, async (request)
         if (!paymentMethod) throw new HttpsError('not-found', 'طريقة الدفع غير متوفرة.');
 
         const userRef = db.collection('telecard_users').doc(uid);
+        
         return await db.runTransaction(async (transaction) => {
+            // 🛡️ [تحديث أمني]: تفعيل مفتاح منع التكرار للإيداعات
+            let idempotencyRef = null;
+            if (idempotencyKey) {
+                idempotencyRef = db.collection('telecard_idempotency_keys').doc(`${uid}_${idempotencyKey}`);
+                if ((await transaction.get(idempotencyRef)).exists) {
+                    throw new HttpsError('already-exists', 'تم إرسال هذا الطلب مسبقاً وجاري معالجته.');
+                }
+            }
+
             const pendingSnap = await transaction.get(db.collection('telecard_deposits').where('userId', '==', uid).where('method', '==', paymentMethodName).where('status', '==', 'pending').limit(1));
-            if (!pendingSnap.empty) throw new HttpsError('already-exists', 'لديك طلب إيداع معلق.');
+            if (!pendingSnap.empty) throw new HttpsError('already-exists', 'لديك طلب إيداع معلق بنفس طريقة الدفع.');
 
             const userSnap = await transaction.get(userRef);
             if (!userSnap.exists) throw new HttpsError('not-found', 'المستخدم غير موجود.');
             const userData = userSnap.data();
 
             if (userData.isBanned === true || userData.isIpBanned === true) throw new HttpsError('permission-denied', 'العملية مرفوضة.');
-            if (Date.now() - (userData.lastDepositReqTime || 0) < 10000) throw new HttpsError('resource-exhausted', 'الرجاء الانتظار.');
+            if (Date.now() - (userData.lastDepositReqTime || 0) < 10000) throw new HttpsError('resource-exhausted', 'الرجاء الانتظار قليلاً قبل إرسال طلب جديد.');
+
+            // 🛡️ [تحديث أمني]: إضافة فحص KYC على الإيداع
+            const kycConfig = cache.settings?.kycConfig || { mode: 'off', targetedTiers: [] };
+            let needsKyc = kycConfig.mode === 'all' || ((kycConfig.mode === 'specific' || kycConfig.mode === 'spec') && (kycConfig.targetedTiers || []).map(String).includes(String(userData.tierId || userData.tier || 1)));
+            if (needsKyc && userData.kycStatus !== 'approved' && userData.kycStatus !== 'verified') {
+                throw new HttpsError('permission-denied', 'يتطلب التوثيق الرسمي (KYC) قبل شحن الرصيد.');
+            }
 
             const baseCurr = String(userData.baseCurrency || 'USD').toUpperCase();
             let fee = parseFloat(paymentMethod.fee) || 0;
@@ -419,16 +466,24 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: true }, async (request)
 
             const cleanId = generateUniqueId(); 
             transaction.update(userRef, { lastDepositReqTime: Date.now() });
+            
             transaction.set(db.collection('telecard_deposits').doc(cleanId), {
                 id: cleanId, displayId: cleanId, userId: uid, method: paymentMethodName,
                 amount, currency: payCurr, creditedAmount: safeNetBase, status: 'pending',
                 time: admin.firestore.FieldValue.serverTimestamp(), createdAt: admin.firestore.FieldValue.serverTimestamp(), receipt: data.receiptData || null
             });
 
+            if (idempotencyRef) {
+                transaction.set(idempotencyRef, {
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000)),
+                    depositId: cleanId
+                });
+            }
+
             return { success: true, message: 'تم استلام طلب الإيداع وهو قيد المراجعة.' };
         });
     } catch (error) { 
-        // 🚨 [تحديث أمني]: كشف "الجاني" في سجلات جوجل فوراً عند الانهيار
         console.error("DEPOSIT_PROCESS_CRASH:", error.message, error.stack);
         if (error instanceof HttpsError) throw error; 
         throw new HttpsError('internal', 'تعذر إرسال الطلب.'); 
@@ -628,7 +683,6 @@ exports.grantAdminRole = onCall({ secrets: [ROOT_OWNER_UID] }, async (request) =
     } catch (error) { throw new HttpsError('internal', `فشل المنح: ${error.message}`); }
 });
 
-// ✅ [استعادة الدالة المفقودة]: دالة التطهير السحابي للعملاء من لوحة الإدارة
 exports.adminDeleteUserData = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     const { targetUid } = request.data;
@@ -661,7 +715,6 @@ exports.completeUserIdentity = onCall({ enforceAppCheck: true }, async (request)
         const userSnap = await transaction.get(userRef);
         const userData = userSnap.data();
         
-        // 🛑 [الدرع المزدوج العبقري]: يمنع تغيير العملة إذا كان الحساب موثقاً، أو إذا كان يمتلك أي رصيد!
         const hasBalance = Number(userData.walletBalance || userData.balance || 0) > 0;
         
         if (userData.isVerified === true || hasBalance) {
@@ -673,7 +726,7 @@ exports.completeUserIdentity = onCall({ enforceAppCheck: true }, async (request)
             phone: String(phone || '').trim(),
             baseCurrency: cleanCurrency,
             base_currency: cleanCurrency,
-            isVerified: true, // 🔒 قفل الحساب للأبد
+            isVerified: true, 
             identityCompletedAt: admin.firestore.FieldValue.serverTimestamp()
         });
         

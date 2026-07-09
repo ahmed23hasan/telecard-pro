@@ -21,9 +21,12 @@ export const FinancialEngine = Object.freeze({
     },
     
     safeMul: function(a, b) {
-        return Math.round((Number(a) || 0) * (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
-    },
-    
+    // تحويل الأرقام إلى أعداد صحيحة تماماً قبل الضرب لمنع أي تسرب للكسور الوهمية
+    const valA = Math.round((Number(a) || 0) * this.CONFIG.PRECISION);
+    const valB = Math.round((Number(b) || 0) * this.CONFIG.PRECISION);
+    // القسمة على مربع معامل الدقة لإعادة الرقم لشكله الأصلي
+    return (valA * valB) / (this.CONFIG.PRECISION * this.CONFIG.PRECISION);
+},    
     safeDiv: function(a, b) {
         const numA = Number(a) || 0;
         let numB = Number(b);

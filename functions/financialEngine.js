@@ -22,9 +22,12 @@ const FinancialEngineDef = {
         return Math.round((Number(a) || 0) * this.CONFIG.PRECISION - (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
     safeMul: function(a, b) {
-        return Math.round((Number(a) || 0) * (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
-    },
-    safeDiv: function(a, b) {
+    // تحويل الأرقام إلى أعداد صحيحة تماماً قبل الضرب لمنع أي تسرب للكسور الوهمية
+    const valA = Math.round((Number(a) || 0) * this.CONFIG.PRECISION);
+    const valB = Math.round((Number(b) || 0) * this.CONFIG.PRECISION);
+    // القسمة على مربع معامل الدقة لإعادة الرقم لشكله الأصلي
+    return (valA * valB) / (this.CONFIG.PRECISION * this.CONFIG.PRECISION);
+},    safeDiv: function(a, b) {
         const numB = Number(b) || 1;
         return Math.round(((Number(a) || 0) / numB) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },

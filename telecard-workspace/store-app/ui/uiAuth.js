@@ -325,110 +325,98 @@ export const UIAuth = {
     closeProfileInfo: function() { getSys().closeModal?.('profile-info'); },
 
     updateProfileDisplay: function() {
-        try {
-            const guestCard = document.getElementById('guest-sidebar-card');
-            const userCard = document.getElementById('user-sidebar-card');
-            const navDeposit = document.getElementById('nav-item-deposit');
-            const navPayments = document.getElementById('nav-item-payments');
-            const navOrders = document.getElementById('nav-item-orders');
-            const navNotif = document.getElementById('nav-item-notif');
-            const navSecurity = document.getElementById('nav-item-security');
-            const navRating = document.querySelector('[data-action="open-rating"]');
-            const logoutBtn = document.getElementById('sidebar-logout-btn');
-            
-            const alertCard = document.getElementById('sb-profile-alert');
-            const kycContainer = document.getElementById('sidebar-kyc-container');
-            
-            if (!DataManager || !DataManager.user) {
-                if (guestCard) guestCard.style.display = 'block';
-                if (userCard) userCard.style.display = 'none';
-                if (navDeposit) navDeposit.style.display = 'none';
-                if (navPayments) navPayments.style.display = 'none';
-                if (navOrders) navOrders.style.display = 'none';
-                if (navNotif) navNotif.style.display = 'none';
-                if (navSecurity) navSecurity.style.display = 'none'; 
-                if (navRating) navRating.style.display = 'none'; 
-                if (logoutBtn) logoutBtn.style.display = 'none';
-                
-                if (alertCard) {
-                    alertCard.style.setProperty('display', 'none', 'important');
-                    alertCard.classList.add('d-none', 'hide-element');
-                }
-                if (kycContainer) {
-                    kycContainer.style.setProperty('display', 'none', 'important');
-                    kycContainer.classList.add('d-none', 'hide-element');
-                }
-                return;
-            }
-            
-            if (guestCard) guestCard.style.display = 'none';
-            if (userCard) userCard.style.display = 'block';
-            if (navDeposit) navDeposit.style.display = 'flex';
-            if (navPayments) navPayments.style.display = 'flex';
-            if (navOrders) navOrders.style.display = 'flex';
-            if (navNotif) navNotif.style.display = 'flex';
-            if (navSecurity) navSecurity.style.display = 'flex'; 
-            if (navRating) navRating.style.display = 'flex'; 
-            if (logoutBtn) logoutBtn.style.display = 'flex';
-            
-            const user = DataManager.user;
-            const fallbackName = (user.fullName || user.name || (user.firstName ? `${user.firstName} ${user.lastName || ''}` : 'العميل')).trim();
-            const fullName = getSys()._getFullName ? getSys()._getFullName(user) : fallbackName;
-            
-            const nameEl = document.getElementById('cs-name');
-            const displayNameEl = document.getElementById('display-name');
-            
-            if (nameEl) nameEl.textContent = fullName;
-            if (displayNameEl) displayNameEl.textContent = fullName;
-            
-            if (typeof window._kycCacheLock === 'undefined') {
-                window._kycCacheLock = true;
-                setTimeout(() => {
-                    window._kycCacheLock = false;
-                    if (window.ClientSystem && typeof window.ClientSystem.updateProfileDisplay === 'function') {
-                        window.ClientSystem.updateProfileDisplay();
-                    } else if (typeof this.updateProfileDisplay === 'function') {
-                        this.updateProfileDisplay();
-                    }
-                }, 3000);
-            }
+    try {
+        const guestCard = document.getElementById('guest-sidebar-card');
+        const userCard = document.getElementById('user-sidebar-card');
+        const navDeposit = document.getElementById('nav-item-deposit');
+        const navPayments = document.getElementById('nav-item-payments');
+        const navOrders = document.getElementById('nav-item-orders');
+        const navNotif = document.getElementById('nav-item-notif');
+        const navSecurity = document.getElementById('nav-item-security');
+        const navRating = document.querySelector('[data-action="open-rating"]');
+        const logoutBtn = document.getElementById('sidebar-logout-btn');
+        
+        const alertCard = document.getElementById('sb-profile-alert');
+        const kycContainer = document.getElementById('sidebar-kyc-container');
+        
+        if (!DataManager || !DataManager.user) {
+            if (guestCard) guestCard.style.display = 'block';
+            if (userCard) userCard.style.display = 'none';
+            if (navDeposit) navDeposit.style.display = 'none';
+            if (navPayments) navPayments.style.display = 'none';
+            if (navOrders) navOrders.style.display = 'none';
+            if (navNotif) navNotif.style.display = 'none';
+            if (navSecurity) navSecurity.style.display = 'none';
+            if (navRating) navRating.style.display = 'none';
+            if (logoutBtn) logoutBtn.style.display = 'none';
             
             if (alertCard) {
-                const hasCurrency = (user.baseCurrency && user.baseCurrency.trim() !== '') || (user.base_currency && user.base_currency.trim() !== '');
-                const hasData = (user.phone && user.phone.trim() !== '') && (user.country && user.country !== '');
-                const isIdentityComplete = ((user.isVerified === true || String(user.isVerified) === 'true') || hasData) && hasCurrency;
-                
-                if (isIdentityComplete || window._kycCacheLock === true) {
-                    alertCard.style.setProperty('display', 'none', 'important');
-                    alertCard.classList.add('d-none', 'hide-element');
-                    alertCard.style.pointerEvents = 'none';
-                    alertCard.removeAttribute('data-action');
-                    alertCard.onclick = null;
-                } else {
-                    alertCard.style.removeProperty('display');
-                    alertCard.style.display = 'flex';
-                    alertCard.classList.remove('d-none', 'hide-element');
-                    alertCard.style.pointerEvents = 'auto';
-                    alertCard.setAttribute('data-action', 'open-identity-sidebar');
-                }
+                alertCard.style.setProperty('display', 'none', 'important');
+                alertCard.classList.add('d-none', 'hide-element');
             }
-            
-            const sidebarAvatar = document.getElementById('cs-avatar');
-            if (sidebarAvatar) {
-                const defaultImg = typeof DEFAULT_AVATAR_URL !== 'undefined' ? DEFAULT_AVATAR_URL : 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
-                sidebarAvatar.src = user.img || defaultImg;
+            if (kycContainer) {
+                kycContainer.style.setProperty('display', 'none', 'important');
+                kycContainer.classList.add('d-none', 'hide-element');
             }
+            return;
+        }
+        
+        if (guestCard) guestCard.style.display = 'none';
+        if (userCard) userCard.style.display = 'block';
+        if (navDeposit) navDeposit.style.display = 'flex';
+        if (navPayments) navPayments.style.display = 'flex';
+        if (navOrders) navOrders.style.display = 'flex';
+        if (navNotif) navNotif.style.display = 'flex';
+        if (navSecurity) navSecurity.style.display = 'flex';
+        if (navRating) navRating.style.display = 'flex';
+        if (logoutBtn) logoutBtn.style.display = 'flex';
+        
+        const user = DataManager.user;
+        const fallbackName = (user.fullName || user.name || (user.firstName ? `${user.firstName} ${user.lastName || ''}` : 'العميل')).trim();
+        const fullName = getSys()._getFullName ? getSys()._getFullName(user) : fallbackName;
+        
+        const nameEl = document.getElementById('cs-name');
+        const displayNameEl = document.getElementById('display-name');
+        
+        if (nameEl) nameEl.textContent = fullName;
+        if (displayNameEl) displayNameEl.textContent = fullName;
+        
+        if (alertCard) {
+            const hasCurrency = (user.baseCurrency && user.baseCurrency.trim() !== '') || (user.base_currency && user.base_currency.trim() !== '');
+            const hasData = (user.phone && user.phone.trim() !== '') && (user.country && user.country !== '');
+            const isIdentityComplete = ((user.isVerified === true || String(user.isVerified) === 'true') || hasData) && hasCurrency;
             
-            const idEl = document.getElementById('cs-id');
-            if (idEl) idEl.textContent = RenderHelpers.formatUserId(user);
-            
-            this.updateSidebarTier();
-            this.renderKycUI();
-            this.checkKycCelebration();
-            
-        } catch (e) { console.error('Error updating profile display:', e); }
-    },
-
+            // 🚀 تم إزالة المؤقت العشوائي (Cache Lock)، الاعتماد كلياً على التزامن الحي من Firestore
+            if (isIdentityComplete) {
+                alertCard.style.setProperty('display', 'none', 'important');
+                alertCard.classList.add('d-none', 'hide-element');
+                alertCard.style.pointerEvents = 'none';
+                alertCard.removeAttribute('data-action');
+                alertCard.onclick = null;
+            } else {
+                alertCard.style.removeProperty('display');
+                alertCard.style.display = 'flex';
+                alertCard.classList.remove('d-none', 'hide-element');
+                alertCard.style.pointerEvents = 'auto';
+                alertCard.setAttribute('data-action', 'open-identity-sidebar');
+            }
+        }
+        
+        const sidebarAvatar = document.getElementById('cs-avatar');
+        if (sidebarAvatar) {
+            const defaultImg = typeof DEFAULT_AVATAR_URL !== 'undefined' ? DEFAULT_AVATAR_URL : 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
+            sidebarAvatar.src = user.img || defaultImg;
+        }
+        
+        const idEl = document.getElementById('cs-id');
+        if (idEl) idEl.textContent = RenderHelpers.formatUserId(user);
+        
+        this.updateSidebarTier();
+        this.renderKycUI();
+        this.checkKycCelebration();
+        
+    } catch (e) { console.error('Error updating profile display:', e); }
+},
     deleteProfileImage: function() {
         if(!DataManager.user) return;
         
