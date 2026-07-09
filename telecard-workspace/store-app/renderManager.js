@@ -1491,6 +1491,99 @@ generatePDFReceipt: async function(config) {
         printContainer.remove();
     }
 },        
+     // =====================================================================
+// الدوال المسؤولة عن تشغيل زر التصدير وتغيير حالته إلى "جاري التحضير"
+// =====================================================================
+
+exportReceipt: async function(orderId, btnElement = null) {
+        const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
+        if (!o) return;
+        
+        const sys = this._getSys();
+        let originalHtml = '';
+        
+        // تغيير شكل الزر إلى جاري التحضير
+        if (btnElement && btnElement instanceof HTMLElement) {
+            btnElement.disabled = true;
+            originalHtml = btnElement.innerHTML;
+            btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`;
+        }
+        
+        const success = await this.generatePDFReceipt({
+            type: 'order',
+            filename: `Order_${RenderHelpers.formatOrderId(o)}.pdf`,
+            data: {
+                id: o.id,
+                displayId: RenderHelpers.formatOrderId(o),
+                userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
+                userDisplayId: RenderHelpers.formatUserId(DataManager.user),
+                status: o.status,
+                product: o.product,
+                price: o.price,
+                priceCurrency: o.priceCurrency,
+                qty: o.qty || 1,
+                input: o.input || '---',
+                dateTime: RenderHelpers.formatSafeDate(o.time || o.createdAt),
+                code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null
+            }
+        });
+        
+        // إعادة الزر لشكله الطبيعي بعد الانتهاء
+        if (btnElement && btnElement instanceof HTMLElement) {
+            btnElement.disabled = false;
+            btnElement.innerHTML = originalHtml;
+        }
+        
+        if (!success) {
+            sys.showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
+        }
+    },
+    
+    exportPaymentReceipt: async function(depositId, btnElement = null) {
+        const d = (LiveStoreData.deposits || []).find(x => String(x.id) === String(depositId));
+        if (!d) return;
+        
+        const sys = this._getSys();
+        let originalHtml = '';
+        
+        // تغيير شكل الزر إلى جاري التحضير
+        if (btnElement && btnElement instanceof HTMLElement) {
+            btnElement.disabled = true;
+            originalHtml = btnElement.innerHTML;
+            btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`;
+        }
+        
+        const success = await this.generatePDFReceipt({
+            type: 'deposit',
+            filename: `Deposit_${RenderHelpers.formatDepositId(d)}.pdf`,
+            data: {
+                id: d.id,
+                displayId: RenderHelpers.formatDepositId(d),
+                userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
+                userDisplayId: RenderHelpers.formatUserId(DataManager.user),
+                method: d.method || '---',
+                amount: d.amount,
+                currency: d.currency,
+                feePercent: d.feesPercent || 0,
+                feeVal: d.fees || 0,
+                netVal: d.creditedAmount || d.amount,
+                targetCurrency: d.targetCurrency || 'USD',
+                dateTime: RenderHelpers.formatSafeDate(d.time || d.createdAt)
+            }
+        });
+        
+        // إعادة الزر لشكله الطبيعي بعد الانتهاء
+        if (btnElement && btnElement instanceof HTMLElement) {
+            btnElement.disabled = false;
+            btnElement.innerHTML = originalHtml;
+        }
+        
+        if (!success) {
+            sys.showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
+        }
+    },
+
+// =====================================================================   
             renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;
