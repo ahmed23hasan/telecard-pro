@@ -11,7 +11,8 @@ import { DB_KEYS } from './config.js';
 import { Utils } from './utils.js';
 import { DataManager, LiveStoreData, StoreDB } from './dataManager.js';
 import { UIManager } from './ui/uiManager.js'; 
-import { RenderManager } from './renderManager.js';
+import { RenderManager } from './renderManager.js?v=3';
+
 import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 // ✅ المسار الصحيح:
