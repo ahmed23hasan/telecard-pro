@@ -14,7 +14,8 @@ import { UIManager } from './ui/uiManager.js';
 import { RenderManager } from './renderManager.js';
 import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
-import { UIFinance } from './uiFinance.js'; // 🚀 [الإضافة]: استيراد وحدة المالية
+// ✅ المسار الصحيح:
+import { UIFinance } from './ui/uiFinance.js'; 
 
 const _normalizeDataTime = (dataArray) => {
     if (!Array.isArray(dataArray)) return [];

@@ -1297,6 +1297,7 @@ generatePDFReceipt: async function(config) {
     printContainer.style.cssText = 'position: absolute; top: 0; right: 0; width: 600px; z-index: -9999; opacity: 1; pointer-events: none; background: #0f172a;';
     
     const settings = LiveStoreData.settings || {};
+    // تأمين اسم المتجر الافتراضي بناءً على التكوين المعتمد
     const storeName = settings.storeName || 'المتجر';
     const storeLogoForPDF = settings.storeLogoLight || settings.storeLogo || '';
     
@@ -1403,21 +1404,30 @@ generatePDFReceipt: async function(config) {
     document.body.appendChild(printContainer);
     
     try {
-        // انتظار تحميل الخطوط
+        // انتظار تحميل الخطوط لضمان دقة الريندر
         if (document.fonts && document.fonts.ready) await document.fonts.ready;
         
-        // 🚀 وقت كافٍ للمتصفح ليرسم الترابط بين الحروف العربية (خلف الكواليس)
-        await new Promise(r => setTimeout(r, 800));
+        // 🚀 إعطاء المتصفح وقتاً إضافياً صغيراً لتطبيق التنسيقات بشكل كامل قبل التصوير
+        await new Promise(r => setTimeout(r, 500));
         
         const receiptContent = printContainer.querySelector('.receipt-pro');
         
-        // تحويل HTML إلى صورة
-        const dataUrl = await window.domtoimage.toPng(receiptContent, {
-            bgcolor: bgDark,
-            scale: 2,
-            quality: 1.0,
-            copyDefaultStyles: false // لمنع التداخل مع تنسيقات الموقع
+        // 🚀 الاعتماد على html2canvas للتصدير الآمن للـ RTL واللغة العربية
+        const canvas = await window.html2canvas(receiptContent, {
+            backgroundColor: bgDark,
+            scale: 2,             // دقة مضاعفة للحفاظ على وضوح الخطوط (Retina)
+            useCORS: true,        // 🛡️ ضروري جداً لجلب الصور والخطوط الخارجية دون أخطاء
+            allowTaint: true,
+            logging: false,
+            onclone: function(clonedDoc) {
+                // إصلاح أي انحراف في العرض داخل النسخة المستنسخة إن وجد
+                const clonedContent = clonedDoc.querySelector('.receipt-pro');
+                if(clonedContent) clonedContent.style.transform = 'none';
+            }
         });
+        
+        // تحويل الكانفاس لصورة
+        const dataUrl = canvas.toDataURL('image/png', 1.0);
         
         const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
         const imgWidth = 190;
@@ -1458,10 +1468,11 @@ generatePDFReceipt: async function(config) {
         console.error('[Receipt Error]:', err);
         return false;
     } finally {
-        // 🚀 تنظيف الحاوية المخفية فور الانتهاء
+        // 🚀 تنظيف الحاوية المخفية فور الانتهاء من المعالجة
         if (printContainer) printContainer.remove();
     }
-},   // =====================================================================
+},
+  // =====================================================================
 // الدوال المسؤولة عن تشغيل زر التصدير وتغيير حالته إلى "جاري التحضير"
 // =====================================================================
 
