@@ -1,7 +1,7 @@
 // ============================================================================
-// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - النسخة الماسية V11.2 💎
+// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - النسخة الماسية V11.5 💎
 // 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة ومحرك الكاش
-// 🚀 التحديث الأقصى: دمج "محرك الكاش الذكي" ومزامنة الإشعارات المقروءة سحابياً
+// 🚀 التحديث الأقصى: ربط المحرك المالي السيادي، وإدارة وضع الأوفلاين الذكي
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -9,6 +9,7 @@ import { DB_KEYS, ACTIVE_USER_KEY } from './config.js';
 import { Utils } from './utils.js';
 import { FirebaseAdapter, auth } from './core/firebaseAdapter.js'; 
 import { RenderHelpers } from './core/renderHelpers.js'; 
+import { FinancialEngine } from './core/financialEngine.js'; // 🛡️ [الترقيع الماسي]: استيراد المحرك المالي الجديد مباشرة
 
 export const StoreDB = FirebaseAdapter;
 
@@ -18,16 +19,16 @@ export const LiveStoreData = {
     vault: [], coupons: [], offers: [], alerts: [],
     system: {}, countries: [], popup: null,
     userNotifications: [], 
-    isInitialSyncDone: false
+    isInitialSyncDone: false,
+    isOfflineMode: false // 🛡️ راية وضع عدم الاتصال
 };
 
 // ============================================================================
-// 📦 مدير الكاش الذكي (Smart Cache Manager) - القاتل لفواتير فايربيز 💸
-// الوظيفة: منع قراءة المنتجات من السيرفر إذا لم تتغير، والتحميل من الذاكرة اللحظية
+// 📦 مدير الكاش الذكي (Smart Cache Manager)
 // ============================================================================
 export const SmartCacheManager = {
     CACHE_KEY: 'telecard_store_catalog_v1',
-    EXPIRY_TIME: 24 * 60 * 60 * 1000, // 24 ساعة صلاحية الكاش كحد أقصى
+    EXPIRY_TIME: 24 * 60 * 60 * 1000, 
     
     saveCatalogToLocal: function(prods, cats, offers, tiers, rates) {
         try {
@@ -79,13 +80,18 @@ export const SmartCacheManager = {
 // ⚙️ مدير البيانات الرئيسي (DataManager)
 // ============================================================================
 export const DataManager = {
-    // 🚀 محرك التشغيل الخارق 0 Reads
+    
     initStoreCatalog: async function() {
         console.log("⚡ جاري تشغيل المتجر...");
         const t0 = performance.now();
+        LiveStoreData.isOfflineMode = false; // إعادة ضبط الحالة عند الإقلاع
 
         try {
-            const settingsSnap = await StoreDB.getById('telecard_settings', 'singleton');
+            // 🛡️ [الترقيع]: 3 ثوانٍ كحد أقصى لانتظار الإعدادات حماية لأصحاب الـ AdBlockers
+            const settingsSnap = await StoreDB._withTimeout(StoreDB.getById('telecard_settings', 'singleton'), 3000, 'Init Settings').catch(() => null);
+            
+            if (!settingsSnap) throw new Error("تعذر جلب الإعدادات (Timeout)");
+            
             const serverCatalogVersion = settingsSnap?.catalogVersion || '1.0'; 
             LiveStoreData.settings = settingsSnap || {};
 
@@ -121,15 +127,23 @@ export const DataManager = {
             return true;
 
         } catch (error) {
-            console.error("🚨 فشل تحميل المتجر:", error);
+            console.error("🚨 فشل تحميل المتجر (الإنترنت ضعيف أو مقطوع):", error);
+            
+            // 🛡️ [الترقيع الماسي]: تفعيل وضع الأوفلاين لكي تفهمه واجهة المستخدم
+            LiveStoreData.isOfflineMode = true; 
+
             const fallbackData = SmartCacheManager.loadCatalogFromLocal();
-            if (fallbackData) {
+            if (fallbackData && fallbackData.cats && fallbackData.cats.length > 0) {
                 LiveStoreData.prods = fallbackData.prods;
                 LiveStoreData.cats = fallbackData.cats;
                 LiveStoreData.offers = fallbackData.offers;
                 LiveStoreData.tiers = fallbackData.tiers;
                 LiveStoreData.rates = fallbackData.rates;
                 console.warn("⚠️ تم تشغيل المتجر في وضع الاوفلاين (الطوارئ)");
+                
+                setTimeout(() => {
+                    if (window.UIManager?.showToast) window.UIManager.showToast('أنت تتصفح المتجر بدون اتصال بالإنترنت (بيانات محفوظة محلياً)', 'warning');
+                }, 1500);
                 return true;
             }
             return false;
@@ -292,6 +306,7 @@ export const DataManager = {
         return (LiveStoreData.offers || []).find(o => o.isActive && (!o.expiryDate || o.expiryDate > now) && o.targetProds?.includes(String(prodId)));
     },
 
+    // 🛡️ [الترقيع الماسي]: استخدام المحرك المالي النظيف والآمن بشكل مباشر
     calculateFinalPrice: function(prod, user, qty, optIdx, appliedCoupon) {
         let q = Math.max(1, Number(qty) || 1);
         if (prod.type === 'select') q = 1; 
@@ -299,19 +314,9 @@ export const DataManager = {
         const tier = this.getUserTier(user);
         const activeOffer = this.getActiveOffer(prod.id);
 
-        let orderSnapshot = { 
-            originalPrice: 0, finalPrice: 0, offerDiscount: 0, couponDiscount: 0, totalDiscountVal: 0,
-            totalOriginalPrice: 0, totalFinalPrice: 0
-        };
-
-        if (Utils.TelecardPricingEngine?.calculateOrderTotalUi) {
-            orderSnapshot = Utils.TelecardPricingEngine.calculateOrderTotalUi({ 
-                product: prod, tier: tier, offer: activeOffer, coupon: appliedCoupon, optIdx: optIdx 
-            }, q);
-        } else if (Utils.TelecardPricingEngine?.calculatePrice) {
-            const unit = Utils.TelecardPricingEngine.calculatePrice({ product: prod, tier: tier, offer: activeOffer, coupon: appliedCoupon, optIdx: optIdx });
-            orderSnapshot = { ...unit, totalFinalPrice: unit.finalPrice * q, totalOriginalPrice: unit.originalPrice * q, qty: q };
-        }
+        const orderSnapshot = FinancialEngine.calculateOrderTotalUi({ 
+            product: prod, tier: tier, offer: activeOffer, coupon: appliedCoupon, optIdx: optIdx 
+        }, q);
 
         const oldPriceUsd = (activeOffer?.type === 'fake') ? Number(activeOffer.value || 0) : null;
 
@@ -332,7 +337,7 @@ export const DataManager = {
     },
 
     _safeConvert: function(amount, fromCurr, toCurr, rates, channel) {
-        return (typeof Utils.convertViaUSD === 'function') ? Utils.convertViaUSD(amount, fromCurr, toCurr, rates, channel) : amount;
+        return FinancialEngine.convertViaUSD(amount, fromCurr, toCurr, rates, channel);
     },
 
     getPricingLocal: function(prod, qty, optIdx, appliedCoupon) {
@@ -396,10 +401,10 @@ export const DataManager = {
         return { valid: true, coupon: coupon };
     },
 
-    getRates: function() { return Utils.normalizeRates(LiveStoreData.rates || {}); },
+    getRates: function() { return FinancialEngine.normalizeRates(LiveStoreData.rates || {}); },
 
     convertViaUSDHelper: function(amount, fromCurr, toCurr, rounding='round', channel='pricing') {
-        let val = this._safeConvert(amount, (fromCurr||'USD').toUpperCase(), (toCurr||'USD').toUpperCase(), this.getRates(), channel);
+        let val = this._safeConvert(amount, (fromCurr||'USD').toUpperCase(), (toCurr||'USD').toUpperCase(), LiveStoreData.rates, channel);
         if(rounding === 'floor') return Math.floor(val * 10000) / 10000;
         if(rounding === 'ceil')  return Math.ceil(val * 10000) / 10000;
         return Number(val.toFixed(4));
@@ -455,7 +460,13 @@ export const DataManager = {
         if (activeUid) {
             me = users.find(u => String(u.uid || u.id) === String(activeUid)) || JSON.parse(localStorage.getItem(ACTIVE_USER_KEY) || 'null');
             if (me && String(me.uid || me.id) !== String(activeUid)) me = null;
-            if (StoreDB.callFunction) StoreDB.callFunction('getServerTime').catch(() => {});
+            
+            // 🛡️ [الترقيع]: لا نستدعي السيرفر إذا كنا في وضع الاوفلاين لمنع الأخطاء في الكونسول
+            if (this.serverTimeOffset === 0 && !LiveStoreData.isOfflineMode && StoreDB.callFunction) {
+                StoreDB.callFunction('getServerTime').then(res => { 
+                    if(res && res.serverTime) this.serverTimeOffset = res.serverTime - Date.now(); 
+                }).catch(() => {});
+            }
         }
         
         if (activeUid && !me && users.length > 0 && window.ClientSystem?.isReady) {
@@ -474,7 +485,6 @@ export const DataManager = {
             me.walletBalance = Number(me.walletBalance ?? me.wallet_balance ?? me.balance ?? 0);
             if (me.tierCycleStartDate === undefined) { me.tierCycleStartDate = this.getNow(); me.tierCycleSpent = 0; }
             
-            // 🛡️ [الترقيع الماسي]: مزامنة الإشعارات المقروءة من السيرفر إلى المتصفح الجديد (منع تكرار الإزعاج)
             if (me.readAlerts && Array.isArray(me.readAlerts)) {
                 localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(me.readAlerts));
             }
@@ -502,6 +512,9 @@ export const DataManager = {
     },
 
     enforceIpBan: async function() {
+        // 🛡️ [الترقيع]: لا نستدعي API خارجي إذا كان الإنترنت مقطوعاً لمنع التأخير
+        if (LiveStoreData.isOfflineMode) return false;
+        
         try {
             const bannedIps = LiveStoreData.settings?.bannedIps || [];
             if (!bannedIps.length) return false;
@@ -740,7 +753,6 @@ export const DataManager = {
             readIds.push(String(msgId));
             localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
             
-            // 🛡️ [الترقيع الماسي]: حفظ الإشعارات المقروءة في السيرفر لمنع تكرارها في جهاز آخر
             if (this.user?.uid) {
                 this.updateUserProfile({ readAlerts: readIds }).catch(()=>{});
             }
@@ -778,7 +790,6 @@ export const DataManager = {
         
         localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
         
-        // 🛡️ [الترقيع الماسي]: حفظ كل الإشعارات المقروءة في السيرفر لمنع تكرارها
         if (this.user?.uid) {
             this.updateUserProfile({ readAlerts: readIds }).catch(()=>{});
         }
