@@ -660,7 +660,7 @@ export const UICore = {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض مفضلتك', 'error');
             getSys().sfx?.('error');
-            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+            setTimeout(() => { window.location.replace('login.html'); }, 1500);
             return;
         }
         
@@ -767,7 +767,7 @@ export const UICore = {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض طلباتك', 'error');
             getSys().sfx?.('error');
-            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+            setTimeout(() => { window.location.replace('login.html'); }, 1500);
             return;
         }
         this.resetUI();
@@ -780,7 +780,7 @@ export const UICore = {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض محفظتك', 'error');
             getSys().sfx?.('error');
-            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+            setTimeout(() => { window.location.replace('login.html'); }, 1500);
             return;
         }
         this.resetUI();
@@ -818,7 +818,7 @@ export const UICore = {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض سجل الدفعات', 'error');
             getSys().sfx?.('error');
-            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+            setTimeout(() => { window.location.replace('login.html'); }, 1500);
             return;
         }
         this.resetUI();
@@ -1097,7 +1097,7 @@ export const UICore = {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض إشعاراتك', 'error');
             getSys().sfx?.('error');
-            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+            setTimeout(() => { window.location.replace('login.html'); }, 1500);
             return;
         }
 
@@ -1848,7 +1848,7 @@ toggleFavoriteFromModal: function() {
         if (!DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لإضافة المنتجات للمفضلة', 'error');
             getSys().sfx?.('error');
-            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+            setTimeout(() => { window.location.replace('login.html'); }, 1500);
             return;
         }
         
@@ -1902,7 +1902,7 @@ toggleFavoriteFromModal: function() {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لإضافة المنتجات للمفضلة', 'error');
             getSys().sfx?.('error');
-            setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+            setTimeout(() => { window.location.replace('login.html'); }, 1500);
             return;
         }
         

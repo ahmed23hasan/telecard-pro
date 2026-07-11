@@ -1,13 +1,7 @@
 // ============================================================================
-// 🗄️ مدير البيانات المركزي (adminData.js) - النسخة الماسية V9.3 💎
+// 🗄️ مدير البيانات المركزي (adminData.js) - النسخة الماسية V10.0 💎
 // 🎯 الوظيفة: SSOT (المصدر الوحيد للحقيقة)، معالجة البيانات الضخمة، والبحث اللحظي
-// 👑 متوافق بالكامل مع هوية: TeleCard
-// 🚀 التحديث الأقصى: 
-// 1. [O(1) Hash Maps]: جداول بحث فائقة السرعة مع تصحيح مفاتيح الكوبونات.
-// 2. [Crash Fix]: معالجة خريطة العملات لمنع انهيار الإقلاع (.map is not a function).
-// 3. [Deep Clone Optimization]: استخدام structuredClone لتخفيف العبء عن الـ RAM.
-// 4. [Financial Engine]: حساب سيولة المحافظ عبر المحرك المالي السيادي.
-// 5. [Vault Radar Fix]: توافق رادار المخزون مع نظام الموردين السحابي.
+// 🚀 التحديث الأقصى: إغلاق ثغرات الحفظ המفقودة (Categories, Settings, Banners)
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -41,7 +35,7 @@ export const AdminData = {
 
     _snapshots: {},
 
-    // 🛡️ تحديث خريطة محددة مستهدفة (Targeted Map Rebuild) لمنع هدر الـ RAM
+    // 🛡️ تحديث خريطة محددة مستهدفة (Targeted Map Rebuild)
     _buildSingleMap: function(prop) {
         if (prop === 'users') {
             this.data.usersMap = Object.fromEntries(this.data.users.map(u => [String(u.id), u]));
@@ -52,7 +46,6 @@ export const AdminData = {
         } else if (prop === 'tiers') {
             this.data.tiersMap = Object.fromEntries(this.data.tiers.map(t => [String(t.id), t]));
         } else if (prop === 'coupons') {
-            // 🛡️ بناء الخريطة بناءً على الـ ID لتوحيد المعمارية مع MarketingController
             this.data.couponsMap = Object.fromEntries(this.data.coupons.map(c => [String(c.id), c]));
         } else if (prop === 'countries') {
             this.data.countriesMap = Object.fromEntries(this.data.countries.map(c => [String(c.id), c]));
@@ -65,7 +58,7 @@ export const AdminData = {
         }
     },    
     
-    // 🛡️ بناء جميع الخرائط دفعة واحدة (تستدعى عند الإقلاع والبداية الباردة فقط)
+    // 🛡️ بناء جميع الخرائط دفعة واحدة
     _buildMaps: function() {
         const mapsToBuild = ['users', 'prods', 'cats', 'tiers', 'coupons', 'countries', 'rates', 'orders', 'deposits'];
         mapsToBuild.forEach(prop => this._buildSingleMap(prop));
@@ -81,7 +74,7 @@ export const AdminData = {
     },
 
     // ==========================================
-    // 🛠️ 1. محرك جلب البيانات الذكي (Massive Fetch V2)
+    // 🛠️ 1. محرك جلب البيانات الذكي
     // ==========================================
     loadData: async function() {
         console.log("🚀 [TeleCard Admin] جاري حقن البيانات بنظام الجداول O(1)...");
@@ -123,7 +116,6 @@ export const AdminData = {
                 rCoupons, rOffers, rLogs, rAlerts, rKyc
             ] = results;
 
-            // 🌟 🛡️ [إصلاح الانهيار]: تحويل خريطة العملات O(1) إلى مصفوفة لكي لا ينهار الـ UI
             const ratesMapRaw = normalizeRates(rRates);
             const cleanRatesArray = Object.values(ratesMapRaw);
 
@@ -132,7 +124,6 @@ export const AdminData = {
             this.data.system = obj(rSystem);
             this.data.adminProfile = obj(rAdmin);
             
-            // 🛡️ معالجة المستويات (Tiers)
             this.data.tiers = arr(rTiers).map(t => ({
                 ...t, 
                 threshold: Number(t.threshold || t.condition_amount || 0),
@@ -143,14 +134,12 @@ export const AdminData = {
 
             if(this.data.tiers.length === 0 || !this.data.tiers.some(t => t.isDefault)) await this.seedDefaultTiers();
 
-            // 🛡️ معالجة المستخدمين
             this.data.users = arr(rUsers).map(u => ({
                 ...u,
                 walletBalance: Number(u.walletBalance ?? u.balance ?? 0),
                 baseCurrency: (u.baseCurrency || u.base_currency || 'USD').toUpperCase()
             }));
 
-            // 🛡️ معالجة المنتجات
             this.data.prods = arr(rProds).map(p => ({
                 ...p,
                 costPrice: Number(p.costPrice || p.cost_price || 0),
@@ -163,7 +152,6 @@ export const AdminData = {
             this.data.cats = arr(rCats);
             
             const normalizeCurrencyList = (val) => {
-                // 🛡️ التحديث: استخدام المصفوفة النظيفة لتجنب الأخطاء
                 const allowed = new Set(cleanRatesArray.map(c => c.code.toUpperCase()));
                 const arrVal = Array.isArray(val) ? val : String(val || '').split(',');
                 const out = []; const seen = new Set();
@@ -173,7 +161,6 @@ export const AdminData = {
                 return out.length ? out : [];
             };
 
-            // 🛡️ معالجة الدفع
             this.data.payments = arr(rPayments).map(p => ({
                 ...p, 
                 currencies: normalizeCurrencyList(p.currencies).join(',') 
@@ -182,7 +169,6 @@ export const AdminData = {
             this.data.banners = arr(rBanners);
             this.data.notif = obj(rNotif);
             
-            // 🛡️ معالجة الدول
             this.data.countries = arr(rCountries).map(c => ({
                 ...c, 
                 name: c.name || c.nameAr || 'دولة جديدة', 
@@ -225,10 +211,9 @@ export const AdminData = {
             this.data.alerts = rAlerts;
             this.data.kyc = rKyc;
 
-            // ⚡ السحر المعماري: بناء جداول البحث O(1)
+            // ⚡ بناء جداول البحث
             this._buildMaps();
 
-            // حفظ لقطة للمقارنة
             Object.keys(this.data).forEach(prop => { if(Array.isArray(this.data[prop])) this._updateSnapshot(prop); });
 
             this.isCloudSyncSuccessful = true;
@@ -242,7 +227,7 @@ export const AdminData = {
     },
 
     // ==========================================
-    // 📊 محرك الإحصائيات المطور (Stats Engine O(1))
+    // 📊 محرك الإحصائيات المطور
     // ==========================================
     getFilteredSalesStats: function(range = 'all') {
         const orders = (this.data.orders || []).filter(o => o.status === 'completed');
@@ -283,108 +268,93 @@ export const AdminData = {
         return { revenue, profit, cost, count: filteredOrders.length, categories: cats, products: prods };
     },
 
-   
    getDashboardStats: function(leaderboardPeriod = 'all') {
-    const d = this.data;
-    const nowTime = Date.now();
-    const sysStats = d.system?.globalStats || {};
-    
-    // =========================================================
-    // 🏆 1. محرك "مجتمع الأبطال" (الفلترة الزمنية والفرز)
-    // =========================================================
-    let startTime = 0;
-    let endTime = Infinity;
-    const nowObj = new Date(nowTime);
-    
-    if (leaderboardPeriod === 'this_month') {
-        // من بداية الشهر الحالي وحتى اللحظة
-        startTime = new Date(nowObj.getFullYear(), nowObj.getMonth(), 1).getTime();
-    } else if (leaderboardPeriod === 'last_month') {
-        // من بداية الشهر الماضي وحتى آخر يوم في الشهر الماضي
-        startTime = new Date(nowObj.getFullYear(), nowObj.getMonth() - 1, 1).getTime();
-        endTime = new Date(nowObj.getFullYear(), nowObj.getMonth(), 0, 23, 59, 59, 999).getTime();
-    }
-    
-    const userSpendingMap = {};
-    
-    if (leaderboardPeriod === 'all') {
-        // ⚡ المسار السريع: لـ "كل الأوقات" نعتمد على الرصيد المتراكم الجاهز في ملف العميل (O(N))
-        d.users.forEach(u => {
-            if (!u.isBanned && Number(u.totalSpent) > 0) {
-                userSpendingMap[u.id] = Number(u.totalSpent);
-            }
-        });
-    } else {
-        // 🔍 المسار التحليلي: لفترة محددة نقوم بجمع قيمة الطلبات المكتملة ضمن هذا النطاق الزمني
-        d.orders.forEach(o => {
-            if (o.status === 'completed') {
-                const oTime = RenderHelpers.parseTime(o.time || o.createdAt);
-                if (oTime >= startTime && oTime <= endTime) {
-                    const uid = o.userId;
-                    const u = d.usersMap[uid];
-                    // نستبعد العملاء المحظورين من لوحة الشرف
-                    if (u && !u.isBanned) {
-                        const price = Number(o.pricingSnapshot?.finalPriceUsd || o.price || 0);
-                        userSpendingMap[uid] = FinancialEngine.safeAdd(userSpendingMap[uid] || 0, price);
+        const d = this.data;
+        const nowTime = Date.now();
+        const sysStats = d.system?.globalStats || {};
+        
+        let startTime = 0;
+        let endTime = Infinity;
+        const nowObj = new Date(nowTime);
+        
+        if (leaderboardPeriod === 'this_month') {
+            startTime = new Date(nowObj.getFullYear(), nowObj.getMonth(), 1).getTime();
+        } else if (leaderboardPeriod === 'last_month') {
+            startTime = new Date(nowObj.getFullYear(), nowObj.getMonth() - 1, 1).getTime();
+            endTime = new Date(nowObj.getFullYear(), nowObj.getMonth(), 0, 23, 59, 59, 999).getTime();
+        }
+        
+        const userSpendingMap = {};
+        
+        if (leaderboardPeriod === 'all') {
+            d.users.forEach(u => {
+                if (!u.isBanned && Number(u.totalSpent) > 0) {
+                    userSpendingMap[u.id] = Number(u.totalSpent);
+                }
+            });
+        } else {
+            d.orders.forEach(o => {
+                if (o.status === 'completed') {
+                    const oTime = RenderHelpers.parseTime(o.time || o.createdAt);
+                    if (oTime >= startTime && oTime <= endTime) {
+                        const uid = o.userId;
+                        const u = d.usersMap[uid];
+                        if (u && !u.isBanned) {
+                            const price = Number(o.pricingSnapshot?.finalPriceUsd || o.price || 0);
+                            userSpendingMap[uid] = FinancialEngine.safeAdd(userSpendingMap[uid] || 0, price);
+                        }
                     }
                 }
-            }
+            });
+        }
+        
+        const topHeroes = Object.entries(userSpendingMap)
+            .sort(([, aSpent], [, bSpent]) => bSpent - aSpent)
+            .slice(0, 3)
+            .map(([uid, spent]) => {
+                const u = d.usersMap[uid]; 
+                return u ? {
+                    id: u.id,
+                    displayId: u.displayId || String(u.id).substring(0, 8),
+                    name: u.name || u.fullName || u.username || 'عميل مميز',
+                    img: u.profileImage || u.img || null,
+                    spent: spent
+                } : null;
+            }).filter(Boolean);
+        
+        const stats = {
+            financials: sysStats.financials || { totalRevenue: 0, totalProfit: 0, totalCost: 0 },
+            orders: sysStats.orders || { total: 0, completed: 0, rejected: 0 },
+            deposits: sysStats.deposits || { total: 0, approved: 0 },
+            users: { total: d.users.length, banned: 0, active: 0, topThree: topHeroes },
+            wallets: this.getWalletsLiquidity(),
+            alerts: []
+        };
+        
+        d.users.forEach(u => u.isBanned ? stats.users.banned++ : stats.users.active++);
+        
+        const recentTime = nowTime - 172800000; 
+        d.orders.filter(o => o.status === 'completed' && o.couponCode && RenderHelpers.parseTime(o.time) > recentTime).forEach(o => {
+            const u = this.data.usersMap[o.userId];
+            stats.alerts.push({ id: 'coupon_used', code: o.couponCode, user: u?.username || u?.fullName || 'عميل', time: o.time, orderId: o.id });
         });
-    }
-    
-    // 🌟 ترتيب الأبطال تنازلياً وتجهيزهم للواجهة
-    const topHeroes = Object.entries(userSpendingMap)
-        .sort(([, aSpent], [, bSpent]) => bSpent - aSpent)
-        .slice(0, 3)
-        .map(([uid, spent]) => {
-            const u = d.usersMap[uid]; // جلب البيانات السريع بـ O(1)
-            return u ? {
-                id: u.id,
-                displayId: u.displayId || String(u.id).substring(0, 8),
-                name: u.name || u.fullName || u.username || 'عميل مميز',
-                img: u.profileImage || u.img || null,
-                spent: spent
-            } : null;
-        }).filter(Boolean); // إزالة أي قيم فارغة
-    
-    // =========================================================
-    // 📊 2. تجميع الإحصائيات المركزية
-    // =========================================================
-    const stats = {
-        financials: sysStats.financials || { totalRevenue: 0, totalProfit: 0, totalCost: 0 },
-        orders: sysStats.orders || { total: 0, completed: 0, rejected: 0 },
-        deposits: sysStats.deposits || { total: 0, approved: 0 },
-        // 🛡️ تم حقن مصفوفة الأبطال بنجاح
-        users: { total: d.users.length, banned: 0, active: 0, topThree: topHeroes },
-        wallets: this.getWalletsLiquidity(),
-        alerts: []
-    };
-    
-    // =========================================================
-    // 🚨 3. رادار الأمان والعمليات (O(1) Alerts)
-    // =========================================================
-    d.users.forEach(u => u.isBanned ? stats.users.banned++ : stats.users.active++);
-    
-    const recentTime = nowTime - 172800000; // آخر 48 ساعة
-    d.orders.filter(o => o.status === 'completed' && o.couponCode && RenderHelpers.parseTime(o.time) > recentTime).forEach(o => {
-        const u = this.data.usersMap[o.userId];
-        stats.alerts.push({ id: 'coupon_used', code: o.couponCode, user: u?.username || u?.fullName || 'عميل', time: o.time, orderId: o.id });
-    });
-    
-    d.vault.forEach(v => {
-        const stock = Number(v.stockCount || v.codes?.length || 0);
-        if (stock === 0) stats.alerts.push({ id: 'vault_empty', poolName: v.name, time: nowTime, poolId: v.id });
-        else if (stock <= (v.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolName: v.name, count: stock, time: nowTime, poolId: v.id });
-    });
-    
-    const pendingKyc = d.users.filter(u => u.kycStatus === 'pending').length;
-    if (pendingKyc > 0) stats.alerts.push({ id: 'kyc_pending', count: pendingKyc, time: nowTime });
-    
-    if (stats.alerts.length === 0) stats.alerts.push({ id: 'security_stable', time: 0 });
-    stats.alerts.sort((a, b) => RenderHelpers.parseTime(b.time) - RenderHelpers.parseTime(a.time));
-    
-    return stats;
-},     getWalletsLiquidity: function() {
+        
+        d.vault.forEach(v => {
+            const stock = Number(v.stockCount || v.codes?.length || 0);
+            if (stock === 0) stats.alerts.push({ id: 'vault_empty', poolName: v.name, time: nowTime, poolId: v.id });
+            else if (stock <= (v.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolName: v.name, count: stock, time: nowTime, poolId: v.id });
+        });
+        
+        const pendingKyc = d.users.filter(u => u.kycStatus === 'pending').length;
+        if (pendingKyc > 0) stats.alerts.push({ id: 'kyc_pending', count: pendingKyc, time: nowTime });
+        
+        if (stats.alerts.length === 0) stats.alerts.push({ id: 'security_stable', time: 0 });
+        stats.alerts.sort((a, b) => RenderHelpers.parseTime(b.time) - RenderHelpers.parseTime(a.time));
+        
+        return stats;
+    },
+
+    getWalletsLiquidity: function() {
         const liquidity = { totalUsd: 0, details: {} };
         
         this.data.users.forEach(u => {
@@ -392,7 +362,6 @@ export const AdminData = {
             const curr = (u.baseCurrency || 'USD').toUpperCase();
             if (!liquidity.details[curr]) liquidity.details[curr] = { sum: 0, count: 0 };
             
-            // 🛡️ التحديث الماسي: استخدام المحرك المالي السيادي لضمان الدقة وتجنب أخطاء الفواصل
             liquidity.details[curr].sum = FinancialEngine.safeAdd(liquidity.details[curr].sum, bal);
             liquidity.details[curr].count++;
             
@@ -437,14 +406,32 @@ export const AdminData = {
         
         return true;
     },
-saveCountries: function() { return this.saveCollection(DB_KEYS.COUNTRIES, 'countries'); },
-saveCoupons: function() { return this.saveCollection(DB_KEYS.COUPONS, 'coupons'); },
-saveTiers: function() { return this.saveCollection(DB_KEYS.TIERS, 'tiers'); },
+
+    // 🚀 [الترقيع الماسي]: إضافة كافة صمامات الحفظ المفقودة
+    saveCountries: function() { return this.saveCollection(DB_KEYS.COUNTRIES, 'countries'); },
+    saveCoupons: function() { return this.saveCollection(DB_KEYS.COUPONS, 'coupons'); },
+    saveTiers: function() { return this.saveCollection(DB_KEYS.TIERS, 'tiers'); },
     saveProducts: function() { return this.saveCollection(DB_KEYS.PRODS, 'prods'); },
+    saveCategories: function() { return this.saveCollection(DB_KEYS.CATS, 'cats'); }, // 🛡️ تمت الإضافة
     saveUsers: function() { return this.saveCollection(DB_KEYS.USERS, 'users'); },
     saveOrders: function() { return this.saveCollection(DB_KEYS.ORDERS, 'orders'); },
     saveDeposits: function() { return this.saveCollection(DB_KEYS.DEPOSITS, 'deposits'); },
     saveVault: function() { return this.saveCollection(DB_KEYS.VAULT, 'vault'); },
+    savePayments: function() { return this.saveCollection(DB_KEYS.PAYMENTS, 'payments'); }, // 🛡️ تمت الإضافة
+    saveBanners: function() { return this.saveCollection(DB_KEYS.BANNERS, 'banners'); }, // 🛡️ تمت الإضافة
+    saveOffers: function() { return this.saveCollection(DB_KEYS.OFFERS, 'offers'); }, // 🛡️ تمت الإضافة
+
+    // 🛡️ [الترقيع الماسي]: إضافة حفظ الإعدادات المفردة (Singleton)
+    saveSystemSettings: async function() {
+        if (!this.isCloudSyncSuccessful) return false;
+        try {
+            await FirebaseAdapter.set(DB_KEYS.SETTINGS, 'singleton', this.data.settings);
+            return true;
+        } catch (e) {
+            console.error("خطأ في حفظ الإعدادات:", e);
+            return false;
+        }
+    },
 
     autoAdvanceSweep: async function() {
         const tiers = [...this.data.tiers].sort((a,b) => b.threshold - a.threshold);
@@ -474,10 +461,7 @@ saveTiers: function() { return this.saveCollection(DB_KEYS.TIERS, 'tiers'); },
         if (this.isSeedingTiers) return;
         this.isSeedingTiers = true;
         try {
-            // 🛡️ الإصلاح: استخدام ID ثابت لمنع التكرار نهائياً
             const defaultTierId = 'TIER_DEFAULT_INITIAL';
-            
-            // التأكد من عدم وجوده محلياً لمنع تكرار الرسم في الشاشة
             if (this.data.tiers.some(t => t.id === defaultTierId || t.isDefault)) return;
             
             const defaultTier = { id: defaultTierId, name: 'عضو جديد', isDefault: true, threshold: 0, duration_days: 3650, profit_percent: 5, autoAdvance: true, createdAt: Date.now() };
@@ -491,10 +475,7 @@ saveTiers: function() { return this.saveCollection(DB_KEYS.TIERS, 'tiers'); },
         if (this.isSeedingCountries) return;
         this.isSeedingCountries = true;
         try {
-            // 🛡️ الإصلاح: استخدام ID ثابت للدولة الافتراضية
             const defaultCountryId = 'COUNTRY_DEFAULT_SA';
-            
-            // التأكد من عدم وجود الدولة محلياً بناءً على الكود لمنع التكرار البصري
             if (this.data.countries.some(c => c.id === defaultCountryId || c.code === 'SA')) return;
             
             const defaultCountry = {
@@ -513,4 +494,5 @@ saveTiers: function() { return this.saveCollection(DB_KEYS.TIERS, 'tiers'); },
         } finally {
             this.isSeedingCountries = false;
         }
-    }};
+    }
+};

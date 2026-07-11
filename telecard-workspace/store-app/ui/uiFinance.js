@@ -1540,17 +1540,15 @@ export const UIFinance = {
                         
                     </div>
                 </div>
-                
-                               <div class="nm-data-box">
+                <div class="nm-data-box">
                     <div class="nm-btn-print-magic" id="export-order-pdf-btn" data-action="export-receipt" data-id="${id}">
                         <i class="fa-solid fa-file-pdf"></i> تصدير الإيصال
                     </div>
                 </div>
-                
-                $ { replyHtml }
-                </div>
-                `;
-        }        
+
+$ { replyHtml }
+</div>
+`;        }        
         if (content) {
             content.innerHTML = html;
         }

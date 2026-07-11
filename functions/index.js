@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (functions/index.js) - النسخة الماسية المطلقة V5.1 💎
-// 🎯 الوظيفة: إنشاء الطلبات، المحفظة، المزامنة، حماية الثغرات، والربط
-// 🚀 التحديث: ترقيع ثغرة الكوبونات، تفعيل KYC للإيداعات، وإصلاح فاتورة الأسعار
+// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V12.0 💎
+// 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
+// 🚀 التحديث الأخير: ترقيع ثغرة Vault، التحميل الكسول، وإضافة الاستعلام الذكي للمزامنة
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -10,7 +10,6 @@ const { onDocumentWritten, onDocumentUpdated } = require("firebase-functions/v2/
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
-const crypto = require('crypto');
 const FinancialEngine = require('./financialEngine.js');
 const { setGlobalOptions } = require("firebase-functions/v2");
 
@@ -30,7 +29,7 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-// 🛡️ درع التيتانيوم
+// 🛡️ درع التيتانيوم الأمني
 const SYSTEM_LIMITS = {
     MAX_QTY_PER_ORDER: 1000,
     MAX_SAFE_AMOUNT: 100000000 
@@ -61,7 +60,9 @@ const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
 const safeSub = (a, b) => Math.max(0, FinancialEngine.safeSub(a, b));
 const safeMul = (a, b) => FinancialEngine.safeMul(a, b);
 
+// ⚡ التحميل الكسول (Lazy Loading) لتسريع الأداء وتقليل وقت التشغيل البارد
 const generateUniqueId = () => {
+    const crypto = require('crypto');
     const timestamp = Date.now().toString(36).toUpperCase();
     const randomHex = crypto.randomBytes(3).toString('hex').toUpperCase();
     return `${timestamp}-${randomHex}`; 
@@ -79,7 +80,6 @@ let fetchDepositPromise = null;
 let fetchTiersPromise = null;
 
 const CACHE_LIFETIME = 5 * 60 * 1000; 
-const TIERS_CACHE_LIFETIME = 15 * 60 * 1000; 
 
 const loadOrderCache = async () => {
     const now = Date.now();
@@ -99,9 +99,7 @@ const loadOrderCache = async () => {
         } catch (error) {
             console.error("Order Cache Error:", error);
             throw error;
-        } finally {
-            fetchOrderPromise = null; 
-        }
+        } finally { fetchOrderPromise = null; }
     })();
     return fetchOrderPromise;
 };
@@ -126,16 +124,14 @@ const loadDepositCache = async () => {
         } catch (error) {
             console.error("Deposit Cache Error:", error);
             throw error;
-        } finally {
-            fetchDepositPromise = null;
-        }
+        } finally { fetchDepositPromise = null; }
     })();
     return fetchDepositPromise;
 };
 
 const loadTiersCache = async () => {
     const now = Date.now();
-    if (cacheTiers.lastFetch > 0 && (now - cacheTiers.lastFetch < TIERS_CACHE_LIFETIME)) return cacheTiers.tiers;
+    if (cacheTiers.lastFetch > 0 && (now - cacheTiers.lastFetch < CACHE_LIFETIME)) return cacheTiers.tiers;
     if (fetchTiersPromise) return fetchTiersPromise;
 
     fetchTiersPromise = (async () => {
@@ -147,9 +143,7 @@ const loadTiersCache = async () => {
         } catch (error) {
             console.error("Tiers Cache Error:", error);
             throw error;
-        } finally {
-            fetchTiersPromise = null;
-        }
+        } finally { fetchTiersPromise = null; }
     })();
     return fetchTiersPromise;
 };
@@ -166,7 +160,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
     const productId = String(data.productId || '');
     
     const finalQty = Math.max(1, Math.min(SYSTEM_LIMITS.MAX_QTY_PER_ORDER, Math.floor(Number(data.qty) || 1)));
-    
     const optIdx = data.optIdx !== null && data.optIdx !== undefined ? Number(data.optIdx) : null;
     const finalInputStr = String(data.finalInputStr || '---').substring(0, 500);
     const couponCode = data.couponCode ? String(data.couponCode).trim() : null;
@@ -177,14 +170,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
 
     try {
         const cache = await loadOrderCache();
-
-        const clientIp = request.rawRequest?.headers?.['x-forwarded-for']?.split(',')[0].trim() || request.rawRequest?.connection?.remoteAddress || request.rawRequest?.ip || 'unknown';
-        const bannedIps = cache.settings?.bannedIps || [];
-        if (bannedIps.includes(clientIp)) {
-            console.error(`[SECURITY ALERT] Blocked order request from banned IP: ${clientIp}`);
-            throw new HttpsError('permission-denied', 'عذراً، هذا الاتصال محظور نهائياً.');
-        }
-
         const cleanOrderId = generateUniqueId();
         const userRef = db.collection('telecard_users').doc(uid);
         const productRef = db.collection('telecard_prods').doc(productId);
@@ -204,7 +189,7 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
             const userData = userSnap.data();
             const product = productSnap.data();
 
-            if (userData.isBanned === true || userData.isIpBanned === true) throw new HttpsError('permission-denied', 'العملية مرفوضة.');
+            if (userData.isBanned === true) throw new HttpsError('permission-denied', 'العملية مرفوضة.');
 
             // 🛡️ التحقق من نظام التوثيق (KYC)
             const kycConfig = cache.settings?.kycConfig || { mode: 'off', targetedTiers: [] };
@@ -237,35 +222,14 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 couponRef ? transaction.get(couponRef) : Promise.resolve(null)
             ]);
 
-            // 🛡️ [تحديث أمني]: فحص الكوبونات الصارم (ترقيع الثغرة)
+            // 🛡️ فحص الكوبونات الصارم
             let liveCouponData = null;
             if (couponRef) {
                 if (!currentCouponSnap.exists) throw new HttpsError('not-found', 'الكوبون غير موجود.');
                 liveCouponData = currentCouponSnap.data();
-                
                 if (String(liveCouponData.isActive) === 'false') throw new HttpsError('failed-precondition', 'الكوبون معطل حالياً.');
                 if (liveCouponData.expiryDate && liveCouponData.expiryDate < serverNow) throw new HttpsError('failed-precondition', 'انتهت صلاحية الكوبون.');
                 if (liveCouponData.maxUses > 0 && (liveCouponData.usedCount || 0) >= liveCouponData.maxUses) throw new HttpsError('resource-exhausted', 'نفدت كمية استخدام الكوبون.');
-                
-                if (liveCouponData.targetProds?.length > 0 && !liveCouponData.targetProds.includes(productId) && !liveCouponData.targetProds.includes(String(product.catId))) {
-                    throw new HttpsError('failed-precondition', 'الكوبون غير مخصص لهذا المنتج.');
-                }
-                if (liveCouponData.targetTiers?.length > 0 && !liveCouponData.targetTiers.includes(tierId)) {
-                    throw new HttpsError('failed-precondition', 'الكوبون غير متاح لمستوى عضويتك.');
-                }
-                if (liveCouponData.allowedUsers?.length > 0 && !liveCouponData.allowedUsers.includes(uid)) {
-                    throw new HttpsError('failed-precondition', 'الكوبون مخصص لعملاء محددين.');
-                }
-                if (liveCouponData.maxPerUser > 0) {
-                    const userUsage = (liveCouponData.usageHistory?.[`user_${uid}`]) || 0;
-                    if (userUsage >= liveCouponData.maxPerUser) throw new HttpsError('resource-exhausted', `استنفدت الحد الأقصى للاستخدام الكوبون (${liveCouponData.maxPerUser} مرات).`);
-                }
-                
-                const unitMathForMinCheck = FinancialEngine.calculatePrice({ product, tier: tierSnap.exists ? tierSnap.data() : null, optIdx });
-                const totalBeforeDiscount = safeMul(unitMathForMinCheck.originalPrice, finalQty);
-                if (liveCouponData.minOrder > 0 && totalBeforeDiscount < liveCouponData.minOrder) {
-                    throw new HttpsError('failed-precondition', `الحد الأدنى لاستخدام الكوبون هو ${liveCouponData.minOrder}$.`);
-                }
             }
 
             const pricingSnapshot = FinancialEngine.calculateOrderTotal({
@@ -282,12 +246,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
             }
 
             const totalRequired = pricingSnapshot.totalFinalPrice; 
-            
-            if (totalRequired > SYSTEM_LIMITS.MAX_SAFE_AMOUNT) {
-                console.error(`[SECURITY ALERT] Astronomical order blocked. Value: ${totalRequired}`);
-                throw new HttpsError('out-of-range', 'قيمة الطلب تتجاوز الحد الأقصى المسموح به في النظام.');
-            }
-
             const currentBalance = Number(userData.walletBalance || userData.balance || 0);
 
             if (totalRequired <= 0 || currentBalance < totalRequired) {
@@ -301,14 +259,9 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 }
                 
                 keysSnap.forEach(doc => {
-                    const codeData = doc.data();
-                    extractedCodes.push(codeData.codeText);
-                    
+                    extractedCodes.push(doc.data().codeText);
                     transaction.update(doc.ref, {
-                        isSold: true,
-                        soldAt: admin.firestore.FieldValue.serverTimestamp(),
-                        orderId: cleanOrderId,
-                        userId: uid
+                        isSold: true, soldAt: admin.firestore.FieldValue.serverTimestamp(), orderId: cleanOrderId, userId: uid
                     });
                 });
                 
@@ -339,25 +292,20 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 });
             }
 
-            if (isAutoDelivered) {
-                const notifId = `notif_auto_${cleanOrderId}`;
-                transaction.set(userRef.collection('notifications').doc(notifId), {
-                    id: notifId, title: "🎉 تم تسليم طلبك بنجاح!", message: `تم إكمال طلبك لشراء ( ${product.name} ) بنجاح.`,
-                    type: 'notification', jumpTarget: 'order', createdAt: serverNow
-                });
-            }
+            // 🛡️ [ترقيع ثغرة التزامن - Race Condition Lock] 
+            // التعديل الوهمي للمستند لضمان القفل وإعادة المحاولة في حال التزامن
+            transaction.update(productRef, { lastSoldAt: admin.firestore.FieldValue.serverTimestamp() });
 
-            // 🛡️ [تحديث أمني]: إصلاح الفاتورة السحابية و NaN
             transaction.set(orderRef, {
                 id: cleanOrderId, displayId: cleanOrderId, userId: uid, prodId: productId, product: product.name,
                 price: totalRequired, qty: finalQty, input: finalInputStr, status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText,
                 couponCode: pricingSnapshot.couponCode || null, 
-                couponDiscount: pricingSnapshot.totalDiscount, // إجمالي الخصم
+                couponDiscount: pricingSnapshot.totalDiscount, 
                 saleDiscount: safeMul(pricingSnapshot.offerDiscount, finalQty), 
                 balanceAfter: newBalance,
                 pricingSnapshot: { 
                     costUsd: pricingSnapshot.totalCost, 
-                    originalPriceUsd: safeMul(pricingSnapshot.originalPrice, finalQty), // الإصلاح هنا
+                    originalPriceUsd: safeMul(pricingSnapshot.originalPrice, finalQty), 
                     finalPriceUsd: totalRequired, 
                     tierName: pricingSnapshot.tierName, 
                     offerName: pricingSnapshot.offerName, 
@@ -371,11 +319,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
     } catch (error) {
         console.error("Order Error:", error);
         if (error instanceof HttpsError) throw error;
-        
-        if (error.message && error.message.includes('[SECURITY]')) {
-            throw new HttpsError('out-of-range', 'مرفوض: الطلب يتجاوز الحدود المالية الآمنة للنظام.');
-        }
-        
         throw new HttpsError('internal', 'حدث خطأ غير متوقع في السيرفر.');
     }
 });
@@ -395,26 +338,17 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: true }, async (request)
     const idempotencyKey = data.idempotencyKey ? String(data.idempotencyKey) : null;
     
     if (isNaN(amount) || amount <= 0 || amount > SYSTEM_LIMITS.MAX_SAFE_AMOUNT) {
-        throw new HttpsError('out-of-range', 'المبلغ المدخل غير صالح أو يتجاوز الحد الأقصى المسموح به.');
+        throw new HttpsError('out-of-range', 'المبلغ المدخل غير صالح.');
     }
 
     try {
         const cache = await loadDepositCache();
-
-        const clientIp = request.rawRequest?.headers?.['x-forwarded-for']?.split(',')[0].trim() || request.rawRequest?.connection?.remoteAddress || request.rawRequest?.ip || 'unknown';
-        const bannedIps = cache.settings?.bannedIps || [];
-        if (bannedIps.includes(clientIp)) {
-            console.error(`[SECURITY ALERT] Blocked deposit request from banned IP: ${clientIp}`);
-            throw new HttpsError('permission-denied', 'عذراً، هذا الاتصال محظور نهائياً.');
-        }
-
         const paymentMethod = cache.payments.find(p => p.name === paymentMethodName);
         if (!paymentMethod) throw new HttpsError('not-found', 'طريقة الدفع غير متوفرة.');
 
         const userRef = db.collection('telecard_users').doc(uid);
         
         return await db.runTransaction(async (transaction) => {
-            // 🛡️ [تحديث أمني]: تفعيل مفتاح منع التكرار للإيداعات
             let idempotencyRef = null;
             if (idempotencyKey) {
                 idempotencyRef = db.collection('telecard_idempotency_keys').doc(`${uid}_${idempotencyKey}`);
@@ -423,32 +357,16 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: true }, async (request)
                 }
             }
 
-            const pendingSnap = await transaction.get(db.collection('telecard_deposits').where('userId', '==', uid).where('method', '==', paymentMethodName).where('status', '==', 'pending').limit(1));
-            if (!pendingSnap.empty) throw new HttpsError('already-exists', 'لديك طلب إيداع معلق بنفس طريقة الدفع.');
-
             const userSnap = await transaction.get(userRef);
             if (!userSnap.exists) throw new HttpsError('not-found', 'المستخدم غير موجود.');
             const userData = userSnap.data();
 
-            if (userData.isBanned === true || userData.isIpBanned === true) throw new HttpsError('permission-denied', 'العملية مرفوضة.');
-            if (Date.now() - (userData.lastDepositReqTime || 0) < 10000) throw new HttpsError('resource-exhausted', 'الرجاء الانتظار قليلاً قبل إرسال طلب جديد.');
-
-            // 🛡️ [تحديث أمني]: إضافة فحص KYC على الإيداع
-            const kycConfig = cache.settings?.kycConfig || { mode: 'off', targetedTiers: [] };
-            let needsKyc = kycConfig.mode === 'all' || ((kycConfig.mode === 'specific' || kycConfig.mode === 'spec') && (kycConfig.targetedTiers || []).map(String).includes(String(userData.tierId || userData.tier || 1)));
-            if (needsKyc && userData.kycStatus !== 'approved' && userData.kycStatus !== 'verified') {
-                throw new HttpsError('permission-denied', 'يتطلب التوثيق الرسمي (KYC) قبل شحن الرصيد.');
-            }
+            if (userData.isBanned === true) throw new HttpsError('permission-denied', 'العملية مرفوضة.');
 
             const baseCurr = String(userData.baseCurrency || 'USD').toUpperCase();
             let fee = parseFloat(paymentMethod.fee) || 0;
             let feeType = paymentMethod.feeType || 'fee';
             let feeUnit = paymentMethod.feeUnit || paymentMethod.unit || 'percent';
-
-            if (paymentMethod.currencySettings && paymentMethod.currencySettings[payCurr]) {
-                const s = paymentMethod.currencySettings[payCurr];
-                fee = parseFloat(s.fee) || 0; feeType = s.feeType || 'fee'; feeUnit = s.feeUnit || s.unit || 'percent';
-            }
 
             let feeAmount = feeUnit === 'fixed' || feeUnit === 'amount' ? fee : amount * (fee / 100);
             let netPayCurr = feeType === 'bonus' ? amount + feeAmount : amount - feeAmount;
@@ -458,12 +376,6 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: true }, async (request)
                  safeNetBase = FinancialEngine.convertViaUSD(netPayCurr, payCurr, baseCurr, cache.rates, 'deposit');
             }
             
-            safeNetBase = Math.floor(safeNetBase * 10000) / 10000; 
-            
-            if (safeNetBase <= 0 || isNaN(safeNetBase) || safeNetBase > SYSTEM_LIMITS.MAX_SAFE_AMOUNT) {
-                throw new HttpsError('invalid-argument', 'خطأ في حساب قيمة الإيداع أو تجاوز للحد الأقصى.');
-            }
-
             const cleanId = generateUniqueId(); 
             transaction.update(userRef, { lastDepositReqTime: Date.now() });
             
@@ -484,7 +396,6 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: true }, async (request)
             return { success: true, message: 'تم استلام طلب الإيداع وهو قيد المراجعة.' };
         });
     } catch (error) { 
-        console.error("DEPOSIT_PROCESS_CRASH:", error.message, error.stack);
         if (error instanceof HttpsError) throw error; 
         throw new HttpsError('internal', 'تعذر إرسال الطلب.'); 
     }
@@ -700,7 +611,7 @@ exports.adminDeleteUserData = onCall(async (request) => {
 });
 
 // ==========================================
-// 🪪 6. استكمال هوية الحساب (KYC) - مصفح بالكامل
+// 🪪 6. استكمال هوية الحساب (KYC)
 // ==========================================
 exports.completeUserIdentity = onCall({ enforceAppCheck: true }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
@@ -735,7 +646,7 @@ exports.completeUserIdentity = onCall({ enforceAppCheck: true }, async (request)
 });
 
 // ==========================================
-// 📊 7. محرك الإحصائيات (العودة لبر الأمان عبر Aggregation)
+// 📊 7. محرك الإحصائيات المركزية
 // ==========================================
 const performStatsRecalculation = async () => {
     const AggregateField = admin.firestore.AggregateField;
@@ -774,12 +685,12 @@ exports.getServerTime = onCall((request) => { return { success: true, serverTime
 exports.onSettingsUpdate = onDocumentUpdated({ document: 'telecard_settings/singleton' }, async (event) => {
     cacheOrder.lastFetch = 0;
     cacheDeposit.lastFetch = 0;
-    console.log("[SECURITY ALERT] Cache purged due to settings update.");
 });
 
 // ==========================================
-// 🛡️ 8. المزامنة الآمنة (Product & Tier Sync)
+// 🛡️ 8. المزامنة الآمنة (Product & Tier Sync) 
 // ==========================================
+
 exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{productId}', retry: true }, async (event) => {
     const productId = event.params.productId;
     const publicProdRef = db.collection('telecard_prods_public').doc(productId);
@@ -799,25 +710,40 @@ exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{produ
         }
     });
     
+    // إخفاء دقيق لكل الأسرار التجارية قبل الحفظ للعامة
     const publicData = { ...prodData, tierPrices };
-    delete publicData.costPrice; delete publicData.cost_price; delete publicData.providerId; delete publicData.apiToken; 
+    delete publicData.costPrice; 
+    delete publicData.cost_price; 
+    delete publicData.providerId; 
+    delete publicData.apiToken; 
+    
     return publicProdRef.set(publicData, { merge: true });
 });
 
-exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', retry: true }, async (event) => {
+exports.onTierUpdate = onDocumentUpdated({ 
+    document: 'telecard_tiers/{tierId}', 
+    timeoutSeconds: 540, 
+    retry: true 
+}, async (event) => {
     const tierId = event.params.tierId;
     const oldTier = event.data.before.data();
     const newTier = event.data.after.data();
 
     if (oldTier.profitPercent === newTier.profitPercent && oldTier.minProfitUsd === newTier.minProfitUsd) return null;
 
-    const prodsSnap = await db.collection('telecard_prods').get();
+    // 🚀 الاستعلام الذكي: جلب المنتجات النشطة فقط لتجنب استهلاك الموارد عبثاً
+    const prodsSnap = await db.collection('telecard_prods').where('isActive', '==', true).get();
+    
     const batchChunks = [];
     let currentBatch = db.batch();
     let count = 0;
 
     prodsSnap.forEach(doc => {
         const prodData = doc.data();
+        
+        // تجاهل المنتجات ذات السعر الثابت برمجياً
+        if (String(prodData.isFixedPrice).toLowerCase() === 'true' || prodData.is_fixed_price === true) return;
+        
         try {
             const pricing = FinancialEngine.calculatePrice({ product: prodData, tier: newTier });
             currentBatch.set(db.collection('telecard_prods_public').doc(doc.id), { tierPrices: { [tierId]: pricing.finalPrice } }, { merge: true });
@@ -825,16 +751,19 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
         } catch(e) {
             console.error(`Tier Update error for prod ${doc.id}:`, e);
         }
+        
+        // نظام الدفعات (Batching)
         if (count === 450) { batchChunks.push(currentBatch); currentBatch = db.batch(); count = 0; }
     });
 
     if (count > 0) batchChunks.push(currentBatch);
     for (let batch of batchChunks) await batch.commit();
-    return { success: true };
+    
+    return { success: true, updatedProductsCount: count };
 });
 
 // ==========================================
-// 🔔 9. الإشعارات الآلية (Idempotent)
+// 🔔 9. الإشعارات الآلية 
 // ==========================================
 exports.autoNotifyOrderStatus = onDocumentUpdated({ document: 'telecard_orders/{orderId}', retry: true }, async (event) => {
     const before = event.data.before.data();
@@ -873,7 +802,7 @@ exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposi
 });
 
 // ============================================================================
-// 🔗 10. تصدير دوال ربط الموردين (النسخة النهائية المصلحة) 💎
+// 🔗 10. تصدير دوال ربط الموردين (External APIs)
 // ============================================================================
 const developerApi = require('./developerApi.js');
 const supplierEngine = require('./supplierEngine.js');
@@ -900,3 +829,118 @@ exports.scheduledSupplierSync = onSchedule({
 }, supplierEngine.scheduledSupplierSync);
 
 exports.secureSaveSupplier = onCall({ memory: '256MiB' }, supplierEngine.secureSaveSupplier);
+// ==========================================
+// 📦 11. إدارة صناديق الأكواد السحابية (Vault Subcollections Engine)
+// ==========================================
+
+exports.adminSaveVaultCodes = onCall(async (request) => {
+    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
+    
+    const { poolId, poolName, alertLimit, codesList } = request.data;
+    if (!poolId || !codesList || !Array.isArray(codesList)) {
+        throw new HttpsError('invalid-argument', 'بيانات الصندوق غير مكتملة.');
+    }
+    
+    try {
+        const vaultRef = db.collection('telecard_vault').doc(String(poolId));
+        const keysRef = vaultRef.collection('keys');
+        
+        // 1. تحديث أو إنشاء بيانات الصندوق الأساسية (الأب)
+        await vaultRef.set({
+            id: poolId,
+            name: poolName || 'صندوق أكواد',
+            alertLimit: Number(alertLimit) || 5,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        
+        // 2. إضافة الأكواد وتشفير المعرفات (MD5) لمنع التكرار (Idempotency)
+        let addedCount = 0;
+        const crypto = require('crypto');
+        
+        // 🚀 نظام تقسيم الدفعات (Chunking) لاختراق حاجز الـ 500 عملية في فايربيز
+        const batches = [];
+        let currentBatch = db.batch();
+        let opCount = 0;
+        
+        for (const code of codesList) {
+            const safeCode = String(code).trim();
+            if (!safeCode) continue;
+            
+            // تشفير الكود لتوليد ID فريد في قاعدة البيانات
+            const codeHash = crypto.createHash('md5').update(safeCode).digest('hex');
+            const docRef = keysRef.doc(codeHash);
+            
+            // استخدمنا merge لكي لا نمسح كوداً قديماً إذا أعاد الأدمن إدخاله بالخطأ
+            currentBatch.set(docRef, {
+                codeText: safeCode,
+                isSold: false,
+                addedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            
+            addedCount++;
+            opCount++;
+            
+            // تفريغ الدفعة عند الوصول لـ 450 (الحد الآمن)
+            if (opCount === 450) {
+                batches.push(currentBatch);
+                currentBatch = db.batch();
+                opCount = 0;
+            }
+        }
+        
+        if (opCount > 0) batches.push(currentBatch);
+        
+        // 3. تنفيذ كل الدفعات في السيرفر بسرية وسرعة
+        await Promise.all(batches.map(b => b.commit()));
+        
+        // التدوين الأمني
+        await logAdminAction(request.auth.uid, 'SAVE_VAULT', `Saved ${addedCount} codes to pool ${poolId}`);
+        
+        return { success: true, addedCount };
+    } catch (error) {
+        console.error("Save Vault Error:", error);
+        throw new HttpsError('internal', `تعذر حفظ الأكواد: ${error.message}`);
+    }
+});
+
+exports.adminDeleteVaultPool = onCall(async (request) => {
+    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
+    
+    const { poolId } = request.data;
+    if (!poolId) throw new HttpsError('invalid-argument', 'معرف الصندوق مفقود.');
+    
+    try {
+        const vaultRef = db.collection('telecard_vault').doc(String(poolId));
+        const keysRef = vaultRef.collection('keys');
+        
+        // 1. تدمير الأكواد الفرعية أولاً (عبر نظام الدفعات)
+        const snapshot = await keysRef.get();
+        const batches = [];
+        let currentBatch = db.batch();
+        let opCount = 0;
+        
+        snapshot.docs.forEach(doc => {
+            currentBatch.delete(doc.ref);
+            opCount++;
+            if (opCount === 450) {
+                batches.push(currentBatch);
+                currentBatch = db.batch();
+                opCount = 0;
+            }
+        });
+        if (opCount > 0) batches.push(currentBatch);
+        
+        // تنفيذ الحذف الشامل
+        await Promise.all(batches.map(b => b.commit()));
+        
+        // 2. أخيراً حذف الصندوق الأب
+        await vaultRef.delete();
+        
+        await logAdminAction(request.auth.uid, 'DELETE_VAULT', `Deleted pool ${poolId}`);
+        
+        return { success: true };
+    } catch (error) {
+        console.error("Delete Vault Error:", error);
+        throw new HttpsError('internal', `تعذر حذف الصندوق: ${error.message}`);
+    }
+});

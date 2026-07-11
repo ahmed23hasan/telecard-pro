@@ -143,9 +143,25 @@ const startApp = async () => {
                 }
                 
             } else {
-                console.warn("🚨 لم يتم العثور على جلسة اتصال نشطة للمدير، جاري التوجيه الفوري لمنع التسريب المحاسبي.");
-                sessionStorage.removeItem('telecard_admin_auth'); // تنظيف الاحتياط للأمان
-                window.location.replace("login.html");
+                // 🛡️ [الترقيع الماسي]: التحقق من الـ sessionStorage لتأخير الطرد وحماية الأدمن من الخروج الوهمي
+                const isLikelyLoggedIn = sessionStorage.getItem('telecard_admin_auth') === 'true';
+                
+                if (isLikelyLoggedIn) {
+                    console.warn("⏳ الفايربيز يبلغ أن الحساب غير موجود، ولكن الذاكرة تقول عكس ذلك. ننتظر 1.5 ثانية...");
+                    setTimeout(() => {
+                        if (!auth.currentUser) {
+                            console.warn("🚨 تأكدنا من عدم وجود جلسة، جاري التوجيه للدخول.");
+                            sessionStorage.removeItem('telecard_admin_auth');
+                            window.location.replace("login.html");
+                        } else {
+                            console.log("✅ الفايربيز صحح نفسه والتقط الجلسة المتأخرة!");
+                        }
+                    }, 1500);
+                } else {
+                    console.warn("🚨 لا توجد جلسة اتصال نشطة إطلاقاً، جاري التوجيه الفوري.");
+                    sessionStorage.removeItem('telecard_admin_auth'); 
+                    window.location.replace("login.html");
+                }
             }
         });
         
@@ -179,7 +195,9 @@ const startApp = async () => {
             }
         }
     }
-};/**
+};
+
+/**
  * 🚀 تنفيذ الإقلاع بناءً على حالة المستند
  */
 if (document.readyState === 'loading') {

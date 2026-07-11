@@ -87,9 +87,9 @@ export const FinanceRender = {
 
         data.sort((a, b) => {
             const isA_Pending = (a.status === 'pending') ? 1 : 0;
-            const isB_Pending = (b.status === 'pending') ? 1 : 0;
-            if (isA_Pending !== isB_Pending) return_isB_Pending - isA_Pending; 
-            
+const isB_Pending = (b.status === 'pending') ? 1 : 0;
+// 🛡️ [الترقيع]: تم فصل الـ return عن اسم المتغير
+if (isA_Pending !== isB_Pending) return isB_Pending - isA_Pending;  
             const timeA = RenderHelpers.parseTime(a.time || a.createdAt);
             const timeB = RenderHelpers.parseTime(b.time || b.createdAt);
             return timeB - timeA;

@@ -1,7 +1,7 @@
 // ============================================================================
-// 💻 المحاكي المالي للواجهة الأمامية (Client-Side Simulator) - النسخة الماسية V11.0 💎
+// 💻 المحاكي المالي للواجهة الأمامية (Client-Side Simulator) - النسخة الماسية V11.5 💎
 // 🎯 الوظيفة: محاكاة الأسعار للعميل، عرض الخصومات، وإخفاء الأسرار (التكلفة والأرباح)
-// 🌟 التحديث الأقصى: تطبيق التطابق التام مع معايير السيرفر (Guardian V11)
+// 🌟 التحديث الأقصى: تطابق 100% مع السيرفر في حساب الكوبونات لمنع رفض الطلبات
 // ============================================================================
 
 export const FinancialEngine = Object.freeze({
@@ -11,7 +11,7 @@ export const FinancialEngine = Object.freeze({
         PRECISION: 10000
     },
 
-    // 🛡️ دوال الرياضيات الآمنة (محصنة ضد NaN للحفاظ على استقرار الواجهة)
+    // 🛡️ دوال الرياضيات الآمنة (محصنة ضد NaN وتسرب الكسور)
     safeAdd: function(a, b) {
         return Math.round((Number(a) || 0) * this.CONFIG.PRECISION + (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
@@ -21,12 +21,11 @@ export const FinancialEngine = Object.freeze({
     },
     
     safeMul: function(a, b) {
-    // تحويل الأرقام إلى أعداد صحيحة تماماً قبل الضرب لمنع أي تسرب للكسور الوهمية
-    const valA = Math.round((Number(a) || 0) * this.CONFIG.PRECISION);
-    const valB = Math.round((Number(b) || 0) * this.CONFIG.PRECISION);
-    // القسمة على مربع معامل الدقة لإعادة الرقم لشكله الأصلي
-    return (valA * valB) / (this.CONFIG.PRECISION * this.CONFIG.PRECISION);
-},    
+        const valA = Math.round((Number(a) || 0) * this.CONFIG.PRECISION);
+        const valB = Math.round((Number(b) || 0) * this.CONFIG.PRECISION);
+        return Math.round((valA * valB) / this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
+    },    
+    
     safeDiv: function(a, b) {
         const numA = Number(a) || 0;
         let numB = Number(b);
@@ -34,21 +33,17 @@ export const FinancialEngine = Object.freeze({
         return Math.round((numA / numB) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
 
-    // 🛡️ معقم الأرقام الصارم (متطابق مع السيرفر)
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '') return 0;
         const num = Number(val);
         if (isNaN(num)) return 0;
-        const absNum = Math.abs(num); // منع السوالب
+        const absNum = Math.abs(num); 
         if (!allowZero && absNum === 0) return 1;
         return absNum;
     },
     
-    // 🛡️ [تحديث الأداء]: تحويل المصفوفة إلى Dictionary لسرعة بحث O(1)
     normalizeRates: function(rawArray) {
         const ratesMap = {};
-        
-        // تأمين وجود الدولار كقاعدة ارتكاز
         ratesMap[this.CONFIG.BASE_CURRENCY] = { 
             code: this.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true 
         };
@@ -76,7 +71,6 @@ export const FinancialEngine = Object.freeze({
         if (amt === 0 || fCode === tCode) return amt;
 
         const ratesMap = this.normalizeRates(ratesArray);
-        
         const from = ratesMap[fCode] || { priceRate: 1, depRate: 1 };
         const to = ratesMap[tCode] || { priceRate: 1, depRate: 1 };
         
@@ -86,7 +80,7 @@ export const FinancialEngine = Object.freeze({
         return this.safeMul(this.safeDiv(amt, fRate), tRate);
     },
     
-    // 🚀 المحرك المالي النظيف والآمن لحساب "القطعة الواحدة" (خالي من الأسرار التجارية)
+    // 🚀 المحرك المالي النظيف والآمن
     calculatePrice: function(params = {}) {
         const { product = {}, tier = null, offer = null, coupon = null, optIdx = null } = params;
         
@@ -101,14 +95,16 @@ export const FinancialEngine = Object.freeze({
             }
         }
         
+        // 🛡️ [حماية الصفر]: قراءة ذكية للسعر الثابت أو سعر المستوى مع حماية من الفراغ
         if (isFixed) {
-            baseSellingPrice = activeOption ? this.extractNum(activeOption.fixedPriceUsd || activeOption.price) : this.extractNum(product.fixedPriceUsd || product.fixed_price_usd);
+            baseSellingPrice = activeOption ? this.extractNum(activeOption.fixedPriceUsd || activeOption.price) : this.extractNum(product.fixedPriceUsd || product.fixed_price_usd || product.price);
         } else if (tier) {
             const tierPriceField = activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id];
             if (tierPriceField) {
                 baseSellingPrice = this.extractNum(tierPriceField);
             } else {
-                baseSellingPrice = activeOption ? this.extractNum(activeOption.price) : this.extractNum(product.price);
+                // إذا تأخر السيرفر في توليد tierPrices، لا نظهر 0 بل نعرض أي سعر متاح لإنقاذ الموقف
+                baseSellingPrice = activeOption ? this.extractNum(activeOption.price || activeOption.basePriceUsd) : this.extractNum(product.price || product.basePriceUsd);
             }
         } else {
             baseSellingPrice = activeOption ? this.extractNum(activeOption.price) : this.extractNum(product.price);
@@ -135,7 +131,8 @@ export const FinancialEngine = Object.freeze({
         } else if (coupon && coupon.isActive !== false) {
             couponCode = coupon.code;
             const val = this.extractNum(coupon.value);
-            couponDiscount = coupon.type === 'percentage' ? this.safeMul(currentPrice, val / 100) : val;
+            // 🛡️ [الترقيع الماسي]: حساب الكوبون من السعر الأصلي وليس السعر الحالي (تطابق 100% مع السيرفر)
+            couponDiscount = coupon.type === 'percentage' ? this.safeMul(originalPrice, val / 100) : val;
             currentPrice = Math.max(0, this.safeSub(currentPrice, couponDiscount));
         }
         
@@ -152,7 +149,6 @@ export const FinancialEngine = Object.freeze({
         };
     },
     
-    // 🛡️ الدالة التي يجب استدعاؤها لحساب إجمالي السلة في الواجهة
     calculateOrderTotalUi: function(params = {}, rawQty = 1) {
         const safeQty = Math.max(1, Math.floor(this.extractNum(rawQty) || 1));
         const unitMath = this.calculatePrice(params);

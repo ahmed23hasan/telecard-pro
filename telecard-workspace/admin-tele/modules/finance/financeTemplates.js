@@ -1,6 +1,6 @@
 // ============================================================================
-// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - النسخة الماسية V4.3 💎
-// 🚀 التحديث: سد ثغرة الانهيار الحرج لدرج الإيداع وسحق التكرار المبطن لـ O(1)
+// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - النسخة الماسية V4.4 💎
+// 🚀 التحديث: سد ثغرة الانهيار الحرج لدرج الإيداع (drawerBankImg) وسحق التكرار لـ O(1)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -24,7 +24,7 @@ export const FinanceTemplates = {
         const rawTime = d.time || d.createdAt;
         const timeHtml = RenderHelpers.formatSafeDate(rawTime);
 
-        // 🌟 ⚡ التحديث الفائق: استدعاء العميل فورا بـ O(1) من الخريطة بدلا من التكرار المبطن البطيء
+        // 🌟 ⚡ التحديث الفائق: استدعاء العميل فورا بـ O(1)
         const userRec = AdminData.data.usersMap?.[d.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(d.userId)) || {};
         const shortId = RenderHelpers.formatUserId(userRec);
 
@@ -215,12 +215,18 @@ export const FinanceTemplates = {
             </div>`;
     },
 
+    // 🛡️ [الترقيع الماسي]: إضافة زر عرض صورة الإيصال للبنك
+    drawerBankImg: (imgSrc) => imgSrc 
+        ? `<img src="${_esc(imgSrc)}" class="dr-prod-img zoomable-img" data-action="open-img-viewer" data-src="${_esc(imgSrc)}">` 
+        : `<div class="dr-prod-placeholder"><i class="fa-solid fa-building-columns"></i></div>`,
+
+    // 🛡️ الترقيع: تحويل الكارد لزر لمنع انهيار النموذج
     depositReceiptCard: (receiptSrc) => `
-        <div class="dr-card dr-receipt-container" data-action="open-img-viewer" data-src="${_esc(receiptSrc)}">
+        <button type="button" class="dr-card dr-receipt-container" data-action="open-img-viewer" data-src="${_esc(receiptSrc)}" style="background: transparent; border: none; width: 100%; padding: 0;">
             <div class="dr-receipt-label"><i class="fa-solid fa-file-invoice-dollar text-success"></i> إيصال التحويل المرفق</div>
             <img src="${_esc(receiptSrc)}" class="zoomable-img dr-receipt-img">
             <div class="dr-receipt-hint"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لتكبير الإيصال</div>
-        </div>`,
+        </button>`,
         
     depositDrawerBody: (data) => {
         const isIdAsNameDrawer = String(data.displayUser).trim() === String(data.userDisplayId).trim() || String(data.displayUser).trim() === String(data.userId).trim();

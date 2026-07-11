@@ -217,23 +217,33 @@ export const UIAuth = {
                     const oldImageUrl = DataManager.user.img; 
                     const downloadUrl = await FirebaseAdapter.uploadImage(compressed.file, 'avatars', `avatar_${DataManager.user.id}_${Date.now()}.webp`);               
                     
+                    // 🛡️ [الترقيع الماسي]: حماية من ثغرة الـ Race Condition
+                    let dbUpdateSuccess = false;
                     if (DataManager.updateUserProfile) {
-                        await DataManager.updateUserProfile({ img: downloadUrl });
+                        dbUpdateSuccess = await DataManager.updateUserProfile({ img: downloadUrl });
                     }
-                    localStorage.setItem('telecard_user_image_' + DataManager.user.id, downloadUrl);
+                    
+                    if (dbUpdateSuccess) {
+                        localStorage.setItem('telecard_user_image_' + DataManager.user.id, downloadUrl);
 
-                    if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
-                        FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(e => console.warn("Failed to delete old avatar:", e));
+                        // نحذف الصورة القديمة فقط إذا تأكدنا من حفظ الرابط الجديد في الداتابيز
+                        if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
+                            FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(e => console.warn("Failed to delete old avatar:", e));
+                        }
+
+                        if (deleteAvatarBtn) deleteAvatarBtn.classList.add('active');
+
+                        getSys().showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
+                        getSys().sfx?.('success');
+                    } else {
+                        // تراجع (Rollback): لو فشل الداتابيز، نحذف الصورة التي رفعناها للتو من التخزين السحابي
+                        if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(downloadUrl).catch(()=>{});
+                        throw new Error("قاعدة البيانات رفضت التحديث.");
                     }
-
-                    if (deleteAvatarBtn) deleteAvatarBtn.classList.add('active');
-
-                    getSys().showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
-                    getSys().sfx?.('success');
                     
                 } catch (err) {
                     console.error("Avatar Upload Error:", err);
-                    getSys().showToast?.('عذراً، تعذر حفظ الصورة، قد تكون تالفة.', 'error');
+                    getSys().showToast?.('عذراً، تعذر حفظ الصورة، قد تكون تالفة أو الاتصال ضعيف.', 'error');
                     const fallbackImg = DataManager.user.img || DEFAULT_AVATAR_URL;
                     if(imgEl) imgEl.src = fallbackImg; 
                     if(sidebarAvatar) sidebarAvatar.src = fallbackImg; 
@@ -248,7 +258,6 @@ export const UIAuth = {
 
         getSys().openModal?.('profile-info');
     },
-
     toggleNameEdit: function() {
         const nameEl = document.getElementById('display-name');
         const inpEl = document.getElementById('edit-name-input');

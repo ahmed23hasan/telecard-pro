@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - النسخة V10.0 💎
+// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - النسخة V10.1 💎
 // 🎯 الوظيفة: المنطق التجاري للمنتجات، الأقسام، الدول، وصناديق الأكواد (Vault)
 // 🌟 التحديث الأقصى: 
-// 1. [Vault Subcollections]: التوافق التام مع هندسة السيرفر لحفظ الأكواد في مفردات معزولة.
+// 1. [Server-Side Vault]: نقل التشفير والحفظ كلياً للسيرفر لمنع تشنج متصفح الأدمن.
 // 2. [Fail-Fast UI]: منع الأدمن من حفظ أسعار فلكية تتجاوز 10,000$.
-// 3. [Decoupling]: إزالة الارتباط الدائري بـ AppController.
+// 3. [Decoupling]: هندسة نظيفة ومعزولة للتحكم بمخزون المتجر.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -371,7 +371,7 @@ export const CatalogController = {
     },
 
     // =========================================================
-    // 🏦 3. إدارة صناديق الأكواد (Vault) - Subcollections Integrated 🚀
+    // 🏦 3. إدارة صناديق الأكواد (Vault) - Server Integrated 🚀
     // =========================================================
     saveVaultPool: async function() {
         const id = Utils.getVal('v-pool-id');
@@ -388,45 +388,8 @@ export const CatalogController = {
             // إنشاء الـ ID إذا لم يكن موجوداً
             const finalPoolId = id && id !== '' ? id : 'vpool_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
             
-            // 🛡️ التحديث المعماري V10.0: الاعتماد على الـ Subcollections في الإضافة
-            let newCodesAdded = 0;
-            const batch = FirebaseAdapter.db.batch();
-            const keysRef = FirebaseAdapter.db.collection('telecard_vault').doc(finalPoolId).collection('keys');
-            
-            // حفظ المستند الأب للـ Vault
-            const vaultParentRef = FirebaseAdapter.db.collection('telecard_vault').doc(finalPoolId);
-            batch.set(vaultParentRef, {
-                id: finalPoolId,
-                name: name,
-                alertLimit: Number(Utils.getVal('v-alert-limit', 5)) || 5,
-                updatedAt: Date.now()
-            }, { merge: true });
-
-            // استخدام MD5 لمنع المورد أو الأدمن من إدخال كود متكرر
-            lines.forEach(text => {
-                const safeText = Utils.escapeHTML(text);
-                
-                // استخدام دالة مشابهة للموجودة في supplierEngine.js
-                const utf8Encode = new TextEncoder().encode(safeText);
-                crypto.subtle.digest('SHA-256', utf8Encode).then(hashBuffer => {
-                    const hashArray = Array.from(new Uint8Array(hashBuffer));
-                    const codeHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-                    
-                    const codeRef = keysRef.doc(codeHash);
-                    batch.set(codeRef, {
-                        codeText: safeText,
-                        isSold: false,
-                        addedAt: Date.now()
-                    }, { merge: true });
-                });
-                newCodesAdded++;
-            });
-
-            // ⚠️ ملاحظة: لأن crypto.subtle.digest يستهلك وقتاً وغير متزامن تماماً بهذه الطريقة، 
-            // الطريقة الأفضل للـ Vanilla JS والـ Admin Panel هي تحديث الواجهة عبر Cloud Function
-            // سنرسل الطلب للسيرفر المنيع ليقوم بالفرز والحفظ.
-
-            // 🚀 التعديل الجذري: سنعتمد على دالة السيرفر لحفظ المخزون بأمان لضمان سلامة الـ Subcollections
+            // 🚀 التحديث الجذري V10.1: تفويض المهمة الثقيلة للسيرفر (Cloud Function)
+            // السيرفر هو من سيقوم بإنشاء الـ Subcollection وتشفير الأكواد بـ MD5 لحماية المتصفح من الانهيار
             const result = await FirebaseAdapter.callFunction('adminSaveVaultCodes', {
                 poolId: finalPoolId,
                 poolName: name,
@@ -445,7 +408,7 @@ export const CatalogController = {
                     toastMsg: `تم حفظ الصندوق بنجاح! ${result.addedCount} كود جديد.`
                 });
             } else {
-                throw new Error("فشلت عملية المزامنة مع السيرفر.");
+                throw new Error(result.message || "فشلت عملية المزامنة مع السيرفر.");
             }
 
         } catch (error) {
@@ -459,7 +422,7 @@ export const CatalogController = {
         if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف صندوق الأكواد بالكامل. يفضل ترك هذه المهمة لعملية التنظيف السحابي (Cloud Function). متأكد؟')) {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إتلاف الصندوق سحابياً...');
             try {
-                // 🛡️ التحديث المعماري V10.0: استدعاء سيرفر السحابة لتدمير المستند والمجموعة الفرعية (Subcollections) معاً!
+                // 🛡️ التحديث المعماري V10.1: استدعاء السيرفر لتدمير المستند والمجموعة الفرعية معاً!
                 const result = await FirebaseAdapter.callFunction('adminDeleteVaultPool', { poolId: String(id) });
                 
                 if (result && result.success) {

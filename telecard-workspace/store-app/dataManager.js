@@ -1,7 +1,7 @@
 // ============================================================================
-// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - النسخة الماسية V9.8
-// 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة (Firebase)
-// 🚀 التحديث الأقصى: تزامن الذاكرة اللحظي (Optimistic State)، والتكامل المالي الجديد
+// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - النسخة الماسية V11.2 💎
+// 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة ومحرك الكاش
+// 🚀 التحديث الأقصى: دمج "محرك الكاش الذكي" ومزامنة الإشعارات المقروءة سحابياً
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -21,7 +21,121 @@ export const LiveStoreData = {
     isInitialSyncDone: false
 };
 
+// ============================================================================
+// 📦 مدير الكاش الذكي (Smart Cache Manager) - القاتل لفواتير فايربيز 💸
+// الوظيفة: منع قراءة المنتجات من السيرفر إذا لم تتغير، والتحميل من الذاكرة اللحظية
+// ============================================================================
+export const SmartCacheManager = {
+    CACHE_KEY: 'telecard_store_catalog_v1',
+    EXPIRY_TIME: 24 * 60 * 60 * 1000, // 24 ساعة صلاحية الكاش كحد أقصى
+    
+    saveCatalogToLocal: function(prods, cats, offers, tiers, rates) {
+        try {
+            const cacheData = { timestamp: Date.now(), data: { prods, cats, offers, tiers, rates } };
+            localStorage.setItem(this.CACHE_KEY, JSON.stringify(cacheData));
+            console.log("💎 [Smart Cache] Catalog saved to device memory.");
+        } catch (e) {
+            console.warn("Storage is full, clearing old caches...", e);
+            localStorage.removeItem(this.CACHE_KEY);
+        }
+    },
+    
+    loadCatalogFromLocal: function() {
+        try {
+            const raw = localStorage.getItem(this.CACHE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (Date.now() - parsed.timestamp > this.EXPIRY_TIME) {
+                localStorage.removeItem(this.CACHE_KEY);
+                return null;
+            }
+            return parsed.data;
+        } catch (e) { return null; }
+    },
+    
+    shouldFetchFromServer: async function(currentServerVersion) {
+        const localVersion = localStorage.getItem('telecard_catalog_version');
+        
+        if (!localVersion || String(localVersion) !== String(currentServerVersion)) {
+            localStorage.setItem('telecard_catalog_version', String(currentServerVersion));
+            return true;
+        }
+        
+        const cachedData = this.loadCatalogFromLocal();
+        if (!cachedData) return true;
+        
+        LiveStoreData.prods = cachedData.prods || [];
+        LiveStoreData.cats = cachedData.cats || [];
+        LiveStoreData.offers = cachedData.offers || [];
+        LiveStoreData.tiers = cachedData.tiers || [];
+        LiveStoreData.rates = cachedData.rates || [];
+        
+        console.log("🚀 [Smart Cache] Loaded 100% from Device (0 Firebase Reads!)");
+        return false; 
+    }
+};
+
+// ============================================================================
+// ⚙️ مدير البيانات الرئيسي (DataManager)
+// ============================================================================
 export const DataManager = {
+    // 🚀 محرك التشغيل الخارق 0 Reads
+    initStoreCatalog: async function() {
+        console.log("⚡ جاري تشغيل المتجر...");
+        const t0 = performance.now();
+
+        try {
+            const settingsSnap = await StoreDB.getById('telecard_settings', 'singleton');
+            const serverCatalogVersion = settingsSnap?.catalogVersion || '1.0'; 
+            LiveStoreData.settings = settingsSnap || {};
+
+            const needsFetch = await SmartCacheManager.shouldFetchFromServer(serverCatalogVersion);
+
+            if (!needsFetch) {
+                const t1 = performance.now();
+                console.log(`✅ تم تحميل المتجر من الذاكرة في ${Math.round(t1 - t0)}ms (التكلفة: 1 Read فقط!)`);
+                return true;
+            }
+
+            console.log("🔄 جاري تحميل أحدث كتالوج من السيرفر...");
+            const [prods, cats, offers, tiers, rates] = await Promise.all([
+                StoreDB.getAll('telecard_prods_public'), 
+                StoreDB.getAll('telecard_cats'),
+                StoreDB.getAll('telecard_offers'),
+                StoreDB.getAll('telecard_tiers'),
+                StoreDB.getAll('telecard_rates')
+            ]);
+
+            const activeProds = prods.filter(p => p.isActive !== false);
+
+            LiveStoreData.prods = activeProds;
+            LiveStoreData.cats = cats;
+            LiveStoreData.offers = offers;
+            LiveStoreData.tiers = tiers;
+            LiveStoreData.rates = rates;
+
+            SmartCacheManager.saveCatalogToLocal(activeProds, cats, offers, tiers, rates);
+
+            const t2 = performance.now();
+            console.log(`✅ تم جلب المتجر من السيرفر وحفظه في الكاش في ${Math.round(t2 - t0)}ms`);
+            return true;
+
+        } catch (error) {
+            console.error("🚨 فشل تحميل المتجر:", error);
+            const fallbackData = SmartCacheManager.loadCatalogFromLocal();
+            if (fallbackData) {
+                LiveStoreData.prods = fallbackData.prods;
+                LiveStoreData.cats = fallbackData.cats;
+                LiveStoreData.offers = fallbackData.offers;
+                LiveStoreData.tiers = fallbackData.tiers;
+                LiveStoreData.rates = fallbackData.rates;
+                console.warn("⚠️ تم تشغيل المتجر في وضع الاوفلاين (الطوارئ)");
+                return true;
+            }
+            return false;
+        }
+    },
+
     serverTimeOffset: 0,
     getNow: function() { return Date.now() + this.serverTimeOffset; },
 
@@ -178,7 +292,6 @@ export const DataManager = {
         return (LiveStoreData.offers || []).find(o => o.isActive && (!o.expiryDate || o.expiryDate > now) && o.targetProds?.includes(String(prodId)));
     },
 
-    // 🚀 تحديث المحرك المالي ليعتمد على حاسبة الإجماليات الشاملة للكمية
     calculateFinalPrice: function(prod, user, qty, optIdx, appliedCoupon) {
         let q = Math.max(1, Number(qty) || 1);
         if (prod.type === 'select') q = 1; 
@@ -360,6 +473,11 @@ export const DataManager = {
             me.baseCurrency = (me.baseCurrency || me.base_currency || 'USD').toUpperCase();
             me.walletBalance = Number(me.walletBalance ?? me.wallet_balance ?? me.balance ?? 0);
             if (me.tierCycleStartDate === undefined) { me.tierCycleStartDate = this.getNow(); me.tierCycleSpent = 0; }
+            
+            // 🛡️ [الترقيع الماسي]: مزامنة الإشعارات المقروءة من السيرفر إلى المتصفح الجديد (منع تكرار الإزعاج)
+            if (me.readAlerts && Array.isArray(me.readAlerts)) {
+                localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(me.readAlerts));
+            }
             
             this.user = me;
             this.saveUserLocal();
@@ -575,7 +693,6 @@ export const DataManager = {
         }
     },
 
-    // 🚀 الترقيع: نستبعد المقروءة فقط إذا كان مطلوباً (excludeRead = true)
     _isAlertForUser: function(msg, user, now, readIds = [], excludeRead = false) {
         const type = msg.targetType || msg.target || 'all';
         const tId = String(msg.targetId || msg.userId || msg.tierId || '');
@@ -594,7 +711,6 @@ export const DataManager = {
         const now = this.getNow();
         
         return allAlerts.filter(msg => {
-            // نمرر true لاستبعاد الإشعارات المقروءة عن الجرس الأحمر والتنبيهات المنبثقة
             if (!this._isAlertForUser(msg, this.user, now, readIds, true)) return false;
             if ((msg.type === 'popup' || msg.isPopup) && msg.maxViews) {
                 if (parseInt(localStorage.getItem(`alert_views_${msg.id}`) || "0") >= msg.maxViews) return false;
@@ -606,12 +722,10 @@ export const DataManager = {
     getAllUserAlerts: function() {
         if (!this.user) return [];
         const allAlerts = [...(LiveStoreData.alerts || []), ...(LiveStoreData.userNotifications || [])];
-        // نمرر false لعرض الكل (المقروء وغير المقروء) داخل نافذة الإشعارات
         return allAlerts.filter(msg => this._isAlertForUser(msg, this.user, this.getNow(), [], false))
             .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     },
 
-    // 🚀 تحديث حالة إشعار واحد (بتقنية Optimistic State & UI)
     markSingleNotificationRead: async function(msgId, isPopup = false, maxViews = null) {
         if (!msgId) return;
         
@@ -625,22 +739,23 @@ export const DataManager = {
         if (!readIds.includes(String(msgId))) {
             readIds.push(String(msgId));
             localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
+            
+            // 🛡️ [الترقيع الماسي]: حفظ الإشعارات المقروءة في السيرفر لمنع تكرارها في جهاز آخر
+            if (this.user?.uid) {
+                this.updateUserProfile({ readAlerts: readIds }).catch(()=>{});
+            }
         }
 
-        // 🚀 تحديث الذاكرة العشوائية فوراً
         const localNotif = LiveStoreData.userNotifications?.find(n => String(n.id) === String(msgId));
         if (localNotif) localNotif.isRead = true;
         
-        // 🚀 التحديث المتفائل: تحديث الواجهة فوراً
         if (window.UIManager?.updateNotifBadges) window.UIManager.updateNotifBadges();
         
-        // إرسال التحديث للسحابة في الخلفية بهدوء
         if (this.user?.uid && localNotif) {
             try { await StoreDB.set(`telecard_users/${this.user.uid}/notifications`, msgId, { isRead: true }, { merge: true }); } catch (e) {}
         }
     },
     
-    // 🚀 تحديد الكل كمقروء (بتقنية Optimistic State & UI)
     markAllNotificationsRead: async function() {
         const allAlerts = this.getAllUserAlerts();
         if (!allAlerts.length) return;
@@ -652,7 +767,6 @@ export const DataManager = {
             if (!readIds.includes(String(msg.id))) readIds.push(String(msg.id));
             if (msg.type === 'popup' || msg.isPopup) localStorage.setItem(`alert_views_${msg.id}`, (msg.maxViews || 99).toString());
             
-            // 🚀 تحديث الذاكرة العشوائية فوراً
             msg.isRead = true;
             const localNotif = LiveStoreData.userNotifications?.find(n => String(n.id) === String(msg.id));
             if (localNotif) localNotif.isRead = true;
@@ -664,11 +778,14 @@ export const DataManager = {
         
         localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
         
-        // 🚀 التحديث المتفائل: تحديث القائمة والأيقونات في الشاشة فوراً
+        // 🛡️ [الترقيع الماسي]: حفظ كل الإشعارات المقروءة في السيرفر لمنع تكرارها
+        if (this.user?.uid) {
+            this.updateUserProfile({ readAlerts: readIds }).catch(()=>{});
+        }
+        
         if (window.UIManager?.updateNotifBadges) window.UIManager.updateNotifBadges();
         if (window.RenderManager?.renderNotifCenterList) window.RenderManager.renderNotifCenterList();
         
-        // إرسال الطلبات للسيرفر في الخلفية
         if (updates.length > 0) await Promise.all(updates);
     },
         

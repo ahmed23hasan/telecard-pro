@@ -22,78 +22,89 @@ export const CatalogRender = {
     // =========================================================
     // 📦 1. رسم شبكة المنتجات والأقسام
     // =========================================================
-    renderProds: function() {
-        const grid = document.getElementById('prod-grid'); 
-        if(!grid) return;
+    renderProds: function(forceRender = false) {
+    const grid = document.getElementById('prod-grid');
+    if (!grid) return;
+    
+    // 🌟 استقرار بصري: لا نُعيد الرسم إذا كان الأدمن يقوم بالترتيب (إلا إذا فرضنا الرسم بقوة)
+    if (this.state.dragEditMode && !forceRender) return;
+    
+    const act = document.getElementById('prod-actions');
+    const bread = document.getElementById('prod-bread');
+    const currCatId = this.state.currFolder != null ? String(this.state.currFolder) : null;
+    
+    let currentLayout = (currCatId === null || currCatId === 'root') ?
+        (AdminData.data.settings?.rootLayout || 2) :
+        2;
+    
+    if (currCatId && currCatId !== 'root') {
+        const cat = AdminData.data.catsMap?.[currCatId];
+        if (cat?.layout) currentLayout = cat.layout;
+    }
+    
+    grid.style.setProperty('--layout-cols', currentLayout);
+    
+    if (currCatId === null) {
+        bread.innerText = 'الأقسام الرئيسية';
+        act.innerHTML = AdminTemplates.catRootActions(currentLayout);
+        grid.className = 'items-grid cats-grid sortable-container'; // 🛡️ الترقيع: إضافة كلاس sortable-container للروت
         
-        // 🌟 استقرار بصري (Anti-Flicker): لا نُعيد الرسم إذا كان الأدمن يقوم بالترتيب
-        if (this.state.dragEditMode) return;
+        const mainCats = (AdminData.data.cats || []).filter(c => !c.parentId || String(c.parentId) === 'null' || String(c.parentId) === '')
+            .sort((a, b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
         
-        const act = document.getElementById('prod-actions');
-        const bread = document.getElementById('prod-bread');
-        const currCatId = this.state.currFolder != null ? String(this.state.currFolder) : null;
-
-        let currentLayout = (currCatId === null || currCatId === 'root') 
-            ? (AdminData.data.settings?.rootLayout || 2) 
-            : 2;
-
-        if (currCatId && currCatId !== 'root') {
-            const cat = AdminData.data.catsMap?.[currCatId]; // ⚡ جلب O(1)
-            if (cat?.layout) currentLayout = cat.layout;
+        grid.innerHTML = mainCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
+        
+        // 🛡️ الترقيع: تمرير الـ grid نفسه كحاوية (Container)
+        EventBus.emit('req-init-sortable', { container: grid, type: 'cat' });
+    } else {
+        const parent = AdminData.data.catsMap?.[currCatId];
+        if (!parent) {
+            this.state.currFolder = null;
+            EventBus.emit('state-update', { currFolder: null });
+            return this.renderProds(true); // 🛡️ الترقيع: فرض الرسم عند الرجوع التلقائي
         }
-
-        grid.style.setProperty('--layout-cols', currentLayout);
-
-        if(currCatId === null) {
-            bread.innerText = 'الأقسام الرئيسية';
-            act.innerHTML = AdminTemplates.catRootActions(currentLayout);
-            grid.className = 'items-grid cats-grid';
-            
-            const mainCats = (AdminData.data.cats || []).filter(c => !c.parentId || String(c.parentId) === 'null' || String(c.parentId) === '')
-                .sort((a,b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
-            
-            grid.innerHTML = mainCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
-            EventBus.emit('req-init-sortable', { container: grid, type: 'cat' });
+        
+        bread.innerText = parent.name;
+        act.innerHTML = AdminTemplates.catSubActions(currentLayout);
+        
+        const childCats = (AdminData.data.cats || []).filter(c => String(c.parentId) === currCatId)
+            .sort((a, b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
+        const prods = (AdminData.data.prods || []).filter(p => String(p.catId) === currCatId)
+            .sort((a, b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
+        
+        grid.className = 'prod-grid-stack';
+        if (!childCats.length && !prods.length) {
+            grid.innerHTML = AdminTemplates.emptyFolder();
         } else {
-            const parent = AdminData.data.catsMap?.[currCatId]; // ⚡ جلب O(1)
-            if(!parent) { 
-                this.state.currFolder = null; 
-                EventBus.emit('state-update', { currFolder: null }); 
-                return this.renderProds(); 
-            }
+            let catsHtml = childCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
+            let prodsHtml = prods.map((p, i) => {
+                const baseCard = AdminTemplates.prodCard(p, i);
+                const offerBadge = RenderHelpers._getActiveOfferBadge(p.id);
+                return offerBadge ? baseCard.replace('<div class="item-info">', `<div class="item-info">${offerBadge}`) : baseCard;
+            }).join('');
             
-            bread.innerText = parent.name;
-            act.innerHTML = AdminTemplates.catSubActions(currentLayout);
-            
-            const childCats = (AdminData.data.cats || []).filter(c => String(c.parentId) === currCatId)
-                .sort((a,b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
-            const prods = (AdminData.data.prods || []).filter(p => String(p.catId) === currCatId)
-                .sort((a,b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
-
-            grid.className = 'prod-grid-stack';
-            if(!childCats.length && !prods.length) { 
-                grid.innerHTML = AdminTemplates.emptyFolder(); 
-            } else {
-                let catsHtml = childCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
-                let prodsHtml = prods.map((p, i) => {
-                    const baseCard = AdminTemplates.prodCard(p, i);
-                    const offerBadge = RenderHelpers._getActiveOfferBadge(p.id);
-                    return offerBadge ? baseCard.replace('<div class="item-info">', `<div class="item-info">${offerBadge}`) : baseCard;
-                }).join('');
-                grid.innerHTML = AdminTemplates.gridContainer(catsHtml, prodsHtml);
-            }
-            
-            const catCont = grid.querySelector('.cats-grid.sortable-container'); 
-            const prodCont = grid.querySelector('.prods-grid.sortable-container');
-            if(catCont) EventBus.emit('req-init-sortable', { container: catCont, type: 'cat' });
-            if(prodCont) EventBus.emit('req-init-sortable', { container: prodCont, type: 'prod' });
+            grid.innerHTML = AdminTemplates.gridContainer(catsHtml, prodsHtml);
         }
-
-        const syncToggle = document.getElementById('sync-grid-store');
-        if (syncToggle) syncToggle.checked = !!AdminData.data.settings?.syncGridLayout;
-    },
-
-    // =========================================================
+        
+        // 🛡️ الترقيع: ربط الـ Sortable بشكل أكثر دقة
+        requestAnimationFrame(() => {
+            const catCont = grid.querySelector('.cats-grid.sortable-container');
+            const prodCont = grid.querySelector('.prods-grid.sortable-container');
+            if (catCont) EventBus.emit('req-init-sortable', { container: catCont, type: 'cat' });
+            if (prodCont) EventBus.emit('req-init-sortable', { container: prodCont, type: 'prod' });
+        });
+    }
+    
+    const syncToggle = document.getElementById('sync-grid-store');
+    if (syncToggle) syncToggle.checked = !!AdminData.data.settings?.syncGridLayout;
+    
+    // 🛡️ الترقيع: إعادة تفعيل وضع السحب إذا كان مفعلاً مسبقاً وانتقلنا لقسم آخر
+    if (this.state.dragEditMode) {
+        document.querySelectorAll('.item-box,.banner-item').forEach(card => {
+            card.classList.add('drag-enabled');
+        });
+    }
+},    // =========================================================
     // ⚙️ 2. رسم إعدادات شكل حقول المنتج (Mockups)
     // =========================================================
     renderProdConfig: function() {
