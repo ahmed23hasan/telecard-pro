@@ -35,12 +35,12 @@ service cloud.firestore {
         'name', 'firstName', 'lastName', 'fullName', 'username',
         'img', 'phone', 'country', 'theme', 'devicePrints', 
         'passwordChangeHistory', 'adminMessage', 'biometricEnabled',
-        'readAlerts' // ✅ تم إضافته لضمان عمل نظام الإشعارات
+        'readAlerts'
       ];
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
     }
 
-    // 2. تحديث التوثيق (KYC) الآمن (يسمح بتقديم الطلب فقط ولا يسمح بتزوير القبول)
+    // 2. تحديث التوثيق (KYC) الآمن
     function isSecureKycSubmission() {
       let diff = request.resource.data.diff(resource.data);
       let isOnlyKycFields = diff.affectedKeys().hasOnly(['kycStatus', 'kycData', 'fullName']);
@@ -52,18 +52,22 @@ service cloud.firestore {
       return isOnlyKycFields && isSettingToPending && isCurrentlyNotApproved;
     }
 
+    // 🔒 تم التحديث: إضافة درع الحقول المسموحة لمنع الحقن المخفي
     function isSafeUserCreation() {
       let data = request.resource.data;
-      let safeWallet = data.get('walletBalance', 0) == 0;
-      let safeBalance = data.get('balance', 0) == 0;
-      let safeSpent = data.get('totalSpent', 0) == 0;
-      let safeDeposit = data.get('totalDeposit', 0) == 0;
-      let safeTier = data.get('tierId', 'TIER_DEFAULT_INITIAL') == 'TIER_DEFAULT_INITIAL' || data.get('tierId', '') == '';
-      let notAdmin = data.get('role', 'user') != 'admin';
-      let notBanned = data.get('isBanned', false) == false;
-      let notIpBanned = data.get('isIpBanned', false) == false;
+      let safeValues = data.get('walletBalance', 0) == 0 &&
+                       data.get('balance', 0) == 0 &&
+                       data.get('totalSpent', 0) == 0 &&
+                       data.get('totalDeposit', 0) == 0 &&
+                       (data.get('tierId', 'TIER_DEFAULT_INITIAL') == 'TIER_DEFAULT_INITIAL' || data.get('tierId', '') == '') &&
+                       data.get('role', 'user') != 'admin' &&
+                       data.get('isBanned', false) == false &&
+                       data.get('isIpBanned', false) == false;
       
-      return safeWallet && safeBalance && safeSpent && safeDeposit && safeTier && notAdmin && notBanned && notIpBanned;
+      // الدرع الإضافي: إجبار العميل على إرسال هذه الحقول فقط عند إنشاء حسابه
+      let allowedCreationKeys = ['email', 'fullName', 'walletBalance', 'balance', 'totalSpent', 'totalDeposit', 'tierId', 'role', 'isBanned', 'isIpBanned', 'createdAt', 'provider'];
+      
+      return safeValues && data.keys().hasOnly(allowedCreationKeys);
     }
 
     // ==========================================
@@ -71,10 +75,7 @@ service cloud.firestore {
     // ==========================================
     match /telecard_users/{userId} {
       allow read: if (isOwner(userId) && isNotBanned()) || isMasterAdmin();
-      
-      // ✅ تم دمج الدرعين: يسمح بتعديل الملف العادي، أو تقديم KYC بشكل آمن
       allow update: if (isOwner(userId) && isNotBanned() && (isStandardProfileUpdate() || isSecureKycSubmission())) || isMasterAdmin();
-      
       allow create: if isOwner(userId) && isSafeUserCreation();
       allow delete: if isMasterAdmin();
 
@@ -86,26 +87,32 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 🌐 المجموعات العامة (للعرض فقط - Read Only)
+    // 🌐 المجموعات العامة (الكتالوج متاح للجميع 100%)
     // ==========================================
-    function canBrowsePublic() {
-      return !isAuthenticated() || isNotBanned();
+    match /telecard_tiers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_cats/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_settings/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_alerts/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_payments/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_banners/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_rates/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_countries/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_offers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_prods_public/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+
+    // ==========================================
+    // 🎟️ الكوبونات (مغلقة جزئياً لمنع تسريبها)
+    // ==========================================
+    // 🔒 تم التحديث: السماح بقراءة كوبون واحد فقط لمنع سحب جميع الكوبونات المخفية دفعة واحدة
+    match /telecard_coupons/{docId} { 
+      allow get: if true;     // العميل يمكنه فحص الكوبون إذا كان يعرف الـ ID الخاص به
+      allow list: if false;   // يمنع طلب قائمة الكوبونات بأكملها
+      allow write: if isMasterAdmin(); 
     }
 
-    match /telecard_tiers/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
-    match /telecard_cats/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
-    match /telecard_settings/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    match /telecard_alerts/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
-    match /telecard_payments/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
-    match /telecard_banners/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
-    match /telecard_rates/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
-    match /telecard_countries/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
-    match /telecard_offers/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
-    match /telecard_prods_public/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
-    
-    // ⚠️ تنبيه أمني: الكوبونات متاحة للقراءة لكي يعمل المحاكي المالي في الواجهة الأمامية
-    match /telecard_coupons/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
-    
+    // ==========================================
+    // 🔒 المنتجات الإدارية (Server Only)
+    // ==========================================
     match /telecard_prods/{docId} { allow read, write: if isMasterAdmin(); }
 
     // ==========================================
@@ -122,7 +129,7 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 💬 التقييمات وتأكيد التوثيق القديم
+    // 💬 التقييمات والتوثيق 
     // ==========================================
     match /telecard_private_feedbacks/{docId} {
       allow create: if isNotBanned() 

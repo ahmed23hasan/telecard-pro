@@ -5,7 +5,6 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "prodId", "order": "ASCENDING" },
         { "fieldPath": "time", "order": "DESCENDING" }
       ]
     },
@@ -14,14 +13,24 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "time", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "telecard_deposits",
+      "collectionGroup": "telecard_orders",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "prodId", "order": "ASCENDING" },
+        { "fieldPath": "time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "time", "order": "DESCENDING" }
       ]
     },
@@ -40,8 +49,57 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_deposits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_deposits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_deposits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "method", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_kyc",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isBanned", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
     {
@@ -51,25 +109,28 @@
         { "fieldPath": "isActive", "order": "ASCENDING" },
         { "fieldPath": "autoSync", "order": "ASCENDING" }
       ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "telecard_users",
+      "fieldPath": "devicePrints",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "fieldPath": "passwordChangeHistory",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_logs",
+      "fieldPath": "stackTrace",
+      "indexes": []
     },
     {
       "collectionGroup": "telecard_orders",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "price", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "telecard_deposits",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "creditedAmount", "order": "ASCENDING" }
-      ]
+      "fieldPath": "apiResponse",
+      "indexes": []
     }
-  ],
-  "fieldOverrides": []
+  ]
 }

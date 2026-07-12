@@ -53,14 +53,14 @@ service firebase.storage {
     // 🧾 إيصالات الدفع
     // ==========================================
     match /receipts/{fileName} {
-      allow read: if isAuthenticated() && fileName.matches('dep_' + request.auth.uid + '_.*');
+      // 🔒 ترقيع أمني: منع الأسماء العشوائية وإجبار الامتداد ليكون دقيقاً لحماية مسارات التخزين
+      allow read: if isAuthenticated() && fileName.matches('dep_' + request.auth.uid + '_[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$');
       allow create: if isAuthenticated()
-                   && fileName.matches('dep_' + request.auth.uid + '_.*')
+                   && fileName.matches('dep_' + request.auth.uid + '_[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$')
                    && isImageOrPdf()
                    && isValidSize(5);
                    
-      // السماح بالحذف إذا أراد العميل التراجع قبل الاعتماد (اختياري وآمن)
-      allow delete: if isAuthenticated() && fileName.matches('dep_' + request.auth.uid + '_.*');
+      allow delete: if isAuthenticated() && fileName.matches('dep_' + request.auth.uid + '_[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$');
     }
 
     // ==========================================
@@ -68,28 +68,32 @@ service firebase.storage {
     // ==========================================
     match /avatars/{fileName} {
       allow read: if true;
+      
+      // 🔒 ترقيع أمني: إجبار صورة واحدة فقط لكل عميل ليتم الكتابة فوقها (Overwrite)
       allow create, update: if isAuthenticated() 
-                   && fileName.matches('avatar_' + request.auth.uid + '.*')
+                   && fileName.matches('avatar_' + request.auth.uid + '\\.(jpg|jpeg|png|webp)$')
                    && isImage() 
                    && isValidSize(3);
                    
       allow delete: if isAuthenticated() 
-                   && fileName.matches('avatar_' + request.auth.uid + '.*');
+                   && fileName.matches('avatar_' + request.auth.uid + '\\.(jpg|jpeg|png|webp)$');
     }
 
     // ==========================================
-    // 🛡️ التوثيق الأمني KYC
+    // 🛡️ التوثيق الأمني KYC (مضاد للاستنزاف 100%)
     // ==========================================
     match /kyc_docs/{fileName} {
-      allow read: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
+      // 🔒 الترقيع الماسي: يُسمح فقط بملفين اثنين حصراً (document أو selfie)
+      // هذا يغلق ثغرة رفع ملايين الملفات العشوائية لتخريب مساحة التخزين الخاصة بك.
+      allow read: if isAuthenticated() && fileName.matches(request.auth.uid + '_(document|selfie)\\.(jpg|jpeg|png|webp)$');
       
-      allow create: if isAuthenticated() 
-                   && fileName.matches(request.auth.uid + '_.*')
+      // أضفنا `update` لكي يسمح النظام للعميل بالكتابة فوق صورته القديمة إذا تم رفض توثيقه
+      allow create, update: if isAuthenticated() 
+                   && fileName.matches(request.auth.uid + '_(document|selfie)\\.(jpg|jpeg|png|webp)$')
                    && isImage()
                    && isValidSize(8);
                    
-      // ✅ [الترقيع المالي]: السماح للعميل بحذف صوره القديمة عند إعادة تقديم التوثيق لمنع تكدس السحابة بفواتير وهمية
-      allow delete: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
+      allow delete: if isAuthenticated() && fileName.matches(request.auth.uid + '_(document|selfie)\\.(jpg|jpeg|png|webp)$');
     }
 
     // ==========================================
