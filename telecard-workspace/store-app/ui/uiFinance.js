@@ -1546,9 +1546,10 @@ export const UIFinance = {
                     </div>
                 </div>
 
-$ { replyHtml }
-</div>
-`;        }        
+                ${replyHtml}
+            </div>
+            `;
+        }        
         if (content) {
             content.innerHTML = html;
         }

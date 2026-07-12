@@ -1035,6 +1035,10 @@ export const UICore = {
     });
 },
     showAdvancedPopup: function(alertObj, remainingQueue) {
+        // 🛡️ [تنظيف الـ DOM]: مسح أي نافذة سابقة لمنع التكدس وتسرب الذاكرة
+        const existingModal = document.getElementById('advanced-alert-modal');
+        if (existingModal) existingModal.remove();
+
         const title = alertObj.title || 'إشعار هام';
         const message = alertObj.message || '';
         const escapeHtml = Utils.escapeHtml;
@@ -1089,11 +1093,14 @@ export const UICore = {
             modal.style.transition = '0.3s ease'; modal.style.opacity = '0'; modal.style.transform = 'scale(0.9)';
             if (DataManager.markSingleNotificationRead) DataManager.markSingleNotificationRead(alertObj.id, true, alertObj.maxViews);
             this.updateNotifBadges();
-            setTimeout(() => { modal.remove(); if (remainingQueue.length > 0) { setTimeout(() => this.showAdvancedPopup(remainingQueue[0], remainingQueue.slice(1)), 500); } }, 300);
+            setTimeout(() => { 
+                modal.remove(); 
+                if (remainingQueue.length > 0) { 
+                    setTimeout(() => this.showAdvancedPopup(remainingQueue[0], remainingQueue.slice(1)), 500); 
+                } 
+            }, 300);
         });
-    },
-
-    openNotifCenter: function() {
+    },  openNotifCenter: function() {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض إشعاراتك', 'error');
             getSys().sfx?.('error');
@@ -1179,64 +1186,33 @@ markAllNotificationsRead: async function() {
     },
 
      showToast: function(msg, type = 'info') {
-    // 🚀 [إصلاح ذكاء الإشعارات]: فلترة الكلمات بأولوية صارمة لمنع تلوين الحذف بالأخضر
-    if (type === 'info') {
-        if (msg.includes('فشل') || msg.includes('خطأ') || msg.includes('عذراً') || msg.includes('تنبيه') || msg.includes('كاف') || msg.includes('تجاوزت') || msg.includes('نفد')) {
-            type = 'error';
-        } else if (msg.includes('مراجعة') || msg.includes('انتظار') || msg.includes('قيد')) {
-            type = 'warning'; 
-        } else if (msg.includes('إزالة') || msg.includes('حذف') || msg.includes('إلغاء') || msg.includes('إيقاف') || msg.includes('مسح')) {
-            type = 'info'; // 🛡️ الأولوية هنا: أي جملة فيها إلغاء أو حذف تبقى بلون حيادي
-        } else if (msg.includes('تم') || msg.includes('نجاح') || msg.includes('شكراً') || msg.includes('أضيف')) {
-            type = 'success';
+        if (type === 'info') {
+            if (msg.includes('فشل') || msg.includes('خطأ') || msg.includes('عذراً') || msg.includes('كاف') || msg.includes('نفد')) type = 'error';
+            else if (msg.includes('مراجعة') || msg.includes('انتظار') || msg.includes('قيد')) type = 'warning'; 
+            else if (msg.includes('إزالة') || msg.includes('حذف') || msg.includes('إلغاء')) type = 'info'; 
+            else if (msg.includes('تم') || msg.includes('نجاح') || msg.includes('شكراً')) type = 'success';
         }
-    }
 
-    const oldToast = document.getElementById('toast-warning');
-    if (oldToast) oldToast.style.display = 'none';
-
-    const notifEl = document.getElementById('custom-notification');
-    
-    if (notifEl) {
-        notifEl.classList.remove('active', 'success', 'error', 'info', 'warning'); 
-        clearTimeout(this.notifTimer);
-        void notifEl.offsetWidth; 
-
-        setTimeout(() => {
-            const icon = notifEl.querySelector('.notif-icon');
-            const title = notifEl.querySelector('.notif-title');
-            const message = notifEl.querySelector('.notif-msg');
-            
-            if (message) message.textContent = msg; 
-            if (title) {
-                if (type === 'error') title.textContent = 'خطأ';
-                else if (type === 'warning') title.textContent = 'تنبيه'; 
-                else if (type === 'success') title.textContent = 'نجاح';
-                else title.textContent = 'معلومة';
-            }
-            
-            notifEl.classList.add(type);
-            
-            if (icon) { 
-                if (type === 'error') icon.className = 'notif-icon fa-solid fa-circle-xmark';
-                else if (type === 'warning') icon.className = 'notif-icon fa-solid fa-triangle-exclamation'; 
-                else if (type === 'success') icon.className = 'notif-icon fa-solid fa-circle-check';
-                else icon.className = 'notif-icon fa-solid fa-circle-info';
-            }
-            
-            notifEl.classList.add('active');
-            getSys().sfx?.(type === 'error' ? 'error' : 'success');
-            
-            this.notifTimer = setTimeout(() => { notifEl.classList.remove('active'); }, 3000);
-        }, 10);
-    } else {
         let container = document.querySelector('.custom-toast-container');
         if (!container) {
             container = document.createElement('div');
             container.className = 'custom-toast-container';
             document.body.appendChild(container);
         } else {
-            // 🚀 [إصلاح التكدس الذكي]: السماح بتراكم 3 إشعارات كحد أقصى، وإزالة الأقدم بلطف
+            // 🛡️ [تحديث مانع التكرار Spam Preventer]: 
+            // إذا كان آخر إشعار معروض يحمل نفس النص بالضبط، لا تكرره، فقط قم بعمل اهتزاز له!
+            const lastToast = container.lastElementChild;
+            if (lastToast) {
+                const lastMsgEl = lastToast.querySelector('.toast-msg');
+                if (lastMsgEl && lastMsgEl.innerText === Utils.escapeHtml(msg)) {
+                    lastToast.style.animation = 'none';
+                    void lastToast.offsetWidth; // إعادة تنشيط الـ DOM
+                    lastToast.style.animation = 'shake-anim 0.3s ease-in-out'; // اهتزاز خفيف للفت الانتباه
+                    return; // توقف هنا ولا تنشئ إشعاراً جديداً
+                }
+            }
+
+            // السماح بتراكم 3 إشعارات (مختلفة) فقط
             if (container.children.length >= 3) {
                 container.firstChild.style.animation = 'toastOutTop 0.2s forwards';
                 setTimeout(() => { if (container.firstChild) container.firstChild.remove(); }, 200);
@@ -1246,19 +1222,12 @@ markAllNotificationsRead: async function() {
         const toast = document.createElement('div');
         toast.className = `custom-toast toast-${type}`;
         
-        let iconClass = 'fa-circle-info';
-        let titleText = 'معلومة';
+        let iconClass = 'fa-circle-info', titleText = 'معلومة';
         if (type === 'success') { iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
         if (type === 'error') { iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
         if (type === 'warning') { iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } 
 
-        toast.innerHTML = `
-            <i class="fa-solid ${iconClass}"></i>
-            <div class="toast-content">
-                <span class="toast-title">${titleText}</span>
-                <span class="toast-msg">${Utils.escapeHtml(msg)}</span>
-            </div>
-        `;
+        toast.innerHTML = `<i class="fa-solid ${iconClass}"></i><div class="toast-content"><span class="toast-title">${titleText}</span><span class="toast-msg">${Utils.escapeHtml(msg)}</span></div>`;
         
         container.appendChild(toast);
         getSys().sfx?.(type === 'error' ? 'error' : 'success');
@@ -1269,8 +1238,7 @@ markAllNotificationsRead: async function() {
                 setTimeout(() => toast.remove(), 400);
             }
         }, 3000);
-    }
-},
+    },
        sfx: function(type) {
         if(DataManager.prefs && DataManager.prefs.sound === false) return; 
         
@@ -2132,45 +2100,44 @@ toggleFavoriteFromModal: function() {
     },
     
     submitPrivateFeedback: async function() {
-        const feedbackInput = document.getElementById('ratingFeedbackInput');
-        // إزالة أي وسوم HTML أو أقواس خبيثة قبل الإرسال للإدارة
-const rawFeedback = feedbackInput ? feedbackInput.value.trim() : '';
-const feedback = rawFeedback.replace(/[<>"{}[\]\\]/g, '');
+    const feedbackInput = document.getElementById('ratingFeedbackInput');
+    // 🛡️ [تحديث UX]: نكتفي بتنظيف الفراغات فقط. Firebase يعالج حقن قواعد البيانات تلقائياً.
+    // الحماية الحقيقية من XSS ستكون وقت العرض في لوحة الإدارة باستخدام escapeHtml.
+    const feedback = feedbackInput ? feedbackInput.value.trim() : '';
+    
+    if (!feedback) {
+        getSys().showToast?.("يرجى كتابة تفاصيل مقترحك أو شكواك لمساعدتنا على خدمتك", "warning");
+        return;
+    }
+    
+    const btn = document.getElementById('btnSubmitFeedback');
+    btn.textContent = "جاري الإرسال...";
+    btn.disabled = true;
+    
+    try {
+        const uid = DataManager.user?.id || localStorage.getItem('telecard_active_user_uid') || 'guest';
+        const username = DataManager.user?.username || 'ضيف';
         
-        if (!feedback) {
-            getSys().showToast?.("يرجى كتابة تفاصيل مقترحك أو شكواك لمساعدتنا على خدمتك", "warning");
-            return;
-        }
+        await StoreDB.add(DB_KEYS.FEEDBACKS, {
+            userId: uid,
+            username: username,
+            rating: this._currentRating || 0,
+            feedback: feedback,
+            time: Date.now()
+        });
         
-        const btn = document.getElementById('btnSubmitFeedback');
-        btn.textContent = "جاري الإرسال...";
-        btn.disabled = true;
+        getSys().toggleLoader?.(false);
+        getSys().closeModal?.('rating');
+        getSys().showToast?.("نشكرك جداً على مقترحك الصادق! تم إرساله للإدارة لمراجعته وحل مشكلتك فوراً.", "success");
+        getSys().sfx?.('success');
         
-        try {
-            const uid = DataManager.user?.id || localStorage.getItem('telecard_active_user_uid') || 'guest';
-            const username = DataManager.user?.username || 'ضيف';
-            
-            await StoreDB.add(DB_KEYS.FEEDBACKS, {
-                userId: uid,
-                username: username,
-                rating: this._currentRating || 0,
-                feedback: feedback,
-                time: Date.now()
-            });
-            
-            getSys().toggleLoader?.(false);
-            getSys().closeModal?.('rating');
-            getSys().showToast?.("نشكرك جداً على مقترحك الصادق! تم إرساله للإدارة لمراجعته وحل مشكلتك فوراً.", "success");
-            getSys().sfx?.('success');
-            
-        } catch (error) {
-            btn.textContent = "إرسال للإدارة";
-            btn.disabled = false;
-            console.error("Feedback Submission Error:", error);
-            getSys().showToast?.("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
-        }
-    },    
-
+    } catch (error) {
+        btn.textContent = "إرسال للإدارة";
+        btn.disabled = false;
+        console.error("Feedback Submission Error:", error);
+        getSys().showToast?.("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
+    }
+},
     openAboutModal: function() {
         this.closeSidebar(); 
         

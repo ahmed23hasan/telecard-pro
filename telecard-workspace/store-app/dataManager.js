@@ -582,20 +582,29 @@ export const DataManager = {
     },
 
     _currentPurchaseKey: null,
+    _currentPurchaseKey: null,
     confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
+        // 🛡️ منع الشراء في وضع الأوفلاين
+        if (LiveStoreData.isOfflineMode) {
+            return { success: false, msg: 'أنت تتصفح في وضع عدم الاتصال، يرجى استعادة الشبكة.' };
+        }
+        
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
         
         this._currentPurchaseKey = this._currentPurchaseKey || this.generateIdempotencyKey();
         
         try {
             const req = {
-                productId: String(prod.id), qty: Number(qty) || 1, optIdx: optIdx ?? null,
-                finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null,
+                productId: String(prod.id),
+                qty: Number(qty) || 1,
+                optIdx: optIdx ?? null,
+                finalInputStr: finalInputStr || '---',
+                couponCode: appliedCoupon?.code || null,
                 idempotencyKey: this._currentPurchaseKey
             };
             const res = await StoreDB.callFunction('createOrder', req);
             
-            this._currentPurchaseKey = null; 
+            this._currentPurchaseKey = null;
             return { success: true, msg: res.message || 'تم إتمام الطلب', isAutoDelivered: res.isAutoDelivered, deliveredCodeText: res.deliveredCode };
             
         } catch (err) {
@@ -614,9 +623,7 @@ export const DataManager = {
             
             return { success: false, msg: 'حدث خطأ بالشبكة، يرجى التحقق من طلباتك قبل إعادة المحاولة.' };
         }
-    },
-
-    calculateDepositFee: function(amount, paymentMethod, payCurr) {
+    },    calculateDepositFee: function(amount, paymentMethod, payCurr) {
         if (!paymentMethod || amount <= 0) return { isValid: false, msg: 'بيانات غير صالحة', netBase: 0, feePct: 0, feeType: 'fee', feeUnit: 'percent' };
         
         const curr = (payCurr || '').toUpperCase();

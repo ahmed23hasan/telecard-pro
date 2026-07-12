@@ -221,37 +221,39 @@ export const FirebaseAdapter = {
     },
 
     // ☁️ 11. محرك رفع الصور والملفات المطور (توفير الذاكرة RAM)
-    async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
-        if (!file) return '';
-        try {
-            if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
-                try {
-                    const oldImageRef = ref(storage, oldImageUrl);
-                    deleteObject(oldImageRef).catch(()=>{});
-                } catch (delErr) { }
-            }
-
-            const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'image.jpg';
-            const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
-            const storageRef = ref(storage, `${folderName}/${finalFileName}`);
-            
-            // 🛡️ التعديل: رفع الملف مباشرة دون تفكيكه لتوفير الذاكرة العشوائية للأدمن
-            const snapshot = await this._withTimeout(
-                uploadBytes(storageRef, file, { contentType: file.type }), 
-                20000, 
-                "عملية رفع الملف"
-            );
-
-            const downloadURL = await getDownloadURL(snapshot.ref);
-            return downloadURL;
-
-        } catch (error) {
-            console.error("🚨 خطأ في محرك التخزين السحابي:", error);
-            throw new Error(error.message || 'تعذر الرفع، السيرفر لم يستجب.');
+    // ☁️ 11. محرك رفع الصور والملفات المطور (توفير الذاكرة RAM ومحصن بالكامل)
+async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
+    if (!file) return '';
+    try {
+        // 🛡️ [حماية أمنية]: تعقيم اسم المجلد لمنع اختراق مسارات التخزين السحابي (Path Traversal)
+        const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general';
+        
+        if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
+            try {
+                const oldImageRef = ref(storage, oldImageUrl);
+                await deleteObject(oldImageRef);
+            } catch (delErr) { console.warn("Old image cleanup failed:", delErr); }
         }
-    },
-
-    // 🧹 12. دالة الحذف المباشر للصور
+        
+        const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'image.jpg';
+        const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
+        const storageRef = ref(storage, `${safeFolder}/${finalFileName}`);
+        
+        // 🛡️ التعديل: رفع الملف مباشرة وإعطائه 60 ثانية (بدلاً من 20) لأن الأدمن قد يرفع بنرات ثقيلة
+        const snapshot = await this._withTimeout(
+            uploadBytes(storageRef, file, { contentType: file.type }),
+            60000,
+            "عملية رفع الملف"
+        );
+        
+        const downloadURL = await getDownloadURL(snapshot.ref);
+        return downloadURL;
+        
+    } catch (error) {
+        console.error("🚨 خطأ في محرك التخزين السحابي:", error);
+        throw new Error(error.message || 'تعذر الرفع، السيرفر لم يستجب.');
+    }
+},    // 🧹 12. دالة الحذف المباشر للصور
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
         try {

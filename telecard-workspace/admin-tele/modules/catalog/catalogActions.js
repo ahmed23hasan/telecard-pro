@@ -72,7 +72,8 @@ export const CatalogActions = {
   'tree-child-check': (data) => AdminUI?.CatalogUI?.handleTreeChildCheck?.(data.element),
   'toggle-all-tree': (data) => AdminUI?.CatalogUI?.toggleAllTree?.(data.target),
   'detect-country': (data) => AdminUI?.detectCountryAutoFill?.(data.val, AdminData.data.countries),
-  
+  // 🛡️ [مسار مفقود]: التقاط حدث حفظ الترتيب من الواجهة وإرساله للمتحكم
+'save-order': (data) => CatalogController.saveNewOrder?.(data.orderArray),
   // ==========================================
   // 🏦 6. إدارة الأكواد التالفة (Defective Vault)
   // ==========================================

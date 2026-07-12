@@ -1,19 +1,19 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - النسخة الصارمة V11.2 🛡️
+// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - النسخة الصارمة V11.5 🛡️
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، ومنع التلاعب بالمدخلات
-// 🚀 التحديث الأقصى: تطبيق مبدأ (Fail-Fast) لرفض الأرقام الفلكية فوراً بدلاً من تعديلها
+// 🚀 التحديث الأقصى: تطبيق مبدأ (Fail-Fast)، إضافة دالة القسمة الآمنة
 // ============================================================================
 
 const FinancialEngineDef = {
-
+    
     // 🛡️ 1. ثوابت النظام المحمية
     CONFIG: {
         BASE_CURRENCY: 'USD',
-        MAX_QTY_LIMIT: 1000,     // 🛡️ أقصى كمية مسموحة للطلب الواحد لمنع الهجمات
-        MAX_PRICE_LIMIT: 10000,  // 🛡️ أقصى سعر مسموح للقطعة الواحدة (10 آلاف دولار)
-        PRECISION: 10000         // دقة 4 خانات عشرية لمنع أخطاء Float
+        MAX_QTY_LIMIT: 10000, // 🛡️ [تحديث]: مطابق لواجهة المستخدم (10000) لمنع تعارض الرفض
+        MAX_PRICE_LIMIT: 10000,
+        PRECISION: 10000
     },
-
+    
     // 🛡️ 2. دوال الرياضيات السيادية (تمنع أخطاء JavaScript الحسابية)
     safeAdd: function(a, b) {
         return Math.round((Number(a) || 0) * this.CONFIG.PRECISION + (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
@@ -22,12 +22,18 @@ const FinancialEngineDef = {
         return Math.round((Number(a) || 0) * this.CONFIG.PRECISION - (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
     safeMul: function(a, b) {
-    // تحويل الأرقام إلى أعداد صحيحة تماماً قبل الضرب لمنع أي تسرب للكسور الوهمية
-    const valA = Math.round((Number(a) || 0) * this.CONFIG.PRECISION);
-    const valB = Math.round((Number(b) || 0) * this.CONFIG.PRECISION);
-    // 🛡️ [الترقيع]: إضافة Math.round هنا للنتيجة النهائية لقتل أي كسور متسربة
-    return Math.round((valA * valB) / this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
-},
+        const valA = Math.round((Number(a) || 0) * this.CONFIG.PRECISION);
+        const valB = Math.round((Number(b) || 0) * this.CONFIG.PRECISION);
+        return Math.round((valA * valB) / this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
+    },
+    // ✅ [الترقيع الأول]: إضافة دالة القسمة لمنع انهيار السيرفر
+    safeDiv: function(a, b) {
+        const numA = Number(a) || 0;
+        let numB = Number(b);
+        if (isNaN(numB) || numB === 0) numB = 1;
+        return Math.round((numA / numB) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
+    },
+    
     // 🛡️ 3. معقم الأرقام الصارم (Strict Sanitizer)
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '') return 0;
@@ -36,15 +42,12 @@ const FinancialEngineDef = {
         if (!allowZero && num === 0) return 1;
         return num;
     },
-
-    // 🛡️ 4. إدارة أسعار الصرف بـ O(1) مع حماية العملة الأم
+    
+    // 🛡️ 4. إدارة أسعار الصرف
     normalizeRates: function(rawArray) {
         const ratesMap = {};
+        ratesMap[this.CONFIG.BASE_CURRENCY] = { code: this.CONFIG.BASE_CURRENCY, priceRate: 1, depRate: 1, isBase: true };
         
-        ratesMap[this.CONFIG.BASE_CURRENCY] = { 
-            code: this.CONFIG.BASE_CURRENCY, priceRate: 1, depRate: 1, isBase: true 
-        };
-
         if (Array.isArray(rawArray)) {
             for (const rate of rawArray) {
                 if (rate && rate.code && rate.code !== this.CONFIG.BASE_CURRENCY) {
@@ -59,60 +62,52 @@ const FinancialEngineDef = {
         }
         return ratesMap;
     },
-
+    
     convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel = 'pricing') {
         const amt = this.extractNum(amount);
         const fCode = String(fromCode || this.CONFIG.BASE_CURRENCY).toUpperCase();
         const tCode = String(toCode || this.CONFIG.BASE_CURRENCY).toUpperCase();
-
+        
         if (amt === 0 || fCode === tCode) return amt;
-
+        
         const ratesMap = this.normalizeRates(ratesArray);
         const from = ratesMap[fCode] || { priceRate: 1, depRate: 1 };
         const to = ratesMap[tCode] || { priceRate: 1, depRate: 1 };
-
+        
         const fRate = channel === 'deposit' ? from.depRate : from.priceRate;
         const tRate = channel === 'deposit' ? to.depRate : to.priceRate;
-
+        
         return this.safeMul(this.safeDiv(amt, fRate), tRate);
     },
-
+    
     // 🛡️ 5. المحرك الرئيسي لحساب سعر المنتج
     calculatePrice: function(params = {}) {
         const { product, tier, offer, coupon, optIdx } = params;
-
+        
         if (!product) throw new Error("FinancialEngine: Missing Product Data");
-
-        // [أ] استخراج التكلفة الأساسية 
+        
         let cost = this.extractNum(product.costPrice || product.cost_price || 0);
         let isFixed = (String(product.isFixedPrice).toLowerCase() === 'true');
         let activeOption = null;
-
+        
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null) {
             activeOption = product.options[optIdx];
             if (activeOption) {
                 cost = this.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
-                if (activeOption.isFixedPrice !== undefined) {
-                    isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
-                }
+                if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
             }
         }
-
-        // 🚨 [الرفض الصارم]: إذا كانت التكلفة فلكية، ارفض العملية بالكامل!
+        
         if (cost > this.CONFIG.MAX_PRICE_LIMIT) {
             throw new Error(`[SECURITY] Cost price exceeds system limits (${this.CONFIG.MAX_PRICE_LIMIT}). Operation aborted.`);
         }
-
-        // [ب] تحديد السعر الأساسي قبل الخصومات 
+        
         let baseSellingPrice = 0;
-
+        
         if (isFixed) {
-            baseSellingPrice = activeOption ? 
-                this.extractNum(activeOption.fixedPriceUsd || activeOption.price) : 
-                this.extractNum(product.fixedPriceUsd || product.fixed_price_usd);
+            baseSellingPrice = activeOption ? this.extractNum(activeOption.fixedPriceUsd || activeOption.price) : this.extractNum(product.fixedPriceUsd || product.fixed_price_usd);
         } else if (tier && typeof tier === 'object') {
             const tierPriceField = activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id];
-            
             if (tierPriceField) {
                 baseSellingPrice = this.extractNum(tierPriceField);
             } else {
@@ -127,75 +122,63 @@ const FinancialEngineDef = {
         } else {
             baseSellingPrice = this.extractNum(activeOption?.price || product.price);
         }
-
-        // 🚨 [الرفض الصارم]: إذا كان السعر فلكياً، ارفض العملية بالكامل!
+        
         if (baseSellingPrice > this.CONFIG.MAX_PRICE_LIMIT) {
             throw new Error(`[SECURITY] Selling price exceeds system limits (${this.CONFIG.MAX_PRICE_LIMIT}). Operation aborted.`);
         }
-
-        // [ج] معالجة الخصومات والجدار الناري
+        
         const originalPrice = baseSellingPrice;
         let currentPrice = originalPrice;
         
         let offerDiscount = 0;
         if (offer && offer.type !== 'fake' && offer.isActive !== false) {
             const offerVal = this.extractNum(offer.value);
-            offerDiscount = offer.type === 'percentage' ? 
-                this.safeMul(originalPrice, offerVal / 100) : offerVal;
+            offerDiscount = offer.type === 'percentage' ? this.safeMul(originalPrice, offerVal / 100) : offerVal;
         }
-
+        
         let couponDiscount = 0;
         const canUseCoupon = !isFixed && product.disableCoupons !== true;
         if (canUseCoupon && coupon && coupon.isActive !== false) {
             const coupVal = this.extractNum(coupon.value);
-            couponDiscount = coupon.type === 'percentage' ? 
-                this.safeMul(originalPrice, coupVal / 100) : coupVal;
+            // ✅ [الترقيع الثاني]: حساب الكوبون من السعر الأصلي وليس الحالي (تطابق تام مع الواجهة الأمامية)
+            couponDiscount = coupon.type === 'percentage' ? this.safeMul(originalPrice, coupVal / 100) : coupVal;
         }
-
-        currentPrice = this.safeSub(currentPrice, this.safeAdd(offerDiscount, couponDiscount));
-
-        // 🛡️ تفعيل الجدار الناري (Firewall)
+        
+        currentPrice = Math.max(0, this.safeSub(currentPrice, this.safeAdd(offerDiscount, couponDiscount)));
+        
+        // 🛡️ الجدار الناري (Firewall) المبسط والمحاسبي
         let isFirewallViolated = false;
         if (currentPrice < cost) {
             isFirewallViolated = true;
-            currentPrice = cost; 
-            
-            const maxAllowedDiscount = Math.max(0, this.safeSub(originalPrice, cost));
-            const totalRequestedDiscount = this.safeAdd(offerDiscount, couponDiscount);
-            
-            if (totalRequestedDiscount > maxAllowedDiscount && totalRequestedDiscount > 0) {
-                const ratio = this.safeDiv(maxAllowedDiscount, totalRequestedDiscount);
-                offerDiscount = this.safeMul(offerDiscount, ratio);
-                couponDiscount = this.safeMul(couponDiscount, ratio);
-            }
+            currentPrice = cost; // منع البيع بالخسارة فوراً دون تشويه قيم الكوبونات في الفاتورة
         }
-
+        
         const profit = Math.max(0, this.safeSub(currentPrice, cost));
         const marginPct = cost > 0 ? (profit / cost) * 100 : 0;
-
+        
         return {
             cost,
             originalPrice,
             finalPrice: currentPrice,
             offerDiscount,
             couponDiscount,
-            totalDiscount: this.safeAdd(offerDiscount, couponDiscount),
+            // ✅ الخصم الفعلي هو (السعر الأصلي - ما سيدفعه العميل حقاً)
+            totalDiscount: this.safeSub(originalPrice, currentPrice),
             profit,
             marginPct: Number(marginPct.toFixed(2)),
             isFirewallViolated,
             tierName: tier?.name || (isFixed ? 'Fixed' : 'Standard')
         };
     },
-
-    // 🛡️ 6. حساب إجمالي الطلب مع حماية الكمية (Strict Reject)
+    
+    // 🛡️ 6. حساب إجمالي الطلب مع حماية الكمية
     calculateOrderTotal: function(params, rawQty) {
         let qty = Math.floor(Number(rawQty) || 1);
         
-        // 🚨 [الرفض الصارم]: إذا كانت الكمية فلكية أو صفرية/سالبة، ارفض العملية بالكامل!
         if (qty <= 0 || qty > this.CONFIG.MAX_QTY_LIMIT) {
             throw new Error(`[SECURITY] Invalid quantity (${qty}). Exceeds limit or is negative. Operation aborted.`);
         }
-
+        
         const unit = this.calculatePrice(params);
         
         return {

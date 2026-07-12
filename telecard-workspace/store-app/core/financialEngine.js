@@ -144,21 +144,24 @@ export const FinancialEngine = Object.freeze({
             offerDiscount,
             couponCode,
             couponDiscount,
-            totalDiscountVal: this.safeAdd(offerDiscount, couponDiscount),
+            // 🛡️ [تعديل محاسبي]: الخصم الفعلي هو الفارق بين السعر الأصلي وما سيدفعه العميل حقاً
+totalDiscountVal: this.safeSub(originalPrice, currentPrice),
             isFirewallActive
         };
     },
     
     calculateOrderTotalUi: function(params = {}, rawQty = 1) {
-        const safeQty = Math.max(1, Math.floor(this.extractNum(rawQty) || 1));
-        const unitMath = this.calculatePrice(params);
-        
-        return {
-            ...unitMath,
-            qty: safeQty,
-            totalOriginalPrice: this.safeMul(unitMath.originalPrice, safeQty),
-            totalFinalPrice: this.safeMul(unitMath.finalPrice, safeQty),
-            totalDiscountVal: this.safeMul(unitMath.totalDiscountVal, safeQty)
-        };
-    }
+    // 🛡️ [الترقيع الماسي]: تحديد الكمية بين 1 و 10,000 كحد أقصى 
+    // لحماية المتصفح من التجميد ومنع إرسال أرقام فلكية تسبب انهيار الحسابات
+    const safeQty = Math.min(10000, Math.max(1, Math.floor(this.extractNum(rawQty) || 1)));
+    const unitMath = this.calculatePrice(params);
+    
+    return {
+        ...unitMath,
+        qty: safeQty,
+        totalOriginalPrice: this.safeMul(unitMath.originalPrice, safeQty),
+        totalFinalPrice: this.safeMul(unitMath.finalPrice, safeQty),
+        totalDiscountVal: this.safeMul(unitMath.totalDiscountVal, safeQty)
+    };
+}
 });

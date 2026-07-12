@@ -1,7 +1,7 @@
 // ============================================================================
-// ⚙️ خريطة مسارات النظام (System Actions Router) - 💎 Pure Edition
+// ⚙️ خريطة مسارات النظام (System Actions Router) - 💎 Pure Edition V2.0
 // 🎯 الوظيفة: الأحداث المشتركة، النوافذ، الملاحة، التقويم، وإعدادات النظام العامة
-// 🌟 التحديث الأقصى: تطبيق معايير (SOLID) بإزالة الارتباط الدائري (Decoupling) تماماً
+// 🌟 التحديث الأقصى: إضافة مسار العودة (go-back) لربط الأسهم الميتة بالمحرك
 // ============================================================================
 
 import { AdminUI, AdminCalendar } from '../adminUI.js';
@@ -9,13 +9,15 @@ import { AdminRender } from '../adminRender.js';
 import { EventBus } from '../adminUtils.js';
 import { BackupSystem } from './backupService.js';
 
-// 🚀 [نقاء هندسي]: تم حذف جميع استيرادات المتحكمات (Controllers) لفك الارتباط نهائياً
-
 export const SystemActions = {
     // --- 1. النظام الأساسي والملاحة ---
     'logout': () => EventBus.emit('req-logout'),
     'nav': (data) => EventBus.emit('req-navigate', { page: data.target, btnEl: data.element }),
     'nav-with-filter': (data) => EventBus.emit('req-navigate-filter', { section: data.section, status: data.status }),
+    
+    // 🛡️ [الترقيع الماسي]: تفعيل مسار العودة المفقود لتعمل أسهم الرجوع في واجهة الأدمن
+    'go-back': () => EventBus.emit('req-go-back'),
+    
     'toggle-sidebar': () => AdminUI?.toggleSidebar?.(),
     'toggle-theme': () => AdminUI?.toggleTheme?.(),
     'refresh': (data) => EventBus.emit('req-refresh', { type: data.type || data.target }),
@@ -31,12 +33,14 @@ export const SystemActions = {
     'select-term-icon': (data) => AdminUI?.selectTermIconUI?.(data.element, data.val),
     'save-admin-profile': () => EventBus.emit('req-save-admin-profile'),
     
-    // 💎 النسخة النقية: تطلق الحدث فقط دون استدعاء MarketingController
     'auto-save-settings': () => EventBus.emit('req-auto-save-settings'),
     
     // --- 3. النوافذ المشتركة ---
     'open-modal': (data) => AdminUI?.openModal?.(data.target),
-    'close-modal': () => AdminUI?.closeModal?.(),
+    
+    // 🛡️ [تحسين]: السماح بإغلاق نافذة محددة (بالـ ID) بدلاً من الإغلاق العشوائي
+    'close-modal': (data) => AdminUI?.closeModal?.(data.target || data.id || null),
+    
     'close-drawer': (data) => {
         if (data.type === 'deposit') AdminUI?.closeDepositDrawer?.();
         else AdminUI?.closeOrderDrawer?.();
@@ -50,7 +54,6 @@ export const SystemActions = {
     },
     
     // --- 4. الموجه الديناميكي (Dynamic Editors) ---
-    // 💎 النسخة النقية: تطلق الحدث فقط دون الحاجة لمعرفة تفاصيل المتحكمات
     'edit-item': (data) => EventBus.emit('req-edit-item', { type: data.type, id: data.id }),
     
     'delete-item': async (data) => {

@@ -11,9 +11,8 @@ service firebase.storage {
 
     function isMasterAdmin() {
       return isAuthenticated() && (
-        request.auth.token.admin == true || 
-        request.auth.token.email == 'admin@telecard.pro' || 
-        request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2'
+        request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2' || 
+        ('admin' in request.auth.token && request.auth.token.admin == true)
       );
     }
 
@@ -22,16 +21,21 @@ service firebase.storage {
     }
 
     // ==========================================
-    // 🛡️ دوال حماية البيانات (تأكدنا من وجود resource لمنع أخطاء الحذف)
+    // 🛡️ دوال حماية البيانات (مضادة للتحايل Spoofing-Proof)
     // ==========================================
+    
+    // فحص المحتوى + الامتداد الحقيقي للملف (يمنع رفع فايروسات بصيغة صور)
     function isImage() {
-      return request.resource != null && request.resource.contentType.matches('image/.*');
+      return request.resource != null 
+             && request.resource.contentType.matches('image/.*')
+             && request.resource.name.matches('.*\\.(jpg|jpeg|png|webp)$'); // منع SVG (يحتوي ثغرات XSS) و GIF
     }
 
     function isImageOrPdf() {
       return request.resource != null && (
-             request.resource.contentType.matches('image/.*') || 
-             request.resource.contentType == 'application/pdf');
+             (request.resource.contentType.matches('image/.*') && request.resource.name.matches('.*\\.(jpg|jpeg|png|webp)$')) || 
+             (request.resource.contentType == 'application/pdf' && request.resource.name.matches('.*\\.pdf$'))
+      );
     }
 
     function isValidSize(maxSizeMB) {
@@ -45,22 +49,25 @@ service firebase.storage {
       allow read, write: if isMasterAdmin();
     }
 
-// ==========================================
-// 🧾 إيصالات الدفع (Create-Only لمنع التلاعب)
-// ==========================================
-match /receipts/{fileName} {
-allow read: if isAuthenticated() && fileName.matches('dep_' + request.auth.uid + '_.*');
-allow create: if isAuthenticated()
-&& fileName.matches('dep_' + request.auth.uid + '_.*')
-&& isImageOrPdf()
-&& isValidSize(5);
-}
+    // ==========================================
+    // 🧾 إيصالات الدفع
+    // ==========================================
+    match /receipts/{fileName} {
+      allow read: if isAuthenticated() && fileName.matches('dep_' + request.auth.uid + '_.*');
+      allow create: if isAuthenticated()
+                   && fileName.matches('dep_' + request.auth.uid + '_.*')
+                   && isImageOrPdf()
+                   && isValidSize(5);
+                   
+      // السماح بالحذف إذا أراد العميل التراجع قبل الاعتماد (اختياري وآمن)
+      allow delete: if isAuthenticated() && fileName.matches('dep_' + request.auth.uid + '_.*');
+    }
+
     // ==========================================
     // 👤 الصور الشخصية للعملاء
     // ==========================================
     match /avatars/{fileName} {
       allow read: if true;
-      // 🛡️ [ترقيع أمني]: فصلنا الإنشاء والتحديث عن الحذف لمنع انهيار الكود
       allow create, update: if isAuthenticated() 
                    && fileName.matches('avatar_' + request.auth.uid + '.*')
                    && isImage() 
@@ -71,19 +78,22 @@ allow create: if isAuthenticated()
     }
 
     // ==========================================
-    // 🛡️ التوثيق الأمني KYC (Create-Only)
+    // 🛡️ التوثيق الأمني KYC
     // ==========================================
     match /kyc_docs/{fileName} {
       allow read: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
-      // 🛡️ [ترقيع أمني]: يسمح برفع الهوية مرة واحدة لمنع التلاعب بعد تقديم الطلب
+      
       allow create: if isAuthenticated() 
                    && fileName.matches(request.auth.uid + '_.*')
                    && isImage()
                    && isValidSize(8);
+                   
+      // ✅ [الترقيع المالي]: السماح للعميل بحذف صوره القديمة عند إعادة تقديم التوثيق لمنع تكدس السحابة بفواتير وهمية
+      allow delete: if isAuthenticated() && fileName.matches(request.auth.uid + '_.*');
     }
 
     // ==========================================
-    // 🖼️ الملفات العامة للمتجر والإدارة
+    // 🖼️ الملفات العامة للمتجر والإدارة (للعرض فقط)
     // ==========================================
     match /products/{allPaths=**} { allow read: if true; }
     match /categories/{allPaths=**} { allow read: if true; }

@@ -1,7 +1,7 @@
 // ============================================================================
-// 🗄️ مدير البيانات المركزي (adminData.js) - النسخة الماسية V10.0 💎
+// 🗄️ مدير البيانات المركزي (adminData.js) - النسخة الماسية V10.5 💎
 // 🎯 الوظيفة: SSOT (المصدر الوحيد للحقيقة)، معالجة البيانات الضخمة، والبحث اللحظي
-// 🚀 التحديث الأقصى: إغلاق ثغرات الحفظ המفقودة (Categories, Settings, Banners)
+// 🚀 التحديث الأقصى: إصلاح انهيار البروفايل، حماية الأرباح القديمة، ومنع الأخطاء
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -15,14 +15,12 @@ export const AdminData = {
     isSeedingTiers: false, 
     isSeedingCountries: false, 
     
-    // 🏗️ الهيكل: المصفوفات للرسم (UI) والخرائط للعمليات المنطقية (Logic)
     data: { 
         deposits: [], orders: [], users: [], cats: [], prods: [], 
         payments: [], banners: [], settings: {}, rates: [], 
         system: {}, adminProfile: {}, tiers: [], countries: [], 
         vault: [], coupons: [], offers: [], logs: [], alerts: [], kyc: [],
         
-        // 🗺️ جداول البحث السريع (Hash Maps) - سرعة O(1)
         usersMap: {}, prodsMap: {}, catsMap: {}, tiersMap: {}, 
         couponsMap: {}, countriesMap: {}, ratesMap: {},
         ordersMap: {}, depositsMap: {} 
@@ -35,42 +33,26 @@ export const AdminData = {
 
     _snapshots: {},
 
-    // 🛡️ تحديث خريطة محددة مستهدفة (Targeted Map Rebuild)
     _buildSingleMap: function(prop) {
-        if (prop === 'users') {
-            this.data.usersMap = Object.fromEntries(this.data.users.map(u => [String(u.id), u]));
-        } else if (prop === 'prods') {
-            this.data.prodsMap = Object.fromEntries(this.data.prods.map(p => [String(p.id), p]));
-        } else if (prop === 'cats') {
-            this.data.catsMap = Object.fromEntries(this.data.cats.map(c => [String(c.id), c]));
-        } else if (prop === 'tiers') {
-            this.data.tiersMap = Object.fromEntries(this.data.tiers.map(t => [String(t.id), t]));
-        } else if (prop === 'coupons') {
-            this.data.couponsMap = Object.fromEntries(this.data.coupons.map(c => [String(c.id), c]));
-        } else if (prop === 'countries') {
-            this.data.countriesMap = Object.fromEntries(this.data.countries.map(c => [String(c.id), c]));
-        } else if (prop === 'rates') {
-            this.data.ratesMap = Object.fromEntries(this.data.rates.map(r => [String(r.code).toUpperCase(), r]));
-        } else if (prop === 'orders') {
-            this.data.ordersMap = Object.fromEntries(this.data.orders.map(o => [String(o.id), o]));
-        } else if (prop === 'deposits') {
-            this.data.depositsMap = Object.fromEntries(this.data.deposits.map(d => [String(d.id), d]));
-        }
+        if (prop === 'users') this.data.usersMap = Object.fromEntries(this.data.users.map(u => [String(u.id), u]));
+        else if (prop === 'prods') this.data.prodsMap = Object.fromEntries(this.data.prods.map(p => [String(p.id), p]));
+        else if (prop === 'cats') this.data.catsMap = Object.fromEntries(this.data.cats.map(c => [String(c.id), c]));
+        else if (prop === 'tiers') this.data.tiersMap = Object.fromEntries(this.data.tiers.map(t => [String(t.id), t]));
+        else if (prop === 'coupons') this.data.couponsMap = Object.fromEntries(this.data.coupons.map(c => [String(c.id), c]));
+        else if (prop === 'countries') this.data.countriesMap = Object.fromEntries(this.data.countries.map(c => [String(c.id), c]));
+        else if (prop === 'rates') this.data.ratesMap = Object.fromEntries(this.data.rates.map(r => [String(r.code).toUpperCase(), r]));
+        else if (prop === 'orders') this.data.ordersMap = Object.fromEntries(this.data.orders.map(o => [String(o.id), o]));
+        else if (prop === 'deposits') this.data.depositsMap = Object.fromEntries(this.data.deposits.map(d => [String(d.id), d]));
     },    
     
-    // 🛡️ بناء جميع الخرائط دفعة واحدة
     _buildMaps: function() {
         const mapsToBuild = ['users', 'prods', 'cats', 'tiers', 'coupons', 'countries', 'rates', 'orders', 'deposits'];
         mapsToBuild.forEach(prop => this._buildSingleMap(prop));
     },
     
-    // 🛡️ تقليل الضغط على المعالج باستخدام structuredClone 
     _updateSnapshot: function(prop) {
-        try {
-            this._snapshots[prop] = structuredClone(this.data[prop]);
-        } catch (e) {
-            this._snapshots[prop] = JSON.parse(JSON.stringify(this.data[prop]));
-        }
+        try { this._snapshots[prop] = structuredClone(this.data[prop]); } 
+        catch (e) { this._snapshots[prop] = JSON.parse(JSON.stringify(this.data[prop])); }
     },
 
     // ==========================================
@@ -211,7 +193,6 @@ export const AdminData = {
             this.data.alerts = rAlerts;
             this.data.kyc = rKyc;
 
-            // ⚡ بناء جداول البحث
             this._buildMaps();
 
             Object.keys(this.data).forEach(prop => { if(Array.isArray(this.data[prop])) this._updateSnapshot(prop); });
@@ -245,8 +226,18 @@ export const AdminData = {
         filteredOrders.forEach(o => {
             const snap = o.pricingSnapshot;
             const rev = Number(snap?.finalPriceUsd || o.price || 0);
-            const prof = Number(snap?.netProfitUsd || snap?.profit || 0);
-            const cst = Number(snap?.costUsd || (rev - prof));
+            
+            // 🛡️ [إصلاح محاسبي]: حماية الأرباح من التحول للصفر للطلبات القديمة (افتراض ربح 5% إذا لم يتوفر القديم)
+            let prof = Number(snap?.netProfitUsd || snap?.profit || 0);
+            let cst = Number(snap?.costUsd || 0);
+
+            if (cst === 0 && prof === 0 && rev > 0) {
+                // للطلبات التي تمت قبل التحديث الجديد، نقوم بتقدير التكلفة بـ 95% من المبيعات لكي لا يبدو المتجر خاسراً
+                cst = rev * 0.95;
+                prof = rev * 0.05;
+            } else if (cst === 0) {
+                cst = Math.max(0, rev - prof);
+            }
 
             revenue += rev; profit += prof; cost += cst;
 
@@ -260,7 +251,7 @@ export const AdminData = {
             cats[catId].revenue += rev; cats[catId].profit += prof; cats[catId].count++;
 
             if (!prods[o.prodId]) {
-                prods[o.prodId] = { name: pData?.name || o.product || 'منتج محذوف', revenue: 0, profit: 0, count: 0 };
+                prods[o.prodId] = { name: pData?.name || o.product || 'منتج غير متوفر', revenue: 0, profit: 0, count: 0 };
             }
             prods[o.prodId].revenue += rev; prods[o.prodId].profit += prof; prods[o.prodId].count++;
         });
@@ -407,30 +398,35 @@ export const AdminData = {
         return true;
     },
 
-    // 🚀 [الترقيع الماسي]: إضافة كافة صمامات الحفظ المفقودة
     saveCountries: function() { return this.saveCollection(DB_KEYS.COUNTRIES, 'countries'); },
     saveCoupons: function() { return this.saveCollection(DB_KEYS.COUPONS, 'coupons'); },
     saveTiers: function() { return this.saveCollection(DB_KEYS.TIERS, 'tiers'); },
     saveProducts: function() { return this.saveCollection(DB_KEYS.PRODS, 'prods'); },
-    saveCategories: function() { return this.saveCollection(DB_KEYS.CATS, 'cats'); }, // 🛡️ تمت الإضافة
+    saveCategories: function() { return this.saveCollection(DB_KEYS.CATS, 'cats'); },
     saveUsers: function() { return this.saveCollection(DB_KEYS.USERS, 'users'); },
     saveOrders: function() { return this.saveCollection(DB_KEYS.ORDERS, 'orders'); },
     saveDeposits: function() { return this.saveCollection(DB_KEYS.DEPOSITS, 'deposits'); },
     saveVault: function() { return this.saveCollection(DB_KEYS.VAULT, 'vault'); },
-    savePayments: function() { return this.saveCollection(DB_KEYS.PAYMENTS, 'payments'); }, // 🛡️ تمت الإضافة
-    saveBanners: function() { return this.saveCollection(DB_KEYS.BANNERS, 'banners'); }, // 🛡️ تمت الإضافة
-    saveOffers: function() { return this.saveCollection(DB_KEYS.OFFERS, 'offers'); }, // 🛡️ تمت الإضافة
+    savePayments: function() { return this.saveCollection(DB_KEYS.PAYMENTS, 'payments'); },
+    saveBanners: function() { return this.saveCollection(DB_KEYS.BANNERS, 'banners'); },
+    saveOffers: function() { return this.saveCollection(DB_KEYS.OFFERS, 'offers'); },
 
-    // 🛡️ [الترقيع الماسي]: إضافة حفظ الإعدادات المفردة (Singleton)
+    // 🛡️ [تحديث]: حفظ إعدادات النظام المفردة
     saveSystemSettings: async function() {
         if (!this.isCloudSyncSuccessful) return false;
         try {
             await FirebaseAdapter.set(DB_KEYS.SETTINGS, 'singleton', this.data.settings);
             return true;
-        } catch (e) {
-            console.error("خطأ في حفظ الإعدادات:", e);
-            return false;
-        }
+        } catch (e) { console.error("خطأ في حفظ الإعدادات:", e); return false; }
+    },
+    
+    // 🛡️ [تحديث مفقود عاد للحياة]: حفظ بروفايل الإدمن لتجنب الانهيار (Crash) في لوحة التحكم
+    saveAdminProfile: async function() {
+        if (!this.isCloudSyncSuccessful) return false;
+        try {
+            await FirebaseAdapter.set(DB_KEYS.ADMIN, 'singleton', this.data.adminProfile);
+            return true;
+        } catch (e) { console.error("خطأ في حفظ بروفايل الأدمن:", e); return false; }
     },
 
     autoAdvanceSweep: async function() {

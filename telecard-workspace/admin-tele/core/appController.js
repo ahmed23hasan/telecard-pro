@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 الموجه المركزي للنظام (core/appController.js) - Master Orchestrator V9.1 🚀
+// 🧠 الموجه المركزي للنظام (core/appController.js) - Master Orchestrator V9.5 🚀
 // الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🌟 التحديث الأقصى: زراعة مستمعات فك الارتباط الدائري المتبقية وترقية الملاحة لـ O(1)
+// 🌟 التحديث الأقصى: إغلاق ثغرة Session Bypass، ترشيد مساحة الأدمن، وحماية الحظر
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -20,7 +20,7 @@ import { SystemActions } from './systemActions.js';
 
 import { CatalogController } from '../modules/catalog/catalogController.js';
 import { MarketingController } from '../modules/marketing/marketingController.js';
-import { FirebaseAdapter } from './firebaseAdapter.js';
+import { FirebaseAdapter, auth } from './firebaseAdapter.js'; // 🛡️ استيراد auth للتحقق الحقيقي
 
 import { DeveloperActions } from '../modules/developer/developerActions.js';
 import { IntegrationsActions } from '../modules/integrations/integrationsActions.js';
@@ -50,8 +50,9 @@ export const AppController = {
     init: async function() {
         if (this.isInitialized) return; 
         
-        // 🚨 1. بوابة الأمان أولاً (لا تقم بتحميل أي بيانات قبل التأكد)
-        if (!this.setupAuthGate()) return; 
+        // 🚨 1. بوابة الأمان أولاً (تحقق صارم)
+        const isAuthSafe = await this.setupAuthGate();
+        if (!isAuthSafe) return; 
 
         try {
             AdminUI?.initTheme?.();
@@ -97,18 +98,43 @@ export const AppController = {
         }
     },
 
+    // 🛡️ [تحديث أمني V9.5]: التحقق الحقيقي من Firebase Auth لمنع تجاوز الـ Storage
     setupAuthGate: function() {
-        const isLogged = sessionStorage.getItem('telecard_admin_auth') === 'true'; 
-        if (!isLogged) {
-            window.location.replace('login.html');
-            return false; // إيقاف الإقلاع
-        }
-        return true; // السماح بالإقلاع
+        return new Promise((resolve) => {
+            const isSessionFlagged = sessionStorage.getItem('telecard_admin_auth') === 'true'; 
+            
+            auth.onAuthStateChanged((user) => {
+                if (user && isSessionFlagged) {
+                    user.getIdTokenResult().then((idTokenResult) => {
+                        // يجب أن يمتلك كليم (admin: true) أو يكون هو الجذر (Root Owner)
+                        const isRealAdmin = idTokenResult.claims.admin === true || user.uid === 'e064MQJyn6dhU9mNXZvXItc7VYg2';
+                        
+                        if (isRealAdmin) {
+                            resolve(true); // السماح بالدخول
+                        } else {
+                            console.warn("🚨 محاولة دخول بصلاحيات غير إدارية!");
+                            this.logoutAdmin();
+                            resolve(false);
+                        }
+                    }).catch(() => {
+                        this.logoutAdmin();
+                        resolve(false);
+                    });
+                } else {
+                    console.warn("🚨 جلسة غير صالحة أو مفقودة!");
+                    this.logoutAdmin();
+                    resolve(false);
+                }
+            });
+            
+            // Timeout الطوارئ إذا انقطع الإنترنت
+            setTimeout(() => { resolve(false); }, 5000);
+        });
     },
 
-
-        logoutAdmin: function() { 
+    logoutAdmin: function() { 
         sessionStorage.removeItem('telecard_admin_auth'); 
+        if (auth) auth.signOut().catch(()=>{}); // تسجيل خروج من فايربيز أيضاً
         window.location.replace('login.html'); 
     },
 
@@ -118,7 +144,9 @@ export const AppController = {
         EventBus.on('req-navigate', (data) => this.nav?.(data.page, data.btnEl));
         EventBus.on('req-navigate-filter', (data) => this.navWithFilter?.(data.section, data.status));
         EventBus.on('req-refresh', (data) => this.refresh?.(data.type));
-        
+        // --- مستمعات العودة وإغلاق النوافذ (تم إضافتها لحل مشكلة السهم) ---
+        EventBus.on('req-go-back', () => this.back());
+        EventBus.on('req-close-modal', (data) => AdminUI?.closeModal?.(data?.id || null));
         // --- 2. أحداث حفظ الإعدادات والهوية ---
         EventBus.on('req-save-system', () => this.saveSystem());
         EventBus.on('req-save-admin-profile', () => this.saveAdminProfile());
@@ -126,10 +154,7 @@ export const AppController = {
         EventBus.on('req-save-support', () => this.saveSupportSettings?.());
         EventBus.on('req-save-terms', () => this.saveTerms?.());
         
-        // مستمع الحفظ التلقائي لإعدادات التسويق
-        EventBus.on('req-auto-save-settings', () => {
-            MarketingController.autoSaveSettings?.();
-        });
+        EventBus.on('req-auto-save-settings', () => { MarketingController.autoSaveSettings?.(); });
         
         // --- 3. أحداث الحذف والفلاتر ---
         EventBus.on('req-delete-item', (data) => this.delItem?.(data.type, data.id));
@@ -153,10 +178,7 @@ export const AppController = {
             else if (data.type === 'tier') AdminUI?.UsersUI?.openTierModal?.(data.id);
         });
 
-        // 🛡️ [تحديث أمني V9.1]: مستمع تحديث الحالة الإدارية الموحد (لفك الارتباط عن الموديولات)
         EventBus.on('req-update-state', (newState) => this.updateState(newState));
-
-        // 🛡️ [تحديث أمني V9.1]: مستمع إنهاء العمليات الإدارية والمالية الموحد (لأمان الـ Loaders والـ Modals)
         EventBus.on('req-finish-action', (data) => {
             this.finishAction(data.renderEvent, data.modalId, data.logAction, data.logDetails, data.toastMsg, data.toastType);
         });
@@ -306,22 +328,21 @@ export const AppController = {
         }
     },
 
-    back: function() { 
-        if (this.currFolder) { 
-            // ⚡ التحديث المعماري O(1) للعودة للخلف بالكتالوج باستخدام الخرائط السريعة
-            const curr = AdminData.data.catsMap?.[this.currFolder] || this.data.cats.find(x => String(x.id) === String(this.currFolder)); 
-            if (curr) { 
-                this.updateState({ currFolder: curr.parentId !== null && curr.parentId !== 'null' ? String(curr.parentId) : null }); 
-                EventBus.emit('req-render-prods'); 
-            } 
-        } 
-    },
-    
-    enter: function(id) { 
-        this.updateState({ currFolder: id !== null ? String(id) : null }); 
-        EventBus.emit('req-render-prods'); 
-    },
-
+    back: function() {
+    if (this.currFolder) {
+        const curr = AdminData.data.catsMap?.[this.currFolder] || this.data.cats.find(x => String(x.id) === String(this.currFolder));
+        if (curr && curr.parentId && curr.parentId !== 'null') {
+            this.updateState({ currFolder: String(curr.parentId) });
+        } else {
+            // إذا لم يكن هناك قسم أب، نعود للشاشة الرئيسية
+            this.updateState({ currFolder: null });
+        }
+        EventBus.emit('req-render-prods');
+    } else {
+        // إذا كنا في الرئيسية ونريد العودة، نغلق أي نافذة مفتوحة
+        AdminUI?.closeModal?.();
+    }
+},
     // ==========================================
     // 🛡️ إدارة الجدار الناري والقائمة السوداء (Firewall & Blacklist)
     // ==========================================
@@ -359,41 +380,45 @@ export const AppController = {
     },
 
     addGlobalBanIp: async function() {
-    const input = document.getElementById('new-ban-ip-input');
-    if (!input) return;
-    const newIp = input.value.trim();
-    
-    if (!newIp) return AdminUI.showToast('الرجاء إدخال عنوان IP', 'error');
-    
-    // تحقق صارم (Strict Regex) لـ IPv4 و IPv6 الحقيقي فقط
-    const isValidIPv4 = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/.test(newIp);
-    const isValidIPv6 = /^(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}$/.test(newIp) || newIp === '::1'; // دعم مبسط لـ IPv6
-    
-    if (!isValidIPv4 && !isValidIPv6) {
-        return AdminUI.showToast('صيغة الـ IP غير صحيحة، يرجى إدخال IP حقيقي', 'error');
-    }
-    
-    if (!AdminData.data.settings) AdminData.data.settings = {};
-    if (!AdminData.data.settings.bannedIps) AdminData.data.settings.bannedIps = [];
-    
-    if (AdminData.data.settings.bannedIps.includes(newIp)) {
-        return AdminUI.showToast('هذا الـ IP محظور مسبقاً', 'warning');
-    }
-    
-    if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري حظر الـ IP سحابياً...');
-    try {
-        AdminData.data.settings.bannedIps.push(newIp);
-        await AdminData.saveSystemSettings();
-        input.value = '';
-        this.renderFirewallBlacklist();
-        AdminUI.showToast(`تم حظر الشبكة: ${newIp}`, 'success');
-        if (AdminData.addLog) AdminData.addLog('FIREWALL_ADD_IP', `إضافة IP للقائمة السوداء: ${newIp}`);
-    } catch (e) {
-        AdminUI.showToast('حدث خطأ أثناء الحظر', 'error');
-    } finally {
-        if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
-    }
-},    removeGlobalBanIp: async function(ip) {
+        const input = document.getElementById('new-ban-ip-input');
+        if (!input) return;
+        const newIp = input.value.trim();
+        
+        if (!newIp) return AdminUI.showToast('الرجاء إدخال عنوان IP', 'error');
+        
+        const isValidIPv4 = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/.test(newIp);
+        const isValidIPv6 = /^(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}$/.test(newIp) || newIp === '::1'; 
+        
+        if (!isValidIPv4 && !isValidIPv6) {
+            return AdminUI.showToast('صيغة الـ IP غير صحيحة، يرجى إدخال IP حقيقي', 'error');
+        }
+
+        // 🛡️ [حماية انتحار الجدار الناري]: تحذير شديد قبل حظر أي IP
+        if (AdminUI && !await AdminUI.showConfirm(`تنبيه أمني خطير!\nهل أنت متأكد من حظر هذا الـ IP (${newIp})؟\nإذا كان هذا الـ IP يخصك أو يخص سيرفر النظام، فلن تتمكن من دخول اللوحة بعد الآن!`, 'تأكيد الحظر')) return;
+        
+        if (!AdminData.data.settings) AdminData.data.settings = {};
+        if (!AdminData.data.settings.bannedIps) AdminData.data.settings.bannedIps = [];
+        
+        if (AdminData.data.settings.bannedIps.includes(newIp)) {
+            return AdminUI.showToast('هذا الـ IP محظور مسبقاً', 'warning');
+        }
+        
+        if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري حظر الـ IP سحابياً...');
+        try {
+            AdminData.data.settings.bannedIps.push(newIp);
+            await AdminData.saveSystemSettings();
+            input.value = '';
+            this.renderFirewallBlacklist();
+            AdminUI.showToast(`تم حظر الشبكة: ${newIp}`, 'success');
+            if (AdminData.addLog) AdminData.addLog('FIREWALL_ADD_IP', `إضافة IP للقائمة السوداء: ${newIp}`);
+        } catch (e) {
+            AdminUI.showToast('حدث خطأ أثناء الحظر', 'error');
+        } finally {
+            if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+        }
+    },    
+
+    removeGlobalBanIp: async function(ip) {
         if (!AdminUI) return;
         if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن الشبكة (${ip})؟`, 'إزالة من القائمة السوداء')) return;
 
@@ -499,6 +524,7 @@ export const AppController = {
         }
     },
     
+    // 🛡️ [تحديث أمني 9.5]: ترشيد مساحة الأدمن (استبدال دائم وحفظ المال)
     saveAdminProfile: async function() { 
         const name = Utils.escapeHTML(Utils.getVal('adm-name')), 
               email = Utils.escapeHTML(Utils.getVal('adm-email')), 
@@ -519,11 +545,20 @@ export const AppController = {
 
                 if (fileToUpload) {
                     AdminUI?.showToast('جاري رفع صورتك الشخصية...', 'info');
-                    finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'admin');
+                    const oldImgUrl = this.data.adminProfile?.img || null;
+                    // تم تمرير اسم مخصص للصورة + الرابط القديم لحذفه
+                    finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'admin', 'admin_profile_pic.webp', oldImgUrl);
                 } else {
                     finalImg = this.data.adminProfile.img || '';
                 }
+            } else {
+                // إذا مسح الصورة، نحذف القديمة من السيرفر
+                const oldImgUrl = this.data.adminProfile?.img || null;
+                if (oldImgUrl && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                    FirebaseAdapter.deleteImageByUrl(oldImgUrl).catch(()=>{});
+                }
             }
+            
             this.data.adminProfile = { name, email, pass, img: finalImg }; 
             
             await AdminData?.saveAdminProfile?.(); 

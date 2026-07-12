@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V12.0 💎
+// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V12.5 💎
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديث الأخير: ترقيع ثغرة Vault، التحميل الكسول، وإضافة الاستعلام الذكي للمزامنة
+// 🚀 التحديث الأخير: ترقيع ثغرة الكوبونات المزدوجة، وحماية الذاكرة من انهيار الإحصائيات
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -31,7 +31,7 @@ const db = admin.firestore();
 
 // 🛡️ درع التيتانيوم الأمني
 const SYSTEM_LIMITS = {
-    MAX_QTY_PER_ORDER: 1000,
+    MAX_QTY_PER_ORDER: 10000, // متطابق مع المحاكي لحماية الـ Memory
     MAX_SAFE_AMOUNT: 100000000 
 };
 
@@ -222,14 +222,24 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 couponRef ? transaction.get(couponRef) : Promise.resolve(null)
             ]);
 
-            // 🛡️ فحص الكوبونات الصارم
+            // 🛡️ فحص الكوبونات الصارم وتأمين الاستخدام المزدوج (Race Condition Lock)
             let liveCouponData = null;
             if (couponRef) {
                 if (!currentCouponSnap.exists) throw new HttpsError('not-found', 'الكوبون غير موجود.');
                 liveCouponData = currentCouponSnap.data();
                 if (String(liveCouponData.isActive) === 'false') throw new HttpsError('failed-precondition', 'الكوبون معطل حالياً.');
                 if (liveCouponData.expiryDate && liveCouponData.expiryDate < serverNow) throw new HttpsError('failed-precondition', 'انتهت صلاحية الكوبون.');
-                if (liveCouponData.maxUses > 0 && (liveCouponData.usedCount || 0) >= liveCouponData.maxUses) throw new HttpsError('resource-exhausted', 'نفدت كمية استخدام الكوبون.');
+                
+                // 🛡️ التحقق اللحظي للحدود داخل الترانساكشن
+                const currentUsage = liveCouponData.usedCount || 0;
+                if (liveCouponData.maxUses > 0 && currentUsage >= liveCouponData.maxUses) {
+                    throw new HttpsError('resource-exhausted', 'نفدت كمية استخدام الكوبون.');
+                }
+                
+                const userUsageCount = (liveCouponData.usageHistory?.[`user_${uid}`]) || 0;
+                if (liveCouponData.maxPerUser > 0 && userUsageCount >= liveCouponData.maxPerUser) {
+                    throw new HttpsError('resource-exhausted', `استنفدت الحد الأقصى المسموح لك بهذا الكوبون.`);
+                }
             }
 
             const pricingSnapshot = FinancialEngine.calculateOrderTotal({
@@ -292,7 +302,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 });
             }
 
-            // 🛡️ [ترقيع ثغرة التزامن - Race Condition Lock] 
             // التعديل الوهمي للمستند لضمان القفل وإعادة المحاولة في حال التزامن
             transaction.update(productRef, { lastSoldAt: admin.firestore.FieldValue.serverTimestamp() });
 
@@ -646,26 +655,40 @@ exports.completeUserIdentity = onCall({ enforceAppCheck: true }, async (request)
 });
 
 // ==========================================
-// 📊 7. محرك الإحصائيات المركزية
+// 📊 7. محرك الإحصائيات المركزية الذكي (Smart Stats Aggregation)
 // ==========================================
 const performStatsRecalculation = async () => {
+    // 🛡️ استخدام Aggregate Field لتجنب استنزاف ذاكرة السيرفر
     const AggregateField = admin.firestore.AggregateField;
     const ordersRef = db.collection('telecard_orders');
     const depositsRef = db.collection('telecard_deposits');
     
     const [ordersTotal, ordersCompleted, ordersRejected, ordersRefunded, financials, depTotal, depApproved, depRejected, depRefunded] = await Promise.all([
-        ordersRef.count().get(), ordersRef.where('status', '==', 'completed').count().get(),
-        ordersRef.where('status', '==', 'rejected').count().get(), ordersRef.where('status', '==', 'refunded').count().get(),
-        ordersRef.where('status', '==', 'completed').aggregate({ revenue: AggregateField.sum('price'), cost: AggregateField.sum('pricingSnapshot.costUsd'), profit: AggregateField.sum('pricingSnapshot.netProfitUsd') }).get(),
-        depositsRef.count().get(), depositsRef.where('status', '==', 'approved').count().get(),
-        depositsRef.where('status', '==', 'rejected').count().get(), depositsRef.where('status', '==', 'refunded').count().get()
+        ordersRef.count().get(), 
+        ordersRef.where('status', '==', 'completed').count().get(),
+        ordersRef.where('status', '==', 'rejected').count().get(), 
+        ordersRef.where('status', '==', 'refunded').count().get(),
+        ordersRef.where('status', '==', 'completed').aggregate({ 
+            revenue: AggregateField.sum('price'), 
+            cost: AggregateField.sum('pricingSnapshot.costUsd'), 
+            profit: AggregateField.sum('pricingSnapshot.netProfitUsd') 
+        }).get(),
+        depositsRef.count().get(), 
+        depositsRef.where('status', '==', 'approved').count().get(),
+        depositsRef.where('status', '==', 'rejected').count().get(), 
+        depositsRef.where('status', '==', 'refunded').count().get()
     ]);
     
     await db.collection('telecard_system').doc('singleton').set({ 
         globalStats: {
-            financials: { totalRevenue: Number((financials.data().revenue || 0).toFixed(4)), totalCost: Number((financials.data().cost || 0).toFixed(4)), totalProfit: Number((financials.data().profit || 0).toFixed(4)) },
+            financials: { 
+                totalRevenue: Number((financials.data().revenue || 0).toFixed(4)), 
+                totalCost: Number((financials.data().cost || 0).toFixed(4)), 
+                totalProfit: Number((financials.data().profit || 0).toFixed(4)) 
+            },
             orders: { total: ordersTotal.data().count, completed: ordersCompleted.data().count, rejected: ordersRejected.data().count, refunded: ordersRefunded.data().count },
-            deposits: { total: depTotal.data().count, approved: depApproved.data().count, rejected: depRejected.data().count, refunded: depRefunded.data().count }, daily: {}
+            deposits: { total: depTotal.data().count, approved: depApproved.data().count, rejected: depRejected.data().count, refunded: depRefunded.data().count }, 
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         }
     }, { merge: true });
 };
@@ -829,6 +852,7 @@ exports.scheduledSupplierSync = onSchedule({
 }, supplierEngine.scheduledSupplierSync);
 
 exports.secureSaveSupplier = onCall({ memory: '256MiB' }, supplierEngine.secureSaveSupplier);
+
 // ==========================================
 // 📦 11. إدارة صناديق الأكواد السحابية (Vault Subcollections Engine)
 // ==========================================

@@ -172,7 +172,10 @@ export const RenderManager = {
         const fallbackHTML = `<div class="${defaultClass}" style="${type === 'story' ? 'display: flex; ' + extraStyle : ''}"><i class="fa-solid ${defaultIcon}"></i></div>`;
 
         if (rawUrl) {
-            const safeUrl = Utils.escapeHtml(rawUrl);
+            // 🛡️ [إصلاح خطير]: إزالة escapeHtml لأنها تكسر توكن Firebase (&token=...). 
+            // نكتفي بتشفير علامات التنصيص فقط لمنع كسر خصائص الـ HTML.
+            const safeUrl = rawUrl.replace(/"/g, '%22'); 
+            
             const imgVars = this._getImgLoadVars(rawUrl);
             wrapperClass = imgVars.wrapperClass;
             wrapperStyle = imgVars.wrapperStyle;
@@ -190,9 +193,7 @@ export const RenderManager = {
         }
 
         return { html: imgHTML, wrapperClass, wrapperStyle };
-    },
-
-    renderHome: function(isBackAction = false) {
+    },    renderHome: function(isBackAction = false) {
         const grid = document.getElementById('store-grid');
         const titleEl = document.getElementById('grid-title');
         
@@ -1294,7 +1295,6 @@ generatePDFReceipt: async function(config) {
     return new Promise((resolve) => {
         try {
             const settings = LiveStoreData.settings || {};
-            // تأمين اسم المتجر الافتراضي كما هو معتمد 
             const storeName = settings.storeName || 'المتجر';
             const storeLogo = settings.storeLogoLight || settings.storeLogo || '';
             
@@ -1304,142 +1304,166 @@ generatePDFReceipt: async function(config) {
             }
             
             const brandHTML = `
-                <div class="header-section">
-                    <div class="store-name">${Utils.escapeHtml(storeName)}</div>
-                    ${safeLogoHtml}
-                </div>`;
+                    <div class="header-section">
+                        <div class="store-name">${Utils.escapeHtml(storeName)}</div>
+                        ${safeLogoHtml}
+                    </div>`;
             
             const contentHTML = config.type === 'deposit' ? `
-                ${brandHTML}
-                <div class="r-title-box">
-                    <div class="r-title">Deposit Receipt</div>
-                    <div class="r-id">${config.data.displayId}</div>
-                </div>
-                <div class="r-grid">
-                    <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                    <div class="r-item"><span class="r-label">Customer ID</span><span class="r-value">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
-                    <div class="r-item"><span class="r-label">Payment Method</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
-                    <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
-                    <div class="r-item"><span class="r-label">Base Amount</span><span class="r-value">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
-                    <div class="r-item"><span class="r-label">Fee (${config.data.feePercent}%)</span><span class="r-value" style="color:#ef4444;">-${RenderHelpers.formatMoney(config.data.feeVal, config.data.currency)}</span></div>
-                </div>
-                <div class="r-total-box">
-                    <div class="r-total-label">Net Added Balance</div>
-                    <div class="r-total-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div>
-                </div>
-            ` : `
-                ${brandHTML}
-                <div class="r-title-box">
-                    <div class="r-title">Order Receipt</div>
-                    <div class="r-id">${config.data.displayId}</div>
-                </div>
-                <div class="r-grid">
-                    <div class="r-item"><span class="r-label">Product</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
-                    <div class="r-item"><span class="r-label">Status</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
-                    <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                    <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
-                    <div class="r-item"><span class="r-label">Quantity</span><span class="r-value">${config.data.qty}</span></div>
-                    <div class="r-item"><span class="r-label">Account Details</span><span class="r-value">${Utils.escapeHtml(config.data.input)}</span></div>
-                </div>
-                ${config.data.code ? `<div class="r-item-full"><span class="r-label">Completed Order Code</span><span class="r-value r-code-val">${Utils.escapeHtml(config.data.code)}</span></div>` : ''}
-                <div class="r-total-box">
-                    <div class="r-total-label">Total Amount</div>
-                    <div class="r-total-val">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</div>
-                </div>
-            `;
-
-            const fullHTML = `
-                <!DOCTYPE html>
-                <html lang="en" dir="ltr">
-                <head>
-                    <meta charset="UTF-8">
-                    <title>${config.filename}</title>
-                    <style>
-                        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
-                        @page { size: A4 portrait; margin: 15mm; }
-                        body { 
-                            font-family: 'Share Tech Mono', sans-serif; 
-                            background: #ffffff; 
-                            color: #0f172a; 
-                            margin: 0; 
-                            padding: 0; 
-                            -webkit-print-color-adjust: exact; 
-                            print-color-adjust: exact; 
-                        }
-                        .receipt-container { 
-                            max-width: 100%; 
-                            margin: 0 auto; 
-                            border: 1px solid #e2e8f0; 
-                            border-radius: 12px; 
-                            padding: 25px; 
-                        }
-                        .header-section { 
-                            display: flex; justify-content: space-between; align-items: center; 
-                            border-bottom: 2px dashed #cbd5e1; padding-bottom: 20px; margin-bottom: 25px; 
-                        }
-                        .store-name { font-size: 26px; font-weight: 800; color: #0f172a; }
-                        .r-title-box { background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #eab308; margin-bottom: 25px; text-align: center; }
-                        .r-title { font-size: 18px; color: #ca8a04; font-weight: bold; margin-bottom: 5px; }
-                        .r-id { font-size: 18px; color: #0f172a; font-weight: bold; }
-                        .r-grid { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
-                        .r-item { width: calc(50% - 7.5px); background: #f8fafc; padding: 12px; border-radius: 8px; border-left: 4px solid #eab308; box-sizing: border-box; }
-                        .r-item-full { width: 100%; background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px dashed #eab308; text-align: center; box-sizing: border-box; }
-                        .r-label { font-size: 13px; color: #64748b; display: block; margin-bottom: 5px; font-weight: 600; }
-                        .r-value { font-size: 15px; color: #0f172a; font-weight: bold; word-break: break-word; }
-                        .r-code-val { font-size: 20px; color: #ca8a04; letter-spacing: 2px; }
-                        .r-total-box { background: #eab308; padding: 20px; border-radius: 8px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; color: #fff; }
-                        .r-total-label { font-size: 18px; font-weight: bold; color: #fff; }
-                        .r-total-val { font-size: 24px; font-weight: 900; color: #fff; }
-                        .r-footer { text-align: center; margin-top: 30px; font-size: 13px; color: #94a3b8; }
-                    </style>
-                </head>
-                <body>
-                    <div class="receipt-container">
-                        ${contentHTML}
-                        <div class="r-footer">Thank you for trusting ${Utils.escapeHtml(storeName)} | Certified Electronic Receipt</div>
+                    ${brandHTML}
+                    <div class="r-title-box">
+                        <div class="r-title">Deposit Receipt</div>
+                        <div class="r-id">${config.data.displayId}</div>
                     </div>
-                </body>
-                </html>
-            `;
-
-            const iframe = document.createElement('iframe');
-            iframe.style.position = 'fixed';
-            iframe.style.right = '-10000px';
-            iframe.style.bottom = '-10000px';
-            document.body.appendChild(iframe);
-
-            const iframeDoc = iframe.contentWindow.document;
-            iframeDoc.open();
-            iframeDoc.write(fullHTML);
-            iframeDoc.close();
-
-            setTimeout(() => {
-                try {
-                    iframe.contentWindow.focus();
+                    <div class="r-grid">
+                        <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
+                        <div class="r-item"><span class="r-label">Customer ID</span><span class="r-value">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
+                        <div class="r-item"><span class="r-label">Payment Method</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
+                        <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
+                        <div class="r-item"><span class="r-label">Base Amount</span><span class="r-value">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
+                        <div class="r-item"><span class="r-label">Fee (${config.data.feePercent}%)</span><span class="r-value" style="color:#ef4444;">-${RenderHelpers.formatMoney(config.data.feeVal, config.data.currency)}</span></div>
+                    </div>
+                    <div class="r-total-box">
+                        <div class="r-total-label">Net Added Balance</div>
+                        <div class="r-total-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div>
+                    </div>
+                ` : `
+                    ${brandHTML}
+                    <div class="r-title-box">
+                        <div class="r-title">Order Receipt</div>
+                        <div class="r-id">${config.data.displayId}</div>
+                    </div>
+                    <div class="r-grid">
+                        <div class="r-item"><span class="r-label">Product</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
+                        <div class="r-item"><span class="r-label">Status</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
+                        <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
+                        <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
+                        <div class="r-item"><span class="r-label">Quantity</span><span class="r-value">${config.data.qty}</span></div>
+                        <div class="r-item"><span class="r-label">Account Details</span><span class="r-value">${Utils.escapeHtml(config.data.input)}</span></div>
+                    </div>
+                    ${config.data.code ? `<div class="r-item-full"><span class="r-label">Completed Order Code</span><span class="r-value r-code-val">${Utils.escapeHtml(config.data.code)}</span></div>` : ''}
+                    <div class="r-total-box">
+                        <div class="r-total-label">Total Amount</div>
+                        <div class="r-total-val">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</div>
+                    </div>
+                `;
+            
+            const fullHTML = `
+                    <!DOCTYPE html>
+                    <html lang="en" dir="ltr">
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>${config.filename}</title>
+                        <style>
+                            @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+                            @page { size: A4 portrait; margin: 15mm; }
+                            body { 
+                                font-family: 'Share Tech Mono', sans-serif; 
+                                background: #ffffff; 
+                                color: #0f172a; 
+                                margin: 0; 
+                                padding: 0; 
+                                -webkit-print-color-adjust: exact; 
+                                print-color-adjust: exact; 
+                            }
+                            .receipt-container { 
+                                max-width: 100%; 
+                                margin: 0 auto; 
+                                border: 1px solid #e2e8f0; 
+                                border-radius: 12px; 
+                                padding: 25px; 
+                            }
+                            .header-section { 
+                                display: flex; justify-content: space-between; align-items: center; 
+                                border-bottom: 2px dashed #cbd5e1; padding-bottom: 20px; margin-bottom: 25px; 
+                            }
+                            .store-name { font-size: 26px; font-weight: 800; color: #0f172a; }
+                            .r-title-box { background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #eab308; margin-bottom: 25px; text-align: center; }
+                            .r-title { font-size: 18px; color: #ca8a04; font-weight: bold; margin-bottom: 5px; }
+                            .r-id { font-size: 18px; color: #0f172a; font-weight: bold; }
+                            .r-grid { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
+                            .r-item { width: calc(50% - 7.5px); background: #f8fafc; padding: 12px; border-radius: 8px; border-left: 4px solid #eab308; box-sizing: border-box; }
+                            .r-item-full { width: 100%; background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px dashed #eab308; text-align: center; box-sizing: border-box; }
+                            .r-label { font-size: 13px; color: #64748b; display: block; margin-bottom: 5px; font-weight: 600; }
+                            .r-value { font-size: 15px; color: #0f172a; font-weight: bold; word-break: break-word; }
+                            .r-code-val { font-size: 20px; color: #ca8a04; letter-spacing: 2px; }
+                            .r-total-box { background: #eab308; padding: 20px; border-radius: 8px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; color: #fff; }
+                            .r-total-label { font-size: 18px; font-weight: bold; color: #fff; }
+                            .r-total-val { font-size: 24px; font-weight: 900; color: #fff; }
+                            .r-footer { text-align: center; margin-top: 30px; font-size: 13px; color: #94a3b8; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="receipt-container">
+                            ${contentHTML}
+                            <div class="r-footer">Thank you for trusting ${Utils.escapeHtml(storeName)} | Certified Electronic Receipt</div>
+                        </div>
+                    </body>
+                    </html>
+                `;
+            
+            // 🛡️ [إصلاح الهواتف الذكية]: اكتشاف نوع الجهاز لتشغيل الطباعة بشكل متوافق
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            
+            if (isMobile) {
+                // الموبايل يرفض الطباعة من iframe مخفي، لذلك نفتح نافذة جديدة نظيفة
+                const printWindow = window.open('', '_blank');
+                if (printWindow) {
+                    printWindow.document.open();
+                    printWindow.document.write(fullHTML);
+                    printWindow.document.close();
                     
-                    iframe.contentWindow.onafterprint = function() {
-                        if (document.body.contains(iframe)) {
-                            document.body.removeChild(iframe);
-                        }
+                    // ننتظر حتى تكتمل الصور والخطوط
+                    setTimeout(() => {
+                        printWindow.focus();
+                        printWindow.print();
                         resolve(true);
-                    };
-
-                    iframe.contentWindow.print();
-                    
-                    setTimeout(() => { 
-                        if (document.body.contains(iframe)) {
-                            document.body.removeChild(iframe); 
-                            resolve(true); 
-                        }
-                    }, 15000);
-                    
-                } catch (e) {
-                    console.error("Print Failed", e);
-                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                    }, 1000);
+                } else {
+                    console.error("Popup blocked");
                     resolve(false);
                 }
-            }, 800);
-
+            } else {
+                // أجهزة الكمبيوتر (Desktop) تعمل بامتياز مع الـ Iframe المخفي
+                const iframe = document.createElement('iframe');
+                iframe.style.position = 'fixed';
+                iframe.style.right = '-10000px';
+                iframe.style.bottom = '-10000px';
+                document.body.appendChild(iframe);
+                
+                const iframeDoc = iframe.contentWindow.document;
+                iframeDoc.open();
+                iframeDoc.write(fullHTML);
+                iframeDoc.close();
+                
+                setTimeout(() => {
+                    try {
+                        iframe.contentWindow.focus();
+                        
+                        iframe.contentWindow.onafterprint = function() {
+                            if (document.body.contains(iframe)) {
+                                document.body.removeChild(iframe);
+                            }
+                            resolve(true);
+                        };
+                        
+                        iframe.contentWindow.print();
+                        
+                        setTimeout(() => {
+                            if (document.body.contains(iframe)) {
+                                document.body.removeChild(iframe);
+                                resolve(true);
+                            }
+                        }, 15000);
+                        
+                    } catch (e) {
+                        console.error("Print Failed", e);
+                        if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                        resolve(false);
+                    }
+                }, 800);
+            }
+            
         } catch (err) {
             console.error('[Receipt Native Print Error]:', err);
             resolve(false);

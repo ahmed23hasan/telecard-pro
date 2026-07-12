@@ -10,7 +10,6 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // 🛡️ التحقق الصارم للإدارة (طريقة آمنة لا تنهار)
     function isMasterAdmin() {
       return isAuthenticated() && (
         request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2' || 
@@ -18,9 +17,7 @@ service cloud.firestore {
       );
     }
 
-    // 🛡️ [تم الإصلاح]: التحقق من الحظر (مضاد للانهيار للعملاء الجدد)
     function isNotBanned() {
-      // إذا كان مسجلاً، وليس لديه صفة الحظر، فهو مسموح له بالدخول
       return isAuthenticated() && (!('banned' in request.auth.token) || request.auth.token.banned != true);
     }
 
@@ -28,17 +25,33 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // 🛡️ القائمة البيضاء للحقول المسموح للعميل بتعديلها بعد الإنشاء
-    function isOnlyUpdatingAllowedProfileFields() {
+    // ==========================================
+    // 🛡️ دروع حماية ملف المستخدم (User Profile Shields)
+    // ==========================================
+    
+    // 1. التحديث العادي للملف الشخصي
+    function isStandardProfileUpdate() {
       let allowedKeys = [
         'name', 'firstName', 'lastName', 'fullName', 'username',
         'img', 'phone', 'country', 'theme', 'devicePrints', 
-        'passwordChangeHistory', 'adminMessage', 'biometricEnabled'
+        'passwordChangeHistory', 'adminMessage', 'biometricEnabled',
+        'readAlerts' // ✅ تم إضافته لضمان عمل نظام الإشعارات
       ];
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
     }
 
-    // 🛡️ التحقق من أمان إنشاء حساب جديد
+    // 2. تحديث التوثيق (KYC) الآمن (يسمح بتقديم الطلب فقط ولا يسمح بتزوير القبول)
+    function isSecureKycSubmission() {
+      let diff = request.resource.data.diff(resource.data);
+      let isOnlyKycFields = diff.affectedKeys().hasOnly(['kycStatus', 'kycData', 'fullName']);
+      
+      let isSettingToPending = request.resource.data.kycStatus == 'pending';
+      let isCurrentlyNotApproved = resource.data.get('kycStatus', 'none') != 'approved' 
+                                && resource.data.get('kycStatus', 'none') != 'verified';
+                                
+      return isOnlyKycFields && isSettingToPending && isCurrentlyNotApproved;
+    }
+
     function isSafeUserCreation() {
       let data = request.resource.data;
       let safeWallet = data.get('walletBalance', 0) == 0;
@@ -58,7 +71,10 @@ service cloud.firestore {
     // ==========================================
     match /telecard_users/{userId} {
       allow read: if (isOwner(userId) && isNotBanned()) || isMasterAdmin();
-      allow update: if (isOwner(userId) && isNotBanned() && isOnlyUpdatingAllowedProfileFields()) || isMasterAdmin();
+      
+      // ✅ تم دمج الدرعين: يسمح بتعديل الملف العادي، أو تقديم KYC بشكل آمن
+      allow update: if (isOwner(userId) && isNotBanned() && (isStandardProfileUpdate() || isSecureKycSubmission())) || isMasterAdmin();
+      
       allow create: if isOwner(userId) && isSafeUserCreation();
       allow delete: if isMasterAdmin();
 
@@ -87,13 +103,13 @@ service cloud.firestore {
     match /telecard_offers/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
     match /telecard_prods_public/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
     
-    // ✅ تم الإصلاح: السماح للعميل بقراءة الكوبونات
+    // ⚠️ تنبيه أمني: الكوبونات متاحة للقراءة لكي يعمل المحاكي المالي في الواجهة الأمامية
     match /telecard_coupons/{docId} { allow read: if canBrowsePublic(); allow write: if isMasterAdmin(); }
     
     match /telecard_prods/{docId} { allow read, write: if isMasterAdmin(); }
 
     // ==========================================
-    // 🛒 الطلبات والإيداعات (Write Locked)
+    // 🛒 الطلبات والإيداعات (Write Locked - Server Only)
     // ==========================================
     match /telecard_orders/{docId} {
       allow read: if (isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
@@ -106,7 +122,7 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 💬 التقييمات وتأكيد التوثيق
+    // 💬 التقييمات وتأكيد التوثيق القديم
     // ==========================================
     match /telecard_private_feedbacks/{docId} {
       allow create: if isNotBanned() 

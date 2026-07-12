@@ -421,24 +421,19 @@ modules.forEach(mod => {
 // 🔄 محرك المزامنة الحي (Real-time Firebase Sync Engine)
 // الوظيفة: إبقاء رصيد وطلبات العميل محدثة في واجهته بدون الحاجة لعمل Refresh
 // ============================================================================
+ClientSystem.userAuthListeners = []; // 🛡️ مصفوفة مخصصة لمستمعات المستخدم فقط
+
 ClientSystem.initFirebaseListeners = function() {
     console.log("📡 جاري تشغيل مستمعات السحابة الحية (النظام التفاعلي)...");
-    this.clearFirebaseListeners();
+    this.clearFirebaseListeners(); // ينظف الإعدادات العامة فقط
     
     // استماع للتحديثات العامة (إعدادات النظام)
     if (DB_KEYS.SETTINGS) {
         this.activeListeners.push(StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
             const incoming = Array.isArray(data) ? (data[0] || null) : (data || null);
             if (!incoming) return;
-            
             LiveStoreData.settings = incoming;
-            RenderHelpers.init({
-                settings: LiveStoreData.settings,
-                rates: LiveStoreData.rates || [],
-                offers: LiveStoreData.offers || [],
-                isStore: true
-            });
-            
+            RenderHelpers.init({ settings: LiveStoreData.settings, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
             try { if (this.syncUser) this.syncUser(); } catch(e){}
             try { if (this.updateDisplayCurrencyUI) this.updateDisplayCurrencyUI(this.selectedCurr); } catch(e){}
             try { if (this.applyStoreIdentity) this.applyStoreIdentity(); } catch(e){}
@@ -460,11 +455,16 @@ ClientSystem.initFirebaseListeners = function() {
     
     // 👤 استماع لتغير حالة الدخول للمستخدم (Auth State)
     onAuthStateChanged(auth, (firebaseUser) => {
+        // 🛡️ [إصلاح تسرب الذاكرة]: تنظيف مستمعات المستخدم السابقة قبل إضافة جديدة (Token Refresh Protection)
+        if (this.userAuthListeners && this.userAuthListeners.length > 0) {
+            this.userAuthListeners.forEach(unsubscribe => { if (typeof unsubscribe === 'function') unsubscribe(); });
+            this.userAuthListeners = [];
+        }
+
         if (firebaseUser) {
             const uidStr = firebaseUser.uid;
             localStorage.setItem('telecard_active_user_uid', uidStr);
             
-            // مستمع الإشعارات الشخصية للمستخدم
             if (typeof this.listenToUserNotifications === 'function') {
                 const notifUnsub = this.listenToUserNotifications(() => {
                     requestAnimationFrame(() => {
@@ -472,12 +472,11 @@ ClientSystem.initFirebaseListeners = function() {
                         if (typeof this.updateNotifBadges === 'function') this.updateNotifBadges();
                     });
                 });
-                if (typeof notifUnsub === 'function') this.activeListeners.push(notifUnsub);
+                if (typeof notifUnsub === 'function') this.userAuthListeners.push(notifUnsub);
             }
 
-            // مستمع بيانات المحفظة والرصيد (فوري)
             if (StoreDB.listenDoc) {
-                this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.USERS, String(uidStr), (userData) => {
+                this.userAuthListeners.push(StoreDB.listenDoc(DB_KEYS.USERS, String(uidStr), (userData) => {
                     if (userData) {
                         if (userData.isBanned === true || userData.isIpBanned === true) {
                             if (this.triggerLiveBanAlert) this.triggerLiveBanAlert(userData.banReason || 'نعتذر، تم حظر حسابك.');
@@ -485,7 +484,6 @@ ClientSystem.initFirebaseListeners = function() {
                             if (this.logout) this.logout();
                             return; 
                         }
-
                         LiveStoreData.users = [userData];
                         requestAnimationFrame(() => {
                             try { if (this.syncUser) this.syncUser(); } catch(e){}
@@ -496,16 +494,15 @@ ClientSystem.initFirebaseListeners = function() {
                 }));
             }
             
-            // مستمعات الطلبات والإيداعات
             if (StoreDB.listenQuery) {
-                this.activeListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
+                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
                     LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
                     this.cursors = this.cursors || {};
                     this.cursors.orders = data.length < 30 ? null : lastDoc;
                     requestAnimationFrame(() => { try { if (this.renderOrders) this.renderOrders(); } catch(e){} });
                 }));
                 
-                this.activeListeners.push(StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
+                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
                     LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
                     this.cursors = this.cursors || {};
                     this.cursors.deposits = data.length < 30 ? null : lastDoc;
@@ -517,7 +514,6 @@ ClientSystem.initFirebaseListeners = function() {
             }
         } else {
             console.log("👤 العميل زائر. تم تنظيف المستمعات الخاصة لتخفيف الضغط.");
-            this.clearFirebaseListeners();
             localStorage.removeItem('telecard_active_user_uid');
             LiveStoreData.users = []; LiveStoreData.orders = []; LiveStoreData.deposits = [];
             if (this.cursors) this.cursors = {}; 
@@ -526,7 +522,6 @@ ClientSystem.initFirebaseListeners = function() {
         }
     });
 };
-
 // ============================================================================
 // 🚀 إقلاع النظام المدمج (Smart Boot) - القاتل لفواتير فايربيز 💸
 // ============================================================================

@@ -2,7 +2,7 @@
 // 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers)
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core - Zero Dependencies)
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث الأقصى: ترقيع ثغرات Stored XSS في الأسماء، وترقية OWASP Sanitizer
+// 🌟 التحديث الأقصى: دمج حماية OWASP + طباعة فواتير الجوال الآمنة (No BDI)
 // ============================================================================
 
 let _injectedSource = null;
@@ -66,7 +66,7 @@ export const RenderHelpers = Object.freeze({
         
         if (typeof userObj === 'object') {
             if (userObj.displayId) finalId = String(userObj.displayId);
-            else finalId = String(userObj.uid || userObj.id || '').substring(0, 6).toUpperCase(); // 🚀 إصلاح: قراءة uid أولاً
+            else finalId = String(userObj.uid || userObj.id || '').substring(0, 6).toUpperCase(); 
         } else {
             const strId = String(userObj);
             finalId = strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
@@ -94,7 +94,7 @@ export const RenderHelpers = Object.freeze({
     },
     
     // ============================================================================
-    // 💰 المحركات المالية والعملات (تمت إضافة الدوال المفقودة)
+    // 💰 المحركات المالية والعملات 
     // ============================================================================
     
     getCurrencySymbolText: function(currCode = 'USD') {
@@ -131,24 +131,22 @@ export const RenderHelpers = Object.freeze({
     formatMoney: function(amount, currencyCode = 'USD', decimals = 2) {
         const num = Number(amount) || 0;
         
-        // 🚀 الإصلاح: الفواتير يجب أن تظهر كـ 5.00$ وليس 5$ لتبدو احترافية
         const formattedNum = num.toLocaleString('en-US', {
             minimumFractionDigits: decimals,
             maximumFractionDigits: decimals
         });
         
         const displayCur = this.getCurrencySymbolText(currencyCode);
-        // 🚀 الإصلاح: اعتبار أي رمز يتجاوز حرفاً واحداً (مثل ر.س أو USD) كـ multi لتصغير حجمه بجوار الرقم
-const isLongText = displayCur.trim().length > 1;
-const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
-        // 🛡️ حماية رمز العملة قبل حقنه
+        const isLongText = displayCur.trim().length > 1;
+        const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
         const safeCur = this._esc(displayCur);
         
-        return `<span class="money-pro"><bdi class="num-en money-val">${formattedNum}</bdi><bdi class="cur-symbol ${symbolClass}">${safeCur}</bdi></span>`;
+        // 🛡️ [الترقيع المستعاد]: استخدام Flexbox و dir="ltr" لمنع تحطم الفواتير على الجوال بدلاً من <bdi>
+        return `<span class="money-pro" dir="ltr" style="display: inline-flex; align-items: baseline; gap: 4px; direction: ltr;"><span class="num-en money-val">${formattedNum}</span><span class="cur-symbol ${symbolClass}">${safeCur}</span></span>`;
     },    
 
     // ============================================================================
-    // 👥 محركات أسماء المستخدمين والشارات (مُدرّعة ضد XSS)
+    // 👥 محركات أسماء المستخدمين والشارات
     // ============================================================================
 
     _getTxName: function(u) {
@@ -156,7 +154,6 @@ const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
         const f = u.firstName || u.first_name || u.name || '';
         const l = u.lastName || u.last_name || '';
         let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
-        // 🛡️ تعقيم الاسم قبل إرجاعه للواجهة
         return this._esc(fullName ? fullName : 'مستخدم جديد');
     },
 
@@ -165,7 +162,6 @@ const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
         const f = u.firstName || u.first_name || u.name || '';
         const l = u.lastName || u.last_name || '';
         const fullName = (f + ' ' + l).trim();
-        // 🛡️ تعقيم الاسم قبل إرجاعه للواجهة
         return this._esc(fullName || u.username || 'مستخدم غير معروف');
     },
 
@@ -185,7 +181,7 @@ const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
     },
 
     // ============================================================================
-    // ⏱️ المحرك الزمني المركزي (DRY Applied)
+    // ⏱️ المحرك الزمني المركزي
     // ============================================================================
 
     parseUnifiedTime: function(item) {
@@ -213,15 +209,14 @@ const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
     },
 
     formatSafeDate: function(ts) {
-    const timeMs = this.parseTime(ts);
-    if (!timeMs) return '---';
-    const dateObj = new Date(timeMs);
-    if (isNaN(dateObj.getTime())) return '---';
-    
-    const dateStr = dateObj.toLocaleDateString('en-GB'); // تعطي 10/06/2026
-    const timeStr = dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-    
-    // 🚀 الإصلاح: نرجع النص مباشرة بدون _esc لأن التواريخ آمنة ولا تحتاج لتشفير السلاش
-    return `${dateStr} | ${timeStr}`;
-}
+        const timeMs = this.parseTime(ts);
+        if (!timeMs) return '---';
+        const dateObj = new Date(timeMs);
+        if (isNaN(dateObj.getTime())) return '---';
+        
+        const dateStr = dateObj.toLocaleDateString('en-GB'); 
+        const timeStr = dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        
+        return `${dateStr} | ${timeStr}`;
+    }
 });

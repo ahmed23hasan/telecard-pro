@@ -1,18 +1,14 @@
 // ============================================================================
-// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة V4.0 💎
+// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة V4.5 💎
 // 🎯 الوظيفة: استيراد المنتجات، حماية الذاكرة، وبناء الجداول المركزية بأمان
-// 🌟 التحديث الأقصى: 
-// 1. [Financial Guard]: إخضاع تسعير الموردين للمحرك المالي السيادي (MAX_PRICE_LIMIT).
-// 2. [App Check & Audit]: تفعيل درع السكربتات وتسجيل النشاطات الجنائية.
-// 3. [Accurate Stock]: تحديث عداد الـ Subcollections الحقيقي ليعمل الرادار بامتياز.
-// 4. [Atomic Lock & OOM]: الحفاظ على قفل المزامنة الذري وحماية الذاكرة (select ID).
+// 🌟 التحديث الأقصى: حماية السيرفر من قنبلة الأكواد (Code Bomb) وتحسين العدادات
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require('firebase-admin');
 const crypto = require('crypto'); 
-const { FinancialEngine } = require('./financialEngine.js'); // 🛡️ استيراد المحرك المالي
+const FinancialEngine = require('./financialEngine.js'); // 🛡️ استيراد المحرك المالي ككائن كامل
 
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
@@ -104,18 +100,17 @@ const coreSyncLogic = async (supplierId) => {
         
         const fetchedIds = new Set();
         let importedCount = 0;
-        const defaultMargin = FinancialEngine.extractNum(supplier.defaultMargin || 0); // 🛡️ تعقيم الهامش
+        const defaultMargin = FinancialEngine.extractNum(supplier.defaultMargin || 0);
         
         let currentBatch = db.batch();
         let operationCount = 0;
-        let vaultsToCount = new Set(); // لتحديث المخزون الفعلي لاحقاً
+        let vaultStockUpdates = []; // 🛡️ [تحديث الأداء]: مصفوفة لتحديث المخزون بدون عمليات استعلام مرهقة
         
         const commitAndReset = async () => {
             if (operationCount > 0) {
                 await currentBatch.commit();
                 currentBatch = db.batch();
                 operationCount = 0;
-                await new Promise(resolve => setTimeout(resolve, 50)); 
             }
         };
         
@@ -124,7 +119,7 @@ const coreSyncLogic = async (supplierId) => {
             const vaultId = `vault_${safeId}`;
             fetchedIds.add(safeId);
             
-            // 🛡️ 2. إخضاع التسعير للمحرك المالي السيادي وحماية النظام من الأرقام الفلكية
+            // 🛡️ 2. إخضاع التسعير للمحرك المالي السيادي
             let rawCost = FinancialEngine.extractNum(prod.cost);
             if (rawCost > FinancialEngine.CONFIG.MAX_PRICE_LIMIT) rawCost = FinancialEngine.CONFIG.MAX_PRICE_LIMIT;
             
@@ -132,7 +127,9 @@ const coreSyncLogic = async (supplierId) => {
             let finalPrice = FinancialEngine.safeAdd(rawCost, profitAdded);
             if (finalPrice > FinancialEngine.CONFIG.MAX_PRICE_LIMIT) finalPrice = FinancialEngine.CONFIG.MAX_PRICE_LIMIT;
             
-            const hasStock = Number(prod.stock) > 0 || (prod.codes && prod.codes.length > 0);
+            // 🛡️ [حماية ضد قنبلة الأكواد Code Bomb] تحديد سقف للأكواد لتجنب الـ Timeout
+            const safeCodesArray = Array.isArray(prod.codes) ? prod.codes.slice(0, 5000) : [];
+            const hasStock = Number(prod.stock) > 0 || safeCodesArray.length > 0;
             const prodRef = db.collection('telecard_prods').doc(safeId);
             
             currentBatch.set(prodRef, {
@@ -145,35 +142,41 @@ const coreSyncLogic = async (supplierId) => {
             operationCount++;
             if (operationCount >= 450) await commitAndReset();
             
-            if (prod.codes && prod.codes.length > 0) {
+            if (safeCodesArray.length > 0) {
                 const vaultRef = db.collection('telecard_vault').doc(vaultId);
-                vaultsToCount.add(vaultId); // إضافة الخزنة لقائمة الجرد لاحقاً
                 
-                currentBatch.set(vaultRef, {
-                    id: vaultId, supplierId: supplierId, name: `أكواد: ${prod.name}`, lastSync: admin.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-                
-                operationCount++;
-                if (operationCount >= 450) await commitAndReset();
+                // حساب عدد الأكواد المضافة في هذه العملية لحفظها مباشرة في المخزون
+                let newlyAddedCodesCount = 0;
                 
                 const keysCollectionRef = vaultRef.collection('keys');
-                for (const c of prod.codes) {
+                for (const c of safeCodesArray) {
                     const actualCodeString = typeof c === 'object' ? (c.text || c.code || '') : String(c);
                     if (actualCodeString.trim() !== '') {
                         const codeHash = generateCodeHash(actualCodeString);
                         currentBatch.set(keysCollectionRef.doc(codeHash), {
                             codeText: actualCodeString, isSold: false, supplierId: supplierId, importedAt: admin.firestore.FieldValue.serverTimestamp()
-                        }, { merge: true }); // Merge true تمنع مضاعفة الأكواد
+                        }, { merge: true });
                         
+                        newlyAddedCodesCount++;
                         operationCount++;
                         if (operationCount >= 450) await commitAndReset();
                     }
                 }
+
+                // 🛡️ [تحديث الأداء]: تحديث العدد مباشرة دون استعلام قراءة مرهق
+                currentBatch.set(vaultRef, {
+                    id: vaultId, supplierId: supplierId, name: `أكواد: ${prod.name}`, 
+                    stockCount: admin.firestore.FieldValue.increment(newlyAddedCodesCount),
+                    lastSync: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                
+                operationCount++;
+                if (operationCount >= 450) await commitAndReset();
             }
             importedCount++;
         }
         
-        // 🌟 3. حماية الذاكرة (OOM Protection) وإيقاف المنتجات المحذوفة
+        // 🌟 3. حماية الذاكرة (OOM Protection)
         const existingProdsSnap = await db.collection('telecard_prods').where('supplierId', '==', supplierId).select('id').get();
         let deletedCount = 0;
         
@@ -186,17 +189,7 @@ const coreSyncLogic = async (supplierId) => {
         }
         
         currentBatch.update(suppRef, { lastSync: admin.firestore.FieldValue.serverTimestamp(), importedCount: importedCount });
-        operationCount++;
         await commitAndReset();
-
-        // 🌟 4. تحديث العداد الحقيقي للأكواد (Stock Radar Fix)
-        // هذا يضمن أن الداشبورد يعرض تنبيهات نفاذ الكمية بدقة 100%
-        for (const vId of vaultsToCount) {
-            try {
-                const countSnap = await db.collection('telecard_vault').doc(vId).collection('keys').where('isSold', '==', false).count().get();
-                await db.collection('telecard_vault').doc(vId).update({ stockCount: countSnap.data().count });
-            } catch(e) { console.error(`Failed to update count for vault ${vId}`); }
-        }
         
         return { importedCount, deletedCount };
 

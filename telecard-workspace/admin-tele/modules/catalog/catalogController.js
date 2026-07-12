@@ -220,41 +220,81 @@ export const CatalogController = {
     },
     
     deleteCategory: async function(id) {
-        if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف القسم وكل المنتجات والأقسام الفرعية التابعة له. المتابعة؟')) {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حرق بيانات القسم وتوابعه سحابياً...');
+    if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف القسم وكل المنتجات والأقسام الفرعية التابعة له. المتابعة؟')) {
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حرق بيانات القسم وتوابعه سحابياً...');
+        
+        try {
+            const catId = String(id);
+            const categoryToDelete = AdminData.data.catsMap?.[catId] || AdminData.data.cats.find(c => String(c.id) === catId);
+            const catName = categoryToDelete?.name || 'القسم';
             
-            try {
-                const catId = String(id);
-                const categoryToDelete = AdminData.data.catsMap?.[catId] || AdminData.data.cats.find(c => String(c.id) === catId);
-                const catName = categoryToDelete?.name || 'القسم';
-                
-                const childCatsIds = AdminData.data.cats.filter(c => String(c.parentId) === catId).map(c => String(c.id));
-                const affectedProds = AdminData.data.prods.filter(p => String(p.catId) === catId || childCatsIds.includes(String(p.catId)));
-                
-                const imagesToBurn = [categoryToDelete?.img, ...AdminData.data.cats.filter(c => String(c.parentId) === catId).map(c => c.img), ...affectedProds.map(p => p.img)].filter(Boolean);
-                
-                if (imagesToBurn.length > 0) {
-                    Promise.allSettled(imagesToBurn.map(imgUrl => FirebaseAdapter.deleteImageByUrl(imgUrl)));
-                }
-                
-                AdminData.data.cats = AdminData.data.cats.filter(c => String(c.parentId) !== catId && String(c.id) !== catId);
-                AdminData.data.prods = AdminData.data.prods.filter(p => String(p.catId) !== catId && !childCatsIds.includes(String(p.catId)));
-                
-                await AdminData?.saveCategories?.();
-                await AdminData?.saveProducts?.();
-                
-                if (String(AdminData.currFolder) === catId) EventBus.emit('req-update-state', { currFolder: null });
-                
-                if (AdminData?.addLog) AdminData.addLog('DELETE_CAT', `تم تدمير القسم: ${catName} ومحتوياته.`);
-                EventBus.emit('req-render-prods');
-                EventBus.emit('req-show-toast', { message: 'تم إبادة القسم وتوابعه سحابياً بنجاح', type: 'success' });
-                
-            } finally {
-                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            // 🛡️ [الترقيع الماسي]: خوارزمية (Recursive Flat) لجمع كل الأقسام الفرعية مهما كان عمقها
+            let allChildCatIds = new Set();
+            const findChildren = (parentId) => {
+                const children = AdminData.data.cats.filter(c => String(c.parentId) === String(parentId));
+                children.forEach(child => {
+                    allChildCatIds.add(String(child.id));
+                    findChildren(child.id); // البحث في العمق
+                });
+            };
+            findChildren(catId);
+            
+            const affectedProds = AdminData.data.prods.filter(p => String(p.catId) === catId || allChildCatIds.has(String(p.catId)));
+            const affectedCats = AdminData.data.cats.filter(c => allChildCatIds.has(String(c.id)));
+            
+            const imagesToBurn = [categoryToDelete?.img, ...affectedCats.map(c => c.img), ...affectedProds.map(p => p.img)].filter(Boolean);
+            
+            if (imagesToBurn.length > 0) {
+                Promise.allSettled(imagesToBurn.map(imgUrl => FirebaseAdapter.deleteImageByUrl(imgUrl)));
+            }
+            
+            AdminData.data.cats = AdminData.data.cats.filter(c => String(c.id) !== catId && !allChildCatIds.has(String(c.id)));
+            AdminData.data.prods = AdminData.data.prods.filter(p => String(p.catId) !== catId && !allChildCatIds.has(String(p.catId)));
+            
+            await AdminData?.saveCategories?.();
+            await AdminData?.saveProducts?.();
+            
+            // إذا كان المدير بداخل القسم المحذوف، أو أحد أبنائه، أخرجه للقسم الرئيسي (Root)
+            if (String(AdminData.currFolder) === catId || allChildCatIds.has(String(AdminData.currFolder))) {
+                EventBus.emit('req-update-state', { currFolder: null });
+            }
+            
+            if (AdminData?.addLog) AdminData.addLog('DELETE_CAT', `تم تدمير القسم: ${catName} ومحتوياته بالكامل.`);
+            EventBus.emit('req-render-prods');
+            EventBus.emit('req-show-toast', { message: 'تم إبادة القسم وتوابعه سحابياً بنجاح', type: 'success' });
+            
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+        }
+    }
+},
+// 🛡️ [إضافة مفقودة]: حفظ ترتيب الكتالوج بعد سحب العناصر
+saveNewOrder: async function(newOrderData) {
+    if (!newOrderData || !Array.isArray(newOrderData) || newOrderData.length === 0) return;
+    
+    let catsChanged = false;
+    let prodsChanged = false;
+    
+    newOrderData.forEach(item => {
+        if (item.type === 'cat') {
+            const cat = AdminData.data.catsMap?.[item.id] || AdminData.data.cats.find(c => String(c.id) === String(item.id));
+            if (cat && cat.order !== item.order) {
+                cat.order = item.order;
+                catsChanged = true;
+            }
+        } else if (item.type === 'prod') {
+            const prod = AdminData.data.prodsMap?.[item.id] || AdminData.data.prods.find(p => String(p.id) === String(item.id));
+            if (prod && prod.order !== item.order) {
+                prod.order = item.order;
+                prodsChanged = true;
             }
         }
-    },
-
+    });
+    
+    // حفظ الداتا في الخلفية بدون لودر لكي لا نزعج المدير
+    if (catsChanged) await AdminData?.saveCategories?.();
+    if (prodsChanged) await AdminData?.saveProducts?.();
+},
     changeGridLayout: async function(cols) {
         const parsedCols = parseInt(cols) || 2;
         const folderId = AdminData.currFolder;

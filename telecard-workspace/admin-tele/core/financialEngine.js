@@ -1,7 +1,7 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (core/financialEngine.js) - Admin Edition V11.0 👑
+// 💰 المحرك المالي المركزي (core/financialEngine.js) - Admin Edition V12.0 👑
 // 🎯 الوظيفة: محاكاة أسعار البيع، الخصومات، وكشف التكلفة والأرباح لمدير النظام
-// 🌟 التحديث الأقصى: التطابق التام مع السيرفر (Guardian V11) لحماية الـ USD وتوحيد O(1)
+// 🌟 التحديث الأقصى: التطابق التام مع السيرفر (Guardian V12) لتجنب خداع المحاسبين
 // ============================================================================
 
 export const FinancialEngine = Object.freeze({
@@ -22,12 +22,12 @@ export const FinancialEngine = Object.freeze({
     },
     
     safeMul: function(a, b) {
-    // تحويل الأرقام إلى أعداد صحيحة تماماً قبل الضرب لمنع أي تسرب للكسور الوهمية
-    const valA = Math.round((Number(a) || 0) * this.CONFIG.PRECISION);
-    const valB = Math.round((Number(b) || 0) * this.CONFIG.PRECISION);
-    // 🛡️ [الترقيع]: إضافة Math.round هنا للنتيجة النهائية ليتطابق مع السيرفر ويمنع الرفض
-    return Math.round((valA * valB) / this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
-},    safeDiv: function(a, b) {
+        const valA = Math.round((Number(a) || 0) * this.CONFIG.PRECISION);
+        const valB = Math.round((Number(b) || 0) * this.CONFIG.PRECISION);
+        return Math.round((valA * valB) / this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
+    },    
+    
+    safeDiv: function(a, b) {
         const numB = Number(b) || 1;
         return Math.round(((Number(a) || 0) / numB) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
@@ -42,7 +42,7 @@ export const FinancialEngine = Object.freeze({
         return absNum;
     },
     
-    // 🛡️ 4. إدارة أسعار الصرف بـ O(1) (مطابق لنسخة السيرفر لحماية الدولار)
+    // 🛡️ 4. إدارة أسعار الصرف بـ O(1)
     normalizeRates: function(rawArray) {
         const ratesMap = {};
         
@@ -135,7 +135,6 @@ export const FinancialEngine = Object.freeze({
             offerName = offer.name;
             const val = this.extractNum(offer.value);
             offerDiscount = offer.type === 'percentage' ? this.safeMul(originalPrice, val / 100) : val;
-            currentPrice = Math.max(0, this.safeSub(currentPrice, offerDiscount));
         }
         
         let couponCode = null, couponDiscount = 0, isFirewallActive = false;
@@ -144,28 +143,23 @@ export const FinancialEngine = Object.freeze({
         } else if (coupon && coupon.isActive !== false) {
             couponCode = coupon.code;
             const val = this.extractNum(coupon.value);
+            // 🛡️ [الترقيع المحاسبي]: حساب الكوبون من السعر الأصلي ليتطابق مع السيرفر
             couponDiscount = coupon.type === 'percentage' ? this.safeMul(originalPrice, val / 100) : val;
-            currentPrice = Math.max(0, this.safeSub(currentPrice, couponDiscount));
         }
         
+        currentPrice = Math.max(0, this.safeSub(currentPrice, this.safeAdd(offerDiscount, couponDiscount)));
+        
         let isFirewallViolated = false;
+        // 🛡️ [الترقيع المحاسبي]: منع البيع بالخسارة دون تشويه الأرقام الوهمية للكوبونات لغرض العرض الإداري
         if (currentPrice < cost) {
             isFirewallActive = true;
             isFirewallViolated = true;
             currentPrice = cost;
-            
-            const maxAllowedDiscount = Math.max(0, this.safeSub(originalPrice, cost));
-            const totalRequestedDiscount = this.safeAdd(offerDiscount, couponDiscount);
-            
-            if (totalRequestedDiscount > 0) {
-                const ratio = this.safeDiv(maxAllowedDiscount, totalRequestedDiscount);
-                offerDiscount = this.safeMul(offerDiscount, ratio);
-                couponDiscount = this.safeMul(couponDiscount, ratio);
-            }
         }
         
         const finalPrice = currentPrice;
-        const totalDiscountVal = this.safeAdd(offerDiscount, couponDiscount);
+        // الخصم الحقيقي المطبق هو الفارق بين الأصلي وما سيدفعه العميل
+        const totalDiscountVal = this.safeSub(originalPrice, currentPrice);
         const profit = Math.max(0, this.safeSub(finalPrice, cost));
         const marginPct = cost > 0 ? this.safeMul(this.safeDiv(profit, cost), 100) : 0;
         

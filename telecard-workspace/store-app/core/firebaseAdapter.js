@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version
+// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version 💎
 // 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth & Functions
-// 🌟 التحديث الأقصى: تفعيل App Check (reCAPTCHA v3) لحماية السيرفر من الهجمات
+// 🌟 التحديث الأقصى: تفعيل App Check، حماية مسارات التخزين، منع التعليق، ورفع الصور الثقيلة
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -83,29 +83,31 @@ export const FirebaseAdapter = {
     },
 
     // 📥 1. جلب البيانات مع نظام المحاولة الصامتة (Enterprise Retry Pattern)
-async getAll(collectionName, retryCount = 1) {
-    try {
-        if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
-        
-        // نحاول الجلب بمهلة 10 ثوانٍ فقط لضمان سرعة الاستجابة
-        const snapshot = await this._withTimeout(getDocs(collection(db, collectionName)), 10000, `getAll -> ${collectionName}`);
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-    } catch (error) {
-        // 🚀 الحل الاحترافي: إذا كان الخطأ بسبب (Timeout) وصدمة البداية الباردة، نقوم بمحاولة صامتة!
-        const isNetworkTimeout = error.code === 'deadline-exceeded' || error.message.includes('Timeout') || error.message.includes('backend');
-        
-        if (isNetworkTimeout && retryCount > 0) {
-            console.warn(`⏳ اختناق في الشبكة لمجموعة [${collectionName}]. جاري إعادة المحاولة بصمت...`);
-            // نريح المعالج والشبكة لمدة ثانية واحدة (لكي يكتمل بناء قناة الاتصال) ثم نحاول مجدداً
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            return this.getAll(collectionName, retryCount - 1); // محاولة أخيرة
+    async getAll(collectionName, retryCount = 1) {
+        try {
+            if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
+            
+            // نحاول الجلب بمهلة 10 ثوانٍ فقط لضمان سرعة الاستجابة
+            const snapshot = await this._withTimeout(getDocs(collection(db, collectionName)), 10000, `getAll -> ${collectionName}`);
+            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            
+        } catch (error) {
+            // 🚀 الحل الاحترافي: إذا كان الخطأ بسبب (Timeout) وصدمة البداية الباردة، نقوم بمحاولة صامتة!
+            const isNetworkTimeout = error.code === 'deadline-exceeded' || error.message.includes('Timeout') || error.message.includes('backend');
+            
+            if (isNetworkTimeout && retryCount > 0) {
+                console.warn(`⏳ اختناق في الشبكة لمجموعة [${collectionName}]. جاري إعادة المحاولة بصمت...`);
+                // نريح المعالج والشبكة لمدة ثانية واحدة (لكي يكتمل بناء قناة الاتصال) ثم نحاول مجدداً
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return this.getAll(collectionName, retryCount - 1); // محاولة أخيرة
+            }
+            
+            console.error(`🚨 خطأ نهائي في جلب مجموعة [${collectionName}]: ${error.message}`);
+            return [];
         }
-        
-        console.error(`🚨 خطأ نهائي في جلب مجموعة [${collectionName}]: ${error.message}`);
-        return [];
-    }
-},    async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
+    },
+
+    async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
             const q = query(collection(db, collectionName), orderBy(orderByField, 'desc'), limit(limitCount));
@@ -253,6 +255,10 @@ async getAll(collectionName, retryCount = 1) {
     async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
         if (!file) return '';
         try {
+            // 🛡️ تعقيم المسار لمنع Path Traversal
+            const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general';
+
+            // ♻️ حذف الصورة القديمة من السيرفر لتوفير المساحة
             if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
                 try {
                     const oldImageRef = ref(storage, oldImageUrl);
@@ -260,6 +266,7 @@ async getAll(collectionName, retryCount = 1) {
                 } catch (delErr) { }
             }
 
+            // ♻️ تحديد امتداد الملف الصحيح
             let ext = '.jpg';
             if (file.type === 'application/pdf') ext = '.pdf';
             else if (file.type === 'image/png') ext = '.png';
@@ -267,16 +274,16 @@ async getAll(collectionName, retryCount = 1) {
 
             const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : `upload${ext}`;
             const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
-            const storageRef = ref(storage, `${folderName}/${finalFileName}`);
+            const storageRef = ref(storage, `${safeFolder}/${finalFileName}`);
             
+            // 🛡️ زيادة المهلة إلى 60 ثانية لرفع الصور الثقيلة بشكل عادل
             const snapshot = await this._withTimeout(
-                uploadBytes(storageRef, file, { contentType: file.type }), 
-                15000, 
+                uploadBytes(storageRef, file, { contentType: file.type }),
+                60000,
                 "عملية رفع الصورة"
             );
-
-            const downloadURL = await getDownloadURL(snapshot.ref);
-            return downloadURL;
+            
+            return await getDownloadURL(snapshot.ref);
 
         } catch (error) {
             console.error("🚨 خطأ في محرك التخزين السحابي:", error);
@@ -391,5 +398,6 @@ async getAll(collectionName, retryCount = 1) {
             console.error(`🚨 خطأ في السيرفر أثناء استدعاء [${functionName}]: [${errObj.code}] ${errorMessage}`);
             throw errObj;
         }
-    }
-};
+    } 
+    // ✅ تم إصلاح إغلاق الدالة هنا
+}; // ✅ تم إغلاق كائن FirebaseAdapter بشكل صحيح
