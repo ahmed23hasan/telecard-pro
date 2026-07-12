@@ -189,15 +189,17 @@ export const AppController = {
             if (routers[data.action]) await routers[data.action](data);
             else console.warn(`⚠️ حدث غير مبرمج في النظام: ${data.action}`);
         });
-        
-        // --- 7. أحداث النوافذ والـ UI ---
-        EventBus.on('req-show-toast', (data) => AdminUI?.showToast?.(data.message, data.type || 'success'));
-        EventBus.on('req-open-modal', (modalId) => AdminUI?.openModal?.(modalId));
-        EventBus.on('modals-closed', () => this.updateState({ tempEditId: null, tempPackages: [], tempPayDetails: [] }));
-        EventBus.on('set-temp-edit-id', (id) => this.updateState({ tempEditId: id !== null ? String(id) : null }));
-        EventBus.on('tier-option-selected', (tierId) => this.updateState({ selectedTierId: tierId }));
-        
-        // --- 8. إعدادات الأمان والتوثيق (KYC) ---
+      // --- 7. أحداث النوافذ والـ UI ---
+EventBus.on('req-show-toast', (data) => AdminUI?.showToast?.(data.message, data.type || 'success'));
+EventBus.on('req-open-modal', (modalId) => AdminUI?.openModal?.(modalId));
+EventBus.on('modals-closed', () => this.updateState({ tempEditId: null, tempPackages: [], tempPayDetails: [] }));
+EventBus.on('set-temp-edit-id', (id) => this.updateState({ tempEditId: id !== null ? String(id) : null }));
+EventBus.on('tier-option-selected', (tierId) => this.updateState({ selectedTierId: tierId }));
+
+// 🧲 [تمت الإضافة هنا]: تشغيل محرك السحب والإفلات للكتالوج
+EventBus.on('req-init-sortable', (data) => AdminUI?.CatalogUI?.initSortableEngine?.(data.container, data.type));
+
+// --- 8. إعدادات الأمان والتوثيق (KYC) ---      // --- 8. إعدادات الأمان والتوثيق (KYC) ---
         EventBus.on('req-save-kyc-config', async (newKycConfig) => {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات التوثيق...');
             try {

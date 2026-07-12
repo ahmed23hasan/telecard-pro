@@ -387,28 +387,70 @@ openCategoryModal: function(id = null) {
     }
   },
 
-  // =========================================================
-  // 🎟️ 5. الأكواد التالفة (Defective Codes)
-  // =========================================================
-  renderDefectiveCodesModal: function(poolName, defectiveCodes) {
-      const oldOverlay = document.getElementById('defective-codes-overlay'); 
-      if (oldOverlay) oldOverlay.remove();
-      
-      const html = AdminTemplates.defectiveModal(poolName, defectiveCodes); 
-      document.body.insertAdjacentHTML('beforeend', html);
-      
-      const overlay = document.getElementById('defective-codes-overlay');
-      if (overlay) { 
-          overlay.style.display = 'flex'; 
-          setTimeout(() => { overlay.classList.add('active'); }, 10); 
-      }
+// =========================================================
+// 🎟️ 5. الأكواد التالفة (Defective Codes)
+// =========================================================
+renderDefectiveCodesModal: function(poolName, defectiveCodes) {
+    const oldOverlay = document.getElementById('defective-codes-overlay');
+    if (oldOverlay) oldOverlay.remove();
+    
+    const html = AdminTemplates.defectiveModal(poolName, defectiveCodes);
+    document.body.insertAdjacentHTML('beforeend', html);
+    
+    const overlay = document.getElementById('defective-codes-overlay');
+    if (overlay) {
+      overlay.style.display = 'flex';
+      setTimeout(() => { overlay.classList.add('active'); }, 10);
+    }
   },
-
+  
   closeDefectiveModalUI: function() {
-      const overlay = document.getElementById('defective-codes-overlay');
-      if (overlay) { 
-          overlay.classList.remove('active'); 
-          setTimeout(() => { overlay.remove(); }, 300); 
+    const overlay = document.getElementById('defective-codes-overlay');
+    if (overlay) {
+      overlay.classList.remove('active');
+      setTimeout(() => { overlay.remove(); }, 300);
+    }
+  }, // ✅ لاحظ: وضعنا فاصلة هنا لنكمل الكائن
+  
+  // =========================================================
+  // 🧲 6. محرك السحب والإفلات (Drag & Drop Engine)
+  // =========================================================
+  initSortableEngine: function(container, type) {
+    if (!window.Sortable) {
+      console.warn("🚨 مكتبة SortableJS غير موجودة! يرجى إضافتها في admin.html");
+      return;
+    }
+    
+    // تنظيف المحرك القديم إن وجد لمنع التكرار
+    if (container.sortableInstance) {
+      container.sortableInstance.destroy();
+    }
+    
+    // تشغيل المحرك
+    container.sortableInstance = new window.Sortable(container, {
+      animation: 200, // حركة انسيابية ناعمة
+      disabled: !this.dragEditMode, // يعمل فقط إذا كان زر "ترتيب" مفعلاً
+      ghostClass: 'sortable-ghost', // كلاس CSS للعنصر أثناء السحب
+      delay: window.innerWidth < 992 ? 150 : 0, // تأخير بسيط في الجوال لمنع التعارض مع التمرير
+      delayOnTouchOnly: true,
+      
+      onEnd: (evt) => {
+        // 🚀 بمجرد إفلات العنصر، نقوم بجمع الترتيب الجديد
+        const items = Array.from(container.children);
+        const orderArray = items.map((item, index) => ({
+          id: item.getAttribute('data-id'),
+          type: item.getAttribute('data-type') || type,
+          order: index
+        }));
+        
+        // إرسال الترتيب الجديد ليتم حفظه في السحابة فوراً (O(1))
+        EventBus.emit('action-triggered', { action: 'save-order', orderArray });
+        
+        // تشغيل صوت نجاح خفيف
+        if (window.ClientSystem && window.ClientSystem.sfx) window.ClientSystem.sfx('success');
       }
+    });
   }
-};
+
+}; 
+// ✅ الآن نغلق كائن CatalogUI بشكل صحيح

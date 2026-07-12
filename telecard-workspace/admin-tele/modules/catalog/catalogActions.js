@@ -13,25 +13,16 @@ import { AdminData } from '../../adminData.js';
 import { EventBus } from '../../adminUtils.js';
 
 export const CatalogActions = {
-  // ==========================================
-  // 📁 1. الملاحة بين الأقسام (Navigation) - O(1)
-  // ==========================================
-  'enter-folder': (data) => {
-    EventBus.emit('req-update-state', { currFolder: data.enter || data.id });
-    EventBus.emit('req-render-prods');
-  },
-  
-  'cat-back': () => {
-    const currId = AdminData.currFolder;
-    if (currId) {
-      const curr = AdminData.data.catsMap?.[currId] || AdminData.data.cats.find(x => String(x.id) === String(currId));
-      const parent = (curr && curr.parentId !== 'null' && curr.parentId !== '') ? String(curr.parentId) : null;
-      EventBus.emit('req-update-state', { currFolder: parent });
-      EventBus.emit('req-render-prods');
-    }
-  },
-  
-  // ==========================================
+// ==========================================
+// 📁 1. الملاحة بين الأقسام (Navigation) - O(1)
+// ==========================================
+'enter-folder': (data) => {
+  EventBus.emit('req-update-state', { currFolder: data.enter || data.id });
+  EventBus.emit('req-render-prods');
+},
+
+// 🛡️ [الترقيع الماسي]: تم مسح الكود المعطوب وتوجيه السهم للمحرك المركزي الذي أصلحناه
+'cat-back': () => EventBus.emit('req-go-back'),  // ==========================================
   // 🪟 2. النوافذ المنبثقة (Modals)
   // ==========================================
   'open-cat-modal': (data) => AdminUI?.CatalogUI?.openCategoryModal?.(data.id),
@@ -74,6 +65,7 @@ export const CatalogActions = {
   'detect-country': (data) => AdminUI?.detectCountryAutoFill?.(data.val, AdminData.data.countries),
   // 🛡️ [مسار مفقود]: التقاط حدث حفظ الترتيب من الواجهة وإرساله للمتحكم
 'save-order': (data) => CatalogController.saveNewOrder?.(data.orderArray),
+ 
   // ==========================================
   // 🏦 6. إدارة الأكواد التالفة (Defective Vault)
   // ==========================================
