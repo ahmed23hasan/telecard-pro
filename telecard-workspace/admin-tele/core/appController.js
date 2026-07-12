@@ -43,10 +43,15 @@ export const AppController = {
     selectedUserId: null, selectedTierId: null,
 
     updateState: function(newState) {
-        for (let key in newState) { try { this[key] = newState[key]; } catch(e) { } }
-        EventBus.emit('state-update', newState);
-    },
-
+    for (let key in newState) {
+        try {
+            this[key] = newState[key];
+            // 🛡️ [إصلاح الثغرة]: تمرير حالة الملاحة إلى AdminData لكي تقرأها باقي الملفات كالكتالوج
+            if (AdminData) AdminData[key] = newState[key];
+        } catch (e) {}
+    }
+    EventBus.emit('state-update', newState);
+},
     init: async function() {
         if (this.isInitialized) return; 
         

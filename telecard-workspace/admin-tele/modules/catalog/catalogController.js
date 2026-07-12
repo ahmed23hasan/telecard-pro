@@ -89,6 +89,17 @@ export const CatalogController = {
             const isEdit = !!tempEditId;
             const newProdId = isEdit ? String(tempEditId) : 'prod_' + Date.now();
 
+            // 🛡️ [الترقيع المحاسبي]: إنشاء سعر بيع افتراضي كخطة طوارئ (Fallback) لمنع ظهور 0$ في المتجر للزوار
+            const defaultTier = AdminData.data.tiers?.find(t => t.isDefault) || AdminData.data.tiers?.[0];
+            let fallbackPrice = rawCost;
+            if (defaultTier && type !== 'select') {
+                const profitPercent = Number(defaultTier.profit_percent || defaultTier.profitPercent || 0);
+                const minProfitUsd = Number(defaultTier.min_profit_usd || defaultTier.minProfitUsd || 0);
+                let profitAdded = (rawCost * profitPercent) / 100;
+                if (profitAdded < minProfitUsd) profitAdded = minProfitUsd;
+                fallbackPrice = rawCost + profitAdded;
+            }
+
             let newProd = {
                 id: newProdId,
                 catId: AdminData.currFolder != null ? String(AdminData.currFolder) : null,
@@ -97,6 +108,7 @@ export const CatalogController = {
                 type: type,
                 img: finalImg,
                 costPrice: rawCost,
+                price: fallbackPrice, // ✅ تمت إضافة السعر الاحتياطي هنا لتجنب الـ 0$
                 vaultPoolId: vaultPoolId,
                 hideGridPrice: Utils.getCheck('pr-hide-price')
             };
@@ -128,7 +140,6 @@ export const CatalogController = {
                 AdminData.data.prods.push(newProd);
             }
 
-            // ⚡ التحديث الفوري للـ Map
             if (!AdminData.data.prodsMap) AdminData.data.prodsMap = {};
             AdminData.data.prodsMap[newProd.id] = newProd;
 
@@ -147,9 +158,7 @@ export const CatalogController = {
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
-    },
-
-    saveCat: async function() {
+    },    saveCat: async function() {
         const name = Utils.escapeHTML(Utils.getVal('c-name'));
         if (!name) return EventBus.emit('req-show-toast', {message:'يرجى إدخال اسم القسم', type:'warning'});
 

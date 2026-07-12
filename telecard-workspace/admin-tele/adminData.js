@@ -365,39 +365,50 @@ export const AdminData = {
         });
         return liquidity;
     },
-
-    // ==========================================
-    // 💾 نظام الحفظ الذكي (Atomic Collection Save)
-    // ==========================================
-    saveCollection: async function(key, prop) {
+// ==========================================
+// 💾 نظام الحفظ الذكي (Atomic Collection Save)
+// ==========================================
+saveCollection: async function(key, prop) {
         if (!this.isCloudSyncSuccessful) return false;
-
+        
         const currentArr = this.data[prop] || [];
         const snapArr = this._snapshots[prop] || [];
         
         const currentMap = new Map(currentArr.map(i => [String(i.id || Utils.generateID()), i]));
         const snapMap = new Map(snapArr.map(i => [String(i.id), i]));
         const promises = [];
-
+        
         currentMap.forEach((item, id) => {
             const old = snapMap.get(id);
             if (!old || JSON.stringify(item) !== JSON.stringify(old)) {
                 promises.push(FirebaseAdapter.set(key, id, item));
             }
         });
-
+        
         snapMap.forEach((_, id) => {
             if (!currentMap.has(id)) promises.push(FirebaseAdapter.delete(key, id));
         });
-
-        if (promises.length > 0) await Promise.all(promises);
+        
+        if (promises.length > 0) {
+            // انتظار حفظ البيانات في السحابة
+            await Promise.all(promises);
+            
+            // 🚀 [النظام السحري لإبطال الكاش - Cache Invalidator]
+            // إذا كان التعديل يخص المنتجات، الأقسام، المستويات، العروض، أو أسعار الصرف
+            if (['prods', 'cats', 'tiers', 'offers', 'rates'].includes(prop)) {
+                if (!this.data.settings) this.data.settings = {};
+                // توليد كود إصدار جديد وإجبار المتجر على مسح كاش العملاء
+                this.data.settings.catalogVersion = Date.now().toString(36);
+                await this.saveSystemSettings();
+            }
+        }
         
         this._updateSnapshot(prop);
-        this._buildSingleMap(prop); 
+        this._buildSingleMap(prop);
         
         return true;
     },
-
+    
     saveCountries: function() { return this.saveCollection(DB_KEYS.COUNTRIES, 'countries'); },
     saveCoupons: function() { return this.saveCollection(DB_KEYS.COUPONS, 'coupons'); },
     saveTiers: function() { return this.saveCollection(DB_KEYS.TIERS, 'tiers'); },
@@ -410,25 +421,24 @@ export const AdminData = {
     savePayments: function() { return this.saveCollection(DB_KEYS.PAYMENTS, 'payments'); },
     saveBanners: function() { return this.saveCollection(DB_KEYS.BANNERS, 'banners'); },
     saveOffers: function() { return this.saveCollection(DB_KEYS.OFFERS, 'offers'); },
-
+    
     // 🛡️ [تحديث]: حفظ إعدادات النظام المفردة
     saveSystemSettings: async function() {
-        if (!this.isCloudSyncSuccessful) return false;
-        try {
-            await FirebaseAdapter.set(DB_KEYS.SETTINGS, 'singleton', this.data.settings);
-            return true;
-        } catch (e) { console.error("خطأ في حفظ الإعدادات:", e); return false; }
-    },
-    
-    // 🛡️ [تحديث مفقود عاد للحياة]: حفظ بروفايل الإدمن لتجنب الانهيار (Crash) في لوحة التحكم
-    saveAdminProfile: async function() {
-        if (!this.isCloudSyncSuccessful) return false;
-        try {
-            await FirebaseAdapter.set(DB_KEYS.ADMIN, 'singleton', this.data.adminProfile);
-            return true;
-        } catch (e) { console.error("خطأ في حفظ بروفايل الأدمن:", e); return false; }
-    },
-
+            if (!this.isCloudSyncSuccessful) return false;
+            try {
+                await FirebaseAdapter.set(DB_KEYS.SETTINGS, 'singleton', this.data.settings);
+                return true;
+            } catch (e) { console.error("خطأ في حفظ الإعدادات:", e); return false; }
+        },
+        
+        // 🛡️ [تحديث مفقود عاد للحياة]: حفظ بروفايل الإدمن لتجنب الانهيار (Crash) في لوحة التحكم
+        saveAdminProfile: async function() {
+            if (!this.isCloudSyncSuccessful) return false;
+            try {
+                await FirebaseAdapter.set(DB_KEYS.ADMIN, 'singleton', this.data.adminProfile);
+                return true;
+            } catch (e) { console.error("خطأ في حفظ بروفايل الأدمن:", e); return false; }
+        }
     autoAdvanceSweep: async function() {
         const tiers = [...this.data.tiers].sort((a,b) => b.threshold - a.threshold);
         let changed = false;
