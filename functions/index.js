@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V12.5 💎
+// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V13.0 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديث الأخير: ترقيع ثغرة الكوبونات المزدوجة، وحماية الذاكرة من انهيار الإحصائيات
+// 🚀 التحديث الأخير: إغلاق ثغرة الكاش العنيد، حماية الترقية، وتأمين الـ RAM
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -31,7 +31,7 @@ const db = admin.firestore();
 
 // 🛡️ درع التيتانيوم الأمني
 const SYSTEM_LIMITS = {
-    MAX_QTY_PER_ORDER: 10000, // متطابق مع المحاكي لحماية الـ Memory
+    MAX_QTY_PER_ORDER: 10000, 
     MAX_SAFE_AMOUNT: 100000000 
 };
 
@@ -60,7 +60,7 @@ const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
 const safeSub = (a, b) => Math.max(0, FinancialEngine.safeSub(a, b));
 const safeMul = (a, b) => FinancialEngine.safeMul(a, b);
 
-// ⚡ التحميل الكسول (Lazy Loading) لتسريع الأداء وتقليل وقت التشغيل البارد
+// ⚡ التحميل الكسول (Lazy Loading) 
 const generateUniqueId = () => {
     const crypto = require('crypto');
     const timestamp = Date.now().toString(36).toUpperCase();
@@ -147,6 +147,7 @@ const loadTiersCache = async () => {
     })();
     return fetchTiersPromise;
 };
+
 // ==========================================
 // 🛒 3. إنشاء الطلبات للعملاء (محصن بالكامل + ترقية المستويات الفورية)
 // ==========================================
@@ -221,7 +222,7 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 couponRef ? transaction.get(couponRef) : Promise.resolve(null)
             ]);
 
-            // 🛡️ فحص الكوبونات الصارم وتأمين الاستخدام المزدوج (Race Condition Lock)
+            // 🛡️ فحص الكوبونات الصارم
             let liveCouponData = null;
             if (couponRef) {
                 if (!currentCouponSnap.exists) throw new HttpsError('not-found', 'الكوبون غير موجود.');
@@ -249,7 +250,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
             }, finalQty); 
 
             if (pricingSnapshot.isFirewallViolated) {
-                console.error(`[SECURITY ALERT] Firewall blocked order! User: ${uid}, Product: ${productId}`);
                 throw new HttpsError('permission-denied', 'تم اكتشاف تضارب في التسعير، تم إيقاف العملية لحماية المتجر.');
             }
 
@@ -294,18 +294,22 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
             let finalTierId = String(userData.tierId || userData.tier || tierId);
             let isTierUpgraded = false;
 
-            // التأكد من أن الإدمن لم يقم بتثبيت مستوى العميل يدوياً
-            if (userData.manualTierOverride !== true) {
+            // 🛡️ [إصلاح الوهم البولياني]: حماية من تعليق الترقية بسبب نوع البيانات
+            if (userData.manualTierOverride !== true && String(userData.manualTierOverride) !== 'true') {
                 const tiersData = await loadTiersCache(); 
-                const currentTierObj = tiersData.find(t => String(t.id) === finalTierId);
                 
-                if (currentTierObj && currentTierObj.autoAdvance !== false) {
-                    // البحث عن المستوى الجديد الذي استحقه العميل
+                // دالة مساعدة لتوحيد قراءة شرط الترقية القديم والجديد
+                const getThreshold = (t) => Number(t.threshold || t.condition_amount || t.conditionAmount || 0);
+                
+                const currentTierObj = tiersData.find(t => String(t.id) === finalTierId);
+                const currentThreshold = currentTierObj ? getThreshold(currentTierObj) : 0;
+                
+                if (currentTierObj && currentTierObj.autoAdvance !== false && String(currentTierObj.autoAdvance) !== 'false') {
                     const earnedTiers = tiersData.filter(t => 
-                        t.autoAdvance !== false && 
-                        Number(t.threshold || 0) <= newTierCycleSpent && 
-                        Number(t.threshold || 0) > Number(currentTierObj.threshold || 0)
-                    ).sort((a, b) => Number(b.threshold || 0) - Number(a.threshold || 0));
+                        (t.autoAdvance !== false && String(t.autoAdvance) !== 'false') && 
+                        getThreshold(t) <= newTierCycleSpent && 
+                        getThreshold(t) > currentThreshold
+                    ).sort((a, b) => getThreshold(b) - getThreshold(a));
 
                     if (earnedTiers.length > 0) {
                         finalTierId = earnedTiers[0].id;
@@ -314,7 +318,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 }
             }
 
-            // إعداد كائن تحديث العميل
             let userUpdateObj = { 
                 walletBalance: newBalance, 
                 balance: newBalance, 
@@ -325,9 +328,8 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 tier: finalTierId
             };
 
-            // إذا تَرقى العميل: يتم إرسال إشعار تهنئة فوراً، وتصفير الدورة
             if (isTierUpgraded) {
-                userUpdateObj.tierCycleStartDate = serverNow; // بدء دورة جديدة للمستوى الجديد
+                userUpdateObj.tierCycleStartDate = serverNow; 
                 
                 const notifRef = userRef.collection('notifications').doc();
                 transaction.set(notifRef, {
@@ -340,7 +342,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 });
             }
 
-            // 💾 تنفيذ التحديث على العميل
             transaction.update(userRef, userUpdateObj);
             // ===============================================================
 
@@ -352,7 +353,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 });
             }
 
-            // التعديل الوهمي للمستند لضمان القفل وإعادة المحاولة في حال التزامن
             transaction.update(productRef, { lastSoldAt: admin.firestore.FieldValue.serverTimestamp() });
 
             transaction.set(orderRef, {
@@ -798,6 +798,9 @@ exports.onTierUpdate = onDocumentUpdated({
     timeoutSeconds: 540, 
     retry: true 
 }, async (event) => {
+    // 🚀 [الترقيع الماسي]: مسح كاش السيرفر فوراً ليطبق شروط الترقية الجديدة على الطلبات القادمة
+    cacheTiers.lastFetch = 0; 
+    
     const tierId = event.params.tierId;
     const oldTier = event.data.before.data();
     const newTier = event.data.after.data();
@@ -1017,4 +1020,4 @@ exports.adminDeleteVaultPool = onCall(async (request) => {
         console.error("Delete Vault Error:", error);
         throw new HttpsError('internal', `تعذر حذف الصندوق: ${error.message}`);
     }
-});
+}); 
