@@ -147,9 +147,8 @@ const loadTiersCache = async () => {
     })();
     return fetchTiersPromise;
 };
-
 // ==========================================
-// 🛒 3. إنشاء الطلبات للعملاء (محصن بالكامل)
+// 🛒 3. إنشاء الطلبات للعملاء (محصن بالكامل + ترقية المستويات الفورية)
 // ==========================================
 exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
@@ -230,7 +229,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 if (String(liveCouponData.isActive) === 'false') throw new HttpsError('failed-precondition', 'الكوبون معطل حالياً.');
                 if (liveCouponData.expiryDate && liveCouponData.expiryDate < serverNow) throw new HttpsError('failed-precondition', 'انتهت صلاحية الكوبون.');
                 
-                // 🛡️ التحقق اللحظي للحدود داخل الترانساكشن
                 const currentUsage = liveCouponData.usedCount || 0;
                 if (liveCouponData.maxUses > 0 && currentUsage >= liveCouponData.maxUses) {
                     throw new HttpsError('resource-exhausted', 'نفدت كمية استخدام الكوبون.');
@@ -289,10 +287,62 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 });
             }
 
-            transaction.update(userRef, { 
-                walletBalance: newBalance, balance: newBalance, totalSpent: safeAdd(userData.totalSpent || 0, totalRequired), 
-                tierCycleSpent: safeAdd(userData.tierCycleSpent || 0, totalRequired), lastOrderTime: serverNow
-            });
+            // ===============================================================
+            // 🚀 [الترقيع الماسي]: محرك الترقية التلقائية الفوري (Server-Side Auto Advance)
+            // ===============================================================
+            const newTierCycleSpent = safeAdd(userData.tierCycleSpent || 0, totalRequired);
+            let finalTierId = String(userData.tierId || userData.tier || tierId);
+            let isTierUpgraded = false;
+
+            // التأكد من أن الإدمن لم يقم بتثبيت مستوى العميل يدوياً
+            if (userData.manualTierOverride !== true) {
+                const tiersData = await loadTiersCache(); 
+                const currentTierObj = tiersData.find(t => String(t.id) === finalTierId);
+                
+                if (currentTierObj && currentTierObj.autoAdvance !== false) {
+                    // البحث عن المستوى الجديد الذي استحقه العميل
+                    const earnedTiers = tiersData.filter(t => 
+                        t.autoAdvance !== false && 
+                        Number(t.threshold || 0) <= newTierCycleSpent && 
+                        Number(t.threshold || 0) > Number(currentTierObj.threshold || 0)
+                    ).sort((a, b) => Number(b.threshold || 0) - Number(a.threshold || 0));
+
+                    if (earnedTiers.length > 0) {
+                        finalTierId = earnedTiers[0].id;
+                        isTierUpgraded = true;
+                    }
+                }
+            }
+
+            // إعداد كائن تحديث العميل
+            let userUpdateObj = { 
+                walletBalance: newBalance, 
+                balance: newBalance, 
+                totalSpent: safeAdd(userData.totalSpent || 0, totalRequired), 
+                tierCycleSpent: newTierCycleSpent, 
+                lastOrderTime: serverNow,
+                tierId: finalTierId,
+                tier: finalTierId
+            };
+
+            // إذا تَرقى العميل: يتم إرسال إشعار تهنئة فوراً، وتصفير الدورة
+            if (isTierUpgraded) {
+                userUpdateObj.tierCycleStartDate = serverNow; // بدء دورة جديدة للمستوى الجديد
+                
+                const notifRef = userRef.collection('notifications').doc();
+                transaction.set(notifRef, {
+                    id: notifRef.id,
+                    title: '🎉 ترقية مستوى VIP',
+                    message: `تهانينا! نظراً لنشاط مشترياتك، تم ترقية حسابك إلى مستوى جديد بشكل تلقائي. استمتع بالأسعار المخفضة!`,
+                    type: 'notification', 
+                    createdAt: serverNow, 
+                    isRead: false
+                });
+            }
+
+            // 💾 تنفيذ التحديث على العميل
+            transaction.update(userRef, userUpdateObj);
+            // ===============================================================
 
             if (idempotencyRef) {
                 transaction.set(idempotencyRef, {
