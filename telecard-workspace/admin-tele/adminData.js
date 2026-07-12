@@ -438,7 +438,7 @@ saveCollection: async function(key, prop) {
                 await FirebaseAdapter.set(DB_KEYS.ADMIN, 'singleton', this.data.adminProfile);
                 return true;
             } catch (e) { console.error("خطأ في حفظ بروفايل الأدمن:", e); return false; }
-        }
+        },
     autoAdvanceSweep: async function() {
         const tiers = [...this.data.tiers].sort((a,b) => b.threshold - a.threshold);
         let changed = false;

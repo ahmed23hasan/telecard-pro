@@ -71,6 +71,11 @@ window.StoreRenderApp = window.StoreRenderApp || {
         const wrapper = img.parentElement;
         if (!wrapper) return;
         
+        // 🛡️ [الترقيع]: إجبار إيقاف الشيمر والنبض إذا كانت الصورة تالفة أو محذوفة
+        wrapper.classList.add('shimmer-stop');
+        wrapper.style.animation = 'none';
+        wrapper.style.backgroundColor = 'transparent';
+        
         let iconClass = 'fa-box-open';
         let divClass = 'default-prod-icon';
         
@@ -78,8 +83,7 @@ window.StoreRenderApp = window.StoreRenderApp || {
         else if (type === 'pay') { iconClass = 'fa-building-columns'; divClass = 'pay-icon-default'; }
         
         wrapper.innerHTML = `<div class="${divClass}"><i class="fa-solid ${iconClass}"></i></div>`;
-    }
-};
+    }};
 
 // 🛡️ [UPDATE]: دالة ذكية لتحميل المكتبات مع روابط احتياطية (CDN Fallback)
 const _loadExternalScriptWithFallback = async (srcArray) => {
@@ -172,10 +176,8 @@ export const RenderManager = {
         const fallbackHTML = `<div class="${defaultClass}" style="${type === 'story' ? 'display: flex; ' + extraStyle : ''}"><i class="fa-solid ${defaultIcon}"></i></div>`;
 
         if (rawUrl) {
-            // 🛡️ [إصلاح خطير]: إزالة escapeHtml لأنها تكسر توكن Firebase (&token=...). 
-            // نكتفي بتشفير علامات التنصيص فقط لمنع كسر خصائص الـ HTML.
+            // 🛡️ حماية روابط فايربيز من الكسر
             const safeUrl = rawUrl.replace(/"/g, '%22'); 
-            
             const imgVars = this._getImgLoadVars(rawUrl);
             wrapperClass = imgVars.wrapperClass;
             wrapperStyle = imgVars.wrapperStyle;
@@ -189,11 +191,14 @@ export const RenderManager = {
                 imgHTML += `<div class="${defaultClass}" style="display: none; ${extraStyle}"><i class="fa-solid ${defaultIcon}"></i></div>`;
             }
         } else {
+            // 🛡️ [الترقيع الماسي]: إذا لم يقم الإدمن برفع صورة، نقتل الشيمر برمجياً فوراً!
             imgHTML = fallbackHTML;
+            wrapperClass += ' shimmer-stop'; 
+            wrapperStyle += ' animation: none !important; background-color: transparent !important;'; 
         }
 
         return { html: imgHTML, wrapperClass, wrapperStyle };
-    },    renderHome: function(isBackAction = false) {
+    },   renderHome: function(isBackAction = false) {
         const grid = document.getElementById('store-grid');
         const titleEl = document.getElementById('grid-title');
         
