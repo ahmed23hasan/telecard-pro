@@ -1,12 +1,12 @@
 // ============================================================================
-// 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - النسخة الماسية (Pro V5.1)
+// 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - النسخة الماسية (Pro V5.2)
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
 // 👑 متوافق بالكامل مع هوية: TeleCard
-// 🚀 التحديثات الهندسية (V5.1):
-// 1. [Error Boundaries]: حماية الحلقات التكرارية لمنع انهيار القوائم (White Screen).
-// 2. [CDN Fallbacks]: خوادم بديلة لمكتبات الـ PDF لضمان عمل الفواتير بنسبة 100%.
-// 3. [Timer Cleanup]: تدمير المؤقتات التلقائي لمنع تسرب الذاكرة (Memory Leaks).
-// 4. [Smooth Rendering]: استخدام requestAnimationFrame لرسم ناعم متوافق مع إيماءات الهواتف.
+// 🚀 التحديثات الهندسية (V5.2):
+// 1. [Crash Protection]: تحويل قسري للروابط لمنع الشاشة البيضاء.
+// 2. [Race Condition Guard]: استخدام currentRenderId لمنع تداخل الأقسام عند النقر السريع.
+// 3. [Stable Sorting]: ترتيب زمني ثابت مدعوم بالـ ID لمنع الارتعاش البصري.
+// 4. [Smooth Rendering]: استخدام requestAnimationFrame للرسم الناعم.
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -21,7 +21,7 @@ import { RenderHelpers } from './core/renderHelpers.js';
 // ============================================================================
 window.StoreRenderApp = window.StoreRenderApp || {
     imgCache: new Set(),
-    timerInterval: null, // 🛡️ [UPDATE]: متغير لحفظ معرّف المؤقت للتحكم فيه
+    timerInterval: null,
 
     revealImg: function(img) {
         if (!img) return;
@@ -71,7 +71,6 @@ window.StoreRenderApp = window.StoreRenderApp || {
         const wrapper = img.parentElement;
         if (!wrapper) return;
         
-        // 🛡️ [الترقيع]: إجبار إيقاف الشيمر والنبض إذا كانت الصورة تالفة أو محذوفة
         wrapper.classList.add('shimmer-stop');
         wrapper.style.animation = 'none';
         wrapper.style.backgroundColor = 'transparent';
@@ -83,9 +82,9 @@ window.StoreRenderApp = window.StoreRenderApp || {
         else if (type === 'pay') { iconClass = 'fa-building-columns'; divClass = 'pay-icon-default'; }
         
         wrapper.innerHTML = `<div class="${divClass}"><i class="fa-solid ${iconClass}"></i></div>`;
-    }};
+    }
+};
 
-// 🛡️ [UPDATE]: دالة ذكية لتحميل المكتبات مع روابط احتياطية (CDN Fallback)
 const _loadExternalScriptWithFallback = async (srcArray) => {
     for (let src of srcArray) {
         if (document.querySelector(`script[src="${src}"]`)) return Promise.resolve();
@@ -98,7 +97,7 @@ const _loadExternalScriptWithFallback = async (srcArray) => {
                 script.onerror = () => reject();
                 document.head.appendChild(script);
             });
-            return Promise.resolve(); // نجح التحميل
+            return Promise.resolve();
         } catch (e) {
             console.warn(`[TeleCard] Failed to load from ${src}, trying fallback...`);
         }
@@ -107,6 +106,7 @@ const _loadExternalScriptWithFallback = async (srcArray) => {
 };
 
 export const RenderManager = {
+    currentRenderId: 0, // 🛡️ [تحديث]: حارس الرسم لمنع التداخل
     highlightId: null,
     limits: { wallet: 15, orders: 15, payments: 15 },
     
@@ -160,45 +160,48 @@ export const RenderManager = {
         };
     },
 
+    // 🛡️ [تحديث]: مولد الصور المدرع لحماية التطبيق من الانهيار
     _generateImageHTML: function(rawUrl, safeName, type, isHighPriority = false) {
-        let wrapperClass = '';
-        let wrapperStyle = '';
-        let imgHTML = '';
-
         let defaultIcon = 'fa-box-open';
         let defaultClass = 'default-prod-icon';
         let extraStyle = '';
-
         if (type === 'cat') defaultIcon = 'fa-layer-group';
         else if (type === 'pay') { defaultIcon = 'fa-building-columns'; defaultClass = 'pay-icon-default'; }
         else if (type === 'story') extraStyle = 'width: 100%; height: 100%;';
 
         const fallbackHTML = `<div class="${defaultClass}" style="${type === 'story' ? 'display: flex; ' + extraStyle : ''}"><i class="fa-solid ${defaultIcon}"></i></div>`;
 
+        let wrapperClass = '';
+        let wrapperStyle = '';
+        let imgHTML = '';
+
         if (rawUrl) {
-            // 🛡️ حماية روابط فايربيز من الكسر
-            const safeUrl = rawUrl.replace(/"/g, '%22'); 
+            // 🛡️ تحويل قسري لنص ومنع الانهيار
+            const urlString = (typeof rawUrl === 'string') ? rawUrl : String(rawUrl || '');
+            const safeUrl = urlString.replace(/"/g, '%22');
             const imgVars = this._getImgLoadVars(rawUrl);
             wrapperClass = imgVars.wrapperClass;
             wrapperStyle = imgVars.wrapperStyle;
             const onloadAttr = imgVars.onload ? `onload="${imgVars.onload}"` : '';
             const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
             const imgClass = type === 'pay' ? `pay-icon-img ${imgVars.imgClass}` : imgVars.imgClass;
-
+            
             imgHTML = `<img src="${safeUrl}" data-key="${imgVars.cacheKey}" class="${imgClass}" style="${imgVars.imgStyle}" ${imgVars.lazyAttrs} alt="${safeName}" ${priorityAttr} ${onloadAttr} onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
             
             if (type !== 'cat') {
                 imgHTML += `<div class="${defaultClass}" style="display: none; ${extraStyle}"><i class="fa-solid ${defaultIcon}"></i></div>`;
             }
         } else {
-            // 🛡️ [الترقيع الماسي]: إذا لم يقم الإدمن برفع صورة، نقتل الشيمر برمجياً فوراً!
+            // 🛡️ القتل الفوري للشيمر إذا كانت الصورة مفقودة
             imgHTML = fallbackHTML;
-            wrapperClass += ' shimmer-stop'; 
-            wrapperStyle += ' animation: none !important; background-color: transparent !important;'; 
+            wrapperClass += ' shimmer-stop';
+            wrapperStyle += ' animation: none !important; background-color: transparent !important;';
         }
-
         return { html: imgHTML, wrapperClass, wrapperStyle };
-    },   renderHome: function(isBackAction = false) {
+    },
+
+    renderHome: function(isBackAction = false) {
+        const renderId = ++this.currentRenderId; // 🛡️ [تحديث]
         const grid = document.getElementById('store-grid');
         const titleEl = document.getElementById('grid-title');
         
@@ -271,8 +274,8 @@ export const RenderManager = {
                     } catch(e) { console.warn("[TeleCard] Skip bad category data", e); }
                 });
                 
-                // 🛡️ [UPDATE]: الرسم السلس لحماية الواجهة من التقطيع
                 requestAnimationFrame(() => {
+                    if (renderId !== this.currentRenderId) return; // 🛡️ [تحديث]
                     if (grid) grid.appendChild(fragment);
                 });
             }
@@ -422,7 +425,6 @@ export const RenderManager = {
         return div;
     },
 
-    // 🛡️ [UPDATE]: إدارة دورة حياة المؤقتات لمنع Memory Leaks
     updateStoreTimers: function() {
         const timers = document.querySelectorAll('.live-countdown');
         if (timers.length === 0) return;
@@ -518,7 +520,7 @@ export const RenderManager = {
         if (storiesHtml) {
             storiesContainer.innerHTML = `<div class="stories-wrapper-scroll">${storiesHtml}</div>`;
             storiesContainer.style.display = 'block';
-            this.initTimersEngine(); // 🛡️ [UPDATE]: تفعيل محرك المؤقتات الآمن
+            this.initTimersEngine(); 
         } else {
             storiesContainer.style.display = 'none';
         }
@@ -532,6 +534,7 @@ export const RenderManager = {
     },
     
     _renderContent: function(id) {
+        const renderId = ++this.currentRenderId; // 🛡️ [تحديث]: طلب رقم فريد للرسم
         UIManager.currentCategoryId = id;
         document.body.classList.remove('is-home');
         document.body.classList.remove('is-favorites'); 
@@ -593,6 +596,7 @@ export const RenderManager = {
             }
             
             requestAnimationFrame(() => {
+                if (renderId !== this.currentRenderId) return; // 🛡️ [تحديث]: درع التداخل
                 grid.appendChild(fragment);
                 if(items.length > 0 && Components?.initProductShine) Components.initProductShine();
                 if(subs.length === 0 && items.length === 0) grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد منتجات</h3></div>`;
@@ -602,6 +606,8 @@ export const RenderManager = {
 
     searchStoreTerm: function(q) {
         if(!q || !q.trim()) { this.renderHome(); return; }
+        const renderId = ++this.currentRenderId; // 🛡️ [تحديث]
+        
         UIManager.toggleHeroSection(false);
         document.body.classList.remove('is-home');
         document.body.classList.remove('is-favorites'); 
@@ -668,6 +674,7 @@ export const RenderManager = {
         });
         
         requestAnimationFrame(() => {
+            if (renderId !== this.currentRenderId) return; // 🛡️ [تحديث]
             grid.appendChild(fragment);
             UIManager.setGridMode(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
             if(Components?.initProductShine) Components.initProductShine();
@@ -675,6 +682,7 @@ export const RenderManager = {
     },
 
     renderFavorites: function() {
+        const renderId = ++this.currentRenderId; // 🛡️ [تحديث]
         document.body.classList.remove('is-home');
         document.body.classList.add('is-favorites'); 
         UIManager.toggleHeroSection(false);
@@ -719,6 +727,7 @@ export const RenderManager = {
         });
         
         requestAnimationFrame(() => {
+            if (renderId !== this.currentRenderId) return; // 🛡️ [تحديث]
             grid.appendChild(fragment);
             UIManager.setGridMode('grid-prods');
             
@@ -794,7 +803,12 @@ export const RenderManager = {
         const depDisp = document.getElementById('wallet-total-deposit');
         if(depDisp) depDisp.innerHTML = RenderHelpers.formatMoney(user.totalDeposit || 0, walletCurr);
 
-        allTransactions.sort((a, b) => b.sortTime - a.sortTime);
+        // 🛡️ [تحديث]: ترتيب زمني ثابت مدعوم بالـ ID
+        allTransactions.sort((a, b) => {
+            const timeDiff = b.sortTime - a.sortTime;
+            if (timeDiff !== 0) return timeDiff;
+            return String(b.id || '').localeCompare(String(a.id || ''));
+        });
 
         let finalView = allTransactions;
         const filters = DataManager.filters || { wallet: 'all' };
@@ -820,7 +834,7 @@ export const RenderManager = {
 
         let generatedHTML = '';
         visibleWallet.forEach(tx => {
-            try { // 🛡️ [UPDATE]: Error Boundary
+            try { 
                 const isDep = tx.type === 'deposit';
                 let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
                 let formattedDate = RenderHelpers.formatSafeDate(tx.time || tx.createdAt);
@@ -994,7 +1008,6 @@ export const RenderManager = {
         const list = document.getElementById('mypay-list');
         if(!list) return;
         
-        
         const filterData = Utils.getSearchAndDateFilters('pay', 'pay');
         if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
@@ -1024,7 +1037,13 @@ export const RenderManager = {
         if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
 
-        myDeposits.sort((a, b) => b.sortTime - a.sortTime);
+        // 🛡️ [تحديث]: ترتيب زمني ثابت
+        myDeposits.sort((a, b) => {
+            const timeDiff = b.sortTime - a.sortTime;
+            if (timeDiff !== 0) return timeDiff;
+            return String(b.id || '').localeCompare(String(a.id || ''));
+        });
+
         const totalPaymentsCount = myDeposits.length;
         const displayLimit = (!q && !dStart && !dEnd) ? this.limits.payments : Math.min(myDeposits.length, 50);
         const visibleDeposits = myDeposits.slice(0, displayLimit);
@@ -1039,7 +1058,7 @@ export const RenderManager = {
         const userIdString = RenderHelpers.formatUserId(user);
 
         visibleDeposits.forEach(d => {
-            try { // 🛡️ [UPDATE]: Error Boundary
+            try { 
                 const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
                 
                 let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
@@ -1176,7 +1195,13 @@ export const RenderManager = {
         if (tStart) orders = orders.filter(o => o.sortTime >= tStart);
         if (tEnd) orders = orders.filter(o => o.sortTime <= tEnd);
 
-        orders.sort((a, b) => b.sortTime - a.sortTime);
+        // 🛡️ [تحديث]: ترتيب زمني ثابت مدعوم بالـ ID
+        orders.sort((a, b) => {
+            const timeDiff = b.sortTime - a.sortTime;
+            if (timeDiff !== 0) return timeDiff;
+            return String(b.id || '').localeCompare(String(a.id || ''));
+        });
+
         const totalOrdersCount = orders.length;
         const displayLimit = (!q && !dStart && !dEnd) ? this.limits.orders : Math.min(orders.length, 50);
         const visibleOrders = orders.slice(0, displayLimit);
@@ -1195,7 +1220,7 @@ export const RenderManager = {
         };
         
         visibleOrders.forEach((o, idx) => {
-            try { // 🛡️ [UPDATE]: Error Boundary
+            try { 
                 const status = o.status || 'pending'; 
                 const statusClass = status === 'completed' ? 'completed' : (status === 'rejected' ? 'rejected' : (['returned', 'refunded'].includes(status) ? 'returned' : (status === 'processing' ? 'processing' : 'pending')));
                 const productName = Utils.escapeHtml(o.product || (LiveStoreData.prods || []).find(p => String(p.id) === String(o.prodId))?.name || 'منتج');
@@ -1296,197 +1321,190 @@ export const RenderManager = {
         if (typeof window.UIManager !== 'undefined') return window.UIManager;
         return { showToast: () => {} };
     },
-generatePDFReceipt: async function(config) {
-    return new Promise((resolve) => {
-        try {
-            const settings = LiveStoreData.settings || {};
-            const storeName = settings.storeName || 'المتجر';
-            const storeLogo = settings.storeLogoLight || settings.storeLogo || '';
-            
-            let safeLogoHtml = '';
-            if (storeLogo) {
-                safeLogoHtml = `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;">`;
-            }
-            
-            const brandHTML = `
-                    <div class="header-section">
-                        <div class="store-name">${Utils.escapeHtml(storeName)}</div>
-                        ${safeLogoHtml}
-                    </div>`;
-            
-            const contentHTML = config.type === 'deposit' ? `
-                    ${brandHTML}
-                    <div class="r-title-box">
-                        <div class="r-title">Deposit Receipt</div>
-                        <div class="r-id">${config.data.displayId}</div>
-                    </div>
-                    <div class="r-grid">
-                        <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                        <div class="r-item"><span class="r-label">Customer ID</span><span class="r-value">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
-                        <div class="r-item"><span class="r-label">Payment Method</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
-                        <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
-                        <div class="r-item"><span class="r-label">Base Amount</span><span class="r-value">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
-                        <div class="r-item"><span class="r-label">Fee (${config.data.feePercent}%)</span><span class="r-value" style="color:#ef4444;">-${RenderHelpers.formatMoney(config.data.feeVal, config.data.currency)}</span></div>
-                    </div>
-                    <div class="r-total-box">
-                        <div class="r-total-label">Net Added Balance</div>
-                        <div class="r-total-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div>
-                    </div>
-                ` : `
-                    ${brandHTML}
-                    <div class="r-title-box">
-                        <div class="r-title">Order Receipt</div>
-                        <div class="r-id">${config.data.displayId}</div>
-                    </div>
-                    <div class="r-grid">
-                        <div class="r-item"><span class="r-label">Product</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
-                        <div class="r-item"><span class="r-label">Status</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
-                        <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                        <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
-                        <div class="r-item"><span class="r-label">Quantity</span><span class="r-value">${config.data.qty}</span></div>
-                        <div class="r-item"><span class="r-label">Account Details</span><span class="r-value">${Utils.escapeHtml(config.data.input)}</span></div>
-                    </div>
-                    ${config.data.code ? `<div class="r-item-full"><span class="r-label">Completed Order Code</span><span class="r-value r-code-val">${Utils.escapeHtml(config.data.code)}</span></div>` : ''}
-                    <div class="r-total-box">
-                        <div class="r-total-label">Total Amount</div>
-                        <div class="r-total-val">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</div>
-                    </div>
-                `;
-            
-            const fullHTML = `
-                    <!DOCTYPE html>
-                    <html lang="en" dir="ltr">
-                    <head>
-                        <meta charset="UTF-8">
-                        <title>${config.filename}</title>
-                        <style>
-                            @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
-                            @page { size: A4 portrait; margin: 15mm; }
-                            body { 
-                                font-family: 'Share Tech Mono', sans-serif; 
-                                background: #ffffff; 
-                                color: #0f172a; 
-                                margin: 0; 
-                                padding: 0; 
-                                -webkit-print-color-adjust: exact; 
-                                print-color-adjust: exact; 
-                            }
-                            .receipt-container { 
-                                max-width: 100%; 
-                                margin: 0 auto; 
-                                border: 1px solid #e2e8f0; 
-                                border-radius: 12px; 
-                                padding: 25px; 
-                            }
-                            .header-section { 
-                                display: flex; justify-content: space-between; align-items: center; 
-                                border-bottom: 2px dashed #cbd5e1; padding-bottom: 20px; margin-bottom: 25px; 
-                            }
-                            .store-name { font-size: 26px; font-weight: 800; color: #0f172a; }
-                            .r-title-box { background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #eab308; margin-bottom: 25px; text-align: center; }
-                            .r-title { font-size: 18px; color: #ca8a04; font-weight: bold; margin-bottom: 5px; }
-                            .r-id { font-size: 18px; color: #0f172a; font-weight: bold; }
-                            .r-grid { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
-                            .r-item { width: calc(50% - 7.5px); background: #f8fafc; padding: 12px; border-radius: 8px; border-left: 4px solid #eab308; box-sizing: border-box; }
-                            .r-item-full { width: 100%; background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px dashed #eab308; text-align: center; box-sizing: border-box; }
-                            .r-label { font-size: 13px; color: #64748b; display: block; margin-bottom: 5px; font-weight: 600; }
-                            .r-value { font-size: 15px; color: #0f172a; font-weight: bold; word-break: break-word; }
-                            .r-code-val { font-size: 20px; color: #ca8a04; letter-spacing: 2px; }
-                            .r-total-box { background: #eab308; padding: 20px; border-radius: 8px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; color: #fff; }
-                            .r-total-label { font-size: 18px; font-weight: bold; color: #fff; }
-                            .r-total-val { font-size: 24px; font-weight: 900; color: #fff; }
-                            .r-footer { text-align: center; margin-top: 30px; font-size: 13px; color: #94a3b8; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="receipt-container">
-                            ${contentHTML}
-                            <div class="r-footer">Thank you for trusting ${Utils.escapeHtml(storeName)} | Certified Electronic Receipt</div>
-                        </div>
-                    </body>
-                    </html>
-                `;
-            
-            // 🛡️ [إصلاح الهواتف الذكية]: اكتشاف نوع الجهاز لتشغيل الطباعة بشكل متوافق
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            
-            if (isMobile) {
-                // الموبايل يرفض الطباعة من iframe مخفي، لذلك نفتح نافذة جديدة نظيفة
-                const printWindow = window.open('', '_blank');
-                if (printWindow) {
-                    printWindow.document.open();
-                    printWindow.document.write(fullHTML);
-                    printWindow.document.close();
-                    
-                    // ننتظر حتى تكتمل الصور والخطوط
-                    setTimeout(() => {
-                        printWindow.focus();
-                        printWindow.print();
-                        resolve(true);
-                    }, 1000);
-                } else {
-                    console.error("Popup blocked");
-                    resolve(false);
+
+    generatePDFReceipt: async function(config) {
+        return new Promise((resolve) => {
+            try {
+                const settings = LiveStoreData.settings || {};
+                const storeName = settings.storeName || 'المتجر';
+                const storeLogo = settings.storeLogoLight || settings.storeLogo || '';
+                
+                let safeLogoHtml = '';
+                if (storeLogo) {
+                    safeLogoHtml = `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;">`;
                 }
-            } else {
-                // أجهزة الكمبيوتر (Desktop) تعمل بامتياز مع الـ Iframe المخفي
-                const iframe = document.createElement('iframe');
-                iframe.style.position = 'fixed';
-                iframe.style.right = '-10000px';
-                iframe.style.bottom = '-10000px';
-                document.body.appendChild(iframe);
                 
-                const iframeDoc = iframe.contentWindow.document;
-                iframeDoc.open();
-                iframeDoc.write(fullHTML);
-                iframeDoc.close();
+                const brandHTML = `
+                        <div class="header-section">
+                            <div class="store-name">${Utils.escapeHtml(storeName)}</div>
+                            ${safeLogoHtml}
+                        </div>`;
                 
-                setTimeout(() => {
-                    try {
-                        iframe.contentWindow.focus();
-                        
-                        iframe.contentWindow.onafterprint = function() {
-                            if (document.body.contains(iframe)) {
-                                document.body.removeChild(iframe);
-                            }
-                            resolve(true);
-                        };
-                        
-                        iframe.contentWindow.print();
+                const contentHTML = config.type === 'deposit' ? `
+                        ${brandHTML}
+                        <div class="r-title-box">
+                            <div class="r-title">Deposit Receipt</div>
+                            <div class="r-id">${config.data.displayId}</div>
+                        </div>
+                        <div class="r-grid">
+                            <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
+                            <div class="r-item"><span class="r-label">Customer ID</span><span class="r-value">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
+                            <div class="r-item"><span class="r-label">Payment Method</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
+                            <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
+                            <div class="r-item"><span class="r-label">Base Amount</span><span class="r-value">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
+                            <div class="r-item"><span class="r-label">Fee (${config.data.feePercent}%)</span><span class="r-value" style="color:#ef4444;">-${RenderHelpers.formatMoney(config.data.feeVal, config.data.currency)}</span></div>
+                        </div>
+                        <div class="r-total-box">
+                            <div class="r-total-label">Net Added Balance</div>
+                            <div class="r-total-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div>
+                        </div>
+                    ` : `
+                        ${brandHTML}
+                        <div class="r-title-box">
+                            <div class="r-title">Order Receipt</div>
+                            <div class="r-id">${config.data.displayId}</div>
+                        </div>
+                        <div class="r-grid">
+                            <div class="r-item"><span class="r-label">Product</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
+                            <div class="r-item"><span class="r-label">Status</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
+                            <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
+                            <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
+                            <div class="r-item"><span class="r-label">Quantity</span><span class="r-value">${config.data.qty}</span></div>
+                            <div class="r-item"><span class="r-label">Account Details</span><span class="r-value">${Utils.escapeHtml(config.data.input)}</span></div>
+                        </div>
+                        ${config.data.code ? `<div class="r-item-full"><span class="r-label">Completed Order Code</span><span class="r-value r-code-val">${Utils.escapeHtml(config.data.code)}</span></div>` : ''}
+                        <div class="r-total-box">
+                            <div class="r-total-label">Total Amount</div>
+                            <div class="r-total-val">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</div>
+                        </div>
+                    `;
+                
+                const fullHTML = `
+                        <!DOCTYPE html>
+                        <html lang="en" dir="ltr">
+                        <head>
+                            <meta charset="UTF-8">
+                            <title>${config.filename}</title>
+                            <style>
+                                @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+                                @page { size: A4 portrait; margin: 15mm; }
+                                body { 
+                                    font-family: 'Share Tech Mono', sans-serif; 
+                                    background: #ffffff; 
+                                    color: #0f172a; 
+                                    margin: 0; 
+                                    padding: 0; 
+                                    -webkit-print-color-adjust: exact; 
+                                    print-color-adjust: exact; 
+                                }
+                                .receipt-container { 
+                                    max-width: 100%; 
+                                    margin: 0 auto; 
+                                    border: 1px solid #e2e8f0; 
+                                    border-radius: 12px; 
+                                    padding: 25px; 
+                                }
+                                .header-section { 
+                                    display: flex; justify-content: space-between; align-items: center; 
+                                    border-bottom: 2px dashed #cbd5e1; padding-bottom: 20px; margin-bottom: 25px; 
+                                }
+                                .store-name { font-size: 26px; font-weight: 800; color: #0f172a; }
+                                .r-title-box { background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #eab308; margin-bottom: 25px; text-align: center; }
+                                .r-title { font-size: 18px; color: #ca8a04; font-weight: bold; margin-bottom: 5px; }
+                                .r-id { font-size: 18px; color: #0f172a; font-weight: bold; }
+                                .r-grid { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
+                                .r-item { width: calc(50% - 7.5px); background: #f8fafc; padding: 12px; border-radius: 8px; border-left: 4px solid #eab308; box-sizing: border-box; }
+                                .r-item-full { width: 100%; background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px dashed #eab308; text-align: center; box-sizing: border-box; }
+                                .r-label { font-size: 13px; color: #64748b; display: block; margin-bottom: 5px; font-weight: 600; }
+                                .r-value { font-size: 15px; color: #0f172a; font-weight: bold; word-break: break-word; }
+                                .r-code-val { font-size: 20px; color: #ca8a04; letter-spacing: 2px; }
+                                .r-total-box { background: #eab308; padding: 20px; border-radius: 8px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; color: #fff; }
+                                .r-total-label { font-size: 18px; font-weight: bold; color: #fff; }
+                                .r-total-val { font-size: 24px; font-weight: 900; color: #fff; }
+                                .r-footer { text-align: center; margin-top: 30px; font-size: 13px; color: #94a3b8; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="receipt-container">
+                                ${contentHTML}
+                                <div class="r-footer">Thank you for trusting ${Utils.escapeHtml(storeName)} | Certified Electronic Receipt</div>
+                            </div>
+                        </body>
+                        </html>
+                    `;
+                
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                
+                if (isMobile) {
+                    const printWindow = window.open('', '_blank');
+                    if (printWindow) {
+                        printWindow.document.open();
+                        printWindow.document.write(fullHTML);
+                        printWindow.document.close();
                         
                         setTimeout(() => {
-                            if (document.body.contains(iframe)) {
-                                document.body.removeChild(iframe);
-                                resolve(true);
-                            }
-                        }, 15000);
-                        
-                    } catch (e) {
-                        console.error("Print Failed", e);
-                        if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                            printWindow.focus();
+                            printWindow.print();
+                            resolve(true);
+                        }, 1000);
+                    } else {
+                        console.error("Popup blocked");
                         resolve(false);
                     }
-                }, 800);
+                } else {
+                    const iframe = document.createElement('iframe');
+                    iframe.style.position = 'fixed';
+                    iframe.style.right = '-10000px';
+                    iframe.style.bottom = '-10000px';
+                    document.body.appendChild(iframe);
+                    
+                    const iframeDoc = iframe.contentWindow.document;
+                    iframeDoc.open();
+                    iframeDoc.write(fullHTML);
+                    iframeDoc.close();
+                    
+                    setTimeout(() => {
+                        try {
+                            iframe.contentWindow.focus();
+                            
+                            iframe.contentWindow.onafterprint = function() {
+                                if (document.body.contains(iframe)) {
+                                    document.body.removeChild(iframe);
+                                }
+                                resolve(true);
+                            };
+                            
+                            iframe.contentWindow.print();
+                            
+                            setTimeout(() => {
+                                if (document.body.contains(iframe)) {
+                                    document.body.removeChild(iframe);
+                                    resolve(true);
+                                }
+                            }, 15000);
+                            
+                        } catch (e) {
+                            console.error("Print Failed", e);
+                            if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                            resolve(false);
+                        }
+                    }, 800);
+                }
+                
+            } catch (err) {
+                console.error('[Receipt Native Print Error]:', err);
+                resolve(false);
             }
-            
-        } catch (err) {
-            console.error('[Receipt Native Print Error]:', err);
-            resolve(false);
-        }
-    });
-},
-  // =====================================================================
-// الدوال المسؤولة عن تشغيل زر التصدير وتغيير حالته إلى "جاري التحضير"
-// =====================================================================
+        });
+    },
 
-exportReceipt: async function(orderId, btnElement = null) {
+    exportReceipt: async function(orderId, btnElement = null) {
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
         if (!o) return;
         
         const sys = this._getSys();
         let originalHtml = '';
         
-        // تغيير شكل الزر إلى جاري التحضير
         if (btnElement && btnElement instanceof HTMLElement) {
             btnElement.disabled = true;
             originalHtml = btnElement.innerHTML;
@@ -1512,7 +1530,6 @@ exportReceipt: async function(orderId, btnElement = null) {
             }
         });
         
-        // إعادة الزر لشكله الطبيعي بعد الانتهاء
         if (btnElement && btnElement instanceof HTMLElement) {
             btnElement.disabled = false;
             btnElement.innerHTML = originalHtml;
@@ -1530,7 +1547,6 @@ exportReceipt: async function(orderId, btnElement = null) {
         const sys = this._getSys();
         let originalHtml = '';
         
-        // تغيير شكل الزر إلى جاري التحضير
         if (btnElement && btnElement instanceof HTMLElement) {
             btnElement.disabled = true;
             originalHtml = btnElement.innerHTML;
@@ -1556,7 +1572,6 @@ exportReceipt: async function(orderId, btnElement = null) {
             }
         });
         
-        // إعادة الزر لشكله الطبيعي بعد الانتهاء
         if (btnElement && btnElement instanceof HTMLElement) {
             btnElement.disabled = false;
             btnElement.innerHTML = originalHtml;
@@ -1567,8 +1582,7 @@ exportReceipt: async function(orderId, btnElement = null) {
         }
     },
 
-
-            renderNotifCenterList: function() {
+    renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;
         
@@ -1597,10 +1611,11 @@ exportReceipt: async function(orderId, btnElement = null) {
             localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, "[]");
         }
         
+        // 🛡️ [تحديث]: ترتيب زمني ثابت للإشعارات
         allAlerts.sort((a, b) => {
-            const timeA = RenderHelpers.parseUnifiedTime(a);
-            const timeB = RenderHelpers.parseUnifiedTime(b);
-            return timeB - timeA;
+            const timeDiff = RenderHelpers.parseUnifiedTime(b) - RenderHelpers.parseUnifiedTime(a);
+            if (timeDiff !== 0) return timeDiff;
+            return String(b.id || '').localeCompare(String(a.id || ''));
         });
         
         const displayLimit = 30;

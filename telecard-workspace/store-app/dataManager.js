@@ -1,7 +1,7 @@
 // ============================================================================
-// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - النسخة الماسية V11.5 💎
+// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - النسخة الماسية V11.6 💎
 // 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة ومحرك الكاش
-// 🚀 التحديث الأقصى: ربط المحرك المالي السيادي، وإدارة وضع الأوفلاين الذكي
+// 🚀 التحديث الأقصى: ربط المحرك المالي، حماية الذاكرة الممتلئة، وتوافق المتصفحات
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -31,13 +31,19 @@ export const SmartCacheManager = {
     EXPIRY_TIME: 24 * 60 * 60 * 1000, 
     
     saveCatalogToLocal: function(prods, cats, offers, tiers, rates) {
+        const cacheData = { timestamp: Date.now(), data: { prods, cats, offers, tiers, rates } };
         try {
-            const cacheData = { timestamp: Date.now(), data: { prods, cats, offers, tiers, rates } };
             localStorage.setItem(this.CACHE_KEY, JSON.stringify(cacheData));
-            console.log("💎 [Smart Cache] Catalog saved to device memory.");
+            console.log("💎 [Smart Cache] TeleCard Catalog saved to device memory.");
         } catch (e) {
+            // 🛡️ [حماية الذاكرة الممتلئة]: تنظيف الذاكرة ومحاولة الحفظ مجدداً
             console.warn("Storage is full, clearing old caches...", e);
-            localStorage.removeItem(this.CACHE_KEY);
+            try {
+                localStorage.clear(); 
+                localStorage.setItem(this.CACHE_KEY, JSON.stringify(cacheData));
+            } catch (ex) {
+                console.error("Critical: Device storage completely full.", ex);
+            }
         }
     },
     
@@ -99,7 +105,7 @@ export const DataManager = {
 
             if (!needsFetch) {
                 const t1 = performance.now();
-                console.log(`✅ تم تحميل المتجر من الذاكرة في ${Math.round(t1 - t0)}ms (التكلفة: 1 Read فقط!)`);
+                console.log(`✅ تم تحميل متجر TeleCard من الذاكرة في ${Math.round(t1 - t0)}ms (التكلفة: 1 Read فقط!)`);
                 return true;
             }
 
@@ -139,7 +145,7 @@ export const DataManager = {
                 LiveStoreData.offers = fallbackData.offers;
                 LiveStoreData.tiers = fallbackData.tiers;
                 LiveStoreData.rates = fallbackData.rates;
-                console.warn("⚠️ تم تشغيل المتجر في وضع الاوفلاين (الطوارئ)");
+                console.warn("⚠️ تم تشغيل متجر TeleCard في وضع الاوفلاين (الطوارئ)");
                 
                 setTimeout(() => {
                     if (window.UIManager?.showToast) window.UIManager.showToast('أنت تتصفح المتجر بدون اتصال بالإنترنت (بيانات محفوظة محلياً)', 'warning');
@@ -218,7 +224,8 @@ export const DataManager = {
         
         const sanitizedData = {};
         for (const key in newData) {
-            if (!FORBIDDEN_KEYS.has(key) && Object.hasOwn(newData, key)) {
+            // 🛡️ [تحديث التوافقية]: استخدام الطريقة الآمنة لجميع المتصفحات القديمة والحديثة
+            if (!FORBIDDEN_KEYS.has(key) && Object.prototype.hasOwnProperty.call(newData, key)) {
                 sanitizedData[key] = newData[key];
             }
         }
@@ -320,6 +327,7 @@ export const DataManager = {
 
         const oldPriceUsd = (activeOffer?.type === 'fake') ? Number(activeOffer.value || 0) : null;
 
+        // 💡 ملاحظة: يمكن ربط هذه الحسابات (orderSnapshot) لاحقاً بوحدة توزيع الأرباح الصافية لتسهيل الحسابات الختامية
         return {
             unitSnapshot: orderSnapshot, 
             totalUsd: orderSnapshot.totalFinalPrice, 
@@ -453,11 +461,12 @@ export const DataManager = {
     },
 
     syncUser: async function() {
-        const users = LiveStoreData.users || [];
         const activeUid = localStorage.getItem('telecard_active_user_uid');
         let me = null;
 
         if (activeUid) {
+            // 🛡️ [تحديث]: تقليل الاعتماد الأعمى على مصفوفة users التي قد تكون فارغة في البداية
+            const users = LiveStoreData.users || [];
             me = users.find(u => String(u.uid || u.id) === String(activeUid)) || JSON.parse(localStorage.getItem(ACTIVE_USER_KEY) || 'null');
             if (me && String(me.uid || me.id) !== String(activeUid)) me = null;
             
@@ -469,7 +478,7 @@ export const DataManager = {
             }
         }
         
-        if (activeUid && !me && users.length > 0 && window.ClientSystem?.isReady) {
+        if (activeUid && !me && window.ClientSystem?.isReady) {
             this.logout(); return false;
         }
         
@@ -582,7 +591,6 @@ export const DataManager = {
     },
 
     _currentPurchaseKey: null,
-    _currentPurchaseKey: null,
     confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         // 🛡️ منع الشراء في وضع الأوفلاين
         if (LiveStoreData.isOfflineMode) {
@@ -623,7 +631,9 @@ export const DataManager = {
             
             return { success: false, msg: 'حدث خطأ بالشبكة، يرجى التحقق من طلباتك قبل إعادة المحاولة.' };
         }
-    },    calculateDepositFee: function(amount, paymentMethod, payCurr) {
+    },    
+
+    calculateDepositFee: function(amount, paymentMethod, payCurr) {
         if (!paymentMethod || amount <= 0) return { isValid: false, msg: 'بيانات غير صالحة', netBase: 0, feePct: 0, feeType: 'fee', feeUnit: 'percent' };
         
         const curr = (payCurr || '').toUpperCase();
