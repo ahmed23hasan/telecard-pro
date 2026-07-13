@@ -1,12 +1,11 @@
 // ============================================================================
-// 🖥️ محرك الرسم وبناء الواجهات (renderManager.js) - النسخة الماسية (Pro V5.2)
-// 🎯 الوظيفة: رسم الأقسام، المنتجات، المحفظة، المدفوعات، الطلبات، والـ PDF
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - النسخة الماسية (Pro V5.3)
+// 🎯 الوظيفة: المايسترو (Controller) لمعالجة البيانات، الفلترة، الحماية، والتوجيه
 // 👑 متوافق بالكامل مع هوية: TeleCard
-// 🚀 التحديثات الهندسية (V5.2):
-// 1. [Crash Protection]: تحويل قسري للروابط لمنع الشاشة البيضاء.
-// 2. [Race Condition Guard]: استخدام currentRenderId لمنع تداخل الأقسام عند النقر السريع.
-// 3. [Stable Sorting]: ترتيب زمني ثابت مدعوم بالـ ID لمنع الارتعاش البصري.
-// 4. [Smooth Rendering]: استخدام requestAnimationFrame للرسم الناعم.
+// 🚀 تحديثات (Clean Architecture):
+// 1. [Separation of Concerns]: خالي تماماً من أكواد الـ HTML (تم نقلها لـ uiBuilders).
+// 2. [Dependency Injection]: تمرير البيانات المكتملة فقط لبناة الواجهات (Pure Functions).
+// 3. [Memory Leak Guard & Stable Sort]: حماية التزامن وترتيب زمني صارم.
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -15,6 +14,7 @@ import { DataManager, LiveStoreData, StoreDB } from './dataManager.js';
 import { UIManager } from './ui/uiManager.js';
 import { Components } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
+import { UIBuilders } from './ui/uiBuilders.js'; // ⬅️ استيراد مصنع الواجهات النقي
 
 // ============================================================================
 // 🛡️ المساعدات العامة للنافذة وإدارة الذاكرة (Global Namespace) 
@@ -85,28 +85,8 @@ window.StoreRenderApp = window.StoreRenderApp || {
     }
 };
 
-const _loadExternalScriptWithFallback = async (srcArray) => {
-    for (let src of srcArray) {
-        if (document.querySelector(`script[src="${src}"]`)) return Promise.resolve();
-        try {
-            await new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = src;
-                script.crossOrigin = 'anonymous'; 
-                script.onload = () => resolve();
-                script.onerror = () => reject();
-                document.head.appendChild(script);
-            });
-            return Promise.resolve();
-        } catch (e) {
-            console.warn(`[TeleCard] Failed to load from ${src}, trying fallback...`);
-        }
-    }
-    return Promise.reject(new Error("All script sources failed to load."));
-};
-
 export const RenderManager = {
-    currentRenderId: 0, // 🛡️ [تحديث]: حارس الرسم لمنع التداخل
+    currentRenderId: 0,
     highlightId: null,
     limits: { wallet: 15, orders: 15, payments: 15 },
     
@@ -160,7 +140,6 @@ export const RenderManager = {
         };
     },
 
-    // 🛡️ [تحديث]: مولد الصور المدرع لحماية التطبيق من الانهيار
     _generateImageHTML: function(rawUrl, safeName, type, isHighPriority = false) {
         let defaultIcon = 'fa-box-open';
         let defaultClass = 'default-prod-icon';
@@ -176,7 +155,6 @@ export const RenderManager = {
         let imgHTML = '';
 
         if (rawUrl) {
-            // 🛡️ تحويل قسري لنص ومنع الانهيار
             const urlString = (typeof rawUrl === 'string') ? rawUrl : String(rawUrl || '');
             const safeUrl = urlString.replace(/"/g, '%22');
             const imgVars = this._getImgLoadVars(rawUrl);
@@ -192,7 +170,6 @@ export const RenderManager = {
                 imgHTML += `<div class="${defaultClass}" style="display: none; ${extraStyle}"><i class="fa-solid ${defaultIcon}"></i></div>`;
             }
         } else {
-            // 🛡️ القتل الفوري للشيمر إذا كانت الصورة مفقودة
             imgHTML = fallbackHTML;
             wrapperClass += ' shimmer-stop';
             wrapperStyle += ' animation: none !important; background-color: transparent !important;';
@@ -200,8 +177,64 @@ export const RenderManager = {
         return { html: imgHTML, wrapperClass, wrapperStyle };
     },
 
+    // ============================================================================
+    // 🔄 معالج التمرير وجلب البيانات الموحد (Central Pagination Handler)
+    // ============================================================================
+    _appendLoadMoreButton: function(container, type, uid, totalCount, limitKey) {
+        const hasMoreData = DataManager.cursors && DataManager.cursors[type];
+        if (totalCount > this.limits[limitKey] || hasMoreData) {
+            const loadMoreBtn = document.createElement('div');
+            loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
+            loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+            
+            loadMoreBtn.querySelector('button').addEventListener('click', async (e) => {
+                const btn = e.target.closest('button');
+                if (btn.disabled) return;
+                
+                if (totalCount > this.limits[limitKey]) {
+                    this.limits[limitKey] += 15;
+                    if (type === 'orders') this.renderOrders(true);
+                    else if (type === 'deposits') this.renderPayments(true);
+                    return;
+                }
+                
+                if (hasMoreData) {
+                    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`; 
+                    btn.disabled = true;
+                    const dbKey = type === 'orders' ? DB_KEYS.ORDERS : DB_KEYS.DEPOSITS;
+                    try {
+                        const res = await StoreDB.fetchMoreWithCursor(dbKey, ['userId', '==', String(uid)], 'time', DataManager.cursors[type], 15);
+                        if (res.data && res.data.length > 0) {
+                            const normData = res.data.map(item => ({...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt)}));
+                            const existing = new Set(LiveStoreData[type].map(x => String(x.id)));
+                            LiveStoreData[type] = [...LiveStoreData[type], ...normData.filter(x => !existing.has(String(x.id)))];
+                            DataManager.cursors[type] = res.newLastDoc;
+                            this.limits[limitKey] += 15;
+                            
+                            if (type === 'orders') this.renderOrders(true);
+                            else if (type === 'deposits') this.renderPayments(true);
+                        } else {
+                            DataManager.cursors[type] = null;
+                            btn.innerHTML = `لا توجد بيانات أقدم`;
+                            setTimeout(() => loadMoreBtn.remove(), 2000);
+                        }
+                    } catch (err) {
+                        btn.innerHTML = `خطأ في التحميل`;
+                        btn.disabled = false;
+                    }
+                }
+            }, { once: true }); 
+            
+            container.appendChild(loadMoreBtn);
+        }
+    },
+
+    // ============================================================================
+    // 🎨 عمليات الرسم الأساسية (Core Render Methods)
+    // ============================================================================
+
     renderHome: function(isBackAction = false) {
-        const renderId = ++this.currentRenderId; // 🛡️ [تحديث]
+        const renderId = ++this.currentRenderId;
         const grid = document.getElementById('store-grid');
         const titleEl = document.getElementById('grid-title');
         
@@ -275,7 +308,7 @@ export const RenderManager = {
                 });
                 
                 requestAnimationFrame(() => {
-                    if (renderId !== this.currentRenderId) return; // 🛡️ [تحديث]
+                    if (renderId !== this.currentRenderId) return; 
                     if (grid) grid.appendChild(fragment);
                 });
             }
@@ -534,7 +567,7 @@ export const RenderManager = {
     },
     
     _renderContent: function(id) {
-        const renderId = ++this.currentRenderId; // 🛡️ [تحديث]: طلب رقم فريد للرسم
+        const renderId = ++this.currentRenderId;
         UIManager.currentCategoryId = id;
         document.body.classList.remove('is-home');
         document.body.classList.remove('is-favorites'); 
@@ -596,7 +629,7 @@ export const RenderManager = {
             }
             
             requestAnimationFrame(() => {
-                if (renderId !== this.currentRenderId) return; // 🛡️ [تحديث]: درع التداخل
+                if (renderId !== this.currentRenderId) return; 
                 grid.appendChild(fragment);
                 if(items.length > 0 && Components?.initProductShine) Components.initProductShine();
                 if(subs.length === 0 && items.length === 0) grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد منتجات</h3></div>`;
@@ -606,7 +639,7 @@ export const RenderManager = {
 
     searchStoreTerm: function(q) {
         if(!q || !q.trim()) { this.renderHome(); return; }
-        const renderId = ++this.currentRenderId; // 🛡️ [تحديث]
+        const renderId = ++this.currentRenderId;
         
         UIManager.toggleHeroSection(false);
         document.body.classList.remove('is-home');
@@ -674,7 +707,7 @@ export const RenderManager = {
         });
         
         requestAnimationFrame(() => {
-            if (renderId !== this.currentRenderId) return; // 🛡️ [تحديث]
+            if (renderId !== this.currentRenderId) return;
             grid.appendChild(fragment);
             UIManager.setGridMode(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
             if(Components?.initProductShine) Components.initProductShine();
@@ -682,7 +715,7 @@ export const RenderManager = {
     },
 
     renderFavorites: function() {
-        const renderId = ++this.currentRenderId; // 🛡️ [تحديث]
+        const renderId = ++this.currentRenderId;
         document.body.classList.remove('is-home');
         document.body.classList.add('is-favorites'); 
         UIManager.toggleHeroSection(false);
@@ -727,7 +760,7 @@ export const RenderManager = {
         });
         
         requestAnimationFrame(() => {
-            if (renderId !== this.currentRenderId) return; // 🛡️ [تحديث]
+            if (renderId !== this.currentRenderId) return; 
             grid.appendChild(fragment);
             UIManager.setGridMode('grid-prods');
             
@@ -750,6 +783,10 @@ export const RenderManager = {
         const icon = btn.querySelector('i');
         if (icon) icon.className = isFav ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
     },
+
+    // ============================================================================
+    // 🏦 القوائم والبيانات المعتمدة على الـ UIBuilders (Clean Architecture)
+    // ============================================================================
 
     renderWallet: function(forceRender = false) {
         if (!forceRender) {
@@ -803,7 +840,6 @@ export const RenderManager = {
         const depDisp = document.getElementById('wallet-total-deposit');
         if(depDisp) depDisp.innerHTML = RenderHelpers.formatMoney(user.totalDeposit || 0, walletCurr);
 
-        // 🛡️ [تحديث]: ترتيب زمني ثابت مدعوم بالـ ID
         allTransactions.sort((a, b) => {
             const timeDiff = b.sortTime - a.sortTime;
             if (timeDiff !== 0) return timeDiff;
@@ -832,78 +868,22 @@ export const RenderManager = {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-wallet"></i><h3>لا توجد حركات</h3></div>`; return;
         }
 
-        let generatedHTML = '';
-        visibleWallet.forEach(tx => {
-            try { 
-                const isDep = tx.type === 'deposit';
-                let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
-                let formattedDate = RenderHelpers.formatSafeDate(tx.time || tx.createdAt);
-
-                if (isDep) {
-                    if (tx.status === 'approved') {
-                        amountPrefix = tx.isDeduction ? '-' : '+';
-                        amountClass = tx.isDeduction ? 'amt-out' : 'amt-in';
-                        cardClass = tx.isDeduction ? 'out' : 'in';
-                        iconName = tx.isDeduction ? 'fa-arrow-up-long' : 'fa-arrow-down-long';
-                        iconColorClass = tx.isDeduction ? 'icon-out' : 'icon-green'; 
-                    } else {
-                        amountClass = 'amt-neutral'; cardClass = 'neutral';
-                        if (tx.status === 'pending') { iconName = 'fa-clock'; iconColorClass = 'icon-gold'; } 
-                        else if (tx.status === 'rejected') { iconName = 'fa-circle-xmark'; iconColorClass = 'icon-red'; }
-                        else if (['refunded', 'returned'].includes(tx.status)) { iconName = 'fa-rotate-left'; iconColorClass = 'icon-cyan'; }
-                    }
-                } else {
-                    if (['rejected', 'refunded', 'returned'].includes(tx.status)) {
-                        amountClass = 'amt-neutral'; cardClass = 'neutral';
-                        iconName = ['refunded', 'returned'].includes(tx.status) ? 'fa-rotate-left' : 'fa-circle-xmark';
-                        iconColorClass = ['refunded', 'returned'].includes(tx.status) ? 'icon-cyan' : 'icon-red';
-                    } else if (tx.status === 'pending') {
-                        amountPrefix = '-'; amountClass = 'amt-neutral'; cardClass = 'neutral'; iconName = 'fa-clock'; iconColorClass = 'icon-gold';
-                    } else {
-                        amountPrefix = '-'; amountClass = 'amt-out'; cardClass = 'out'; iconName = 'fa-arrow-up-long'; iconColorClass = 'icon-out'; 
-                    }
-                }
-                
-                const jumpType = isDep ? 'deposit' : 'purchase';
-                const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
-
-                let runningBalanceHtml = '';
-                if (!isFilterActive && tx.balanceAfter !== undefined && tx.balanceAfter !== null) {
-                    runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, walletCurr)}</div>`;
-                }
-
-                const safeTxName = Utils.escapeHtml(isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء'));
-
-                generatedHTML += `
-                <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
-                    <div class="th-icon ${iconColorClass}"><i class="fa-solid ${iconName}"></i></div>
-                    <div class="th-body">
-                        <div class="th-details-col">
-                            <div class="th-row-top"><span class="tx-name-text">${safeTxName}</span></div>
-                            <div class="th-row-bottom"><span class="th-date num-en">${formattedDate}</span></div>
-                        </div>
-                        <div class="th-amount-col">
-                            <span class="th-order num-en is-copyable" data-action="copy-text" data-text="${shortTxId}" title="اضغط لنسخ رقم العملية"><i class="fa-regular fa-copy" style="margin-right:4px; font-size:10px; opacity:0.7;"></i> ${shortTxId}</span>
-                            <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal, tx.amountCurrency)}</div>
-                            ${runningBalanceHtml} 
-                        </div>
-                    </div>
-                </div>`;
-            } catch (e) { console.warn("[TeleCard] Tx render error ignored", e); }
-        }); 
-
         requestAnimationFrame(() => {
-            list.innerHTML = generatedHTML;
+            list.innerHTML = visibleWallet.map(tx => {
+                try { return UIBuilders.buildWalletCard(tx, walletCurr, isFilterActive); } 
+                catch (e) { return ''; }
+            }).join('');
 
             const hasMoreData = DataManager.cursors && (DataManager.cursors.orders || DataManager.cursors.deposits);
-
             if (!q && !dStart && !dEnd && (totalWalletCount > this.limits.wallet || hasMoreData)) {
                 const loadMoreBtn = document.createElement('div');
                 loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
                 loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
                 
-                loadMoreBtn.querySelector('button').onclick = async () => {
-                    const btn = loadMoreBtn.querySelector('button');
+                loadMoreBtn.querySelector('button').addEventListener('click', async (e) => {
+                    const btn = e.target.closest('button');
+                    if (btn.disabled) return;
+                    
                     if (totalWalletCount > this.limits.wallet) {
                         this.limits.wallet += 15; 
                         this.renderWallet(true); 
@@ -917,32 +897,36 @@ export const RenderManager = {
                         if (DataManager.cursors.deposits) fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.DEPOSITS, ['userId', '==', String(uid)], 'time', DataManager.cursors.deposits, 15).then(res => ({ type: 'dep', res })));
                         if (DataManager.cursors.orders) fetchPromises.push(StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15).then(res => ({ type: 'ord', res })));
 
-                        const results = await Promise.all(fetchPromises);
-                        let addedSomething = false;
+                        try {
+                            const results = await Promise.all(fetchPromises);
+                            let addedSomething = false;
 
-                        results.forEach(result => {
-                            if (result.res.data && result.res.data.length > 0) {
-                                addedSomething = true;
-                                const normData = result.res.data.map(item => ({...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt)}));
-                                if (result.type === 'dep') {
-                                    const existing = new Set(LiveStoreData.deposits.map(d => String(d.id)));
-                                    LiveStoreData.deposits = [...LiveStoreData.deposits, ...normData.filter(d => !existing.has(String(d.id)))];
-                                    DataManager.cursors.deposits = result.res.newLastDoc;
+                            results.forEach(result => {
+                                if (result.res.data && result.res.data.length > 0) {
+                                    addedSomething = true;
+                                    const normData = result.res.data.map(item => ({...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt)}));
+                                    if (result.type === 'dep') {
+                                        const existing = new Set(LiveStoreData.deposits.map(d => String(d.id)));
+                                        LiveStoreData.deposits = [...LiveStoreData.deposits, ...normData.filter(d => !existing.has(String(d.id)))];
+                                        DataManager.cursors.deposits = result.res.newLastDoc;
+                                    } else {
+                                        const existing = new Set(LiveStoreData.orders.map(o => String(o.id)));
+                                        LiveStoreData.orders = [...LiveStoreData.orders, ...normData.filter(o => !existing.has(String(o.id)))];
+                                        DataManager.cursors.orders = result.res.newLastDoc;
+                                    }
                                 } else {
-                                    const existing = new Set(LiveStoreData.orders.map(o => String(o.id)));
-                                    LiveStoreData.orders = [...LiveStoreData.orders, ...normData.filter(o => !existing.has(String(o.id)))];
-                                    DataManager.cursors.orders = result.res.newLastDoc;
+                                    if (result.type === 'dep') DataManager.cursors.deposits = null;
+                                    if (result.type === 'ord') DataManager.cursors.orders = null;
                                 }
-                            } else {
-                                if (result.type === 'dep') DataManager.cursors.deposits = null;
-                                if (result.type === 'ord') DataManager.cursors.orders = null;
-                            }
-                        });
+                            });
 
-                        if (addedSomething) { this.limits.wallet += 15; this.renderWallet(true); } 
-                        else { btn.innerHTML = `لا توجد حركات أقدم`; setTimeout(() => loadMoreBtn.remove(), 2000); }
+                            if (addedSomething) { this.limits.wallet += 15; this.renderWallet(true); } 
+                            else { btn.innerHTML = `لا توجد حركات أقدم`; setTimeout(() => loadMoreBtn.remove(), 2000); }
+                        } catch (err) {
+                            btn.innerHTML = `خطأ في التحميل`; btn.disabled = false;
+                        }
                     }
-                };
+                }, { once: true });
                 list.appendChild(loadMoreBtn);
             }
         });
@@ -1037,7 +1021,6 @@ export const RenderManager = {
         if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
 
-        // 🛡️ [تحديث]: ترتيب زمني ثابت
         myDeposits.sort((a, b) => {
             const timeDiff = b.sortTime - a.sortTime;
             if (timeDiff !== 0) return timeDiff;
@@ -1053,115 +1036,17 @@ export const RenderManager = {
             return; 
         }
 
-        let htmlBuffer = '';
         const userDisplayName = Utils.escapeHtml(user.username ? `@${user.username}` : (user.name || 'العميل'));
         const userIdString = RenderHelpers.formatUserId(user);
 
-        visibleDeposits.forEach(d => {
-            try { 
-                const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
-                
-                let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
-                if (['approved', 'completed'].includes(d.status)) { 
-                    if (isDeduction) { stClass = 'st-rejected'; stText = 'مخصوم'; icon = 'fa-arrow-up-long'; } 
-                    else { stClass = 'st-approved'; stText = 'مقبول'; icon = 'fa-check'; }
-                } else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
-                else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
-
-                const currency = (d.currency || 'USD').toUpperCase();
-                const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
-                const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
-                const feeVal = parseFloat(d.fees || d.fee || 0); 
-                
-                let feeLabel = 'الرسوم الإضافية';
-                let feeValueHtml = '<span class="text-muted">لا يوجد</span>';
-                if (feeVal > 0) {
-                    const isBonus = (d.feeType === 'bonus');
-                    feeLabel = isBonus ? 'بونص إضافي' : 'العمولة';
-                    const feeColor = isBonus ? 'text-success' : 'text-danger';
-                    const feeSign = isBonus ? '+' : '-';
-                    feeValueHtml = `<span class="${feeColor}" dir="ltr">${feeSign} ${RenderHelpers.formatMoney(feeVal, currency)}</span>`;
-                }
-                
-                const formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
-                const shortDepositId = RenderHelpers.formatDepositId(d);
-                const amountColorClass = isDeduction ? 'text-danger' : (stClass === 'st-approved' ? 'text-success' : '');
-                const amountPrefix = isDeduction ? '-' : (stClass === 'st-approved' ? '+' : '');
-
-                htmlBuffer += `
-                    <div class="pay-history-card ${stClass}">
-                        <div class="ph-header" data-action="toggle-accordion">
-                            <div class="ph-right-sec">
-                                <div class="ph-icon-box"><i class="fa-solid ${icon} ph-icon"></i></div>
-                                <div class="ph-info-text">
-                                    <span class="ph-method-name">${Utils.escapeHtml(d.method || 'شحن رصيد')}</span>
-                                    <span class="ph-date-mini num-en">${formattedDate.replace('|', '<span class="date-sep">|</span>')}</span>
-                                </div>
-                            </div>
-                            <div class="ph-center-zone">
-                                <span class="ph-amount-header num-en ${amountColorClass}">${amountPrefix} ${RenderHelpers.formatMoney(rawAmount, currency)}</span>
-                                <span class="ph-status-mini">${stText}</span>
-                            </div>
-                            <div class="ph-left-sec"><div class="ph-arrow-btn"><i class="fa-solid fa-chevron-down"></i></div></div>
-                        </div>
-                        <div class="ph-details-body">
-                            <div class="ph-sep-line"></div>
-                            <div class="ph-data-list">
-                                <div class="ph-item">
-                                    <div class="ph-item-label"><i class="fa-solid fa-hashtag"></i> رقم العملية</div>
-                                    <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${shortDepositId}">${shortDepositId}</div>
-                                </div>
-                                <div class="ph-item">
-                                    <div class="ph-item-label"><i class="fa-solid fa-user"></i> اسم المرسل</div>
-                                    <div class="ph-item-val">${userDisplayName}</div>
-                                </div>
-                                <div class="ph-item">
-                                    <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرّف العميل</div>
-                                    <div class="uid-capsule is-copyable" data-action="copy-text" data-text="${userIdString}"><span class="num-en">${userIdString}</span></div>
-                                </div>
-                                <div class="ph-item">
-                                    <div class="ph-item-label"><i class="fa-solid fa-tags"></i> ${feeLabel}</div>
-                                    <div class="ph-item-val num-en">${feeValueHtml}</div>
-                                </div>
-                                <div class="ph-item item-highlight">
-                                    <div class="ph-item-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</div>
-                                    <div class="ph-item-val num-en ${amountColorClass}">${RenderHelpers.formatMoney(displayNetAmount, (d.targetCurrency || baseCurrency).toUpperCase())}</div>
-                                </div>
-                                <div class="ph-item">
-                                    <div class="ph-item-label"><i class="fa-solid fa-clock"></i> التاريخ والوقت</div>
-                                    <div class="ph-item-val num-en">${formattedDate}</div>
-                                </div>
-                            </div>
-                            ${d.adminNote ? `
-                                <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'}">
-                                    <i class="fa-solid fa-headset"></i>
-                                    <div class="ph-admin-note-content">
-                                        <span class="ph-admin-note-title">رسالة الإدارة:</span>
-                                        <div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div>
-                                    </div>
-                                </div>` : ''}
-                            <div class="ph-footer-action">
-                                <button class="btn-receipt-export" data-action="export-receipt" data-id="${d.id}">
-                                    <i class="fa-solid fa-file-export"></i> تصدير الإيصال
-                                </button>
-                            </div>
-                        </div>
-                    </div>`;
-            } catch(e) { console.warn("[TeleCard] Skip invalid payment rendering", e); }
-        });
-
         requestAnimationFrame(() => {
-            list.innerHTML = htmlBuffer;
+            list.innerHTML = visibleDeposits.map(d => {
+                try { return UIBuilders.buildPaymentCard(d, userDisplayName, userIdString, baseCurrency); }
+                catch(e) { return ''; }
+            }).join('');
 
-            if (!q && !dStart && !dEnd && (totalPaymentsCount > this.limits.payments || (DataManager.cursors && DataManager.cursors.deposits))) {
-                const loadMoreContainer = document.createElement('div');
-                loadMoreContainer.className = 'text-center mt-15 mb-15';
-                loadMoreContainer.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
-                loadMoreContainer.onclick = () => {
-                    this.limits.payments += 15;
-                    this.renderPayments(true);
-                };
-                list.appendChild(loadMoreContainer);
+            if (!q && !dStart && !dEnd) {
+                this._appendLoadMoreButton(list, 'deposits', uid, totalPaymentsCount, 'payments');
             }
         });
     },
@@ -1172,6 +1057,7 @@ export const RenderManager = {
             return this._ordersDebounced();
         }
 
+        const renderId = ++this.currentRenderId; 
         if (typeof window.updateBottomNavState === 'function') window.updateBottomNavState('orders');
 
         const filterData = Utils.getSearchAndDateFilters('order', 'order');
@@ -1195,7 +1081,6 @@ export const RenderManager = {
         if (tStart) orders = orders.filter(o => o.sortTime >= tStart);
         if (tEnd) orders = orders.filter(o => o.sortTime <= tEnd);
 
-        // 🛡️ [تحديث]: ترتيب زمني ثابت مدعوم بالـ ID
         orders.sort((a, b) => {
             const timeDiff = b.sortTime - a.sortTime;
             if (timeDiff !== 0) return timeDiff;
@@ -1206,93 +1091,26 @@ export const RenderManager = {
         const displayLimit = (!q && !dStart && !dEnd) ? this.limits.orders : Math.min(orders.length, 50);
         const visibleOrders = orders.slice(0, displayLimit);
 
-        if (visibleOrders.length === 0) { list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد طلبات</h3></div>`; return; }
-      
-        list.innerHTML = '';
-        const fragment = document.createDocumentFragment();
-        
-        const getCleanInputRows = (str) => {
-            if (!str || str === '---' || typeof str === 'object') return [];
-            const rawStr = String(str);
-            if (rawStr.includes('|')) return rawStr.split('|').map(s => s.split(':').pop().trim());
-            if (rawStr.includes(':')) return [rawStr.split(':').pop().trim()];
-            return [rawStr.trim()];
-        };
-        
-        visibleOrders.forEach((o, idx) => {
-            try { 
-                const status = o.status || 'pending'; 
-                const statusClass = status === 'completed' ? 'completed' : (status === 'rejected' ? 'rejected' : (['returned', 'refunded'].includes(status) ? 'returned' : (status === 'processing' ? 'processing' : 'pending')));
-                const productName = Utils.escapeHtml(o.product || (LiveStoreData.prods || []).find(p => String(p.id) === String(o.prodId))?.name || 'منتج');
-                
-                const displayCurr = (o.priceCurrency || 'USD').toUpperCase();
-                const qty = parseFloat(o.qty) || 1; 
-                const qtyHtml = qty > 1 ? `<span class="oh-qty-badge num-en">x${qty}</span>` : '';
-                const inputRows = getCleanInputRows(o.input);
-                
-                let statusLabel = '<i class="fa-regular fa-clock"></i> قيد التنفيذ';
-                if (status === 'completed') statusLabel = '<i class="fa-solid fa-circle-check"></i> مكتمل';
-                else if (status === 'processing') statusLabel = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ';
-                else if (status === 'rejected') statusLabel = '<i class="fa-solid fa-circle-xmark"></i> مرفوض';
-                else if (['returned', 'refunded'].includes(status)) statusLabel = '<i class="fa-solid fa-rotate-left"></i> مسترجع';
-                
-                const totalDiscLocal = Number(o.couponDiscount || 0) + Number(o.saleDiscount || 0);
-                let discountBadgeHtml = '';
-                if (totalDiscLocal > 0) {
-                    const isCombo = (Number(o.couponDiscount || 0) > 0 && Number(o.saleDiscount || 0) > 0);
-                    const isCoupon = Number(o.couponDiscount || 0) > 0;
-                    discountBadgeHtml = `<div class="oh-discount-badge ${isCombo ? 'badge-combo' : (isCoupon ? 'badge-coupon' : 'badge-sale')}"><i class="fa-solid ${isCombo ? 'fa-gift' : (isCoupon ? 'fa-ticket' : 'fa-tag')}"></i> <span>${isCombo ? 'توفير مضاعف' : (isCoupon ? 'كوبون' : 'تخفيض')}</span><span class="num-en">(-${RenderHelpers.formatMoney(totalDiscLocal, displayCurr)})</span></div>`;
-                }
-
-                const cardElement = document.createElement('div');
-                cardElement.className = `oh-card ${(this.highlightId && String(o.id) === String(this.highlightId)) ? 'jump-highlight' : ''}`.trim();
-                cardElement.style.setProperty('--anim-idx', idx);
-                cardElement.setAttribute('data-action', 'open-detail');
-                cardElement.setAttribute('data-type', 'order');
-                cardElement.setAttribute('data-id', o.id);
-
-                cardElement.innerHTML = `
-                    <div class="oh-right">
-                        ${discountBadgeHtml} 
-                        <div class="oh-title">${productName}</div> 
-                        <div class="oh-inputs-stack">${inputRows.map(row => `<div class="oh-input-line num-en">${Utils.escapeHtml(row)}</div>`).join('')}</div>
-                        <div class="oh-date-time num-en">${RenderHelpers.formatSafeDate(o.time || o.createdAt)}</div>
-                    </div>
-                    <div class="oh-left">
-                        <div class="oh-status-box"><span class="oh-status ${statusClass}">${statusLabel}</span></div>
-                        <div class="oh-price-box" dir="ltr"><div class="oh-amount">${RenderHelpers.formatMoney(Number(o.price || 0), displayCurr)}</div>${qtyHtml}</div>
-                        <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${RenderHelpers.formatOrderId(o)}</span></div>
-                    </div>`;
-                fragment.appendChild(cardElement);
-            } catch (e) { console.warn("[TeleCard] Skip corrupted order UI", e); }
-        }); 
+        if (visibleOrders.length === 0) { 
+            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد طلبات</h3></div>`; 
+            return; 
+        }
         
         requestAnimationFrame(() => {
-            const hasMoreServerOrders = DataManager.cursors && DataManager.cursors.orders;
-            if (!q && !dStart && !dEnd && (totalOrdersCount > this.limits.orders || hasMoreServerOrders)) {
-                const loadMoreBtn = document.createElement('div');
-                loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-                loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
-                loadMoreBtn.querySelector('button').onclick = async () => {
-                    const btn = loadMoreBtn.querySelector('button');
-                    if (totalOrdersCount > this.limits.orders) { this.limits.orders += 15; this.renderOrders(true); return; }
-                    if (hasMoreServerOrders) {
-                        btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`; btn.disabled = true;
-                        const res = await StoreDB.fetchMoreWithCursor(DB_KEYS.ORDERS, ['userId', '==', String(uid)], 'time', DataManager.cursors.orders, 15);
-                        if (res.data && res.data.length > 0) {
-                            const newOrders = res.data.map(item => ({ ...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt) }));
-                            const existingOrdIds = new Set(LiveStoreData.orders.map(o => String(o.id)));
-                            LiveStoreData.orders = [...LiveStoreData.orders, ...newOrders.filter(o => !existingOrdIds.has(String(o.id)))];
-                            DataManager.cursors.orders = res.newLastDoc; 
-                            this.limits.orders += 15; this.renderOrders(true);
-                        } else {
-                            DataManager.cursors.orders = null; btn.innerHTML = `لا توجد طلبات أقدم`; setTimeout(() => loadMoreBtn.remove(), 2000);
-                        }
-                    }
-                };
-                fragment.appendChild(loadMoreBtn);
+            if (renderId !== this.currentRenderId) return; 
+            
+            // 🚀 Dependency Injection: استخراج اسم المنتج هنا بدلاً من داخل الدالة النقية
+            list.innerHTML = visibleOrders.map((o, idx) => {
+                try {
+                    const prodName = Utils.escapeHtml(o.product || (LiveStoreData.prods || []).find(p => String(p.id) === String(o.prodId))?.name || 'منتج');
+                    const displayCurr = (o.priceCurrency || 'USD').toUpperCase();
+                    return UIBuilders.buildOrderCard(o, idx, displayCurr, this.highlightId, prodName);
+                } catch (e) { return ''; }
+            }).join('');
+
+            if (!q && !dStart && !dEnd) {
+                this._appendLoadMoreButton(list, 'orders', uid, totalOrdersCount, 'orders');
             }
-            list.appendChild(fragment);
         });
     },
     
@@ -1313,7 +1131,7 @@ export const RenderManager = {
     },
 
     // =========================================================
-    // 🖨️ محرك تصدير الإيصالات الذكي مع حماية الخوادم
+    // 🖨️ محرك تصدير الإيصالات الذكي (PDF Engine)
     // =========================================================
     
     _getSys: function() {
@@ -1582,6 +1400,10 @@ export const RenderManager = {
         }
     },
 
+    // ============================================================================
+    // 🔔 الإشعارات المعمارية المحدثة (Server-Ready Notifications)
+    // ============================================================================
+
     renderNotifCenterList: function() {
         const container = document.getElementById('notif-center-list');
         if (!container) return;
@@ -1598,6 +1420,8 @@ export const RenderManager = {
             return;
         }
         
+        const serverLastReadTime = DataManager.user?.lastReadAlertTime ? RenderHelpers.parseUnifiedTime({ time: DataManager.user.lastReadAlertTime }) : 0;
+        
         let readIds = [];
         try {
             const storedReads = localStorage.getItem(DB_KEYS.NOTIF_READ_LIST);
@@ -1611,7 +1435,6 @@ export const RenderManager = {
             localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, "[]");
         }
         
-        // 🛡️ [تحديث]: ترتيب زمني ثابت للإشعارات
         allAlerts.sort((a, b) => {
             const timeDiff = RenderHelpers.parseUnifiedTime(b) - RenderHelpers.parseUnifiedTime(a);
             if (timeDiff !== 0) return timeDiff;
@@ -1621,7 +1444,10 @@ export const RenderManager = {
         const displayLimit = 30;
         const visibleAlerts = allAlerts.slice(0, displayLimit);
         
-        const unreadCount = allAlerts.filter(a => !readIds.includes(String(a.id)) && !a.isRead).length;
+        const unreadCount = allAlerts.filter(a => {
+            const alertTime = RenderHelpers.parseUnifiedTime(a);
+            return !readIds.includes(String(a.id)) && !a.isRead && alertTime > serverLastReadTime;
+        }).length;
         
         let html = unreadCount > 0 ? `
                 <div class="nc-top-action-bar">
@@ -1631,7 +1457,8 @@ export const RenderManager = {
         
         html += visibleAlerts.map(alert => {
             try {
-                const isRead = readIds.includes(String(alert.id)) || alert.isRead;
+                const alertTime = RenderHelpers.parseUnifiedTime(alert);
+                const isRead = readIds.includes(String(alert.id)) || alert.isRead || alertTime <= serverLastReadTime;
                 const iconClass = (alert.jumpTarget === 'order') ? 'fa-box-open' : (alert.icon || 'fa-bullhorn');
                 
                 return `

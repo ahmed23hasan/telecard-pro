@@ -621,7 +621,7 @@ export const UICore = {
         }
     },
 
-    _executePageTransition: function(renderCallback) {
+        _executePageTransition: function(renderCallback) {
         const grid = document.getElementById('store-grid');
         this._toggleNavLoader(true); 
         
@@ -631,14 +631,20 @@ export const UICore = {
         }
         
         requestAnimationFrame(() => {
-            renderCallback(); 
+            // 🚀 [إصلاح الأداء]: استخدام setTimeout(0) بعد requestAnimationFrame 
+            // يعطي المتصفح فرصة لالتقاط أنفاسه ورسم (اللودر وتلاشي الشبكة) على الشاشة 
+            // قبل أن يتم حظر المسار الرئيسي (Main Thread) بعملية رسم البيانات الثقيلة.
             setTimeout(() => {
-                this._toggleNavLoader(false); 
-                if (grid) {
-                    grid.style.transition = 'opacity 0.25s ease-out';
-                    grid.style.opacity = '1'; 
-                }
-            }, 250);
+                renderCallback(); 
+                
+                setTimeout(() => {
+                    this._toggleNavLoader(false); 
+                    if (grid) {
+                        grid.style.transition = 'opacity 0.25s ease-out';
+                        grid.style.opacity = '1'; 
+                    }
+                }, 250);
+            }, 0);
         });
     },
 

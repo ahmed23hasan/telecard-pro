@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V11.1 - Zero Reads) 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V11.2 - Enterprise Edition) 💎
 // 🎯 الوظيفة: الإقلاع الذكي، حقن الاعتمادية، إدارة الأحداث (Event Delegation)، والمزامنة الحية
-// 🌟 التحديث الأخير: معالجة الأخطاء الشاملة، حماية أزرار الدفع من النقر المزدوج، والتحقق الذكي من الاتصال
+// 🌟 التحديثات الجديدة: معالجة الأخطاء السحابية، حماية أزرار الدفع المتقدمة، مستشعرات الشبكة، وتحسين استهلاك الرام
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
@@ -17,15 +17,15 @@ import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 import { UIFinance } from './ui/uiFinance.js'; 
 
-// 🕒 تسوية وتحويل التواريخ لتناسب العرض عبر المتصفحات
+// 🕒 تسوية وتحويل التواريخ لتناسب العرض (تم تحسين الأداء لتقليل استهلاك الذاكرة O(N) Mutation)
 const _normalizeDataTime = (dataArray) => {
     if (!Array.isArray(dataArray)) return [];
     return dataArray.map(item => {
-        let normalizedItem = { ...item };
-        if (normalizedItem.time) normalizedItem.time = RenderHelpers.parseTime(normalizedItem.time);
-        if (normalizedItem.createdAt) normalizedItem.createdAt = RenderHelpers.parseTime(normalizedItem.createdAt);
-        if (normalizedItem.actionTime) normalizedItem.actionTime = RenderHelpers.parseTime(normalizedItem.actionTime);
-        return normalizedItem;
+        // نعدل على الكائن مباشرة بدلاً من استنساخه بالكامل لتوفير استهلاك الرام للبيانات الضخمة
+        if (item.time && typeof item.time !== 'object') item.time = RenderHelpers.parseTime(item.time);
+        if (item.createdAt && typeof item.createdAt !== 'object') item.createdAt = RenderHelpers.parseTime(item.createdAt);
+        if (item.actionTime && typeof item.actionTime !== 'object') item.actionTime = RenderHelpers.parseTime(item.actionTime);
+        return item;
     });
 };
 
@@ -94,10 +94,35 @@ const ClientSystem = {
         }
     },  
 
+    // 🌐 إعداد مستشعرات الاتصال بالشبكة (الإنترنت)
+    initNetworkSensors: function() {
+        window.addEventListener('offline', () => {
+            if (typeof this.showToast === 'function') this.showToast('انقطع الاتصال بالإنترنت. أنت تتصفح وضع عدم الاتصال.', 'warning');
+            document.body.classList.add('is-offline');
+        });
+
+        window.addEventListener('online', () => {
+            document.body.classList.remove('is-offline');
+            if (typeof this.showToast === 'function') this.showToast('عاد الاتصال بالإنترنت! جاري المزامنة...', 'success');
+            if (this.isReady) {
+                try { this.initFirebaseListeners(); } catch(e){}
+                // إعادة مزامنة توقيت السيرفر لسد الثغرات الزمنية
+                if (StoreDB && typeof StoreDB.callFunction === 'function') {
+                    StoreDB.callFunction('getServerTime').then(timeRes => {
+                        if (timeRes && timeRes.serverTime && DataManager) {
+                            DataManager.serverTimeOffset = timeRes.serverTime - Date.now();
+                        }
+                    }).catch(()=>{});
+                }
+            }
+        });
+    },
+
     // 🎛️ إدارة الأحداث المركزية (Event Delegation) لتوفير الرام
     initGlobalListeners: function() {
         if (this._listenersBound) return;
         this._listenersBound = true;
+        this.initNetworkSensors(); // تفعيل مستشعرات الشبكة
 
         document.body.addEventListener('touchstart', () => {}, { passive: true });
 
@@ -214,24 +239,40 @@ const ClientSystem = {
             'remove-coupon': () => this.removeCoupon?.(),
             'paste-coupon': () => this.pasteText?.(),
             
-            // 🛡️ [تحديث أمني]: حماية زر الشراء من النقر المزدوج (Debounce)
-            'confirm-purchase': (e, id, val, target) => { 
+            // 🛡️ [تحديث ماسي]: حماية زر الشراء الديناميكية (Dynamic Async Debounce)
+            'confirm-purchase': async (e, id, val, target) => { 
                 if (target.disabled) return;
                 target.disabled = true;
-                this.handlePurchaseSubmit?.(); 
-                setTimeout(() => { if (target) target.disabled = false; }, 2000); 
+                const originalContent = target.innerHTML;
+                target.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ...</span>';
+                try {
+                    if (typeof this.handlePurchaseSubmit === 'function') await this.handlePurchaseSubmit(); 
+                } finally {
+                    if (target) {
+                        target.disabled = false;
+                        target.innerHTML = originalContent;
+                    }
+                }
             },
             
             'nav-orders-from-success': () => { this.closePurchaseSuccess?.(); this.openOrders?.(); },
             'navigate-orders-success': () => { this.closeModal?.('purchase-success'); this.openOrders?.(); }, 
             'select-pay': (e, id) => this.selectPay?.(id),
             
-            // 🛡️ [تحديث أمني]: حماية زر الإيداع من النقر المزدوج (Debounce)
-            'submit-balance': (e, id, val, target, dataType, dataCurr) => { 
+            // 🛡️ [تحديث ماسي]: حماية زر الإيداع الديناميكية (Dynamic Async Debounce)
+            'submit-balance': async (e, id, val, target, dataType, dataCurr) => { 
                 if (target.disabled) return;
                 target.disabled = true;
-                this.handleBalanceSubmit?.(dataCurr); 
-                setTimeout(() => { if (target) target.disabled = false; }, 2000); 
+                const originalContent = target.innerHTML;
+                target.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ...</span>';
+                try {
+                    if (typeof this.handleBalanceSubmit === 'function') await this.handleBalanceSubmit(dataCurr); 
+                } finally {
+                    if (target) {
+                        target.disabled = false;
+                        target.innerHTML = originalContent;
+                    }
+                }
             },
             
             'toggle-accordion': (e, id, val, target) => { e.preventDefault(); this.togglePayDetail?.(target); },
@@ -377,9 +418,8 @@ const ClientSystem = {
                             if (typeof this.sfx === 'function') this.sfx('nav');
                             const handler = ActionDictionary[action];
                             if (handler) {
-                                // 🛡️ [تحديث أمني]: حماية من الأخطاء العشوائية
                                 try { handler(e, prodId, btnVal, actionBtn, btnType, btnCurr, btnName, btnCode, btnLen, btnTarget, btnText); } 
-                                catch (err) { console.error(`🚨 خطأ في ${action}:`, err); }
+                                catch (err) { this.logCloudError(action, err); }
                             }
                         }, 250);
                         return;
@@ -401,9 +441,9 @@ const ClientSystem = {
             
             const handler = ActionDictionary[action];
             if (handler) {
-                // 🛡️ [تحديث أمني]: الالتقاط الشامل للأخطاء (Global Error Handling)
+                // 🛡️ [تحديث ماسي]: الالتقاط الشامل للأخطاء وإرسالها للسحابة (Cloud Error Tracking)
                 try {
-                    handler(
+                    const result = handler(
                         e,
                         prodId,
                         actionBtn.getAttribute('data-val'),
@@ -416,21 +456,42 @@ const ClientSystem = {
                         actionBtn.getAttribute('data-target'),
                         actionBtn.getAttribute('data-text')
                     );
+                    
+                    // التقاط أخطاء الـ Promises أيضاً
+                    if (result instanceof Promise) {
+                        result.catch(err => this.logCloudError(action, err));
+                    }
                 } catch (err) {
-                    console.error(`🚨 خطأ أثناء تنفيذ الإجراء [${action}]:`, err);
-                    if (typeof this.showToast === 'function') this.showToast('حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.', 'error');
+                    this.logCloudError(action, err);
                 }
             }
         });
+    },
+
+    // ☁️ مسجل الأخطاء السحابي
+    logCloudError: function(action, err) {
+        console.error(`🚨 خطأ أثناء تنفيذ الإجراء [${action}]:`, err);
+        if (StoreDB && typeof StoreDB.addDoc === 'function') {
+            StoreDB.addDoc('SYSTEM_ERRORS', {
+                action: action,
+                errorMsg: err.message,
+                stack: err.stack,
+                userId: DataManager?.user?.uid || 'guest',
+                device: navigator.userAgent,
+                time: new Date().toISOString()
+            }).catch(()=>{}); // تجاهل بصمت إذا فشل الإرسال
+        }
+        if (typeof this.showToast === 'function') this.showToast('حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.', 'error');
     }
 };
 
-// 🔗 دمج الوحدات الفرعية في كيان واحد عبر (Dependency Injection)
+// 🔗 دمج الوحدات الفرعية في كيان واحد عبر (Dependency Injection) مع حماية ضد الكتابة الفوقية
+const baseKeys = Object.keys(ClientSystem);
 const modules = [DataManager, UIManager, RenderManager, Components, Utils, UIFinance];
 modules.forEach(mod => {
     if (!mod) return;
     Object.keys(mod).forEach(key => {
-        if (key in ClientSystem) return;
+        if (baseKeys.includes(key)) return; // حماية الدوال الأساسية من الاستبدال العشوائي
         if (typeof mod[key] === 'function') {
             ClientSystem[key] = mod[key].bind(mod);
         } else {
@@ -445,15 +506,14 @@ modules.forEach(mod => {
 
 // ============================================================================
 // 🔄 محرك المزامنة الحي (Real-time Firebase Sync Engine)
-// الوظيفة: إبقاء رصيد وطلبات العميل محدثة في واجهته بدون الحاجة لعمل Refresh
 // ============================================================================
-ClientSystem.userAuthListeners = []; // 🛡️ مصفوفة مخصصة لمستمعات المستخدم فقط
+ClientSystem.userAuthListeners = []; 
 
 ClientSystem.initFirebaseListeners = function() {
     console.log("📡 جاري تشغيل مستمعات السحابة الحية (النظام التفاعلي)...");
-    this.clearFirebaseListeners(); // ينظف الإعدادات العامة فقط
+    this.clearFirebaseListeners(); 
     
-    // استماع للتحديثات العامة (إعدادات النظام)
+    // استماع للتحديثات العامة
     if (DB_KEYS.SETTINGS) {
         this.activeListeners.push(StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
             const incoming = Array.isArray(data) ? (data[0] || null) : (data || null);
@@ -466,7 +526,6 @@ ClientSystem.initFirebaseListeners = function() {
         }));
     }
     
-    // استماع للإشعارات العامة
     if (DB_KEYS.ALERTS) {
         this.activeListeners.push(StoreDB.listenCollection(DB_KEYS.ALERTS, (data) => {
             LiveStoreData.alerts = _normalizeDataTime(Array.isArray(data) ? data : []);
@@ -479,9 +538,7 @@ ClientSystem.initFirebaseListeners = function() {
     
     if (!auth) return; 
     
-    // 👤 استماع لتغير حالة الدخول للمستخدم (Auth State)
     onAuthStateChanged(auth, (firebaseUser) => {
-        // 🛡️ [إصلاح تسرب الذاكرة]: تنظيف مستمعات المستخدم السابقة قبل إضافة جديدة (Token Refresh Protection)
         if (this.userAuthListeners && this.userAuthListeners.length > 0) {
             this.userAuthListeners.forEach(unsubscribe => { if (typeof unsubscribe === 'function') unsubscribe(); });
             this.userAuthListeners = [];
@@ -548,6 +605,7 @@ ClientSystem.initFirebaseListeners = function() {
         }
     });
 };
+
 // ============================================================================
 // 🚀 إقلاع النظام المدمج (Smart Boot) - القاتل لفواتير فايربيز 💸
 // ============================================================================
@@ -569,13 +627,10 @@ ClientSystem.init = async function() {
     // 🟡 المرحلة 2: تشغيل محرك الكاش الذكي (Smart Cache Engine) ورسم الواجهة
     try {
         if (UIManager.checkSystemStatus && UIManager.checkSystemStatus()) return;
-        this.initGlobalListeners(); // تفعيل الأزرار فوراً لتسريع تفاعل المستخدم
+        this.initGlobalListeners(); 
 
-        // 🚀 السحر يبدأ هنا: استدعاء المحرك الذي بنيناه لتوفير الفواتير!
-        // (يقوم بقراءة مستند واحد لمعرفة التحديث، وإذا لم يوجد يحمل من الهاتف فوراً)
         await DataManager.initStoreCatalog();
 
-        // 🎨 تهيئة أدوات الرسم بعد ضمان وجود البيانات (سواء من السيرفر أو الهاتف)
         RenderHelpers.init({ 
             settings: LiveStoreData.settings || {}, 
             rates: LiveStoreData.rates || [], 
@@ -585,7 +640,6 @@ ClientSystem.init = async function() {
 
         if (typeof UIManager.applyStoreIdentity === 'function') UIManager.applyStoreIdentity();
         
-        // إزالة شاشة التحميل (Splash Screen) بنعومة فائقة
         requestAnimationFrame(() => {
             const splash = document.getElementById('global-splash-screen');
             if (splash) { 
@@ -595,7 +649,6 @@ ClientSystem.init = async function() {
             }
         });
 
-        // 🖼️ رسم الواجهة الرئيسية بلمح البصر
         if (RenderManager && typeof RenderManager.renderHome === 'function') RenderManager.renderHome();
         if (typeof UIManager.initSlider === 'function') UIManager.initSlider();
         if (typeof UIManager.renderTicker === 'function') UIManager.renderTicker(); 
@@ -606,18 +659,21 @@ ClientSystem.init = async function() {
         if (splashName) splashName.innerText = sName;
         localStorage.setItem('telecard_splash_name', sName);
 
-        // 📥 جلب البيانات الثانوية (كوبونات، دول، بوابات دفع، بنرات) بهدوء في الخلفية
-        // هذا يضمن أن الشاشة تفتح للزبون فوراً، والأشياء الفرعية تُحمل بصمت
+        // 🛡️ [تحديث ماسي]: الحماية من المهام المعلقة (Dangling Tasks) في حال غادر المستخدم قبل اكتمال التحميل
         setTimeout(() => {
+            if (!this.isReady) return; // حماية ضد Memory Leak
+            
             const secondaryKeys = ['COUPONS', 'COUNTRIES', 'PAYMENTS', 'BANNERS'];
             Promise.allSettled(secondaryKeys.map(k => StoreDB.getAll(DB_KEYS[k]))).then(secResults => {
+                if (!this.isReady || typeof RenderManager === 'undefined') return;
+                
                 secondaryKeys.forEach((keyName, i) => {
                     const property = keyName.toLowerCase();
                     if (secResults[i].status === 'fulfilled' && secResults[i].value) {
                         LiveStoreData[property] = [...secResults[i].value];
                     }
                 });
-                // إذا تغيرت البنرات، أعد رسم الصفحة الرئيسية بصمت
+                
                 if (RenderManager && typeof RenderManager.renderHome === 'function') RenderManager.renderHome();
                 if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
             });
@@ -627,22 +683,21 @@ ClientSystem.init = async function() {
 
     // 🟣 المرحلة 3: المستمعات الحية والمستشعرات الأمنية
     try {
-        // حقن مستشعر البصمة (Fingerprint) بصمت لمنع الحسابات الوهمية
         if (DataManager && typeof DataManager.injectSilentSensor === 'function') setTimeout(() => { DataManager.injectSilentSensor(); }, 3000);
         if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
         
         setTimeout(() => {
+            if (!this.isReady) return; 
+            
             try { this.initFirebaseListeners(); } catch(e){}
             try { if (CalendarApp && CalendarApp.init) CalendarApp.init(); } catch(e){}
             
-            // تهيئة إضافات واجهة المستخدم
             const uiInitMethods = ['updateSidebarText', 'initSupportButton', 'applyFontSettings', 'refreshCurrencyMenuFlags', 'renderSettingsUI', 'loadUserImageAutomatically', 'restoreDisplayState', 'setupMainContentClickDetector', 'initSwipeGestures'];
             uiInitMethods.forEach(method => { try { if (typeof UIManager[method] === 'function') UIManager[method](); } catch(e){} });
             
             try { if (Components && Components.initBottomNavSync) Components.initBottomNavSync(); } catch(e){}
             try { if (typeof UIManager.checkKycCelebration === 'function') UIManager.checkKycCelebration(); } catch(e){}
             
-            // 🛡️ [تحديث أمني]: مزامنة توقيت السيرفر لحماية وقت الطلبات (فقط إذا كان متصلاً بالإنترنت)
             try { 
                 if (navigator.onLine && StoreDB && typeof StoreDB.callFunction === 'function') {
                     StoreDB.callFunction('getServerTime').then(timeRes => { 

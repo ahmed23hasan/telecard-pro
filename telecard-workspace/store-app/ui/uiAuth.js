@@ -1,7 +1,7 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية (Pro V4.2)
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية (Pro V4.3)
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🌟 التحديث الأقصى: إصلاح تسرب الذاكرة للمراقب، توحيد حالة التوثيق، وتحسين استخراج الأسماء
+// 🌟 التحديث الأقصى: إصلاح تسرب الذاكرة للمراقب، توحيد حالة التوثيق، وحماية ضغط الصور (Race Condition Guard)
 // ============================================================================
 
 import { DB_KEYS } from '../config.js'; 
@@ -12,7 +12,7 @@ import { RenderHelpers } from '../core/renderHelpers.js';
 
 const DEFAULT_AVATAR_URL = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
 
-// ✅ دالة آمنة لجلب النظام تمنع انهيار الواجهة
+// ✅ دالة آمنة لجلب النظام تمنع انهيار الواجهة (Proxy Fallback)
 const getSys = () => {
     if (window.ClientSystem) return window.ClientSystem;
     if (window.UIManager) return window.UIManager;
@@ -28,6 +28,7 @@ export const UIAuth = {
 
     kycFiles: {},
     _isSubmittingKyc: false, 
+    _isProcessingImg: false, // 🛡️ قفل حماية لمنع تداخل عمليات ضغط الصور
 
     // 🚀 [Storage Saver - Secure]: محرك ضغط الصور الاحترافي
     _compressImage: function(file, maxWidth = 1000) {
@@ -78,10 +79,10 @@ export const UIAuth = {
         if (!DataManager.user) return;
         const user = DataManager.user;
         
-        // 🚀 [إصلاح منطقي]: توحيد حالة التوثيق (الهاتف أو الهوية)
+        // 🚀 توحيد حالة التوثيق (الهاتف أو الهوية)
         const isVerified = (user.isVerified === true || String(user.isVerified) === 'true' || user.kycStatus === 'approved' || user.kycStatus === 'verified'); 
 
-        // 🚀 [إصلاح الأسماء]: Fallback ذكي لتجميع الاسم
+        // 🚀 Fallback ذكي لتجميع الاسم
         const fallbackName = (user.fullName || user.name || (user.firstName ? `${user.firstName} ${user.lastName || ''}` : 'العميل')).trim();
         const fullName = getSys()._getFullName ? getSys()._getFullName(user) : fallbackName;
         
@@ -217,7 +218,7 @@ export const UIAuth = {
                     const oldImageUrl = DataManager.user.img; 
                     const downloadUrl = await FirebaseAdapter.uploadImage(compressed.file, 'avatars', `avatar_${DataManager.user.id}_${Date.now()}.webp`);               
                     
-                    // 🛡️ [الترقيع الماسي]: حماية من ثغرة الـ Race Condition
+                    // 🛡️ التحديث (ACID-like Transaction): حماية من الفشل المرحلي
                     let dbUpdateSuccess = false;
                     if (DataManager.updateUserProfile) {
                         dbUpdateSuccess = await DataManager.updateUserProfile({ img: downloadUrl });
@@ -226,7 +227,6 @@ export const UIAuth = {
                     if (dbUpdateSuccess) {
                         localStorage.setItem('telecard_user_image_' + DataManager.user.id, downloadUrl);
 
-                        // نحذف الصورة القديمة فقط إذا تأكدنا من حفظ الرابط الجديد في الداتابيز
                         if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
                             FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(e => console.warn("Failed to delete old avatar:", e));
                         }
@@ -236,7 +236,7 @@ export const UIAuth = {
                         getSys().showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
                         getSys().sfx?.('success');
                     } else {
-                        // تراجع (Rollback): لو فشل الداتابيز، نحذف الصورة التي رفعناها للتو من التخزين السحابي
+                        // Rollback: حذف الصورة المرفوعة إذا رفضت الداتابيز التحديث
                         if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(downloadUrl).catch(()=>{});
                         throw new Error("قاعدة البيانات رفضت التحديث.");
                     }
@@ -334,98 +334,98 @@ export const UIAuth = {
     closeProfileInfo: function() { getSys().closeModal?.('profile-info'); },
 
     updateProfileDisplay: function() {
-    try {
-        const guestCard = document.getElementById('guest-sidebar-card');
-        const userCard = document.getElementById('user-sidebar-card');
-        const navDeposit = document.getElementById('nav-item-deposit');
-        const navPayments = document.getElementById('nav-item-payments');
-        const navOrders = document.getElementById('nav-item-orders');
-        const navNotif = document.getElementById('nav-item-notif');
-        const navSecurity = document.getElementById('nav-item-security');
-        const navRating = document.querySelector('[data-action="open-rating"]');
-        const logoutBtn = document.getElementById('sidebar-logout-btn');
-        
-        const alertCard = document.getElementById('sb-profile-alert');
-        const kycContainer = document.getElementById('sidebar-kyc-container');
-        
-        if (!DataManager || !DataManager.user) {
-            if (guestCard) guestCard.style.display = 'block';
-            if (userCard) userCard.style.display = 'none';
-            if (navDeposit) navDeposit.style.display = 'none';
-            if (navPayments) navPayments.style.display = 'none';
-            if (navOrders) navOrders.style.display = 'none';
-            if (navNotif) navNotif.style.display = 'none';
-            if (navSecurity) navSecurity.style.display = 'none';
-            if (navRating) navRating.style.display = 'none';
-            if (logoutBtn) logoutBtn.style.display = 'none';
+        try {
+            const guestCard = document.getElementById('guest-sidebar-card');
+            const userCard = document.getElementById('user-sidebar-card');
+            const navDeposit = document.getElementById('nav-item-deposit');
+            const navPayments = document.getElementById('nav-item-payments');
+            const navOrders = document.getElementById('nav-item-orders');
+            const navNotif = document.getElementById('nav-item-notif');
+            const navSecurity = document.getElementById('nav-item-security');
+            const navRating = document.querySelector('[data-action="open-rating"]');
+            const logoutBtn = document.getElementById('sidebar-logout-btn');
+            
+            const alertCard = document.getElementById('sb-profile-alert');
+            const kycContainer = document.getElementById('sidebar-kyc-container');
+            
+            if (!DataManager || !DataManager.user) {
+                if (guestCard) guestCard.style.display = 'block';
+                if (userCard) userCard.style.display = 'none';
+                if (navDeposit) navDeposit.style.display = 'none';
+                if (navPayments) navPayments.style.display = 'none';
+                if (navOrders) navOrders.style.display = 'none';
+                if (navNotif) navNotif.style.display = 'none';
+                if (navSecurity) navSecurity.style.display = 'none';
+                if (navRating) navRating.style.display = 'none';
+                if (logoutBtn) logoutBtn.style.display = 'none';
+                
+                if (alertCard) {
+                    alertCard.style.setProperty('display', 'none', 'important');
+                    alertCard.classList.add('d-none', 'hide-element');
+                }
+                if (kycContainer) {
+                    kycContainer.style.setProperty('display', 'none', 'important');
+                    kycContainer.classList.add('d-none', 'hide-element');
+                }
+                return;
+            }
+            
+            if (guestCard) guestCard.style.display = 'none';
+            if (userCard) userCard.style.display = 'block';
+            if (navDeposit) navDeposit.style.display = 'flex';
+            if (navPayments) navPayments.style.display = 'flex';
+            if (navOrders) navOrders.style.display = 'flex';
+            if (navNotif) navNotif.style.display = 'flex';
+            if (navSecurity) navSecurity.style.display = 'flex';
+            if (navRating) navRating.style.display = 'flex';
+            if (logoutBtn) logoutBtn.style.display = 'flex';
+            
+            const user = DataManager.user;
+            const fallbackName = (user.fullName || user.name || (user.firstName ? `${user.firstName} ${user.lastName || ''}` : 'العميل')).trim();
+            const fullName = getSys()._getFullName ? getSys()._getFullName(user) : fallbackName;
+            
+            const nameEl = document.getElementById('cs-name');
+            const displayNameEl = document.getElementById('display-name');
+            
+            if (nameEl) nameEl.textContent = fullName;
+            if (displayNameEl) displayNameEl.textContent = fullName;
             
             if (alertCard) {
-                alertCard.style.setProperty('display', 'none', 'important');
-                alertCard.classList.add('d-none', 'hide-element');
+                const hasCurrency = (user.baseCurrency && user.baseCurrency.trim() !== '') || (user.base_currency && user.base_currency.trim() !== '');
+                const hasData = (user.phone && user.phone.trim() !== '') && (user.country && user.country !== '');
+                const isIdentityComplete = ((user.isVerified === true || String(user.isVerified) === 'true') || hasData) && hasCurrency;
+                
+                if (isIdentityComplete) {
+                    alertCard.style.setProperty('display', 'none', 'important');
+                    alertCard.classList.add('d-none', 'hide-element');
+                    alertCard.style.pointerEvents = 'none';
+                    alertCard.removeAttribute('data-action');
+                    alertCard.onclick = null;
+                } else {
+                    alertCard.style.removeProperty('display');
+                    alertCard.style.display = 'flex';
+                    alertCard.classList.remove('d-none', 'hide-element');
+                    alertCard.style.pointerEvents = 'auto';
+                    alertCard.setAttribute('data-action', 'open-identity-sidebar');
+                }
             }
-            if (kycContainer) {
-                kycContainer.style.setProperty('display', 'none', 'important');
-                kycContainer.classList.add('d-none', 'hide-element');
-            }
-            return;
-        }
-        
-        if (guestCard) guestCard.style.display = 'none';
-        if (userCard) userCard.style.display = 'block';
-        if (navDeposit) navDeposit.style.display = 'flex';
-        if (navPayments) navPayments.style.display = 'flex';
-        if (navOrders) navOrders.style.display = 'flex';
-        if (navNotif) navNotif.style.display = 'flex';
-        if (navSecurity) navSecurity.style.display = 'flex';
-        if (navRating) navRating.style.display = 'flex';
-        if (logoutBtn) logoutBtn.style.display = 'flex';
-        
-        const user = DataManager.user;
-        const fallbackName = (user.fullName || user.name || (user.firstName ? `${user.firstName} ${user.lastName || ''}` : 'العميل')).trim();
-        const fullName = getSys()._getFullName ? getSys()._getFullName(user) : fallbackName;
-        
-        const nameEl = document.getElementById('cs-name');
-        const displayNameEl = document.getElementById('display-name');
-        
-        if (nameEl) nameEl.textContent = fullName;
-        if (displayNameEl) displayNameEl.textContent = fullName;
-        
-        if (alertCard) {
-            const hasCurrency = (user.baseCurrency && user.baseCurrency.trim() !== '') || (user.base_currency && user.base_currency.trim() !== '');
-            const hasData = (user.phone && user.phone.trim() !== '') && (user.country && user.country !== '');
-            const isIdentityComplete = ((user.isVerified === true || String(user.isVerified) === 'true') || hasData) && hasCurrency;
             
-            // 🚀 تم إزالة المؤقت العشوائي (Cache Lock)، الاعتماد كلياً على التزامن الحي من Firestore
-            if (isIdentityComplete) {
-                alertCard.style.setProperty('display', 'none', 'important');
-                alertCard.classList.add('d-none', 'hide-element');
-                alertCard.style.pointerEvents = 'none';
-                alertCard.removeAttribute('data-action');
-                alertCard.onclick = null;
-            } else {
-                alertCard.style.removeProperty('display');
-                alertCard.style.display = 'flex';
-                alertCard.classList.remove('d-none', 'hide-element');
-                alertCard.style.pointerEvents = 'auto';
-                alertCard.setAttribute('data-action', 'open-identity-sidebar');
+            const sidebarAvatar = document.getElementById('cs-avatar');
+            if (sidebarAvatar) {
+                const defaultImg = typeof DEFAULT_AVATAR_URL !== 'undefined' ? DEFAULT_AVATAR_URL : 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
+                sidebarAvatar.src = user.img || defaultImg;
             }
-        }
-        
-        const sidebarAvatar = document.getElementById('cs-avatar');
-        if (sidebarAvatar) {
-            const defaultImg = typeof DEFAULT_AVATAR_URL !== 'undefined' ? DEFAULT_AVATAR_URL : 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
-            sidebarAvatar.src = user.img || defaultImg;
-        }
-        
-        const idEl = document.getElementById('cs-id');
-        if (idEl) idEl.textContent = RenderHelpers.formatUserId(user);
-        
-        this.updateSidebarTier();
-        this.renderKycUI();
-        this.checkKycCelebration();
-        
-    } catch (e) { console.error('Error updating profile display:', e); }
-},
+            
+            const idEl = document.getElementById('cs-id');
+            if (idEl) idEl.textContent = RenderHelpers.formatUserId(user);
+            
+            this.updateSidebarTier();
+            this.renderKycUI();
+            this.checkKycCelebration();
+            
+        } catch (e) { console.error('Error updating profile display:', e); }
+    },
+
     deleteProfileImage: function() {
         if(!DataManager.user) return;
         
@@ -675,7 +675,6 @@ export const UIAuth = {
                         mutations.forEach((mutation) => {
                             if (mutation.attributeName === 'class' && !setupModal.classList.contains('show')) {
                                 this._clear2FAState();
-                                // 🚀 [إصلاح تسرب الذاكرة]: فصل المراقب لتنظيف الذاكرة بعد الإغلاق
                                 observer.disconnect();
                                 setupModal._boundCleanup = false;
                             }
@@ -743,7 +742,7 @@ export const UIAuth = {
     },
 
     // =========================================================
-    // 👆 نظام المصادقة الحيوية (المستوى البنكي - Un-bypassable)
+    // 👆 نظام المصادقة الحيوية (WebAuthn / Local Lock)
     // =========================================================
     handleBiometricToggle: async function() {
         const isCurrentlyEnabled = DataManager.user?.biometricEnabled === true;
@@ -775,12 +774,13 @@ export const UIAuth = {
             getSys().toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
             const challenge = new Uint8Array(32);
             window.crypto.getRandomValues(challenge);
-            // 🛡️ [إصلاح بروتوكول WebAuthn]: تحويل الـ UID ليكون معرّفاً ثابتاً (Stable Identifier)
-const userIdStr = DataManager.user?.id || 'unknown';
-const userIdBytes = new Uint8Array(16);
-for (let i = 0; i < Math.min(userIdStr.length, 16); i++) {
-    userIdBytes[i] = userIdStr.charCodeAt(i);
-}       const userEmail = DataManager.user?.email || 'user@telecard.com';
+            
+            const userIdStr = DataManager.user?.id || 'unknown';
+            const userIdBytes = new Uint8Array(16);
+            for (let i = 0; i < Math.min(userIdStr.length, 16); i++) {
+                userIdBytes[i] = userIdStr.charCodeAt(i);
+            }       
+            const userEmail = DataManager.user?.email || 'user@telecard.com';
             
             const publicKeyCredentialCreationOptions = {
                 challenge: challenge,
@@ -911,93 +911,87 @@ for (let i = 0; i < Math.min(userIdStr.length, 16); i++) {
         getSys().sfx?.('nav');
     },
 
-saveIdentityData: async function() {
-    const btn = document.querySelector('[data-action="save-identity"]');
-    if (this._isSavingIdentity || (btn && btn.classList.contains('is-loading'))) return;
-    
-    // ✅ [قفل أمني]: يعتمد على isVerified (إكمال البيانات) لمنع التلاعب بالعملة بعد الاختيار الأول
-    if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
-        getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
-        getSys().sfx?.('error');
-        getSys().closeModal?.('identity');
-        return;
-    }
-    
-    const countryEl = document.getElementById('selected-country-text');
-    const phoneEl = document.getElementById('reg-phone');
-    const hiddenCurrency = document.getElementById('reg-currency');
-    
-    const country = countryEl ? countryEl.innerText.trim() : '';
-    const phone = phoneEl ? phoneEl.value.trim() : '';
-    const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
-    
-    if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
-        getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
-        getSys().sfx?.('error');
-        return;
-    }
-    
-    if (!/^[\d\s\+\-\(\)]+$/.test(phone)) {
-        getSys().showToast?.('رقم الهاتف غير صالح، يرجى استخدام الأرقام فقط.', 'error');
-        return;
-    }
-    
-    this._isSavingIdentity = true;
-    if (btn) {
-        btn.classList.add('is-loading');
-        btn.disabled = true;
-    }
-    getSys().toggleLoader?.(true, 'جاري تأمين وربط المحفظة...');
-    
-    try {
-        const result = await StoreDB.callFunction('completeUserIdentity', {
-            country: country,
-            phone: phone,
-            currency: currency
-        });
+    saveIdentityData: async function() {
+        const btn = document.querySelector('[data-action="save-identity"]');
+        if (this._isSavingIdentity || (btn && btn.classList.contains('is-loading'))) return;
         
-        if (result && result.success) {
-            const finalCurr = result.lockedCurrency || currency;
-            
-            // تحديث الذاكرة المحلية والعملة
-            localStorage.setItem('telecard_display_currency', finalCurr);
-            DataManager.selectedCurr = finalCurr;
-            
-            DataManager.user.country = country;
-            DataManager.user.phone = phone;
-            DataManager.user.baseCurrency = finalCurr;
-            DataManager.user.isVerified = true; // تم الربط بنجاح
-            
-            if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
-            if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(finalCurr);
-            if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
-            
-            // إخفاء الحقول وإظهار رسالة التوثيق داخل النافذة
-            const inputsWrap = document.getElementById('identity-inputs-wrap');
-            const statusWrap = document.getElementById('identity-verified-status');
-            if (inputsWrap) inputsWrap.style.display = 'none';
-            if (statusWrap) statusWrap.classList.remove('hide-element');
-            
-            getSys().sfx?.('success');
-            // رسالة واضحة تخبر العميل بالنجاح وتدعوه للإغلاق يدوياً
-            getSys().showToast?.(result.message || 'تم ربط المحفظة وتأكيد البيانات بنجاح! يمكنك الآن إغلاق النافذة.', 'success');
-            
-            // 🛑 [تم الحذف]: سطر setTimeout الذي كان يغلق النافذة تلقائياً
+        if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
+            getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
+            getSys().sfx?.('error');
+            getSys().closeModal?.('identity');
+            return;
         }
-    } catch (error) {
-        console.error("Identity Error:", error);
-        getSys().sfx?.('error');
-        getSys().showToast?.(error.message || 'فشلت العملية، يرجى المحاولة لاحقاً.', 'error');
-        if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
-    } finally {
-        this._isSavingIdentity = false;
+        
+        const countryEl = document.getElementById('selected-country-text');
+        const phoneEl = document.getElementById('reg-phone');
+        const hiddenCurrency = document.getElementById('reg-currency');
+        
+        const country = countryEl ? countryEl.innerText.trim() : '';
+        const phone = phoneEl ? phoneEl.value.trim() : '';
+        const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
+        
+        if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
+            getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
+            getSys().sfx?.('error');
+            return;
+        }
+        
+        if (!/^[\d\s\+\-\(\)]+$/.test(phone)) {
+            getSys().showToast?.('رقم الهاتف غير صالح، يرجى استخدام الأرقام فقط.', 'error');
+            return;
+        }
+        
+        this._isSavingIdentity = true;
         if (btn) {
-            btn.classList.remove('is-loading');
-            btn.disabled = false;
+            btn.classList.add('is-loading');
+            btn.disabled = true;
         }
-        getSys().toggleLoader?.(false);
-    }
-},
+        getSys().toggleLoader?.(true, 'جاري تأمين وربط المحفظة...');
+        
+        try {
+            const result = await StoreDB.callFunction('completeUserIdentity', {
+                country: country,
+                phone: phone,
+                currency: currency
+            });
+            
+            if (result && result.success) {
+                const finalCurr = result.lockedCurrency || currency;
+                
+                localStorage.setItem('telecard_display_currency', finalCurr);
+                DataManager.selectedCurr = finalCurr;
+                
+                DataManager.user.country = country;
+                DataManager.user.phone = phone;
+                DataManager.user.baseCurrency = finalCurr;
+                DataManager.user.isVerified = true; 
+                
+                if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
+                if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(finalCurr);
+                if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
+                
+                const inputsWrap = document.getElementById('identity-inputs-wrap');
+                const statusWrap = document.getElementById('identity-verified-status');
+                if (inputsWrap) inputsWrap.style.display = 'none';
+                if (statusWrap) statusWrap.classList.remove('hide-element');
+                
+                getSys().sfx?.('success');
+                getSys().showToast?.(result.message || 'تم ربط المحفظة وتأكيد البيانات بنجاح! يمكنك الآن إغلاق النافذة.', 'success');
+            }
+        } catch (error) {
+            console.error("Identity Error:", error);
+            getSys().sfx?.('error');
+            getSys().showToast?.(error.message || 'فشلت العملية، يرجى المحاولة لاحقاً.', 'error');
+            if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
+        } finally {
+            this._isSavingIdentity = false;
+            if (btn) {
+                btn.classList.remove('is-loading');
+                btn.disabled = false;
+            }
+            getSys().toggleLoader?.(false);
+        }
+    },
 
     loadDynamicCurrenciesForModal: function() {
         const listTarget = document.getElementById('reg-currency-list-target');
@@ -1017,6 +1011,9 @@ saveIdentityData: async function() {
     },
 
     handleKycImage: async function(input, previewId) {
+        // 🛡️ [Race Condition Guard]: قفل يمنع معالجة صورة جديدة إذا كانت هناك عملية ضغط سابقة لم تنتهِ
+        if (this._isProcessingImg) return; 
+
         const file = input.files && input.files[0];
         const parentBox = input.closest('.kyc-upload-box');
         const previewImg = document.getElementById(previewId);
@@ -1039,6 +1036,8 @@ saveIdentityData: async function() {
             return;
         }
         
+        this._isProcessingImg = true; // تشغيل القفل
+        
         try {
             getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
             const compressed = await this._compressImage(file, 1200); 
@@ -1051,101 +1050,97 @@ saveIdentityData: async function() {
             getSys().showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
             input.value = '';
         } finally {
+            this._isProcessingImg = false; // فك القفل لضمان عمل الواجهة
             getSys().toggleLoader?.(false);
         }
     },
 
     submitKycData: async function() {
-    if (this._isSubmittingKyc) return;
-    
-    const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
-    const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
-    
-    this.kycFiles = this.kycFiles || {};
-    const frontFile = this.kycFiles['kyc-prev-front'];
-    const backFile = this.kycFiles['kyc-prev-back'];
-    const selfieFile = this.kycFiles['kyc-prev-selfie'];
-    
-    if (!fullName || !idNumber || !frontFile || !backFile || !selfieFile) {
-        getSys().showToast?.('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
-        return;
-    }
-    
-    this._isSubmittingKyc = true;
-    getSys().toggleLoader?.(true, 'جاري تشفير ورفع الملفات...');
-    
-    try {
-        const userId = DataManager.user.id || 'unknown_user';
-        const kycTimestamp = Date.now();
+        if (this._isSubmittingKyc) return;
         
-        const oldKycData = DataManager.user.kycData;
-        if (oldKycData) {
-            const oldUrls = [oldKycData.frontImg, oldKycData.backImg, oldKycData.selfieImg].filter(Boolean);
-            oldUrls.forEach(url => {
-                if (FirebaseAdapter.deleteImageByUrl) {
-                    FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
-                }
-            });
+        const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
+        const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
+        
+        this.kycFiles = this.kycFiles || {};
+        const frontFile = this.kycFiles['kyc-prev-front'];
+        const backFile = this.kycFiles['kyc-prev-back'];
+        const selfieFile = this.kycFiles['kyc-prev-selfie'];
+        
+        if (!fullName || !idNumber || !frontFile || !backFile || !selfieFile) {
+            getSys().showToast?.('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
+            return;
         }
         
-        const uploadPromises = [
-            FirebaseAdapter.uploadImage(frontFile, 'kyc_docs', `${userId}_front_${kycTimestamp}.webp`),
-            FirebaseAdapter.uploadImage(backFile, 'kyc_docs', `${userId}_back_${kycTimestamp}.webp`),
-            FirebaseAdapter.uploadImage(selfieFile, 'kyc_docs', `${userId}_selfie_${kycTimestamp}.webp`)
-        ];
+        this._isSubmittingKyc = true;
+        getSys().toggleLoader?.(true, 'جاري تشفير ورفع الملفات...');
         
-        const results = await Promise.allSettled(uploadPromises);
-        const failedUploads = results.filter(r => r.status === 'rejected');
-        
-        if (failedUploads.length > 0) {
-            const successfulUploads = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
-            if (successfulUploads.length > 0) {
-                successfulUploads.forEach(url => {
-                    if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
+        try {
+            const userId = DataManager.user.id || 'unknown_user';
+            const kycTimestamp = Date.now();
+            
+            const oldKycData = DataManager.user.kycData;
+            if (oldKycData) {
+                const oldUrls = [oldKycData.frontImg, oldKycData.backImg, oldKycData.selfieImg].filter(Boolean);
+                oldUrls.forEach(url => {
+                    if (FirebaseAdapter.deleteImageByUrl) {
+                        FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
+                    }
                 });
             }
-            throw new Error("فشل رفع إحدى الصور.");
+            
+            const uploadPromises = [
+                FirebaseAdapter.uploadImage(frontFile, 'kyc_docs', `${userId}_front_${kycTimestamp}.webp`),
+                FirebaseAdapter.uploadImage(backFile, 'kyc_docs', `${userId}_back_${kycTimestamp}.webp`),
+                FirebaseAdapter.uploadImage(selfieFile, 'kyc_docs', `${userId}_selfie_${kycTimestamp}.webp`)
+            ];
+            
+            const results = await Promise.allSettled(uploadPromises);
+            const failedUploads = results.filter(r => r.status === 'rejected');
+            
+            if (failedUploads.length > 0) {
+                const successfulUploads = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
+                if (successfulUploads.length > 0) {
+                    successfulUploads.forEach(url => {
+                        if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
+                    });
+                }
+                throw new Error("فشل رفع إحدى الصور.");
+            }
+            const [frontImgUrl, backImgUrl, selfieImgUrl] = results.map(r => r.value);
+            
+            const safeFullName = fullName.replace(/[<>"{}[\]\\]/g, '');
+            const newKycData = { ...(oldKycData || {}), idNumber: idNumber, frontImg: frontImgUrl, backImg: backImgUrl, selfieImg: selfieImgUrl, submittedAt: Date.now() };
+            
+            if (DataManager.updateUserProfile) await DataManager.updateUserProfile({ fullName: safeFullName });
+            
+            const success = await StoreDB.set(DB_KEYS.USERS, userId, {
+                kycStatus: 'pending',
+                kycData: newKycData
+            }, { merge: true });
+            
+            if (!success) throw new Error("فشل تحديث بيانات الحساب في السيرفر.");
+            
+            DataManager.user.kycStatus = 'pending';
+            DataManager.user.kycData = newKycData;
+            
+            this.closeKycModal();
+            getSys().showToast?.('تم إرسال مستندات التوثيق بنجاح! طلبك قيد المراجعة.', 'success');
+            this.renderKycUI();
+            
+        } catch (e) {
+            console.error('KYC Upload Error:', e);
+            getSys().showToast?.('تعذر إرسال المستندات، يرجى المحاولة مجدداً', 'error');
+        } finally {
+            this._isSubmittingKyc = false;
+            getSys().toggleLoader?.(false);
         }
-        const [frontImgUrl, backImgUrl, selfieImgUrl] = results.map(r => r.value);
-        
-        const safeFullName = fullName.replace(/[<>"{}[\]\\]/g, '');
-        const newKycData = { ...(oldKycData || {}), idNumber: idNumber, frontImg: frontImgUrl, backImg: backImgUrl, selfieImg: selfieImgUrl, submittedAt: Date.now() };
-        
-        // 🛡️ [الترقيع الماسي]: استخدام StoreDB مباشرة لتخطي الفلتر المحلي (FORBIDDEN_KEYS) 
-        // تحديث الاسم بشكل منفصل عبر الفلتر المسموح
-        if (DataManager.updateUserProfile) await DataManager.updateUserProfile({ fullName: safeFullName });
-        
-        // تحديث حالة الـ KYC والبيانات مباشرة إلى قاعدة البيانات
-        const success = await StoreDB.set(DB_KEYS.USERS, userId, {
-            kycStatus: 'pending',
-            kycData: newKycData
-        }, { merge: true });
-        
-        if (!success) throw new Error("فشل تحديث بيانات الحساب في السيرفر.");
-        
-        // تحديث كائن المستخدم محلياً لتعكس الواجهة التغييرات فوراً
-        DataManager.user.kycStatus = 'pending';
-        DataManager.user.kycData = newKycData;
-        
-        this.closeKycModal();
-        getSys().showToast?.('تم إرسال مستندات التوثيق بنجاح! طلبك قيد المراجعة.', 'success');
-        this.renderKycUI();
-        
-    } catch (e) {
-        console.error('KYC Upload Error:', e);
-        getSys().showToast?.('تعذر إرسال المستندات، يرجى المحاولة مجدداً', 'error');
-    } finally {
-        this._isSubmittingKyc = false;
-        getSys().toggleLoader?.(false);
-    }
-},
+    },
+
     renderKycUI: function() {
         if (!DataManager.user) return;
         const user = DataManager.user;
         const status = user.kycStatus || 'none';
         
-        // ✅ التعديل الاحترافي: الشارة تظهر فقط عند قبول الهوية (KYC) من الإدارة
-        // تم إلغاء ربطها بـ (isVerified) لأنها تعني فقط إكمال البيانات الأساسية
         const isKycApproved = (status === 'approved' || status === 'verified');
         
         const userNames = document.querySelectorAll('.user-display-name, .sb-name, #display-name, #cs-name');
@@ -1153,7 +1148,6 @@ saveIdentityData: async function() {
             const oldBadge = el.querySelector('.pro-verified-badge');
             if (oldBadge) oldBadge.remove();
             
-            // إضافة الشارة فقط إذا كان الحساب موثقاً بقرار إداري (approved)
             if (isKycApproved) {
                 el.insertAdjacentHTML('beforeend', `<span class="pro-verified-badge" title="حساب موثق"><i class="fa-solid fa-certificate badge-star"></i><i class="fa-solid fa-check badge-check"></i></span>`);
             }
@@ -1165,7 +1159,6 @@ saveIdentityData: async function() {
         const settings = LiveStoreData.settings || {};
         const kycConfig = settings.kycConfig || { mode: 'off', targetedTiers: [] };
         
-        // التحقق هل النظام يفرض KYC على هذا المستخدم حالياً؟
         let isRequiredBySystem = false;
         if (kycConfig.mode === 'all') {
             isRequiredBySystem = true;
@@ -1176,19 +1169,18 @@ saveIdentityData: async function() {
             }
         }
 
-        // إذا تم قبول التوثيق فعلياً، أو لم يكن التوثيق مطلوباً، نفرغ الحاوية الجانبية
         if (isKycApproved || !isRequiredBySystem) {
             kycContainer.innerHTML = ''; return;
         }
 
-        // عرض بانر الحالة في القائمة الجانبية (قيد المراجعة أو مطلوب الرفع)
         if (status === 'pending') {
             kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-pending" data-action="open-kyc-status" data-state="pending"><span><i class="fa-solid fa-hourglass-half"></i> هويتك قيد المراجعة</span><i class="fa-solid fa-chevron-left"></i></div>`;
         } else {
-            // تظهر فقط إذا لم يرفع الوثائق أو تم رفضه سابقاً
             kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-required" data-action="open-kyc-upload"><span><i class="fa-solid fa-shield-halved"></i> التحقق من الهوية (KYC)</span><i class="fa-solid fa-chevron-left"></i></div>`;
         }
-    },    prepareKycModalState: function() {
+    },    
+
+    prepareKycModalState: function() {
         const user = DataManager.user;
         const alertBox = document.getElementById('kyc-rejection-alert');
         const reasonText = document.getElementById('kyc-rejection-reason');

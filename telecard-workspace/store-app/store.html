@@ -33,11 +33,21 @@
     <meta name="robots" content="index, follow">
     <title>TELE CARD | المتجر</title>
     
+    <!-- 🎨 ألوان المتصفح للهواتف الذكية -->
+    <meta name="theme-color" content="#111a2b" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- 🚀 ملف التنسيقات الخاص بالمتجر -->
     <link rel="stylesheet" href="style.css">
+
+    <!-- 🚀 التحميل المسبق لوحدات النظام (Module Preloading - V5.3) -->
+    <link rel="modulepreload" href="script.js">
+    <link rel="modulepreload" href="core/renderHelpers.js">
+    <link rel="modulepreload" href="ui/uiBuilders.js">
+    <link rel="modulepreload" href="renderManager.js">
 
     <!-- 🚀 مكتبات النظام الأساسية -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
@@ -50,6 +60,15 @@
     </style>
 </head>
 <body>
+    <!-- 🛑 تنبيه تعطيل الجافاسكريبت -->
+    <noscript>
+        <div style="position: fixed; inset: 0; background: #111a2b; color: white; z-index: 9999999; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; font-family: 'Cairo', sans-serif; direction: rtl;">
+            <i class="fa-solid fa-triangle-exclamation" style="font-size: 50px; color: #ef4444; margin-bottom: 20px;"></i>
+            <h2>تنبيه هام</h2>
+            <p>هذا المتجر يتطلب تفعيل الجافاسكريبت (JavaScript) ليعمل. يرجى تفعيلها من إعدادات المتصفح ثم إعادة تحميل الصفحة.</p>
+        </div>
+    </noscript>
+
     <script>
         // 🚀 تفعيل الوضع الليلي فوراً قبل رسم الصفحة
         if (localStorage.getItem('telecard_theme') === 'light') {
@@ -1331,8 +1350,9 @@
                 <span id="manual-2fa-secret" class="num-en manual-secret-code" data-action="copy-text" title="اضغط للنسخ">------</span>
             </p>
             
+            <!-- 🚀 الحقل المحدث لقراءة الكود التلقائي -->
             <div class="input-field-lux setup-2fa-input-wrap">
-                <input type="text" id="otp-verify-input" class="lux-input num-en otp-center-input" placeholder="أدخل الـ 6 أرقام هنا" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+                <input type="text" id="otp-verify-input" class="lux-input num-en otp-center-input" placeholder="أدخل الـ 6 أرقام هنا" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code">
             </div>
             
             <button class="alert-btn btn-tall" id="btn-confirm-2fa" data-action="verify-and-enable-2fa">
