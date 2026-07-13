@@ -1,20 +1,20 @@
 // ============================================================================
-// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة V4.5 💎
+// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة V4.6 💎
 // 🎯 الوظيفة: استيراد المنتجات، حماية الذاكرة، وبناء الجداول المركزية بأمان
-// 🌟 التحديث الأقصى: حماية السيرفر من قنبلة الأكواد (Code Bomb) وتحسين العدادات
+// 🌟 التحديث الأخير: التنفيذ المتوازي الآمن، تعقيم الأكواد الصارم، واصطياد الأخطاء السحابي
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require('firebase-admin');
 const crypto = require('crypto'); 
-const FinancialEngine = require('./financialEngine.js'); // 🛡️ استيراد المحرك المالي ككائن كامل
+const FinancialEngine = require('./financialEngine.js'); 
 
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
 // ==========================================
-// 🛡️ دوال المساعدة والأمان
+// 🛡️ دوال المساعدة، الأمان، وسجل الأخطاء السحابي
 // ==========================================
 const generateCodeHash = (codeString) => crypto.createHash('md5').update(String(codeString).trim()).digest('hex');
 
@@ -26,6 +26,20 @@ const logAdminAction = async (adminUid, action, details) => {
             adminUid, action, details, timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
     } catch (e) { console.error("Audit Log Error:", e); }
+};
+
+// 🛡️ [تحديث النخبة 1]: نظام اصطياد الأخطاء السحابي لعمليات المزامنة الخلفية
+const logCloudError = async (action, error, supplierId = 'system') => {
+    console.error(`🚨 [${action}] Supplier: ${supplierId}`, error);
+    try {
+        await db.collection('telecard_system_errors').add({
+            action,
+            supplierId,
+            errorMsg: error.message,
+            stack: error.stack,
+            time: admin.firestore.FieldValue.serverTimestamp()
+        });
+    } catch(e) { console.error("Failed to log cloud error:", e); }
 };
 
 const fetchWithTimeout = async (url, options, timeout = 15000) => {
@@ -67,12 +81,11 @@ const ProviderAdapters = {
 };
 
 // ==========================================
-// 🧠 النواة المركزية للمزامنة (محمية بالكامل)
+// 🧠 النواة المركزية للمزامنة
 // ==========================================
 const coreSyncLogic = async (supplierId) => {
     const suppRef = db.collection('telecard_suppliers').doc(String(supplierId));
     
-    // 🛡️ 1. قفل المزامنة المنيع (Atomic Lock with Deadlock Prevention)
     const supplier = await db.runTransaction(async (transaction) => {
         const suppSnap = await transaction.get(suppRef);
         if (!suppSnap.exists) throw new Error('المورد غير موجود.');
@@ -104,7 +117,6 @@ const coreSyncLogic = async (supplierId) => {
         
         let currentBatch = db.batch();
         let operationCount = 0;
-        let vaultStockUpdates = []; // 🛡️ [تحديث الأداء]: مصفوفة لتحديث المخزون بدون عمليات استعلام مرهقة
         
         const commitAndReset = async () => {
             if (operationCount > 0) {
@@ -119,7 +131,6 @@ const coreSyncLogic = async (supplierId) => {
             const vaultId = `vault_${safeId}`;
             fetchedIds.add(safeId);
             
-            // 🛡️ 2. إخضاع التسعير للمحرك المالي السيادي
             let rawCost = FinancialEngine.extractNum(prod.cost);
             if (rawCost > FinancialEngine.CONFIG.MAX_PRICE_LIMIT) rawCost = FinancialEngine.CONFIG.MAX_PRICE_LIMIT;
             
@@ -127,7 +138,6 @@ const coreSyncLogic = async (supplierId) => {
             let finalPrice = FinancialEngine.safeAdd(rawCost, profitAdded);
             if (finalPrice > FinancialEngine.CONFIG.MAX_PRICE_LIMIT) finalPrice = FinancialEngine.CONFIG.MAX_PRICE_LIMIT;
             
-            // 🛡️ [حماية ضد قنبلة الأكواد Code Bomb] تحديد سقف للأكواد لتجنب الـ Timeout
             const safeCodesArray = Array.isArray(prod.codes) ? prod.codes.slice(0, 5000) : [];
             const hasStock = Number(prod.stock) > 0 || safeCodesArray.length > 0;
             const prodRef = db.collection('telecard_prods').doc(safeId);
@@ -144,14 +154,14 @@ const coreSyncLogic = async (supplierId) => {
             
             if (safeCodesArray.length > 0) {
                 const vaultRef = db.collection('telecard_vault').doc(vaultId);
-                
-                // حساب عدد الأكواد المضافة في هذه العملية لحفظها مباشرة في المخزون
                 let newlyAddedCodesCount = 0;
                 
                 const keysCollectionRef = vaultRef.collection('keys');
                 for (const c of safeCodesArray) {
-                    const actualCodeString = typeof c === 'object' ? (c.text || c.code || '') : String(c);
-                    if (actualCodeString.trim() !== '') {
+                    // 🛡️ [تحديث النخبة 2]: تعقيم صارم للأكواد الواردة من الـ API لمنع المسافات المخفية
+                    const actualCodeString = (typeof c === 'object' ? (c.text || c.code || '') : String(c)).replace(/\s+/g, '');
+                    
+                    if (actualCodeString !== '') {
                         const codeHash = generateCodeHash(actualCodeString);
                         currentBatch.set(keysCollectionRef.doc(codeHash), {
                             codeText: actualCodeString, isSold: false, supplierId: supplierId, importedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -163,7 +173,6 @@ const coreSyncLogic = async (supplierId) => {
                     }
                 }
 
-                // 🛡️ [تحديث الأداء]: تحديث العدد مباشرة دون استعلام قراءة مرهق
                 currentBatch.set(vaultRef, {
                     id: vaultId, supplierId: supplierId, name: `أكواد: ${prod.name}`, 
                     stockCount: admin.firestore.FieldValue.increment(newlyAddedCodesCount),
@@ -176,7 +185,6 @@ const coreSyncLogic = async (supplierId) => {
             importedCount++;
         }
         
-        // 🌟 3. حماية الذاكرة (OOM Protection)
         const existingProdsSnap = await db.collection('telecard_prods').where('supplierId', '==', supplierId).select('id').get();
         let deletedCount = 0;
         
@@ -194,7 +202,7 @@ const coreSyncLogic = async (supplierId) => {
         return { importedCount, deletedCount };
 
     } catch (error) {
-        console.error(`[TeleCard] Sync Logic Error for supplier ${supplierId}:`, error);
+        await logCloudError('SUPPLIER_SYNC_LOGIC_ERROR', error, supplierId);
         throw error;
     } finally {
         await suppRef.update({ isSyncing: false }).catch(() => {});
@@ -215,17 +223,31 @@ exports.syncSupplierData = onCall({ region: 'us-east1', memory: '1GiB', timeoutS
 });
 
 // ==========================================
-// ⏱️ 2. المزامنة التلقائية (Cron Job)
+// ⏱️ 2. المزامنة التلقائية (Cron Job) - التنفيذ المتوازي الآمن
 // ==========================================
-exports.scheduledSupplierSync = onSchedule({ schedule: '0 */12 * * *', timeZone: 'Asia/Riyadh', region: 'us-east1', memory: '1GiB', timeoutSeconds: 540 }, async (event) => {
+exports.scheduledSupplierSync = onSchedule({ 
+    schedule: '0 */12 * * *', 
+    timeZone: 'Asia/Riyadh', 
+    region: 'us-east1', 
+    memory: '1GiB', 
+    timeoutSeconds: 540 
+}, async (event) => {
     try {
         const suppliersSnap = await db.collection('telecard_suppliers').where('isActive', '==', true).where('autoSync', '==', true).get();
         if (suppliersSnap.empty) return null;
-        for (const doc of suppliersSnap.docs) {
-            try { await coreSyncLogic(doc.id); } catch (e) { console.error(`[TeleCard] Auto-Sync failed for supplier ${doc.id}:`, e); }
-        }
+        
+        // 🛡️ [تحديث النخبة 3]: التنفيذ المتوازي بدلاً من التتابعي لإنقاذ السيرفر من الـ Timeout
+        const syncPromises = suppliersSnap.docs.map(doc => 
+            coreSyncLogic(doc.id).catch(e => logCloudError('AUTO_SYNC_SUPPLIER_FAILED', e, doc.id))
+        );
+        
+        await Promise.allSettled(syncPromises);
         return true;
-    } catch (error) { console.error("[TeleCard] Scheduled Sync Critical Error:", error); return null; }
+
+    } catch (error) { 
+        await logCloudError('SCHEDULED_SYNC_CRASH', error); 
+        return null; 
+    }
 });
 
 // ==========================================
@@ -257,5 +279,8 @@ exports.secureSaveSupplier = onCall({ region: 'us-east1', enforceAppCheck: true 
         await logAdminAction(request.auth.uid, 'SAVE_SUPPLIER', `تم إضافة/تعديل المورد: ${name} (${suppId})`);
         
         return { success: true, id: suppId };
-    } catch (error) { throw new HttpsError('internal', 'فشل حفظ بيانات المورد.'); }
+    } catch (error) { 
+        await logCloudError('SAVE_SUPPLIER_ERROR', error, suppId);
+        throw new HttpsError('internal', 'فشل حفظ بيانات المورد.'); 
+    }
 });
