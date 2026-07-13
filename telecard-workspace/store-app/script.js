@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V11.0 - Zero Reads) 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V11.1 - Zero Reads) 💎
 // 🎯 الوظيفة: الإقلاع الذكي، حقن الاعتمادية، إدارة الأحداث (Event Delegation)، والمزامنة الحية
-// 🌟 التحديث الأقصى: دمج نظام (Smart Cache Engine) لإلغاء فواتير القراءة وتسريع الفتح بصاروخية
+// 🌟 التحديث الأخير: معالجة الأخطاء الشاملة، حماية أزرار الدفع من النقر المزدوج، والتحقق الذكي من الاتصال
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
@@ -213,11 +213,27 @@ const ClientSystem = {
             'apply-coupon': () => this.applyCoupon?.(),
             'remove-coupon': () => this.removeCoupon?.(),
             'paste-coupon': () => this.pasteText?.(),
-            'confirm-purchase': () => this.handlePurchaseSubmit?.(),
+            
+            // 🛡️ [تحديث أمني]: حماية زر الشراء من النقر المزدوج (Debounce)
+            'confirm-purchase': (e, id, val, target) => { 
+                if (target.disabled) return;
+                target.disabled = true;
+                this.handlePurchaseSubmit?.(); 
+                setTimeout(() => { if (target) target.disabled = false; }, 2000); 
+            },
+            
             'nav-orders-from-success': () => { this.closePurchaseSuccess?.(); this.openOrders?.(); },
             'navigate-orders-success': () => { this.closeModal?.('purchase-success'); this.openOrders?.(); }, 
             'select-pay': (e, id) => this.selectPay?.(id),
-            'submit-balance': (e, id, val, target, dataType, dataCurr) => this.handleBalanceSubmit?.(dataCurr),
+            
+            // 🛡️ [تحديث أمني]: حماية زر الإيداع من النقر المزدوج (Debounce)
+            'submit-balance': (e, id, val, target, dataType, dataCurr) => { 
+                if (target.disabled) return;
+                target.disabled = true;
+                this.handleBalanceSubmit?.(dataCurr); 
+                setTimeout(() => { if (target) target.disabled = false; }, 2000); 
+            },
+            
             'toggle-accordion': (e, id, val, target) => { e.preventDefault(); this.togglePayDetail?.(target); },
             'jump-transaction': (e, id, val, target, dataType) => this.jumpToTransaction?.(id, dataType),
             'open-detail': (e, id, val, target, dataType) => this.openDetail?.(e, dataType, id),
@@ -360,7 +376,11 @@ const ClientSystem = {
                             this._clickedProdId = null;
                             if (typeof this.sfx === 'function') this.sfx('nav');
                             const handler = ActionDictionary[action];
-                            if (handler) handler(e, prodId, btnVal, actionBtn, btnType, btnCurr, btnName, btnCode, btnLen, btnTarget, btnText);
+                            if (handler) {
+                                // 🛡️ [تحديث أمني]: حماية من الأخطاء العشوائية
+                                try { handler(e, prodId, btnVal, actionBtn, btnType, btnCurr, btnName, btnCode, btnLen, btnTarget, btnText); } 
+                                catch (err) { console.error(`🚨 خطأ في ${action}:`, err); }
+                            }
                         }, 250);
                         return;
                     }
@@ -381,19 +401,25 @@ const ClientSystem = {
             
             const handler = ActionDictionary[action];
             if (handler) {
-                handler(
-                    e,
-                    prodId,
-                    actionBtn.getAttribute('data-val'),
-                    actionBtn,
-                    actionBtn.getAttribute('data-type'),
-                    actionBtn.getAttribute('data-curr'),
-                    actionBtn.getAttribute('data-name'),
-                    actionBtn.getAttribute('data-code'),
-                    actionBtn.getAttribute('data-len'),
-                    actionBtn.getAttribute('data-target'),
-                    actionBtn.getAttribute('data-text')
-                );
+                // 🛡️ [تحديث أمني]: الالتقاط الشامل للأخطاء (Global Error Handling)
+                try {
+                    handler(
+                        e,
+                        prodId,
+                        actionBtn.getAttribute('data-val'),
+                        actionBtn,
+                        actionBtn.getAttribute('data-type'),
+                        actionBtn.getAttribute('data-curr'),
+                        actionBtn.getAttribute('data-name'),
+                        actionBtn.getAttribute('data-code'),
+                        actionBtn.getAttribute('data-len'),
+                        actionBtn.getAttribute('data-target'),
+                        actionBtn.getAttribute('data-text')
+                    );
+                } catch (err) {
+                    console.error(`🚨 خطأ أثناء تنفيذ الإجراء [${action}]:`, err);
+                    if (typeof this.showToast === 'function') this.showToast('حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.', 'error');
+                }
             }
         });
     }
@@ -616,8 +642,14 @@ ClientSystem.init = async function() {
             try { if (Components && Components.initBottomNavSync) Components.initBottomNavSync(); } catch(e){}
             try { if (typeof UIManager.checkKycCelebration === 'function') UIManager.checkKycCelebration(); } catch(e){}
             
-            // مزامنة توقيت السيرفر لحماية وقت الطلبات
-            try { if (StoreDB && typeof StoreDB.callFunction === 'function') StoreDB.callFunction('getServerTime').then(timeRes => { if (timeRes && timeRes.serverTime) DataManager.serverTimeOffset = timeRes.serverTime - Date.now(); }).catch(()=>{}); } catch(e){}
+            // 🛡️ [تحديث أمني]: مزامنة توقيت السيرفر لحماية وقت الطلبات (فقط إذا كان متصلاً بالإنترنت)
+            try { 
+                if (navigator.onLine && StoreDB && typeof StoreDB.callFunction === 'function') {
+                    StoreDB.callFunction('getServerTime').then(timeRes => { 
+                        if (timeRes && timeRes.serverTime) DataManager.serverTimeOffset = timeRes.serverTime - Date.now(); 
+                    }).catch(()=>{}); 
+                }
+            } catch(e){}
         }, 800);
     } catch(e) { console.warn("Boot Phase 3 Skip", e); }
 };

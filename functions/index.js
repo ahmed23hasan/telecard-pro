@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V13.1 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V13.2 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديث الأخير: إضافة درع Zero-Trust، حماية الـ Transactions، وتوحيد التوقيت
+// 🚀 التحديث الأخير: إضافة درع Zero-Trust، معالجة البيانات اليتيمة، تسريع كاش العروض، ورفع ذاكرة الموردين
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -122,6 +122,7 @@ exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
         console.error(`❌ [CRITICAL] Failed to initialize user ${user.uid}:`, error);
     }
 });
+
 // ==========================================
 // 🚀 1. نظام التخزين المؤقت المنيع (Anti-Stampede Cache)
 // ==========================================
@@ -339,7 +340,9 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
     } catch (error) {
         throw new HttpsError('internal', error.message);
     }
-});// ==========================================
+});
+
+// ==========================================
 // 💰 4. إرسال طلبات الإيداع (محصن بالكامل)
 // ==========================================
 exports.submitBalanceRequest = onCall({ enforceAppCheck: true }, async (request) => {
@@ -571,6 +574,7 @@ exports.adminAdjustBalance = onCall(async (request) => {
         return { success: true, newBalance: newBal };
     });
 });
+
 exports.adminAuditUserWallet = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح لك.');
     const targetUserId = String(request.data.userId);
@@ -614,17 +618,29 @@ exports.grantAdminRole = onCall({ secrets: [ROOT_OWNER_UID] }, async (request) =
     } catch (error) { throw new HttpsError('internal', `فشل المنح: ${error.message}`); }
 });
 
+// 🛡️ [تحديث 1: معالجة البيانات اليتيمة]
 exports.adminDeleteUserData = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     const { targetUid } = request.data;
     try {
         await admin.auth().deleteUser(targetUid);
-        await db.collection('telecard_users').doc(targetUid).delete();
         const batch = db.batch();
+        
+        // مسح الطلبات
         const orders = await db.collection('telecard_orders').where('userId', '==', targetUid).get();
         orders.forEach(doc => batch.delete(doc.ref));
+        
+        // مسح الإيداعات
         const deposits = await db.collection('telecard_deposits').where('userId', '==', targetUid).get();
         deposits.forEach(doc => batch.delete(doc.ref));
+
+        // 🛡️ مسح الإشعارات الفرعية لتجنب البيانات اليتيمة
+        const notifs = await db.collection('telecard_users').doc(targetUid).collection('notifications').get();
+        notifs.forEach(doc => batch.delete(doc.ref));
+
+        // مسح ملف المستخدم نفسه
+        batch.delete(db.collection('telecard_users').doc(targetUid));
+        
         await batch.commit();
         return { success: true };
     } catch (error) { throw new HttpsError('internal', error.message); }
@@ -718,6 +734,11 @@ exports.getServerTime = onCall((request) => { return { success: true, serverTime
 exports.onSettingsUpdate = onDocumentUpdated({ document: 'telecard_settings/singleton' }, async (event) => {
     cacheOrder.lastFetch = 0;
     cacheDeposit.lastFetch = 0;
+});
+
+// 🚀 [تحديث 2: تصفير الكاش فوراً عند إضافة أو تعديل أي عرض لضمان ظهور الخصومات للعملاء]
+exports.onOfferUpdate = onDocumentWritten({ document: 'telecard_offers/{offerId}' }, async (event) => {
+    cacheOrder.lastFetch = 0;
 });
 
 // ==========================================
@@ -851,11 +872,13 @@ exports.orderStatusWebhook = onRequest({
 
 exports.externalCreateOrder = onCall({ memory: '256MiB' }, developerApi.externalCreateOrder);
 
-exports.syncSupplierData = onCall({ memory: '256MiB' }, supplierEngine.syncSupplierData);
+// 🛡️ [تحديث 3: رفع سقف الذاكرة لدوال الموردين لمنع الانقطاع]
+exports.syncSupplierData = onCall({ memory: '512MiB' }, supplierEngine.syncSupplierData);
 
 exports.scheduledSupplierSync = onSchedule({ 
     schedule: 'every 24 hours', 
-    memory: '256MiB' 
+    memory: '512MiB', 
+    timeoutSeconds: 540 
 }, supplierEngine.scheduledSupplierSync);
 
 exports.secureSaveSupplier = onCall({ memory: '256MiB' }, supplierEngine.secureSaveSupplier);
