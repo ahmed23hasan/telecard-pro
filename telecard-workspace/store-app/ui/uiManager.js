@@ -80,13 +80,15 @@ Object.defineProperties(UIManager, {
             }
             
             requestAnimationFrame(() => {
-                if (_loaderActiveRequests > 0) {
-                    loader.classList.add('is-active');
-                } else {
-                    loader.classList.remove('is-active');
-                }
-            });
-        },
+    if (_loaderActiveRequests > 0) {
+        if (textEl && textEl.textContent !== text) {
+            textEl.textContent = text; // ✔️ يتم الرسم في الوقت المثالي
+        }
+        loader.classList.add('is-active');
+    } else {
+        loader.classList.remove('is-active');
+    }
+});
         writable: false, 
         configurable: false
     },
