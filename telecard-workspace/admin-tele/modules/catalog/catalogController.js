@@ -1,10 +1,11 @@
 // ============================================================================
-// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - النسخة V10.1 💎
+// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - النسخة V10.2 💎
 // 🎯 الوظيفة: المنطق التجاري للمنتجات، الأقسام، الدول، وصناديق الأكواد (Vault)
 // 🌟 التحديث الأقصى: 
 // 1. [Server-Side Vault]: نقل التشفير والحفظ كلياً للسيرفر لمنع تشنج متصفح الأدمن.
 // 2. [Fail-Fast UI]: منع الأدمن من حفظ أسعار فلكية تتجاوز 10,000$.
 // 3. [Decoupling]: هندسة نظيفة ومعزولة للتحكم بمخزون المتجر.
+// 4. 🚀 [V10.2 Update]: تحديث الذاكرة المحلية للـ Vault مباشرة لتوفير قراءات Firestore (Zero-Read Update).
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -158,7 +159,9 @@ export const CatalogController = {
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
-    },    saveCat: async function() {
+    },    
+
+    saveCat: async function() {
         const name = Utils.escapeHTML(Utils.getVal('c-name'));
         if (!name) return EventBus.emit('req-show-toast', {message:'يرجى إدخال اسم القسم', type:'warning'});
 
@@ -229,81 +232,82 @@ export const CatalogController = {
     },
     
     deleteCategory: async function(id) {
-    if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف القسم وكل المنتجات والأقسام الفرعية التابعة له. المتابعة؟')) {
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حرق بيانات القسم وتوابعه سحابياً...');
+        if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف القسم وكل المنتجات والأقسام الفرعية التابعة له. المتابعة؟')) {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حرق بيانات القسم وتوابعه سحابياً...');
+            
+            try {
+                const catId = String(id);
+                const categoryToDelete = AdminData.data.catsMap?.[catId] || AdminData.data.cats.find(c => String(c.id) === catId);
+                const catName = categoryToDelete?.name || 'القسم';
+                
+                // 🛡️ [الترقيع الماسي]: خوارزمية (Recursive Flat) لجمع كل الأقسام الفرعية مهما كان عمقها
+                let allChildCatIds = new Set();
+                const findChildren = (parentId) => {
+                    const children = AdminData.data.cats.filter(c => String(c.parentId) === String(parentId));
+                    children.forEach(child => {
+                        allChildCatIds.add(String(child.id));
+                        findChildren(child.id); // البحث في العمق
+                    });
+                };
+                findChildren(catId);
+                
+                const affectedProds = AdminData.data.prods.filter(p => String(p.catId) === catId || allChildCatIds.has(String(p.catId)));
+                const affectedCats = AdminData.data.cats.filter(c => allChildCatIds.has(String(c.id)));
+                
+                const imagesToBurn = [categoryToDelete?.img, ...affectedCats.map(c => c.img), ...affectedProds.map(p => p.img)].filter(Boolean);
+                
+                if (imagesToBurn.length > 0) {
+                    Promise.allSettled(imagesToBurn.map(imgUrl => FirebaseAdapter.deleteImageByUrl(imgUrl)));
+                }
+                
+                AdminData.data.cats = AdminData.data.cats.filter(c => String(c.id) !== catId && !allChildCatIds.has(String(c.id)));
+                AdminData.data.prods = AdminData.data.prods.filter(p => String(p.catId) !== catId && !allChildCatIds.has(String(p.catId)));
+                
+                await AdminData?.saveCategories?.();
+                await AdminData?.saveProducts?.();
+                
+                // إذا كان المدير بداخل القسم المحذوف، أو أحد أبنائه، أخرجه للقسم الرئيسي (Root)
+                if (String(AdminData.currFolder) === catId || allChildCatIds.has(String(AdminData.currFolder))) {
+                    EventBus.emit('req-update-state', { currFolder: null });
+                }
+                
+                if (AdminData?.addLog) AdminData.addLog('DELETE_CAT', `تم تدمير القسم: ${catName} ومحتوياته بالكامل.`);
+                EventBus.emit('req-render-prods');
+                EventBus.emit('req-show-toast', { message: 'تم إبادة القسم وتوابعه سحابياً بنجاح', type: 'success' });
+                
+            } finally {
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            }
+        }
+    },
+
+    saveNewOrder: async function(newOrderData) {
+        if (!newOrderData || !Array.isArray(newOrderData) || newOrderData.length === 0) return;
         
-        try {
-            const catId = String(id);
-            const categoryToDelete = AdminData.data.catsMap?.[catId] || AdminData.data.cats.find(c => String(c.id) === catId);
-            const catName = categoryToDelete?.name || 'القسم';
-            
-            // 🛡️ [الترقيع الماسي]: خوارزمية (Recursive Flat) لجمع كل الأقسام الفرعية مهما كان عمقها
-            let allChildCatIds = new Set();
-            const findChildren = (parentId) => {
-                const children = AdminData.data.cats.filter(c => String(c.parentId) === String(parentId));
-                children.forEach(child => {
-                    allChildCatIds.add(String(child.id));
-                    findChildren(child.id); // البحث في العمق
-                });
-            };
-            findChildren(catId);
-            
-            const affectedProds = AdminData.data.prods.filter(p => String(p.catId) === catId || allChildCatIds.has(String(p.catId)));
-            const affectedCats = AdminData.data.cats.filter(c => allChildCatIds.has(String(c.id)));
-            
-            const imagesToBurn = [categoryToDelete?.img, ...affectedCats.map(c => c.img), ...affectedProds.map(p => p.img)].filter(Boolean);
-            
-            if (imagesToBurn.length > 0) {
-                Promise.allSettled(imagesToBurn.map(imgUrl => FirebaseAdapter.deleteImageByUrl(imgUrl)));
+        let catsChanged = false;
+        let prodsChanged = false;
+        
+        newOrderData.forEach(item => {
+            if (item.type === 'cat') {
+                const cat = AdminData.data.catsMap?.[item.id] || AdminData.data.cats.find(c => String(c.id) === String(item.id));
+                if (cat && cat.order !== item.order) {
+                    cat.order = item.order;
+                    catsChanged = true;
+                }
+            } else if (item.type === 'prod') {
+                const prod = AdminData.data.prodsMap?.[item.id] || AdminData.data.prods.find(p => String(p.id) === String(item.id));
+                if (prod && prod.order !== item.order) {
+                    prod.order = item.order;
+                    prodsChanged = true;
+                }
             }
-            
-            AdminData.data.cats = AdminData.data.cats.filter(c => String(c.id) !== catId && !allChildCatIds.has(String(c.id)));
-            AdminData.data.prods = AdminData.data.prods.filter(p => String(p.catId) !== catId && !allChildCatIds.has(String(p.catId)));
-            
-            await AdminData?.saveCategories?.();
-            await AdminData?.saveProducts?.();
-            
-            // إذا كان المدير بداخل القسم المحذوف، أو أحد أبنائه، أخرجه للقسم الرئيسي (Root)
-            if (String(AdminData.currFolder) === catId || allChildCatIds.has(String(AdminData.currFolder))) {
-                EventBus.emit('req-update-state', { currFolder: null });
-            }
-            
-            if (AdminData?.addLog) AdminData.addLog('DELETE_CAT', `تم تدمير القسم: ${catName} ومحتوياته بالكامل.`);
-            EventBus.emit('req-render-prods');
-            EventBus.emit('req-show-toast', { message: 'تم إبادة القسم وتوابعه سحابياً بنجاح', type: 'success' });
-            
-        } finally {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-        }
-    }
-},
-// 🛡️ [إضافة مفقودة]: حفظ ترتيب الكتالوج بعد سحب العناصر
-saveNewOrder: async function(newOrderData) {
-    if (!newOrderData || !Array.isArray(newOrderData) || newOrderData.length === 0) return;
-    
-    let catsChanged = false;
-    let prodsChanged = false;
-    
-    newOrderData.forEach(item => {
-        if (item.type === 'cat') {
-            const cat = AdminData.data.catsMap?.[item.id] || AdminData.data.cats.find(c => String(c.id) === String(item.id));
-            if (cat && cat.order !== item.order) {
-                cat.order = item.order;
-                catsChanged = true;
-            }
-        } else if (item.type === 'prod') {
-            const prod = AdminData.data.prodsMap?.[item.id] || AdminData.data.prods.find(p => String(p.id) === String(item.id));
-            if (prod && prod.order !== item.order) {
-                prod.order = item.order;
-                prodsChanged = true;
-            }
-        }
-    });
-    
-    // حفظ الداتا في الخلفية بدون لودر لكي لا نزعج المدير
-    if (catsChanged) await AdminData?.saveCategories?.();
-    if (prodsChanged) await AdminData?.saveProducts?.();
-},
+        });
+        
+        // حفظ الداتا في الخلفية بدون لودر لكي لا نزعج المدير
+        if (catsChanged) await AdminData?.saveCategories?.();
+        if (prodsChanged) await AdminData?.saveProducts?.();
+    },
+
     changeGridLayout: async function(cols) {
         const parsedCols = parseInt(cols) || 2;
         const folderId = AdminData.currFolder;
@@ -438,7 +442,6 @@ saveNewOrder: async function(newOrderData) {
             const finalPoolId = id && id !== '' ? id : 'vpool_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
             
             // 🚀 التحديث الجذري V10.1: تفويض المهمة الثقيلة للسيرفر (Cloud Function)
-            // السيرفر هو من سيقوم بإنشاء الـ Subcollection وتشفير الأكواد بـ MD5 لحماية المتصفح من الانهيار
             const result = await FirebaseAdapter.callFunction('adminSaveVaultCodes', {
                 poolId: finalPoolId,
                 poolName: name,
@@ -447,14 +450,32 @@ saveNewOrder: async function(newOrderData) {
             });
 
             if (result && result.success) {
-                // إجبار النظام على جلب البيانات الجديدة من السيرفر
-                await AdminData.loadData();
+                // 🛡️ [تحديث V10.2: Local Mutation]: 
+                // تحديث الذاكرة المحلية مباشرة بدلاً من جلب كل البيانات عبر AdminData.loadData()
+                if (!AdminData.data.vault) AdminData.data.vault = [];
+                
+                const existingPoolIndex = AdminData.data.vault.findIndex(v => String(v.id) === finalPoolId);
+                const addedCount = result.addedCount || lines.length;
+
+                if (existingPoolIndex > -1) {
+                    AdminData.data.vault[existingPoolIndex].name = name;
+                    AdminData.data.vault[existingPoolIndex].alertLimit = Number(Utils.getVal('v-alert-limit', 5)) || 5;
+                    AdminData.data.vault[existingPoolIndex].totalCount = Number(AdminData.data.vault[existingPoolIndex].totalCount || 0) + addedCount;
+                } else {
+                    AdminData.data.vault.push({
+                        id: finalPoolId,
+                        name: name,
+                        alertLimit: Number(Utils.getVal('v-alert-limit', 5)) || 5,
+                        totalCount: addedCount
+                    });
+                }
+
                 EventBus.emit('req-finish-action', {
                     renderEvent: 'req-render-vault',
                     modalId: 'vault',
                     logAction: id ? 'EDIT_VAULT' : 'ADD_VAULT',
                     logDetails: `صندوق أكواد: ${name}`,
-                    toastMsg: `تم حفظ الصندوق بنجاح! ${result.addedCount} كود جديد.`
+                    toastMsg: `تم حفظ الصندوق بنجاح! ${addedCount} كود جديد.`
                 });
             } else {
                 throw new Error(result.message || "فشلت عملية المزامنة مع السيرفر.");
@@ -471,11 +492,15 @@ saveNewOrder: async function(newOrderData) {
         if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف صندوق الأكواد بالكامل. يفضل ترك هذه المهمة لعملية التنظيف السحابي (Cloud Function). متأكد؟')) {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إتلاف الصندوق سحابياً...');
             try {
-                // 🛡️ التحديث المعماري V10.1: استدعاء السيرفر لتدمير المستند والمجموعة الفرعية معاً!
+                // 🛡️ التحديث المعماري V10.1: استدعاء السيرفر لتدمير المستند والمجموعة الفرعية معاً
                 const result = await FirebaseAdapter.callFunction('adminDeleteVaultPool', { poolId: String(id) });
                 
                 if (result && result.success) {
-                    await AdminData.loadData();
+                    // 🛡️ [تحديث V10.2: Local Mutation]: تدمير محلي لتوفير قراءات فايربيز
+                    if (AdminData.data.vault) {
+                        AdminData.data.vault = AdminData.data.vault.filter(v => String(v.id) !== String(id));
+                    }
+                    
                     EventBus.emit('req-render-vault');
                     EventBus.emit('req-show-toast', { message: 'تم التدمير بنجاح', type: 'success' });
                 }
