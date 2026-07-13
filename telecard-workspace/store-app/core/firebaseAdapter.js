@@ -1,22 +1,17 @@
 // ============================================================================
 // ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version 💎
 // 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth & Functions
-// 🌟 التحديث الأقصى: تفعيل App Check، حماية مسارات التخزين، منع التعليق، ورفع الصور الثقيلة
+// 🌟 التحديث الأخير: فصل العمليات الذرية للرفع (Atomic Operations) وتحسين الأداء
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-
-// 🛡️ استيراد مكتبة App Check والنسخة الثالثة من ريكاتشا
 import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js";
-
 import { 
     getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-
 import { 
     getAuth, sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider, multiFactor, TotpMultiFactorGenerator 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
@@ -30,25 +25,21 @@ const firebaseConfig = {
     appId: "1:698672838633:web:743c8809615bd8308bfd78"
 };
 
-// 🚀 تهيئة الاتصال 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// 🚨 تفعيل درع الحماية (App Check) باستخدام مفتاح الموقع (Site Key)
 try {
     const appCheck = initializeAppCheck(app, {
         provider: new ReCaptchaV3Provider('6LdzvUQtAAAAAIqefitRy_PV9A9Efyb33HoicX8z'),
-        isTokenAutoRefreshEnabled: true // تجديد تلقائي ومخفي للتوثيق
+        isTokenAutoRefreshEnabled: true 
     });
     console.log("🛡️ تم تفعيل درع الحماية App Check بنجاح.");
 } catch (e) {
     console.warn("⚠️ لم يتم تفعيل App Check:", e.message);
 }
 
-// 🌟 تفعيل باقي الاتصالات
 const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app); 
-// توجيه الاتصالات للسيرفر الموحد
 const functions = getFunctions(app, 'us-east1');
 
 export { auth, db, storage, functions };
@@ -58,13 +49,11 @@ export const FirebaseAdapter = {
     storage: storage,
     functions: functions,
 
-    // 🛡️ [تنظيف المسارات]: منع ثغرات Path Traversal Injection
     _sanitizeDocId: function(id) {
         if (!id) return '';
         return String(id).replace(/[\/\\]/g, '_').trim(); 
     },
 
-    // 🛡️ [الدرع الثاني]: الحماية من التعليق الأبدي 
     _withTimeout: function(promise, ms = 10000, context = '') {
         let timeoutId;
         promise.catch(() => {}); 
@@ -82,26 +71,18 @@ export const FirebaseAdapter = {
         });
     },
 
-    // 📥 1. جلب البيانات مع نظام المحاولة الصامتة (Enterprise Retry Pattern)
     async getAll(collectionName, retryCount = 1) {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
-            
-            // نحاول الجلب بمهلة 10 ثوانٍ فقط لضمان سرعة الاستجابة
             const snapshot = await this._withTimeout(getDocs(collection(db, collectionName)), 10000, `getAll -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            
         } catch (error) {
-            // 🚀 الحل الاحترافي: إذا كان الخطأ بسبب (Timeout) وصدمة البداية الباردة، نقوم بمحاولة صامتة!
             const isNetworkTimeout = error.code === 'deadline-exceeded' || error.message.includes('Timeout') || error.message.includes('backend');
-            
             if (isNetworkTimeout && retryCount > 0) {
                 console.warn(`⏳ اختناق في الشبكة لمجموعة [${collectionName}]. جاري إعادة المحاولة بصمت...`);
-                // نريح المعالج والشبكة لمدة ثانية واحدة (لكي يكتمل بناء قناة الاتصال) ثم نحاول مجدداً
                 await new Promise(resolve => setTimeout(resolve, 1000));
-                return this.getAll(collectionName, retryCount - 1); // محاولة أخيرة
+                return this.getAll(collectionName, retryCount - 1); 
             }
-            
             console.error(`🚨 خطأ نهائي في جلب مجموعة [${collectionName}]: ${error.message}`);
             return [];
         }
@@ -252,21 +233,12 @@ export const FirebaseAdapter = {
         }
     },
 
-    async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
+    // 🚀 [تحديث ماسي]: الدالة الآن مسؤولة عن الرفع فقط (Atomic Pure Function)
+    async uploadImage(file, folderName = 'general', customFileName = null) {
         if (!file) return '';
         try {
-            // 🛡️ تعقيم المسار لمنع Path Traversal
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general';
 
-            // ♻️ حذف الصورة القديمة من السيرفر لتوفير المساحة
-            if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
-                try {
-                    const oldImageRef = ref(storage, oldImageUrl);
-                    await deleteObject(oldImageRef);
-                } catch (delErr) { }
-            }
-
-            // ♻️ تحديد امتداد الملف الصحيح
             let ext = '.jpg';
             if (file.type === 'application/pdf') ext = '.pdf';
             else if (file.type === 'image/png') ext = '.png';
@@ -276,7 +248,6 @@ export const FirebaseAdapter = {
             const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
             const storageRef = ref(storage, `${safeFolder}/${finalFileName}`);
             
-            // 🛡️ زيادة المهلة إلى 60 ثانية لرفع الصور الثقيلة بشكل عادل
             const snapshot = await this._withTimeout(
                 uploadBytes(storageRef, file, { contentType: file.type }),
                 60000,
@@ -291,6 +262,7 @@ export const FirebaseAdapter = {
         }
     },
 
+    // 🚀 دالة مستقلة للتنظيف يمكن استدعاؤها بعد التأكد من حفظ الرابط الجديد بنجاح
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
         try {
@@ -399,5 +371,4 @@ export const FirebaseAdapter = {
             throw errObj;
         }
     } 
-    // ✅ تم إصلاح إغلاق الدالة هنا
-}; // ✅ تم إغلاق كائن FirebaseAdapter بشكل صحيح
+};

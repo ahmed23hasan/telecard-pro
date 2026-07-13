@@ -1,7 +1,7 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (core/financialEngine.js) - Admin Edition V12.0 👑
-// 🎯 الوظيفة: محاكاة أسعار البيع، الخصومات، وكشف التكلفة والأرباح لمدير النظام
-// 🌟 التحديث الأقصى: التطابق التام مع السيرفر (Guardian V12) لتجنب خداع المحاسبين
+// 💰 المحرك المالي المركزي (core/financialEngine.js) - Admin Edition V12.2 👑
+// 🎯 الوظيفة: محاكاة الأسعار، كشف الأرباح للمدير، وتشخيص تصادم الخصومات.
+// 🌟 التحديث الأقصى: تطابق تام مع السيرفر في (الجدار المزدوج) و (رفض السوالب).
 // ============================================================================
 
 export const FinancialEngine = Object.freeze({
@@ -12,7 +12,7 @@ export const FinancialEngine = Object.freeze({
         PRECISION: 10000
     },
 
-    // 🛡️ 2. دوال الرياضيات الآمنة الداخلية
+    // 🛡️ 2. دوال الرياضيات الآمنة (محصنة ضد تسرب الكسور)
     safeAdd: function(a, b) {
         return Math.round((Number(a) || 0) * this.CONFIG.PRECISION + (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
@@ -32,14 +32,14 @@ export const FinancialEngine = Object.freeze({
         return Math.round(((Number(a) || 0) / numB) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
 
-    // 🛡️ 3. معقم الأرقام الصارم
+    // 🛡️ 3. معقم الأرقام الصارم (متطابق مع السيرفر)
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '') return 0;
         const num = Number(val);
-        if (isNaN(num)) return 0;
-        const absNum = Math.abs(num); // منع السوالب
-        if (!allowZero && absNum === 0) return 1;
-        return absNum;
+        // 🛡️ التطابق الأمني: رفض القيم السالبة تماماً وتحويلها لصفر
+        if (isNaN(num) || num < 0) return 0; 
+        if (!allowZero && num === 0) return 1;
+        return num;
     },
     
     // 🛡️ 4. إدارة أسعار الصرف بـ O(1)
@@ -82,19 +82,33 @@ export const FinancialEngine = Object.freeze({
         return this.safeMul(this.safeDiv(amt, fRate), tRate);
     },
     
-    // 🛡️ 5. المحرك الرياضي لمحاكاة أسعار الباقات والخصومات
+    // 🛡️ 5. المحرك الرياضي التشخيصي للإدارة (يكشف التكلفة والأرباح)
     calculatePrice: function(params = {}) {
         const { product = {}, costPrice = 0, fixedPrice = 0, tier = null, offer = null, coupon = null, optIdx = null } = params;
         
+        // 🛡️ [درع المؤسسات - Enterprise Shield]: حماية اللوحة من الانهيار
+        if (!product || typeof product !== 'object' || Object.keys(product).length === 0) {
+            console.warn("[Admin FinancialEngine] تم تمرير بيانات منتج تالفة للتسعير.");
+            return {
+                cost: 0, tierPrice: 0, originalPrice: 0, finalPrice: 0,
+                tierName: 'غير محدد', offerName: null, offerDiscount: 0,
+                couponCode: null, couponDiscount: 0, totalDiscountVal: 0,
+                profit: 0, marginPct: 0, isFirewallActive: true, isFirewallViolated: true
+            };
+        }
+
         let cost = this.extractNum(costPrice || product.costPrice || product.cost_price || 0);
-        let isFixed = (fixedPrice > 0) || (String(product.isFixedPrice).toLowerCase() === 'true');
+        let isFixed = (fixedPrice > 0) || (String(product.isFixedPrice).toLowerCase() === 'true' || product.is_fixed_price === true);
         let activeOption = null;
         
-        if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && product.options[optIdx]) {
+        // 🛡️ التدهور الآمن للخيارات
+        if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null) {
             activeOption = product.options[optIdx];
-            cost = this.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
-            if (activeOption.isFixedPrice !== undefined) {
-                isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+            if (activeOption) {
+                cost = this.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
+                if (activeOption.isFixedPrice !== undefined) {
+                    isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+                }
             }
         }
         
@@ -106,7 +120,6 @@ export const FinancialEngine = Object.freeze({
             tierName = "سعر ثابت";
         } else if (tier && typeof tier === 'object') {
             tierName = tier.nameAr || tier.name || tier.id || 'عضو';
-            
             const tierPriceField = activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id];
             
             if (tierPriceField) {
@@ -143,23 +156,33 @@ export const FinancialEngine = Object.freeze({
         } else if (coupon && coupon.isActive !== false) {
             couponCode = coupon.code;
             const val = this.extractNum(coupon.value);
-            // 🛡️ [الترقيع المحاسبي]: حساب الكوبون من السعر الأصلي ليتطابق مع السيرفر
+            // الخصم يُحسب من السعر الأصلي للتطابق مع السيرفر
             couponDiscount = coupon.type === 'percentage' ? this.safeMul(originalPrice, val / 100) : val;
         }
         
-        currentPrice = Math.max(0, this.safeSub(currentPrice, this.safeAdd(offerDiscount, couponDiscount)));
+        // تطبيق الخصومات لاستخراج السعر الحالي
+        currentPrice = this.safeSub(currentPrice, this.safeAdd(offerDiscount, couponDiscount));
         
         let isFirewallViolated = false;
-        // 🛡️ [الترقيع المحاسبي]: منع البيع بالخسارة دون تشويه الأرقام الوهمية للكوبونات لغرض العرض الإداري
-        if (currentPrice < cost) {
-            isFirewallActive = true;
+
+        // 🛑 الجدار الناري 1: اصطياد السعر السالب
+        if (currentPrice < 0) {
             isFirewallViolated = true;
+            isFirewallActive = true;
+            currentPrice = 0;
+        }
+        
+        // 🛑 الجدار الناري 2: كشف وتوثيق الخسارة (أقل من التكلفة) لتنبيه الأدمن
+        if (cost > 0 && currentPrice < cost) {
+            isFirewallViolated = true;
+            isFirewallActive = true;
             currentPrice = cost;
         }
         
         const finalPrice = currentPrice;
-        // الخصم الحقيقي المطبق هو الفارق بين الأصلي وما سيدفعه العميل
-        const totalDiscountVal = this.safeSub(originalPrice, currentPrice);
+        const totalDiscountVal = this.safeSub(originalPrice, finalPrice);
+        
+        // الأرباح والهوامش للإدارة فقط
         const profit = Math.max(0, this.safeSub(finalPrice, cost));
         const marginPct = cost > 0 ? this.safeMul(this.safeDiv(profit, cost), 100) : 0;
         
@@ -168,7 +191,7 @@ export const FinancialEngine = Object.freeze({
             tierName, offerName, offerDiscount,
             couponCode, couponDiscount, totalDiscountVal,
             profit, marginPct: Number(marginPct.toFixed(2)),
-            isFirewallActive, isFirewallViolated
+            isFirewallActive, isFirewallViolated // 👈 مهمة جداً لطباعة تنبيه باللون الأحمر في لوحة الأدمن
         };
     }
 });

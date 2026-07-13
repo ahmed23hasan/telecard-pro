@@ -1,7 +1,7 @@
 // ============================================================================
 // ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Bank Grade 🏦
 // 🎯 الوظيفة: بوابة البيانات المستقلة للتحقق الآمن من هوية المشرفين وإدارتهم
-// 🌟 التحديث الأقصى (V5.2): الترقيع الصامت (Retry)، الاستعلام المتوازي، والـ Pagination
+// 🌟 التحديث الأقصى (V5.3): فصل العمليات الذرية للصور، وتمديد مهلة الدوال الثقيلة (Timeout)
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -70,7 +70,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 📥 2. جلب أحدث البيانات بحد معين 
     async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
@@ -83,7 +82,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 📄 3. جلب مستند واحد محدد
     async getById(collectionName, docId) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
@@ -97,7 +95,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 💾 4. حفظ أو تحديث مستند 
     async set(collectionName, docId, data) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
@@ -111,7 +108,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ➕ 5. إضافة مستند جديد
     async add(collectionName, data) {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
@@ -123,7 +119,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 🗑️ 6. حذف مستند
     async delete(collectionName, docId) {
         try {
             if (!collectionName || !docId) throw new Error("اسم المجموعة أو الـ ID غير معرّف!");
@@ -136,7 +131,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 📡 7. الاستماع الحي للمجموعة 
     listenCollection(collectionName, callback) {
         return onSnapshot(collection(db, collectionName), (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -144,7 +138,6 @@ export const FirebaseAdapter = {
         });
     },
 
-    // 📡 8. الاستماع الحي لمستند واحد فقط
     listenDoc(collectionName, docId, callback) {
         const safeId = this._sanitizeDocId(docId);
         return onSnapshot(doc(db, collectionName, safeId), (snapshot) => {
@@ -156,7 +149,6 @@ export const FirebaseAdapter = {
         });
     },
 
-    // 📡 9. الاستماع الحي المطور (يدعم فلاتر متعددة)
     listenQuery(collectionName, conditions, orderByField = 'time', limitCount = 50, callback) {
         try {
             const queryConstraints = [collection(db, collectionName)];
@@ -188,7 +180,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 🚀 10. نظام التصفح المجزأ للبيانات الضخمة (Cursor Pagination)
     async fetchMoreWithCursor(collectionName, conditions, orderByField = 'time', lastDocMarker, limitCount = 25) {
         try {
             if (!lastDocMarker) return { data: [], newLastDoc: null };
@@ -220,40 +211,34 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ☁️ 11. محرك رفع الصور والملفات المطور (توفير الذاكرة RAM)
-    // ☁️ 11. محرك رفع الصور والملفات المطور (توفير الذاكرة RAM ومحصن بالكامل)
-async uploadImage(file, folderName = 'general', customFileName = null, oldImageUrl = null) {
-    if (!file) return '';
-    try {
-        // 🛡️ [حماية أمنية]: تعقيم اسم المجلد لمنع اختراق مسارات التخزين السحابي (Path Traversal)
-        const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general';
-        
-        if (oldImageUrl && oldImageUrl.includes('firebasestorage')) {
-            try {
-                const oldImageRef = ref(storage, oldImageUrl);
-                await deleteObject(oldImageRef);
-            } catch (delErr) { console.warn("Old image cleanup failed:", delErr); }
+    // 🚀 [تحديث ماسي]: إزالة منطق الحذف لتصبح الدالة نقية وتدعم العمليات الذرية (Atomic Uploads)
+    async uploadImage(file, folderName = 'general', customFileName = null) {
+        if (!file) return '';
+        try {
+            // 🛡️ [حماية أمنية]: تعقيم اسم المجلد لمنع اختراق مسارات التخزين
+            const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general';
+            
+            const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'image.jpg';
+            const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
+            const storageRef = ref(storage, `${safeFolder}/${finalFileName}`);
+            
+            // 🛡️ إعطائه 60 ثانية لأن الأدمن قد يرفع بنرات ثقيلة وعالية الجودة
+            const snapshot = await this._withTimeout(
+                uploadBytes(storageRef, file, { contentType: file.type }),
+                60000,
+                "عملية رفع الملف"
+            );
+            
+            const downloadURL = await getDownloadURL(snapshot.ref);
+            return downloadURL;
+            
+        } catch (error) {
+            console.error("🚨 خطأ في محرك التخزين السحابي:", error);
+            throw new Error(error.message || 'تعذر الرفع، السيرفر لم يستجب.');
         }
-        
-        const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'image.jpg';
-        const finalFileName = customFileName ? customFileName : `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
-        const storageRef = ref(storage, `${safeFolder}/${finalFileName}`);
-        
-        // 🛡️ التعديل: رفع الملف مباشرة وإعطائه 60 ثانية (بدلاً من 20) لأن الأدمن قد يرفع بنرات ثقيلة
-        const snapshot = await this._withTimeout(
-            uploadBytes(storageRef, file, { contentType: file.type }),
-            60000,
-            "عملية رفع الملف"
-        );
-        
-        const downloadURL = await getDownloadURL(snapshot.ref);
-        return downloadURL;
-        
-    } catch (error) {
-        console.error("🚨 خطأ في محرك التخزين السحابي:", error);
-        throw new Error(error.message || 'تعذر الرفع، السيرفر لم يستجب.');
-    }
-},    // 🧹 12. دالة الحذف المباشر للصور
+    },
+
+    // 🧹 دالة الحذف المباشر (تُستدعى فقط بعد حفظ الرابط الجديد بنجاح في قاعدة البيانات)
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
         try {
@@ -265,15 +250,16 @@ async uploadImage(file, folderName = 'general', customFileName = null, oldImageU
         }
     },
 
-    // ⚡ 13. الموجه المركزي للاتصال بالسيرفر
+    // ⚡ الموجه المركزي للاتصال بالسيرفر
     async callFunction(functionName, payload = {}) {
         try {
             console.log(`🚀 جاري الاتصال بالسيرفر لاستدعاء [${functionName}]...`);
             const targetFunction = httpsCallable(functions, functionName);
             
+            // 🛡️ التعديل: تمديد المهلة إلى 60 ثانية لدوال الإدارة الثقيلة (مثل مسح الحسابات والـ Audit)
             const result = await this._withTimeout(
                 targetFunction(payload), 
-                20000, 
+                60000, 
                 `Cloud Function -> ${functionName}`
             );
             return result.data;
@@ -284,7 +270,7 @@ async uploadImage(file, folderName = 'general', customFileName = null, oldImageU
         }
     },
 
-    // 🔍 14. الاستعلامات المتوازية (السجل المالي الموحد للعميل)
+    // 🔍 الاستعلامات المتوازية (السجل المالي الموحد للعميل)
     async getCustomerFullHistory(userId, limitPerCollection = 25) {
         if (!userId) return [];
         try {
@@ -306,7 +292,7 @@ async uploadImage(file, folderName = 'general', customFileName = null, oldImageU
             
             const [ordersSnap, depositsSnap] = await this._withTimeout(
                 Promise.all([getDocs(ordersQuery), getDocs(depositsQuery)]),
-                12000,
+                15000,
                 `getCustomerFullHistory -> ${safeUserId}`
             );
             

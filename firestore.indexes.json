@@ -131,6 +131,11 @@
       "collectionGroup": "telecard_orders",
       "fieldPath": "apiResponse",
       "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_idempotency_keys",
+      "fieldPath": "expiresAt",
+      "ttl": true
     }
   ]
 }

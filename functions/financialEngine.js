@@ -1,7 +1,7 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - النسخة الصارمة V12.0 🛡️
+// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - النسخة المطلقة V12.1 🛡️
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، ومنع التلاعب بالمدخلات
-// 🚀 التحديث الأقصى: منع الانهيار بسبب الـ Undefined في الفواتير (Firestore Safe)
+// 🚀 التحديث الأخير: الجدار الناري المزدوج (Dual Firewall) واصطياد الخصومات السلبية
 // ============================================================================
 
 const FinancialEngineDef = {
@@ -84,6 +84,7 @@ const FinancialEngineDef = {
         let isFixed = (String(product.isFixedPrice).toLowerCase() === 'true');
         let activeOption = null;
 
+        // 🛡️ التدهور الآمن: جلب الخيار فقط إذا كان الـ Index صالحاً (Bounds Checking)
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null) {
             activeOption = product.options[optIdx];
             if (activeOption) {
@@ -126,7 +127,7 @@ const FinancialEngineDef = {
         
         let offerName = null, offerDiscount = 0;
         if (offer && offer.type !== 'fake' && offer.isActive !== false) {
-            offerName = offer.name || null; // ✅ تم ترقيع استخراج الاسم
+            offerName = offer.name || null; 
             const offerVal = this.extractNum(offer.value);
             offerDiscount = offer.type === 'percentage' ? this.safeMul(originalPrice, offerVal / 100) : offerVal;
         }
@@ -134,15 +135,24 @@ const FinancialEngineDef = {
         let couponCode = null, couponDiscount = 0;
         const canUseCoupon = !isFixed && product.disableCoupons !== true;
         if (canUseCoupon && coupon && coupon.isActive !== false) {
-            couponCode = coupon.code || null; // ✅ تم ترقيع استخراج كود الكوبون
+            couponCode = coupon.code || null; 
             const coupVal = this.extractNum(coupon.value);
             couponDiscount = coupon.type === 'percentage' ? this.safeMul(originalPrice, coupVal / 100) : coupVal;
         }
 
-        currentPrice = Math.max(0, this.safeSub(currentPrice, this.safeAdd(offerDiscount, couponDiscount)));
+        // 🛡️ التحديث V12.1: إزالة Math.max لاصطياد وتوثيق التجاوزات السلبية بدقة
+        currentPrice = this.safeSub(currentPrice, this.safeAdd(offerDiscount, couponDiscount));
 
         let isFirewallViolated = false;
-        if (currentPrice < cost) {
+
+        // 🛑 الجدار الناري 1: منع الخصومات التي تجعل السعر بالسالب (حتى لو التكلفة صفر)
+        if (currentPrice < 0) {
+            isFirewallViolated = true;
+            currentPrice = 0;
+        }
+
+        // 🛑 الجدار الناري 2: منع البيع بأقل من رأس المال (إذا كان رأس المال أكبر من صفر)
+        if (cost > 0 && currentPrice < cost) {
             isFirewallViolated = true;
             currentPrice = cost; 
         }
@@ -150,14 +160,13 @@ const FinancialEngineDef = {
         const profit = Math.max(0, this.safeSub(currentPrice, cost));
         const marginPct = cost > 0 ? (profit / cost) * 100 : 0;
 
-        // ✅ إرجاع كل القيم حتى لو كانت null لمنع انهيار Firestore
         return {
             cost,
             originalPrice,
             finalPrice: currentPrice,
-            offerName: offerName || null,   // 👈 الترقيع هنا
+            offerName: offerName || null,
             offerDiscount,
-            couponCode: couponCode || null, // 👈 والترقيع هنا
+            couponCode: couponCode || null,
             couponDiscount,
             totalDiscount: this.safeSub(originalPrice, currentPrice),
             profit,
@@ -168,6 +177,7 @@ const FinancialEngineDef = {
     },
 
     calculateOrderTotal: function(params, rawQty) {
+        // 🛡️ استخدام Math.floor لمنع الثغرات الكسرية (Fractional Exploits)
         let qty = Math.floor(Number(rawQty) || 1);
         
         if (qty <= 0 || qty > this.CONFIG.MAX_QTY_LIMIT) {
