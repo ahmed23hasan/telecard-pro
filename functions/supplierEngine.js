@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة V4.6 💎
+// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة V4.7 💎
 // 🎯 الوظيفة: استيراد المنتجات، حماية الذاكرة، وبناء الجداول المركزية بأمان
-// 🌟 التحديث الأخير: التنفيذ المتوازي الآمن، تعقيم الأكواد الصارم، واصطياد الأخطاء السحابي
+// 🌟 التحديث الأخير: التنفيذ المتوازي المُنظم (Chunking)، وتشفير SHA-256 العسكري
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -16,7 +16,8 @@ const db = admin.firestore();
 // ==========================================
 // 🛡️ دوال المساعدة، الأمان، وسجل الأخطاء السحابي
 // ==========================================
-const generateCodeHash = (codeString) => crypto.createHash('md5').update(String(codeString).trim()).digest('hex');
+// 🛡️ [تحديث التشفير]: استخدام SHA-256 بدلاً من MD5 لمنع التصادم
+const generateCodeHash = (codeString) => crypto.createHash('sha256').update(String(codeString).trim()).digest('hex');
 
 const isMasterAdmin = (request) => request.auth?.token?.admin === true;
 
@@ -28,7 +29,6 @@ const logAdminAction = async (adminUid, action, details) => {
     } catch (e) { console.error("Audit Log Error:", e); }
 };
 
-// 🛡️ [تحديث النخبة 1]: نظام اصطياد الأخطاء السحابي لعمليات المزامنة الخلفية
 const logCloudError = async (action, error, supplierId = 'system') => {
     console.error(`🚨 [${action}] Supplier: ${supplierId}`, error);
     try {
@@ -158,7 +158,6 @@ const coreSyncLogic = async (supplierId) => {
                 
                 const keysCollectionRef = vaultRef.collection('keys');
                 for (const c of safeCodesArray) {
-                    // 🛡️ [تحديث النخبة 2]: تعقيم صارم للأكواد الواردة من الـ API لمنع المسافات المخفية
                     const actualCodeString = (typeof c === 'object' ? (c.text || c.code || '') : String(c)).replace(/\s+/g, '');
                     
                     if (actualCodeString !== '') {
@@ -223,7 +222,7 @@ exports.syncSupplierData = onCall({ region: 'us-east1', memory: '1GiB', timeoutS
 });
 
 // ==========================================
-// ⏱️ 2. المزامنة التلقائية (Cron Job) - التنفيذ المتوازي الآمن
+// ⏱️ 2. المزامنة التلقائية (Cron Job) - التنفيذ المتوازي المُنظم (Chunking)
 // ==========================================
 exports.scheduledSupplierSync = onSchedule({ 
     schedule: '0 */12 * * *', 
@@ -235,15 +234,27 @@ exports.scheduledSupplierSync = onSchedule({
     try {
         const suppliersSnap = await db.collection('telecard_suppliers').where('isActive', '==', true).where('autoSync', '==', true).get();
         if (suppliersSnap.empty) return null;
-        
-        // 🛡️ [تحديث النخبة 3]: التنفيذ المتوازي بدلاً من التتابعي لإنقاذ السيرفر من الـ Timeout
-        const syncPromises = suppliersSnap.docs.map(doc => 
-            coreSyncLogic(doc.id).catch(e => logCloudError('AUTO_SYNC_SUPPLIER_FAILED', e, doc.id))
-        );
-        
-        await Promise.allSettled(syncPromises);
-        return true;
 
+        const suppliers = suppliersSnap.docs;
+        const CONCURRENCY_LIMIT = 2; // 🛡️ معالجة موردين 2 فقط في نفس اللحظة لحماية الـ RAM
+
+        // 🛡️ تقسيم الموردين إلى دفعات صغيرة
+        for (let i = 0; i < suppliers.length; i += CONCURRENCY_LIMIT) {
+            const chunk = suppliers.slice(i, i + CONCURRENCY_LIMIT);
+            
+            const syncPromises = chunk.map(async (doc) => {
+                try {
+                    await coreSyncLogic(doc.id);
+                } catch (e) {
+                    await logCloudError('AUTO_SYNC_SUPPLIER_FAILED', e, doc.id);
+                }
+            });
+
+            // ننتظر حتى ينتهي هذان الموردان قبل سحب دفعة جديدة
+            await Promise.allSettled(syncPromises);
+        }
+
+        return true;
     } catch (error) { 
         await logCloudError('SCHEDULED_SYNC_CRASH', error); 
         return null; 

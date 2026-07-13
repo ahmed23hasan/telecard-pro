@@ -16,24 +16,20 @@ service firebase.storage {
       );
     }
 
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
     // ==========================================
-    // 🛡️ دوال حماية البيانات (مضادة للتحايل Spoofing-Proof)
+    // 🛡️ دوال حماية البيانات (Spoofing-Proof)
     // ==========================================
     
     // فحص المحتوى + الامتداد الحقيقي للملف (يمنع رفع فايروسات بصيغة صور)
     function isImage() {
       return request.resource != null 
-             && request.resource.contentType.matches('image/.*')
-             && request.resource.name.matches('.*\\.(jpg|jpeg|png|webp)$'); // منع SVG (يحتوي ثغرات XSS) و GIF
+             && request.resource.contentType.matches('^image/.*')
+             && request.resource.name.matches('.*\\.(jpg|jpeg|png|webp)$');
     }
 
     function isImageOrPdf() {
       return request.resource != null && (
-             (request.resource.contentType.matches('image/.*') && request.resource.name.matches('.*\\.(jpg|jpeg|png|webp)$')) || 
+             (request.resource.contentType.matches('^image/.*') && request.resource.name.matches('.*\\.(jpg|jpeg|png|webp)$')) || 
              (request.resource.contentType == 'application/pdf' && request.resource.name.matches('.*\\.pdf$'))
       );
     }
@@ -45,6 +41,7 @@ service firebase.storage {
     // ==========================================
     // 👑 صلاحيات الإدارة المطلقة
     // ==========================================
+    // قاعدة الإدارة توضع في الأعلى لتخطي كل القواعد الأخرى عند الحاجة
     match /{allPaths=**} {
       allow read, write: if isMasterAdmin();
     }
@@ -53,14 +50,15 @@ service firebase.storage {
     // 🧾 إيصالات الدفع
     // ==========================================
     match /receipts/{fileName} {
-      // 🔒 ترقيع أمني: منع الأسماء العشوائية وإجبار الامتداد ليكون دقيقاً لحماية مسارات التخزين
-      allow read: if isAuthenticated() && fileName.matches('dep_' + request.auth.uid + '_[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$');
+      // 🔒 إجبار بدء الاسم بـ dep_ والـ UID الخاص بالعميل
+      allow read: if isAuthenticated() && fileName.matches('^dep_' + request.auth.uid + '_[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$');
+      
       allow create: if isAuthenticated()
-                   && fileName.matches('dep_' + request.auth.uid + '_[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$')
+                   && fileName.matches('^dep_' + request.auth.uid + '_[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$')
                    && isImageOrPdf()
                    && isValidSize(5);
                    
-      allow delete: if isAuthenticated() && fileName.matches('dep_' + request.auth.uid + '_[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$');
+      allow delete: if isAuthenticated() && fileName.matches('^dep_' + request.auth.uid + '_[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$');
     }
 
     // ==========================================
@@ -69,31 +67,29 @@ service firebase.storage {
     match /avatars/{fileName} {
       allow read: if true;
       
-      // 🔒 ترقيع أمني: إجبار صورة واحدة فقط لكل عميل ليتم الكتابة فوقها (Overwrite)
+      // 🔒 إجبار صورة واحدة فقط لكل عميل (Overwrite)
       allow create, update: if isAuthenticated() 
-                   && fileName.matches('avatar_' + request.auth.uid + '\\.(jpg|jpeg|png|webp)$')
+                   && fileName.matches('^avatar_' + request.auth.uid + '\\.(jpg|jpeg|png|webp)$')
                    && isImage() 
                    && isValidSize(3);
                    
       allow delete: if isAuthenticated() 
-                   && fileName.matches('avatar_' + request.auth.uid + '\\.(jpg|jpeg|png|webp)$');
+                   && fileName.matches('^avatar_' + request.auth.uid + '\\.(jpg|jpeg|png|webp)$');
     }
 
     // ==========================================
     // 🛡️ التوثيق الأمني KYC (مضاد للاستنزاف 100%)
     // ==========================================
     match /kyc_docs/{fileName} {
-      // 🔒 الترقيع الماسي: يُسمح فقط بملفين اثنين حصراً (document أو selfie)
-      // هذا يغلق ثغرة رفع ملايين الملفات العشوائية لتخريب مساحة التخزين الخاصة بك.
-      allow read: if isAuthenticated() && fileName.matches(request.auth.uid + '_(document|selfie)\\.(jpg|jpeg|png|webp)$');
+      // 🔒 يُسمح بملفين اثنين حصراً (document أو selfie)
+      allow read: if isAuthenticated() && fileName.matches('^' + request.auth.uid + '_(document|selfie)\\.(jpg|jpeg|png|webp)$');
       
-      // أضفنا `update` لكي يسمح النظام للعميل بالكتابة فوق صورته القديمة إذا تم رفض توثيقه
       allow create, update: if isAuthenticated() 
-                   && fileName.matches(request.auth.uid + '_(document|selfie)\\.(jpg|jpeg|png|webp)$')
+                   && fileName.matches('^' + request.auth.uid + '_(document|selfie)\\.(jpg|jpeg|png|webp)$')
                    && isImage()
                    && isValidSize(8);
                    
-      allow delete: if isAuthenticated() && fileName.matches(request.auth.uid + '_(document|selfie)\\.(jpg|jpeg|png|webp)$');
+      allow delete: if isAuthenticated() && fileName.matches('^' + request.auth.uid + '_(document|selfie)\\.(jpg|jpeg|png|webp)$');
     }
 
     // ==========================================

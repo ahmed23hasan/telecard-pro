@@ -132,10 +132,11 @@
       "fieldPath": "apiResponse",
       "indexes": []
     },
-    {
-      "collectionGroup": "telecard_idempotency_keys",
-      "fieldPath": "expiresAt",
-      "ttl": true
-    }
+{
+  "collectionGroup": "telecard_idempotency_keys",
+  "fieldPath": "expiresAt",
+  "indexes": [],
+  "ttl": true
+}
   ]
 }

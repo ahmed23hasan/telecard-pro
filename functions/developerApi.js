@@ -1,7 +1,7 @@
 // ============================================================================
 // ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - Bank Grade 🏦
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🌟 التحديث الأقصى: استدعاء calculateOrderTotal، ترقيع SSRF عسكري، وتفعيل onWrite
+// 🌟 التحديث الأقصى: حماية حدود فايرستور (500 Writes) لمنع الانهيار بسبب طلبات التجار الضخمة
 // ============================================================================
 
 const functions = require('firebase-functions');
@@ -13,6 +13,12 @@ if (!admin.apps.length) {
     admin.initializeApp();
 }
 const db = admin.firestore();
+
+// 🛡️ درع حماية فايرستور (مهم جداً في الـ API)
+const SYSTEM_LIMITS = {
+    MAX_QTY_PER_ORDER: 10000, 
+    MAX_VAULT_QTY_PER_ORDER: 200 // حماية من تجاوز 500 عملية في الـ Transaction
+};
 
 // ==========================================
 // 🛡️ دوال مساعدة ورياضيات آمنة (Safe Math & Helpers)
@@ -28,7 +34,6 @@ function isSafeWebhookUrl(urlString) {
         
         const hostname = parsedUrl.hostname.toLowerCase();
         
-        // منع IPv6 Localhost والـ Decimal IPs و 0.0.0.0
         if (hostname.includes('[') || hostname.includes('::') || /^0\.0\.0\.0$/.test(hostname) || /^\d+$/.test(hostname)) {
             return false;
         }
@@ -39,7 +44,7 @@ function isSafeWebhookUrl(urlString) {
             /^10\.\d+\.\d+\.\d+$/,
             /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/,
             /^192\.168\.\d+\.\d+$/,
-            /^169\.254\.\d+\.\d+$/ // GCP / AWS Metadata IP
+            /^169\.254\.\d+\.\d+$/ 
         ];
         return !blockedPatterns.some(pattern => pattern.test(hostname));
     } catch (e) {
@@ -67,18 +72,15 @@ function generateHmacSignature(payload, secret) {
 // ==========================================
 // 🚀 1. مرسل الإشعارات السحابي (Webhook Dispatcher - Secure)
 // ==========================================
-// 🌟 [إصلاح الخلل المعماري]: استخدام onWrite لالتقاط الطلبات المنشأة حديثاً عبر الـ API والتحديثات معاً
 exports.orderStatusWebhook = functions.region('us-east1').firestore
     .document('telecard_orders/{orderId}')
     .onWrite(async (change, context) => {
         
-        // إذا تم حذف الطلب، نتجاهله
         if (!change.after.exists) return null;
 
         const after = change.after.data();
         const before = change.before.exists ? change.before.data() : null;
         
-        // إذا كان تحديثاً ولم تتغير الحالة، نتجاهله
         if (before && before.status === after.status) return null;
         
         const userId = after.userId;
@@ -99,7 +101,6 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
             }
             
             const payload = {
-                // 🛡️ إضافة eventId لمنع تكرار معالجة الإشعار من طرف التاجر (Idempotency)
                 eventId: context.eventId, 
                 event: before ? 'order_status_changed' : 'order_created',
                 orderId: after.displayId || after.id,
@@ -200,7 +201,7 @@ exports.cronRetryWebhooks = functions.region('us-east1').pubsub.schedule('every 
     });
 
 // ==========================================
-// 🔌 3. بوابة الـ API الخارجية (External API Gateway - Bank Grade Security)
+// 🔌 3. بوابة الـ API الخارجية (External API Gateway)
 // ==========================================
 exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async (req, res) => {
     if (req.method !== 'POST') {
@@ -213,7 +214,6 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
     const idempotencyKey = req.headers['idempotency-key'];
     const cleanKey = apiKeyHeader.replace('Bearer ', '').trim();
 
-    // 🛡️ [ترقيع أمني]: منع مفاتيح فارغة من تخطي المصادقة
     if (cleanKey.length < 20) return res.status(401).json({ success: false, error: 'Unauthorized: Invalid API Key format.' });
 
     try {
@@ -227,29 +227,34 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
         if (!productId) return res.status(400).json({ success: false, error: 'Bad Request: productId is required.' });
 
         const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
+        
+        // 🛑 [ترقيع أمني]: التأكد أن التاجر لم يتجاوز السقف العام المسموح به للطلب الواحد
+        if (finalQty > SYSTEM_LIMITS.MAX_QTY_PER_ORDER) {
+            return res.status(400).json({ success: false, error: `Bad Request: Quantity exceeds maximum allowed (${SYSTEM_LIMITS.MAX_QTY_PER_ORDER}).` });
+        }
+
         let resultData = null;
 
-// 🛡️ [تحديث أمني]: استخدام crypto لمنع ثغرات التصادم
-const cleanOrderId = 'TC-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+        const cleanOrderId = 'TC-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
 
-// 🛡️ [ترقيع أمني]: إنشاء بصمة مشفرة لبيانات الطلب لمنع استغلال الـ Idempotency
-const requestPayload = JSON.stringify({ productId, finalQty, inputStr });
-const requestHash = crypto.createHash('sha256').update(requestPayload).digest('hex');
+        const requestPayload = JSON.stringify({ productId, finalQty, inputStr });
+        const requestHash = crypto.createHash('sha256').update(requestPayload).digest('hex');
+
         await db.runTransaction(async (transaction) => {
             
             let idempotencyRef = null;
             if (idempotencyKey) {
                 idempotencyRef = db.collection('telecard_idempotency_keys').doc(`${uid}_${idempotencyKey}`);
                 const existingReq = await transaction.get(idempotencyRef);
-               if (existingReq.exists) {
-    const savedData = existingReq.data();
-    // 🚨 🚨 [إغلاق الثغرة]: التحقق من أن الطلب المكرر يحمل نفس البيانات بالضبط!
-    if (savedData.requestHash !== requestHash) {
-        throw new Error('Idempotency Conflict: Key already used with different payload.');
-    }
-    resultData = savedData.resultData;
-    return; // إرجاع النتيجة المحفوظة بأمان تام
-}      }
+                if (existingReq.exists) {
+                    const savedData = existingReq.data();
+                    if (savedData.requestHash !== requestHash) {
+                        throw new Error('Idempotency Conflict: Key already used with different payload.');
+                    }
+                    resultData = savedData.resultData;
+                    return; 
+                }      
+            }
 
             const productRef = db.collection('telecard_prods').doc(String(productId));
             const [productSnap, latestUserSnap] = await Promise.all([
@@ -265,10 +270,14 @@ const requestHash = crypto.createHash('sha256').update(requestPayload).digest('h
                 throw new Error('Unauthorized: Account Banned');
             }
 
+            // 🛑 [ترقيع أمني - حماية الترانزكشن]: رفض الطلبات التي تتجاوز سقف الـ Vault لتجنب انهيار فايرستور
+            if (product.vaultPoolId && finalQty > SYSTEM_LIMITS.MAX_VAULT_QTY_PER_ORDER) {
+                throw new Error(`Vault limit exceeded: Maximum allowed quantity for this product is ${SYSTEM_LIMITS.MAX_VAULT_QTY_PER_ORDER} per request.`);
+            }
+
             const orderRef = db.collection('telecard_orders').doc(cleanOrderId);
             const tierId = String(userData.tierId || userData.tier || 1);
             
-            // 🏗️ [التوافق المعماري]: استخدام الـ Subcollections لقراءة المخزون بدلاً من المصفوفات القديمة
             let vaultKeysQuery = null;
             if (product.vaultPoolId) {
                  vaultKeysQuery = db.collection('telecard_vault').doc(String(product.vaultPoolId))
@@ -284,21 +293,18 @@ const requestHash = crypto.createHash('sha256').update(requestPayload).digest('h
 
             const userTier = tierSnap.exists ? tierSnap.data() : null;
 
-            // 🛡️ [تحديث أمني 💎]: استدعاء المحرك المالي وتمرير الكمية له ليحسب الإجماليات
             const pricingSnapshot = FinancialEngine.calculateOrderTotal({
                 product: product, 
                 tier: userTier, 
                 offer: null, 
                 coupon: null
-            }, finalQty); // تمرير الكمية هنا
+            }, finalQty); 
 
-            // 🚨 🚨 [إغلاق الثغرة]: تفعيل الجدار الناري هنا أيضاً لحماية أرباح المورد!
             if (pricingSnapshot.isFirewallViolated) {
                 console.error(`[API SECURITY ALERT] Firewall blocked API order! User: ${uid}, Product: ${productId}`);
                 throw new Error('Firewall Violation: Price consistency error.');
             }
 
-            // 💡 سحب السعر الإجمالي جاهزاً من المحرك المالي
             const exactPrice = pricingSnapshot.totalFinalPrice;
             const currentBalance = Number(userData.walletBalance || userData.balance || 0);
 
@@ -308,7 +314,6 @@ const requestHash = crypto.createHash('sha256').update(requestPayload).digest('h
             let isAutoDelivered = false;
             let extractedCodes = [];
 
-            // 🏗️ سحب الأكواد من الـ Subcollections وقفلها فوراً 
             if (vaultKeysQuery) {
                 if (!keysSnap || keysSnap.size < finalQty) {
                     throw new Error('Out of stock.');
@@ -317,7 +322,6 @@ const requestHash = crypto.createHash('sha256').update(requestPayload).digest('h
                 keysSnap.forEach(doc => {
                     const codeData = doc.data();
                     extractedCodes.push(codeData.codeText);
-                    // قفل الكود وربطه بطلب الـ API
                     transaction.update(doc.ref, {
                         isSold: true,
                         soldAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -340,11 +344,11 @@ const requestHash = crypto.createHash('sha256').update(requestPayload).digest('h
                 status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText,
                 balanceAfter: newBalance, idempotencyKey: idempotencyKey || null, 
                 pricingSnapshot: { 
-                    costUsd: pricingSnapshot.totalCost, // من المحرك مباشرة
-                    originalPriceUsd: pricingSnapshot.totalOriginalPrice, // من المحرك مباشرة
+                    costUsd: pricingSnapshot.totalCost, 
+                    originalPriceUsd: pricingSnapshot.totalOriginalPrice, 
                     finalPriceUsd: exactPrice,
                     tierName: pricingSnapshot.tierName, 
-                    netProfitUsd: pricingSnapshot.totalProfit, // الاعتماد التام على المحرك المالي
+                    netProfitUsd: pricingSnapshot.totalProfit, 
                     isFirewallActive: pricingSnapshot.isFirewallActive
                 },
                 time: admin.firestore.FieldValue.serverTimestamp(),
@@ -369,13 +373,14 @@ const requestHash = crypto.createHash('sha256').update(requestPayload).digest('h
             transaction.set(orderRef, newOrder);
 
             if (idempotencyRef) {
-    transaction.set(idempotencyRef, {
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        resultData: resultData,
-        orderId: cleanOrderId,
-        requestHash: requestHash // 🛡️ حفظ البصمة لمقارنتها في المستقبل
-    });
-}        });
+                transaction.set(idempotencyRef, {
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    resultData: resultData,
+                    orderId: cleanOrderId,
+                    requestHash: requestHash 
+                });
+            }        
+        });
 
         return res.status(200).json({ success: true, data: resultData });
 
@@ -386,7 +391,9 @@ const requestHash = crypto.createHash('sha256').update(requestPayload).digest('h
         if (error.message === 'Insufficient balance.') return res.status(402).json({ success: false, error: 'Insufficient balance.' });
         if (error.message === 'Out of stock.') return res.status(409).json({ success: false, error: 'Product out of stock.' });
         if (error.message === 'Product not found.') return res.status(404).json({ success: false, error: 'Product not found.' });
+        if (error.message.includes('Vault limit exceeded')) return res.status(400).json({ success: false, error: error.message });
         if (error.message.includes('Firewall')) return res.status(400).json({ success: false, error: 'Order rejected by security policy.' });
+        if (error.message.includes('Idempotency Conflict')) return res.status(409).json({ success: false, error: error.message });
         
         return res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
