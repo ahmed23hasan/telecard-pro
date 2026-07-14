@@ -851,10 +851,26 @@ exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposi
 
     const depositId = event.params.depositId;
 
-    let title = "تحديث طلب الإيداع", message = `تم تغيير حالة طلب الإيداع إلى ${after.status}`;
-    if (after.status === 'approved') { title = "💰 تم قبول الإيداع!"; message = `تم شحن ${after.amount} ${after.currency || 'USD'} بمحفظتك!`; } 
-    else if (after.status === 'rejected') { title = "❌ تم رفض الإيداع"; message = `عذراً، تم رفض طلبك. السبب: ${after.adminNote || 'راجع الدعم'}`; } 
-    else if (after.status === 'refunded') { title = "↩️ تم استرجاع الإيداع"; message = `تم سحب إيداع بقيمة ${after.amount} ${after.currency || 'USD'}.`; }
+    let title = "تحديث طلب الإيداع"; 
+    let message = `تم تغيير حالة طلب الإيداع إلى ${after.status}`;
+
+    // 🎯 جلب القيمة النهائية والعملة النهائية فقط (لأن هذا ما يهم العميل)
+    const displayCreditedAmt = after.creditedAmount !== undefined ? after.creditedAmount : after.amount;
+    const displayTargetCurr = after.targetCurrency || after.currency || 'USD';
+
+    if (after.status === 'approved') { 
+        title = "💰 تم قبول الإيداع!"; 
+        // 🚀 رسالة مباشرة ومريحة للعميل كما طلبت تماماً
+        message = `تمت إضافة ${displayCreditedAmt} ${displayTargetCurr} لمحفظتك بنجاح!`; 
+    } 
+    else if (after.status === 'rejected') { 
+        title = "❌ تم رفض الإيداع"; 
+        message = `عذراً، تم رفض طلب إيداعك. السبب: ${after.adminNote || 'راجع الدعم'}`; 
+    } 
+    else if (after.status === 'refunded') { 
+        title = "↩️ تم استرجاع الإيداع"; 
+        message = `تم سحب الرصيد بقيمة ${displayCreditedAmt} ${displayTargetCurr} من محفظتك.`; 
+    }
 
     const notifId = `notif_${depositId}_${after.status}`;
     return db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({
