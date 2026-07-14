@@ -18,7 +18,7 @@
             if (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK') {
                 window.BootLog.add(e.target.src || e.target.href, 'error', 'فشل في تحميل الملف');
                 document.body.insertAdjacentHTML('afterbegin', 
-                    `<div style="background:var(--danger, red); color:white; padding:12px; position:fixed; top:0; z-index:999999; width:100%; direction:rtl; font-weight:bold; font-family:sans-serif; text-align:center;">
+                    `<div style="background:var(--danger, #ef4444); color:white; padding:12px; position:fixed; top:0; z-index:999999; width:100%; direction:rtl; font-weight:bold; font-family:sans-serif; text-align:center;">
                        🛑 خلل في المسار: فشل المتصفح في العثور على ملف أساسي. يرجى تحديث الصفحة.
                      </div>`
                 );
@@ -32,7 +32,7 @@
     
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="robots" content="noindex, nofollow"> <!-- 🛡️ تم التعديل: لمنع أرشفة التطبيق الداخلي -->
+    <meta name="robots" content="noindex, nofollow"> <!-- 🛡️ لمنع أرشفة التطبيق الداخلي للعملاء -->
     
     <!-- 📱 إعدادات الـ PWA و iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -62,15 +62,18 @@
     <link rel="modulepreload" href="ui/uiBuilders.js?v=13.0.0">
     <link rel="modulepreload" href="renderManager.js?v=13.0.0">
 
-    <!-- 🛡️ مكتبات النظام الأساسية (يُفضل تنزيلها لاحقاً إلى مجلد assets/libs) -->
+    <!-- 🛡️ مكتبات النظام الأساسية -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
 
+    <!-- 🚀 إخفاء المحتوى الرئيسي لثوانٍ لمنع القفز البصري -->
     <style>
         .main-scroll { opacity: 0; animation: fadeInMain 0.6s ease 0.4s forwards; }
         @keyframes fadeInMain { to { opacity: 1; } }
     </style>
-</head>    <!-- 🛑 تنبيه تعطيل الجافاسكريبت -->
+</head>
+<body>
+    <!-- 🛑 تنبيه تعطيل الجافاسكريبت -->
     <noscript>
         <div style="position: fixed; inset: 0; background: #111a2b; color: white; z-index: 9999999; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; font-family: 'Cairo', sans-serif; direction: rtl;">
             <i class="fa-solid fa-triangle-exclamation" style="font-size: 50px; color: #ef4444; margin-bottom: 20px;"></i>
@@ -86,7 +89,7 @@
         }
     </script>
 
-    <!-- 🚀 شاشة الإقلاع الرئيسية (Native Splash Screen) -->
+    <!-- 🚀 شاشة الإقلاع الرئيسية -->
     <div id="global-splash-screen" style="position: fixed; inset: 0; z-index: 999999; background-color: #111a2b; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.4s ease, visibility 0.4s ease;">
         <div style="position: relative; width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">
             <i class="fa-solid fa-circle-notch fa-spin" style="position: absolute; font-size: 70px; color: #FFD700; opacity: 0.15;"></i>
@@ -103,8 +106,8 @@
         }
     </script>   
     
-    <!-- 🚨 نافذة الحماية والطرد المباشر (Security Eviction) -->
-    <div class="global-alert-overlay" id="global-security-alert">
+    <!-- 🚨 نافذة الحماية والطرد المباشر -->
+    <div class="global-alert-overlay" id="global-security-alert" role="dialog" aria-modal="true">
         <div class="global-alert-card">
             <div class="global-icon-box">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -161,7 +164,6 @@
     
     <div class="sidebar" id="cs-menu">
         <div class="sidebar-header">
-            <!-- 🚀 توجيه النقر على اللوجو للرئيسية -->
             <div id="sidebar-branding-target" data-action="nav-home" style="cursor: pointer;"></div>
             <button class="sidebar-close-btn" data-action="close-sidebar" aria-label="إغلاق">
                 <i class="fa-solid fa-xmark"></i>
@@ -266,7 +268,6 @@
                 <span class="nav-item-text">قيمنا</span>
             </div>
             
-            <!-- 🚀 إضافة قسم من نحن هنا -->
             <div class="nav-item" data-action="open-about">
                 <i class="fa-solid fa-circle-info nav-icon"></i>
                 <span class="nav-item-text">من نحن</span>
@@ -332,7 +333,6 @@
             </button>
         </div>
                 
-        <!-- 🦴 الهياكل العظمية المبدئية تم زيادتها إلى 6 لملء الشاشة بالكامل -->
         <div class="grid-layout grid-cats" id="store-grid">
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
@@ -345,9 +345,11 @@
 
     <!-- ======================= 📦 النوافذ السفلية ======================= -->
     
+    <!-- 🛡️ التحديث المعماري (A11y): إضافة role="dialog" aria-modal="true" لجميع النوافذ المنبثقة -->
+    
     <!-- نافذة الطلبات -->
     <div class="pm-overlay" id="orders-overlay" data-action="close-orders"></div>
-    <div class="modal-sheet bottom-sheet" id="orders-modal">
+    <div class="modal-sheet bottom-sheet" id="orders-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-orders" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>            
             <div class="header-center">
@@ -405,7 +407,7 @@
 
     <!-- نافذة المحفظة -->
     <div class="pm-overlay" id="wallet-overlay" data-action="close-wallet"></div>
-    <div class="modal-sheet bottom-sheet" id="wallet-modal">
+    <div class="modal-sheet bottom-sheet" id="wallet-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-wallet" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -511,7 +513,7 @@
 
     <!-- نافذة المدفوعات -->
     <div class="pm-overlay" id="mypay-overlay" data-action="close-mypayments"></div>
-    <div class="modal-sheet bottom-sheet" id="mypay-modal">
+    <div class="modal-sheet bottom-sheet" id="mypay-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-mypayments" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -571,7 +573,7 @@
 
     <!-- نافذة الإعدادات -->
     <div class="pm-overlay" id="settings-overlay" data-action="close-settings"></div>
-    <div class="modal-sheet bottom-sheet settings-modal" id="settings-modal">
+    <div class="modal-sheet bottom-sheet settings-modal" id="settings-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-settings" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -608,7 +610,7 @@
 
     <!-- نافذة الإيداع المالي -->
     <div class="pm-overlay" id="balance-overlay" data-action="close-balance"></div>
-    <div class="modal-sheet bottom-sheet" id="balance-modal">
+    <div class="modal-sheet bottom-sheet" id="balance-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <span class="title-badge pm-title-badge"><i class="fa-solid fa-wallet"></i> إيداع رصيد</span>
            <div id="bal-action-btn" class="pm-close-std" data-action="close-balance" aria-label="إغلاق/عودة">
@@ -632,7 +634,7 @@
 
     <!-- نافذة شراء المنتج -->
     <div class="pm-overlay" id="purchase-overlay" data-action="close-purchase"></div>
-    <div class="modal-sheet bottom-sheet" id="purchase-modal">
+    <div class="modal-sheet bottom-sheet" id="purchase-modal" role="dialog" aria-modal="true">
         <div class="pm-header-img-style transparent-header">
             <div class="pm-close-std" data-action="close-purchase" aria-label="إغلاق">
                 <i class="fa-solid fa-xmark"></i>
@@ -728,7 +730,7 @@
 
     <!-- نوافذ النجاح -->
     <div class="pm-overlay" id="success-overlay" data-action="close-success"></div>
-    <div class="modal-sheet bottom-sheet success-card" id="success-modal">
+    <div class="modal-sheet bottom-sheet success-card" id="success-modal" role="dialog" aria-modal="true">
         <div class="pm-close-std floating-close" data-action="close-success" aria-label="إغلاق" role="button">
             <i class="fa-solid fa-xmark"></i>
         </div>
@@ -742,7 +744,7 @@
     </div>
 
     <div class="pm-overlay" id="purchase-success-overlay" data-action="close-purchase-success"></div>
-    <div class="modal-sheet bottom-sheet success-card" id="purchase-success-modal">
+    <div class="modal-sheet bottom-sheet success-card" id="purchase-success-modal" role="dialog" aria-modal="true">
         <div class="pm-close-std floating-close" data-action="close-purchase-success" aria-label="إغلاق" role="button">
             <i class="fa-solid fa-xmark"></i>
         </div>
@@ -759,7 +761,7 @@
 
     <!-- نافذة تفاصيل العملية -->
     <div class="pm-overlay" id="tx-detail-overlay" data-action="close-tx-detail"></div>
-    <div class="modal-sheet bottom-sheet tx-modal-sheet" id="tx-detail-modal">
+    <div class="modal-sheet bottom-sheet tx-modal-sheet" id="tx-detail-modal" role="dialog" aria-modal="true">
         <div id="tx-top-badge-container"></div>
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-tx-detail" aria-label="إغلاق">
@@ -775,7 +777,7 @@
 
     <!-- نافذة الملف الشخصي -->
     <div class="pm-overlay" id="profile-info-overlay" data-action="close-profile"></div>
-    <div class="modal-sheet bottom-sheet" id="profile-info-modal">
+    <div class="modal-sheet bottom-sheet" id="profile-info-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-profile" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -891,7 +893,7 @@
     </nav> 
     
     <!-- عارض إيصالات الدفع -->
-    <div id="pay-receipt-lightbox" class="pay-receipt-lightbox" data-action="close-pay-receipt">
+    <div id="pay-receipt-lightbox" class="pay-receipt-lightbox" data-action="close-pay-receipt" role="dialog" aria-modal="true">
         <div class="pay-receipt-inner">
             <img id="pay-receipt-img" alt="إشعار الدفع">    
             <div class="pay-receipt-close" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -899,7 +901,7 @@
     </div>
 
     <!-- التقويم المخصص -->
-    <div class="calendar-modal" id="cal-modal">
+    <div class="calendar-modal" id="cal-modal" role="dialog" aria-modal="true">
         <div class="cal-header">
             <div class="selector-box">
                 <div class="arrows-col">
@@ -931,7 +933,7 @@
 
     <!-- نوافذ الإعدادات الإضافية (شروط، هوية، توثيق) -->
     <div class="pm-overlay" id="terms-overlay" data-action="close-terms"></div>
-    <div class="modal-sheet bottom-sheet terms-modal-content" id="terms-modal">
+    <div class="modal-sheet bottom-sheet terms-modal-content" id="terms-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-terms" aria-label="إغلاق">
                 <i class="fa-solid fa-xmark"></i>
@@ -956,7 +958,7 @@
     </div>
 
     <div class="pm-overlay" id="identity-overlay" data-action="close-identity"></div>
-    <div class="modal-sheet bottom-sheet" id="identity-modal">
+    <div class="modal-sheet bottom-sheet" id="identity-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-identity" aria-label="إغلاق">
                 <i class="fa-solid fa-xmark"></i>
@@ -1050,7 +1052,7 @@
     </div> 
 
     <div class="pm-overlay" id="kyc-upload-overlay" data-action="close-kyc-upload"></div>
-    <div class="modal-sheet bottom-sheet" id="kyc-upload-modal">
+    <div class="modal-sheet bottom-sheet" id="kyc-upload-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-kyc-upload" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -1116,7 +1118,7 @@
     </div>
 
     <div class="pm-overlay" id="kyc-status-overlay" data-action="close-kyc-status"></div>
-    <div class="modal-sheet bottom-sheet" id="kyc-status-modal">
+    <div class="modal-sheet bottom-sheet" id="kyc-status-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-kyc-status" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -1128,7 +1130,7 @@
     </div>
         
     <div class="pm-overlay" id="notif-center-overlay" data-action="close-notif-center"></div>
-    <div class="modal-sheet bottom-sheet" id="notif-center-modal">
+    <div class="modal-sheet bottom-sheet" id="notif-center-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-notif-center" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -1142,7 +1144,7 @@
     </div>        
 
     <div class="pm-overlay" id="tier-info-overlay" data-action="close-tier-info"></div>
-    <div class="modal-sheet bottom-sheet" id="tier-info-modal">
+    <div class="modal-sheet bottom-sheet" id="tier-info-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-tier-info" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -1154,7 +1156,7 @@
     </div>
         
     <div class="pm-overlay" id="kyc-celebration-overlay" data-action="close-kyc-celebration"></div>
-    <div class="modal-sheet bottom-sheet success-card kyc-success-card" id="kyc-celebration-modal">
+    <div class="modal-sheet bottom-sheet success-card kyc-success-card" id="kyc-celebration-modal" role="dialog" aria-modal="true">
         <div class="pm-close-std floating-close" data-action="close-kyc-celebration" title="إغلاق" aria-label="إغلاق">
             <i class="fa-solid fa-xmark"></i>
         </div>
@@ -1175,7 +1177,7 @@
     </div> 
 
     <div class="pm-overlay" id="community-overlay" data-action="close-community"></div>
-    <div class="modal-sheet bottom-sheet" id="community-modal">
+    <div class="modal-sheet bottom-sheet" id="community-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-community" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -1194,7 +1196,7 @@
     </div>  
 
     <div class="pm-overlay" id="rating-overlay" data-action="close-rating"></div>
-    <div class="modal-sheet bottom-sheet" id="rating-modal">
+    <div class="modal-sheet bottom-sheet" id="rating-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-rating" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -1245,7 +1247,7 @@
     </div>
 
     <div class="pm-overlay" id="about-overlay" data-action="close-about"></div>
-    <div class="modal-sheet bottom-sheet" id="about-modal">
+    <div class="modal-sheet bottom-sheet" id="about-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-about" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -1265,7 +1267,7 @@
     </div>
 
     <div class="pm-overlay" id="security-overlay" data-action="close-security-modal"></div>
-    <div class="modal-sheet bottom-sheet" id="security-modal">
+    <div class="modal-sheet bottom-sheet" id="security-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-security-modal" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -1336,7 +1338,7 @@
     </div>
 
     <div class="pm-overlay" id="setup-2fa-overlay" data-action="close-setup-2fa"></div>
-    <div class="modal-sheet bottom-sheet" id="setup-2fa-modal">
+    <div class="modal-sheet bottom-sheet" id="setup-2fa-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-setup-2fa" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
             <div class="header-center">
@@ -1360,7 +1362,6 @@
                 <span id="manual-2fa-secret" class="num-en manual-secret-code" data-action="copy-text" title="اضغط للنسخ">------</span>
             </p>
             
-            <!-- 🚀 الحقل المحدث لقراءة الكود التلقائي -->
             <div class="input-field-lux setup-2fa-input-wrap">
                 <input type="text" id="otp-verify-input" class="lux-input num-en otp-center-input" placeholder="أدخل الـ 6 أرقام هنا" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code">
             </div>
@@ -1371,7 +1372,7 @@
         </div>
     </div>
 
-    <div id="biometric-lock-screen" class="biometric-lock-overlay">
+    <div id="biometric-lock-screen" class="biometric-lock-overlay" role="dialog" aria-modal="true">
         <div class="bio-lock-card">
             <div class="bio-icon-box pulse-anim">
                 <i class="fa-solid fa-fingerprint"></i>
