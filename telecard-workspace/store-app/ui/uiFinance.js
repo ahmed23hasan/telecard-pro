@@ -449,7 +449,7 @@ export const UIFinance = {
         }
     },
 
-    handlePurchaseSubmit: async function() { 
+        handlePurchaseSubmit: async function() { 
         if (this._isProcessingTx) return; 
         
         if (!DataManager.currentProd) return;
@@ -575,12 +575,20 @@ export const UIFinance = {
             }
         } catch (err) {
             console.error("🚨 خطأ أثناء تنفيذ الشراء السحابي:", err);
-            getSys().showToast?.('حدث خطأ في الاتصال بالسيرفر، يرجى المحاولة لاحقاً', 'error');
+            
+            // 🛡️ التوازن المثالي: رسالة عامة كخط دفاع افتراضي
+            let displayMessage = 'حدث خطأ في الاتصال بالسيرفر، يرجى المحاولة لاحقاً';
+
+            // 🎯 إظهار الرسالة الحقيقية فقط إذا كانت قادمة من فايربيز (HttpsError)
+            if (err.name === 'FirebaseError' || err.code) {
+                displayMessage = err.message; 
+            }
+
+            getSys().showToast?.(displayMessage, 'error');
         } finally {
             this._cleanupTxUI(submitBtn, shieldId);
         }
     },
-
     openAddBalance: function() {
         if (!this._validateKycAndSystem('deposit')) return;
 
@@ -1033,7 +1041,7 @@ export const UIFinance = {
         }
     },
 
-    handleBalanceSubmit: async function(currency) {
+        handleBalanceSubmit: async function(currency) {
         if (this._isProcessingTx) return;
         
         if (!this._validateKycAndSystem('deposit')) return;
@@ -1106,12 +1114,21 @@ export const UIFinance = {
                 getSys().showToast?.(result.msg, 'error');
             }
         } catch (error) {
-            getSys().showToast?.(error.message || 'فشل إرسال الطلب.', 'error');
+            console.error("🚨 خطأ أثناء إرسال طلب الإيداع:", error);
+            
+            // 🛡️ التوازن المثالي: رسالة عامة كخط دفاع افتراضي
+            let displayMessage = 'فشل إرسال الطلب، يرجى المحاولة لاحقاً';
+
+            // 🎯 إظهار الرسالة الحقيقية فقط إذا كانت قادمة من فايربيز (HttpsError)
+            if (error.name === 'FirebaseError' || error.code) {
+                displayMessage = error.message; 
+            }
+
+            getSys().showToast?.(displayMessage, 'error');
         } finally {
             this._cleanupTxUI(submitBtn, shieldId);
         }
     },
-
     togglePayDetail: function(headerElement) {
         if (!headerElement) return;
 
