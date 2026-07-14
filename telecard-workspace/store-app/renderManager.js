@@ -1,11 +1,11 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - النسخة الماسية (Pro V5.3)
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - النسخة الماسية (Pro V5.4)
 // 🎯 الوظيفة: المايسترو (Controller) لمعالجة البيانات، الفلترة، الحماية، والتوجيه
 // 👑 متوافق بالكامل مع هوية: TeleCard
 // 🚀 تحديثات (Clean Architecture):
-// 1. [Separation of Concerns]: خالي تماماً من أكواد الـ HTML (تم نقلها لـ uiBuilders).
+// 1. [Separation of Concerns]: تم استخراج قوالب الـ HTML الكبيرة (المنتجات والـ PDF) للمصنع.
 // 2. [Dependency Injection]: تمرير البيانات المكتملة فقط لبناة الواجهات (Pure Functions).
-// 3. [Memory Leak Guard & Stable Sort]: حماية التزامن وترتيب زمني صارم.
+// 3. [Security]: حماية كاملة من ثغرات XSS في قوائم الدول والمدخلات.
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -444,16 +444,8 @@ export const RenderManager = {
         div.setAttribute('data-id', p.id);
         if (idx !== undefined) div.style.setProperty('--anim-idx', idx);
         
-        div.innerHTML = `
-            <svg class="snake-border" viewBox="0 0 120 165" preserveAspectRatio="none"><rect x="0.7" y="0.7" width="118.6" height="163.6"></rect></svg>
-            <div class="card-image ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">
-                ${visualElementsHtml} 
-                ${imgObj.html}
-            </div>
-            <div class="card-info">
-                <div class="product-name" style="${nameExpandedStyle}">${safeName}</div>
-                ${priceSectionHtml}
-            </div>`;
+        // 🚀 التعديل: الاعتماد على المصنع UIBuilders لإنشاء محتوى الكارت
+        div.innerHTML = UIBuilders.buildProductCardInner(safeName, priceSectionHtml, imgObj, visualElementsHtml, nameExpandedStyle);
 
         return div;
     },
@@ -1099,7 +1091,6 @@ export const RenderManager = {
         requestAnimationFrame(() => {
             if (renderId !== this.currentRenderId) return; 
             
-            // 🚀 Dependency Injection: استخراج اسم المنتج هنا بدلاً من داخل الدالة النقية
             list.innerHTML = visibleOrders.map((o, idx) => {
                 try {
                     const prodName = Utils.escapeHtml(o.product || (LiveStoreData.prods || []).find(p => String(p.id) === String(o.prodId))?.name || 'منتج');
@@ -1152,104 +1143,18 @@ export const RenderManager = {
                     safeLogoHtml = `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;">`;
                 }
                 
-                const brandHTML = `
+                // تجميع بيانات المتجر
+                const brandHTML = {
+                    storeName: storeName,
+                    html: `
                         <div class="header-section">
                             <div class="store-name">${Utils.escapeHtml(storeName)}</div>
                             ${safeLogoHtml}
-                        </div>`;
+                        </div>`
+                };
                 
-                const contentHTML = config.type === 'deposit' ? `
-                        ${brandHTML}
-                        <div class="r-title-box">
-                            <div class="r-title">Deposit Receipt</div>
-                            <div class="r-id">${config.data.displayId}</div>
-                        </div>
-                        <div class="r-grid">
-                            <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                            <div class="r-item"><span class="r-label">Customer ID</span><span class="r-value">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
-                            <div class="r-item"><span class="r-label">Payment Method</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
-                            <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
-                            <div class="r-item"><span class="r-label">Base Amount</span><span class="r-value">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
-                            <div class="r-item"><span class="r-label">Fee (${config.data.feePercent}%)</span><span class="r-value" style="color:#ef4444;">-${RenderHelpers.formatMoney(config.data.feeVal, config.data.currency)}</span></div>
-                        </div>
-                        <div class="r-total-box">
-                            <div class="r-total-label">Net Added Balance</div>
-                            <div class="r-total-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div>
-                        </div>
-                    ` : `
-                        ${brandHTML}
-                        <div class="r-title-box">
-                            <div class="r-title">Order Receipt</div>
-                            <div class="r-id">${config.data.displayId}</div>
-                        </div>
-                        <div class="r-grid">
-                            <div class="r-item"><span class="r-label">Product</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
-                            <div class="r-item"><span class="r-label">Status</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
-                            <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                            <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
-                            <div class="r-item"><span class="r-label">Quantity</span><span class="r-value">${config.data.qty}</span></div>
-                            <div class="r-item"><span class="r-label">Account Details</span><span class="r-value">${Utils.escapeHtml(config.data.input)}</span></div>
-                        </div>
-                        ${config.data.code ? `<div class="r-item-full"><span class="r-label">Completed Order Code</span><span class="r-value r-code-val">${Utils.escapeHtml(config.data.code)}</span></div>` : ''}
-                        <div class="r-total-box">
-                            <div class="r-total-label">Total Amount</div>
-                            <div class="r-total-val">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</div>
-                        </div>
-                    `;
-                
-                const fullHTML = `
-                        <!DOCTYPE html>
-                        <html lang="en" dir="ltr">
-                        <head>
-                            <meta charset="UTF-8">
-                            <title>${config.filename}</title>
-                            <style>
-                                @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
-                                @page { size: A4 portrait; margin: 15mm; }
-                                body { 
-                                    font-family: 'Share Tech Mono', sans-serif; 
-                                    background: #ffffff; 
-                                    color: #0f172a; 
-                                    margin: 0; 
-                                    padding: 0; 
-                                    -webkit-print-color-adjust: exact; 
-                                    print-color-adjust: exact; 
-                                }
-                                .receipt-container { 
-                                    max-width: 100%; 
-                                    margin: 0 auto; 
-                                    border: 1px solid #e2e8f0; 
-                                    border-radius: 12px; 
-                                    padding: 25px; 
-                                }
-                                .header-section { 
-                                    display: flex; justify-content: space-between; align-items: center; 
-                                    border-bottom: 2px dashed #cbd5e1; padding-bottom: 20px; margin-bottom: 25px; 
-                                }
-                                .store-name { font-size: 26px; font-weight: 800; color: #0f172a; }
-                                .r-title-box { background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #eab308; margin-bottom: 25px; text-align: center; }
-                                .r-title { font-size: 18px; color: #ca8a04; font-weight: bold; margin-bottom: 5px; }
-                                .r-id { font-size: 18px; color: #0f172a; font-weight: bold; }
-                                .r-grid { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
-                                .r-item { width: calc(50% - 7.5px); background: #f8fafc; padding: 12px; border-radius: 8px; border-left: 4px solid #eab308; box-sizing: border-box; }
-                                .r-item-full { width: 100%; background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px dashed #eab308; text-align: center; box-sizing: border-box; }
-                                .r-label { font-size: 13px; color: #64748b; display: block; margin-bottom: 5px; font-weight: 600; }
-                                .r-value { font-size: 15px; color: #0f172a; font-weight: bold; word-break: break-word; }
-                                .r-code-val { font-size: 20px; color: #ca8a04; letter-spacing: 2px; }
-                                .r-total-box { background: #eab308; padding: 20px; border-radius: 8px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; color: #fff; }
-                                .r-total-label { font-size: 18px; font-weight: bold; color: #fff; }
-                                .r-total-val { font-size: 24px; font-weight: 900; color: #fff; }
-                                .r-footer { text-align: center; margin-top: 30px; font-size: 13px; color: #94a3b8; }
-                            </style>
-                        </head>
-                        <body>
-                            <div class="receipt-container">
-                                ${contentHTML}
-                                <div class="r-footer">Thank you for trusting ${Utils.escapeHtml(storeName)} | Certified Electronic Receipt</div>
-                            </div>
-                        </body>
-                        </html>
-                    `;
+                // 🚀 استدعاء الـ HTML النظيف من المصنع UIBuilders
+                const fullHTML = UIBuilders.buildPDFReceipt(config, brandHTML.html);
                 
                 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
                 
@@ -1484,10 +1389,30 @@ export const RenderManager = {
     renderCountryList: function(countries) {
         const listTarget = document.getElementById('countries-list-target');
         if (!listTarget) return;
-        const active = (countries || []).filter(c => c.isActive !== false && !c.isBanned);
-        if (active.length === 0) { listTarget.innerHTML = '<div class="dropdown-item">لا توجد دول متاحة</div>'; return; }
         
-        listTarget.innerHTML = active.map(c => `<div class="dropdown-item" data-action="select-country" data-name="${Utils.escapeHtml(c.name || c.nameAr || 'غير محددة')}" data-code="${c.dialCode || ''}" data-len="${c.phoneLen || 10}"><span style="margin-left: 8px;">${c.flag || c.flagEmoji || '🌍'}</span><span style="flex: 1;">${Utils.escapeHtml(c.name || c.nameAr || 'غير محددة')}</span><span class="num-en" style="color: var(--text-muted);">${c.dialCode || ''}</span></div>`).join('');
+        const active = (countries || []).filter(c => c.isActive !== false && !c.isBanned);
+        if (active.length === 0) {
+            listTarget.innerHTML = '<div class="dropdown-item">لا توجد دول متاحة</div>';
+            return;
+        }
+        
+        listTarget.innerHTML = active.map(c => {
+            const safeName = Utils.escapeHtml(c.name || c.nameAr || 'غير محددة');
+            const safeFlag = Utils.escapeHtml(c.flag || c.flagEmoji || '🌍');
+            const safeCode = Utils.escapeHtml(c.dialCode || '');
+            const safeLen = parseInt(c.phoneLen) || 10;
+            
+            return `
+                    <div class="dropdown-item" 
+                         data-action="select-country" 
+                         data-name="${safeName}" 
+                         data-code="${safeCode}" 
+                         data-len="${safeLen}">
+                        <span style="margin-left: 8px;">${safeFlag}</span>
+                        <span style="flex: 1;">${safeName}</span>
+                        <span class="num-en" style="color: var(--text-muted);">${safeCode}</span>
+                    </div>`;
+        }).join('');
     },
 
     renderTerms: function() {

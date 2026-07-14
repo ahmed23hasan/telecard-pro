@@ -17,10 +17,9 @@
         window.addEventListener('error', function(e) {
             if (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK') {
                 window.BootLog.add(e.target.src || e.target.href, 'error', 'فشل في تحميل الملف');
+                // تم التعديل: استخدام الكلاس النظيف بدلاً من Inline Styles
                 document.body.insertAdjacentHTML('afterbegin', 
-                    `<div style="background:var(--danger, #ef4444); color:white; padding:12px; position:fixed; top:0; z-index:999999; width:100%; direction:rtl; font-weight:bold; font-family:sans-serif; text-align:center;">
-                       🛑 خلل في المسار: فشل المتصفح في العثور على ملف أساسي. يرجى تحديث الصفحة.
-                     </div>`
+                    `<div class="boot-fatal-error">🛑 خلل في المسار: فشل المتصفح في العثور على ملف أساسي. يرجى تحديث الصفحة.</div>`
                 );
             }
         }, true);
@@ -56,6 +55,20 @@
     <!-- 🚀 ملف التنسيقات الخاص بالمتجر (مع كاسر الكاش) -->
     <link rel="stylesheet" href="style.css?v=13.0.0">
 
+    <!-- ========================================================================= -->
+    <!-- 🌟 الإضافة السحرية (Import Map) لحل مشكلة الجافاسكريبت وانهيار الاستيرادات -->
+    <!-- ========================================================================= -->
+    <script type="importmap">
+      {
+        "imports": {
+          "script": "./script.js?v=13.0.0",
+          "renderManager": "./renderManager.js?v=13.0.0",
+          "uiBuilders": "./ui/uiBuilders.js?v=13.0.0",
+          "renderHelpers": "./core/renderHelpers.js?v=13.0.0"
+        }
+      }
+    </script>
+
     <!-- 🚀 التحميل المسبق لوحدات النظام -->
     <link rel="modulepreload" href="script.js?v=13.0.0">
     <link rel="modulepreload" href="core/renderHelpers.js?v=13.0.0">
@@ -65,18 +78,12 @@
     <!-- 🛡️ مكتبات النظام الأساسية -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
-
-    <!-- 🚀 إخفاء المحتوى الرئيسي لثوانٍ لمنع القفز البصري -->
-    <style>
-        .main-scroll { opacity: 0; animation: fadeInMain 0.6s ease 0.4s forwards; }
-        @keyframes fadeInMain { to { opacity: 1; } }
-    </style>
 </head>
 <body>
-    <!-- 🛑 تنبيه تعطيل الجافاسكريبت -->
+    <!-- 🛑 تنبيه تعطيل الجافاسكريبت (مُنظف من الـ Inline Styles) -->
     <noscript>
-        <div style="position: fixed; inset: 0; background: #111a2b; color: white; z-index: 9999999; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; font-family: 'Cairo', sans-serif; direction: rtl;">
-            <i class="fa-solid fa-triangle-exclamation" style="font-size: 50px; color: #ef4444; margin-bottom: 20px;"></i>
+        <div class="noscript-overlay">
+            <i class="fa-solid fa-triangle-exclamation noscript-icon"></i>
             <h2>تنبيه هام</h2>
             <p>هذا المتجر يتطلب تفعيل الجافاسكريبت (JavaScript) ليعمل. يرجى تفعيلها من إعدادات المتصفح ثم إعادة تحميل الصفحة.</p>
         </div>
@@ -89,13 +96,13 @@
         }
     </script>
 
-    <!-- 🚀 شاشة الإقلاع الرئيسية -->
-    <div id="global-splash-screen" style="position: fixed; inset: 0; z-index: 999999; background-color: #111a2b; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.4s ease, visibility 0.4s ease;">
-        <div style="position: relative; width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">
-            <i class="fa-solid fa-circle-notch fa-spin" style="position: absolute; font-size: 70px; color: #FFD700; opacity: 0.15;"></i>
-            <i class="fa-solid fa-store" style="font-size: 28px; color: #FFD700;"></i>
+    <!-- 🚀 شاشة الإقلاع الرئيسية (مُنظفة من الـ Inline Styles) -->
+    <div id="global-splash-screen" class="splash-screen-overlay">
+        <div class="splash-logo-container">
+            <i class="fa-solid fa-circle-notch fa-spin splash-spinner"></i>
+            <i class="fa-solid fa-store splash-icon"></i>
         </div>
-        <h2 id="splash-store-name" style="color: #fff; font-weight: 900; font-size: 22px; letter-spacing: 1px; margin: 0; font-family: 'Cairo', sans-serif;">جاري إعداد حسابك...</h2>
+        <h2 id="splash-store-name" class="splash-title">جاري إعداد حسابك...</h2>
     </div>
 
     <!-- 🛡️ حقن الاسم المخبأ لتسريع شاشة الإقلاع -->
@@ -117,9 +124,8 @@
         </div>
     </div>    
     
-    <div id="toast-warning" class="toast-warning" style="display: none;"><i class="fa-solid fa-circle-exclamation"></i> تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء</div>
-    
-    <!-- ======================= 🔝 الهيدر العلوي ======================= -->
+    <!-- 💡 تركت ستايل display:none هنا لأنه يتحكم به الجافاسكريبت برمجياً -->
+    <div id="toast-warning" class="toast-warning" style="display: none;"><i class="fa-solid fa-circle-exclamation"></i> تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء</div>    <!-- ======================= 🔝 الهيدر العلوي ======================= -->
     <header class="store-header">
         <div class="header-actions-right">
              <div class="action-btn menu-btn" data-action="open-sidebar" aria-label="القائمة الجانبية"><i class="fa-solid fa-bars"></i></div>

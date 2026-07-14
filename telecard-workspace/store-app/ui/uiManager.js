@@ -18,16 +18,18 @@ const verifyModule = (name, mod) => {
     }
     
     if (typeof window !== 'undefined') {
-    // 🛡️ [إصلاح أمني]: منع تسمم الكائنات (Prototype Pollution) باستخدام defineProperty
-    if (!window.ModuleWatchdog || !window.ModuleWatchdog.loadedModules) {
-        Object.defineProperty(window, 'ModuleWatchdog', {
-            value: Object.freeze({ loadedModules: new Set() }),
-            writable: false,
-            configurable: false
-        });
+        // 🛡️ [إصلاح أمني]: منع تسمم الكائنات (Prototype Pollution) باستخدام defineProperty
+        if (!window.ModuleWatchdog) {
+            Object.defineProperty(window, 'ModuleWatchdog', {
+                value: Object.freeze({ loadedModules: new Set() }),
+                writable: false,
+                configurable: false
+            });
+        }
+        window.ModuleWatchdog.loadedModules.add(name);
     }
-    window.ModuleWatchdog.loadedModules.add(name);
-}    return true;
+    
+    return true;
 };
 
 verifyModule('UICore', UICore);
@@ -80,15 +82,16 @@ Object.defineProperties(UIManager, {
             }
             
             requestAnimationFrame(() => {
-    if (_loaderActiveRequests > 0) {
-        if (textEl && textEl.textContent !== text) {
-            textEl.textContent = text; // ✔️ يتم الرسم في الوقت المثالي
-        }
-        loader.classList.add('is-active');
-    } else {
-        loader.classList.remove('is-active');
-    }
-});
+                if (_loaderActiveRequests > 0) {
+                    if (textEl && textEl.textContent !== text) {
+                        textEl.textContent = text; // ✔️ يتم الرسم في الوقت المثالي
+                    }
+                    loader.classList.add('is-active');
+                } else {
+                    loader.classList.remove('is-active');
+                }
+            });
+        }, // ✅ تم إضافة قوس الإغلاق هنا 
         writable: false, 
         configurable: false
     },

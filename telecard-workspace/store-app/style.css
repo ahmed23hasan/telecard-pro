@@ -5305,3 +5305,92 @@ body.light-mode .modern-fav-btn { color: var(--primary-dim); }
     margin: 8px auto auto auto !important;
     border-radius: 4px;
 }
+/* ==========================================================================
+   🚀 إعدادات الإقلاع والشاشات الافتتاحية (Boot & Splash Screens)
+   ========================================================================== */
+
+/* أنيميشن الدخول الرئيسي */
+.main-scroll {
+    opacity: 0;
+    animation: fadeInMain 0.6s ease 0.4s forwards;
+}
+@keyframes fadeInMain {
+    to { opacity: 1; }
+}
+
+/* رسالة الخطأ القاتل (Boot Watchdog) */
+.boot-fatal-error {
+    background: var(--danger, #ef4444);
+    color: white;
+    padding: 12px;
+    position: fixed;
+    top: 0;
+    z-index: 999999;
+    width: 100%;
+    direction: rtl;
+    font-weight: bold;
+    font-family: sans-serif;
+    text-align: center;
+}
+
+/* تنبيه تعطيل الجافاسكريبت (NoScript) */
+.noscript-overlay {
+    position: fixed;
+    inset: 0;
+    background: #111a2b;
+    color: white;
+    z-index: 9999999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    font-family: 'Cairo', sans-serif;
+    direction: rtl;
+}
+.noscript-icon {
+    font-size: 50px;
+    color: #ef4444;
+    margin-bottom: 20px;
+}
+
+/* شاشة الإقلاع (Splash Screen) */
+.splash-screen-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background-color: #111a2b;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.4s ease, visibility 0.4s ease;
+}
+.splash-logo-container {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+.splash-spinner {
+    position: absolute;
+    font-size: 70px;
+    color: #FFD700;
+    opacity: 0.15;
+}
+.splash-icon {
+    font-size: 28px;
+    color: #FFD700;
+}
+.splash-title {
+    color: #fff;
+    font-weight: 900;
+    font-size: 22px;
+    letter-spacing: 1px;
+    margin: 0;
+    font-family: 'Cairo', sans-serif;
+}

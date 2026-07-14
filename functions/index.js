@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V13.3 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V13.4 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديثات: حماية حدود الـ Transactions، إصلاح المخزون الوهمي، تنظيف الـ Vault، وتأمين الـ Timeout
+// 🚀 التحديثات: بنية صارمة (Strict Architecture)، زراعة الـ Tier ID الحقيقي، وإيقاف الفشل الآمن
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -29,10 +29,10 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-// 🛡️ درع التيتانيوم الأمني (تم تخفيض سقف الـ Vault لحماية حدود فايربيز 500 Writes)
+// 🛡️ درع التيتانيوم الأمني
 const SYSTEM_LIMITS = {
     MAX_QTY_PER_ORDER: 10000, 
-    MAX_VAULT_QTY_PER_ORDER: 200, // 🔒 سقف آمن جداً يضمن عدم تجاوز 500 عملية في الـ Transaction
+    MAX_VAULT_QTY_PER_ORDER: 200, 
     MAX_SAFE_AMOUNT: 100000000 
 };
 
@@ -67,11 +67,23 @@ const generateUniqueId = () => {
 };
 
 // ==========================================
-// 🛡️ 0. درع الثقة المعدومة (Zero-Trust Shield)
+// 🛡️ 0. درع الثقة المعدومة (Zero-Trust Shield) - التحديث الصارم
 // ==========================================
 exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
     try {
         const userRef = db.collection('telecard_users').doc(user.uid);
+        
+        // 1. البحث عن المستوى الافتراضي الحقيقي في قاعدة البيانات
+        const defaultTierSnap = await db.collection('telecard_tiers').where('isDefault', '==', true).limit(1).get();
+        let initialTierId = '';
+
+        if (!defaultTierSnap.empty) {
+            initialTierId = defaultTierSnap.docs[0].id; // أخذ الـ ID الحقيقي
+        } else {
+            console.error(`[CRITICAL WARNING] No default tier found in DB for new user ${user.uid}`);
+            // يمكن وضع ID لمستوى تعرف أنه موجود دائماً كاحتياط أخير
+            initialTierId = '1'; 
+        }
         
         const initialProfile = {
             email: user.email || '',
@@ -82,7 +94,7 @@ exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
             wallet_balance: 0.0,
             totalSpent: 0.0,
             totalDeposit: 0.0,
-            tierId: 'TIER_DEFAULT_INITIAL',
+            tierId: initialTierId, // 👈 زراعة الـ ID الحقيقي هنا
             tierCycleSpent: 0.0,
             tierCycleStartDate: admin.firestore.FieldValue.serverTimestamp(),
             manualTierOverride: false,
@@ -94,7 +106,7 @@ exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
         };
         
         await userRef.set(initialProfile, { merge: true });
-        console.log(`✅ [SYSTEM] Secure profile initialized for UID: ${user.uid}`);
+        console.log(`✅ [SYSTEM] Secure profile initialized for UID: ${user.uid} with Tier: ${initialTierId}`);
     } catch (error) {
         console.error(`❌ [CRITICAL] Failed to initialize user ${user.uid}:`, error);
     }
@@ -179,7 +191,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
     const { data } = request;
     const productId = String(data.productId || '');
     
-    // 🛡️ تطبيق الحد الآمن بناءً على نوع المنتج لاحقاً، ولكن نطبق الحد العام أولاً
     let requestedQty = Math.floor(Number(data.qty) || 1);
     const optIdx = data.optIdx !== null && data.optIdx !== undefined ? Number(data.optIdx) : null;
     const finalInputStr = String(data.finalInputStr || '---').substring(0, 500);
@@ -212,7 +223,6 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
 
             if (userData.isBanned === true) throw new HttpsError('permission-denied', 'العملية مرفوضة.');
 
-            // 🛡️ تطبيق الحد الآمن لصناديق الأكواد لحماية الـ Transaction
             let finalQty = Math.max(1, Math.min(SYSTEM_LIMITS.MAX_QTY_PER_ORDER, requestedQty));
             if (product.vaultPoolId) {
                 finalQty = Math.min(finalQty, SYSTEM_LIMITS.MAX_VAULT_QTY_PER_ORDER);
@@ -224,9 +234,22 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
                 if ((await transaction.get(idempotencyRef)).exists) throw new HttpsError('already-exists', 'تم معالجة هذا الطلب مسبقاً.');
             }
 
-            const tierId = String(userData.tierId || userData.tier || 'TIER_DEFAULT_INITIAL');
+            // ========================================================
+            // 🛡️ تحديد مستوى العميل الصارم (Strict Tier Resolution)
+            // ========================================================
+            const assignedTierId = String(userData.tierId || userData.tier);
             const tiersData = await loadTiersCache();
-            const currentTierObj = tiersData.find(t => String(t.id) === tierId);
+
+            // 1. البحث الدقيق عن مستوى العميل
+            const currentTierObj = tiersData.find(t => String(t.id) === assignedTierId);
+
+            // 2. الفشل الآمن: لا ترقيع، لا بيانات وهمية. إذا كان المعرف غير صحيح، نوقف الشراء!
+            if (!currentTierObj) {
+                console.error(`[DATA INTEGRITY ERROR] User ${uid} has invalid Tier ID: ${assignedTierId}`);
+                throw new HttpsError('failed-precondition', 'بيانات مستوى الحساب غير متطابقة. يرجى التواصل مع الدعم الفني لتحديث حسابك.');
+            }
+            const tierId = currentTierObj.id;
+            // ========================================================
 
             const [keysSnap, currentCouponSnap] = await Promise.all([
                 product.vaultPoolId ? transaction.get(db.collection('telecard_vault').doc(String(product.vaultPoolId)).collection('keys').where('isSold', '==', false).limit(finalQty)) : Promise.resolve(null),
@@ -277,7 +300,7 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
 
             if (isCycleExpired || isTierUpgraded) { userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); }
 
-            // --- 🛡️ إكمال عملية البيع مع الحماية من بيع الهواء (Inventory Mismatch) ---
+            // --- 🛡️ إكمال عملية البيع مع الحماية من بيع الهواء ---
             if (product.vaultPoolId && keysSnap) {
                 if (keysSnap.size < finalQty) {
                     throw new HttpsError('failed-precondition', `عذراً، الكمية المتوفرة حالياً في المخزن (${keysSnap.size}) أقل من الكمية المطلوبة.`);
@@ -587,7 +610,6 @@ exports.grantAdminRole = onCall({ secrets: [ROOT_OWNER_UID] }, async (request) =
     } catch (error) { throw new HttpsError('internal', `فشل المنح: ${error.message}`); }
 });
 
-// 🛡️ [تحديث 3: مسح متسلسل وآمن لحذف الحسابات الضخمة وتجنب انهيار الـ Batch]
 exports.adminDeleteUserData = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     const { targetUid } = request.data;
@@ -616,7 +638,6 @@ exports.adminDeleteUserData = onCall(async (request) => {
             await Promise.all(batches.map(b => b.commit()));
         };
 
-        // مسح متسلسل للبيانات المرتبطة
         await Promise.all([
             deleteQueryBatch(db.collection('telecard_orders').where('userId', '==', targetUid)),
             deleteQueryBatch(db.collection('telecard_deposits').where('userId', '==', targetUid)),
@@ -705,7 +726,6 @@ const performStatsRecalculation = async () => {
     }, { merge: true });
 };
 
-// 🛡️ [تحديث 4: رفع مهلة التنفيذ لـ 9 دقائق لتجنب الـ Timeout مع البيانات الضخمة]
 exports.scheduledStatsAggregation = onSchedule({ 
     schedule: 'every 6 hours',
     timeoutSeconds: 540,
@@ -875,7 +895,6 @@ exports.secureSaveSupplier = onCall({ memory: '256MiB' }, supplierEngine.secureS
 // 📦 11. إدارة صناديق الأكواد السحابية (Vault Subcollections Engine)
 // ==========================================
 
-// 🛡️ [تحديث 5: تنظيف الأكواد من المسافات المخفية لتجنب تكرار الـ Hashing الخاطئ]
 exports.adminSaveVaultCodes = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     
@@ -903,7 +922,6 @@ exports.adminSaveVaultCodes = onCall(async (request) => {
         let opCount = 0;
         
         for (const code of codesList) {
-            // مسح أي مسافات غير مرئية أو مسافات بيضاء من الكود قبل التشفير
             const safeCode = String(code).replace(/\s+/g, '');
             if (!safeCode) continue;
             

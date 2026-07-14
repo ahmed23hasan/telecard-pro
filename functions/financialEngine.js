@@ -1,17 +1,18 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - النسخة المطلقة V12.1 🛡️
+// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - النسخة المطلقة V12.3 🛡️
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، ومنع التلاعب بالمدخلات
-// 🚀 التحديث الأخير: الجدار الناري المزدوج (Dual Firewall) واصطياد الخصومات السلبية
+// 🚀 التحديث الأخير: التجميد العميق (Deep Freeze) لمنع العبث بالذاكرة أثناء التشغيل
 // ============================================================================
 
 const FinancialEngineDef = {
 
-    CONFIG: {
+    // 🔒 [إغلاق ثغرة التجميد السطحي]: تجميد الكائن الداخلي لحماية الدقة الرياضية
+    CONFIG: Object.freeze({
         BASE_CURRENCY: 'USD',
         MAX_QTY_LIMIT: 10000,    
         MAX_PRICE_LIMIT: 10000,  
         PRECISION: 10000         
-    },
+    }),
 
     safeAdd: function(a, b) {
         return Math.round((Number(a) || 0) * this.CONFIG.PRECISION + (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
@@ -140,7 +141,6 @@ const FinancialEngineDef = {
             couponDiscount = coupon.type === 'percentage' ? this.safeMul(originalPrice, coupVal / 100) : coupVal;
         }
 
-        // 🛡️ التحديث V12.1: إزالة Math.max لاصطياد وتوثيق التجاوزات السلبية بدقة
         currentPrice = this.safeSub(currentPrice, this.safeAdd(offerDiscount, couponDiscount));
 
         let isFirewallViolated = false;

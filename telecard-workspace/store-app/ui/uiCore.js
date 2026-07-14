@@ -1627,15 +1627,15 @@ div.style.backgroundImage = `url('${b.img.replace(/'/g, "%27")}')`;
     let nativeHtml = '';
     
     availableCodes.forEach(code => {
-        const isActive = code === selected ? 'active' : '';
-        menuHtml += `
-                    <div class="ct-item ${isActive}" data-curr="${code}">
+    const safeCode = Utils.escapeHtml(code); // 🛡️ تنظيف الرمز أولاً
+    const isActive = code === selected ? 'active' : '';
+    menuHtml += `
+                    <div class="ct-item ${isActive}" data-curr="${safeCode}">
                         <div class="ct-flag-box"></div>
-                        <span class="ct-name">${code}</span>
+                        <span class="ct-name">${safeCode}</span>
                     </div>`;
-        nativeHtml += `<option value="${code}" ${code === selected ? 'selected' : ''}>${code}</option>`;
-    });
-    
+    nativeHtml += `<option value="${safeCode}" ${code === selected ? 'selected' : ''}>${safeCode}</option>`;
+});    
     menu.innerHTML = menuHtml;
     if (nativeSel) nativeSel.innerHTML = nativeHtml;
     

@@ -1,7 +1,7 @@
 // ============================================================================
-// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - النسخة الماسية V11.6 💎
+// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - النسخة الماسية V11.7 💎
 // 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة ومحرك الكاش
-// 🚀 التحديث الأقصى: ربط المحرك المالي، حماية الذاكرة الممتلئة، وتوافق المتصفحات
+// 🚀 التحديث الأقصى: ربط المحرك المالي، حماية الذاكرة الممتلئة، وإصلاح تسرب الإشعارات
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -170,6 +170,7 @@ export const DataManager = {
     _notifUnsubscribe: null,
     _userUnsubscribe: null,
 
+    // 🛡️ إنشاء معرّف فريد للعمليات المالية لمنع تكرار الخصم
     generateIdempotencyKey: function() {
         if (typeof crypto !== 'undefined' && crypto.randomUUID) {
             return crypto.randomUUID();
@@ -327,7 +328,6 @@ export const DataManager = {
 
         const oldPriceUsd = (activeOffer?.type === 'fake') ? Number(activeOffer.value || 0) : null;
 
-        // 💡 ملاحظة: يمكن ربط هذه الحسابات (orderSnapshot) لاحقاً بوحدة توزيع الأرباح الصافية لتسهيل الحسابات الختامية
         return {
             unitSnapshot: orderSnapshot, 
             totalUsd: orderSnapshot.totalFinalPrice, 
@@ -764,10 +764,14 @@ export const DataManager = {
             localStorage.setItem(`alert_views_${msgId}`, views.toString());
             if (views < maxViews) return;
         }
-        
+
         const readIds = this._getSafeReadIds();
         if (!readIds.includes(String(msgId))) {
             readIds.push(String(msgId));
+            
+            // 🛡️ حماية الذاكرة: قص المصفوفة هنا
+            if (readIds.length > 100) readIds.splice(0, readIds.length - 100);
+            
             localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
             
             if (this.user?.uid) {
@@ -784,7 +788,7 @@ export const DataManager = {
             try { await StoreDB.set(`telecard_users/${this.user.uid}/notifications`, msgId, { isRead: true }, { merge: true }); } catch (e) {}
         }
     },
-    
+
     markAllNotificationsRead: async function() {
         const allAlerts = this.getAllUserAlerts();
         if (!allAlerts.length) return;
@@ -805,10 +809,13 @@ export const DataManager = {
             }
         }
         
-        localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(readIds));
+        // 🛡️ الترقيع الأمني وحماية الذاكرة: الاحتفاظ بآخر 100 معرّف فقط
+        const cappedReadIds = readIds.slice(-100);
+        
+        localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(cappedReadIds));
         
         if (this.user?.uid) {
-            this.updateUserProfile({ readAlerts: readIds }).catch(()=>{});
+            this.updateUserProfile({ readAlerts: cappedReadIds }).catch(()=>{});
         }
         
         if (window.UIManager?.updateNotifBadges) window.UIManager.updateNotifBadges();
@@ -816,7 +823,7 @@ export const DataManager = {
         
         if (updates.length > 0) await Promise.all(updates);
     },
-        
+
     sendPasswordResetEmail: async function(email) {
         return email ? await StoreDB.sendResetEmail(email) : { success: false, msg: 'بريد مفقود.' };
     },

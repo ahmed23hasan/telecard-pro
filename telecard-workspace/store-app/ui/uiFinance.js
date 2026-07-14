@@ -5,6 +5,7 @@
 // 1. [Tx Watchdog]: حارس المعاملات الذكي لمنع تجمد الواجهة عند انقطاع الإنترنت.
 // 2. [Safe Modal Closure]: الإغلاق الآمن للنوافذ باستخدام transitionend.
 // 3. [Anti-Spam Shield]: درع حماية الواجهة من النقرات المتعددة (Invisible Shield).
+// 4. [Clean Architecture]: تم فصل جميع كتل الـ HTML إلى uiBuilders.js
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -12,6 +13,7 @@ import { DataManager, LiveStoreData } from '../dataManager.js';
 import { RenderManager } from '../renderManager.js';
 import { RenderHelpers } from '../core/renderHelpers.js';
 import { FirebaseAdapter } from '../core/firebaseAdapter.js';
+import { UIBuilders } from './uiBuilders.js'; // استيراد مصنع الواجهات
 
 const getSys = () => {
     if (window.ClientSystem) return window.ClientSystem;
@@ -29,11 +31,9 @@ export const UIFinance = {
     pendingReceiptFile: null,
     _isProcessingTx: false, 
     _watchdogTimer: null,
-    _boundOfflineHandler: null, // مرجع لحفظ الدالة لمنع تسرب الذاكرة
+    _boundOfflineHandler: null, 
 
-    // 🛡️ [حارس المعاملات - Transaction Watchdog]
     _startTxWatchdog: function(submitBtn, shieldId) {
-        // حارس أمان: يغلق الدرع تلقائياً بعد 20 ثانية مهما حدث
         this._watchdogTimer = setTimeout(() => {
             if (this._isProcessingTx) {
                 console.warn("[TeleCard] Watchdog: Transaction timed out, forcing unlock.");
@@ -42,18 +42,14 @@ export const UIFinance = {
             }
         }, 20000);
 
-        // ربط مراقب الإنترنت مع الحفاظ على سياق (this)
         this._boundOfflineHandler = () => {
             if (this._isProcessingTx) {
                 getSys().showToast?.('تم انقطاع الاتصال! جاري استرداد الحالة...', 'warning');
-                // يمكننا أيضاً إنهاء المعاملة فوراً هنا إذا أردنا
-                // this._cleanupTxUI(submitBtn, shieldId);
             }
         };
         window.addEventListener('offline', this._boundOfflineHandler);
     },
 
-    // 🛡️ [تنظيف واجهة المعاملات]
     _cleanupTxUI: function(submitBtn, shieldId) {
         this._isProcessingTx = false;
         
@@ -453,19 +449,6 @@ export const UIFinance = {
         }
     },
 
-    _splitCodesToHtml: function(codeString) {
-        if (!codeString) return '';
-        const rawCodes = codeString.split(/\||\n/).map(c => c.trim()).filter(Boolean);
-        return rawCodes.map(code => {
-            const safeCode = Utils.escapeHtml(code);
-            return `
-            <div class="copyable-code-box lux-code-box success-lux-box" data-action="copy-text" data-text="${safeCode}" style="margin-bottom: 8px;">
-                <span class="num-en">${safeCode}</span>
-                <i class="fa-regular fa-copy"></i>
-            </div>`;
-        }).join('');
-    },
-
     handlePurchaseSubmit: async function() { 
         if (this._isProcessingTx) return; 
         
@@ -541,7 +524,6 @@ export const UIFinance = {
             document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}"></div>`);
         }
 
-        // 🛡️ تفعيل حارس المعاملات
         this._startTxWatchdog(submitBtn, shieldId);
 
         try {
@@ -564,7 +546,7 @@ export const UIFinance = {
                         if (titleEl) titleEl.innerText = 'تم تنفيذ الطلب بنجاح!';
                         if (descEl) descEl.innerHTML = 'تم تسليم الكود، تجده دائماً في <span class="smart-link" data-action="navigate-orders-success">سجل الطلبات</span>';
                         if (codeDisplayContainer) {
-                            const splitCodesHtml = this._splitCodesToHtml(result.deliveredCodeText);
+                            const splitCodesHtml = UIBuilders.buildCodesList(result.deliveredCodeText);
                             codeDisplayContainer.innerHTML = `<div class="dc-title"><i class="fa-solid fa-key"></i> الأكواد الخاصة بك:</div><div style="max-height: 200px; overflow-y: auto; padding-right: 5px;">${splitCodesHtml}</div>`;
                             codeDisplayContainer.classList.remove('d-none');
                         }
@@ -595,7 +577,6 @@ export const UIFinance = {
             console.error("🚨 خطأ أثناء تنفيذ الشراء السحابي:", err);
             getSys().showToast?.('حدث خطأ في الاتصال بالسيرفر، يرجى المحاولة لاحقاً', 'error');
         } finally {
-            // 🛡️ تنظيف الواجهة وإنهاء الحارس
             this._cleanupTxUI(submitBtn, shieldId);
         }
     },
@@ -742,50 +723,8 @@ export const UIFinance = {
         
         const baseCurr = (DataManager.user?.baseCurrency || 'USD').toUpperCase();
         
-        section.innerHTML = `
-            <div class="bal-modal-container-new">
-                <div class="bal-payment-title">${Utils.escapeHtml(p.name)}</div>
-                ${copyContainer}
-                <div class="compact-limits-bar" id="bal-limits-bar"></div>
-                <div class="bal-inputs-section">
-                    <div class="micro-currency-row">
-                        <div class="micro-currency-label"><i class="fa-solid fa-wallet"></i> عملة الإيداع</div>
-                        <div class="split-dropdown" id="bal-currency-dropdown">
-                            <div class="micro-currency-trigger" style="${isSingleCurrency ? 'cursor: default;' : ''}">
-                                <span id="bal-selected-currency" class="num-en">${this.currentPayCurrency}</span>
-                                ${isSingleCurrency ? '' : '<i class="fa-solid fa-chevron-down" style="font-size: 11px;"></i>'}
-                            </div>
-                            <div class="dropdown-menu" id="bal-currency-list" style="${isSingleCurrency ? 'display:none;' : ''}">
-                                ${currItemsHtml}
-                            </div>
-                        </div>
-                    </div>
-                 <div class="bal-input-field-new" id="bal-amount-wrap">
-                    <span class="bal-input-currency-new" id="bal-amount-curr">${this.currentPayCurrency}</span>
-                    <input type="text" id="bal-amount" class="bal-input-new num-en" placeholder="0.00" inputmode="decimal" autocomplete="one-time-code" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false" autocorrect="off">
-                    <label class="bal-floating-label">أدخل مبلغ للإيداع</label>
-                </div>
-                <span id="bal-amount-error" class="bal-error-text-new d-none"></span>
-                    <div class="bal-input-field-new" id="bal-net-wrap">
-                        <span class="bal-input-currency-new" id="bal-net-curr">${baseCurr}</span>
-                        <div class="bal-input-new bal-result-field-new num-en" id="calc-net">0.00</div>
-                        <label class="bal-floating-label">سيضاف لمحفظتك</label>
-                    </div>
-                </div>
-                <div id="bal-upload-container" style="display: ${p.reqProof !== false ? 'block' : 'none'}; margin-top: 10px;">
-                    <button class="bal-upload-btn-new" id="bal-upload-box">
-                        <i class="fa-solid fa-cloud-arrow-up"></i>
-                        <span>أرفق إشعار الدفع</span>
-                    </button>
-                    <input type="file" id="bal-file" accept="image/*,application/pdf" style="display:none;">
-                    <img id="bal-img-preview" class="bal-receipt-preview-new" style="display:none;">
-                </div>
-                <button id="btn-submit-deposit" class="bal-submit-btn-new btn-pro" data-action="submit-balance" disabled>
-                    <span class="btn-content"><i class="fa-solid fa-paper-plane"></i> إرسال الطلب</span>
-                    <span class="btn-spinner"><i class="fa-solid fa-spinner fa-spin"></i></span>
-                </button>         
-            </div>
-        `;
+        section.innerHTML = UIBuilders.buildDepositForm(p, copyContainer, isSingleCurrency, this.currentPayCurrency, currItemsHtml, baseCurr);
+
         if (!section._boundDelegation) {
             section.addEventListener('input', (e) => {
                 if (e.target.id === 'bal-amount') {
@@ -856,7 +795,7 @@ export const UIFinance = {
         getSys().sfx?.('nav');
     },
 
-            _toggleBalHeaderBtn: function(mode) {
+    _toggleBalHeaderBtn: function(mode) {
         const actionBtn = document.querySelector('#balance-modal .pm-close-std') || document.getElementById('bal-action-btn');
         const titleEl = document.querySelector('#balance-modal .title-badge') || document.querySelector('#balance-modal .pm-title-badge');
         
@@ -887,7 +826,6 @@ export const UIFinance = {
         }
     },
 
-    // 🛡️ [تحديث الأداء]: إغلاق آمن للنافذة لمنع تداخل الحركات
     closeBalanceModal: function() {
         const modal = document.getElementById('balance-modal');
         getSys().closeModal?.('balance');
@@ -1053,42 +991,7 @@ export const UIFinance = {
         }
         
         if (limitsBar) {
-            let itemsHtml = [];
-            if (feeVal > 0) {
-                const isFixed = (feeUnit === 'fixed' || feeUnit === 'amount');
-                const isBonus = (feeType === 'bonus');
-                const icon    = isBonus ? 'fa-gift' : 'fa-coins';
-                const label   = isBonus ? 'بونص' : 'عمولة';
-                const sign    = isBonus ? '+' : '-';
-                const cssClass = isBonus ? 'bonus' : 'commission';
-
-                const feeDisplay = isFixed 
-                    ? RenderHelpers.formatMoney(feeVal, payCurr) 
-                    : `<span class="money-pro"><span class="num-en">${feeVal.toFixed(1)}%</span></span>`;
-
-                itemsHtml.push(`
-                    <div class="bar-item ${cssClass}">
-                        <span class="item-label"><i class="fa-solid ${icon}"></i> ${label}</span>
-                        <span class="item-value">
-                            <span class="math-sign">${sign}</span>${feeDisplay}
-                        </span>
-                    </div>`);
-            }
-            if (minVal > 0) {
-                itemsHtml.push(`
-                    <div class="bar-item">
-                        <span class="item-label"><i class="fa-solid fa-arrow-down"></i> أدنى حد</span>
-                        <span class="item-value">${RenderHelpers.formatMoney(minVal, payCurr)}</span>
-                    </div>`);
-            }
-
-            if (maxVal > 0) {
-                itemsHtml.push(`
-                    <div class="bar-item">
-                        <span class="item-label"><i class="fa-solid fa-arrow-up"></i> أعلى حد</span>
-                        <span class="item-value">${RenderHelpers.formatMoney(maxVal, payCurr)}</span>
-                    </div>`);
-            }
+            const itemsHtml = UIBuilders.buildLimitsBar(feeVal, payCurr, feeUnit, feeType, minVal, maxVal);
 
             if (itemsHtml.length === 0) {
                 limitsBar.style.display = 'none';
@@ -1169,7 +1072,6 @@ export const UIFinance = {
             document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}"></div>`);
         }
         
-        // 🛡️ تفعيل حارس المعاملات
         this._startTxWatchdog(submitBtn, shieldId);
         
         try {
@@ -1206,7 +1108,6 @@ export const UIFinance = {
         } catch (error) {
             getSys().showToast?.(error.message || 'فشل إرسال الطلب.', 'error');
         } finally {
-            // 🛡️ تنظيف الواجهة وإنهاء الحارس
             this._cleanupTxUI(submitBtn, shieldId);
         }
     },
@@ -1443,7 +1344,7 @@ export const UIFinance = {
             }
             
             if (o.status === 'completed' && o.deliveredCode && o.deliveredCode !== 'null') {
-                const splitCodesHtml = this._splitCodesToHtml(o.deliveredCode);
+                const splitCodesHtml = UIBuilders.buildCodesList(o.deliveredCode);
                 
                 replyHtml += `
                 <div class="nm-reply-box auto-delivery-box">
