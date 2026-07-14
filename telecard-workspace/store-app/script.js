@@ -512,12 +512,43 @@ ClientSystem.userAuthListeners = [];
 ClientSystem.initFirebaseListeners = function() {
     console.log("📡 جاري تشغيل مستمعات السحابة الحية (النظام التفاعلي)...");
     this.clearFirebaseListeners(); 
-    
-    // استماع للتحديثات العامة
+  // استماع للتحديثات العامة (إعدادات النظام وإصدار التطبيق)
     if (DB_KEYS.SETTINGS) {
         this.activeListeners.push(StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
             const incoming = Array.isArray(data) ? (data[0] || null) : (data || null);
             if (!incoming) return;
+            
+            // 🚀 1. نظام التحديث الإجباري الحي (Live Force Update Watchdog)
+            const serverVersion = String(incoming.appVersion || '0');
+            const localVersion = localStorage.getItem('telecard_app_version') || window.TELECARD_VERSION || '0';
+            
+            if (serverVersion !== '0' && serverVersion !== localVersion) {
+                console.warn(`🔄 الإدارة أصدرت تحديثاً إجبارياً! (من ${localVersion} إلى ${serverVersion})`);
+                
+                if (typeof UIManager !== 'undefined' && UIManager.showToast) {
+                    UIManager.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل للحصول على أفضل تجربة...', 'success');
+                }
+                
+                setTimeout(async () => {
+                    localStorage.setItem('telecard_app_version', serverVersion);
+                    
+                    // مسح الكاش العميق
+                    if (typeof localforage !== 'undefined') await localforage.clear();
+                    
+                    // قتل الـ Service Workers القديمة
+                    if ('serviceWorker' in navigator) {
+                        const regs = await navigator.serviceWorker.getRegistrations();
+                        for (let r of regs) await r.unregister();
+                    }
+                    
+                    // إعادة تحميل صارمة من السيرفر
+                    window.location.reload(true);
+                }, 2000);
+                
+                return; // 🛑 إيقاف باقي الأكواد لتجنب أي تعارض أثناء الريفريش
+            }
+
+            // 🚀 2. إكمال المزامنة العادية للبيانات
             LiveStoreData.settings = incoming;
             RenderHelpers.init({ settings: LiveStoreData.settings, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
             try { if (this.syncUser) this.syncUser(); } catch(e){}
@@ -613,6 +644,49 @@ ClientSystem.init = async function() {
     this.isReady = true;
     console.log("🚀 جاري إقلاع النظام (نمط مكافحة الانهيار + الكاش الذكي O(1) Reads)...");
     
+    // ==========================================
+    // 🛡️ حارس الإصدارات والإقلاع (Boot-Time Version Enforcer)
+    // ==========================================
+    try {
+        const currentVersion = window.TELECARD_VERSION || "1.0.0";
+        const savedVersion = localStorage.getItem('telecard_app_version');
+
+        if (savedVersion && savedVersion !== currentVersion) {
+            console.warn(`🔄 تم اكتشاف تحديث محلي للمتجر! (من ${savedVersion} إلى ${currentVersion}). جاري تنظيف الكاش العميق...`);
+            
+            // 1. مسح الكاش العميق
+            if (typeof localforage !== 'undefined') await localforage.clear();
+
+            // 2. قتل الـ Service Workers
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (let registration of registrations) {
+                    await registration.unregister();
+                }
+            }
+
+            // 3. الحفاظ على بيانات الجلسة الحرجة (كي لا يطرد المستخدم)
+            const activeUid = localStorage.getItem('telecard_active_user_uid');
+            const theme = localStorage.getItem('telecard_theme');
+            localStorage.clear();
+            
+            if (activeUid) localStorage.setItem('telecard_active_user_uid', activeUid);
+            if (theme) localStorage.setItem('telecard_theme', theme);
+            
+            // 4. حفظ الإصدار الجديد وإعادة التحميل
+            localStorage.setItem('telecard_app_version', currentVersion);
+            window.location.reload(true);
+            return; // 🛑 إيقاف الإقلاع القديم فوراً
+            
+        } else if (!savedVersion) {
+            // تسجيل الإصدار لأول مرة
+            localStorage.setItem('telecard_app_version', currentVersion);
+        }
+    } catch (e) {
+        console.error("خطأ في حارس الإصدارات:", e);
+    }
+    // ==========================================
+
     // 🟢 المرحلة 1: إعدادات المستخدم الأساسية والمظهر
     try {
         if (DataManager.loadPrefs) DataManager.loadPrefs();
@@ -659,9 +733,9 @@ ClientSystem.init = async function() {
         if (splashName) splashName.innerText = sName;
         localStorage.setItem('telecard_splash_name', sName);
 
-        // 🛡️ [تحديث ماسي]: الحماية من المهام المعلقة (Dangling Tasks) في حال غادر المستخدم قبل اكتمال التحميل
+        // 🛡️ الحماية من المهام المعلقة
         setTimeout(() => {
-            if (!this.isReady) return; // حماية ضد Memory Leak
+            if (!this.isReady) return; 
             
             const secondaryKeys = ['COUPONS', 'COUNTRIES', 'PAYMENTS', 'BANNERS'];
             Promise.allSettled(secondaryKeys.map(k => StoreDB.getAll(DB_KEYS[k]))).then(secResults => {
@@ -710,9 +784,7 @@ ClientSystem.init = async function() {
 };
 
 window.ClientSystem = ClientSystem;
-window.CalendarApp = CalendarApp;
-
-// 🟢 نقطة الانطلاق (Entry Point)
+window.CalendarApp = CalendarApp;// 🟢 نقطة الانطلاق (Entry Point)
 (function() {
     const startApp = () => { if (window.ClientSystem && window.ClientSystem.init) window.ClientSystem.init(); };
     if (document.readyState === 'loading') {

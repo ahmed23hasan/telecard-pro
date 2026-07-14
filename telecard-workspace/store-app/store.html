@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
+    <!-- 🚀 تحديد إصدار المتجر لكسر الكاش الإجباري (Cache Busting) -->
+    <script>window.TELECARD_VERSION = "13.0.0";</script>
+
     <script>
         // 🚀 نظام المراقبة المبكر للإقلاع (Boot Watchdog)
         window.BootLog = {
@@ -12,11 +15,11 @@
             }
         };
         window.addEventListener('error', function(e) {
-            if (e.target.tagName === 'SCRIPT') {
-                window.BootLog.add(e.target.src, 'error', 'فشل في تحميل الملف');
+            if (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK') {
+                window.BootLog.add(e.target.src || e.target.href, 'error', 'فشل في تحميل الملف');
                 document.body.insertAdjacentHTML('afterbegin', 
                     `<div style="background:var(--danger, red); color:white; padding:12px; position:fixed; top:0; z-index:999999; width:100%; direction:rtl; font-weight:bold; font-family:sans-serif; text-align:center;">
-                       🛑 خلل في المسار: فشل المتصفح في العثور على الملف: <br> <span style="direction:ltr; display:inline-block; margin-top:5px; font-size:12px;">${e.target.src}</span>
+                       🛑 خلل في المسار: فشل المتصفح في العثور على ملف أساسي. يرجى تحديث الصفحة.
                      </div>`
                 );
             }
@@ -29,38 +32,45 @@
     
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <!-- منع محركات البحث من أرشفة الصفحة إذا كانت لوحة داخلية -->
-    <meta name="robots" content="index, follow">
+    <meta name="robots" content="noindex, nofollow"> <!-- 🛡️ تم التعديل: لمنع أرشفة التطبيق الداخلي -->
+    
+    <!-- 📱 إعدادات الـ PWA و iOS -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- <link rel="manifest" href="manifest.json"> --> <!-- 💡 قم بإلغاء التعليق عندما تصنع ملف المانيفست -->
+    
     <title>TELE CARD | المتجر</title>
     
     <!-- 🎨 ألوان المتصفح للهواتف الذكية -->
     <meta name="theme-color" content="#111a2b" media="(prefers-color-scheme: dark)">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     
+    <!-- 🚀 تسريع الاتصال بالسيرفرات الخارجية (DNS Preconnect) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- 🚀 ملف التنسيقات الخاص بالمتجر -->
-    <link rel="stylesheet" href="style.css">
+    <!-- 🚀 ملف التنسيقات الخاص بالمتجر (مع كاسر الكاش) -->
+    <link rel="stylesheet" href="style.css?v=13.0.0">
 
-    <!-- 🚀 التحميل المسبق لوحدات النظام (Module Preloading - V5.3) -->
-    <link rel="modulepreload" href="script.js">
-    <link rel="modulepreload" href="core/renderHelpers.js">
-    <link rel="modulepreload" href="ui/uiBuilders.js">
-    <link rel="modulepreload" href="renderManager.js">
+    <!-- 🚀 التحميل المسبق لوحدات النظام -->
+    <link rel="modulepreload" href="script.js?v=13.0.0">
+    <link rel="modulepreload" href="core/renderHelpers.js?v=13.0.0">
+    <link rel="modulepreload" href="ui/uiBuilders.js?v=13.0.0">
+    <link rel="modulepreload" href="renderManager.js?v=13.0.0">
 
-    <!-- 🚀 مكتبات النظام الأساسية -->
+    <!-- 🛡️ مكتبات النظام الأساسية (يُفضل تنزيلها لاحقاً إلى مجلد assets/libs) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
 
-    <!-- 🚀 إخفاء المحتوى الرئيسي لثوانٍ لمنع القفز البصري (FOUC & Layout Shift Prevention) -->
     <style>
         .main-scroll { opacity: 0; animation: fadeInMain 0.6s ease 0.4s forwards; }
         @keyframes fadeInMain { to { opacity: 1; } }
     </style>
-</head>
-<body>
-    <!-- 🛑 تنبيه تعطيل الجافاسكريبت -->
+</head>    <!-- 🛑 تنبيه تعطيل الجافاسكريبت -->
     <noscript>
         <div style="position: fixed; inset: 0; background: #111a2b; color: white; z-index: 9999999; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; font-family: 'Cairo', sans-serif; direction: rtl;">
             <i class="fa-solid fa-triangle-exclamation" style="font-size: 50px; color: #ef4444; margin-bottom: 20px;"></i>
@@ -1373,7 +1383,7 @@
         </div>
     </div>
 
-    <!-- المحرك الرئيسي للمتجر -->
-    <script type="module" src="script.js"></script>
+    <!-- المحرك الرئيسي للمتجر (مع كاسر الكاش) -->
+    <script type="module" src="script.js?v=13.0.0"></script>
 </body>
 </html>
