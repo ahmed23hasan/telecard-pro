@@ -1,101 +1,69 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
-<head>
-    <!-- 🚀 تحديد إصدار المتجر لكسر الكاش الإجباري (Cache Busting) -->
-    <script>window.TELECARD_VERSION = "13.0.0";</script>
 
-<script>
-    // 🚀 نظام المراقبة المبكر للإقلاع (Boot Watchdog) - النسخة النهائية الذكية
-    window.BootLog = {
-        logs: [],
-        add: function(module, status, msg = '') {
-            const entry = { time: Date.now(), module, status, msg };
-            this.logs.push(entry);
-            console.log(`[🚀 Startup] ${status === 'ok' ? '✅' : '❌'} ${module} ${msg}`);
+<head>
+    <script>
+        // 🚀 1. تحديد الإصدار
+        window.TELECARD_VERSION = "13.0.0";
+        
+        // 🚀 2. قاتل الكاش العميق (Service Worker Killer)
+        // هذا السكربت يمسح أي كاش قديم متبقي في هواتف العملاء بالقوة
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for (let registration of registrations) {
+                    registration.unregister();
+                }
+            });
         }
-    };
+    </script>
     
-    window.addEventListener('error', function(e) {
-        if (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK') {
-            const missingFile = e.target.src || e.target.href || '';
-            
-            // 🛡️ القاعدة الذهبية: إظهار الخطأ فقط إذا كان الملف المفقود يخص سيرفر متجرنا الداخلي
-            const isInternalFile = missingFile.includes(window.location.hostname) || missingFile.startsWith('.') || missingFile.startsWith('/');
-            
-            // إذا كان الملف خارجياً (جوجل، خطوط، أيقونات) وحظره مانع الإعلانات، نتجاهله بصمت
-            if (!isInternalFile) {
-                console.warn('⚠️ تنبيه: تم حظر أو تأخر تحميل ملف خارجي:', missingFile);
-                return;
+    <!-- 🚀 نظام المراقبة المبكر للإقلاع -->
+    <script>
+        window.BootLog = {
+            logs: [],
+            add: function(module, status, msg = '') {
+                const entry = { time: Date.now(), module, status, msg };
+                this.logs.push(entry);
+                console.log(`[🚀 Startup] ${status === 'ok' ? '✅' : '❌'} ${module} ${msg}`);
             }
-            
-            window.BootLog.add(missingFile, 'error', 'فشل في تحميل الملف');
-            
-            document.body.insertAdjacentHTML('afterbegin',
-                `<div style="background:var(--danger, #ef4444); color:white; padding:20px; position:fixed; top:0; left:0; z-index:999999; width:100%; direction:rtl; font-weight:bold; font-family:sans-serif; text-align:center; box-sizing: border-box;">
-                       🛑 المتصفح لم يجد هذا الملف الأساسي في السيرفر:<br>
-                       <span style="color:#FFD700; font-size:14px; word-break: break-all; margin-top:10px; display:block; padding:10px; background:rgba(0,0,0,0.5); border-radius:8px;">${missingFile}</span>
-                     </div>`
-            );
-        }
-    }, true);
+        };
+        
+        window.addEventListener('error', function(e) {
+            if (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK') {
+                const missingFile = e.target.src || e.target.href || '';
+                const isInternalFile = missingFile.includes(window.location.hostname) || missingFile.startsWith('.') || missingFile.startsWith('/');
+                if (!isInternalFile) return;
+                
+                window.BootLog.add(missingFile, 'error', 'فشل في تحميل الملف');
+            }
+        }, true);
+    </script>
     
-    window.onerror = function(msg, url, line) {
-        window.BootLog.add(url, 'crash', `خطأ برمجي في السطر ${line}: ${msg}`);
-        return false;
-    };
-</script>
-<meta charset="UTF-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="robots" content="noindex, nofollow"> <!-- 🛡️ لمنع أرشفة التطبيق الداخلي للعملاء -->
-    
-    <!-- 📱 إعدادات الـ PWA و iOS -->
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <!-- <link rel="manifest" href="manifest.json"> --> <!-- 💡 قم بإلغاء التعليق عندما تصنع ملف المانيفست -->
+    <meta name="robots" content="noindex, nofollow">
     
     <title>TELE CARD | المتجر</title>
     
-    <!-- 🎨 ألوان المتصفح للهواتف الذكية -->
-    <meta name="theme-color" content="#111a2b" media="(prefers-color-scheme: dark)">
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-    
-    <!-- 🚀 تسريع الاتصال بالسيرفرات الخارجية (DNS Preconnect) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- 🚀 ملف التنسيقات الخاص بالمتجر (مع كاسر الكاش) -->
+    <!-- 🚀 CSS مع كاسر الكاش -->
     <link rel="stylesheet" href="style.css?v=13.0.0">
-
-    <!-- ========================================================================= -->
-    <!-- 🌟 الإضافة السحرية (Import Map) لحل مشكلة الجافاسكريبت وانهيار الاستيرادات -->
-    <!-- ========================================================================= -->
-    <script type="importmap">
-      {
-        "imports": {
-          "script": "./script.js?v=13.0.0",
-          "renderManager": "./renderManager.js?v=13.0.0",
-          "uiBuilders": "./ui/uiBuilders.js?v=13.0.0",
-          "renderHelpers": "./core/renderHelpers.js?v=13.0.0"
-        }
-      }
-    </script>
-
-    <!-- 🚀 التحميل المسبق لوحدات النظام -->
-    <link rel="modulepreload" href="script.js?v=13.0.0">
-    <link rel="modulepreload" href="core/renderHelpers.js?v=13.0.0">
-    <link rel="modulepreload" href="ui/uiBuilders.js?v=13.0.0">
-    <link rel="modulepreload" href="renderManager.js?v=13.0.0">
-
+    
     <!-- 🛡️ مكتبات النظام الأساسية -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
-</head>
-<body>
-    <!-- 🛑 تنبيه تعطيل الجافاسكريبت (مُنظف من الـ Inline Styles) -->
+    
+    <!-- 
+      ⚠️ إزالة الـ Import Map: 
+      في بيئة Vanilla JS بدون مجمع (Bundler)، استخدام الـ Import Map مع مسارات تحتوي على (?v=) 
+      غالباً ما يسبب تعارضاً وضعفاً في تحميل المتصفحات للملفات. 
+      الاعتماد على المتصفح ليقرأ الملفات من السكربت المباشر أدناه هو الأصح.
+    -->
+</head>    <!-- 🛑 تنبيه تعطيل الجافاسكريبت (مُنظف من الـ Inline Styles) -->
     <noscript>
         <div class="noscript-overlay">
             <i class="fa-solid fa-triangle-exclamation noscript-icon"></i>
@@ -1404,9 +1372,9 @@
             <button class="alert-btn btn-logout-ghost" data-action="logout" style="margin-top: 15px;">تسجيل الخروج</button>
         </div>
     </div>
-
     <!-- المحرك الرئيسي للمتجر (مع كاسر الكاش) -->
     <script type="module" src="script.js?v=13.0.0"></script>
+
 <!-- ========================================================================= -->
 <!-- 🛠️ كونسول المطور السري (TeleCard DevConsole) - V2 -->
 <!-- ========================================================================= -->
