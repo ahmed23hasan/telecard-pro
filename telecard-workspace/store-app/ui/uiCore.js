@@ -1499,18 +1499,16 @@ const weight = /^(normal|bold|bolder|lighter|[1-9]00)$/.test(rawWeight) ? rawWei
             const div = document.createElement('div'); 
             div.className = `slide ${i === 0 ? 'active' : ''}`; 
             
-            div.style.opacity = '0'; 
-            div.style.transition = 'opacity 0.5s ease-in-out';
+            // 🚀 التعديل: تعيين مسار الصورة فوراً وبدون انتظار (سيتكفل المتصفح بعرضها فور وصولها)
+            const safeUrl = b.img.replace(/'/g, "%27");
+            div.style.backgroundImage = `url('${safeUrl}')`;
             
-            const tempImg = new Image();
-            tempImg.onload = () => {
-                // 🚀 [إصلاح الشاشة السوداء]: تم إزالة escapeHtml لأن الـ CSS url() لا يدعم 
-                // التشفير الذي يكسر روابط Firebase التي تحتوي على علامات & و =
-                // نقوم بتشفير علامة الاقتباس إلى %27 لمنع انكسار الـ CSS
-div.style.backgroundImage = `url('${b.img.replace(/'/g, "%27")}')`;
-                div.style.opacity = '1'; 
-            };
-            tempImg.src = b.img;
+            if (i === 0) {
+                // 🔥 إعطاء أولوية قصوى لتحميل الصورة الأولى فقط (يمنع تأخر ظهور البنر)
+                const preloadImg = new Image();
+                preloadImg.fetchPriority = "high";
+                preloadImg.src = safeUrl;
+            }
             
             container.appendChild(div); 
         });
@@ -1524,8 +1522,7 @@ div.style.backgroundImage = `url('${b.img.replace(/'/g, "%27")}')`;
             idx = (idx + 1) % slides.length; 
             slides[idx].classList.add('active');
         }, intervalMs);
-    },
-    renderTicker: function() {
+    },    renderTicker: function() {
         const s = LiveStoreData.settings || {};
         const txtEl = document.getElementById('ticker-text');
         const movingLine = document.querySelector('.ticker-moving-line');
