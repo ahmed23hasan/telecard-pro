@@ -4,32 +4,27 @@
     <!-- 🚀 تحديد إصدار المتجر لكسر الكاش الإجباري (Cache Busting) -->
     <script>window.TELECARD_VERSION = "13.0.0";</script>
 
-    <script>
-        // 🚀 نظام المراقبة المبكر للإقلاع (Boot Watchdog)
-        window.BootLog = {
-            logs: [],
-            add: function(module, status, msg = '') {
-                const entry = { time: Date.now(), module, status, msg };
-                this.logs.push(entry);
-                console.log(`[🚀 Startup] ${status === 'ok' ? '✅' : '❌'} ${module} ${msg}`);
-            }
-        };
-        window.addEventListener('error', function(e) {
-            if (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK') {
-                window.BootLog.add(e.target.src || e.target.href, 'error', 'فشل في تحميل الملف');
-                // تم التعديل: استخدام الكلاس النظيف بدلاً من Inline Styles
-                document.body.insertAdjacentHTML('afterbegin', 
-                    `<div class="boot-fatal-error">🛑 خلل في المسار: فشل المتصفح في العثور على ملف أساسي. يرجى تحديث الصفحة.</div>`
-                );
-            }
-        }, true);
-        window.onerror = function(msg, url, line) {
-            window.BootLog.add(url, 'crash', `خطأ برمجي في السطر ${line}: ${msg}`);
-            return false;
-        };
-    </script>
-    
-    <meta charset="UTF-8">
+<script>
+    // 🚀 نظام المراقبة المبكر للإقلاع (Boot Watchdog) - نسخة الهاتف
+    window.BootLog = {
+        logs: [],
+        add: function(module, status, msg = '') {
+            this.logs.push({ time: Date.now(), module, status, msg });
+        }
+    };
+    window.addEventListener('error', function(e) {
+        if (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK') {
+            const missingFile = e.target.src || e.target.href || 'ملف غير معروف';
+            document.body.insertAdjacentHTML('afterbegin',
+                `<div style="background:var(--danger, #ef4444); color:white; padding:20px; position:fixed; top:0; left:0; z-index:999999; width:100%; direction:rtl; font-weight:bold; font-family:sans-serif; text-align:center; box-sizing: border-box;">
+                       🛑 المتصفح لم يجد هذا الملف في السيرفر:<br>
+                       <span style="color:#FFD700; font-size:14px; word-break: break-all; margin-top:10px; display:block; padding:10px; background:rgba(0,0,0,0.5); border-radius:8px;">${missingFile}</span>
+                     </div>`
+            );
+        }
+    }, true);
+</script>
+<meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="robots" content="noindex, nofollow"> <!-- 🛡️ لمنع أرشفة التطبيق الداخلي للعملاء -->
     
