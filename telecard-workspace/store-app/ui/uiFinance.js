@@ -32,6 +32,38 @@ export const UIFinance = {
     _isProcessingTx: false, 
     _watchdogTimer: null,
     _boundOfflineHandler: null, 
+    // 🛡️ [متحكم اللودر الذكي - Smart Loader Controller]
+    _toggleButtonLoader: function(btn, isLoading) {
+        if (!btn) return;
+        
+        if (isLoading) {
+            btn.disabled = true;
+            btn.classList.add('is-loading');
+            
+            // إذا كان الزر لا يحتوي على هيكلة اللودر الجاهزة، نصنعها له برمجياً مع حمايته من التشوه
+            if (!btn.querySelector('.btn-spinner')) {
+                // حفظ شكل الزر الأصلي
+                if (!btn.dataset.originalHtml) btn.dataset.originalHtml = btn.innerHTML;
+                
+                // تثبيت عرض الزر حتى لا ينكمش أو يهتز شكله أثناء الدوران
+                const btnWidth = btn.offsetWidth;
+                if (btnWidth > 0) btn.style.width = `${btnWidth}px`;
+                
+                // زرع اللودر الأنيق
+                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> جاري المعالجة...`;
+            }
+        } else {
+            btn.disabled = false;
+            btn.classList.remove('is-loading');
+            
+            // استعادة الزر لشكله الطبيعي بعد انتهاء العملية
+            if (btn.dataset.originalHtml) {
+                btn.innerHTML = btn.dataset.originalHtml;
+                btn.style.width = ''; // إزالة العرض الثابت
+                delete btn.dataset.originalHtml;
+            }
+        }
+    },
 
     _startTxWatchdog: function(submitBtn, shieldId) {
         this._watchdogTimer = setTimeout(() => {
@@ -50,22 +82,20 @@ export const UIFinance = {
         window.addEventListener('offline', this._boundOfflineHandler);
     },
 
-    _cleanupTxUI: function(submitBtn, shieldId) {
+        _cleanupTxUI: function(submitBtn, shieldId) {
         this._isProcessingTx = false;
         
         const shield = document.getElementById(shieldId);
         if (shield) shield.remove();
         
         if (submitBtn) {
-            submitBtn.classList.remove('is-loading');
-            submitBtn.disabled = false;
+            this._toggleButtonLoader(submitBtn, false); // 👈 إيقاف اللودر واستعادة الزر بذكاء
         }
         
         if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
         if (this._boundOfflineHandler) window.removeEventListener('offline', this._boundOfflineHandler);
     },
-
-    _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
+ _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
         getSys().sfx?.('nav');
         const tabs = element.parentElement.querySelectorAll('.mf-tab');
         tabs.forEach(tab => tab.classList.remove('active'));
@@ -515,10 +545,7 @@ export const UIFinance = {
         const shieldId = 'invisible-tx-shield';
         
         this._isProcessingTx = true;
-        if (submitBtn) {
-            submitBtn.classList.add('is-loading');
-            submitBtn.disabled = true;
-        }
+        this._toggleButtonLoader(submitBtn, true); // 👈 تشغيل اللودر الأنيق
 
         if (!document.getElementById(shieldId)) {
             document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}"></div>`);
@@ -1071,11 +1098,7 @@ export const UIFinance = {
         const shieldId = 'invisible-tx-shield';
         
         this._isProcessingTx = true;
-        if (submitBtn) {
-            submitBtn.classList.add('is-loading');
-            submitBtn.disabled = true;
-        }
-        
+        this._toggleButtonLoader(submitBtn, true); 
         if (!document.getElementById(shieldId)) {
             document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}"></div>`);
         }

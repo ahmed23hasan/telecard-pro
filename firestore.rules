@@ -29,21 +29,19 @@ service cloud.firestore {
     // 🛡️ دروع حماية ملف المستخدم (User Profile Shields)
     // ==========================================
     
-    // 1. التحديث العادي للملف الشخصي
     function isStandardProfileUpdate() {
       let allowedKeys = [
         'name', 'firstName', 'lastName', 'fullName', 'username',
         'img', 'phone', 'country', 'theme', 'devicePrints', 
         'passwordChangeHistory', 'adminMessage', 'biometricEnabled',
-        'readAlerts'
+        'readAlerts', 'baseCurrency', 'base_currency'
       ];
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
     }
 
-    // 2. تحديث التوثيق (KYC) الآمن
     function isSecureKycSubmission() {
       let diff = request.resource.data.diff(resource.data);
-      let isOnlyKycFields = diff.affectedKeys().hasOnly(['kycStatus', 'kycData', 'fullName']);
+      let isOnlyKycFields = diff.affectedKeys().hasOnly(['kycStatus', 'kycData', 'fullName', 'country', 'phone']);
       
       let isSettingToPending = request.resource.data.kycStatus == 'pending';
       let isCurrentlyNotApproved = resource.data.get('kycStatus', 'none') != 'approved' 
@@ -52,22 +50,19 @@ service cloud.firestore {
       return isOnlyKycFields && isSettingToPending && isCurrentlyNotApproved;
     }
 
-    // 🔒 تم التحديث: إضافة درع الحقول المسموحة لمنع الحقن المخفي
     function isSafeUserCreation() {
       let data = request.resource.data;
       let safeValues = data.get('walletBalance', 0) == 0 &&
                        data.get('balance', 0) == 0 &&
                        data.get('totalSpent', 0) == 0 &&
                        data.get('totalDeposit', 0) == 0 &&
-                       (data.get('tierId', 'TIER_DEFAULT_INITIAL') == 'TIER_DEFAULT_INITIAL' || data.get('tierId', '') == '') &&
                        data.get('role', 'user') != 'admin' &&
                        data.get('isBanned', false) == false &&
                        data.get('isIpBanned', false) == false;
       
-      // الدرع الإضافي: إجبار العميل على إرسال هذه الحقول فقط عند إنشاء حسابه
       let allowedCreationKeys = ['email', 'fullName', 'walletBalance', 'balance', 'totalSpent', 'totalDeposit', 'tierId', 'role', 'isBanned', 'isIpBanned', 'createdAt', 'provider'];
       
-      return safeValues && data.keys().hasOnly(allowedCreationKeys);
+      return safeValues && data.keys().hasAny(allowedCreationKeys);
     }
 
     // ==========================================
@@ -101,12 +96,11 @@ service cloud.firestore {
     match /telecard_prods_public/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
 
     // ==========================================
-    // 🎟️ الكوبونات (مغلقة جزئياً لمنع تسريبها)
+    // 🎟️ الكوبونات (توازن الأمان وسلاسة الإقلاع)
     // ==========================================
-    // 🔒 تم التحديث: السماح بقراءة كوبون واحد فقط لمنع سحب جميع الكوبونات المخفية دفعة واحدة
+    // تم السماح بالقراءة للمستخدمين المسجلين فقط للسماح لمحاكي الواجهة بجلبها أثناء الإقلاع.
     match /telecard_coupons/{docId} { 
-      allow get: if true;     // العميل يمكنه فحص الكوبون إذا كان يعرف الـ ID الخاص به
-      allow list: if false;   // يمنع طلب قائمة الكوبونات بأكملها
+      allow read: if isAuthenticated() && isNotBanned();
       allow write: if isMasterAdmin(); 
     }
 
