@@ -1,7 +1,7 @@
 // ============================================================================
 // ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version 💎
 // 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth & Functions
-// 🌟 التحديث الأخير: فصل العمليات الذرية للرفع (Atomic Operations) وتحسين الأداء
+// 🌟 التحديث الأخير: فصل العمليات الذرية للرفع (Atomic Operations) + وضع التطوير لـ App Check
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -26,6 +26,12 @@ const firebaseConfig = {
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
+// 🚀 [الإصلاح الماسي]: تفعيل وضع التصحيح (Debug) لـ App Check في بيئة التطوير لتجنب حجب السيرفر
+if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    console.log("🛠️ تم تفعيل وضع المطور لـ App Check. ابحث عن الـ Token في السجلات لإضافته لـ Firebase Console.");
+}
 
 try {
     const appCheck = initializeAppCheck(app, {
@@ -233,7 +239,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 🚀 [تحديث ماسي]: الدالة الآن مسؤولة عن الرفع فقط (Atomic Pure Function)
     async uploadImage(file, folderName = 'general', customFileName = null) {
         if (!file) return '';
         try {
@@ -262,7 +267,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 🚀 دالة مستقلة للتنظيف يمكن استدعاؤها بعد التأكد من حفظ الرابط الجديد بنجاح
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
         try {
