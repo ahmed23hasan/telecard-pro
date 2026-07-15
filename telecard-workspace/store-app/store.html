@@ -5,7 +5,7 @@
     <script>window.TELECARD_VERSION = "13.0.0";</script>
 
 <script>
-    // 🚀 نظام المراقبة المبكر للإقلاع (Boot Watchdog) - النسخة الذكية
+    // 🚀 نظام المراقبة المبكر للإقلاع (Boot Watchdog) - النسخة النهائية الذكية
     window.BootLog = {
         logs: [],
         add: function(module, status, msg = '') {
@@ -19,10 +19,13 @@
         if (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK') {
             const missingFile = e.target.src || e.target.href || '';
             
-            // 🛡️ السماح للمتجر بالعمل حتى لو فشلت السيرفرات الخارجية (الأيقونات والخطوط)
-            if (missingFile.includes('cdnjs.cloudflare') || missingFile.includes('fonts.googleapis') || missingFile.includes('gstatic')) {
-                console.warn('⚠️ تنبيه: تأخر أو فشل تحميل ملف خارجي (أيقونات/خطوط):', missingFile);
-                return; // توقف هنا ولا تظهر الشاشة الحمراء القاتلة
+            // 🛡️ القاعدة الذهبية: إظهار الخطأ فقط إذا كان الملف المفقود يخص سيرفر متجرنا الداخلي
+            const isInternalFile = missingFile.includes(window.location.hostname) || missingFile.startsWith('.') || missingFile.startsWith('/');
+            
+            // إذا كان الملف خارجياً (جوجل، خطوط، أيقونات) وحظره مانع الإعلانات، نتجاهله بصمت
+            if (!isInternalFile) {
+                console.warn('⚠️ تنبيه: تم حظر أو تأخر تحميل ملف خارجي:', missingFile);
+                return;
             }
             
             window.BootLog.add(missingFile, 'error', 'فشل في تحميل الملف');
