@@ -1407,5 +1407,82 @@
 
     <!-- المحرك الرئيسي للمتجر (مع كاسر الكاش) -->
     <script type="module" src="script.js?v=13.0.0"></script>
+<!-- ========================================================================= -->
+<!-- 🛠️ كونسول المطور السري (TeleCard DevConsole) - يظهر فقط بإضافة ?debug=1 للرابط -->
+<!-- ========================================================================= -->
+<script>
+    (function initTeleCardConsole() {
+        // 1. الأمان: الكونسول لن يظهر للعملاء، يظهر فقط إذا كان الرابط يحتوي على ?debug=1
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('debug') !== '1' && localStorage.getItem('dev_mode') !== '1') return;
+        
+        // تفعيل وضع المطور الدائم (حتى لو حذفت الكلمة من الرابط لاحقاً)
+        localStorage.setItem('dev_mode', '1');
+        
+        // 2. إنشاء واجهة الكونسول
+        document.body.insertAdjacentHTML('beforeend', `
+                <div id="tc-dev-console" style="position:fixed; bottom:0; left:0; width:100%; height:35%; background:rgba(0,0,0,0.9); color:#0f0; font-family:monospace; font-size:12px; z-index:9999999999; overflow-y:auto; border-top:3px solid #333; direction:ltr; text-align:left; display:none; padding-top:30px;">
+                    <div style="position:fixed; bottom:35%; left:0; width:100%; height:30px; background:#222; display:flex; justify-content:space-between; align-items:center; padding:0 10px; box-sizing:border-box;">
+                        <span style="color:gold; font-weight:bold;">🛠️ TeleCard Console</span>
+                        <div>
+                            <button onclick="document.getElementById('tc-dev-logs').innerHTML=''" style="background:red; color:#fff; border:none; padding:2px 8px; cursor:pointer;">Clear</button>
+                            <button onclick="document.getElementById('tc-dev-console').style.display='none'; localStorage.removeItem('dev_mode');" style="background:#555; color:#fff; border:none; padding:2px 8px; cursor:pointer;">Close</button>
+                        </div>
+                    </div>
+                    <div id="tc-dev-logs" style="padding:10px; padding-bottom:40px;"></div>
+                </div>
+                <!-- زر عائم لفتح الكونسول -->
+                <button id="tc-dev-btn" onclick="document.getElementById('tc-dev-console').style.display='block'" style="position:fixed; bottom:70px; right:10px; width:40px; height:40px; border-radius:50%; background:gold; color:#000; border:none; z-index:9999999998; font-weight:bold; box-shadow:0 0 10px rgba(0,0,0,0.5);">CMD</button>
+            `);
+        
+        const logsContainer = document.getElementById('tc-dev-logs');
+        const devConsole = document.getElementById('tc-dev-console');
+        devConsole.style.display = 'block';
+        
+        // 3. دالة تحويل البيانات إلى نص
+        const stringifyArgs = (args) => {
+            return Array.from(args).map(a => {
+                if (typeof a === 'object') {
+                    try { return JSON.stringify(a, null, 2); } catch (e) { return String(a); }
+                }
+                return String(a);
+            }).join(' ');
+        };
+        
+        // 4. اختطاف دوال الكونسول الأصلية
+        const origLog = console.log;
+        const origWarn = console.warn;
+        const origError = console.error;
+        
+        console.log = function(...args) {
+            origLog.apply(console, args);
+            logsContainer.innerHTML += `<div style="color:#0f0; border-bottom:1px solid #333; padding:4px 0;">[LOG] ${stringifyArgs(args)}</div>`;
+            devConsole.scrollTop = devConsole.scrollHeight;
+        };
+        
+        console.warn = function(...args) {
+            origWarn.apply(console, args);
+            logsContainer.innerHTML += `<div style="color:#fd0; border-bottom:1px solid #333; padding:4px 0;">[WARN] ${stringifyArgs(args)}</div>`;
+            devConsole.scrollTop = devConsole.scrollHeight;
+        };
+        
+        console.error = function(...args) {
+            origError.apply(console, args);
+            logsContainer.innerHTML += `<div style="color:#f44; font-weight:bold; border-bottom:1px solid #333; padding:4px 0;">[ERROR] ${stringifyArgs(args)}</div>`;
+            devConsole.scrollTop = devConsole.scrollHeight;
+        };
+        
+        // 5. اصطياد أخطاء الجافاسكريبت الميتة
+        window.addEventListener('error', function(e) {
+            console.error(`Runtime Error: ${e.message} at ${e.filename}:${e.lineno}`);
+        });
+        
+        window.addEventListener('unhandledrejection', function(e) {
+            console.error(`Promise Rejected: ${e.reason}`);
+        });
+        
+        console.log("🚀 TeleCard In-App Console Initialized!");
+    })();
+</script>
 </body>
 </html>
