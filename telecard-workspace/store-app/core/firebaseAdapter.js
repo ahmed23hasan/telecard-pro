@@ -1,11 +1,12 @@
 // ============================================================================
 // ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version 💎
 // 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth & Functions
-// 🌟 التحديث الأخير: فصل العمليات الذرية للرفع (Atomic Operations) + وضع التطوير لـ App Check
+// 🌟 التحديث الأخير: إيقاف App Check مؤقتاً لغرض الاختبار المحلي
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js";
+// تم إيقاف استيراد App Check مؤقتاً
+// import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js";
 import { 
     getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -27,21 +28,8 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// 🚀 [الإصلاح الماسي]: تفعيل وضع التصحيح (Debug) لـ App Check في بيئة التطوير لتجنب حجب السيرفر
-if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-    console.log("🛠️ تم تفعيل وضع المطور لـ App Check. ابحث عن الـ Token في السجلات لإضافته لـ Firebase Console.");
-}
-
-try {
-    const appCheck = initializeAppCheck(app, {
-        provider: new ReCaptchaV3Provider('6LdzvUQtAAAAAIqefitRy_PV9A9Efyb33HoicX8z'),
-        isTokenAutoRefreshEnabled: true 
-    });
-    console.log("🛡️ تم تفعيل درع الحماية App Check بنجاح.");
-} catch (e) {
-    console.warn("⚠️ لم يتم تفعيل App Check:", e.message);
-}
+// 🛑 نظام App Check معطل حالياً لأغراض التطوير والاختبار
+console.log("⚠️ تم تعطيل نظام App Check مؤقتاً - يعمل المتجر بدون درع حماية.");
 
 const db = getFirestore(app);
 const auth = getAuth(app);
