@@ -147,24 +147,23 @@ export const Utils = {
         if (!startTime || !endTime) return "---";
         
         let startMs, endMs;
-
-// معالجة تاريخ البدء
-if (startTime && typeof startTime.toMillis === 'function') {
-    startMs = startTime.toMillis(); // إذا كان Firestore Timestamp
-} else {
-    startMs = Number(startTime); // إذا كان رقم عادي (Milliseconds)
-}
-
-// معالجة تاريخ الانتهاء
-if (endTime && typeof endTime.toMillis === 'function') {
-    endMs = endTime.toMillis();
-} else {
-    endMs = Number(endTime);
-}
-
-const startObj = new Date(startMs);
-const endObj = new Date(endMs);
-        const endObj = new Date(Number(endTime));
+        
+        // معالجة تاريخ البدء
+        if (startTime && typeof startTime.toMillis === 'function') {
+            startMs = startTime.toMillis(); // إذا كان Firestore Timestamp
+        } else {
+            startMs = Number(startTime); // إذا كان رقم عادي (Milliseconds)
+        }
+        
+        // معالجة تاريخ الانتهاء
+        if (endTime && typeof endTime.toMillis === 'function') {
+            endMs = endTime.toMillis();
+        } else {
+            endMs = Number(endTime);
+        }
+        
+        const startObj = new Date(startMs);
+        const endObj = new Date(endMs); // ✅ تم مسح النسخة المكررة التي كانت أسفل هذا السطر
         
         if (isNaN(startObj.getTime()) || isNaN(endObj.getTime())) return "---";
         
@@ -184,26 +183,35 @@ const endObj = new Date(endMs);
         
         return `${diffSecs} ثانية`;
     },
-// === 6. محرك حساب الأسعار ===
-TelecardPricingEngine: Object.freeze({
-    calculate: function(params) {
-        return FinancialEngine.calculatePrice(params);
-    },
-    // 🚀 فتح الجسر للدالة الجديدة التي تحسب إجمالي الكميات للواجهة الأمامية
-    calculateOrderTotalUi: function(params, rawQty) {
-        // نتحقق من وجودها أولاً لتجنب الأخطاء إذا لم يتم تحديث المحرك بعد
-        if (typeof FinancialEngine.calculateOrderTotalUi === 'function') {
-            return FinancialEngine.calculateOrderTotalUi(params, rawQty);
+    
+    // === 6. محرك حساب الأسعار ===
+    TelecardPricingEngine: Object.freeze({
+        calculate: function(params) {
+            return FinancialEngine.calculatePrice(params);
+        },
+        // 🚀 فتح الجسر للدالة الجديدة التي تحسب إجمالي الكميات للواجهة الأمامية
+        calculateOrderTotalUi: function(params, rawQty) {
+            // نتحقق من وجودها أولاً لتجنب الأخطاء إذا لم يتم تحديث المحرك بعد
+            if (typeof FinancialEngine.calculateOrderTotalUi === 'function') {
+                return FinancialEngine.calculateOrderTotalUi(params, rawQty);
+            }
+            
+            // Fallback احتياطي آمن بدقة حسابية بنكية
+            const unit = FinancialEngine.calculatePrice(params);
+            const q = Math.max(1, Math.floor(Number(rawQty) || 1));
+            
+            // استخدام دالة safeMul لحماية الأرقام العشرية من التشوه (Floating Point Precision)
+            const safeMul = typeof FinancialEngine.safeMul === 'function' ?
+                (a, b) => FinancialEngine.safeMul(a, b) :
+                (a, b) => Math.round((Number(a) * Number(b)) * 10000) / 10000;
+            
+            return {
+                ...unit,
+                qty: q,
+                totalOriginalPrice: safeMul(unit.originalPrice || 0, q),
+                totalFinalPrice: safeMul(unit.finalPrice || 0, q),
+                totalDiscountVal: safeMul(unit.totalDiscountVal || 0, q)
+            };
         }
-        // Fallback احتياطي في حال غياب الدالة
-        const unit = FinancialEngine.calculatePrice(params);
-        const q = Math.max(1, Math.floor(Number(rawQty) || 1));
-        return {
-            ...unit,
-            qty: q,
-            totalOriginalPrice: unit.originalPrice * q,
-            totalFinalPrice: unit.finalPrice * q,
-            totalDiscountVal: unit.totalDiscountVal * q
-        };
-    }
-})};
+    })
+}; // نهاية كائن Utils

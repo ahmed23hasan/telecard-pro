@@ -1146,20 +1146,29 @@ handlePurchaseSubmit: async function() {
             } else {
                 getSys().showToast?.(result.msg, 'error');
             }
-        } catch (error) {
+     } catch (error) {
             console.error("🚨 خطأ أثناء إرسال طلب الإيداع:", error);
             
             // 🛡️ التوازن المثالي: رسالة عامة كخط دفاع افتراضي
             let displayMessage = 'فشل إرسال الطلب، يرجى المحاولة لاحقاً';
 
-            // 🎯 إظهار الرسالة الحقيقية فقط إذا كانت قادمة من فايربيز (HttpsError)
-            if (error.name === 'FirebaseError' || error.code) {
-                displayMessage = error.message; 
+            // 🎯 تطبيق مترجم الأخطاء الاحترافي للإيداعات أيضاً
+            if (error.code) {
+                switch (error.code) {
+                    case 'failed-precondition': displayMessage = error.message; break; 
+                    case 'already-exists': displayMessage = 'عذراً، لديك طلب إيداع قيد المراجعة بالفعل.'; break;
+                    case 'resource-exhausted': displayMessage = 'يرجى الانتظار قليلاً قبل إرسال طلب جديد.'; break;
+                    case 'permission-denied': displayMessage = 'تم رفض العملية. حسابك مقيد.'; break;
+                    case 'deadline-exceeded': displayMessage = 'انتهى وقت الطلب بسبب ضعف الإنترنت.'; break;
+                    case 'unauthenticated': displayMessage = 'انتهت جلستك، يرجى تسجيل الدخول مجدداً.'; break;
+                    default: displayMessage = error.message || 'خطأ غير معروف في الخادم.';
+                }
+            } else if (error.message) {
+                displayMessage = error.message;
             }
 
             getSys().showToast?.(displayMessage, 'error');
-        } finally {
-            this._cleanupTxUI(submitBtn, shieldId);
+        } finally {            this._cleanupTxUI(submitBtn, shieldId);
         }
     },
     togglePayDetail: function(headerElement) {

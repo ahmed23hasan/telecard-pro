@@ -7,12 +7,8 @@ service cloud.firestore {
     // ==========================================
     function isAuthenticated() { return request.auth != null; }
     function isMasterAdmin() {
-      return isAuthenticated() && (
-        request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2' || 
-        ('admin' in request.auth.token && request.auth.token.admin == true)
-      );
-    }
-    function isNotBanned() { return isAuthenticated() && (!('banned' in request.auth.token) || request.auth.token.banned != true); }
+return isAuthenticated() && ('admin' in request.auth.token && request.auth.token.admin == true);
+}    function isNotBanned() { return isAuthenticated() && (!('banned' in request.auth.token) || request.auth.token.banned != true); }
     function isOwner(userId) { return isAuthenticated() && request.auth.uid == userId; }
 
     // ==========================================

@@ -1,12 +1,12 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Pro Version 💎
+// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Enterprise Version 💎
 // 🎯 الوظيفة: البوابة المشتركة للمتجر للاتصال بـ Firestore & Storage & Auth & Functions
-// 🌟 التحديث الأخير: إيقاف App Check مؤقتاً لغرض الاختبار المحلي
+// 🌟 التحديث الأخير: تفعيل نظام App Check (reCAPTCHA v3) مع دعم وضع التطوير المحلي
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-// تم إيقاف استيراد App Check مؤقتاً
-// import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js";
+// ✅ 1. استيراد App Check باحترافية
+import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js";
 import { 
     getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -28,15 +28,26 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// 🛑 نظام App Check معطل حالياً لأغراض التطوير والاختبار
-console.log("⚠️ تم تعطيل نظام App Check مؤقتاً - يعمل المتجر بدون درع حماية.");
-
+// ✅ 2. الهندسة الاحترافية: تفعيل وضع التطوير (Debug Mode) تلقائياً عند العمل محلياً
+if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocalhost) {
+        self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+        console.warn("🛠️ App Check: يعمل في وضع التطوير المحلي (Debug Mode).");
+    }
+}
+// ✅ 3. تشغيل درع الحماية (App Check)
+const appCheck = initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider('6LdzvUQtAAAAAIqefitRy_PV9A9Efyb33HoicX8z'),
+    isTokenAutoRefreshEnabled: true // تحديث التوكن تلقائياً في الخلفية لضمان عدم توقف عمليات العميل
+});
 const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app); 
 const functions = getFunctions(app, 'us-east1');
 
-export { auth, db, storage, functions };
+// تصدير appCheck مع باقي الوحدات في حال احتجنا للوصول إليه لاحقاً
+export { auth, db, storage, functions, appCheck };
 
 export const FirebaseAdapter = {
     db: db,

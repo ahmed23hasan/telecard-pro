@@ -16,11 +16,11 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 
 setGlobalOptions({
     region: 'us-east1',
-    memory: '256MiB', 
-    cpu: 0.17,        
-    maxInstances: 3   
+    memory: '256MiB',
+    cpu: 0.17,
+    maxInstances: 3,
+    concurrency: 100 // 🚀 التعديل الاحترافي لزيادة الاستيعاب
 });
-
 const ROOT_OWNER_UID = defineSecret('ROOT_OWNER_UID');
 const SUPPLIER_WEBHOOK_TOKEN = defineSecret('SUPPLIER_WEBHOOK_TOKEN'); 
 
