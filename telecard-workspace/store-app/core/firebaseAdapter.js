@@ -32,7 +32,8 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 if (typeof window !== 'undefined') {
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     if (isLocalhost) {
-        self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+        // 👈 نضع الرمز كنص ثابت لكي لا يتغير أبداً
+        self.FIREBASE_APPCHECK_DEBUG_TOKEN = "c2fe92a0-dbcb-4dd4-8cf6-9d8b542f6f91";
         console.warn("🛠️ App Check: يعمل في وضع التطوير المحلي (Debug Mode).");
     }
 }
