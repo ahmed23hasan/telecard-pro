@@ -16,12 +16,9 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 // 🚀 التعديل الاحترافي: رفع الذاكرة لـ 512MiB لتتوافق مع 1 CPU وتفعيل التزامن بنجاح
 setGlobalOptions({
     region: 'us-east1',
-    memory: '512MiB', 
-    cpu: 1, 
-    maxInstances: 3,
-    concurrency: 100
+    memory: '256MiB',
+    maxInstances: 3
 });
-
 if (!admin.apps.length) {
     admin.initializeApp();
 }
