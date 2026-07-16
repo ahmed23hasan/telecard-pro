@@ -4,7 +4,7 @@
 // 🌟 التحديث الأقصى: حماية حدود فايرستور (500 Writes) لمنع الانهيار بسبب طلبات التجار الضخمة
 // ============================================================================
 
-const functions = require('firebase-functions');
+const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const crypto = require('crypto'); 
 const { FinancialEngine } = require('./financialEngine.js');
