@@ -726,17 +726,27 @@ export const DataManager = {
     },
 
     _isAlertForUser: function(msg, user, now, readIds = [], excludeRead = false) {
-        const type = msg.targetType || msg.target || 'all';
-        const tId = String(msg.targetId || msg.userId || msg.tierId || '');
-        const isForMe = type === 'all' || (type === 'user' && tId === String(user.uid)) || (type === 'tier' && tId === String(user.tierId));
-        
-        if (!isForMe || (msg.expiresAt && now > msg.expiresAt)) return false;
-        if (excludeRead && (msg.isRead || readIds.includes(String(msg.id)))) return false;
-        
-        return true;
-    },
+    const type = msg.targetType || msg.target || 'all';
+    const tId = String(msg.targetId || msg.userId || msg.tierId || '');
+    const isForMe = type === 'all' || (type === 'user' && tId === String(user.uid)) || (type === 'tier' && tId === String(user.tierId));
     
-    getUnreadAlerts: function() {
+    if (!isForMe || (msg.expiresAt && now > msg.expiresAt)) return false;
+    if (excludeRead && (msg.isRead || readIds.includes(String(msg.id)))) return false;
+    
+    // 🚀 الإصلاح الماسي: منع الإشعارات القديمة من السفر عبر الزمن للعملاء الجدد
+    // إذا كان الإشعار ليس مخصصاً حصراً للعميل، وتاريخ الإشعار أقدم من تاريخ إنشاء حساب العميل -> لا تعرضه!
+    if (type !== 'user') {
+        const userCreatedTime = this.parseTime(user.createdAt);
+        const alertTime = this.parseUnifiedTime(msg);
+        
+        // إذا كان تاريخ الحساب وتاريخ الإشعار موجودين، والإشعار أقدم من الحساب، اخفه
+        if (userCreatedTime > 0 && alertTime > 0 && alertTime < userCreatedTime) {
+            return false;
+        }
+    }
+    
+    return true;
+},   getUnreadAlerts: function() {
         if (!this.user) return [];
         const allAlerts = [...(LiveStoreData.alerts || []), ...(LiveStoreData.userNotifications || [])];
         const readIds = this._getSafeReadIds();

@@ -347,23 +347,44 @@ const ClientSystem = {
                 if (typeof this.markAllNotificationsRead === 'function') this.markAllNotificationsRead();
             },
             'mark-single-read': (e, id) => {
-                e.stopPropagation(); 
-                const targetItem = e.target.closest('.nc-item');
-                if (targetItem) {
-                    targetItem.classList.remove('unread');
-                    targetItem.classList.add('is-read');
-                    const redDot = targetItem.querySelector('.unread-indicator-dot');
-                    if (redDot) redDot.style.display = 'none';
-                }
-                if (typeof this.markSingleNotificationRead === 'function') this.markSingleNotificationRead(id);
+    e.stopPropagation();
+    const targetItem = e.target.closest('.nc-item');
+    
+    if (targetItem && targetItem.classList.contains('unread')) {
+        // 1. تغيير الشكل إلى مقروء
+        targetItem.classList.remove('unread');
+        targetItem.classList.add('is-read');
+        const redDot = targetItem.querySelector('.unread-indicator-dot');
+        if (redDot) redDot.style.display = 'none';
+        
+        // 🚀 2. الإصلاح: إنقاص العداد وإخفاء الزر إذا وصل للصفر
+        const notifContainer = document.getElementById('notif-center-list');
+        if (notifContainer) {
+            const countNumEl = notifContainer.querySelector('.nc-unread-count-num');
+            const topBar = notifContainer.querySelector('.nc-top-action-bar');
+            
+            if (countNumEl) {
+                let currentCount = parseInt(countNumEl.innerText) || 0;
+                currentCount = Math.max(0, currentCount - 1);
                 
-                if (targetItem && targetItem.hasAttribute('data-target-id')) {
-                    const targetId = targetItem.getAttribute('data-target-id');
-                    const jumpType = targetItem.getAttribute('data-jump-type') || 'order';
-                    if (typeof this.openDetail === 'function') this.openDetail(e, jumpType, targetId);
+                if (currentCount > 0) {
+                    countNumEl.innerText = currentCount;
+                } else {
+                    if (topBar) topBar.style.display = 'none';
                 }
             }
-        };
+        }
+    }
+    
+    if (typeof this.markSingleNotificationRead === 'function') this.markSingleNotificationRead(id);
+    else if (DataManager && typeof DataManager.markSingleNotificationRead === 'function') DataManager.markSingleNotificationRead(id);
+    
+    if (targetItem && targetItem.hasAttribute('data-target-id')) {
+        const targetId = targetItem.getAttribute('data-target-id');
+        const jumpType = targetItem.getAttribute('data-jump-type') || 'order';
+        if (typeof this.openDetail === 'function') this.openDetail(e, jumpType, targetId);
+    }
+}        };
 
         // الموجه الرئيسي للنقرات
         document.body.addEventListener('click', (e) => {
