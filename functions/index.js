@@ -10,7 +10,7 @@ const { onDocumentWritten, onDocumentUpdated } = require("firebase-functions/v2/
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
-const functions = require('firebase-functions');
+const functions = require('firebase-functions/v1');
 const FinancialEngine = require('./financialEngine.js');
 const { setGlobalOptions } = require("firebase-functions/v2");
 
