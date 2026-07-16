@@ -1132,95 +1132,119 @@ export const RenderManager = {
     },
 
     generatePDFReceipt: async function(config) {
-        return new Promise((resolve) => {
-            try {
-                const settings = LiveStoreData.settings || {};
-                const storeName = settings.storeName || 'المتجر';
-                const storeLogo = settings.storeLogoLight || settings.storeLogo || '';
+    return new Promise((resolve) => {
+        try {
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            let printWindow = null;
+            
+            // 🚀 الحل الاحترافي: فتح النافذة فوراً وبشكل متزامن قبل أي معالجة لتخطي حظر Safari الصارم
+            if (isMobile) {
+                printWindow = window.open('', '_blank');
                 
-                let safeLogoHtml = '';
-                if (storeLogo) {
-                    safeLogoHtml = `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;">`;
+                if (!printWindow) {
+                    console.error("Popup blocked by browser");
+                    const sys = typeof window.ClientSystem !== 'undefined' ? window.ClientSystem : (typeof window.UIManager !== 'undefined' ? window.UIManager : null);
+                    if (sys && sys.showToast) sys.showToast('يرجى السماح بالنوافذ المنبثقة (Popups) لطباعة الفاتورة', 'warning');
+                    resolve(false);
+                    return;
                 }
                 
-                // تجميع بيانات المتجر
-                const brandHTML = {
-                    storeName: storeName,
-                    html: `
+                // وضع لودر أنيق مؤقت ريثما يتم تجهيز وبناء الـ HTML
+                printWindow.document.write(`
+                        <html dir="rtl">
+                        <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+                        <body style="display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; background:#f8fafc; margin:0;">
+                            <div style="text-align:center; color:#64748b;">
+                                <svg style="width:40px; height:40px; animation:spin 1s linear infinite; fill:#FFD700; margin-bottom:15px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="M304 48a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zm0 416a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zM48 304a48 48 0 1 0 0-96 48 48 0 1 0 0 96zm464-48a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zM142.9 437A48 48 0 1 0 75 369.1 48 48 0 1 0 142.9 437zm0-294.2A48 48 0 1 0 75 75a48 48 0 1 0 67.9 67.9zM369.1 437A48 48 0 1 0 437 369.1 48 48 0 1 0 369.1 437z"/></svg>
+                                <style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
+                                <h3 style="margin:0; font-size:16px;">جاري تجهيز الفاتورة...</h3>
+                            </div>
+                        </body>
+                        </html>
+                    `);
+            }
+            
+            // ⚙️ معالجة البيانات وتجهيز الـ HTML
+            const settings = LiveStoreData.settings || {};
+            const storeName = settings.storeName || 'المتجر';
+            const storeLogo = settings.storeLogoLight || settings.storeLogo || '';
+            
+            let safeLogoHtml = '';
+            if (storeLogo) {
+                safeLogoHtml = `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;">`;
+            }
+            
+            const brandHTML = {
+                storeName: storeName,
+                html: `
                         <div class="header-section">
                             <div class="store-name">${Utils.escapeHtml(storeName)}</div>
                             ${safeLogoHtml}
                         </div>`
-                };
+            };
+            
+            // استدعاء الـ HTML النظيف من المصنع
+            const fullHTML = UIBuilders.buildPDFReceipt(config, brandHTML.html);
+            
+            if (isMobile && printWindow) {
+                // استبدال محتوى النافذة (اللودر) بالـ HTML النهائي للفاتورة
+                printWindow.document.open();
+                printWindow.document.write(fullHTML);
+                printWindow.document.close();
                 
-                // 🚀 استدعاء الـ HTML النظيف من المصنع UIBuilders
-                const fullHTML = UIBuilders.buildPDFReceipt(config, brandHTML.html);
+                // إعطاء المتصفح وقتاً لتحميل الصور والخطوط قبل إظهار نافذة الطباعة
+                setTimeout(() => {
+                    printWindow.focus();
+                    printWindow.print();
+                    resolve(true);
+                }, 1000);
                 
-                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            } else if (!isMobile) {
+                // أجهزة الكمبيوتر (Desktop): فتح الفاتورة وطباعتها بصمت داخل Iframe مخفي
+                const iframe = document.createElement('iframe');
+                iframe.style.position = 'fixed';
+                iframe.style.right = '-10000px';
+                iframe.style.bottom = '-10000px';
+                document.body.appendChild(iframe);
                 
-                if (isMobile) {
-                    const printWindow = window.open('', '_blank');
-                    if (printWindow) {
-                        printWindow.document.open();
-                        printWindow.document.write(fullHTML);
-                        printWindow.document.close();
+                const iframeDoc = iframe.contentWindow.document;
+                iframeDoc.open();
+                iframeDoc.write(fullHTML);
+                iframeDoc.close();
+                
+                setTimeout(() => {
+                    try {
+                        iframe.contentWindow.focus();
                         
-                        setTimeout(() => {
-                            printWindow.focus();
-                            printWindow.print();
+                        iframe.contentWindow.onafterprint = function() {
+                            if (document.body.contains(iframe)) document.body.removeChild(iframe);
                             resolve(true);
-                        }, 1000);
-                    } else {
-                        console.error("Popup blocked");
+                        };
+                        
+                        iframe.contentWindow.print();
+                        
+                        // تنظيف احتياطي للـ DOM
+                        setTimeout(() => {
+                            if (document.body.contains(iframe)) {
+                                document.body.removeChild(iframe);
+                                resolve(true);
+                            }
+                        }, 15000);
+                        
+                    } catch (e) {
+                        console.error("Print Failed", e);
+                        if (document.body.contains(iframe)) document.body.removeChild(iframe);
                         resolve(false);
                     }
-                } else {
-                    const iframe = document.createElement('iframe');
-                    iframe.style.position = 'fixed';
-                    iframe.style.right = '-10000px';
-                    iframe.style.bottom = '-10000px';
-                    document.body.appendChild(iframe);
-                    
-                    const iframeDoc = iframe.contentWindow.document;
-                    iframeDoc.open();
-                    iframeDoc.write(fullHTML);
-                    iframeDoc.close();
-                    
-                    setTimeout(() => {
-                        try {
-                            iframe.contentWindow.focus();
-                            
-                            iframe.contentWindow.onafterprint = function() {
-                                if (document.body.contains(iframe)) {
-                                    document.body.removeChild(iframe);
-                                }
-                                resolve(true);
-                            };
-                            
-                            iframe.contentWindow.print();
-                            
-                            setTimeout(() => {
-                                if (document.body.contains(iframe)) {
-                                    document.body.removeChild(iframe);
-                                    resolve(true);
-                                }
-                            }, 15000);
-                            
-                        } catch (e) {
-                            console.error("Print Failed", e);
-                            if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                            resolve(false);
-                        }
-                    }, 800);
-                }
-                
-            } catch (err) {
-                console.error('[Receipt Native Print Error]:', err);
-                resolve(false);
+                }, 800);
             }
-        });
-    },
-
+            
+        } catch (err) {
+            console.error('[Receipt Native Print Error]:', err);
+            resolve(false);
+        }
+    });
+},
     exportReceipt: async function(orderId, btnElement = null) {
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
         if (!o) return;

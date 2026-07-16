@@ -419,35 +419,37 @@ export const DataManager = {
     },
 
     listenToUserUpdates: function(renderCb) {
-        const activeUid = localStorage.getItem('telecard_active_user_uid');
-        if (!activeUid) return;
-        
-        if (this._userUnsubscribe) this._userUnsubscribe();
-
-        try {
-            if (typeof StoreDB.listenDocument === 'function') {
-                this._userUnsubscribe = StoreDB.listenDocument(DB_KEYS.USERS, activeUid, (docData) => {
-                    if (docData) {
-                        if (docData.isBanned || docData.isIpBanned) {
-                            if (window.UIManager?.triggerLiveBanAlert) window.UIManager.triggerLiveBanAlert(docData.banReason || 'تم تقييد حسابك.');
-                            else this.logout();
-                            return;
-                        }
-                        
-                        this.user = { ...this.user, ...docData };
-                        this.user.uid = activeUid;
-                        this.user.id = activeUid;
-                        this.user.walletBalance = Number(docData.walletBalance ?? docData.balance ?? 0);
-                        this.saveUserLocal();
-                        
-                        if (renderCb) renderCb();
+    const activeUid = localStorage.getItem('telecard_active_user_uid');
+    if (!activeUid) return;
+    
+    if (this._userUnsubscribe) this._userUnsubscribe();
+    
+    try {
+        // 🚀 الإصلاح: تم تعديل الاسم إلى listenDoc ليتطابق مع firebaseAdapter
+        if (typeof StoreDB.listenDoc === 'function') {
+            this._userUnsubscribe = StoreDB.listenDoc(DB_KEYS.USERS, activeUid, (docData) => {
+                if (docData) {
+                    if (docData.isBanned || docData.isIpBanned) {
+                        if (window.UIManager?.triggerLiveBanAlert) window.UIManager.triggerLiveBanAlert(docData.banReason || 'تم تقييد حسابك.');
+                        else this.logout();
+                        return;
                     }
-                });
-            }
-        } catch (e) { console.warn("User Listener Error:", e); }
-    },
-
-    logout: async function() {
+                    
+                    this.user = { ...this.user, ...docData };
+                    this.user.uid = activeUid;
+                    this.user.id = activeUid;
+                    this.user.walletBalance = Number(docData.walletBalance ?? docData.balance ?? 0);
+                    this.saveUserLocal();
+                    
+                    // تحديث الواجهة فوراً عند تغير الرصيد!
+                    if (renderCb) renderCb();
+                }
+            });
+        } else {
+            console.error("🚨 خطأ معماري: دالة listenDoc غير موجودة في StoreDB");
+        }
+    } catch (e) { console.warn("User Listener Error:", e); }
+},    logout: async function() {
         try {
             if (auth) await signOut(auth);
             localStorage.removeItem('telecard_active_user_uid');

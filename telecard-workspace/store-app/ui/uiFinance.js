@@ -478,8 +478,7 @@ export const UIFinance = {
             if (currPriceEl) currPriceEl.innerHTML = beautifulTotalHtml; 
         }
     },
-
-        handlePurchaseSubmit: async function() { 
+handlePurchaseSubmit: async function() { 
         if (this._isProcessingTx) return; 
         
         if (!DataManager.currentProd) return;
@@ -571,7 +570,8 @@ export const UIFinance = {
 
                     if (result.isAutoDelivered && result.deliveredCodeText) {
                         if (titleEl) titleEl.innerText = 'تم تنفيذ الطلب بنجاح!';
-                        if (descEl) descEl.innerHTML = 'تم تسليم الكود، تجده دائماً في <span class="smart-link" data-action="navigate-orders-success">سجل الطلبات</span>';
+                        // 🌟 التعديل الاحترافي لرسالة الأكواد الفورية:
+                        if (descEl) descEl.innerHTML = 'تم إصدار الكود بنجاح. تم حفظه بأمان في <span class="smart-link" data-action="navigate-orders-success">سجل طلباتك</span> للرجوع إليه في أي وقت.';
                         if (codeDisplayContainer) {
                             const splitCodesHtml = UIBuilders.buildCodesList(result.deliveredCodeText);
                             codeDisplayContainer.innerHTML = `<div class="dc-title"><i class="fa-solid fa-key"></i> الأكواد الخاصة بك:</div><div style="max-height: 200px; overflow-y: auto; padding-right: 5px;">${splitCodesHtml}</div>`;
@@ -579,7 +579,8 @@ export const UIFinance = {
                         }
                     } else {
                         if (titleEl) titleEl.innerText = 'تم استلام طلبك!';
-                        if (descEl) descEl.innerHTML = 'يمكنك متابعة حالة الطلب في <span class="smart-link" data-action="navigate-orders-success">سجل الطلبات</span>';
+                        // 🌟 التعديل الاحترافي لرسالة الطلبات قيد التنفيذ:
+                        if (descEl) descEl.innerHTML = 'طلبك الآن قيد المعالجة. يمكنك متابعة حالة التنفيذ لحظة بلحظة عبر <span class="smart-link" data-action="navigate-orders-success">سجل الطلبات</span>.';
                         if (codeDisplayContainer) { codeDisplayContainer.innerHTML = ''; codeDisplayContainer.classList.add('d-none'); }
                     }
                     
@@ -606,9 +607,19 @@ export const UIFinance = {
             // 🛡️ التوازن المثالي: رسالة عامة كخط دفاع افتراضي
             let displayMessage = 'حدث خطأ في الاتصال بالسيرفر، يرجى المحاولة لاحقاً';
 
-            // 🎯 إظهار الرسالة الحقيقية فقط إذا كانت قادمة من فايربيز (HttpsError)
-            if (err.name === 'FirebaseError' || err.code) {
-                displayMessage = err.message; 
+            // 🎯 تطبيق النصيحة الذهبية (Error Code Mapping)
+            if (err.code) {
+                switch (err.code) {
+                    case 'failed-precondition': displayMessage = err.message; break; // الاعتماد على رسالة السيرفر (مثل الرصيد غير كافٍ)
+                    case 'already-exists': displayMessage = 'عذراً، هذا الطلب تمت معالجته مسبقاً.'; break;
+                    case 'resource-exhausted': displayMessage = 'نفدت الكمية أو تم تجاوز الحد المسموح.'; break;
+                    case 'permission-denied': displayMessage = 'تم رفض العملية. تأكد من صلاحيات حسابك.'; break;
+                    case 'deadline-exceeded': displayMessage = 'انتهى وقت الطلب بسبب ضعف الإنترنت.'; break;
+                    case 'unauthenticated': displayMessage = 'انتهت جلستك، يرجى تسجيل الدخول مجدداً.'; break;
+                    default: displayMessage = err.message || 'خطأ غير معروف في الخادم.';
+                }
+            } else if (err.message) {
+                displayMessage = err.message;
             }
 
             getSys().showToast?.(displayMessage, 'error');
@@ -651,7 +662,6 @@ export const UIFinance = {
 
         this.calcFee();
     },
-
     selectPay: function(id) {
         const payments = LiveStoreData.payments || [];
         const modal = document.getElementById('balance-modal');

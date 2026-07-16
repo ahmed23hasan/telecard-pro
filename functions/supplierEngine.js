@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة V4.7 💎
+// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة V5.0 💎
 // 🎯 الوظيفة: استيراد المنتجات، حماية الذاكرة، وبناء الجداول المركزية بأمان
-// 🌟 التحديث الأخير: التنفيذ المتوازي المُنظم (Chunking)، وتشفير SHA-256 العسكري
+// 🌟 التحديث الأخير: نظام البصمة الذكية (Master Hash) لتوفير التكلفة وإصلاح تضخم المخزون
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -16,7 +16,7 @@ const db = admin.firestore();
 // ==========================================
 // 🛡️ دوال المساعدة، الأمان، وسجل الأخطاء السحابي
 // ==========================================
-// 🛡️ [تحديث التشفير]: استخدام SHA-256 بدلاً من MD5 لمنع التصادم
+// 🛡️ استخدام SHA-256 لتشفير كل كود بشكل فردي
 const generateCodeHash = (codeString) => crypto.createHash('sha256').update(String(codeString).trim()).digest('hex');
 
 const isMasterAdmin = (request) => request.auth?.token?.admin === true;
@@ -152,34 +152,60 @@ const coreSyncLogic = async (supplierId) => {
             operationCount++;
             if (operationCount >= 450) await commitAndReset();
             
+            // ==========================================
+            // 🛡️ التحديث الجديد: نظام البصمة الذكية (Master Hash)
+            // ==========================================
             if (safeCodesArray.length > 0) {
                 const vaultRef = db.collection('telecard_vault').doc(vaultId);
-                let newlyAddedCodesCount = 0;
                 
-                const keysCollectionRef = vaultRef.collection('keys');
-                for (const c of safeCodesArray) {
-                    const actualCodeString = (typeof c === 'object' ? (c.text || c.code || '') : String(c)).replace(/\s+/g, '');
+                // 1. تنظيف الأكواد وترتيبها لتوحيد النتيجة دائماً
+                const cleanCodes = safeCodesArray.map(c => {
+                    return (typeof c === 'object' ? (c.text || c.code || '') : String(c)).replace(/\s+/g, '');
+                }).filter(c => c !== '');
+                cleanCodes.sort(); // الترتيب الأبجدي ضروري لتطابق البصمة
+                
+                // 2. توليد البصمة الشاملة للحزمة القادمة
+                const masterHash = crypto.createHash('sha256').update(cleanCodes.join('||')).digest('hex');
+
+                // 3. قراءة الخزنة الحالية لفحص البصمة
+                const vaultSnap = await vaultRef.get();
+                const existingVaultData = vaultSnap.exists ? vaultSnap.data() : null;
+
+                if (existingVaultData && existingVaultData.lastCodesHash === masterHash) {
+                    // 🎉 البصمة متطابقة! تم التخطي بنجاح وتوفير عمليات الكتابة
+                    currentBatch.update(vaultRef, { lastSync: admin.firestore.FieldValue.serverTimestamp() });
+                    operationCount++;
+                    if (operationCount >= 450) await commitAndReset();
+                } else {
+                    // ⚠️ توجد أكواد جديدة أو مسحوبة لأول مرة
+                    const keysCollectionRef = vaultRef.collection('keys');
                     
-                    if (actualCodeString !== '') {
+                    for (const actualCodeString of cleanCodes) {
                         const codeHash = generateCodeHash(actualCodeString);
                         currentBatch.set(keysCollectionRef.doc(codeHash), {
-                            codeText: actualCodeString, isSold: false, supplierId: supplierId, importedAt: admin.firestore.FieldValue.serverTimestamp()
+                            codeText: actualCodeString, 
+                            isSold: false, 
+                            supplierId: supplierId, 
+                            importedAt: admin.firestore.FieldValue.serverTimestamp()
                         }, { merge: true });
                         
-                        newlyAddedCodesCount++;
                         operationCount++;
                         if (operationCount >= 450) await commitAndReset();
                     }
-                }
 
-                currentBatch.set(vaultRef, {
-                    id: vaultId, supplierId: supplierId, name: `أكواد: ${prod.name}`, 
-                    stockCount: admin.firestore.FieldValue.increment(newlyAddedCodesCount),
-                    lastSync: admin.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-                
-                operationCount++;
-                if (operationCount >= 450) await commitAndReset();
+                    // تحديث الخزنة مع حفظ المخزون الحقيقي والبصمة الجديدة
+                    currentBatch.set(vaultRef, {
+                        id: vaultId, 
+                        supplierId: supplierId, 
+                        name: `أكواد: ${prod.name}`, 
+                        stockCount: cleanCodes.length, // 👈 الإصلاح الجذري لمشكلة التضخم الوهمي للمخزون
+                        lastCodesHash: masterHash, // 👈 حفظ البصمة الذكية للمقارنة في المرة القادمة
+                        lastSync: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                    
+                    operationCount++;
+                    if (operationCount >= 450) await commitAndReset();
+                }
             }
             importedCount++;
         }
@@ -238,7 +264,6 @@ exports.scheduledSupplierSync = onSchedule({
         const suppliers = suppliersSnap.docs;
         const CONCURRENCY_LIMIT = 2; // 🛡️ معالجة موردين 2 فقط في نفس اللحظة لحماية الـ RAM
 
-        // 🛡️ تقسيم الموردين إلى دفعات صغيرة
         for (let i = 0; i < suppliers.length; i += CONCURRENCY_LIMIT) {
             const chunk = suppliers.slice(i, i + CONCURRENCY_LIMIT);
             
@@ -250,7 +275,6 @@ exports.scheduledSupplierSync = onSchedule({
                 }
             });
 
-            // ننتظر حتى ينتهي هذان الموردان قبل سحب دفعة جديدة
             await Promise.allSettled(syncPromises);
         }
 

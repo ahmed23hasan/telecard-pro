@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V11.2 - Enterprise Edition) 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V11.3 - Enterprise Edition) 💎
 // 🎯 الوظيفة: الإقلاع الذكي، حقن الاعتمادية، إدارة الأحداث (Event Delegation)، والمزامنة الحية
-// 🌟 التحديثات الجديدة: معالجة الأخطاء السحابية، حماية أزرار الدفع المتقدمة، مستشعرات الشبكة، وتحسين استهلاك الرام
+// 🌟 التحديثات الجديدة: تفعيل التحديث اللحظي المباشر (Real-time UI Sync) وإجبار الرسم الفوري
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
@@ -21,7 +21,6 @@ import { UIFinance } from './ui/uiFinance.js';
 const _normalizeDataTime = (dataArray) => {
     if (!Array.isArray(dataArray)) return [];
     return dataArray.map(item => {
-        // نعدل على الكائن مباشرة بدلاً من استنساخه بالكامل لتوفير استهلاك الرام للبيانات الضخمة
         if (item.time && typeof item.time !== 'object') item.time = RenderHelpers.parseTime(item.time);
         if (item.createdAt && typeof item.createdAt !== 'object') item.createdAt = RenderHelpers.parseTime(item.createdAt);
         if (item.actionTime && typeof item.actionTime !== 'object') item.actionTime = RenderHelpers.parseTime(item.actionTime);
@@ -106,7 +105,6 @@ const ClientSystem = {
             if (typeof this.showToast === 'function') this.showToast('عاد الاتصال بالإنترنت! جاري المزامنة...', 'success');
             if (this.isReady) {
                 try { this.initFirebaseListeners(); } catch(e){}
-                // إعادة مزامنة توقيت السيرفر لسد الثغرات الزمنية
                 if (StoreDB && typeof StoreDB.callFunction === 'function') {
                     StoreDB.callFunction('getServerTime').then(timeRes => {
                         if (timeRes && timeRes.serverTime && DataManager) {
@@ -122,16 +120,14 @@ const ClientSystem = {
     initGlobalListeners: function() {
         if (this._listenersBound) return;
         this._listenersBound = true;
-        this.initNetworkSensors(); // تفعيل مستشعرات الشبكة
+        this.initNetworkSensors(); 
 
         document.body.addEventListener('touchstart', () => {}, { passive: true });
 
-        // حماية واجهة المستخدم من النقر الأيمن غير المرغوب
         window.addEventListener('contextmenu', (e) => {
             if (e.target.closest('[data-action], .cat-card, .product-card')) e.preventDefault();
         });
 
-        // اختصارات لوحة المفاتيح
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 const target = e.target;
@@ -160,7 +156,6 @@ const ClientSystem = {
             if (action === 'check-coupon-state' && typeof this.checkInputState === 'function') this.checkInputState();
         });
 
-        // معالجة إغلاق القوائم المنسدلة عند النقر خارجها
         document.addEventListener('click', (e) => {
             const packageWrapper = document.getElementById('pkg-custom-dropdown');
             if (packageWrapper && packageWrapper.classList.contains('open') && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
@@ -177,7 +172,7 @@ const ClientSystem = {
             }
         }, true); 
 
-        // 📘 قاموس الأحداث المركزي (يمنع تكرار الكود)
+        // 📘 قاموس الأحداث المركزي
         const ActionDictionary = {
             'nav-home': () => this.navigateHome?.(),
             'nav-deposit': () => this.navigateBalance?.(),
@@ -239,7 +234,7 @@ const ClientSystem = {
             'remove-coupon': () => this.removeCoupon?.(),
             'paste-coupon': () => this.pasteText?.(),
             
-            // 🛡️ [تحديث ماسي]: حماية زر الشراء الديناميكية (Dynamic Async Debounce)
+            // 🛡️ حماية زر الشراء الديناميكية
             'confirm-purchase': async (e, id, val, target) => { 
                 if (target.disabled) return;
                 target.disabled = true;
@@ -259,7 +254,7 @@ const ClientSystem = {
             'navigate-orders-success': () => { this.closeModal?.('purchase-success'); this.openOrders?.(); }, 
             'select-pay': (e, id) => this.selectPay?.(id),
             
-            // 🛡️ [تحديث ماسي]: حماية زر الإيداع الديناميكية (Dynamic Async Debounce)
+            // 🛡️ حماية زر الإيداع الديناميكية
             'submit-balance': async (e, id, val, target, dataType, dataCurr) => { 
                 if (target.disabled) return;
                 target.disabled = true;
@@ -334,7 +329,7 @@ const ClientSystem = {
                 }
             },
             
-            // إدارة الإشعارات (Optimistic UI)
+            // إدارة الإشعارات
             'mark-all-read': () => {
                 const notifContainer = document.getElementById('notif-center-list');
                 if (notifContainer) {
@@ -374,7 +369,6 @@ const ClientSystem = {
         document.body.addEventListener('click', (e) => {
             const target = e.target;
             
-            // إغلاق النوافذ المنبثقة عند النقر خارجها
             if (target.classList.contains('pm-overlay') || target.classList.contains('modal-overlay')) {
                 e.preventDefault();
                 const modalId = target.id.replace('-overlay', '');
@@ -389,7 +383,6 @@ const ClientSystem = {
             const action = actionBtn.getAttribute('data-action');
             const prodId = actionBtn.getAttribute('data-id');
             
-            // معالجة فتح المنتج لتفادي النقر المزدوج السريع
             if (action === 'open-product') {
                 const isClickOnImage = target.closest('.card-image');
                 if (isClickOnImage) {
@@ -427,7 +420,6 @@ const ClientSystem = {
                 }
             }
             
-            // المؤثرات الصوتية
             if (typeof this.sfx === 'function') {
                 const silentActions = ['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigger-click', 'update-simple-qty', 'delete-avatar', 'open-product', 'mark-single-read'];
                 if (!silentActions.includes(action)) {
@@ -441,7 +433,6 @@ const ClientSystem = {
             
             const handler = ActionDictionary[action];
             if (handler) {
-                // 🛡️ [تحديث ماسي]: الالتقاط الشامل للأخطاء وإرسالها للسحابة (Cloud Error Tracking)
                 try {
                     const result = handler(
                         e,
@@ -457,7 +448,6 @@ const ClientSystem = {
                         actionBtn.getAttribute('data-text')
                     );
                     
-                    // التقاط أخطاء الـ Promises أيضاً
                     if (result instanceof Promise) {
                         result.catch(err => this.logCloudError(action, err));
                     }
@@ -479,19 +469,19 @@ const ClientSystem = {
                 userId: DataManager?.user?.uid || 'guest',
                 device: navigator.userAgent,
                 time: new Date().toISOString()
-            }).catch(()=>{}); // تجاهل بصمت إذا فشل الإرسال
+            }).catch(()=>{}); 
         }
         if (typeof this.showToast === 'function') this.showToast('حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.', 'error');
     }
 };
 
-// 🔗 دمج الوحدات الفرعية في كيان واحد عبر (Dependency Injection) مع حماية ضد الكتابة الفوقية
+// 🔗 دمج الوحدات الفرعية في كيان واحد عبر (Dependency Injection)
 const baseKeys = Object.keys(ClientSystem);
 const modules = [DataManager, UIManager, RenderManager, Components, Utils, UIFinance];
 modules.forEach(mod => {
     if (!mod) return;
     Object.keys(mod).forEach(key => {
-        if (baseKeys.includes(key)) return; // حماية الدوال الأساسية من الاستبدال العشوائي
+        if (baseKeys.includes(key)) return; 
         if (typeof mod[key] === 'function') {
             ClientSystem[key] = mod[key].bind(mod);
         } else {
@@ -512,43 +502,32 @@ ClientSystem.userAuthListeners = [];
 ClientSystem.initFirebaseListeners = function() {
     console.log("📡 جاري تشغيل مستمعات السحابة الحية (النظام التفاعلي)...");
     this.clearFirebaseListeners(); 
-  // استماع للتحديثات العامة (إعدادات النظام وإصدار التطبيق)
+    
     if (DB_KEYS.SETTINGS) {
         this.activeListeners.push(StoreDB.listenCollection(DB_KEYS.SETTINGS, (data) => {
             const incoming = Array.isArray(data) ? (data[0] || null) : (data || null);
             if (!incoming) return;
             
-            // 🚀 1. نظام التحديث الإجباري الحي (Live Force Update Watchdog)
             const serverVersion = String(incoming.appVersion || '0');
             const localVersion = localStorage.getItem('telecard_app_version') || window.TELECARD_VERSION || '0';
             
             if (serverVersion !== '0' && serverVersion !== localVersion) {
                 console.warn(`🔄 الإدارة أصدرت تحديثاً إجبارياً! (من ${localVersion} إلى ${serverVersion})`);
-                
                 if (typeof UIManager !== 'undefined' && UIManager.showToast) {
                     UIManager.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل للحصول على أفضل تجربة...', 'success');
                 }
-                
                 setTimeout(async () => {
                     localStorage.setItem('telecard_app_version', serverVersion);
-                    
-                    // مسح الكاش العميق
                     if (typeof localforage !== 'undefined') await localforage.clear();
-                    
-                    // قتل الـ Service Workers القديمة
                     if ('serviceWorker' in navigator) {
                         const regs = await navigator.serviceWorker.getRegistrations();
                         for (let r of regs) await r.unregister();
                     }
-                    
-                    // إعادة تحميل صارمة من السيرفر
                     window.location.reload(true);
                 }, 2000);
-                
-                return; // 🛑 إيقاف باقي الأكواد لتجنب أي تعارض أثناء الريفريش
+                return;
             }
 
-            // 🚀 2. إكمال المزامنة العادية للبيانات
             LiveStoreData.settings = incoming;
             RenderHelpers.init({ settings: LiveStoreData.settings, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
             try { if (this.syncUser) this.syncUser(); } catch(e){}
@@ -613,16 +592,20 @@ ClientSystem.initFirebaseListeners = function() {
                     LiveStoreData.orders = _normalizeDataTime(Array.isArray(data) ? data : []);
                     this.cursors = this.cursors || {};
                     this.cursors.orders = data.length < 30 ? null : lastDoc;
-                    requestAnimationFrame(() => { try { if (this.renderOrders) this.renderOrders(); } catch(e){} });
+                    
+                    // 🚀 الإصلاح الماسي: إجبار الرسم الفوري بتمرير (true) لتخطي التأخير (Debounce)
+                    requestAnimationFrame(() => { try { if (this.renderOrders) this.renderOrders(true); } catch(e){} });
                 }));
                 
                 this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', String(uidStr)], 'time', 30, (data, lastDoc) => {
                     LiveStoreData.deposits = _normalizeDataTime(Array.isArray(data) ? data : []);
                     this.cursors = this.cursors || {};
                     this.cursors.deposits = data.length < 30 ? null : lastDoc;
+                    
                     requestAnimationFrame(() => {
-                        try { if (this.renderWallet) this.renderWallet(); } catch(e){}
-                        try { if (this.renderPayments) this.renderPayments(); } catch(e){}
+                        // 🚀 الإصلاح الماسي: إجبار الرسم الفوري بتمرير (true) لتخطي التأخير (Debounce)
+                        try { if (this.renderWallet) this.renderWallet(true); } catch(e){}
+                        try { if (this.renderPayments) this.renderPayments(true); } catch(e){}
                     });
                 }));
             }
@@ -644,20 +627,14 @@ ClientSystem.init = async function() {
     this.isReady = true;
     console.log("🚀 جاري إقلاع النظام (نمط مكافحة الانهيار + الكاش الذكي O(1) Reads)...");
     
-    // ==========================================
-    // 🛡️ حارس الإصدارات والإقلاع (Boot-Time Version Enforcer)
-    // ==========================================
     try {
         const currentVersion = window.TELECARD_VERSION || "1.0.0";
         const savedVersion = localStorage.getItem('telecard_app_version');
 
         if (savedVersion && savedVersion !== currentVersion) {
             console.warn(`🔄 تم اكتشاف تحديث محلي للمتجر! (من ${savedVersion} إلى ${currentVersion}). جاري تنظيف الكاش العميق...`);
-            
-            // 1. مسح الكاش العميق
             if (typeof localforage !== 'undefined') await localforage.clear();
 
-            // 2. قتل الـ Service Workers
             if ('serviceWorker' in navigator) {
                 const registrations = await navigator.serviceWorker.getRegistrations();
                 for (let registration of registrations) {
@@ -665,7 +642,6 @@ ClientSystem.init = async function() {
                 }
             }
 
-            // 3. الحفاظ على بيانات الجلسة الحرجة (كي لا يطرد المستخدم)
             const activeUid = localStorage.getItem('telecard_active_user_uid');
             const theme = localStorage.getItem('telecard_theme');
             localStorage.clear();
@@ -673,21 +649,17 @@ ClientSystem.init = async function() {
             if (activeUid) localStorage.setItem('telecard_active_user_uid', activeUid);
             if (theme) localStorage.setItem('telecard_theme', theme);
             
-            // 4. حفظ الإصدار الجديد وإعادة التحميل
             localStorage.setItem('telecard_app_version', currentVersion);
             window.location.reload(true);
-            return; // 🛑 إيقاف الإقلاع القديم فوراً
+            return; 
             
         } else if (!savedVersion) {
-            // تسجيل الإصدار لأول مرة
             localStorage.setItem('telecard_app_version', currentVersion);
         }
     } catch (e) {
         console.error("خطأ في حارس الإصدارات:", e);
     }
-    // ==========================================
 
-    // 🟢 المرحلة 1: إعدادات المستخدم الأساسية والمظهر
     try {
         if (DataManager.loadPrefs) DataManager.loadPrefs();
         if (DataManager.syncUser) DataManager.syncUser().catch(()=>{});
@@ -698,7 +670,6 @@ ClientSystem.init = async function() {
         if (typeof UIManager.toggleHeroSection === 'function') UIManager.toggleHeroSection(true);
     } catch(e) { console.warn("Boot Phase 1 Skip", e); }
 
-    // 🟡 المرحلة 2: تشغيل محرك الكاش الذكي (Smart Cache Engine) ورسم الواجهة
     try {
         if (UIManager.checkSystemStatus && UIManager.checkSystemStatus()) return;
         this.initGlobalListeners(); 
@@ -733,7 +704,6 @@ ClientSystem.init = async function() {
         if (splashName) splashName.innerText = sName;
         localStorage.setItem('telecard_splash_name', sName);
 
-        // 🛡️ الحماية من المهام المعلقة
         setTimeout(() => {
             if (!this.isReady) return; 
             
@@ -755,7 +725,6 @@ ClientSystem.init = async function() {
 
     } catch(e) { console.warn("Boot Phase 2 (Smart Cache) Skip", e); }
 
-    // 🟣 المرحلة 3: المستمعات الحية والمستشعرات الأمنية
     try {
         if (DataManager && typeof DataManager.injectSilentSensor === 'function') setTimeout(() => { DataManager.injectSilentSensor(); }, 3000);
         if (UIManager && typeof UIManager.updateDisplayBalance === 'function') UIManager.updateDisplayBalance();
@@ -784,7 +753,9 @@ ClientSystem.init = async function() {
 };
 
 window.ClientSystem = ClientSystem;
-window.CalendarApp = CalendarApp;// 🟢 نقطة الانطلاق (Entry Point)
+window.CalendarApp = CalendarApp;
+
+// 🟢 نقطة الانطلاق (Entry Point)
 (function() {
     const startApp = () => { if (window.ClientSystem && window.ClientSystem.init) window.ClientSystem.init(); };
     if (document.readyState === 'loading') {

@@ -146,7 +146,24 @@ export const Utils = {
     calculateOrderDuration: function(startTime, endTime) {
         if (!startTime || !endTime) return "---";
         
-        const startObj = new Date(Number(startTime));
+        let startMs, endMs;
+
+// معالجة تاريخ البدء
+if (startTime && typeof startTime.toMillis === 'function') {
+    startMs = startTime.toMillis(); // إذا كان Firestore Timestamp
+} else {
+    startMs = Number(startTime); // إذا كان رقم عادي (Milliseconds)
+}
+
+// معالجة تاريخ الانتهاء
+if (endTime && typeof endTime.toMillis === 'function') {
+    endMs = endTime.toMillis();
+} else {
+    endMs = Number(endTime);
+}
+
+const startObj = new Date(startMs);
+const endObj = new Date(endMs);
         const endObj = new Date(Number(endTime));
         
         if (isNaN(startObj.getTime()) || isNaN(endObj.getTime())) return "---";

@@ -299,20 +299,29 @@ exports.createOrder = onCall({ enforceAppCheck: true }, async (request) => {
             };
 
             if (isCycleExpired || isTierUpgraded) { userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); }
-
-            // --- 🛡️ إكمال عملية البيع مع الحماية من بيع الهواء ---
-            if (product.vaultPoolId && keysSnap) {
-                if (keysSnap.size < finalQty) {
-                    throw new HttpsError('failed-precondition', `عذراً، الكمية المتوفرة حالياً في المخزن (${keysSnap.size}) أقل من الكمية المطلوبة.`);
-                }
-                keysSnap.forEach(doc => {
-                    transaction.update(doc.ref, { isSold: true, soldAt: admin.firestore.FieldValue.serverTimestamp(), orderId: cleanOrderId, userId: uid });
-                });
-                deliveredCodeText = keysSnap.docs.map(d => d.data().codeText).join(' | ');
-                isAutoDelivered = true;
-            }
-
-            transaction.update(userRef, userUpdateObj);
+// --- 🛡️ إكمال عملية البيع مع الحماية من بيع الهواء ---
+if (product.vaultPoolId && keysSnap) {
+    if (keysSnap.size < finalQty) {
+        throw new HttpsError('failed-precondition', `عذراً، الكمية المتوفرة حالياً في المخزن (${keysSnap.size}) أقل من الكمية المطلوبة.`);
+    }
+    
+    // 1. تحديد مرجع الخزنة الأم
+    const vaultRef = db.collection('telecard_vault').doc(String(product.vaultPoolId));
+    
+    // 2. تحديث حالة الأكواد إلى "مباعة"
+    keysSnap.forEach(doc => {
+        transaction.update(doc.ref, { isSold: true, soldAt: admin.firestore.FieldValue.serverTimestamp(), orderId: cleanOrderId, userId: uid });
+    });
+    
+    // 3. 🌟 الخصم الفوري والمباشر من عداد المخزون الرئيسي للخزنة
+    transaction.update(vaultRef, {
+        stockCount: admin.firestore.FieldValue.increment(-finalQty), // خصم الكمية المباعة
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    deliveredCodeText = keysSnap.docs.map(d => d.data().codeText).join(' | ');
+    isAutoDelivered = true;
+}        transaction.update(userRef, userUpdateObj);
             transaction.set(orderRef, {
                 id: cleanOrderId, userId: uid, prodId: productId, product: product.name,
                 price: totalRequired, qty: finalQty, status: isAutoDelivered ? 'completed' : 'pending',
