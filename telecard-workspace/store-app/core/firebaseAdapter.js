@@ -15,7 +15,6 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
-
 // 🔑 مفاتيح الربط الخاصة بمتجر Telecard 
 const firebaseConfig = {
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
@@ -28,25 +27,28 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// ✅ 2. الهندسة الاحترافية: تفعيل وضع التطوير (Debug Mode) تلقائياً عند العمل محلياً
+// 🛑 تم إيقاف نظام App Check مؤقتاً على جميع النطاقات (للتطوير والاختبار السريع)
+let appCheck = null;
+console.warn("⚠️ تم إيقاف درع الحماية App Check كلياً بناءً على طلبك.");
+
+/* 
+// ⬇️ كود الـ App Check محتفظ به هنا لسهولة إعادة تفعيله مستقبلاً
 if (typeof window !== 'undefined') {
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     if (isLocalhost) {
-        // 👈 نضع الرمز كنص ثابت لكي لا يتغير أبداً
         self.FIREBASE_APPCHECK_DEBUG_TOKEN = "c2fe92a0-dbcb-4dd4-8cf6-9d8b542f6f91";
-        console.warn("🛠️ App Check: يعمل في وضع التطوير المحلي (Debug Mode).");
     }
+    appCheck = initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider('6LdzvUQtAAAAAIqefitRy_PV9A9Efyb33HoicX8z'),
+        isTokenAutoRefreshEnabled: true
+    });
 }
-// ✅ 3. تشغيل درع الحماية (App Check)
-const appCheck = initializeAppCheck(app, {
-    provider: new ReCaptchaV3Provider('6LdzvUQtAAAAAIqefitRy_PV9A9Efyb33HoicX8z'),
-    isTokenAutoRefreshEnabled: true // تحديث التوكن تلقائياً في الخلفية لضمان عدم توقف عمليات العميل
-});
+*/
+
 const db = getFirestore(app);
 const auth = getAuth(app);
-const storage = getStorage(app); 
+const storage = getStorage(app);
 const functions = getFunctions(app, 'us-east1');
-
 // تصدير appCheck مع باقي الوحدات في حال احتجنا للوصول إليه لاحقاً
 export { auth, db, storage, functions, appCheck };
 

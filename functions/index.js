@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V13.5 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V13.6 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديثات: توافق تام مع خوادم V2، التزامن (Concurrency)، وإصلاح تعارض GitHub Actions
+// 🚀 التحديثات: التوافق الاقتصادي الآمن 100% مع قيود Google Cloud لتخطي حظر الرفع
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -13,12 +13,13 @@ const functions = require('firebase-functions/v1');
 const FinancialEngine = require('./financialEngine.js');
 const { setGlobalOptions } = require("firebase-functions/v2");
 
-// 🚀 التعديل الاحترافي: رفع الذاكرة لـ 512MiB لتتوافق مع 1 CPU وتفعيل التزامن بنجاح
+// 🚀 التعديل الاحترافي: وضع اقتصادي آمن يمر من حظر جوجل ويحمي فاتورتك
 setGlobalOptions({
     region: 'us-east1',
     memory: '256MiB',
     maxInstances: 3
 });
+
 if (!admin.apps.length) {
     admin.initializeApp();
 }
@@ -76,7 +77,6 @@ exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
             initialTierId = defaultTierSnap.docs[0].id; // أخذ الـ ID الحقيقي
         } else {
             console.error(`[CRITICAL WARNING] No default tier found in DB for new user ${user.uid}`);
-            // يمكن وضع ID لمستوى تعرف أنه موجود دائماً كاحتياط أخير
             initialTierId = '1'; 
         }
         
@@ -89,7 +89,7 @@ exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
             wallet_balance: 0.0,
             totalSpent: 0.0,
             totalDeposit: 0.0,
-            tierId: initialTierId, // 👈 زراعة الـ ID الحقيقي هنا
+            tierId: initialTierId, 
             tierCycleSpent: 0.0,
             tierCycleStartDate: admin.firestore.FieldValue.serverTimestamp(),
             manualTierOverride: false,
@@ -238,7 +238,7 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
             // 1. البحث الدقيق عن مستوى العميل
             const currentTierObj = tiersData.find(t => String(t.id) === assignedTierId);
 
-            // 2. الفشل الآمن: لا ترقيع، لا بيانات وهمية. إذا كان المعرف غير صحيح، نوقف الشراء!
+            // 2. الفشل الآمن
             if (!currentTierObj) {
                 console.error(`[DATA INTEGRITY ERROR] User ${uid} has invalid Tier ID: ${assignedTierId}`);
                 throw new HttpsError('failed-precondition', 'بيانات مستوى الحساب غير متطابقة. يرجى التواصل مع الدعم الفني لتحديث حسابك.');
@@ -301,15 +301,12 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
                     throw new HttpsError('failed-precondition', `عذراً، الكمية المتوفرة حالياً في المخزن (${keysSnap.size}) أقل من الكمية المطلوبة.`);
                 }
                 
-                // 1. تحديد مرجع الخزنة الأم
                 const vaultRef = db.collection('telecard_vault').doc(String(product.vaultPoolId));
                 
-                // 2. تحديث حالة الأكواد إلى "مباعة"
                 keysSnap.forEach(doc => {
                     transaction.update(doc.ref, { isSold: true, soldAt: admin.firestore.FieldValue.serverTimestamp(), orderId: cleanOrderId, userId: uid });
                 });
                 
-                // 3. 🌟 الخصم الفوري والمباشر من عداد المخزون الرئيسي للخزنة
                 transaction.update(vaultRef, {
                     stockCount: admin.firestore.FieldValue.increment(-finalQty),
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -735,13 +732,12 @@ const performStatsRecalculation = async () => {
 
 exports.scheduledStatsAggregation = onSchedule({ 
     schedule: 'every 6 hours',
-    timeoutSeconds: 540,
-    memory: '512MiB'
+    timeoutSeconds: 540
 }, async (event) => {
     try { await performStatsRecalculation(); } catch (error) { console.error("Stats Error:", error); }
 });
 
-exports.calculateStoreStatsCloud = onCall({ timeoutSeconds: 540, memory: '512MiB' }, async (request) => {
+exports.calculateStoreStatsCloud = onCall({ timeoutSeconds: 540 }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     try { await performStatsRecalculation(); return { success: true, message: 'تم بناء الإحصائيات المركزية بنجاح.' }; }
     catch (error) { throw new HttpsError('internal', `فشل السيرفر: ${error.message}`); }
@@ -861,13 +857,11 @@ exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposi
     let title = "تحديث طلب الإيداع"; 
     let message = `تم تغيير حالة طلب الإيداع إلى ${after.status}`;
 
-    // 🎯 جلب القيمة النهائية والعملة النهائية فقط (لأن هذا ما يهم العميل)
     const displayCreditedAmt = after.creditedAmount !== undefined ? after.creditedAmount : after.amount;
     const displayTargetCurr = after.targetCurrency || after.currency || 'USD';
 
     if (after.status === 'approved') { 
         title = "💰 تم قبول الإيداع!"; 
-        // 🚀 رسالة مباشرة ومريحة للعميل كما طلبت تماماً
         message = `تمت إضافة ${displayCreditedAmt} ${displayTargetCurr} لمحفظتك بنجاح!`; 
     } 
     else if (after.status === 'rejected') { 
@@ -891,11 +885,8 @@ exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposi
 const developerApi = require('./developerApi.js');
 const supplierEngine = require('./supplierEngine.js');
 
-exports.orderStatusWebhook = onRequest({ 
-    memory: '512MiB'
-}, async (req, res) => {
+exports.orderStatusWebhook = onRequest(async (req, res) => {
     const token = req.headers['x-telecard-webhook-token'];
-    // يتم تجاوز التحقق مؤقتاً حتى نقوم بإعداده لاحقاً
     if (!token) {
         console.error(`[SECURITY ALERT] Unauthorized Webhook Attempt`);
         return res.status(401).send('Unauthorized');
@@ -903,16 +894,15 @@ exports.orderStatusWebhook = onRequest({
     return developerApi.orderStatusWebhook(req, res);
 });
 
-exports.externalCreateOrder = onCall({ memory: '512MiB' }, developerApi.externalCreateOrder); 
-exports.syncSupplierData = onCall({ memory: '1GiB' }, supplierEngine.syncSupplierData);
+exports.externalCreateOrder = onCall(developerApi.externalCreateOrder); 
+exports.syncSupplierData = onCall(supplierEngine.syncSupplierData);
 
 exports.scheduledSupplierSync = onSchedule({ 
     schedule: 'every 24 hours', 
-    memory: '1GiB', 
     timeoutSeconds: 540 
 }, supplierEngine.scheduledSupplierSync);
 
-exports.secureSaveSupplier = onCall({ memory: '512MiB' }, supplierEngine.secureSaveSupplier); 
+exports.secureSaveSupplier = onCall(supplierEngine.secureSaveSupplier); 
 
 // ==========================================
 // 📦 11. إدارة صناديق الأكواد السحابية (Vault Subcollections Engine)
