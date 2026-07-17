@@ -87,15 +87,22 @@
         </div>
         <h2 id="splash-store-name" class="splash-title">جاري إعداد حسابك...</h2>
     </div>
+<!-- 🛡️ حقن الاسم المخبأ لتسريع شاشة الإقلاع -->
+<script>
+    var cachedStoreName = localStorage.getItem('telecard_splash_name');
+    if (cachedStoreName) {
+        document.getElementById('splash-store-name').textContent = cachedStoreName;
+    }
+</script>
 
-    <!-- 🛡️ حقن الاسم المخبأ لتسريع شاشة الإقلاع -->
-    <script>
-        var cachedStoreName = localStorage.getItem('telecard_splash_name');
-        if (cachedStoreName) {
-            document.getElementById('splash-store-name').textContent = cachedStoreName;
-        }
-    </script>   
-    
+<!-- 🔑 زر مؤقت لترقية الأدمن (احذفه بعد نجاح الترقية) -->
+<button onclick="import('./core/firebaseAdapter.js').then(async (mod) => { alert('🚀 جاري الاتصال بالسيرفر السحابي لترقيتك...'); const res = await mod.FirebaseAdapter.callFunction('grantAdminRole', { email: 'ahmed23hasan1994@gmail.com' }); alert('🎉 النتيجة: ' + res.message); }).catch(err => alert('🚨 خطأ: ' + err.message))" style="position: fixed; top: 75px; left: 15px; z-index: 99999999; background: #ef4444; color: #fff; border: 2px solid #fff; padding: 12px 20px; border-radius: 12px; font-weight: bold; font-size: 13px; font-family: sans-serif; box-shadow: 0 10px 25px rgba(239, 68, 68, 0.4); direction: rtl; cursor: pointer;">
+    🔑 كود الترقية للأدمن الماستر
+</button>
+
+<!-- 🚨 نافذة الحماية والطرد المباشر -->
+<div class="global-alert-overlay" id="global-security-alert" role="dialog" aria-modal="true">
+    <div class="global-alert-card">    
     <!-- 🚨 نافذة الحماية والطرد المباشر -->
     <div class="global-alert-overlay" id="global-security-alert" role="dialog" aria-modal="true">
         <div class="global-alert-card">
