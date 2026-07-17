@@ -43,21 +43,23 @@ export const RenderHelpers = Object.freeze({
             .replace(/\//g, '&#x2F;');
     },
 
-    /**
-     * 🔢 دالة تنسيق الأرقام (البنكية)
-     */
-    _enNum: function(num, decimals = 2) {
+/**
+ * 🔢 دالة تنسيق الأرقام (البنكية) - [تم تحصينها ضد RangeError]
+ */
+_enNum: function(num, decimals = 2) {
         const parsedNum = Number(num) || 0;
-        // 🚀 الإصلاح: إجبار عرض الخانات العشرية للعمليات المالية (مثل 5.00 وليس 5)
+        // 🛡️ حماية المتصفح: دوال JS تقبل الخانات العشرية من 0 إلى 20 فقط
+        const safeDecimals = Math.min(20, Math.max(0, Number(decimals) || 2));
+        
         return parsedNum.toLocaleString('en-US', {
-            minimumFractionDigits: decimals,
-            maximumFractionDigits: decimals,
+            minimumFractionDigits: safeDecimals,
+            maximumFractionDigits: safeDecimals,
             useGrouping: false
         });
     },
     
     // ============================================================================
-    // 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (مدرع ضد XSS)
+    // 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (مدرع ضد XSS و المعرفات الفارغة)
     // ============================================================================
     
     formatUserId: function(userObj, withPrefix = false) {
@@ -66,13 +68,15 @@ export const RenderHelpers = Object.freeze({
         
         if (typeof userObj === 'object') {
             if (userObj.displayId) finalId = String(userObj.displayId);
-            else finalId = String(userObj.uid || userObj.id || '').substring(0, 6).toUpperCase(); 
+            else finalId = String(userObj.uid || userObj.id || '').substring(0, 6).toUpperCase();
         } else {
             const strId = String(userObj);
             finalId = strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
         }
         
-        if (!finalId) return '---';
+        // 🛡️ [تعديل]: في حال كان الآي دي فارغاً، نعطي قيمة عشوائية آمنة بدلاً من USR- فارغة
+        if (!finalId || finalId.trim() === '') finalId = 'UKNWN';
+        
         const formatted = withPrefix ? `USR-${finalId}` : finalId;
         return this._esc(formatted);
     },
@@ -80,7 +84,9 @@ export const RenderHelpers = Object.freeze({
     formatOrderId: function(orderObj, withPrefix = true) {
         if (!orderObj) return '---';
         const rawId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
-        if (!rawId) return '---';
+        
+        // 🛡️ [تعديل]: الحماية من المعرفات الفارغة
+        if (!rawId || String(rawId).trim() === '') return '---';
         
         return this._esc(withPrefix ? `ORD-${String(rawId).toUpperCase()}` : String(rawId).toUpperCase());
     },
@@ -88,11 +94,12 @@ export const RenderHelpers = Object.freeze({
     formatDepositId: function(depObj, withPrefix = true) {
         if (!depObj) return '---';
         const rawId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
-        if (!rawId) return '---';
+        
+        // 🛡️ [تعديل]: الحماية من المعرفات الفارغة
+        if (!rawId || String(rawId).trim() === '') return '---';
         
         return this._esc(withPrefix ? `DEP-${String(rawId).toUpperCase()}` : String(rawId).toUpperCase());
-    },
-    
+    },    
     // ============================================================================
     // 💰 المحركات المالية والعملات 
     // ============================================================================

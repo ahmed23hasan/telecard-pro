@@ -1,5 +1,5 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Clean Architecture
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Clean Architecture (Tier 1)
 // 🎯 الوظيفة: تحويل البيانات الخام (Data) إلى نصوص HTML جاهزة للرسم
 // 🚀 الفائدة: فصل التصميم (UI) عن منطق الرسم (Logic) لتسريع الأداء وتسهيل الصيانة
 // ============================================================================
@@ -102,11 +102,12 @@ export const UIBuilders = {
         else if (status === 'rejected') statusLabel = '<i class="fa-solid fa-circle-xmark"></i> مرفوض';
         else if (['returned', 'refunded'].includes(status)) statusLabel = '<i class="fa-solid fa-rotate-left"></i> مسترجع';
         
-        const totalDiscLocal = Number(o.couponDiscount || 0) + Number(o.saleDiscount || 0);
+        // 🛡️ [Number Safety Fix]: حماية الواجهة من انهيار NaN عبر parseFloat
+        const totalDiscLocal = (parseFloat(o.couponDiscount) || 0) + (parseFloat(o.saleDiscount) || 0);
         let discountBadgeHtml = '';
         if (totalDiscLocal > 0) {
-            const isCombo = (Number(o.couponDiscount || 0) > 0 && Number(o.saleDiscount || 0) > 0);
-            const isCoupon = Number(o.couponDiscount || 0) > 0;
+            const isCombo = ((parseFloat(o.couponDiscount) || 0) > 0 && (parseFloat(o.saleDiscount) || 0) > 0);
+            const isCoupon = (parseFloat(o.couponDiscount) || 0) > 0;
             discountBadgeHtml = `
                 <div class="oh-discount-badge ${isCombo ? 'badge-combo' : (isCoupon ? 'badge-coupon' : 'badge-sale')}">
                     <i class="fa-solid ${isCombo ? 'fa-gift' : (isCoupon ? 'fa-ticket' : 'fa-tag')}"></i> 
@@ -313,7 +314,8 @@ export const UIBuilders = {
         `;
 
         const storeNameMatch = brandHTML.match(/<div class="store-name">([^<]+)<\/div>/);
-        const storeNameText = storeNameMatch ? storeNameMatch[1] : 'Store';
+        // 🛡️ [Security Fix]: تأمين اسم المتجر لتفادي ثغرات XSS في الفاتورة
+        const storeNameText = storeNameMatch ? Utils.escapeHtml(storeNameMatch[1]) : 'TeleCard';
 
         return `
             <!DOCTYPE html>
@@ -324,12 +326,13 @@ export const UIBuilders = {
                 <style>
                     @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
                     @page { size: A4 portrait; margin: 15mm; }
-                    body { font-family: 'Share Tech Mono', sans-serif; background: #ffffff; color: #0f172a; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    /* 🛡️ دعم خطوط النظام الآمنة للفواتير (Courier, monospace) في حال تأخر خط جوجل */
+                    body { font-family: 'Share Tech Mono', 'Courier New', Courier, monospace; background: #ffffff; color: #0f172a; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                     .receipt-container { max-width: 100%; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 25px; }
                     .header-section { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px dashed #cbd5e1; padding-bottom: 20px; margin-bottom: 25px; }
-                    .store-name { font-size: 26px; font-weight: 800; color: #0f172a; }
+                    .store-name { font-size: 26px; font-weight: 800; color: #0f172a; font-family: sans-serif; }
                     .r-title-box { background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #eab308; margin-bottom: 25px; text-align: center; }
-                    .r-title { font-size: 18px; color: #ca8a04; font-weight: bold; margin-bottom: 5px; }
+                    .r-title { font-size: 18px; color: #ca8a04; font-weight: bold; margin-bottom: 5px; font-family: sans-serif; }
                     .r-id { font-size: 18px; color: #0f172a; font-weight: bold; }
                     .r-grid { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
                     .r-item { width: calc(50% - 7.5px); background: #f8fafc; padding: 12px; border-radius: 8px; border-left: 4px solid #eab308; box-sizing: border-box; }
@@ -431,9 +434,10 @@ export const UIBuilders = {
                             </div>
                         </div>
                     </div>
-                 <div class="bal-input-field-new" id="bal-amount-wrap">
+                <div class="bal-input-field-new" id="bal-amount-wrap">
                     <span class="bal-input-currency-new" id="bal-amount-curr">${currentPayCurrency}</span>
-                    <input type="text" id="bal-amount" class="bal-input-new num-en" placeholder="0.00" inputmode="decimal" autocomplete="one-time-code" readonly onfocus="this.removeAttribute('readonly');" spellcheck="false" autocorrect="off">
+                    <!-- 🛡️ [UX Fix]: إضافة onclick لحل مشكلة متصفح سفاري في الآيفون -->
+                    <input type="text" id="bal-amount" class="bal-input-new num-en" placeholder="0.00" inputmode="decimal" autocomplete="one-time-code" readonly onfocus="this.removeAttribute('readonly');" onclick="this.removeAttribute('readonly');" spellcheck="false" autocorrect="off">
                     <label class="bal-floating-label">أدخل مبلغ للإيداع</label>
                 </div>
                 <span id="bal-amount-error" class="bal-error-text-new d-none"></span>

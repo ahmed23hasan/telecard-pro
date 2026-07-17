@@ -35,10 +35,10 @@ export const UICore = {
     // 🚨 0. نافذة الطرد المباشر وإعدام الجلسات (True Session Eviction)
     // =========================================================
     triggerLiveBanAlert: function(reasonMessage) {
-        const msgText = Utils.escapeHtml(reasonMessage || 'تم تقييد حسابك.');
-        
-        // 1. تدمير واجهة المستخدم بالكامل فوراً لمنع تفاعل المخترق عبر الـ Console
-        document.body.innerHTML = `
+    const msgText = Utils.escapeHtml(reasonMessage || 'تم تقييد حسابك.');
+    
+    // 1. تدمير واجهة المستخدم بالكامل فوراً لمنع تفاعل المخترق عبر الـ Console
+    document.body.innerHTML = `
             <div id="global-security-alert" class="sys-dialog-wrapper active" style="z-index: 999999999; background: #000;">
                 <div class="sys-dialog-card" style="border-color: #ef4444;">
                     <div class="sys-dialog-header">
@@ -53,28 +53,27 @@ export const UICore = {
                 </div>
             </div>
         `;
+    
+    getSys().sfx?.('error');
+    
+    // 2. 🛡️ [إصلاح التنظيف]: تدمير الـ IndexedDB الصحيحة وكل بيانات الجلسة
+    try {
+        if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('TeleCardStoreDB');
+        localStorage.removeItem('telecard_store_cache');
+        localStorage.removeItem('telecard_active_user_uid');
+        localStorage.removeItem('telecard_active_user');
+        localStorage.removeItem('telecard_biometric_key');
         
-        getSys().sfx?.('error');
-        
-        // 2. تدمير الكاش والجلسة محلياً (مسح شامل لكل المخلفات)
-        try {
-            if (window.localforage) window.localforage.clear();
-            localStorage.removeItem('telecard_store_cache');
-            localStorage.removeItem('telecard_active_user_uid');
-            localStorage.removeItem('telecard_active_user');
-            localStorage.removeItem('telecard_biometric_key'); // 🛡️ مسح البصمة لمنع القفل الأبدي
-            
-            import('../core/firebaseAdapter.js').then(module => {
-                if (module.auth) module.auth.signOut();
-            }).catch(()=>{});
-        } catch(e) {}
-        
-        // 3. التوجيه لصفحة الدخول
-        setTimeout(() => {
-            window.location.replace('login.html');
-        }, 4000);
-    },
-
+        import('../core/firebaseAdapter.js').then(module => {
+            if (module.auth) module.auth.signOut();
+        }).catch(() => {});
+    } catch (e) {}
+    
+    // 3. التوجيه لصفحة الدخول
+    setTimeout(() => {
+        window.location.replace('login.html');
+    }, 4000);
+},
     // =========================================================
     // ⚙️ نافذة الإعدادات (Settings Modal)
     // =========================================================
@@ -1041,17 +1040,17 @@ export const UICore = {
     });
 },
     showAdvancedPopup: function(alertObj, remainingQueue) {
-        // 🛡️ [تنظيف الـ DOM]: مسح أي نافذة سابقة لمنع التكدس وتسرب الذاكرة
-        const existingModal = document.getElementById('advanced-alert-modal');
-        if (existingModal) existingModal.remove();
-
-        const title = alertObj.title || 'إشعار هام';
-        const message = alertObj.message || '';
-        const escapeHtml = Utils.escapeHtml;
-        let extraHtml = '';
-        
-        if (alertObj.couponCode) {
-            extraHtml += `<div class="mt-15" style="background: rgba(168, 85, 247, 0.1); border: 1px dashed #a855f7; padding: 12px; border-radius: 12px; text-align: center;">
+    // 🛡️ [تنظيف الـ DOM]: مسح أي نافذة سابقة لمنع التكدس وتسرب الذاكرة
+    const existingModal = document.getElementById('advanced-alert-modal');
+    if (existingModal) existingModal.remove();
+    
+    const title = alertObj.title || 'إشعار هام';
+    const message = alertObj.message || '';
+    const escapeHtml = Utils.escapeHtml;
+    let extraHtml = '';
+    
+    if (alertObj.couponCode) {
+        extraHtml += `<div class="mt-15" style="background: rgba(168, 85, 247, 0.1); border: 1px dashed #a855f7; padding: 12px; border-radius: 12px; text-align: center;">
                 <div style="font-size: 11px; color: #a855f7; margin-bottom: 6px; font-weight: bold;">🎁 كود خصم حصري لك:</div>
                 <div style="display: flex; gap: 8px; justify-content: center; align-items: center;">
                     <span class="num-en" style="font-size: 18px; font-weight: 900; color: #fff; letter-spacing: 2px;">${escapeHtml(alertObj.couponCode)}</span>
@@ -1060,13 +1059,13 @@ export const UICore = {
                     </button>
                 </div>
             </div>`;
-        }
-
-        if (alertObj.actionLink) {
-            extraHtml += `<a href="${Utils.safeUrl(alertObj.actionLink)}" target="_blank" rel="noopener noreferrer" style="display: block; width: 100%; background: linear-gradient(135deg, #FFD700, #C5A028); color: #000; text-align: center; padding: 12px; border-radius: 10px; font-weight: 900; margin-top: 15px; text-decoration: none; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2); transition: 0.3s;">عرض التفاصيل الآن <i class="fa-solid fa-arrow-left" style="margin-right: 5px;"></i></a>`;
-        }
-
-        const modalHtml = `
+    }
+    
+    if (alertObj.actionLink) {
+        extraHtml += `<a href="${Utils.safeUrl(alertObj.actionLink)}" target="_blank" rel="noopener noreferrer" style="display: block; width: 100%; background: linear-gradient(135deg, #FFD700, #C5A028); color: #000; text-align: center; padding: 12px; border-radius: 10px; font-weight: 900; margin-top: 15px; text-decoration: none; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2); transition: 0.3s;">عرض التفاصيل الآن <i class="fa-solid fa-arrow-left" style="margin-right: 5px;"></i></a>`;
+    }
+    
+    const modalHtml = `
             <div id="advanced-alert-modal" class="modal-overlay active" style="z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);">
                 <div class="sys-dialog-card" style="animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1); position: relative; max-width: 400px; width: 90%; background: #111a2b; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 25px;">
                     <div class="sys-dialog-header" style="text-align: center; margin-bottom: 15px;">
@@ -1080,33 +1079,51 @@ export const UICore = {
                     <button id="close-advanced-alert" class="btn btn-ghost" style="width: 100%; margin-top: 20px; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 10px; color: #94a3b8; font-weight: 800; cursor: pointer; background: transparent;">إغلاق النافذة</button>
                 </div>
             </div>`;
-
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-        getSys().sfx?.('success');
-
-        const copyBtn = document.getElementById('adv-alert-copy-btn');
-        if (copyBtn) {
-            copyBtn.addEventListener('click', function() {
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    getSys().sfx?.('success');
+    
+    const copyBtn = document.getElementById('adv-alert-copy-btn');
+    if (copyBtn) {
+        // 🛡️ استخدام onclick بدلاً من addEventListener لمنع تراكم المستمعات تماماً
+        copyBtn.onclick = function() {
+            if (navigator.clipboard) {
                 navigator.clipboard.writeText(this.dataset.code);
-                this.innerHTML = '<i class="fa-solid fa-check"></i>'; 
-                setTimeout(() => this.innerHTML = '<i class="fa-solid fa-copy"></i>', 2000);
-            });
-        }
-
-        const closeBtn = document.getElementById('close-advanced-alert');
+                this.innerHTML = '<i class="fa-solid fa-check"></i>';
+                setTimeout(() => { if (this.isConnected) this.innerHTML = '<i class="fa-solid fa-copy"></i>'; }, 2000);
+            }
+        };
+    }
+    
+    const closeBtn = document.getElementById('close-advanced-alert');
+    if (closeBtn) {
+        // 🛡️ إضافة { once: true } لتدمير المستمع فوراً من الذاكرة بعد النقرة
         closeBtn.addEventListener('click', () => {
             const modal = document.getElementById('advanced-alert-modal');
-            modal.style.transition = '0.3s ease'; modal.style.opacity = '0'; modal.style.transform = 'scale(0.9)';
-            if (DataManager.markSingleNotificationRead) DataManager.markSingleNotificationRead(alertObj.id, true, alertObj.maxViews);
+            if (modal) {
+                modal.style.transition = '0.3s ease';
+                modal.style.opacity = '0';
+                modal.style.transform = 'scale(0.9)';
+            }
+            
+            if (DataManager.markSingleNotificationRead) {
+                DataManager.markSingleNotificationRead(alertObj.id, true, alertObj.maxViews);
+            }
             this.updateNotifBadges();
-            setTimeout(() => { 
-                modal.remove(); 
-                if (remainingQueue.length > 0) { 
-                    setTimeout(() => this.showAdvancedPopup(remainingQueue[0], remainingQueue.slice(1)), 500); 
-                } 
+            
+            setTimeout(() => {
+                if (modal) modal.remove();
+                if (remainingQueue && remainingQueue.length > 0) {
+                    setTimeout(() => this.showAdvancedPopup(remainingQueue[0], remainingQueue.slice(1)), 500);
+                }
+                
+                // 🛡️ [تنظيف الانغلاق - Closure Cleanup]: قطع المراجع لتحرير الرام فوراً (Garbage Collection)
+                alertObj = null;
+                remainingQueue = null;
             }, 300);
-        });
-    },  openNotifCenter: function() {
+        }, { once: true }); // <--- السر في منع تكرار واستهلاك الذاكرة
+    }
+}, openNotifCenter: function() {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض إشعاراتك', 'error');
             getSys().sfx?.('error');
@@ -1191,61 +1208,7 @@ markAllNotificationsRead: async function() {
         }, 50);
     },
 
-     showToast: function(msg, type = 'info') {
-        if (type === 'info') {
-            if (msg.includes('فشل') || msg.includes('خطأ') || msg.includes('عذراً') || msg.includes('كاف') || msg.includes('نفد')) type = 'error';
-            else if (msg.includes('مراجعة') || msg.includes('انتظار') || msg.includes('قيد')) type = 'warning'; 
-            else if (msg.includes('إزالة') || msg.includes('حذف') || msg.includes('إلغاء')) type = 'info'; 
-            else if (msg.includes('تم') || msg.includes('نجاح') || msg.includes('شكراً')) type = 'success';
-        }
-
-        let container = document.querySelector('.custom-toast-container');
-        if (!container) {
-            container = document.createElement('div');
-            container.className = 'custom-toast-container';
-            document.body.appendChild(container);
-        } else {
-            // 🛡️ [تحديث مانع التكرار Spam Preventer]: 
-            // إذا كان آخر إشعار معروض يحمل نفس النص بالضبط، لا تكرره، فقط قم بعمل اهتزاز له!
-            const lastToast = container.lastElementChild;
-            if (lastToast) {
-                const lastMsgEl = lastToast.querySelector('.toast-msg');
-                if (lastMsgEl && lastMsgEl.innerText === Utils.escapeHtml(msg)) {
-                    lastToast.style.animation = 'none';
-                    void lastToast.offsetWidth; // إعادة تنشيط الـ DOM
-                    lastToast.style.animation = 'shake-anim 0.3s ease-in-out'; // اهتزاز خفيف للفت الانتباه
-                    return; // توقف هنا ولا تنشئ إشعاراً جديداً
-                }
-            }
-
-            // السماح بتراكم 3 إشعارات (مختلفة) فقط
-            if (container.children.length >= 3) {
-                container.firstChild.style.animation = 'toastOutTop 0.2s forwards';
-                setTimeout(() => { if (container.firstChild) container.firstChild.remove(); }, 200);
-            }
-        }
-
-        const toast = document.createElement('div');
-        toast.className = `custom-toast toast-${type}`;
-        
-        let iconClass = 'fa-circle-info', titleText = 'معلومة';
-        if (type === 'success') { iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
-        if (type === 'error') { iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
-        if (type === 'warning') { iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } 
-
-        toast.innerHTML = `<i class="fa-solid ${iconClass}"></i><div class="toast-content"><span class="toast-title">${titleText}</span><span class="toast-msg">${Utils.escapeHtml(msg)}</span></div>`;
-        
-        container.appendChild(toast);
-        getSys().sfx?.(type === 'error' ? 'error' : 'success');
-        
-        setTimeout(() => {
-            if(toast.parentElement) {
-                toast.style.animation = 'toastOutTop 0.4s forwards';
-                setTimeout(() => toast.remove(), 400);
-            }
-        }, 3000);
-    },
-       sfx: function(type) {
+     showToast: function       sfx: function(type) {
         if(DataManager.prefs && DataManager.prefs.sound === false) return; 
         
         if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
@@ -2103,45 +2066,43 @@ toggleFavoriteFromModal: function() {
     },
     
     submitPrivateFeedback: async function() {
-    const feedbackInput = document.getElementById('ratingFeedbackInput');
-    // 🛡️ [تحديث UX]: نكتفي بتنظيف الفراغات فقط. Firebase يعالج حقن قواعد البيانات تلقائياً.
-    // الحماية الحقيقية من XSS ستكون وقت العرض في لوحة الإدارة باستخدام escapeHtml.
-    const feedback = feedbackInput ? feedbackInput.value.trim() : '';
-    
-    if (!feedback) {
-        getSys().showToast?.("يرجى كتابة تفاصيل مقترحك أو شكواك لمساعدتنا على خدمتك", "warning");
-        return;
-    }
-    
-    const btn = document.getElementById('btnSubmitFeedback');
-    btn.textContent = "جاري الإرسال...";
-    btn.disabled = true;
-    
-    try {
-        const uid = DataManager.user?.id || localStorage.getItem('telecard_active_user_uid') || 'guest';
-        const username = DataManager.user?.username || 'ضيف';
+        const feedbackInput = document.getElementById('ratingFeedbackInput');
+        const rawFeedback = feedbackInput ? feedbackInput.value.trim() : '';
         
-        await StoreDB.add(DB_KEYS.FEEDBACKS, {
-            userId: uid,
-            username: username,
-            rating: this._currentRating || 0,
-            feedback: feedback,
-            time: Date.now()
-        });
+        // 🛡️ [إصلاح أمني - Defense in Depth]: تعقيم البيانات قبل الإرسال للسيرفر
+        const feedback = Utils.escapeHtml ? Utils.escapeHtml(rawFeedback) : rawFeedback.replace(/[<>]/g, '');
         
-        getSys().toggleLoader?.(false);
-        getSys().closeModal?.('rating');
-        getSys().showToast?.("نشكرك جداً على مقترحك الصادق! تم إرساله للإدارة لمراجعته وحل مشكلتك فوراً.", "success");
-        getSys().sfx?.('success');
+        if (!feedback) {
+            getSys().showToast?.("يرجى كتابة تفاصيل مقترحك أو شكواك لمساعدتنا على خدمتك", "warning");
+            return;
+        }
         
-    } catch (error) {
-        btn.textContent = "إرسال للإدارة";
-        btn.disabled = false;
-        console.error("Feedback Submission Error:", error);
-        getSys().showToast?.("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
-    }
-},
-    openAboutModal: function() {
+        const btn = document.getElementById('btnSubmitFeedback');
+        if (btn) { btn.textContent = "جاري الإرسال..."; btn.disabled = true; }
+        
+        try {
+            const uid = DataManager.user?.id || localStorage.getItem('telecard_active_user_uid') || 'guest';
+            const username = DataManager.user?.username || 'ضيف';
+            
+            await StoreDB.add(DB_KEYS.FEEDBACKS, {
+                userId: uid,
+                username: username,
+                rating: this._currentRating || 0,
+                feedback: feedback,
+                time: Date.now()
+            });
+            
+            getSys().toggleLoader?.(false);
+            getSys().closeModal?.('rating');
+            getSys().showToast?.("نشكرك جداً على مقترحك الصادق! تم إرساله للإدارة.", "success");
+            getSys().sfx?.('success');
+            
+        } catch (error) {
+            if (btn) { btn.textContent = "إرسال للإدارة"; btn.disabled = false; }
+            console.error("Feedback Submission Error:", error);
+            getSys().showToast?.("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
+        }
+    },    openAboutModal: function() {
         this.closeSidebar(); 
         
         const logoTarget = document.getElementById('about-logo-box');

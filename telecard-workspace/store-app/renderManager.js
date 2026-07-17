@@ -1,11 +1,12 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - النسخة الماسية (Pro V5.4)
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - النسخة الماسية (Pro V5.5 - Enterprise)
 // 🎯 الوظيفة: المايسترو (Controller) لمعالجة البيانات، الفلترة، الحماية، والتوجيه
 // 👑 متوافق بالكامل مع هوية: TeleCard
-// 🚀 تحديثات (Clean Architecture):
-// 1. [Separation of Concerns]: تم استخراج قوالب الـ HTML الكبيرة (المنتجات والـ PDF) للمصنع.
-// 2. [Dependency Injection]: تمرير البيانات المكتملة فقط لبناة الواجهات (Pure Functions).
-// 3. [Security]: حماية كاملة من ثغرات XSS في قوائم الدول والمدخلات.
+// 🚀 تحديثات الأداء (Performance Edition):
+// 1. [CPU Saver]: تم تحسين محرك المؤقتات لمنع استنزاف البطارية (O(1) DOM Queries).
+// 2. [DOM Flashing]: استخدام replaceChildren لإزالة ومضة إعادة الرسم.
+// 3. [PDF Engine]: تطبيق تقنية Blob لتخطي حظر متصفحات الموبايل (Popup Blockers).
+// 4. [Layout Thrashing]: إيقاف التعديل المباشر للـ CSS واستخدام كلاسات نظيفة.
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -25,18 +26,12 @@ window.StoreRenderApp = window.StoreRenderApp || {
 
     revealImg: function(img) {
         if (!img) return;
-        img.style.transform = 'translateZ(0)'; 
-        img.style.visibility = 'visible';
-        img.classList.add('img-loaded');
-        img.style.transition = 'opacity 0.25s ease-out';
-        img.style.opacity = '1';
+        // إزالة التعديلات المباشرة واستخدام كلاس جاهز لمنع الـ Layout Thrashing
+        img.classList.add('img-loaded-flat'); 
         
         if (img.parentElement) {
-            img.parentElement.style.transform = 'translateZ(0)'; 
             img.parentElement.classList.add('shimmer-stop');
-            img.parentElement.style.animation = 'none';
-            img.parentElement.style.transition = 'background-color 0.25s ease-out';
-            img.parentElement.style.backgroundColor = 'transparent';
+            img.parentElement.style.cssText = ''; 
         }
     },
 
@@ -72,8 +67,7 @@ window.StoreRenderApp = window.StoreRenderApp || {
         if (!wrapper) return;
         
         wrapper.classList.add('shimmer-stop');
-        wrapper.style.animation = 'none';
-        wrapper.style.backgroundColor = 'transparent';
+        wrapper.style.cssText = '';
         
         let iconClass = 'fa-box-open';
         let divClass = 'default-prod-icon';
@@ -281,7 +275,6 @@ export const RenderManager = {
             const isSyncDone = LiveStoreData.isInitialSyncDone || false;
             
             if (grid) {
-                grid.innerHTML = '';
                 if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-cats');
                 this._applyGridLayout(grid, settings, null);
             }
@@ -309,7 +302,7 @@ export const RenderManager = {
                 
                 requestAnimationFrame(() => {
                     if (renderId !== this.currentRenderId) return; 
-                    if (grid) grid.appendChild(fragment);
+                    if (grid) grid.replaceChildren(fragment); // استخدام replaceChildren لمنع الومضة
                 });
             }
             else if (!isSyncDone) {
@@ -378,7 +371,6 @@ export const RenderManager = {
         this._applyGridLayout(container, settings, activeCols);
         
         let count = overrideCount || 8;
-        container.innerHTML = '';
         let skeletonsHTML = '';
         
         for (let i = 0; i < count; i++) {
@@ -444,40 +436,48 @@ export const RenderManager = {
         div.setAttribute('data-id', p.id);
         if (idx !== undefined) div.style.setProperty('--anim-idx', idx);
         
-        // 🚀 التعديل: الاعتماد على المصنع UIBuilders لإنشاء محتوى الكارت
         div.innerHTML = UIBuilders.buildProductCardInner(safeName, priceSectionHtml, imgObj, visualElementsHtml, nameExpandedStyle);
 
         return div;
     },
 
-    updateStoreTimers: function() {
-        const timers = document.querySelectorAll('.live-countdown');
-        if (timers.length === 0) return;
-        const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
-        
-        timers.forEach(el => {
-            try {
-                const expire = Number(el.dataset.expire);
-                if (!expire) return;
-                const diff = expire - now;
-                if (diff <= 0) { el.innerText = "انتهى العرض"; return; }
-                const h = Math.floor(diff / (1000 * 60 * 60));
-                const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-                const s = Math.floor((diff % (1000 * 60)) / 1000);
-                el.innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-            } catch(e) {}
-        });
-    },
-
+    // ============================================================================
+    // ⏱️ محرك المؤقتات المعزز - O(1) DOM Queries
+    // ============================================================================
     initTimersEngine: function() {
         if (window.StoreRenderApp.timerInterval) {
             clearInterval(window.StoreRenderApp.timerInterval);
         }
+        
+        // جلب العناصر مرة واحدة لتخفيف الحمل عن الـ DOM
+        const timers = document.querySelectorAll('.live-countdown');
+        if (timers.length === 0) return;
+        
+        const timersArray = Array.from(timers).map(el => ({
+            element: el,
+            expireTime: Number(el.dataset.expire)
+        }));
+
         window.StoreRenderApp.timerInterval = setInterval(() => {
-            const timers = document.querySelectorAll('.live-countdown');
-            if (timers.length > 0) {
-                this.updateStoreTimers();
-            } else {
+            const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
+            let activeCount = 0;
+
+            timersArray.forEach(item => {
+                if (!document.body.contains(item.element)) return; 
+                
+                const diff = item.expireTime - now;
+                if (diff <= 0) {
+                    item.element.innerText = "انتهى العرض";
+                } else {
+                    activeCount++;
+                    const h = Math.floor(diff / (1000 * 60 * 60));
+                    const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                    const s = Math.floor((diff % (1000 * 60)) / 1000);
+                    item.element.innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+                }
+            });
+
+            if (activeCount === 0) {
                 clearInterval(window.StoreRenderApp.timerInterval);
                 window.StoreRenderApp.timerInterval = null;
             }
@@ -566,7 +566,6 @@ export const RenderManager = {
         UIManager.toggleHeroSection(false);
 
         const grid = document.getElementById('store-grid');
-        if (grid) grid.innerHTML = '';
         UIManager.resetGridScroll();
         UIManager.resetUI();
 
@@ -622,7 +621,7 @@ export const RenderManager = {
             
             requestAnimationFrame(() => {
                 if (renderId !== this.currentRenderId) return; 
-                grid.appendChild(fragment);
+                grid.replaceChildren(fragment); // استخدام replaceChildren لمنع الومضة
                 if(items.length > 0 && Components?.initProductShine) Components.initProductShine();
                 if(subs.length === 0 && items.length === 0) grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد منتجات</h3></div>`;
             });
@@ -648,7 +647,6 @@ export const RenderManager = {
 
         const grid = document.getElementById('store-grid'); 
         if(!grid) return;
-        grid.innerHTML = ''; 
         
         let activeCols = null;
         if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId) {
@@ -700,7 +698,7 @@ export const RenderManager = {
         
         requestAnimationFrame(() => {
             if (renderId !== this.currentRenderId) return;
-            grid.appendChild(fragment);
+            grid.replaceChildren(fragment); // استخدام replaceChildren لمنع الومضة
             UIManager.setGridMode(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
             if(Components?.initProductShine) Components.initProductShine();
         });
@@ -720,7 +718,6 @@ export const RenderManager = {
         const grid = document.getElementById('store-grid');
         if (!grid) return;
         
-        grid.innerHTML = '';
         UIManager.setGridMode(null);
         UIManager.resetGridScroll();
         
@@ -753,7 +750,7 @@ export const RenderManager = {
         
         requestAnimationFrame(() => {
             if (renderId !== this.currentRenderId) return; 
-            grid.appendChild(fragment);
+            grid.replaceChildren(fragment); // استخدام replaceChildren لمنع الومضة
             UIManager.setGridMode('grid-prods');
             
             let activeCols = null;
@@ -775,10 +772,6 @@ export const RenderManager = {
         const icon = btn.querySelector('i');
         if (icon) icon.className = isFav ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
     },
-
-    // ============================================================================
-    // 🏦 القوائم والبيانات المعتمدة على الـ UIBuilders (Clean Architecture)
-    // ============================================================================
 
     renderWallet: function(forceRender = false) {
         if (!forceRender) {
@@ -927,7 +920,6 @@ export const RenderManager = {
     renderPayMethods: function() {
         const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container') || document.querySelector('.bal-methods-grid') || document.getElementById('pay-methods-list');
         if (!container) return;
-        container.innerHTML = '';
         
         const payments = LiveStoreData.payments || [];
         const validPayments = payments.filter(p => p?.name?.trim() && p.isActive !== false && p.is_active !== false);
@@ -972,7 +964,7 @@ export const RenderManager = {
             } catch(e) {}
         });
         
-        requestAnimationFrame(() => container.appendChild(fragment));
+        requestAnimationFrame(() => container.replaceChildren(fragment)); // استخدام replaceChildren لمنع الومضة
     },
 
     renderPayments: function(forceRender = false) {
@@ -1132,119 +1124,94 @@ export const RenderManager = {
     },
 
     generatePDFReceipt: async function(config) {
-    return new Promise((resolve) => {
-        try {
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            let printWindow = null;
-            
-            // 🚀 الحل الاحترافي: فتح النافذة فوراً وبشكل متزامن قبل أي معالجة لتخطي حظر Safari الصارم
-            if (isMobile) {
-                printWindow = window.open('', '_blank');
+        return new Promise((resolve) => {
+            try {
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
                 
-                if (!printWindow) {
-                    console.error("Popup blocked by browser");
-                    const sys = typeof window.ClientSystem !== 'undefined' ? window.ClientSystem : (typeof window.UIManager !== 'undefined' ? window.UIManager : null);
-                    if (sys && sys.showToast) sys.showToast('يرجى السماح بالنوافذ المنبثقة (Popups) لطباعة الفاتورة', 'warning');
-                    resolve(false);
-                    return;
+                // ⚙️ معالجة البيانات وتجهيز الـ HTML
+                const settings = LiveStoreData.settings || {};
+                const storeName = settings.storeName || 'TeleCard';
+                const storeLogo = settings.storeLogoLight || settings.storeLogo || '';
+                
+                let safeLogoHtml = '';
+                if (storeLogo) {
+                    safeLogoHtml = `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;">`;
                 }
                 
-                // وضع لودر أنيق مؤقت ريثما يتم تجهيز وبناء الـ HTML
-                printWindow.document.write(`
-                        <html dir="rtl">
-                        <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-                        <body style="display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; background:#f8fafc; margin:0;">
-                            <div style="text-align:center; color:#64748b;">
-                                <svg style="width:40px; height:40px; animation:spin 1s linear infinite; fill:#FFD700; margin-bottom:15px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="M304 48a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zm0 416a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zM48 304a48 48 0 1 0 0-96 48 48 0 1 0 0 96zm464-48a48 48 0 1 0 -96 0 48 48 0 1 0 96 0zM142.9 437A48 48 0 1 0 75 369.1 48 48 0 1 0 142.9 437zm0-294.2A48 48 0 1 0 75 75a48 48 0 1 0 67.9 67.9zM369.1 437A48 48 0 1 0 437 369.1 48 48 0 1 0 369.1 437z"/></svg>
-                                <style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
-                                <h3 style="margin:0; font-size:16px;">جاري تجهيز الفاتورة...</h3>
-                            </div>
-                        </body>
-                        </html>
-                    `);
-            }
-            
-            // ⚙️ معالجة البيانات وتجهيز الـ HTML
-            const settings = LiveStoreData.settings || {};
-            const storeName = settings.storeName || 'المتجر';
-            const storeLogo = settings.storeLogoLight || settings.storeLogo || '';
-            
-            let safeLogoHtml = '';
-            if (storeLogo) {
-                safeLogoHtml = `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;">`;
-            }
-            
-            const brandHTML = {
-                storeName: storeName,
-                html: `
-                        <div class="header-section">
-                            <div class="store-name">${Utils.escapeHtml(storeName)}</div>
-                            ${safeLogoHtml}
-                        </div>`
-            };
-            
-            // استدعاء الـ HTML النظيف من المصنع
-            const fullHTML = UIBuilders.buildPDFReceipt(config, brandHTML.html);
-            
-            if (isMobile && printWindow) {
-                // استبدال محتوى النافذة (اللودر) بالـ HTML النهائي للفاتورة
-                printWindow.document.open();
-                printWindow.document.write(fullHTML);
-                printWindow.document.close();
+                const brandHTML = {
+                    storeName: storeName,
+                    html: `
+                            <div class="header-section">
+                                <div class="store-name">${Utils.escapeHtml(storeName)}</div>
+                                ${safeLogoHtml}
+                            </div>`
+                };
                 
-                // إعطاء المتصفح وقتاً لتحميل الصور والخطوط قبل إظهار نافذة الطباعة
-                setTimeout(() => {
-                    printWindow.focus();
-                    printWindow.print();
+                // استدعاء الـ HTML النظيف من المصنع
+                const fullHTML = UIBuilders.buildPDFReceipt(config, brandHTML.html);
+                
+                if (isMobile) {
+                    // 🚀 الحل الاحترافي لتخطي الـ Popup Blockers في الموبايل باستخدام Blob URL
+                    const blob = new Blob([fullHTML], { type: 'text/html;charset=utf-8' });
+                    const blobUrl = URL.createObjectURL(blob);
+                    
+                    const link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.target = '_blank';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
                     resolve(true);
-                }, 1000);
-                
-            } else if (!isMobile) {
-                // أجهزة الكمبيوتر (Desktop): فتح الفاتورة وطباعتها بصمت داخل Iframe مخفي
-                const iframe = document.createElement('iframe');
-                iframe.style.position = 'fixed';
-                iframe.style.right = '-10000px';
-                iframe.style.bottom = '-10000px';
-                document.body.appendChild(iframe);
-                
-                const iframeDoc = iframe.contentWindow.document;
-                iframeDoc.open();
-                iframeDoc.write(fullHTML);
-                iframeDoc.close();
-                
-                setTimeout(() => {
-                    try {
-                        iframe.contentWindow.focus();
-                        
-                        iframe.contentWindow.onafterprint = function() {
-                            if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                            resolve(true);
-                        };
-                        
-                        iframe.contentWindow.print();
-                        
-                        // تنظيف احتياطي للـ DOM
-                        setTimeout(() => {
-                            if (document.body.contains(iframe)) {
-                                document.body.removeChild(iframe);
+                    
+                } else {
+                    // أجهزة الكمبيوتر (Desktop): فتح الفاتورة وطباعتها بصمت داخل Iframe مخفي
+                    const iframe = document.createElement('iframe');
+                    iframe.style.position = 'fixed';
+                    iframe.style.right = '-10000px';
+                    iframe.style.bottom = '-10000px';
+                    document.body.appendChild(iframe);
+                    
+                    const iframeDoc = iframe.contentWindow.document;
+                    iframeDoc.open();
+                    iframeDoc.write(fullHTML);
+                    iframeDoc.close();
+                    
+                    setTimeout(() => {
+                        try {
+                            iframe.contentWindow.focus();
+                            
+                            iframe.contentWindow.onafterprint = function() {
+                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
                                 resolve(true);
-                            }
-                        }, 15000);
-                        
-                    } catch (e) {
-                        console.error("Print Failed", e);
-                        if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                        resolve(false);
-                    }
-                }, 800);
+                            };
+                            
+                            iframe.contentWindow.print();
+                            
+                            // تنظيف احتياطي للـ DOM
+                            setTimeout(() => {
+                                if (document.body.contains(iframe)) {
+                                    document.body.removeChild(iframe);
+                                    resolve(true);
+                                }
+                            }, 15000);
+                            
+                        } catch (e) {
+                            console.error("Print Failed", e);
+                            if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                            resolve(false);
+                        }
+                    }, 800);
+                }
+                
+            } catch (err) {
+                console.error('[TeleCard Receipt Native Print Error]:', err);
+                resolve(false);
             }
-            
-        } catch (err) {
-            console.error('[Receipt Native Print Error]:', err);
-            resolve(false);
-        }
-    });
-},
+        });
+    },
+
     exportReceipt: async function(orderId, btnElement = null) {
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
         if (!o) return;

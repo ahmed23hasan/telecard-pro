@@ -6,6 +6,7 @@
 // 2. [Safe Modal Closure]: الإغلاق الآمن للنوافذ باستخدام transitionend.
 // 3. [Anti-Spam Shield]: درع حماية الواجهة من النقرات المتعددة (Invisible Shield).
 // 4. [Clean Architecture]: تم فصل جميع كتل الـ HTML إلى uiBuilders.js
+// 5. [Security & Memory]: ترقيع تسريب Blob، حماية كميات الشراء (minQty)، وتأمين روابط الإيصالات.
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -82,7 +83,7 @@ export const UIFinance = {
         window.addEventListener('offline', this._boundOfflineHandler);
     },
 
-        _cleanupTxUI: function(submitBtn, shieldId) {
+    _cleanupTxUI: function(submitBtn, shieldId) {
         this._isProcessingTx = false;
         
         const shield = document.getElementById(shieldId);
@@ -95,7 +96,8 @@ export const UIFinance = {
         if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
         if (this._boundOfflineHandler) window.removeEventListener('offline', this._boundOfflineHandler);
     },
- _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
+
+    _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
         getSys().sfx?.('nav');
         const tabs = element.parentElement.querySelectorAll('.mf-tab');
         tabs.forEach(tab => tab.classList.remove('active'));
@@ -478,7 +480,7 @@ export const UIFinance = {
             if (currPriceEl) currPriceEl.innerHTML = beautifulTotalHtml; 
         }
     },
-handlePurchaseSubmit: async function() { 
+    handlePurchaseSubmit: async function() { 
         if (this._isProcessingTx) return; 
         
         if (!DataManager.currentProd) return;
@@ -525,16 +527,20 @@ handlePurchaseSubmit: async function() {
             if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); } 
         }
 
+        // 🛡️ [Quantity Fix]: تطبيق الحد الأدنى والأقصى الفعلي للمنتج بدلاً من الإجبار على 1
         if (DataManager.currentProd.type === 'counter') { 
-            qty = Math.max(1, parseInt(document.getElementById('pm-qty')?.value, 10)) || 1; 
+            const minQ = parseInt(DataManager.currentProd.minQty) || 1;
+            qty = Math.max(minQ, parseInt(document.getElementById('pm-qty')?.value, 10)) || minQ;
         } else if (DataManager.currentProd.type === 'select') { 
             const selEl = document.getElementById('pm-pack'); 
             optIdx = selEl ? Number(selEl.value) : 0; 
             qty = 1; 
         } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
-            qty = Math.max(1, parseInt(qtyEl?.value, 10)) || 1; 
-            const max = DataManager.currentProd.simpleMax || 10; 
-            if(qty > max) { showInlineError(qtyEl.parentNode, `أقصى كمية هي ${max}`); isValid = false; qtyEl.focus(); } 
+            const minQ = parseInt(DataManager.currentProd.minQty) || 1;
+            const maxQ = parseInt(DataManager.currentProd.simpleMax) || 10;
+            qty = parseInt(qtyEl?.value, 10);
+            if(isNaN(qty) || qty < minQ) qty = minQ;
+            if(qty > maxQ) { showInlineError(qtyEl.parentNode, `أقصى كمية مسموحة هي ${maxQ}`); isValid = false; qtyEl.focus(); }
         }
 
         if(!isValid) { getSys().sfx?.('error'); return; }
@@ -965,6 +971,10 @@ handlePurchaseSubmit: async function() {
                                 
                                 const previewUrl = URL.createObjectURL(blob);
                                 if(preview) { 
+                                    // 🛡️ [Memory Fix]: مسح البلوب القديم إذا كان موجوداً
+                                    if (preview.src && preview.src.startsWith('blob:')) {
+                                        URL.revokeObjectURL(preview.src);
+                                    }
                                     preview.src = previewUrl; 
                                     preview.style.display = 'block'; 
                                     preview.className = 'bal-receipt-preview-new'; 
@@ -1078,7 +1088,7 @@ handlePurchaseSubmit: async function() {
         }
     },
 
-        handleBalanceSubmit: async function(currency) {
+    handleBalanceSubmit: async function(currency) {
         if (this._isProcessingTx) return;
         
         if (!this._validateKycAndSystem('deposit')) return;
@@ -1092,13 +1102,50 @@ handlePurchaseSubmit: async function() {
             return;
         }
         
-        const MAX_DEPOSIT_LIMIT = 1000000;
-        if (amount > MAX_DEPOSIT_LIMIT || amount > Number.MAX_SAFE_INTEGER) {
-            getSys().showToast?.(`عذراً، الحد الأقصى للإيداع في العملية الواحدة هو ${MAX_DEPOSIT_LIMIT}`, 'error');
-            if (input) input.value = ''; 
+        const payCurr = currency || this.currentPayCurrency || 'USD';
+
+        // 🛡️ [التحقق المزدوج للحدود - Dual Safety Net]
+        
+        // 1. استخراج الحد الأقصى الخاص بطريقة الدفع (الذي حدده الإدمن)
+        let methodMaxLimit = 0;
+        if (this.currentPayment) {
+            const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) 
+                      ? this.currentPayment.currencySettings[payCurr] 
+                      : this.currentPayment;
+            methodMaxLimit = parseFloat(s.max) || 0;
+        }
+        
+        // 2. الحد الأقصى المطلق للنظام (محدد بالدولار كعملة أساسية لحماية المتجر)
+        const GLOBAL_MAX_LIMIT_USD = 5000;
+        
+        // 🚀 [الإصلاح المالي الذكي]: تحويل الـ 5000$ إلى قيمتها بعملة العميل (مثل الليرة، الريال، الخ)
+        let dynamicGlobalLimit = GLOBAL_MAX_LIMIT_USD;
+        
+        if (payCurr !== 'USD' && typeof DataManager !== 'undefined' && typeof DataManager._safeConvert === 'function') {
+            const rates = typeof DataManager.getRates === 'function' ? DataManager.getRates() : {};
+            // تحويل الحد الأقصى من الدولار إلى عملة الإيداع بناءً على أسعار الصرف الحية
+            dynamicGlobalLimit = DataManager._safeConvert(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, rates, 'deposit');
+        }
+
+        // تطبيق طبقات الحماية مع ديناميكية العملات
+        if (methodMaxLimit > 0 && amount > methodMaxLimit) {
+            const formattedMethodLimit = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(methodMaxLimit, payCurr) : `${methodMaxLimit} ${payCurr}`;
+            getSys().showToast?.(`عذراً، الحد الأقصى للإيداع عبر هذه الطريقة هو ${formattedMethodLimit}`, 'error');
+            return;
+            
+        } else if (amount > dynamicGlobalLimit || amount > Number.MAX_SAFE_INTEGER) {
+            const formattedGlobalLimit = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(dynamicGlobalLimit, payCurr) : `${dynamicGlobalLimit} ${payCurr}`;
+            getSys().showToast?.(`يتجاوز المبلغ سقف الإيداع الكلي. يرجى إدخال مبلغ لا يتجاوز ${formattedGlobalLimit}`, 'warning');
+            
+            // 💡 UX Trick: مساعدة العميل بكتابة الحد الأقصى تلقائياً (بدون كسور عشرية مزعجة)
+            if (input) {
+                input.value = Math.floor(dynamicGlobalLimit);
+                if (typeof this.calcFee === 'function') this.calcFee(); // إعادة الحساب بناءً على الرقم الجديد
+            }
             return;
         }
         
+        // 3. التحقق الاحتياطي من أخطاء الـ UI (مثل الحد الأدنى)
         if (input && input.classList.contains('input-invalid')) {
             getSys().showToast?.('يرجى التأكد من أن المبلغ ضمن الحدود المسموحة لطريقة الدفع', 'error');
             return;
@@ -1116,7 +1163,6 @@ handlePurchaseSubmit: async function() {
         this._startTxWatchdog(submitBtn, shieldId);
         
         try {
-            const payCurr = currency || this.currentPayCurrency || 'USD';
             let finalReceiptUrl = '';
             
             if (this.pendingReceiptFile) {
@@ -1146,13 +1192,11 @@ handlePurchaseSubmit: async function() {
             } else {
                 getSys().showToast?.(result.msg, 'error');
             }
-     } catch (error) {
+        } catch (error) {
             console.error("🚨 خطأ أثناء إرسال طلب الإيداع:", error);
             
-            // 🛡️ التوازن المثالي: رسالة عامة كخط دفاع افتراضي
             let displayMessage = 'فشل إرسال الطلب، يرجى المحاولة لاحقاً';
 
-            // 🎯 تطبيق مترجم الأخطاء الاحترافي للإيداعات أيضاً
             if (error.code) {
                 switch (error.code) {
                     case 'failed-precondition': displayMessage = error.message; break; 
@@ -1168,7 +1212,8 @@ handlePurchaseSubmit: async function() {
             }
 
             getSys().showToast?.(displayMessage, 'error');
-        } finally {            this._cleanupTxUI(submitBtn, shieldId);
+        } finally {            
+            this._cleanupTxUI(submitBtn, shieldId);
         }
     },
     togglePayDetail: function(headerElement) {
@@ -1296,9 +1341,11 @@ handlePurchaseSubmit: async function() {
 
             const depositAmountHtml = RenderHelpers.formatMoney(d.amount, d.currency || 'USD');
 
-            const receiptHtml = d.receipt ? `
-                <div class="nm-universal-card nm-receipt-card" style="cursor: zoom-in;" onclick="window.open('${Utils.escapeHtml(d.receipt)}', '_blank')">
-                    <img src="${Utils.escapeHtml(d.receipt)}" class="nm-receipt-img" alt="Receipt">
+            // 🛡️ [URL Fix]: تمرير الرابط الآمن بدون تشويه رموز URL، واستخدام onclick آمن
+            const safeReceiptUrl = d.receipt ? (Utils.safeUrl ? Utils.safeUrl(d.receipt) : d.receipt) : '';
+            const receiptHtml = safeReceiptUrl ? `
+                <div class="nm-universal-card nm-receipt-card" style="cursor: zoom-in;" onclick="window.open(this.dataset.url, '_blank')" data-url="${safeReceiptUrl}">
+                    <img src="${safeReceiptUrl}" class="nm-receipt-img" alt="Receipt">
                     <div style="text-align:center; font-size:11px; margin-top:8px; color:var(--text-muted); font-weight:700;">
                         <i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً
                     </div>

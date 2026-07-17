@@ -1,7 +1,7 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - النسخة المطلقة V12.3 🛡️
-// 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، ومنع التلاعب بالمدخلات
-// 🚀 التحديث الأخير: التجميد العميق (Deep Freeze) لمنع العبث بالذاكرة أثناء التشغيل
+// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - النسخة المطلقة V12.4 🛡️
+// 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، التطابق مع الواجهة (Sequential Discount)
+// 🚀 التحديث الأخير: تطبيق الخصم المتسلسل، وتجميد الذاكرة لمنع العبث
 // ============================================================================
 
 const FinancialEngineDef = {
@@ -126,6 +126,11 @@ const FinancialEngineDef = {
         const originalPrice = baseSellingPrice;
         let currentPrice = originalPrice;
         
+        // ========================================================
+        // 🚀 [التحديث الماسي]: تطبيق الخصم المتسلسل (مطابق للواجهة)
+        // ========================================================
+
+        // 1. حساب خصم العرض الترويجي (من السعر الأصلي)
         let offerName = null, offerDiscount = 0;
         if (offer && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name || null; 
@@ -133,28 +138,35 @@ const FinancialEngineDef = {
             offerDiscount = offer.type === 'percentage' ? this.safeMul(originalPrice, offerVal / 100) : offerVal;
         }
 
+        // تطبيق خصم العرض أولاً
+        currentPrice = this.safeSub(currentPrice, offerDiscount);
+
+        // 2. حساب خصم الكوبون (من السعر المتبقي currentPrice)
         let couponCode = null, couponDiscount = 0;
         const canUseCoupon = !isFixed && product.disableCoupons !== true;
         if (canUseCoupon && coupon && coupon.isActive !== false) {
             couponCode = coupon.code || null; 
             const coupVal = this.extractNum(coupon.value);
-            couponDiscount = coupon.type === 'percentage' ? this.safeMul(originalPrice, coupVal / 100) : coupVal;
+            // 👈 التعديل الحرج هنا: تطبيق النسبة المئوية على السعر بعد عرض التخفيض
+            couponDiscount = coupon.type === 'percentage' ? this.safeMul(currentPrice, coupVal / 100) : coupVal;
         }
 
-        currentPrice = this.safeSub(currentPrice, this.safeAdd(offerDiscount, couponDiscount));
+        // تطبيق خصم الكوبون النهائي
+        currentPrice = this.safeSub(currentPrice, couponDiscount);
 
         let isFirewallViolated = false;
 
-        // 🛑 الجدار الناري 1: منع الخصومات التي تجعل السعر بالسالب (حتى لو التكلفة صفر)
+        // 🛑 الجدار الناري 1: منع الخصومات التي تجعل السعر بالسالب
         if (currentPrice < 0) {
             isFirewallViolated = true;
             currentPrice = 0;
         }
 
-        // 🛑 الجدار الناري 2: منع البيع بأقل من رأس المال (إذا كان رأس المال أكبر من صفر)
+        // 🛑 الجدار الناري 2: حماية رأس المال (السيرفر فقط يعلم هذا الرقم)
+        // يمنع بيع المنتج بأقل من تكلفته حتى لو أخطأ الإدمن في وضع نسبة الخصم
         if (cost > 0 && currentPrice < cost) {
             isFirewallViolated = true;
-            currentPrice = cost; 
+            currentPrice = cost; // إجبار السعر ليكون مساوياً للتكلفة (لا ربح ولا خسارة)
         }
 
         const profit = Math.max(0, this.safeSub(currentPrice, cost));

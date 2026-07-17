@@ -150,57 +150,59 @@ export const FinancialEngine = Object.freeze({
 
         let currentPrice = baseSellingPrice;
         const originalPrice = currentPrice;
+// حساب التخفيضات (العروض الترويجية) تُحسب من السعر الأصلي
+let offerName = null;
+let offerDiscount = 0;
+if (offer && offer.type !== 'fake' && offer.isActive !== false) {
+    offerName = offer.name;
+    const val = this.extractNum(offer.value);
+    offerDiscount = offer.type === 'percentage' ?
+        this.safeMul(originalPrice, val / 100) :
+        val;
+}
 
-        // حساب التخفيضات (العروض الترويجية)
-        let offerName = null;
-        let offerDiscount = 0;
-        if (offer && offer.type !== 'fake' && offer.isActive !== false) {
-            offerName = offer.name;
-            const val = this.extractNum(offer.value);
-            offerDiscount = offer.type === 'percentage' 
-                ? this.safeMul(originalPrice, val / 100) 
-                : val;
-        }
+// 👈 تطبيق خصم العرض أولاً (الآن currentPrice أصبح هو السعر بعد العرض)
+currentPrice = this.safeSub(currentPrice, offerDiscount);
 
-        // حساب خصومات الكوبونات (من السعر الأصلي للتطابق مع السيرفر)
-        let couponCode = null;
-        let couponDiscount = 0;
-        let isFirewallActive = false; // يستخدم في الواجهة لتعطيل إدخال الكوبون
-        let isPricingFirewallViolated = false;
+// حساب خصومات الكوبونات (الآن تُحسب من السعر المتبقي currentPrice بدلاً من الأصلي)
+let couponCode = null;
+let couponDiscount = 0;
+let isFirewallActive = false;
+let isPricingFirewallViolated = false;
 
-        if (product.disableCoupons === true || isFixed) {
-            isFirewallActive = true;
-        } else if (coupon && coupon.isActive !== false) {
-            couponCode = coupon.code;
-            const val = this.extractNum(coupon.value);
-            couponDiscount = coupon.type === 'percentage' 
-                ? this.safeMul(originalPrice, val / 100) 
-                : val;
-        }
+if (product.disableCoupons === true || isFixed) {
+    isFirewallActive = true;
+} else if (coupon && coupon.isActive !== false) {
+    couponCode = coupon.code;
+    const val = this.extractNum(coupon.value);
+    
+    // 🛡️ التعديل الجوهري: نضرب النسبة المئوية في السعر المتبقي (currentPrice)
+    couponDiscount = coupon.type === 'percentage' ?
+        this.safeMul(currentPrice, val / 100) :
+        val;
+}
 
-        // تطبيق الخصومات
-        currentPrice = this.safeSub(currentPrice, this.safeAdd(offerDiscount, couponDiscount));
+// تطبيق خصم الكوبون النهائي
+currentPrice = this.safeSub(currentPrice, couponDiscount);
 
-        // 🛑 الجدار الناري الأمامي: يمنع السعر السالب فقط. (تجاوز التكلفة متروك لسيرفر الحماية)
-        if (currentPrice < 0) {
-            isPricingFirewallViolated = true;
-            currentPrice = 0;
-        }
+// 🛑 الجدار الناري الأمامي: يمنع السعر السالب فقط
+if (currentPrice < 0) {
+    isPricingFirewallViolated = true;
+    currentPrice = 0;
+}
 
-        return { 
-            originalPrice, 
-            finalPrice: currentPrice, 
-            tierName: tier ? (tier.nameAr || tier.name || tier.id) : null, 
-            offerName, 
-            offerDiscount, 
-            couponCode, 
-            couponDiscount, 
-            totalDiscountVal: this.safeSub(originalPrice, currentPrice), 
-            isFirewallActive, 
-            isPricingFirewallViolated 
-        };
-    },
-
+return {
+    originalPrice,
+    finalPrice: currentPrice,
+    tierName: tier ? (tier.nameAr || tier.name || tier.id) : null,
+    offerName,
+    offerDiscount,
+    couponCode,
+    couponDiscount,
+    totalDiscountVal: this.safeSub(originalPrice, currentPrice), // 👈 يحسب إجمالي التوفير للعميل بدقة
+    isFirewallActive,
+    isPricingFirewallViolated
+};
     // ==========================================
     // 🛒 4. حساب إجمالي الطلب للواجهة
     // ==========================================

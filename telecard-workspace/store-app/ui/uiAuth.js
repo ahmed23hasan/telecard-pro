@@ -68,8 +68,7 @@ export const UIAuth = {
             reader.readAsDataURL(file);
         });
     },
-
-    // 👤 إدارة الملف الشخصي (Profile Management)
+// 👤 إدارة الملف الشخصي (Profile Management)
     // =========================================================
     openProfileInfo: function() {
         getSys().resetUI?.();
@@ -209,20 +208,27 @@ export const UIAuth = {
                 shield.id = 'invisible-tx-shield';
                 document.body.appendChild(shield);
 
+                // 🛡️ تتبع الرابط للرول باك بأمان
+                let downloadUrl = null;
+
                 try {
                     const compressed = await this._compressImage(originalFile, 400); 
                     
-                    if(imgEl) imgEl.src = compressed.previewUrl; 
-                    if(sidebarAvatar) sidebarAvatar.src = compressed.previewUrl; 
+                    // 🛡️ [Memory Fix]: مسح البلوب القديم قبل وضع الجديد
+                    if(imgEl) {
+                        if (imgEl.src && imgEl.src.startsWith('blob:')) URL.revokeObjectURL(imgEl.src);
+                        imgEl.src = compressed.previewUrl; 
+                    }
+                    if(sidebarAvatar) {
+                        if (sidebarAvatar.src && sidebarAvatar.src.startsWith('blob:')) URL.revokeObjectURL(sidebarAvatar.src);
+                        sidebarAvatar.src = compressed.previewUrl; 
+                    }
 
                     const oldImageUrl = DataManager.user.img; 
-                    const downloadUrl = await FirebaseAdapter.uploadImage(compressed.file, 'avatars', `avatar_${DataManager.user.id}_${Date.now()}.webp`);               
+                    downloadUrl = await FirebaseAdapter.uploadImage(compressed.file, 'avatars', `avatar_${DataManager.user.id}_${Date.now()}.webp`);               
                     
                     // 🛡️ التحديث (ACID-like Transaction): حماية من الفشل المرحلي
-                    let dbUpdateSuccess = false;
-                    if (DataManager.updateUserProfile) {
-                        dbUpdateSuccess = await DataManager.updateUserProfile({ img: downloadUrl });
-                    }
+                    const dbUpdateSuccess = DataManager.updateUserProfile ? await DataManager.updateUserProfile({ img: downloadUrl }) : false;
                     
                     if (dbUpdateSuccess) {
                         localStorage.setItem('telecard_user_image_' + DataManager.user.id, downloadUrl);
@@ -235,15 +241,20 @@ export const UIAuth = {
 
                         getSys().showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
                         getSys().sfx?.('success');
+                        downloadUrl = null; // العملية اكتملت 100%، نلغي الرابط لمنع حذفه في الـ catch
                     } else {
-                        // Rollback: حذف الصورة المرفوعة إذا رفضت الداتابيز التحديث
-                        if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(downloadUrl).catch(()=>{});
                         throw new Error("قاعدة البيانات رفضت التحديث.");
                     }
                     
                 } catch (err) {
                     console.error("Avatar Upload Error:", err);
                     getSys().showToast?.('عذراً، تعذر حفظ الصورة، قد تكون تالفة أو الاتصال ضعيف.', 'error');
+                    
+                    // 🛡️ [Rollback Fix]: التراجع الأكيد ومسح الصورة من فايربيز إذا تم رفعها وفشل الداتابيز
+                    if (downloadUrl && FirebaseAdapter.deleteImageByUrl) {
+                        FirebaseAdapter.deleteImageByUrl(downloadUrl).catch(()=>{});
+                    }
+
                     const fallbackImg = DataManager.user.img || DEFAULT_AVATAR_URL;
                     if(imgEl) imgEl.src = fallbackImg; 
                     if(sidebarAvatar) sidebarAvatar.src = fallbackImg; 
@@ -257,8 +268,7 @@ export const UIAuth = {
         }
 
         getSys().openModal?.('profile-info');
-    },
-    toggleNameEdit: function() {
+    },    toggleNameEdit: function() {
         const nameEl = document.getElementById('display-name');
         const inpEl = document.getElementById('edit-name-input');
         const btn = document.getElementById('profile-edit-toggle');
@@ -741,88 +751,105 @@ export const UIAuth = {
         }
     },
 
-    // =========================================================
-    // 👆 نظام المصادقة الحيوية (WebAuthn / Local Lock)
-    // =========================================================
-    handleBiometricToggle: async function() {
-        const isCurrentlyEnabled = DataManager.user?.biometricEnabled === true;
-        
-        if (isCurrentlyEnabled) {
-            getSys().toggleLoader?.(true, 'جاري إيقاف البصمة في السيرفر...');
-            try {
-                const success = await DataManager.updateUserProfile({ biometricEnabled: false });
-                if (success) {
-                    localStorage.removeItem('telecard_biometric_key');
-                    getSys().showToast?.('تم إيقاف المصادقة بالبصمة بنجاح', 'info');
-                    getSys().sfx?.('nav');
-                    this.openSecurityModal();
-                } else {
-                    getSys().showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
-                }
-            } finally {
-                getSys().toggleLoader?.(false);
-            }
-            return;
-        }
-
-        if (!window.PublicKeyCredential) {
-            getSys().showToast?.('عذراً، متصفحك أو جهازك لا يدعم المصادقة الحيوية', 'error');
-            return;
-        }
-
+// =========================================================
+// 👆 نظام المصادقة الحيوية (WebAuthn / Local Lock)
+// =========================================================
+handleBiometricToggle: async function() {
+    const sys = getSys();
+    const user = DataManager.user;
+    const isCurrentlyEnabled = user?.biometricEnabled === true;
+    
+    if (isCurrentlyEnabled) {
+        sys.toggleLoader?.(true, 'جاري إيقاف البصمة في السيرفر...');
         try {
-            getSys().toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
-            const challenge = new Uint8Array(32);
-            window.crypto.getRandomValues(challenge);
-            
-            const userIdStr = DataManager.user?.id || 'unknown';
-            const userIdBytes = new Uint8Array(16);
-            for (let i = 0; i < Math.min(userIdStr.length, 16); i++) {
-                userIdBytes[i] = userIdStr.charCodeAt(i);
-            }       
-            const userEmail = DataManager.user?.email || 'user@telecard.com';
-            
-            const publicKeyCredentialCreationOptions = {
-                challenge: challenge,
-                rp: { name: LiveStoreData.settings?.storeName || "Telecard Store" },
-                user: { id: userIdBytes, name: userEmail, displayName: userEmail },
-                pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
-                authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
-                timeout: 60000
-            };
-
-            const credential = await navigator.credentials.create({ publicKey: publicKeyCredentialCreationOptions });
-            const rawId = Array.from(new Uint8Array(credential.rawId)).map(b => b.toString(16).padStart(2, '0')).join('');
-
-            try {
-                localStorage.setItem('telecard_biometric_key', rawId);
-            } catch(e) {
-                throw new Error("تعذر حفظ مفتاح البصمة في جهازك (قد يكون المتصفح في الوضع المخفي). تم الإلغاء لمنع إغلاق الحساب.");
-            }
-
-            const success = await DataManager.updateUserProfile({ biometricEnabled: true });
-            
+            const success = await DataManager.updateUserProfile({ biometricEnabled: false });
             if (success) {
-                getSys().showToast?.('تم تفعيل البصمة بنجاح! سيتم قفل المتجر بها.', 'success');
-                getSys().sfx?.('success');
+                localStorage.removeItem('telecard_biometric_key');
+                sys.showToast?.('تم إيقاف المصادقة بالبصمة بنجاح', 'info');
+                sys.sfx?.('nav');
                 this.openSecurityModal();
             } else {
-                localStorage.removeItem('telecard_biometric_key'); 
-                throw new Error('Server Update Failed');
-            }
-        } catch (error) {
-            console.error("Biometric Error:", error);
-            if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
-                getSys().showToast?.('تم إلغاء عملية البصمة', 'warning');
-            } else {
-                getSys().showToast?.(error.message || 'تعذر تفعيل البصمة، تأكد من إعدادات القفل في هاتفك', 'error');
+                sys.showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
             }
         } finally {
-            getSys().toggleLoader?.(false);
+            sys.toggleLoader?.(false);
         }
-    },
-
-    // --- معالجة كلمات المرور (Password Reset & Change) ---
+        return;
+    }
+    
+    // 🛡️ التحقق من دعم المتصفح والبيئة الآمنة (HTTPS)
+    if (!window.PublicKeyCredential) {
+        sys.showToast?.('عذراً، متصفحك لا يدعم البصمة أو الاتصال غير آمن (HTTPS مطلوب)', 'error');
+        return;
+    }
+    
+    try {
+        sys.toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
+        
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+        
+        // 🚀 [إصلاح التشفير]: استخدام TextEncoder لضمان تحويل الـ UID بالكامل بدون قص أو فقدان للبيانات
+        const userIdStr = String(user?.id || 'unknown');
+        const userIdBytes = new TextEncoder().encode(userIdStr);
+        const userEmail = user?.email || 'user@telecard.com';
+        const storeName = LiveStoreData.settings?.storeName || "TeleCard Store";
+        
+        const publicKeyCredentialCreationOptions = {
+            challenge: challenge,
+            rp: { name: Utils.escapeHtml(storeName) }, // تعقيم اسم المتجر
+            user: { id: userIdBytes, name: userEmail, displayName: userEmail },
+            pubKeyCredParams: [
+                { alg: -7, type: "public-key" }, // خوارزمية ES256 (Apple & Android)
+                { alg: -257, type: "public-key" } // خوارزمية RS256 (Windows Hello)
+            ],
+            authenticatorSelection: {
+                authenticatorAttachment: "platform", // إجبار المتصفح على استخدام مستشعر الجهاز نفسه
+                userVerification: "required"
+            },
+            timeout: 60000
+        };
+        
+        const credential = await navigator.credentials.create({ publicKey: publicKeyCredentialCreationOptions });
+        
+        // تحويل الـ RawId إلى Hex String للحفظ الآمن في LocalStorage
+        const rawId = Array.from(new Uint8Array(credential.rawId))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+        
+        try {
+            localStorage.setItem('telecard_biometric_key', rawId);
+        } catch (e) {
+            throw new Error("storage_full");
+        }
+        
+        const success = await DataManager.updateUserProfile({ biometricEnabled: true });
+        
+        if (success) {
+            sys.showToast?.('تم تفعيل البصمة بنجاح! سيتم قفل المتجر بها.', 'success');
+            sys.sfx?.('success');
+            this.openSecurityModal();
+        } else {
+            localStorage.removeItem('telecard_biometric_key');
+            throw new Error('server_error');
+        }
+    } catch (error) {
+        console.error("Biometric Error:", error);
+        
+        // 🛡️ معالجة دقيقة لجميع أسباب الفشل لتوجيه المستخدم
+        if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
+            sys.showToast?.('تم إلغاء عملية البصمة من قبلك', 'warning');
+        } else if (error.message === 'storage_full') {
+            sys.showToast?.('تعذر تفعيل البصمة (التصفح المخفي يمنع حفظ البيانات)', 'error');
+        } else if (error.name === 'SecurityError') {
+            sys.showToast?.('بيئة غير آمنة. البصمة تتطلب اتصال HTTPS', 'error');
+        } else {
+            sys.showToast?.('تعذر تفعيل البصمة، تأكد من إعدادات القفل في جهازك', 'error');
+        }
+    } finally {
+        sys.toggleLoader?.(false);
+    }
+},    // --- معالجة كلمات المرور (Password Reset & Change) ---
     handlePasswordSubmit: function() {
         const securityModal = document.getElementById('security-modal');
         if (!securityModal) return;
@@ -1011,50 +1038,55 @@ export const UIAuth = {
     },
 
     handleKycImage: async function(input, previewId) {
-        // 🛡️ [Race Condition Guard]: قفل يمنع معالجة صورة جديدة إذا كانت هناك عملية ضغط سابقة لم تنتهِ
-        if (this._isProcessingImg) return; 
-
-        const file = input.files && input.files[0];
-        const parentBox = input.closest('.kyc-upload-box');
-        const previewImg = document.getElementById(previewId);
+    // 🛡️ [Race Condition Guard]: قفل يمنع تداخل العمليات
+    if (this._isProcessingImg) return;
+    
+    const file = input.files && input.files[0];
+    const parentBox = input.closest('.kyc-upload-box');
+    const previewImg = document.getElementById(previewId);
+    
+    this.kycFiles = this.kycFiles || {};
+    
+    if (!file || !file.type.startsWith('image/')) {
+        getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
+        input.value = '';
+        if (previewImg) previewImg.src = '';
+        if (parentBox) parentBox.classList.remove('has-img');
+        delete this.kycFiles[previewId];
+        return;
+    }
+    
+    if (file.size > 8 * 1024 * 1024) {
+        getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 8MB', 'warning');
+        input.value = '';
+        delete this.kycFiles[previewId];
+        return;
+    }
+    
+    this._isProcessingImg = true;
+    
+    try {
+        getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
+        const compressed = await this._compressImage(file, 1200);
         
-        this.kycFiles = this.kycFiles || {};
+        this.kycFiles[previewId] = compressed.file;
         
-        if (!file || !file.type.startsWith('image/')) {
-            getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
-            input.value = '';
-            if (previewImg) previewImg.src = '';
-            if (parentBox) parentBox.classList.remove('has-img');
-            delete this.kycFiles[previewId];
-            return;
+        if (previewImg) {
+            // 🛡️ [Memory Leak Fix]: تحرير الرام من الصورة القديمة قبل وضع الجديدة
+            if (previewImg.src && previewImg.src.startsWith('blob:')) {
+                URL.revokeObjectURL(previewImg.src);
+            }
+            previewImg.src = compressed.previewUrl;
         }
-        
-        if (file.size > 8 * 1024 * 1024) {
-            getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 8MB', 'warning');
-            input.value = '';
-            delete this.kycFiles[previewId];
-            return;
-        }
-        
-        this._isProcessingImg = true; // تشغيل القفل
-        
-        try {
-            getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
-            const compressed = await this._compressImage(file, 1200); 
-            
-            this.kycFiles[previewId] = compressed.file; 
-            
-            if (previewImg) previewImg.src = compressed.previewUrl;
-            if (parentBox) parentBox.classList.add('has-img');
-        } catch(e) {
-            getSys().showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
-            input.value = '';
-        } finally {
-            this._isProcessingImg = false; // فك القفل لضمان عمل الواجهة
-            getSys().toggleLoader?.(false);
-        }
-    },
-
+        if (parentBox) parentBox.classList.add('has-img');
+    } catch (e) {
+        getSys().showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
+        input.value = '';
+    } finally {
+        this._isProcessingImg = false;
+        getSys().toggleLoader?.(false);
+    }
+},
     submitKycData: async function() {
         if (this._isSubmittingKyc) return;
         
@@ -1196,10 +1228,20 @@ export const UIAuth = {
     },
 
     closeKycModal: function() { 
-        this.kycFiles = {}; 
-        getSys().closeModal?.('kyc-upload'); 
-    },
+    // تنظيف الذاكرة من روابط المعاينة
+    const previews = ['kyc-prev-front', 'kyc-prev-back', 'kyc-prev-selfie'];
+    previews.forEach(id => {
+        const imgEl = document.getElementById(id);
+        if (imgEl && imgEl.src && imgEl.src.startsWith('blob:')) {
+            URL.revokeObjectURL(imgEl.src);
+            imgEl.src = '';
+        }
+    });
     
+    this.kycFiles = {}; 
+    getSys().closeModal?.('kyc-upload'); 
+}
+
     openKycStatusModal: function(state) {
         getSys().closeSidebar?.();
         const content = document.getElementById('kyc-status-content');

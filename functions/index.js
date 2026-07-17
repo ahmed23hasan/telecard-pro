@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V13.6 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V13.7 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديثات: التوافق الاقتصادي الآمن 100% مع قيود Google Cloud لتخطي حظر الرفع
+// 🚀 التحديثات: التوافق الاقتصادي، منع التهرب المالي (Debt Guard)، وحماية الذاكرة (OOM Guard)
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -13,7 +13,7 @@ const functions = require('firebase-functions/v1');
 const FinancialEngine = require('./financialEngine.js');
 const { setGlobalOptions } = require("firebase-functions/v2");
 
-// 🚀 التعديل الاحترافي: وضع اقتصادي آمن يمر من حظر جوجل ويحمي فاتورتك
+// 🚀 وضع اقتصادي آمن يمر من حظر جوجل ويحمي فاتورتك
 setGlobalOptions({
     region: 'us-east1',
     memory: '256MiB',
@@ -53,6 +53,8 @@ const checkBanStatus = (request) => {
 
 const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
 const safeSub = (a, b) => Math.max(0, FinancialEngine.safeSub(a, b));
+// 🛡️ [إصلاح مالي]: دالة الطرح الصارم تسمح بالرصيد السالب لتسجيل الديون في حال الاحتيال
+const strictSub = (a, b) => FinancialEngine.safeSub(a, b); 
 const safeMul = (a, b) => FinancialEngine.safeMul(a, b);
 
 const generateUniqueId = () => {
@@ -63,18 +65,17 @@ const generateUniqueId = () => {
 };
 
 // ==========================================
-// 🛡️ 0. درع الثقة المعدومة (Zero-Trust Shield) - التحديث الصارم
+// 🛡️ 0. درع الثقة المعدومة (Zero-Trust Shield)
 // ==========================================
 exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
     try {
         const userRef = db.collection('telecard_users').doc(user.uid);
         
-        // 1. البحث عن المستوى الافتراضي الحقيقي في قاعدة البيانات
         const defaultTierSnap = await db.collection('telecard_tiers').where('isDefault', '==', true).limit(1).get();
         let initialTierId = '';
 
         if (!defaultTierSnap.empty) {
-            initialTierId = defaultTierSnap.docs[0].id; // أخذ الـ ID الحقيقي
+            initialTierId = defaultTierSnap.docs[0].id;
         } else {
             console.error(`[CRITICAL WARNING] No default tier found in DB for new user ${user.uid}`);
             initialTierId = '1'; 
@@ -229,22 +230,16 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
                 if ((await transaction.get(idempotencyRef)).exists) throw new HttpsError('already-exists', 'تم معالجة هذا الطلب مسبقاً.');
             }
 
-            // ========================================================
-            // 🛡️ تحديد مستوى العميل الصارم (Strict Tier Resolution)
-            // ========================================================
             const assignedTierId = String(userData.tierId || userData.tier);
             const tiersData = await loadTiersCache();
 
-            // 1. البحث الدقيق عن مستوى العميل
             const currentTierObj = tiersData.find(t => String(t.id) === assignedTierId);
 
-            // 2. الفشل الآمن
             if (!currentTierObj) {
                 console.error(`[DATA INTEGRITY ERROR] User ${uid} has invalid Tier ID: ${assignedTierId}`);
                 throw new HttpsError('failed-precondition', 'بيانات مستوى الحساب غير متطابقة. يرجى التواصل مع الدعم الفني لتحديث حسابك.');
             }
             const tierId = currentTierObj.id;
-            // ========================================================
 
             const [keysSnap, currentCouponSnap] = await Promise.all([
                 product.vaultPoolId ? transaction.get(db.collection('telecard_vault').doc(String(product.vaultPoolId)).collection('keys').where('isSold', '==', false).limit(finalQty)) : Promise.resolve(null),
@@ -262,7 +257,6 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
 
             if (currentBalance < totalRequired) throw new HttpsError('failed-precondition', 'رصيدك غير كافٍ.');
 
-            // --- 🚀 محرك الترقية ومعالجة العدادات ---
             let currentCycleSpent = Number(userData.tierCycleSpent || 0);
             const cycleStartTs = userData.tierCycleStartDate?.toMillis ? userData.tierCycleStartDate.toMillis() : (Number(userData.tierCycleStartDate) || serverNow);
             const durationDays = Number(currentTierObj?.durationDays || 30);
@@ -295,7 +289,6 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
 
             if (isCycleExpired || isTierUpgraded) { userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); }
 
-            // --- 🛡️ إكمال عملية البيع مع الحماية من بيع الهواء ---
             if (product.vaultPoolId && keysSnap) {
                 if (keysSnap.size < finalQty) {
                     throw new HttpsError('failed-precondition', `عذراً، الكمية المتوفرة حالياً في المخزن (${keysSnap.size}) أقل من الكمية المطلوبة.`);
@@ -510,8 +503,13 @@ exports.adminProcessDeposit = onCall(async (request) => {
             if (userSnap.exists) {
                 const ud = userSnap.data();
                 const amt = Number(depData.creditedAmount || depData.amount || 0);
-                newWalletBal = action === 'approved' ? safeAdd(ud.walletBalance || 0, amt) : safeSub(ud.walletBalance || 0, amt);
-                transaction.update(userRef, { walletBalance: newWalletBal, balance: newWalletBal, totalDeposit: action === 'approved' ? safeAdd(ud.totalDeposit || 0, amt) : safeSub(ud.totalDeposit || 0, amt) });
+                // 🛡️ [إصلاح مالي]: السماح بالسالب (strictSub) إذا تم سحب إيداع مستخدم بالفعل لكشف النصابين
+                newWalletBal = action === 'approved' ? safeAdd(ud.walletBalance || 0, amt) : strictSub(ud.walletBalance || 0, amt);
+                transaction.update(userRef, { 
+                    walletBalance: newWalletBal, 
+                    balance: newWalletBal, 
+                    totalDeposit: action === 'approved' ? safeAdd(ud.totalDeposit || 0, amt) : strictSub(ud.totalDeposit || 0, amt) 
+                });
             }
         }
         
@@ -542,7 +540,8 @@ exports.adminAdjustBalance = onCall(async (request) => {
         const currentSpent = Number(userData.totalSpent || 0);
         const currentCycle = Number(userData.tierCycleSpent || 0);
 
-        const newBal = type === 'add' ? safeAdd(currentBal, adjustAmount) : safeSub(currentBal, adjustAmount);
+        // 🛡️ [إصلاح مالي]: الإدارة لها الصلاحية المطلقة في خصم الرصيد حتى لو أصبح بالسالب (ديون)
+        const newBal = type === 'add' ? safeAdd(currentBal, adjustAmount) : strictSub(currentBal, adjustAmount);
         
         let updateObj = {
             walletBalance: newBal,
@@ -590,7 +589,7 @@ exports.adminAuditUserWallet = onCall(async (request) => {
 
         const realTotalDeposit = Math.max(0, safeSub(depApprovedAgg.data().totalDep || 0, depRefundedAgg.data().totalRefund || 0));
         const realTotalSpent = ordersAgg.data().totalSpent || 0;
-        const expectedBalance = Math.max(0, safeSub(realTotalDeposit, realTotalSpent));
+        const expectedBalance = strictSub(realTotalDeposit, realTotalSpent); // استخدام الطرح الصارم لاكتشاف النصابين
 
         await userRef.update({ totalSpent: realTotalSpent, totalDeposit: realTotalDeposit, walletBalance: expectedBalance, balance: expectedBalance });
 
@@ -935,26 +934,45 @@ exports.adminSaveVaultCodes = onCall(async (request) => {
         let currentBatch = db.batch();
         let opCount = 0;
         
-        for (const code of codesList) {
-            const safeCode = String(code).replace(/\s+/g, '');
-            if (!safeCode) continue;
-            
-            const codeHash = crypto.createHash('sha256').update(safeCode).digest('hex');
-            const docRef = keysRef.doc(codeHash);
-            
-            currentBatch.set(docRef, {
-                codeText: safeCode,
-                isSold: false,
-                addedAt: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-            
-            addedCount++;
-            opCount++;
-            
-            if (opCount === 450) {
-                batches.push(currentBatch);
-                currentBatch = db.batch();
-                opCount = 0;
+        // 🛡️ [حماية الأكواد المباعة]: تقسيم الأكواد وفحص الموجود منها
+        const CHUNK_SIZE = 30; 
+        for (let i = 0; i < codesList.length; i += CHUNK_SIZE) {
+            const chunk = codesList.slice(i, i + CHUNK_SIZE);
+            const chunkHashes = [];
+            const chunkMap = new Map();
+
+            chunk.forEach(code => {
+                const safeCode = String(code).replace(/\s+/g, '');
+                if (safeCode) {
+                    const codeHash = crypto.createHash('sha256').update(safeCode).digest('hex');
+                    chunkHashes.push(codeHash);
+                    chunkMap.set(codeHash, safeCode);
+                }
+            });
+
+            if (chunkHashes.length === 0) continue;
+
+            const existingSnaps = await keysRef.where(admin.firestore.FieldPath.documentId(), 'in', chunkHashes).get();
+            const existingIds = new Set(existingSnaps.docs.map(doc => doc.id));
+
+            for (const [hash, text] of chunkMap.entries()) {
+                if (!existingIds.has(hash)) {
+                    const docRef = keysRef.doc(hash);
+                    currentBatch.set(docRef, {
+                        codeText: text,
+                        isSold: false,
+                        addedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    addedCount++;
+                    opCount++;
+                    
+                    if (opCount === 450) {
+                        batches.push(currentBatch);
+                        currentBatch = db.batch();
+                        opCount = 0;
+                    }
+                }
             }
         }
         
@@ -979,23 +997,21 @@ exports.adminDeleteVaultPool = onCall(async (request) => {
         const vaultRef = db.collection('telecard_vault').doc(String(poolId));
         const keysRef = vaultRef.collection('keys');
         
-        const snapshot = await keysRef.get();
-        const batches = [];
-        let currentBatch = db.batch();
-        let opCount = 0;
-        
-        snapshot.docs.forEach(doc => {
-            currentBatch.delete(doc.ref);
-            opCount++;
-            if (opCount === 450) {
-                batches.push(currentBatch);
-                currentBatch = db.batch();
-                opCount = 0;
+        // 🛡️ [حماية الذاكرة - OOM Guard]: حذف الوثائق على دفعات محدودة لتجنب انفجار الـ 256MB
+        let hasMore = true;
+        while (hasMore) {
+            const snapshot = await keysRef.limit(450).get(); 
+            if (snapshot.empty) {
+                hasMore = false;
+                break;
             }
-        });
-        if (opCount > 0) batches.push(currentBatch);
+            const batch = db.batch();
+            snapshot.docs.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+        }
         
-        await Promise.all(batches.map(b => b.commit()));
         await vaultRef.delete();
         await logAdminAction(request.auth.uid, 'DELETE_VAULT', `Deleted pool ${poolId}`);
         
