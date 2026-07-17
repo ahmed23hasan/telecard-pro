@@ -1289,30 +1289,31 @@
                 </div>
             </div>
             
-            <div class="settings-group-title">تعديل كلمة المرور</div>
-            
-            <div class="security-pass-wrapper">
-                <div class="input-field-lux" style="position: relative;">
-                    <label>كلمة المرور الحالية</label>
-                    <span class="forgot-pass-link" data-action="send-reset-pass">نسيت الكلمة؟</span>
-                    <input type="password" id="pass-current" class="lux-input" placeholder="أدخل كلمة المرور الحالية" autocomplete="current-password">
-                </div>
-                
-                <div class="input-field-lux">
-                    <label>كلمة المرور الجديدة</label>
-                    <input type="password" id="pass-new" class="lux-input" placeholder="أدخل كلمة مرور جديدة" autocomplete="new-password">
-                </div>
-                
-                <div class="input-field-lux">
-                    <label>تأكيد كلمة المرور</label>
-                    <input type="password" id="pass-confirm" class="lux-input" placeholder="أعد إدخال كلمة المرور" autocomplete="new-password">
-                </div>
-                
-                <div style="margin-top: 10px;">
-                    <button class="alert-btn" data-action="submit-password-change">تحديث كلمة المرور</button>
-                </div>
-            </div>
-            
+<div class="settings-group-title">تعديل كلمة المرور</div>
+
+<!-- 🛡️ [إصلاح المتصفح]: تغليف الحقول داخل form مع منع إعادة تحميل الصفحة -->
+<form class="security-pass-wrapper" onsubmit="event.preventDefault();">
+    <div class="input-field-lux" style="position: relative;">
+        <label>كلمة المرور الحالية</label>
+        <span class="forgot-pass-link" data-action="send-reset-pass">نسيت الكلمة؟</span>
+        <input type="password" id="pass-current" class="lux-input" placeholder="أدخل كلمة المرور الحالية" autocomplete="current-password">
+    </div>
+    
+    <div class="input-field-lux">
+        <label>كلمة المرور الجديدة</label>
+        <input type="password" id="pass-new" class="lux-input" placeholder="أدخل كلمة مرور جديدة" autocomplete="new-password">
+    </div>
+    
+    <div class="input-field-lux">
+        <label>تأكيد كلمة المرور</label>
+        <input type="password" id="pass-confirm" class="lux-input" placeholder="أعد إدخال كلمة المرور" autocomplete="new-password">
+    </div>
+    
+    <div style="margin-top: 10px;">
+        <!-- 🛡️ إضافة type="button" لكي لا يقوم الفورم بعمل Submit عشوائي -->
+        <button type="button" class="alert-btn" data-action="submit-password-change">تحديث كلمة المرور</button>
+    </div>
+</form>            
             <div class="settings-group-title danger-zone-title">إجراءات إغلاق الحساب</div>
             
             <div class="danger-zone-wrapper">

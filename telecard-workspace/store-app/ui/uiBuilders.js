@@ -415,8 +415,11 @@ export const UIBuilders = {
     /**
      * 8️⃣ بناء نموذج الدفع (Deposit Form)
      */
-    buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrency, currItemsHtml, baseCurr) {
-        return `
+    /**
+ * 8️⃣ بناء نموذج الدفع (Deposit Form)
+ */
+buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrency, currItemsHtml, baseCurr) {
+    return `
             <div class="bal-modal-container-new">
                 <div class="bal-payment-title">${Utils.escapeHtml(p.name)}</div>
                 ${copyContainer}
@@ -461,5 +464,5 @@ export const UIBuilders = {
                 </button>         
             </div>
         `;
-    }
+}
 };

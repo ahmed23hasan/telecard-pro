@@ -1088,87 +1088,102 @@ handleBiometricToggle: async function() {
     }
 },
     submitKycData: async function() {
-        if (this._isSubmittingKyc) return;
+    if (this._isSubmittingKyc) return;
+    
+    const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
+    const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
+    
+    this.kycFiles = this.kycFiles || {};
+    const frontFile = this.kycFiles['kyc-prev-front'];
+    const backFile = this.kycFiles['kyc-prev-back'];
+    const selfieFile = this.kycFiles['kyc-prev-selfie'];
+    
+    if (!fullName || !idNumber || !frontFile || !backFile || !selfieFile) {
+        getSys().showToast?.('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
+        return;
+    }
+    
+    this._isSubmittingKyc = true;
+    getSys().toggleLoader?.(true, 'جاري تشفير ورفع الملفات...');
+    
+    let uploadedUrls = []; // 🛡️ مصفوفة تتبع الروابط للتراجع عنها عند الفشل (Rollback)
+    
+    try {
+        const userId = DataManager.user.id || 'unknown_user';
+        const kycTimestamp = Date.now();
+        const oldKycData = DataManager.user.kycData; // نحتفظ بالبيانات القديمة لمسحها لاحقاً
         
-        const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
-        const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
+        const uploadPromises = [
+            FirebaseAdapter.uploadImage(frontFile, 'kyc_docs', `${userId}_front_${kycTimestamp}.webp`),
+            FirebaseAdapter.uploadImage(backFile, 'kyc_docs', `${userId}_back_${kycTimestamp}.webp`),
+            FirebaseAdapter.uploadImage(selfieFile, 'kyc_docs', `${userId}_selfie_${kycTimestamp}.webp`)
+        ];
         
-        this.kycFiles = this.kycFiles || {};
-        const frontFile = this.kycFiles['kyc-prev-front'];
-        const backFile = this.kycFiles['kyc-prev-back'];
-        const selfieFile = this.kycFiles['kyc-prev-selfie'];
+        const results = await Promise.allSettled(uploadPromises);
+        const failedUploads = results.filter(r => r.status === 'rejected');
         
-        if (!fullName || !idNumber || !frontFile || !backFile || !selfieFile) {
-            getSys().showToast?.('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
-            return;
-        }
-        
-        this._isSubmittingKyc = true;
-        getSys().toggleLoader?.(true, 'جاري تشفير ورفع الملفات...');
-        
-        try {
-            const userId = DataManager.user.id || 'unknown_user';
-            const kycTimestamp = Date.now();
-            
-            const oldKycData = DataManager.user.kycData;
-            if (oldKycData) {
-                const oldUrls = [oldKycData.frontImg, oldKycData.backImg, oldKycData.selfieImg].filter(Boolean);
-                oldUrls.forEach(url => {
-                    if (FirebaseAdapter.deleteImageByUrl) {
-                        FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
-                    }
+        // إذا فشل رفع إحدى الصور، نقوم بمسح الصور التي نجحت في هذه الدفعة ونتوقف
+        if (failedUploads.length > 0) {
+            const successfulUploads = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
+            if (successfulUploads.length > 0) {
+                successfulUploads.forEach(url => {
+                    if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
                 });
             }
-            
-            const uploadPromises = [
-                FirebaseAdapter.uploadImage(frontFile, 'kyc_docs', `${userId}_front_${kycTimestamp}.webp`),
-                FirebaseAdapter.uploadImage(backFile, 'kyc_docs', `${userId}_back_${kycTimestamp}.webp`),
-                FirebaseAdapter.uploadImage(selfieFile, 'kyc_docs', `${userId}_selfie_${kycTimestamp}.webp`)
-            ];
-            
-            const results = await Promise.allSettled(uploadPromises);
-            const failedUploads = results.filter(r => r.status === 'rejected');
-            
-            if (failedUploads.length > 0) {
-                const successfulUploads = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
-                if (successfulUploads.length > 0) {
-                    successfulUploads.forEach(url => {
-                        if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
-                    });
-                }
-                throw new Error("فشل رفع إحدى الصور.");
-            }
-            const [frontImgUrl, backImgUrl, selfieImgUrl] = results.map(r => r.value);
-            
-            const safeFullName = fullName.replace(/[<>"{}[\]\\]/g, '');
-            const newKycData = { ...(oldKycData || {}), idNumber: idNumber, frontImg: frontImgUrl, backImg: backImgUrl, selfieImg: selfieImgUrl, submittedAt: Date.now() };
-            
-            if (DataManager.updateUserProfile) await DataManager.updateUserProfile({ fullName: safeFullName });
-            
-            const success = await StoreDB.set(DB_KEYS.USERS, userId, {
-                kycStatus: 'pending',
-                kycData: newKycData
-            }, { merge: true });
-            
-            if (!success) throw new Error("فشل تحديث بيانات الحساب في السيرفر.");
-            
-            DataManager.user.kycStatus = 'pending';
-            DataManager.user.kycData = newKycData;
-            
-            this.closeKycModal();
-            getSys().showToast?.('تم إرسال مستندات التوثيق بنجاح! طلبك قيد المراجعة.', 'success');
-            this.renderKycUI();
-            
-        } catch (e) {
-            console.error('KYC Upload Error:', e);
-            getSys().showToast?.('تعذر إرسال المستندات، يرجى المحاولة مجدداً', 'error');
-        } finally {
-            this._isSubmittingKyc = false;
-            getSys().toggleLoader?.(false);
+            throw new Error("فشل رفع إحدى الصور.");
         }
-    },
-
-    renderKycUI: function() {
+        
+        // حفظ الروابط لتسجيلها
+        uploadedUrls = results.map(r => r.value);
+        const [frontImgUrl, backImgUrl, selfieImgUrl] = uploadedUrls;
+        
+        const safeFullName = fullName.replace(/[<>"{}[\]\\]/g, '');
+        const newKycData = { ...(oldKycData || {}), idNumber: idNumber, frontImg: frontImgUrl, backImg: backImgUrl, selfieImg: selfieImgUrl, submittedAt: Date.now() };
+        
+        // 🛡️ التحديث في قاعدة البيانات أولاً
+        const success = await StoreDB.set(DB_KEYS.USERS, userId, {
+            kycStatus: 'pending',
+            kycData: newKycData
+        }, { merge: true });
+        
+        if (!success) throw new Error("فشل تحديث بيانات الحساب في السيرفر.");
+        
+        // 🛡️ الآن فقط، بعد النجاح المؤكد بنسبة 100%، نمسح الصور القديمة
+        if (oldKycData) {
+            const oldUrls = [oldKycData.frontImg, oldKycData.backImg, oldKycData.selfieImg].filter(Boolean);
+            oldUrls.forEach(url => {
+                if (FirebaseAdapter.deleteImageByUrl) {
+                    FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
+                }
+            });
+        }
+        
+        // تفريغ المصفوفة لأن العملية نجحت ولا حاجة للتراجع (Rollback)
+        uploadedUrls = [];
+        
+        if (DataManager.updateUserProfile) await DataManager.updateUserProfile({ fullName: safeFullName });
+        DataManager.user.kycStatus = 'pending';
+        DataManager.user.kycData = newKycData;
+        
+        this.closeKycModal();
+        getSys().showToast?.('تم إرسال مستندات التوثيق بنجاح! طلبك قيد المراجعة.', 'success');
+        this.renderKycUI();
+        
+    } catch (e) {
+        console.error('KYC Upload Error:', e);
+        getSys().showToast?.('تعذر إرسال المستندات، يرجى المحاولة مجدداً', 'error');
+        
+        // 🛡️ [Rollback Fix]: التراجع الأكيد ومسح الصور من السحابة إذا تم رفعها وفشل الداتابيز
+        if (uploadedUrls.length > 0) {
+            uploadedUrls.forEach(url => {
+                if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
+            });
+        }
+    } finally {
+        this._isSubmittingKyc = false;
+        getSys().toggleLoader?.(false);
+    }
+},    renderKycUI: function() {
         if (!DataManager.user) return;
         const user = DataManager.user;
         const status = user.kycStatus || 'none';
@@ -1240,7 +1255,7 @@ handleBiometricToggle: async function() {
     
     this.kycFiles = {}; 
     getSys().closeModal?.('kyc-upload'); 
-}
+},
 
     openKycStatusModal: function(state) {
         getSys().closeSidebar?.();

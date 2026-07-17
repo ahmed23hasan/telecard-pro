@@ -349,29 +349,28 @@ export const DataManager = {
     },
 
     validateCoupon: function(code, prod, qty, optIdx) {
-        if (!code) return { valid: false, msg: 'يرجى إدخال الكود' };
-        const cp = (LiveStoreData.coupons || []).find(c => c.code.toUpperCase() === code.toUpperCase());
-        if (!cp) return { valid: false, msg: 'الكود غير صحيح أو غير موجود' };
-        if (cp.isActive === false) return { valid: false, msg: 'هذا الكوبون غير فعال حالياً' };
-        if (cp.expiryDate && this.getNow() > cp.expiryDate) return { valid: false, msg: 'انتهت صلاحية هذا الكوبون' };
-        if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'نفذت كمية الاستخدام المسموحة' };
-        if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(this.getUserTier(this.user)?.id))) return { valid: false, msg: 'غير متاح لمستوى عضويتك' };
-        if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'غير مخصص لهذا المنتج' };
-        if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.map(String).includes(String(this.user.uid || this.user.id))) return { valid: false, msg: 'مخصص لعملاء محددين' };
-        
-        if (Number(cp.maxPerUser) > 0) {
-            const used = (cp.usageHistory?.[`user_${this.user.uid || this.user.id}`]) || 0;
-            if (used >= Number(cp.maxPerUser)) return { valid: false, msg: `استنفدت الحد الأقصى (${cp.maxPerUser} مرات)` };
-        }
-        
-        if (Number(cp.minOrder) > 0) {
-            const p = this.calculateFinalPrice(prod, this.user, qty, optIdx, null);
-            if (p.totalUsd < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى للاستخدام هو ${cp.minOrder}$` };
-        }
-        return { valid: true, coupon: cp };
-    },
-
-    getRates: function() { return FinancialEngine.normalizeRates(LiveStoreData.rates || {}); },
+    if (!code) return { valid: false, msg: 'يرجى إدخال الكود' };
+    const cp = (LiveStoreData.coupons || []).find(c => c.code.toUpperCase() === code.toUpperCase());
+    if (!cp) return { valid: false, msg: 'الكود غير صحيح أو غير موجود' };
+    if (cp.isActive === false) return { valid: false, msg: 'هذا الكوبون غير فعال حالياً' };
+    if (cp.expiryDate && this.getNow() > cp.expiryDate) return { valid: false, msg: 'انتهت صلاحية هذا الكوبون' };
+    if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'نفذت كمية الاستخدام المسموحة' };
+    if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(this.getUserTier(this.user)?.id))) return { valid: false, msg: 'غير متاح لمستوى عضويتك' };
+    if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'غير مخصص لهذا المنتج' };
+    if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.map(String).includes(String(this.user.uid || this.user.id))) return { valid: false, msg: 'مخصص لعملاء محددين' };
+    
+    if (Number(cp.maxPerUser) > 0) {
+        // 🛡️ [إصلاح الكوبونات]: إضافة علامات الـ Backticks لتكوين المتغير النصي بشكل صحيح
+        const used = (cp.usageHistory?.[`user_${this.user.uid || this.user.id}`]) || 0;
+        if (used >= Number(cp.maxPerUser)) return { valid: false, msg: `استنفدت الحد الأقصى (${cp.maxPerUser} مرات)` };
+    }
+    
+    if (Number(cp.minOrder) > 0) {
+        const p = this.calculateFinalPrice(prod, this.user, qty, optIdx, null);
+        if (p.totalUsd < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى للاستخدام هو ${cp.minOrder}$` };
+    }
+    return { valid: true, coupon: cp };
+},    getRates: function() { return FinancialEngine.normalizeRates(LiveStoreData.rates || {}); },
     convertViaUSDHelper: function(amt, f, t, rnd='round', c='pricing') {
         let v = this._safeConvert(amt, (f||'USD').toUpperCase(), (t||'USD').toUpperCase(), LiveStoreData.rates, c);
         if(rnd === 'floor') return Math.floor(v * 10000) / 10000;
@@ -686,33 +685,34 @@ export const DataManager = {
     },
 
     markAllNotificationsRead: async function() {
-        const allAlerts = this.getAllUserAlerts();
-        if (!allAlerts.length) return;
+    const allAlerts = this.getAllUserAlerts();
+    if (!allAlerts.length) return;
+    
+    const readIds = this._getSafeReadIds();
+    const updates = [];
+    
+    for (const msg of allAlerts) {
+        if (!readIds.includes(String(msg.id))) readIds.push(String(msg.id));
+        if (msg.type === 'popup' || msg.isPopup) localStorage.setItem(`alert_views_${msg.id}`, (msg.maxViews || 99).toString());
+        msg.isRead = true;
+        const localNotif = LiveStoreData.userNotifications?.find(n => String(n.id) === String(msg.id));
+        if (localNotif) localNotif.isRead = true;
         
-        const readIds = this._getSafeReadIds();
-        const updates = [];
-        
-        for (const msg of allAlerts) {
-            if (!readIds.includes(String(msg.id))) readIds.push(String(msg.id));
-            if (msg.type === 'popup' || msg.isPopup) localStorage.setItem(`alert_views_${msg.id}`, (msg.maxViews || 99).toString());
-            msg.isRead = true;
-            const localNotif = LiveStoreData.userNotifications?.find(n => String(n.id) === String(msg.id));
-            if (localNotif) localNotif.isRead = true;
-            if (msg.jumpTarget && this.user?.uid && localNotif) {
-                updates.push(StoreDB.set(`telecard_users/${this.user.uid}/notifications`, msg.id, { isRead: true }, { merge: true }).catch(() => {}));
-            }
+        // 🛡️ [إصلاح مزامنة الإشعارات]: تحديث السيرفر لكل إشعارات العميل لضمان تطابق الحالة بين الأجهزة
+        if (this.user?.uid && localNotif) {
+            updates.push(StoreDB.set(`telecard_users/${this.user.uid}/notifications`, msg.id, { isRead: true }, { merge: true }).catch(() => {}));
         }
-        
-        const cappedReadIds = readIds.slice(-50);
-        localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(cappedReadIds));
-        if (this.user?.uid) this.updateUserProfile({ readAlerts: cappedReadIds }).catch(()=>{});
-        
-        if (window.UIManager?.updateNotifBadges) window.UIManager.updateNotifBadges();
-        if (window.RenderManager?.renderNotifCenterList) window.RenderManager.renderNotifCenterList();
-        
-        if (updates.length > 0) await Promise.all(updates);
-    },
-
+    }
+    
+    const cappedReadIds = readIds.slice(-50);
+    localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(cappedReadIds));
+    if (this.user?.uid) this.updateUserProfile({ readAlerts: cappedReadIds }).catch(() => {});
+    
+    if (window.UIManager?.updateNotifBadges) window.UIManager.updateNotifBadges();
+    if (window.RenderManager?.renderNotifCenterList) window.RenderManager.renderNotifCenterList();
+    
+    if (updates.length > 0) await Promise.all(updates);
+},
     sendPasswordResetEmail: async function(email) { return email ? await StoreDB.sendResetEmail(email) : { success: false, msg: 'بريد مفقود.' }; },
 
     injectSilentSensor: async function() {

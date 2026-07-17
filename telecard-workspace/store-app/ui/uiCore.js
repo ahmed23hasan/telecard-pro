@@ -1208,7 +1208,60 @@ markAllNotificationsRead: async function() {
         }, 50);
     },
 
-     showToast: function       sfx: function(type) {
+     showToast: function(msg, type = 'info') {
+        if (type === 'info') {
+            if (msg.includes('فشل') || msg.includes('خطأ') || msg.includes('عذراً') || msg.includes('كاف') || msg.includes('نفد')) type = 'error';
+            else if (msg.includes('مراجعة') || msg.includes('انتظار') || msg.includes('قيد')) type = 'warning'; 
+            else if (msg.includes('إزالة') || msg.includes('حذف') || msg.includes('إلغاء')) type = 'info'; 
+            else if (msg.includes('تم') || msg.includes('نجاح') || msg.includes('شكراً')) type = 'success';
+        }
+
+        let container = document.querySelector('.custom-toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'custom-toast-container';
+            document.body.appendChild(container);
+        } else {
+            const lastToast = container.lastElementChild;
+            if (lastToast) {
+                const lastMsgEl = lastToast.querySelector('.toast-msg');
+                if (lastMsgEl && lastMsgEl.innerText === Utils.escapeHtml(msg)) {
+                    lastToast.style.animation = 'none';
+                    void lastToast.offsetWidth; 
+                    lastToast.style.animation = 'shake-anim 0.3s ease-in-out'; 
+                    return; 
+                }
+            }
+
+            // 🛡️ [إصلاح سبام الواجهة]: القتل الفوري للإشعارات الزائدة بدون انتظار الأنميشن
+            while (container.children.length >= 3) {
+                const oldest = container.firstChild;
+                if (oldest) oldest.remove();
+            }
+        }
+
+        const toast = document.createElement('div');
+        toast.className = `custom-toast toast-${type}`;
+        
+        let iconClass = 'fa-circle-info', titleText = 'معلومة';
+        if (type === 'success') { iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
+        if (type === 'error') { iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
+        if (type === 'warning') { iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } 
+
+        toast.innerHTML = `<i class="fa-solid ${iconClass}"></i><div class="toast-content"><span class="toast-title">${titleText}</span><span class="toast-msg">${Utils.escapeHtml(msg)}</span></div>`;
+        
+        container.appendChild(toast);
+        getSys().sfx?.(type === 'error' ? 'error' : 'success');
+        
+        setTimeout(() => {
+            if(toast.parentElement) {
+                toast.style.animation = 'toastOutTop 0.4s forwards';
+                setTimeout(() => { if(toast.parentElement) toast.remove(); }, 400);
+            }
+        }, 3000);
+    },
+
+    sfx: function(type) {
         if(DataManager.prefs && DataManager.prefs.sound === false) return; 
         
         if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
@@ -1236,9 +1289,7 @@ markAllNotificationsRead: async function() {
                 else { navigator.vibrate(20); }
             }
         } catch(e) {}
-    },
-
-    // =========================================================
+    },    // =========================================================
     // ⚙️ 5. إعدادات المتجر العامة والهوية البصرية (General Setup)
     // =========================================================
     
