@@ -98,14 +98,9 @@ export const FinancialEngine = Object.freeze({
     // 🚀 3. المحرك المالي النظيف للعميل
     // ==========================================
     
-    /**
-     * @param {Object} params كائن يحتوي على (المنتج، المستوى، العرض، الكوبون، وخيار الباقة)
-     * @returns {Object} تفاصيل التسعير النهائية
-     */
     calculatePrice: function(params = {}) {
         const { product = {}, tier = null, offer = null, coupon = null, optIdx = null } = params;
         
-        // 🛡️ [درع المؤسسات - Enterprise Shield]: الفشل الآمن للواجهة في حال تشوه البيانات
         if (!product || typeof product !== 'object' || Object.keys(product).length === 0) {
             console.error("[FinancialEngine] حماية الواجهة: تم تمرير كائن منتج فارغ أو تالف.");
             return { 
@@ -119,7 +114,6 @@ export const FinancialEngine = Object.freeze({
         let isFixed = (String(product.isFixedPrice).toLowerCase() === 'true' || product.is_fixed_price === true);
         let activeOption = null;
 
-        // 🛡️ [تدهور آمن]: التحقق من حدود الخيارات (Bounds Checking)
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null) {
             activeOption = product.options[optIdx];
             if (activeOption && activeOption.isFixedPrice !== undefined) {
@@ -127,7 +121,6 @@ export const FinancialEngine = Object.freeze({
             }
         }
 
-        // جلب السعر حسب حالة المنتج (ثابت أو ديناميكي حسب المستوى)
         if (isFixed) {
             baseSellingPrice = activeOption 
                 ? this.extractNum(activeOption.fixedPriceUsd || activeOption.price) 
@@ -137,7 +130,6 @@ export const FinancialEngine = Object.freeze({
             if (tierPriceField) {
                 baseSellingPrice = this.extractNum(tierPriceField);
             } else {
-                // خط دفاع بديل: إذا تأخرت أسعار المستويات من السيرفر
                 baseSellingPrice = activeOption 
                     ? this.extractNum(activeOption.price || activeOption.basePriceUsd) 
                     : this.extractNum(product.price || product.basePriceUsd);
@@ -150,65 +142,56 @@ export const FinancialEngine = Object.freeze({
 
         let currentPrice = baseSellingPrice;
         const originalPrice = currentPrice;
-// حساب التخفيضات (العروض الترويجية) تُحسب من السعر الأصلي
-let offerName = null;
-let offerDiscount = 0;
-if (offer && offer.type !== 'fake' && offer.isActive !== false) {
-    offerName = offer.name;
-    const val = this.extractNum(offer.value);
-    offerDiscount = offer.type === 'percentage' ?
-        this.safeMul(originalPrice, val / 100) :
-        val;
-}
 
-// 👈 تطبيق خصم العرض أولاً (الآن currentPrice أصبح هو السعر بعد العرض)
-currentPrice = this.safeSub(currentPrice, offerDiscount);
+        let offerName = null;
+        let offerDiscount = 0;
+        if (offer && offer.type !== 'fake' && offer.isActive !== false) {
+            offerName = offer.name;
+            const val = this.extractNum(offer.value);
+            offerDiscount = offer.type === 'percentage' ? this.safeMul(originalPrice, val / 100) : val;
+        }
 
-// حساب خصومات الكوبونات (الآن تُحسب من السعر المتبقي currentPrice بدلاً من الأصلي)
-let couponCode = null;
-let couponDiscount = 0;
-let isFirewallActive = false;
-let isPricingFirewallViolated = false;
+        currentPrice = this.safeSub(currentPrice, offerDiscount);
 
-if (product.disableCoupons === true || isFixed) {
-    isFirewallActive = true;
-} else if (coupon && coupon.isActive !== false) {
-    couponCode = coupon.code;
-    const val = this.extractNum(coupon.value);
-    
-    // 🛡️ التعديل الجوهري: نضرب النسبة المئوية في السعر المتبقي (currentPrice)
-    couponDiscount = coupon.type === 'percentage' ?
-        this.safeMul(currentPrice, val / 100) :
-        val;
-}
+        let couponCode = null;
+        let couponDiscount = 0;
+        let isFirewallActive = false;
+        let isPricingFirewallViolated = false;
 
-// تطبيق خصم الكوبون النهائي
-currentPrice = this.safeSub(currentPrice, couponDiscount);
+        if (product.disableCoupons === true || isFixed) {
+            isFirewallActive = true;
+        } else if (coupon && coupon.isActive !== false) {
+            couponCode = coupon.code;
+            const val = this.extractNum(coupon.value);
+            couponDiscount = coupon.type === 'percentage' ? this.safeMul(currentPrice, val / 100) : val;
+        }
 
-// 🛑 الجدار الناري الأمامي: يمنع السعر السالب فقط
-if (currentPrice < 0) {
-    isPricingFirewallViolated = true;
-    currentPrice = 0;
-}
+        currentPrice = this.safeSub(currentPrice, couponDiscount);
 
-return {
-    originalPrice,
-    finalPrice: currentPrice,
-    tierName: tier ? (tier.nameAr || tier.name || tier.id) : null,
-    offerName,
-    offerDiscount,
-    couponCode,
-    couponDiscount,
-    totalDiscountVal: this.safeSub(originalPrice, currentPrice), // 👈 يحسب إجمالي التوفير للعميل بدقة
-    isFirewallActive,
-    isPricingFirewallViolated
-};
+        if (currentPrice < 0) {
+            isPricingFirewallViolated = true;
+            currentPrice = 0;
+        }
+
+        return {
+            originalPrice,
+            finalPrice: currentPrice,
+            tierName: tier ? (tier.nameAr || tier.name || tier.id) : null,
+            offerName,
+            offerDiscount,
+            couponCode,
+            couponDiscount,
+            totalDiscountVal: this.safeSub(originalPrice, currentPrice),
+            isFirewallActive,
+            isPricingFirewallViolated
+        };
+    }, // 👈👈👈 هذا القوس السحري كان مفقوداً!!!
+
     // ==========================================
     // 🛒 4. حساب إجمالي الطلب للواجهة
     // ==========================================
     
     calculateOrderTotalUi: function(params = {}, rawQty = 1) {
-        // 🛡️ حماية ضد الكسور وتحديد سقف آمن لحماية المتصفح من التجمد
         const safeQty = Math.min(this.CONFIG.MAX_UI_QTY, Math.max(1, Math.floor(this.extractNum(rawQty) || 1)));
         const unitMath = this.calculatePrice(params);
         

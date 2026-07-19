@@ -26,12 +26,21 @@ window.StoreRenderApp = window.StoreRenderApp || {
 
     revealImg: function(img) {
         if (!img) return;
-        // إزالة التعديلات المباشرة واستخدام كلاس جاهز لمنع الـ Layout Thrashing
+        
+        // 1. 🛡️ فك القفل: مسح الـ Inline Style الذي يخفي الصورة
+        img.style.cssText = ''; 
+        
+        // 2. تفعيل كلاس الـ CSS للحركة الناعمة
         img.classList.add('img-loaded-flat'); 
+        
+        // 3. إجبار الظهور برمجياً (حماية مضاعفة)
+        img.style.setProperty('opacity', '1', 'important');
+        img.style.setProperty('visibility', 'visible', 'important');
         
         if (img.parentElement) {
             img.parentElement.classList.add('shimmer-stop');
-            img.parentElement.style.cssText = ''; 
+            img.parentElement.style.backgroundColor = 'transparent';
+            img.parentElement.style.animation = 'none'; // إيقاف الوميض
         }
     },
 
@@ -68,6 +77,7 @@ window.StoreRenderApp = window.StoreRenderApp || {
         
         wrapper.classList.add('shimmer-stop');
         wrapper.style.cssText = '';
+        wrapper.style.backgroundColor = 'transparent';
         
         let iconClass = 'fa-box-open';
         let divClass = 'default-prod-icon';
@@ -77,9 +87,7 @@ window.StoreRenderApp = window.StoreRenderApp || {
         
         wrapper.innerHTML = `<div class="${divClass}"><i class="fa-solid ${iconClass}"></i></div>`;
     }
-};
-
-export const RenderManager = {
+};export const RenderManager = {
     currentRenderId: 0,
     highlightId: null,
     limits: { wallet: 15, orders: 15, payments: 15 },

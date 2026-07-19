@@ -939,88 +939,100 @@ handleBiometricToggle: async function() {
     },
 
     saveIdentityData: async function() {
-        const btn = document.querySelector('[data-action="save-identity"]');
-        if (this._isSavingIdentity || (btn && btn.classList.contains('is-loading'))) return;
+    const btn = document.querySelector('[data-action="save-identity"]');
+    
+    // 1. 🛡️ منع النقرات المزدوجة
+    if (this._isSavingIdentity || (btn && btn.disabled)) return;
+    
+    if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
+        getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
+        getSys().sfx?.('error');
+        getSys().closeModal?.('identity');
+        return;
+    }
+    
+    const countryEl = document.getElementById('selected-country-text');
+    const phoneEl = document.getElementById('reg-phone');
+    const hiddenCurrency = document.getElementById('reg-currency');
+    
+    const country = countryEl ? countryEl.innerText.trim() : '';
+    const phone = phoneEl ? phoneEl.value.trim() : '';
+    const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
+    
+    if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
+        getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
+        getSys().sfx?.('error');
+        return;
+    }
+    
+    if (!/^[\d\s\+\-\(\)]+$/.test(phone)) {
+        getSys().showToast?.('رقم الهاتف غير صالح، يرجى استخدام الأرقام فقط.', 'error');
+        return;
+    }
+    
+    // ========================================================
+    // 🚀 2. تشغيل اللودر الذكي داخل الزر مباشرة وإلغاء اللودر الشامل
+    // ========================================================
+    this._isSavingIdentity = true;
+    let originalBtnHtml = '';
+    
+    if (btn) {
+        originalBtnHtml = btn.innerHTML; // حفظ شكل الزر القديم
+        btn.disabled = true; // تعطيل الزر
+        const btnWidth = btn.offsetWidth; // تثبيت العرض لكي لا ينكمش
+        if (btnWidth > 0) btn.style.width = `${btnWidth}px`;
         
-        if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
-            getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
-            getSys().sfx?.('error');
-            getSys().closeModal?.('identity');
-            return;
-        }
+        // زرع اللودر الأنيق داخل الزر
+        btn.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري الربط...</span>';
+    }
+    
+    try {
+        const result = await StoreDB.callFunction('completeUserIdentity', {
+            country: country,
+            phone: phone,
+            currency: currency
+        });
         
-        const countryEl = document.getElementById('selected-country-text');
-        const phoneEl = document.getElementById('reg-phone');
-        const hiddenCurrency = document.getElementById('reg-currency');
-        
-        const country = countryEl ? countryEl.innerText.trim() : '';
-        const phone = phoneEl ? phoneEl.value.trim() : '';
-        const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
-        
-        if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
-            getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
-            getSys().sfx?.('error');
-            return;
-        }
-        
-        if (!/^[\d\s\+\-\(\)]+$/.test(phone)) {
-            getSys().showToast?.('رقم الهاتف غير صالح، يرجى استخدام الأرقام فقط.', 'error');
-            return;
-        }
-        
-        this._isSavingIdentity = true;
-        if (btn) {
-            btn.classList.add('is-loading');
-            btn.disabled = true;
-        }
-        getSys().toggleLoader?.(true, 'جاري تأمين وربط المحفظة...');
-        
-        try {
-            const result = await StoreDB.callFunction('completeUserIdentity', {
-                country: country,
-                phone: phone,
-                currency: currency
-            });
+        if (result && result.success) {
+            const finalCurr = result.lockedCurrency || currency;
             
-            if (result && result.success) {
-                const finalCurr = result.lockedCurrency || currency;
-                
-                localStorage.setItem('telecard_display_currency', finalCurr);
-                DataManager.selectedCurr = finalCurr;
-                
-                DataManager.user.country = country;
-                DataManager.user.phone = phone;
-                DataManager.user.baseCurrency = finalCurr;
-                DataManager.user.isVerified = true; 
-                
-                if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
-                if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(finalCurr);
-                if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
-                
-                const inputsWrap = document.getElementById('identity-inputs-wrap');
-                const statusWrap = document.getElementById('identity-verified-status');
-                if (inputsWrap) inputsWrap.style.display = 'none';
-                if (statusWrap) statusWrap.classList.remove('hide-element');
-                
-                getSys().sfx?.('success');
-                getSys().showToast?.(result.message || 'تم ربط المحفظة وتأكيد البيانات بنجاح! يمكنك الآن إغلاق النافذة.', 'success');
-            }
-        } catch (error) {
-            console.error("Identity Error:", error);
-            getSys().sfx?.('error');
-            getSys().showToast?.(error.message || 'فشلت العملية، يرجى المحاولة لاحقاً.', 'error');
-            if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
-        } finally {
-            this._isSavingIdentity = false;
-            if (btn) {
-                btn.classList.remove('is-loading');
-                btn.disabled = false;
-            }
-            getSys().toggleLoader?.(false);
+            localStorage.setItem('telecard_display_currency', finalCurr);
+            DataManager.selectedCurr = finalCurr;
+            
+            DataManager.user.country = country;
+            DataManager.user.phone = phone;
+            DataManager.user.baseCurrency = finalCurr;
+            DataManager.user.isVerified = true;
+            
+            if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
+            if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(finalCurr);
+            if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
+            
+            const inputsWrap = document.getElementById('identity-inputs-wrap');
+            const statusWrap = document.getElementById('identity-verified-status');
+            if (inputsWrap) inputsWrap.style.display = 'none';
+            if (statusWrap) statusWrap.classList.remove('hide-element');
+            
+            getSys().sfx?.('success');
+            getSys().showToast?.(result.message || 'تم ربط المحفظة وتأكيد البيانات بنجاح! يمكنك الآن إغلاق النافذة.', 'success');
         }
-    },
-
-    loadDynamicCurrenciesForModal: function() {
+    } catch (error) {
+        console.error("Identity Error:", error);
+        getSys().sfx?.('error');
+        getSys().showToast?.(error.message || 'فشلت العملية، يرجى المحاولة لاحقاً.', 'error');
+        if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
+    } finally {
+        // ========================================================
+        // 🔄 3. إغلاق اللودر واستعادة الزر لحالته الطبيعية
+        // ========================================================
+        this._isSavingIdentity = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.style.width = ''; // إزالة التثبيت
+            btn.innerHTML = originalBtnHtml; // استعادة شكل الزر الأصلي
+        }
+    }
+},    loadDynamicCurrenciesForModal: function() {
         const listTarget = document.getElementById('reg-currency-list-target');
         if (!listTarget) return;
         

@@ -541,46 +541,45 @@ ClientSystem.init = async function() {
         const splashName = document.getElementById('splash-store-name');
         if (splashName) splashName.innerText = sName;
         localStorage.setItem('telecard_splash_name', sName);
-
-        // 🛡️ [تحديث الإقلاع]: جلب آمن للبيانات الثانوية لا يمسح الكاش في حال انقطاع النت
-        if (this.isReady && RenderManager) {
-            const secKeys = ['COUPONS', 'COUNTRIES', 'PAYMENTS', 'BANNERS'];
-            const promises = secKeys.map(k => StoreDB.getAll(DB_KEYS[k]).catch(() => []));
-            
-            Promise.all(promises).then(results => {
-                secKeys.forEach((key, i) => {
-                    if (results[i] && results[i].length > 0) {
-                        LiveStoreData[key.toLowerCase()] = results[i];
-                    }
-                });
-                RenderManager.renderHome?.();
-                UIManager.updateDisplayBalance?.();
-            });
-        }
-    } catch(e) {}
-
-    try {
-        setTimeout(() => DataManager.injectSilentSensor?.(), 3000);
+// 🛡️ [تحديث الإقلاع]: جلب آمن للبيانات الثانوية لا يمسح الكاش في حال انقطاع النت
+if (this.isReady && RenderManager) {
+    const secKeys = ['COUPONS', 'COUNTRIES', 'PAYMENTS', 'BANNERS'];
+    const promises = secKeys.map(k => StoreDB.getAll(DB_KEYS[k]).catch(() => []));
+    
+    Promise.all(promises).then(results => {
+        secKeys.forEach((key, i) => {
+            if (results[i] && results[i].length > 0) {
+                LiveStoreData[key.toLowerCase()] = results[i];
+            }
+        });
+        RenderManager.renderHome?.();
+        UIManager.initSlider?.(); // 🚀 هذا هو السطر الذي يوقظ البنرات فوراً!
         UIManager.updateDisplayBalance?.();
+    });
+}
+} catch (e) {}
+
+try {
+    setTimeout(() => DataManager.injectSilentSensor?.(), 3000);
+    UIManager.updateDisplayBalance?.();
+    
+    requestIdleCallback(() => {
+        if (!this.isReady) return;
+        try { this.initFirebaseListeners(); } catch (e) {}
+        try { CalendarApp?.init(); } catch (e) {}
         
-        requestIdleCallback(() => {
-            if (!this.isReady) return; 
-            try { this.initFirebaseListeners(); } catch(e){}
-            try { CalendarApp?.init(); } catch(e){}
-            
-            ['updateSidebarText', 'initSupportButton', 'applyFontSettings', 'refreshCurrencyMenuFlags', 'renderSettingsUI', 'loadUserImageAutomatically', 'restoreDisplayState', 'setupMainContentClickDetector', 'initSwipeGestures']
-                .forEach(m => { try { UIManager[m]?.(); } catch(e){} });
-            
-            Components.initBottomNavSync?.();
-            UIManager.checkKycCelebration?.();
-        }, { timeout: 2000 });
+        ['updateSidebarText', 'initSupportButton', 'applyFontSettings', 'refreshCurrencyMenuFlags', 'renderSettingsUI', 'loadUserImageAutomatically', 'restoreDisplayState', 'setupMainContentClickDetector', 'initSwipeGestures']
+        .forEach(m => { try { UIManager[m]?.(); } catch (e) {} });
         
-    } catch(e) {}
+        Components.initBottomNavSync?.();
+        UIManager.checkKycCelebration?.();
+    }, { timeout: 2000 });
+    
+} catch (e) {}
 };
 
 window.ClientSystem = ClientSystem;
 window.CalendarApp = CalendarApp;
-
 // 🟢 نقطة الانطلاق
 (function() {
     const startApp = () => { if (window.ClientSystem?.init) window.ClientSystem.init(); };

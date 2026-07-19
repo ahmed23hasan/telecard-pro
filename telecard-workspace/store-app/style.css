@@ -5394,3 +5394,14 @@ body.light-mode .modern-fav-btn { color: var(--primary-dim); }
     margin: 0;
     font-family: 'Cairo', sans-serif;
 }
+/* --- الصور والمؤثرات البصرية (Performance Edition) --- */
+.img-loaded-flat {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: translateZ(0); /* تفعيل تسريع الهاردوير GPU */
+    transition: opacity 0.3s ease-out;
+}
+.shimmer-stop {
+    background-color: transparent !important;
+    animation: none !important;
+}

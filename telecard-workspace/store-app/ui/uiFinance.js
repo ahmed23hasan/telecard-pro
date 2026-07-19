@@ -1126,25 +1126,29 @@ export const UIFinance = {
             // تحويل الحد الأقصى من الدولار إلى عملة الإيداع بناءً على أسعار الصرف الحية
             dynamicGlobalLimit = DataManager._safeConvert(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, rates, 'deposit');
         }
-
-        // تطبيق طبقات الحماية مع ديناميكية العملات
-        if (methodMaxLimit > 0 && amount > methodMaxLimit) {
-            const formattedMethodLimit = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(methodMaxLimit, payCurr) : `${methodMaxLimit} ${payCurr}`;
-            getSys().showToast?.(`عذراً، الحد الأقصى للإيداع عبر هذه الطريقة هو ${formattedMethodLimit}`, 'error');
-            return;
-            
-        } else if (amount > dynamicGlobalLimit || amount > Number.MAX_SAFE_INTEGER) {
-            const formattedGlobalLimit = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(dynamicGlobalLimit, payCurr) : `${dynamicGlobalLimit} ${payCurr}`;
-            getSys().showToast?.(`يتجاوز المبلغ سقف الإيداع الكلي. يرجى إدخال مبلغ لا يتجاوز ${formattedGlobalLimit}`, 'warning');
-            
-            // 💡 UX Trick: مساعدة العميل بكتابة الحد الأقصى تلقائياً (بدون كسور عشرية مزعجة)
-            if (input) {
-                input.value = Math.floor(dynamicGlobalLimit);
-                if (typeof this.calcFee === 'function') this.calcFee(); // إعادة الحساب بناءً على الرقم الجديد
-            }
-            return;
-        }
-        
+// تطبيق طبقات الحماية مع ديناميكية العملات
+if (methodMaxLimit > 0 && amount > methodMaxLimit) {
+    // 🛡️ [إصلاح شكل النص]: استخدام نص عادي لأن نافذة الإشعارات تمنع أكواد HTML (حماية XSS)
+    const symbol = RenderHelpers?.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText(payCurr) : payCurr;
+    const formattedMethodLimit = `${Number(methodMaxLimit).toLocaleString('en-US')} ${symbol}`;
+    
+    getSys().showToast?.(`عذراً، الحد الأقصى للإيداع عبر هذه الطريقة هو ${formattedMethodLimit}`, 'error');
+    return;
+    
+} else if (amount > dynamicGlobalLimit || amount > Number.MAX_SAFE_INTEGER) {
+    // 🛡️ [إصلاح شكل النص]: نص عادي للتوست
+    const symbol = RenderHelpers?.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText(payCurr) : payCurr;
+    const formattedGlobalLimit = `${Number(dynamicGlobalLimit).toLocaleString('en-US')} ${symbol}`;
+    
+    getSys().showToast?.(`يتجاوز المبلغ سقف الإيداع الكلي. يرجى إدخال مبلغ لا يتجاوز ${formattedGlobalLimit}`, 'warning');
+    
+    // 💡 UX Trick: مساعدة العميل بكتابة الحد الأقصى تلقائياً (بدون كسور عشرية مزعجة)
+    if (input) {
+        input.value = Math.floor(dynamicGlobalLimit);
+        if (typeof this.calcFee === 'function') this.calcFee(); // إعادة الحساب بناءً على الرقم الجديد
+    }
+    return;
+}
         // 3. التحقق الاحتياطي من أخطاء الـ UI (مثل الحد الأدنى)
         if (input && input.classList.contains('input-invalid')) {
             getSys().showToast?.('يرجى التأكد من أن المبلغ ضمن الحدود المسموحة لطريقة الدفع', 'error');

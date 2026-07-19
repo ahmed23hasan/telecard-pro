@@ -199,34 +199,34 @@ export const DataManager = {
     },
 
     saveUserLocal: function() {
-        if (!this.user) return;
-        try {
-            // 🛡️ [أمان - القائمة البيضاء]: استخراج وحفظ البيانات الضرورية والآمنة فقط، وتجاهل أي بيانات حساسة
-            const safeUser = {
-                id: String(this.user.uid || this.user.id),
-                uid: String(this.user.uid || this.user.id),
-                displayId: this.user.displayId,
-                name: this.user.name,
-                firstName: this.user.firstName || this.user.first_name,
-                lastName: this.user.lastName || this.user.last_name,
-                fullName: this.user.fullName,
-                username: this.user.username,
-                img: this.user.img,
-                email: this.user.email,
-                phone: this.user.phone,
-                country: this.user.country,
-                walletBalance: Number(this.user.walletBalance ?? this.user.balance ?? 0),
-                baseCurrency: String(this.user.baseCurrency || 'USD').toUpperCase(),
-                tierId: String(this.user.tierId || '1'),
-                tierCycleSpent: Number(this.user.tierCycleSpent || 0),
-                tierCycleStartDate: this.user.tierCycleStartDate,
-                readAlerts: Array.isArray(this.user.readAlerts) ? this.user.readAlerts : []
-            };
-            localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser));
-        } catch (e) { console.error('Storage Quota Error:', e); }
-    },
-
-    updateUserProfile: async function(newData) {
+    if (!this.user) return;
+    try {
+        // 🛡️ [أمان - القائمة البيضاء]: استخراج وحفظ البيانات الضرورية والآمنة فقط، وتجاهل أي بيانات حساسة
+        const safeUser = {
+            id: String(this.user.uid || this.user.id),
+            uid: String(this.user.uid || this.user.id),
+            displayId: this.user.displayId,
+            name: this.user.name,
+            firstName: this.user.firstName || this.user.first_name,
+            lastName: this.user.lastName || this.user.last_name,
+            fullName: this.user.fullName,
+            username: this.user.username,
+            img: this.user.img,
+            email: this.user.email,
+            phone: this.user.phone,
+            country: this.user.country,
+            walletBalance: Number(this.user.walletBalance ?? this.user.balance ?? 0),
+            baseCurrency: String(this.user.baseCurrency || 'USD').toUpperCase(),
+            tierId: String(this.user.tierId || '1'),
+            tierCycleSpent: Number(this.user.tierCycleSpent || 0),
+            tierCycleStartDate: this.user.tierCycleStartDate,
+            readAlerts: Array.isArray(this.user.readAlerts) ? this.user.readAlerts : [],
+            // 🚀 [إصلاح جرس الإشعارات]: حفظ تاريخ تسجيل العميل لتشغيل درع "السفر عبر الزمن" بدقة
+            createdAt: this._parseSafeTime(this.user.createdAt)
+        };
+        localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser));
+    } catch (e) { console.error('Storage Quota Error:', e); }
+}, updateUserProfile: async function(newData) {
         const uid = this.user?.uid || this.user?.id || localStorage.getItem('telecard_active_user_uid');
         if (!uid || typeof newData !== 'object' || Array.isArray(newData)) return false;
         
@@ -622,21 +622,30 @@ export const DataManager = {
     },
 
     _isAlertForUser: function(msg, user, now, readIds = [], excludeRead = false) {
-        const type = msg.targetType || msg.target || 'all';
-        const tId = String(msg.targetId || msg.userId || msg.tierId || '');
-        const isForMe = type === 'all' || (type === 'user' && tId === String(user.uid)) || (type === 'tier' && tId === String(user.tierId));
+    const type = msg.targetType || msg.target || 'all';
+    const tId = String(msg.targetId || msg.userId || msg.tierId || '');
+    const isForMe = type === 'all' || (type === 'user' && tId === String(user.uid)) || (type === 'tier' && tId === String(user.tierId));
+    
+    // 1. استبعاد الإشعارات غير المخصصة له أو المنتهية الصلاحية
+    if (!isForMe || (msg.expiresAt && now > msg.expiresAt)) return false;
+    
+    // 2. استبعاد الإشعارات المقروءة
+    if (excludeRead && (msg.isRead || readIds.includes(String(msg.id)))) return false;
+    
+    // 🚀 3. [درع السفر عبر الزمن - Time Travel Guard]: منع الإشعارات القديمة للعملاء الجدد
+    if (type !== 'user') {
+        const userCreatedTime = this._parseSafeTime(user.createdAt);
+        // جلب وقت الإشعار من أي حقل متاح (createdAt أو time أو timestamp)
+        const alertTime = this._parseSafeTime(msg.createdAt || msg.time || msg.timestamp);
         
-        if (!isForMe || (msg.expiresAt && now > msg.expiresAt)) return false;
-        if (excludeRead && (msg.isRead || readIds.includes(String(msg.id)))) return false;
-        
-        if (type !== 'user') {
-            const userCreatedTime = this._parseSafeTime(user.createdAt); 
-            const alertTime = this._parseSafeTime(msg.createdAt || msg.timestamp); 
-            if (userCreatedTime > 0 && alertTime > 0 && alertTime < userCreatedTime) return false;
+        // إذا كان حساب العميل موجوداً، والإشعار له تاريخ، والإشعار أقدم من الحساب -> احذفه من العرض!
+        if (userCreatedTime > 0 && alertTime > 0 && alertTime < userCreatedTime) {
+            return false;
         }
-        return true;
-    },   
-
+    }
+    
+    return true;
+},
     getUnreadAlerts: function() {
         if (!this.user) return [];
         const allAlerts = [...(LiveStoreData.alerts || []), ...(LiveStoreData.userNotifications || [])];

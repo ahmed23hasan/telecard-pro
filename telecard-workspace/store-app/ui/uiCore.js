@@ -768,7 +768,7 @@ export const UICore = {
         }
     },    
     
-    openOrders: function() { 
+    openOrders: function() {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض طلباتك', 'error');
             getSys().sfx?.('error');
@@ -777,11 +777,14 @@ export const UICore = {
         }
         this.resetUI();
         getSys().setFilterDefaults?.('order');
-        if(RenderManager.renderOrders) RenderManager.renderOrders(); 
+        
+        // 🚀 [إصلاح الوميض]: تمرير (true) لإجبار الرسم الفوري وتخطي تأخير البحث
+        if (RenderManager.renderOrders) RenderManager.renderOrders(true);
+        
         setTimeout(() => { this.openModal('orders'); }, 10);
     },
-
-    openWallet: function() { 
+    
+    openWallet: function() {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض محفظتك', 'error');
             getSys().sfx?.('error');
@@ -789,37 +792,39 @@ export const UICore = {
             return;
         }
         this.resetUI();
-        getSys().setFilterDefaults?.('wallet'); 
+        getSys().setFilterDefaults?.('wallet');
         getSys().updateDisplayBalance?.();
-        if(RenderManager.renderWallet) RenderManager.renderWallet(); 
-
+        
+        // 🚀 [إصلاح الوميض]: تمرير (true) للرسم الفوري قبل فتح النافذة
+        if (RenderManager.renderWallet) RenderManager.renderWallet(true);
+        
         this._syncWalletBlur();
         setTimeout(() => { this.openModal('wallet'); }, 10);
     },
-
+    
     _syncWalletBlur: function() {
         const drawer = document.getElementById('walletStatsDrawer');
         const walletModal = document.getElementById('wallet-modal');
         
         if (!drawer || !walletModal || drawer._hasBlurObserver) return;
-
+        
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((m) => {
                 if (m.attributeName === 'class') {
                     if (!drawer.classList.contains('active')) {
                         walletModal.classList.remove('drawer-blur-active');
-                        const arrowBtn = document.querySelector('.detail-arrow'); 
+                        const arrowBtn = document.querySelector('.detail-arrow');
                         if (arrowBtn) arrowBtn.classList.remove('open');
                     }
                 }
             });
         });
-
+        
         observer.observe(drawer, { attributes: true, attributeFilter: ['class'] });
         drawer._hasBlurObserver = true;
-    },    
+    },
     
-    openMyPayments: function() { 
+    openMyPayments: function() {
         if (!DataManager || !DataManager.user) {
             getSys().showToast?.('يجب تسجيل الدخول لعرض سجل الدفعات', 'error');
             getSys().sfx?.('error');
@@ -828,10 +833,12 @@ export const UICore = {
         }
         this.resetUI();
         getSys().setFilterDefaults?.('payments');
-        if(RenderManager.renderPayments) RenderManager.renderPayments(); 
+        
+        // 🚀 [إصلاح الوميض]: تمرير (true) للرسم الفوري قبل فتح النافذة
+        if (RenderManager.renderPayments) RenderManager.renderPayments(true);
+        
         setTimeout(() => { this.openModal('mypay'); }, 10);
     },
-
     _closeAndResetTabs: function(modalId, filterKey, tabsSelector) {
         this.closeModal(modalId);
         setTimeout(() => {
