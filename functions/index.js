@@ -11,14 +11,6 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require('firebase-admin');
 const functions = require('firebase-functions/v1');
 const FinancialEngine = require('./financialEngine.js');
-const { setGlobalOptions } = require("firebase-functions/v2");
-
-// 🚀 وضع اقتصادي آمن يمر من حظر جوجل ويحمي فاتورتك - تم الترقية لـ 512MB و 10 Instances
-setGlobalOptions({
-    region: 'us-east1',
-    memory: '512MiB', 
-    maxInstances: 10
-});
 
 if (!admin.apps.length) {
     admin.initializeApp();
