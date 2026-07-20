@@ -284,6 +284,6 @@ exports.externalCreateOrder = onRequest({
         if (error.message.includes('Firewall')) return res.status(400).json({ success: false, error: 'Order rejected by security policy.' });
         if (error.message.includes('Idempotency Conflict')) return res.status(409).json({ success: false, error: error.message });
         
-        return res.status(500).json({ success: false, error: 'Internal Server Error' });
+        return res.status(500).json({ success: false, error: 'Internal Server Errorr' });
     }
 });
