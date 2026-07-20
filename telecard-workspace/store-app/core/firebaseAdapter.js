@@ -41,7 +41,7 @@ const db = initializeFirestore(app, {
 
 const auth = getAuth(app);
 const storage = getStorage(app);
-const functions = getFunctions(app, 'us-east1');
+const functions = getFunctions(app, 'us-central1');
 
 export { auth, db, storage, functions, appCheck };
 
