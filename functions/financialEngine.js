@@ -1,7 +1,7 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - النسخة المطلقة V12.4 🛡️
+// 💰 المحرك المالي المركزي (Cloud Version - Node.js) - النسخة المطلقة V12.5 🛡️
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، التطابق مع الواجهة (Sequential Discount)
-// 🚀 التحديث الأخير: تطبيق الخصم المتسلسل، وتجميد الذاكرة لمنع العبث
+// 🚀 التحديث الأخير: إصلاح ثغرة (Integer Overflow) وحماية الأسعار الثابتة الشاملة
 // ============================================================================
 
 const FinancialEngineDef = {
@@ -20,11 +20,13 @@ const FinancialEngineDef = {
     safeSub: function(a, b) {
         return Math.round((Number(a) || 0) * this.CONFIG.PRECISION - (Number(b) || 0) * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
+    
+    // 🛡️ [إصلاح ماسي]: منع تضخم الذاكرة الرقمية (Integer Overflow Limit Exceeded)
     safeMul: function(a, b) {
-        const valA = Math.round((Number(a) || 0) * this.CONFIG.PRECISION);
-        const valB = Math.round((Number(b) || 0) * this.CONFIG.PRECISION);
-        return Math.round((valA * valB) / this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
+        const rawResult = (Number(a) || 0) * (Number(b) || 0);
+        return Math.round(rawResult * this.CONFIG.PRECISION) / this.CONFIG.PRECISION;
     },
+    
     safeDiv: function(a, b) {
         const numA = Number(a) || 0;
         let numB = Number(b);
@@ -127,12 +129,15 @@ const FinancialEngineDef = {
         let currentPrice = originalPrice;
         
         // ========================================================
-        // 🚀 [التحديث الماسي]: تطبيق الخصم المتسلسل (مطابق للواجهة)
+        // 🚀 [التحديث الماسي]: تطبيق الخصم المتسلسل وحماية السعر الثابت
         // ========================================================
+
+        // 🛡️ إذا كان السعر ثابتاً، يتم تعطيل العروض والكوبونات لحماية رأس المال
+        const allowsDiscounts = !isFixed; 
 
         // 1. حساب خصم العرض الترويجي (من السعر الأصلي)
         let offerName = null, offerDiscount = 0;
-        if (offer && offer.type !== 'fake' && offer.isActive !== false) {
+        if (allowsDiscounts && offer && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name || null; 
             const offerVal = this.extractNum(offer.value);
             offerDiscount = offer.type === 'percentage' ? this.safeMul(originalPrice, offerVal / 100) : offerVal;
@@ -143,11 +148,12 @@ const FinancialEngineDef = {
 
         // 2. حساب خصم الكوبون (من السعر المتبقي currentPrice)
         let couponCode = null, couponDiscount = 0;
-        const canUseCoupon = !isFixed && product.disableCoupons !== true;
+        const canUseCoupon = allowsDiscounts && product.disableCoupons !== true;
+        
         if (canUseCoupon && coupon && coupon.isActive !== false) {
             couponCode = coupon.code || null; 
             const coupVal = this.extractNum(coupon.value);
-            // 👈 التعديل الحرج هنا: تطبيق النسبة المئوية على السعر بعد عرض التخفيض
+            // 👈 تطبيق النسبة المئوية على السعر بعد عرض التخفيض (Sequential)
             couponDiscount = coupon.type === 'percentage' ? this.safeMul(currentPrice, coupVal / 100) : coupVal;
         }
 
@@ -163,10 +169,10 @@ const FinancialEngineDef = {
         }
 
         // 🛑 الجدار الناري 2: حماية رأس المال (السيرفر فقط يعلم هذا الرقم)
-        // يمنع بيع المنتج بأقل من تكلفته حتى لو أخطأ الإدمن في وضع نسبة الخصم
+        // يمنع بيع المنتج بأقل من تكلفته حتى لو أخطأ الأدمن في وضع نسبة الخصم
         if (cost > 0 && currentPrice < cost) {
             isFirewallViolated = true;
-            currentPrice = cost; // إجبار السعر ليكون مساوياً للتكلفة (لا ربح ولا خسارة)
+            currentPrice = cost; 
         }
 
         const profit = Math.max(0, this.safeSub(currentPrice, cost));

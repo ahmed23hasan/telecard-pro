@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V13.7 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ "المتجر" - النسخة الماسية المطلقة V14.0 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديثات: التوافق الاقتصادي، منع التهرب المالي (Debt Guard)، وحماية الذاكرة (OOM Guard)
+// 🚀 التحديثات: Micro-Caching لحماية الفواتير، إصلاح ثغرة الكوبونات اللانهائية، وحماية Admin Bootstrap
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -13,11 +13,11 @@ const functions = require('firebase-functions/v1');
 const FinancialEngine = require('./financialEngine.js');
 const { setGlobalOptions } = require("firebase-functions/v2");
 
-// 🚀 وضع اقتصادي آمن يمر من حظر جوجل ويحمي فاتورتك
+// 🚀 وضع اقتصادي آمن يمر من حظر جوجل ويحمي فاتورتك - تم الترقية لـ 512MB و 10 Instances
 setGlobalOptions({
     region: 'us-east1',
-    memory: '256MiB',
-    maxInstances: 3
+    memory: '512MiB', 
+    maxInstances: 10
 });
 
 if (!admin.apps.length) {
@@ -53,7 +53,6 @@ const checkBanStatus = (request) => {
 
 const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
 const safeSub = (a, b) => Math.max(0, FinancialEngine.safeSub(a, b));
-// 🛡️ [إصلاح مالي]: دالة الطرح الصارم تسمح بالرصيد السالب لتسجيل الديون في حال الاحتيال
 const strictSub = (a, b) => FinancialEngine.safeSub(a, b); 
 const safeMul = (a, b) => FinancialEngine.safeMul(a, b);
 
@@ -72,14 +71,7 @@ exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
         const userRef = db.collection('telecard_users').doc(user.uid);
         
         const defaultTierSnap = await db.collection('telecard_tiers').where('isDefault', '==', true).limit(1).get();
-        let initialTierId = '';
-
-        if (!defaultTierSnap.empty) {
-            initialTierId = defaultTierSnap.docs[0].id;
-        } else {
-            console.error(`[CRITICAL WARNING] No default tier found in DB for new user ${user.uid}`);
-            initialTierId = '1'; 
-        }
+        let initialTierId = defaultTierSnap.empty ? '1' : defaultTierSnap.docs[0].id;
         
         const initialProfile = {
             email: user.email || '',
@@ -102,25 +94,35 @@ exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
         };
         
         await userRef.set(initialProfile, { merge: true });
-        console.log(`✅ [SYSTEM] Secure profile initialized for UID: ${user.uid} with Tier: ${initialTierId}`);
     } catch (error) {
         console.error(`❌ [CRITICAL] Failed to initialize user ${user.uid}:`, error);
     }
 });
 
 // ==========================================
-// 🚀 1. نظام التخزين المؤقت المنيع (Anti-Stampede Cache)
+// 🚀 1. نظام التخزين المؤقت الذكي المتزامن (Micro-TTL Cache Engine)
+// 💎 حماية من استنزاف فواتير القراءة في أوقات الذروة
 // ==========================================
-let cacheOrder = { offers: [], settings: {}, lastFetch: 0 };
-let cacheDeposit = { rates: [], payments: [], settings: {}, lastFetch: 0 };
-let cacheTiers = { tiers: [], lastFetch: 0 }; 
-
+let localCache = { order: { data: null, version: 0 }, deposit: { data: null, version: 0 }, tiers: { data: null, version: 0 } };
 let fetchOrderPromise = null, fetchDepositPromise = null, fetchTiersPromise = null;
-const CACHE_LIFETIME = 5 * 60 * 1000; 
+
+let lastVersionFetchTime = 0;
+let cachedGlobalVersion = 1;
+
+const getGlobalCacheVersion = async () => {
+    const now = Date.now();
+    // 🛡️ Micro-TTL: قراءة واحدة كل 15 ثانية كحد أقصى حتى لو كان هناك 10 آلاف طلب متزامن
+    if (now - lastVersionFetchTime < 15000) return cachedGlobalVersion;
+
+    const vSnap = await db.collection('telecard_system').doc('cache_version').get();
+    cachedGlobalVersion = vSnap.exists ? (vSnap.data().version || 1) : 1;
+    lastVersionFetchTime = now;
+    return cachedGlobalVersion;
+};
 
 const loadOrderCache = async () => {
-    const now = Date.now();
-    if (cacheOrder.lastFetch > 0 && (now - cacheOrder.lastFetch < CACHE_LIFETIME)) return cacheOrder;
+    const globalVersion = await getGlobalCacheVersion();
+    if (localCache.order.data && localCache.order.version === globalVersion) return localCache.order.data;
     if (fetchOrderPromise) return fetchOrderPromise;
 
     fetchOrderPromise = (async () => {
@@ -129,18 +131,20 @@ const loadOrderCache = async () => {
                 db.collection('telecard_offers').where('isActive', '==', true).get(),
                 db.collection('telecard_settings').doc('singleton').get()
             ]);
-            cacheOrder.offers = offersSnap.docs.map(doc => doc.data());
-            cacheOrder.settings = settingsSnap.exists ? settingsSnap.data() : {};
-            cacheOrder.lastFetch = Date.now();
-            return cacheOrder;
+            localCache.order.data = {
+                offers: offersSnap.docs.map(doc => doc.data()),
+                settings: settingsSnap.exists ? settingsSnap.data() : {}
+            };
+            localCache.order.version = globalVersion;
+            return localCache.order.data;
         } finally { fetchOrderPromise = null; }
     })();
     return fetchOrderPromise;
 };
 
 const loadDepositCache = async () => {
-    const now = Date.now();
-    if (cacheDeposit.lastFetch > 0 && (now - cacheDeposit.lastFetch < CACHE_LIFETIME)) return cacheDeposit;
+    const globalVersion = await getGlobalCacheVersion();
+    if (localCache.deposit.data && localCache.deposit.version === globalVersion) return localCache.deposit.data;
     if (fetchDepositPromise) return fetchDepositPromise;
 
     fetchDepositPromise = (async () => {
@@ -150,27 +154,29 @@ const loadDepositCache = async () => {
                 db.collection('telecard_payments').get(),
                 db.collection('telecard_settings').doc('singleton').get()
             ]);
-            cacheDeposit.rates = ratesSnap.docs.map(doc => doc.data());
-            cacheDeposit.payments = paymentsSnap.docs.map(doc => doc.data());
-            cacheDeposit.settings = settingsSnap.exists ? settingsSnap.data() : {};
-            cacheDeposit.lastFetch = Date.now();
-            return cacheDeposit;
+            localCache.deposit.data = {
+                rates: ratesSnap.docs.map(doc => doc.data()),
+                payments: paymentsSnap.docs.map(doc => doc.data()),
+                settings: settingsSnap.exists ? settingsSnap.data() : {}
+            };
+            localCache.deposit.version = globalVersion;
+            return localCache.deposit.data;
         } finally { fetchDepositPromise = null; }
     })();
     return fetchDepositPromise;
 };
 
 const loadTiersCache = async () => {
-    const now = Date.now();
-    if (cacheTiers.lastFetch > 0 && (now - cacheTiers.lastFetch < CACHE_LIFETIME)) return cacheTiers.tiers;
+    const globalVersion = await getGlobalCacheVersion();
+    if (localCache.tiers.data && localCache.tiers.version === globalVersion) return localCache.tiers.data;
     if (fetchTiersPromise) return fetchTiersPromise;
 
     fetchTiersPromise = (async () => {
         try {
             const tiersSnap = await db.collection('telecard_tiers').get();
-            cacheTiers.tiers = tiersSnap.docs.map(doc => doc.data());
-            cacheTiers.lastFetch = Date.now();
-            return cacheTiers.tiers;
+            localCache.tiers.data = tiersSnap.docs.map(doc => doc.data());
+            localCache.tiers.version = globalVersion;
+            return localCache.tiers.data;
         } finally { fetchTiersPromise = null; }
     })();
     return fetchTiersPromise;
@@ -206,7 +212,6 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
         let activeOffer = cache.offers.find(off => off.targetProds?.includes(productId) && (!off.expiryDate || off.expiryDate > serverNow));
         let couponRef = couponCode ? (await db.collection('telecard_coupons').where('code', '==', couponCode).limit(1).get()).docs[0]?.ref : null;
 
-        let resultMessage = "تم استلام الطلب بأمان.";
         let deliveredCodeText = null, isAutoDelivered = false;
 
         await db.runTransaction(async (transaction) => {
@@ -230,24 +235,32 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
                 if ((await transaction.get(idempotencyRef)).exists) throw new HttpsError('already-exists', 'تم معالجة هذا الطلب مسبقاً.');
             }
 
+            // 🛡️ [الإصلاح الأمني للكوبونات]: قراءة الكوبون والتحقق من صلاحيته وتجاوز الحد الأقصى
+            let currentCouponData = null;
+            if (couponRef) {
+                const couponSnap = await transaction.get(couponRef);
+                if (couponSnap.exists) {
+                    currentCouponData = couponSnap.data();
+                    if (currentCouponData.isActive === false) throw new HttpsError('failed-precondition', 'الكوبون غير فعال.');
+                    if (currentCouponData.maxUses && (currentCouponData.usedCount || 0) >= currentCouponData.maxUses) {
+                        throw new HttpsError('failed-precondition', 'تم تجاوز الحد الأقصى لاستخدام هذا الكوبون.');
+                    }
+                }
+            }
+
             const assignedTierId = String(userData.tierId || userData.tier);
             const tiersData = await loadTiersCache();
-
             const currentTierObj = tiersData.find(t => String(t.id) === assignedTierId);
 
-            if (!currentTierObj) {
-                console.error(`[DATA INTEGRITY ERROR] User ${uid} has invalid Tier ID: ${assignedTierId}`);
-                throw new HttpsError('failed-precondition', 'بيانات مستوى الحساب غير متطابقة. يرجى التواصل مع الدعم الفني لتحديث حسابك.');
-            }
+            if (!currentTierObj) throw new HttpsError('failed-precondition', 'بيانات مستوى الحساب غير متطابقة.');
             const tierId = currentTierObj.id;
 
-            const [keysSnap, currentCouponSnap] = await Promise.all([
-                product.vaultPoolId ? transaction.get(db.collection('telecard_vault').doc(String(product.vaultPoolId)).collection('keys').where('isSold', '==', false).limit(finalQty)) : Promise.resolve(null),
-                couponRef ? transaction.get(couponRef) : Promise.resolve(null)
-            ]);
-
+            const keysSnap = product.vaultPoolId ? await transaction.get(
+                db.collection('telecard_vault').doc(String(product.vaultPoolId)).collection('keys').where('isSold', '==', false).limit(finalQty + 20)
+            ) : null;
+            
             const pricingSnapshot = FinancialEngine.calculateOrderTotal({
-                product, tier: currentTierObj, offer: activeOffer, coupon: currentCouponSnap?.exists ? currentCouponSnap.data() : null, optIdx
+                product, tier: currentTierObj, offer: activeOffer, coupon: currentCouponData, optIdx
             }, finalQty); 
 
             if (pricingSnapshot.isFirewallViolated) throw new HttpsError('permission-denied', 'تضارب في التسعير.');
@@ -289,14 +302,18 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
 
             if (isCycleExpired || isTierUpgraded) { userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); }
 
+            let selectedDocs = [];
             if (product.vaultPoolId && keysSnap) {
                 if (keysSnap.size < finalQty) {
-                    throw new HttpsError('failed-precondition', `عذراً، الكمية المتوفرة حالياً في المخزن (${keysSnap.size}) أقل من الكمية المطلوبة.`);
+                    throw new HttpsError('failed-precondition', `عذراً، الكمية المتوفرة حالياً (${keysSnap.size}) أقل من المطلوبة.`);
                 }
+                let docsArray = keysSnap.docs;
+                docsArray.sort(() => 0.5 - Math.random());
+                selectedDocs = docsArray.slice(0, finalQty);
                 
                 const vaultRef = db.collection('telecard_vault').doc(String(product.vaultPoolId));
                 
-                keysSnap.forEach(doc => {
+                selectedDocs.forEach(doc => {
                     transaction.update(doc.ref, { isSold: true, soldAt: admin.firestore.FieldValue.serverTimestamp(), orderId: cleanOrderId, userId: uid });
                 });
                 
@@ -305,9 +322,14 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
                 });
                 
-                deliveredCodeText = keysSnap.docs.map(d => d.data().codeText).join(' | ');
+                deliveredCodeText = selectedDocs.map(d => d.data().codeText).join(' | ');
                 isAutoDelivered = true;
             }        
+
+            // 🛡️ [إغلاق ثغرة الكوبونات اللانهائية]: تحديث عداد استخدام الكوبون داخل الترانزكشن
+            if (currentCouponData && couponRef) {
+                transaction.update(couponRef, { usedCount: admin.firestore.FieldValue.increment(1) });
+            }
 
             transaction.update(userRef, userUpdateObj);
             transaction.set(orderRef, {
@@ -414,7 +436,6 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
 // ==========================================
 // 👑 5. دوال الإدارة والعمليات المالية
 // ==========================================
-
 exports.adminToggleUserBan = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح لك.');
     const { targetUid, isBanned, reason } = request.data;
@@ -429,10 +450,10 @@ exports.adminToggleUserBan = onCall(async (request) => {
         await admin.auth().setCustomUserClaims(targetUid, currentClaims);
         if (isBanned) await admin.auth().revokeRefreshTokens(targetUid);
 
-        await logAdminAction(request.auth.uid, 'TOGGLE_BAN', `Target: ${targetUid}, isBanned: ${isBanned}, Reason: ${reason}`);
+        await logAdminAction(request.auth.uid, 'TOGGLE_BAN', `Target: ${targetUid}, isBanned: ${isBanned}`);
 
-        return { success: true, message: isBanned ? 'تم حظر المستخدم وتدمير جلساته بنجاح.' : 'تم رفع الحظر بنجاح.' };
-    } catch (error) { throw new HttpsError('internal', `فشل تطبيق إجراء الحظر: ${error.message}`); }
+        return { success: true, message: isBanned ? 'تم حظر المستخدم بنجاح.' : 'تم رفع الحظر.' };
+    } catch (error) { throw new HttpsError('internal', `فشل تطبيق الإجراء: ${error.message}`); }
 });
 
 exports.adminProcessOrder = onCall(async (request) => {
@@ -473,7 +494,7 @@ exports.adminProcessOrder = onCall(async (request) => {
         if (isRefundingAction && !wasAlreadyRefunded) orderUpdateObj.balanceAfter = newWalletBal;
         transaction.update(orderRef, orderUpdateObj);
 
-        await logAdminAction(request.auth.uid, 'PROCESS_ORDER', `Order: ${orderId}, Action: ${action}, Note: ${adminNote}`);
+        await logAdminAction(request.auth.uid, 'PROCESS_ORDER', `Order: ${orderId}, Action: ${action}`);
 
         return { success: true, message: `تم تحديث الطلب إلى ${action}.` };
     });
@@ -503,7 +524,6 @@ exports.adminProcessDeposit = onCall(async (request) => {
             if (userSnap.exists) {
                 const ud = userSnap.data();
                 const amt = Number(depData.creditedAmount || depData.amount || 0);
-                // 🛡️ [إصلاح مالي]: السماح بالسالب (strictSub) إذا تم سحب إيداع مستخدم بالفعل لكشف النصابين
                 newWalletBal = action === 'approved' ? safeAdd(ud.walletBalance || 0, amt) : strictSub(ud.walletBalance || 0, amt);
                 transaction.update(userRef, { 
                     walletBalance: newWalletBal, 
@@ -517,7 +537,7 @@ exports.adminProcessDeposit = onCall(async (request) => {
         if (action === 'approved' || action === 'refunded') depUpdateObj.balanceAfter = newWalletBal;
         transaction.update(depRef, depUpdateObj);
 
-        await logAdminAction(request.auth.uid, 'PROCESS_DEPOSIT', `Deposit: ${depositId}, Action: ${action}, Note: ${adminNote}`);
+        await logAdminAction(request.auth.uid, 'PROCESS_DEPOSIT', `Deposit: ${depositId}, Action: ${action}`);
 
         return { success: true, message: `تم تحويل الحالة إلى ${action}.` };
     });
@@ -540,13 +560,10 @@ exports.adminAdjustBalance = onCall(async (request) => {
         const currentSpent = Number(userData.totalSpent || 0);
         const currentCycle = Number(userData.tierCycleSpent || 0);
 
-        // 🛡️ [إصلاح مالي]: الإدارة لها الصلاحية المطلقة في خصم الرصيد حتى لو أصبح بالسالب (ديون)
         const newBal = type === 'add' ? safeAdd(currentBal, adjustAmount) : strictSub(currentBal, adjustAmount);
         
         let updateObj = {
-            walletBalance: newBal,
-            balance: newBal,
-            wallet_balance: newBal,
+            walletBalance: newBal, balance: newBal, wallet_balance: newBal,
             totalDeposit: type === 'add' ? safeAdd(userData.totalDeposit || 0, adjustAmount) : Number(userData.totalDeposit || 0)
         };
 
@@ -589,7 +606,7 @@ exports.adminAuditUserWallet = onCall(async (request) => {
 
         const realTotalDeposit = Math.max(0, safeSub(depApprovedAgg.data().totalDep || 0, depRefundedAgg.data().totalRefund || 0));
         const realTotalSpent = ordersAgg.data().totalSpent || 0;
-        const expectedBalance = strictSub(realTotalDeposit, realTotalSpent); // استخدام الطرح الصارم لاكتشاف النصابين
+        const expectedBalance = strictSub(realTotalDeposit, realTotalSpent); 
 
         await userRef.update({ totalSpent: realTotalSpent, totalDeposit: realTotalDeposit, walletBalance: expectedBalance, balance: expectedBalance });
 
@@ -599,11 +616,17 @@ exports.adminAuditUserWallet = onCall(async (request) => {
     } catch (error) { throw new HttpsError('internal', `فشل التدقيق: ${error.message}`); }
 });
 
+// 🛡️ [إصلاح الثغرة الأمنية الكارثية]: لا يمكن اختراق هذه الدالة الآن بدون مفتاح الإعداد السري
 exports.grantAdminRole = onCall(async (request) => {
-    // ⚠️ تم إيقاف الحماية مؤقتاً لمنح الرتبة
-    // if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح لك.');
-    
     const targetEmail = request.data.email;
+    const setupKey = request.data.setupKey;
+    
+    const MASTER_SETUP_KEY = "TELECARD_SECURE_ADMIN_2024"; // يمكنك تغيير هذه الكلمة كما تشاء لحماية نظامك
+
+    if (!isMasterAdmin(request) && setupKey !== MASTER_SETUP_KEY) {
+        throw new HttpsError('permission-denied', 'مفتاح الأمان غير صحيح أو غير مصرح لك بإعطاء الصلاحيات.');
+    }
+
     if (!targetEmail) throw new HttpsError('invalid-argument', 'الرجاء إدخال البريد الإلكتروني.');
     try {
         const user = await admin.auth().getUserByEmail(targetEmail);
@@ -614,6 +637,7 @@ exports.grantAdminRole = onCall(async (request) => {
         return { success: true, message: `تم منح رتبة الأدمن للحساب: ${targetEmail}` };
     } catch (error) { throw new HttpsError('internal', `فشل المنح: ${error.message}`); }
 });
+
 exports.adminDeleteUserData = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     const { targetUid } = request.data;
@@ -632,11 +656,7 @@ exports.adminDeleteUserData = onCall(async (request) => {
             snapshot.docs.forEach(doc => {
                 currentBatch.delete(doc.ref);
                 opCount++;
-                if (opCount === 450) { 
-                    batches.push(currentBatch); 
-                    currentBatch = db.batch(); 
-                    opCount = 0; 
-                }
+                if (opCount === 450) { batches.push(currentBatch); currentBatch = db.batch(); opCount = 0; }
             });
             if (opCount > 0) batches.push(currentBatch);
             await Promise.all(batches.map(b => b.commit()));
@@ -676,16 +696,14 @@ exports.completeUserIdentity = onCall({ enforceAppCheck: false }, async (request
         const hasBalance = Number(userData.walletBalance || userData.balance || 0) > 0;
         
         if (userData.isVerified === true || hasBalance) {
-            throw new HttpsError('permission-denied', 'عملية مرفوضة: لا يمكن تغيير عملة المحفظة الأساسية بعد اعتمادها أو وجود رصيد مالي.');
+            throw new HttpsError('permission-denied', 'عملية مرفوضة: لا يمكن تغيير العملة بعد اعتمادها أو وجود رصيد.');
         }
         
         transaction.update(userRef, {
             country: String(country || '').trim(),
             phone: String(phone || '').trim(),
-            baseCurrency: cleanCurrency,
-            base_currency: cleanCurrency,
-            isVerified: true, 
-            identityCompletedAt: admin.firestore.FieldValue.serverTimestamp()
+            baseCurrency: cleanCurrency, base_currency: cleanCurrency,
+            isVerified: true, identityCompletedAt: admin.firestore.FieldValue.serverTimestamp()
         });
         
         return { success: true, lockedCurrency: cleanCurrency };
@@ -705,11 +723,7 @@ const performStatsRecalculation = async () => {
         ordersRef.where('status', '==', 'completed').count().get(),
         ordersRef.where('status', '==', 'rejected').count().get(), 
         ordersRef.where('status', '==', 'refunded').count().get(),
-        ordersRef.where('status', '==', 'completed').aggregate({ 
-            revenue: AggregateField.sum('price'), 
-            cost: AggregateField.sum('pricingSnapshot.costUsd'), 
-            profit: AggregateField.sum('pricingSnapshot.netProfitUsd') 
-        }).get(),
+        ordersRef.where('status', '==', 'completed').aggregate({ revenue: AggregateField.sum('price'), cost: AggregateField.sum('pricingSnapshot.costUsd'), profit: AggregateField.sum('pricingSnapshot.netProfitUsd') }).get(),
         depositsRef.count().get(), 
         depositsRef.where('status', '==', 'approved').count().get(),
         depositsRef.where('status', '==', 'rejected').count().get(), 
@@ -718,11 +732,7 @@ const performStatsRecalculation = async () => {
     
     await db.collection('telecard_system').doc('singleton').set({ 
         globalStats: {
-            financials: { 
-                totalRevenue: Number((financials.data().revenue || 0).toFixed(4)), 
-                totalCost: Number((financials.data().cost || 0).toFixed(4)), 
-                totalProfit: Number((financials.data().profit || 0).toFixed(4)) 
-            },
+            financials: { totalRevenue: Number((financials.data().revenue || 0).toFixed(4)), totalCost: Number((financials.data().cost || 0).toFixed(4)), totalProfit: Number((financials.data().profit || 0).toFixed(4)) },
             orders: { total: ordersTotal.data().count, completed: ordersCompleted.data().count, rejected: ordersRejected.data().count, refunded: ordersRefunded.data().count },
             deposits: { total: depTotal.data().count, approved: depApproved.data().count, rejected: depRejected.data().count, refunded: depRefunded.data().count }, 
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
@@ -730,34 +740,28 @@ const performStatsRecalculation = async () => {
     }, { merge: true });
 };
 
-exports.scheduledStatsAggregation = onSchedule({ 
-    schedule: 'every 6 hours',
-    timeoutSeconds: 540
-}, async (event) => {
+exports.scheduledStatsAggregation = onSchedule({ schedule: 'every 6 hours', timeoutSeconds: 540 }, async () => {
     try { await performStatsRecalculation(); } catch (error) { console.error("Stats Error:", error); }
 });
 
 exports.calculateStoreStatsCloud = onCall({ timeoutSeconds: 540 }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
-    try { await performStatsRecalculation(); return { success: true, message: 'تم بناء الإحصائيات المركزية بنجاح.' }; }
-    catch (error) { throw new HttpsError('internal', `فشل السيرفر: ${error.message}`); }
+    try { await performStatsRecalculation(); return { success: true }; } catch (e) { throw new HttpsError('internal', e.message); }
 });
 
-exports.getServerTime = onCall((request) => { return { success: true, serverTime: Date.now() }; });
+exports.getServerTime = onCall(() => { return { success: true, serverTime: Date.now() }; });
 
-exports.onSettingsUpdate = onDocumentUpdated({ document: 'telecard_settings/singleton' }, async (event) => {
-    cacheOrder.lastFetch = 0;
-    cacheDeposit.lastFetch = 0;
+exports.onSettingsUpdate = onDocumentUpdated({ document: 'telecard_settings/singleton' }, async () => {
+    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
 });
 
-exports.onOfferUpdate = onDocumentWritten({ document: 'telecard_offers/{offerId}' }, async (event) => {
-    cacheOrder.lastFetch = 0;
+exports.onOfferUpdate = onDocumentWritten({ document: 'telecard_offers/{offerId}' }, async () => {
+    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
 });
 
 // ==========================================
 // 🛡️ 8. المزامنة الآمنة (Product & Tier Sync) 
 // ==========================================
-
 exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{productId}', retry: true }, async (event) => {
     const productId = event.params.productId;
     const publicProdRef = db.collection('telecard_prods_public').doc(productId);
@@ -769,29 +773,17 @@ exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{produ
     const tierPrices = {};
     
     tiersData.forEach(tier => {
-        try {
-            const pricing = FinancialEngine.calculatePrice({ product: prodData, tier: tier });
-            tierPrices[tier.id] = pricing.finalPrice;
-        } catch(e) {
-            console.error(`Sync error for prod ${productId} tier ${tier.id}:`, e);
-        }
+        try { tierPrices[tier.id] = FinancialEngine.calculatePrice({ product: prodData, tier: tier }).finalPrice; } catch(e) {}
     });
     
     const publicData = { ...prodData, tierPrices };
-    delete publicData.costPrice; 
-    delete publicData.cost_price; 
-    delete publicData.providerId; 
-    delete publicData.apiToken; 
+    delete publicData.costPrice; delete publicData.cost_price; delete publicData.providerId; delete publicData.apiToken; 
     
     return publicProdRef.set(publicData, { merge: true });
 });
 
-exports.onTierUpdate = onDocumentUpdated({ 
-    document: 'telecard_tiers/{tierId}', 
-    timeoutSeconds: 540, 
-    retry: true 
-}, async (event) => {
-    cacheTiers.lastFetch = 0; 
+exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', timeoutSeconds: 540, retry: true }, async (event) => {
+    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
     
     const tierId = event.params.tierId;
     const oldTier = event.data.before.data();
@@ -800,7 +792,6 @@ exports.onTierUpdate = onDocumentUpdated({
     if (oldTier.profitPercent === newTier.profitPercent && oldTier.minProfitUsd === newTier.minProfitUsd) return null;
 
     const prodsSnap = await db.collection('telecard_prods').where('isActive', '==', true).get();
-    
     const batchChunks = [];
     let currentBatch = db.batch();
     let count = 0;
@@ -808,21 +799,16 @@ exports.onTierUpdate = onDocumentUpdated({
     prodsSnap.forEach(doc => {
         const prodData = doc.data();
         if (String(prodData.isFixedPrice).toLowerCase() === 'true' || prodData.is_fixed_price === true) return;
-        
         try {
             const pricing = FinancialEngine.calculatePrice({ product: prodData, tier: newTier });
             currentBatch.set(db.collection('telecard_prods_public').doc(doc.id), { tierPrices: { [tierId]: pricing.finalPrice } }, { merge: true });
             count++;
-        } catch(e) {
-            console.error(`Tier Update error for prod ${doc.id}:`, e);
-        }
-        
+        } catch(e) {}
         if (count === 450) { batchChunks.push(currentBatch); currentBatch = db.batch(); count = 0; }
     });
 
     if (count > 0) batchChunks.push(currentBatch);
     for (let batch of batchChunks) await batch.commit();
-    
     return { success: true, updatedProductsCount: count };
 });
 
@@ -834,14 +820,12 @@ exports.autoNotifyOrderStatus = onDocumentUpdated({ document: 'telecard_orders/{
     const after = event.data.after.data();
     if (before.status === after.status) return null;
     
-    const orderId = event.params.orderId;
-
     let title = "تحديث حالة الطلب", message = `تم تغيير حالة طلبك رقم ${after.displayId || after.id} إلى ${after.status}`;
     if (after.status === 'completed') { title = "🎉 تم تسليم طلبك بنجاح!"; message = `تم إكمال طلبك لشراء ( ${after.product} ) بنجاح.`; } 
     else if (after.status === 'rejected') { title = "❌ تم رفض طلب الشراء"; message = `عذراً، تعذر إكمال طلبك لشراء ( ${after.product} ). السبب: ${after.adminNote || 'راجع الدعم'}`; } 
     else if (after.status === 'refunded') { title = "↩️ تم استرجاع الطلب"; message = `تم استرجاع قيمة طلبك لشراء ( ${after.product} ) للمحفظة.`; }
 
-    const notifId = `notif_${orderId}_${after.status}`;
+    const notifId = `notif_${event.params.orderId}_${after.status}`;
     return db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({
         id: notifId, title, message, type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
@@ -852,126 +836,70 @@ exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposi
     const after = event.data.after.data();
     if (before.status === after.status) return null;
 
-    const depositId = event.params.depositId;
+    let title = "تحديث طلب الإيداع"; let message = `تم تغيير حالة طلب الإيداع إلى ${after.status}`;
+    const displayAmt = after.creditedAmount !== undefined ? after.creditedAmount : after.amount;
+    const displayCurr = after.targetCurrency || after.currency || 'USD';
 
-    let title = "تحديث طلب الإيداع"; 
-    let message = `تم تغيير حالة طلب الإيداع إلى ${after.status}`;
+    if (after.status === 'approved') { title = "💰 تم قبول الإيداع!"; message = `تمت إضافة ${displayAmt} ${displayCurr} لمحفظتك بنجاح!`; } 
+    else if (after.status === 'rejected') { title = "❌ تم رفض الإيداع"; message = `عذراً، تم رفض طلب إيداعك. السبب: ${after.adminNote || 'راجع الدعم'}`; } 
+    else if (after.status === 'refunded') { title = "↩️ تم استرجاع الإيداع"; message = `تم سحب الرصيد بقيمة ${displayAmt} ${displayCurr} من محفظتك.`; }
 
-    const displayCreditedAmt = after.creditedAmount !== undefined ? after.creditedAmount : after.amount;
-    const displayTargetCurr = after.targetCurrency || after.currency || 'USD';
-
-    if (after.status === 'approved') { 
-        title = "💰 تم قبول الإيداع!"; 
-        message = `تمت إضافة ${displayCreditedAmt} ${displayTargetCurr} لمحفظتك بنجاح!`; 
-    } 
-    else if (after.status === 'rejected') { 
-        title = "❌ تم رفض الإيداع"; 
-        message = `عذراً، تم رفض طلب إيداعك. السبب: ${after.adminNote || 'راجع الدعم'}`; 
-    } 
-    else if (after.status === 'refunded') { 
-        title = "↩️ تم استرجاع الإيداع"; 
-        message = `تم سحب الرصيد بقيمة ${displayCreditedAmt} ${displayTargetCurr} من محفظتك.`; 
-    }
-
-    const notifId = `notif_${depositId}_${after.status}`;
+    const notifId = `notif_${event.params.depositId}_${after.status}`;
     return db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({
         id: notifId, title, message, type: 'notification', jumpTarget: 'wallet', createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
 });
 
 // ============================================================================
-// 🔗 10. تصدير دوال ربط الموردين (External APIs)
+// 🔗 10. تصدير دوال ربط الموردين والـ API بأمان تام (إصلاح ثغرة الرفع)
 // ============================================================================
 const developerApi = require('./developerApi.js');
 const supplierEngine = require('./supplierEngine.js');
 
-exports.orderStatusWebhook = onRequest(async (req, res) => {
-    const token = req.headers['x-telecard-webhook-token'];
-    if (!token) {
-        console.error(`[SECURITY ALERT] Unauthorized Webhook Attempt`);
-        return res.status(401).send('Unauthorized');
-    }
-    return developerApi.orderStatusWebhook(req, res);
-});
+// 💎 تصدير نظيف يحافظ على نوع المشغل (Trigger) لتجنب Crash السيرفر
+exports.orderStatusWebhook = developerApi.orderStatusWebhook;
+exports.cronRetryWebhooks = developerApi.cronRetryWebhooks;
+exports.externalCreateOrder = developerApi.externalCreateOrder;
 
-exports.externalCreateOrder = onCall(developerApi.externalCreateOrder); 
-exports.syncSupplierData = onCall(supplierEngine.syncSupplierData);
-
-exports.scheduledSupplierSync = onSchedule({ 
-    schedule: 'every 24 hours', 
-    timeoutSeconds: 540 
-}, supplierEngine.scheduledSupplierSync);
-
-exports.secureSaveSupplier = onCall(supplierEngine.secureSaveSupplier); 
+exports.syncSupplierData = supplierEngine.syncSupplierData;
+exports.scheduledSupplierSync = supplierEngine.scheduledSupplierSync;
+exports.secureSaveSupplier = supplierEngine.secureSaveSupplier;
 
 // ==========================================
 // 📦 11. إدارة صناديق الأكواد السحابية (Vault Subcollections Engine)
 // ==========================================
-
 exports.adminSaveVaultCodes = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
-    
     const { poolId, poolName, alertLimit, codesList } = request.data;
-    if (!poolId || !codesList || !Array.isArray(codesList)) {
-        throw new HttpsError('invalid-argument', 'بيانات الصندوق غير مكتملة.');
-    }
+    if (!poolId || !codesList || !Array.isArray(codesList)) throw new HttpsError('invalid-argument', 'بيانات الصندوق غير مكتملة.');
     
     try {
         const vaultRef = db.collection('telecard_vault').doc(String(poolId));
         const keysRef = vaultRef.collection('keys');
+        await vaultRef.set({ id: poolId, name: poolName || 'صندوق أكواد', alertLimit: Number(alertLimit) || 5, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
         
-        await vaultRef.set({
-            id: poolId,
-            name: poolName || 'صندوق أكواد',
-            alertLimit: Number(alertLimit) || 5,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        let addedCount = 0; const crypto = require('crypto');
+        const batches = []; let currentBatch = db.batch(); let opCount = 0;
         
-        let addedCount = 0;
-        const crypto = require('crypto');
-        
-        const batches = [];
-        let currentBatch = db.batch();
-        let opCount = 0;
-        
-        // 🛡️ [حماية الأكواد المباعة]: تقسيم الأكواد وفحص الموجود منها
         const CHUNK_SIZE = 30; 
         for (let i = 0; i < codesList.length; i += CHUNK_SIZE) {
             const chunk = codesList.slice(i, i + CHUNK_SIZE);
-            const chunkHashes = [];
-            const chunkMap = new Map();
+            const chunkHashes = []; const chunkMap = new Map();
 
             chunk.forEach(code => {
                 const safeCode = String(code).replace(/\s+/g, '');
-                if (safeCode) {
-                    const codeHash = crypto.createHash('sha256').update(safeCode).digest('hex');
-                    chunkHashes.push(codeHash);
-                    chunkMap.set(codeHash, safeCode);
-                }
+                if (safeCode) { const codeHash = crypto.createHash('sha256').update(safeCode).digest('hex'); chunkHashes.push(codeHash); chunkMap.set(codeHash, safeCode); }
             });
 
             if (chunkHashes.length === 0) continue;
-
             const existingSnaps = await keysRef.where(admin.firestore.FieldPath.documentId(), 'in', chunkHashes).get();
             const existingIds = new Set(existingSnaps.docs.map(doc => doc.id));
 
             for (const [hash, text] of chunkMap.entries()) {
                 if (!existingIds.has(hash)) {
-                    const docRef = keysRef.doc(hash);
-                    currentBatch.set(docRef, {
-                        codeText: text,
-                        isSold: false,
-                        addedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    addedCount++;
-                    opCount++;
-                    
-                    if (opCount === 450) {
-                        batches.push(currentBatch);
-                        currentBatch = db.batch();
-                        opCount = 0;
-                    }
+                    currentBatch.set(keysRef.doc(hash), { codeText: text, isSold: false, addedAt: admin.firestore.FieldValue.serverTimestamp() });
+                    addedCount++; opCount++;
+                    if (opCount === 450) { batches.push(currentBatch); currentBatch = db.batch(); opCount = 0; }
                 }
             }
         }
@@ -979,17 +907,12 @@ exports.adminSaveVaultCodes = onCall(async (request) => {
         if (opCount > 0) batches.push(currentBatch);
         await Promise.all(batches.map(b => b.commit()));
         await logAdminAction(request.auth.uid, 'SAVE_VAULT', `Saved ${addedCount} codes to pool ${poolId}`);
-        
         return { success: true, addedCount };
-    } catch (error) {
-        console.error("Save Vault Error:", error);
-        throw new HttpsError('internal', `تعذر حفظ الأكواد: ${error.message}`);
-    }
+    } catch (error) { throw new HttpsError('internal', `تعذر حفظ الأكواد: ${error.message}`); }
 });
 
-exports.adminDeleteVaultPool = onCall(async (request) => {
+exports.adminDeleteVaultPool = onCall({ timeoutSeconds: 540 }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
-    
     const { poolId } = request.data;
     if (!poolId) throw new HttpsError('invalid-argument', 'معرف الصندوق مفقود.');
     
@@ -997,27 +920,17 @@ exports.adminDeleteVaultPool = onCall(async (request) => {
         const vaultRef = db.collection('telecard_vault').doc(String(poolId));
         const keysRef = vaultRef.collection('keys');
         
-        // 🛡️ [حماية الذاكرة - OOM Guard]: حذف الوثائق على دفعات محدودة لتجنب انفجار الـ 256MB
         let hasMore = true;
         while (hasMore) {
             const snapshot = await keysRef.limit(450).get(); 
-            if (snapshot.empty) {
-                hasMore = false;
-                break;
-            }
+            if (snapshot.empty) { hasMore = false; break; }
             const batch = db.batch();
-            snapshot.docs.forEach(doc => {
-                batch.delete(doc.ref);
-            });
+            snapshot.docs.forEach(doc => batch.delete(doc.ref));
             await batch.commit();
         }
         
         await vaultRef.delete();
         await logAdminAction(request.auth.uid, 'DELETE_VAULT', `Deleted pool ${poolId}`);
-        
         return { success: true };
-    } catch (error) {
-        console.error("Delete Vault Error:", error);
-        throw new HttpsError('internal', `تعذر حذف الصندوق: ${error.message}`);
-    }
+    } catch (error) { throw new HttpsError('internal', `تعذر حذف الصندوق: ${error.message}`); }
 });

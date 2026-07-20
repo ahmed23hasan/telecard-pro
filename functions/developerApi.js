@@ -1,7 +1,7 @@
 // ============================================================================
 // ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - Bank Grade 🏦
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🌟 التحديث الأقصى: حماية حدود فايرستور (500 Writes) لمنع الانهيار بسبب طلبات التجار الضخمة
+// 🚀 التحديث الأخير: تطبيق Zero-Read Webhooks لتوفير 100% من فواتير قراءة فايرستور
 // ============================================================================
 
 const functions = require('firebase-functions/v1');
@@ -14,7 +14,7 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-// 🛡️ درع حماية فايرستور (مهم جداً في الـ API)
+// 🛡️ درع حماية فايرستور (مهم جداً في الـ API لمنع الانهيار)
 const SYSTEM_LIMITS = {
     MAX_QTY_PER_ORDER: 10000, 
     MAX_VAULT_QTY_PER_ORDER: 200 // حماية من تجاوز 500 عملية في الـ Transaction
@@ -26,7 +26,7 @@ const SYSTEM_LIMITS = {
 const safeAdd = (a, b) => Math.round(Number(a) * 10000 + Number(b) * 10000) / 10000;
 const safeSub = (a, b) => Math.max(0, Math.round(Number(a) * 10000 - Number(b) * 10000) / 10000);
 
-// 🛡️ [ترقيع أمني عسكري]: منع SSRF (بما في ذلك IPv6 و Decimal IPs)
+// 🛡️ منع SSRF (بما في ذلك IPv6 و Decimal IPs) لحماية السيرفر
 function isSafeWebhookUrl(urlString) {
     try {
         const parsedUrl = new URL(urlString);
@@ -70,7 +70,7 @@ function generateHmacSignature(payload, secret) {
 }
 
 // ==========================================
-// 🚀 1. مرسل الإشعارات السحابي (Webhook Dispatcher - Secure)
+// 🚀 1. مرسل الإشعارات السحابي (Webhook Dispatcher - Zero Reads)
 // ==========================================
 exports.orderStatusWebhook = functions.region('us-east1').firestore
     .document('telecard_orders/{orderId}')
@@ -81,25 +81,20 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
         const after = change.after.data();
         const before = change.before.exists ? change.before.data() : null;
         
+        // لا نرسل شيء إذا لم تتغير الحالة
         if (before && before.status === after.status) return null;
         
+        // 💎 [الترقيع الاحترافي - Zero-Read]: 
+        // استدعاء بيانات الويب هوك مباشرة من الطلب بدلاً من قراءة جدول المستخدمين (التكلفة = 0 Reads)
+        const webhookUrl = after.merchantData?.webhookUrl;
+        const webhookSecret = after.merchantData?.webhookSecret;
         const userId = after.userId;
+
+        if (!webhookUrl || !isSafeWebhookUrl(webhookUrl)) {
+            return null; // لا يوجد رابط صالح، نتوقف فوراً
+        }
         
         try {
-            const userSnap = await db.collection('telecard_users').doc(String(userId)).get();
-            if (!userSnap.exists) return null;
-            
-            const userData = userSnap.data();
-            
-            if (userData.isBanned === true) {
-                console.log(`Webhook blocked for banned user: ${userId}`);
-                return null;
-            }
-            
-            if (!userData.webhookUrl || !isSafeWebhookUrl(userData.webhookUrl)) {
-                return null;
-            }
-            
             const payload = {
                 eventId: context.eventId, 
                 event: before ? 'order_status_changed' : 'order_created',
@@ -113,17 +108,17 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
                 timestamp: new Date().toISOString()
             };
 
-            const signature = generateHmacSignature(payload, userData.webhookSecret || 'default_telecard_secret');
+            const signature = generateHmacSignature(payload, webhookSecret || 'default_telecard_secret');
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
 
             try {
-                const response = await fetch(userData.webhookUrl, {
+                const response = await fetch(webhookUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'User-Agent': 'Telecard-Cloud-Engine/2.1',
+                        'User-Agent': 'Telecard-Cloud-Engine/3.0',
                         'X-Telecard-Signature': signature 
                     },
                     body: JSON.stringify(payload),
@@ -134,13 +129,13 @@ exports.orderStatusWebhook = functions.region('us-east1').firestore
 
                 if (!response.ok) {
                     console.warn(`Webhook failed for User ${userId} with status ${response.status}`);
-                    await logFailedWebhook(payload, userData.webhookUrl, `HTTP Error: ${response.status}`, userId);
+                    await logFailedWebhook(payload, webhookUrl, `HTTP Error: ${response.status}`, userId);
                 }
                 return true;
             } catch (fetchErr) {
                 clearTimeout(timeoutId);
                 const errorMsg = fetchErr.name === 'AbortError' ? 'Connection Timeout (10s)' : fetchErr.message;
-                await logFailedWebhook(payload, userData.webhookUrl, errorMsg, userId);
+                await logFailedWebhook(payload, webhookUrl, errorMsg, userId);
                 return null;
             }
         } catch (error) {
@@ -176,7 +171,7 @@ exports.cronRetryWebhooks = functions.region('us-east1').pubsub.schedule('every 
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'User-Agent': 'Telecard-Cloud-Engine-Retry/2.1'
+                        'User-Agent': 'Telecard-Cloud-Engine-Retry/3.0'
                     },
                     body: JSON.stringify(data.payload),
                     signal: controller.signal
@@ -283,7 +278,7 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                  vaultKeysQuery = db.collection('telecard_vault').doc(String(product.vaultPoolId))
                                     .collection('keys')
                                     .where('isSold', '==', false)
-                                    .limit(finalQty);
+                                    .limit(finalQty + 20);
             }
 
             const [tierSnap, keysSnap] = await Promise.all([
@@ -319,7 +314,11 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                     throw new Error('Out of stock.');
                 }
                 
-                keysSnap.forEach(doc => {
+                let docsArray = keysSnap.docs;
+                docsArray.sort(() => 0.5 - Math.random()); // خلط الأكواد لتجنب التصادم
+                let selectedDocs = docsArray.slice(0, finalQty);
+                
+                selectedDocs.forEach(doc => {
                     const codeData = doc.data();
                     extractedCodes.push(codeData.codeText);
                     transaction.update(doc.ref, {
@@ -330,6 +329,9 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
                     });
                 });
                 
+                const vaultRef = db.collection('telecard_vault').doc(String(product.vaultPoolId));
+                transaction.update(vaultRef, { stockCount: admin.firestore.FieldValue.increment(-finalQty) });
+                
                 deliveredCodeText = extractedCodes.join(' | ');
                 isAutoDelivered = true;
             }
@@ -338,11 +340,16 @@ exports.externalCreateOrder = functions.region('us-east1').https.onRequest(async
             const newTotalSpent = safeAdd(userData.totalSpent || 0, exactPrice);
             const newCycleSpent = safeAdd(userData.tierCycleSpent || 0, exactPrice);
 
+            // 💎 [الترقيع الاحترافي]: حفظ بيانات الـ Webhook داخل الطلب لتوفير 100% من القراءات لاحقاً
             const newOrder = {
                 id: cleanOrderId, displayId: cleanOrderId, userId: uid, prodId: productId, product: product.name,
                 price: exactPrice, qty: finalQty, input: inputStr || 'API Request',
                 status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText,
                 balanceAfter: newBalance, idempotencyKey: idempotencyKey || null, 
+                merchantData: { 
+                    webhookUrl: userData.webhookUrl || null,
+                    webhookSecret: userData.webhookSecret || null
+                },
                 pricingSnapshot: { 
                     costUsd: pricingSnapshot.totalCost, 
                     originalPriceUsd: pricingSnapshot.totalOriginalPrice, 

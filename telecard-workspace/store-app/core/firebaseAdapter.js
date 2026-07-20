@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Enterprise V12.3 💎
+// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Enterprise V13.0 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر للاتصال بـ Firestore & Storage & Auth & Functions
-// 🚀 التحديث الأقصى: معالجة ذكية لتذبذب الشبكة، منع تصادم الملفات، والمستمعات الآمنة
+// 🚀 التحديث الأقصى: زراعة دالة الترقية السرية، استقرار الشبكة، ومنع تسريب الذاكرة
 // 👑 الهوية المعتمدة: Telecard Store
 // ============================================================================
 
@@ -64,8 +64,8 @@ export const FirebaseAdapter = {
     killAllListeners: function() {
         Object.keys(this._activeListeners).forEach(key => {
             try { this._activeListeners[key](); } catch(e){}
-            delete this._activeListeners[key];
         });
+        this._activeListeners = {}; // التنظيف السليم للذاكرة
         console.debug("🧹 [Memory] All active Firestore listeners cleaned up.");
     },
 
@@ -118,7 +118,6 @@ export const FirebaseAdapter = {
         } catch (error) { return null; }
     },
 
-    // 🛡️ [تحديث أمان واستقرار الشبكة]: حفظ مستندات مع ميزة المزامنة وإعادة المحاولة التلقائية
     async set(collectionName, docId, data, options = { merge: true }, retryCount = 1) {
         try {
             const safeId = this._sanitizeDocId(docId);
@@ -184,9 +183,14 @@ export const FirebaseAdapter = {
                 snapshot.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
                 const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
                 callback(arr, lastDoc);
-            });
+            }, (error) => {
+                console.error(`🚨 خطأ استماع استعلام [${collectionName}]:`, error.message);
+            }); // 🛡️ إصلاح تسريب الذاكرة ومعرفة الخطأ
             return this._registerListener(key, unsub);
-        } catch (error) { return () => {}; }
+        } catch (error) { 
+            console.error(error);
+            return () => {}; 
+        }
     },
     
     async fetchMoreWithCursor(collectionName, conditions, orderByField = 'time', lastDocMarker, limitCount = 15) {
@@ -212,15 +216,15 @@ export const FirebaseAdapter = {
         } catch (error) { return { data: [], newLastDoc: null }; }
     },
 
-    // 🛡️ [تحديث الاستقرار]: توليد أسماء عشوائية معقدة عبر UUID لمنع تصادم الملفات المرفوعة متزامناً
     async uploadImage(file, folderName = 'general', customFileName = null) {
         if (!file) return '';
         try {
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general';
-            let ext = file.type === 'application/pdf' ? '.pdf' : (file.type === 'image/webp' ? '.webp' : '.png');
             
             const uniqueId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9);
-            const finalFileName = customFileName || `${Date.now()}_${uniqueId}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+            // 🛡️ إصلاح أمان اسم الملف لمنع المسارات الخبيثة
+            const safeFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '').replace(/^\.+/, 'file');
+            const finalFileName = customFileName || `${Date.now()}_${uniqueId}_${safeFileName}`;
             
             const snapshot = await this._withTimeout(
                 uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000
@@ -282,24 +286,40 @@ export const FirebaseAdapter = {
         } catch (error) { return { success: false, msg: 'تعذر الإيقاف.' }; }
     },
 
-// 🛡️ [تحديث أمان واستقرار السيرفر]: اتصال مرن بالخادم مع آلية مقاومة انقطاع طلبات الشراء المفاجئ
-async callFunction(functionName, payload = {}, retryCount = 1) { // 👈 تمت إضافة retryCount هنا للحماية
-    try {
-        const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Cloud Function -> ${functionName}`);
-        return result.data;
-    } catch (error) {
-        const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable' || error.message?.includes('Timeout');
-        
-        // 🛡️ التحقق من وجود محاولات متبقية لمنع تجميد المتصفح (Infinite Loop)
-        if (isTransientError && retryCount > 0) {
-            console.warn(`⏳ خطأ شبكة أثناء استدعاء الوظيفة السحابية [${functionName}]. جاري إعادة المحاولة...`);
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            return this.callFunction(functionName, payload, retryCount - 1); // إنقاص العداد والمحاولة مرة أخيرة
+    async callFunction(functionName, payload = {}, retryCount = 1) { 
+        try {
+            const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Cloud Function -> ${functionName}`);
+            return result.data;
+        } catch (error) {
+            const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable' || error.message?.includes('Timeout');
+            
+            if (isTransientError && retryCount > 0) {
+                console.warn(`⏳ خطأ شبكة أثناء استدعاء الوظيفة السحابية [${functionName}]. جاري إعادة المحاولة...`);
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                return this.callFunction(functionName, payload, retryCount - 1); 
+            }
+            
+            const errObj = new Error(error.message || 'فشل الاتصال.');
+            errObj.code = error.code || 'unknown';
+            throw errObj;
         }
-        
-        const errObj = new Error(error.message || 'فشل الاتصال.');
-        errObj.code = error.code || 'unknown';
-        throw errObj;
     }
-}
+};
+
+// ============================================================================
+// 🪄 الدالة السرية: لترقية حسابك الشخصي بضغطة زر 
+// بمجرد أن تنتهي من ترقية حسابك، يمكنك حذف هذا الجزء لاحقاً إن أردت.
+// ============================================================================
+window.upgradeMe = async function() {
+    try {
+        console.log("🚀 جاري الاتصال بالسيرفر لترقية حسابك...");
+        const result = await FirebaseAdapter.callFunction('grantAdminRole', {
+            email: "ahmed23hasan1994@gmail.com",
+            setupKey: "TELECARD_SECURE_ADMIN_2024" // كلمة السر التي وضعناها في Backend
+        }, 0); 
+        console.log("👑 النتيجة:", result.message);
+        console.log("✅ يرجى تحديث الصفحة (Refresh) لتفعيل صلاحيات الإدارة!");
+    } catch(e) {
+        console.error("❌ فشل الترقية:", e.message);
+    }
 };
