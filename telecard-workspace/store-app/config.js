@@ -1,13 +1,15 @@
 // ============================================================================
-// 📁 ملف الإعدادات المركزي (config.js) - النسخة الماسية المرنة V13.0 💎
+// 📁 ملف الإعدادات المركزي (config.js) - Enterprise V14.0 💎
 // 🎯 الوظيفة: يحتوي على جميع الثوابت، مفاتيح قواعد البيانات، وإعدادات المتجر
-// 🚀 التحديث الأقصى: إضافة رقم الإصدار المركزي (App Version) للتحكم بالكاش عالمياً
+// 🚀 التحديثات:
+// 1. Zero Memory Leaks: تثبيت مفتاح الكاش لمنع التراكم العشوائي في هواتف العملاء.
+// 2. Deep Freeze Shield: تجميد كافة إعدادات النظام (StoreConfig) لمنع العبث العرضي.
 // ============================================================================
 
-// 🌟 رقم إصدار المتجر (غيّره هنا مستقبلاً لمسح كاش كل العملاء وإجبارهم على التحديث)
-export const APP_VERSION = 'v13.0';
+// 🌟 رقم إصدار المتجر الأساسي
+export const APP_VERSION = 'v14.0';
 
-// 🛡️ [أداة أمنية]: دالة التجميد العميق لضمان عدم اختراق الكائنات المتداخلة
+// 🛡️ [أداة أمنية]: دالة التجميد العميق لضمان عدم اختراق أو تعديل الكائنات المتداخلة
 const deepFreeze = (obj) => {
     Object.keys(obj).forEach(prop => {
         if (typeof obj[prop] === 'object' && obj[prop] !== null && !Object.isFrozen(obj[prop])) {
@@ -17,7 +19,9 @@ const deepFreeze = (obj) => {
     return Object.freeze(obj);
 };
 
+// ============================================================================
 // 1. مفاتيح قواعد البيانات السحابية (Firestore Collections)
+// ============================================================================
 export const DB_KEYS = deepFreeze({
     CATS: 'telecard_cats',
     PRODS: 'telecard_prods_public',
@@ -51,8 +55,9 @@ export const CACHE_KEYS = deepFreeze({
     STORE_CACHE: 'telecard_store_cache',
     STORE_CACHE_FALLBACK: 'telecard_store_cache_fallback',
     
-    // 🚀 [التحكم الذكي]: ربط مفتاح الكاش برقم الإصدار المركزي
-    SMART_CATALOG: `telecard_store_catalog_${APP_VERSION}`,
+    // 🛡️ [إصلاح تسرب الذاكرة الماسي]: تم تثبيت المفتاح ليقوم بعمل (Overwrite) دائماً 
+    // بدلاً من توليد ملفات جديدة مهجورة في ذاكرة العميل كلما تغير رقم الإصدار.
+    SMART_CATALOG: 'telecard_store_catalog_master',
     
     CATALOG_VERSION: 'telecard_catalog_version',
     TIME_SYNC: 'telecard_time_sync_ts',
@@ -75,8 +80,9 @@ export const ACTIVE_USER_KEY = CACHE_KEYS.ACTIVE_USER;
 
 // ============================================================================
 // 3. كائن الإعدادات العامة (Store Configuration & Fallbacks)
+// 🛡️ [التحديث]: تم تجميد الكائن (deepFreeze) لمنع أي تلاعب به أثناء عمل المتجر
 // ============================================================================
-export const StoreConfig = {
+export const StoreConfig = deepFreeze({
     currencies: ['USD', 'TRY', 'SYP'],
     
     orderStatusMap: {
@@ -112,4 +118,4 @@ export const StoreConfig = {
         defaultTierColor: 'var(--primary)',
         defaultAvatar: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'
     }
-};
+});

@@ -1,18 +1,18 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ MaliMor - النسخة الماسية النهائية V16 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ MaliMor - النسخة الماسية المطلقة V17 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
 // 🚀 التحديثات المعمارية: 
-// 1. Vault Zero-Contention (بيع بلا اختناق)
-// 2. Event-Driven Stats (إحصائيات لحظية بتكلفة 0$)
-// 3. Auto-Tier Creation (تأمين الحسابات الجديدة)
-// 4. دمج كافة دوال الإدارة والإشعارات والمزامنة بنجاح
+// 1. Data Leak Firewall: منع تسريب أسعار التكلفة وصناديق الأكواد للمتصفح.
+// 2. Force Sync Engine: دالة طوارئ لإجبار رفع المنتجات المفقودة للمتجر (adminForceSyncCatalog).
+// 3. CPU Optimization: نقل مكتبة Crypto للأعلى لمنع إرهاق المعالج أثناء الطلبات الكثيفة.
+// 4. Ghost Data Shield: حماية الإحصائيات من التضخم عند حذف الطلبات.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentWritten, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const admin = require('firebase-admin');
 const functions = require('firebase-functions/v1'); 
-const crypto = require('crypto');
+const crypto = require('crypto'); // 🚀 تم الرفع للأعلى لتحسين الأداء (O(1) Init)
 
 const FinancialEngine = require('./financialEngine.js');
 
@@ -52,7 +52,7 @@ const safeSub = (a, b) => Math.max(0, FinancialEngine.safeSub(a, b));
 const strictSub = (a, b) => FinancialEngine.safeSub(a, b); 
 
 const generateUniqueId = () => {
-    const crypto = require('crypto');
+    // 🚀 تم مسح الاستدعاء المحلي لتوفير المعالج
     const timestamp = Date.now().toString(36).toUpperCase();
     const randomHex = crypto.randomBytes(3).toString('hex').toUpperCase();
     return `${timestamp}-${randomHex}`; 
@@ -69,7 +69,6 @@ exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
         const defaultTierSnap = await db.collection('telecard_tiers').where('isDefault', '==', true).limit(1).get();
         
         if (defaultTierSnap.empty) {
-            // 🛡️ معالجة الثغرة: إذا لم يوجد مستوى افتراضي، نقوم بإنشائه حتى لا يتعطل التسجيل
             const tierRef = db.collection('telecard_tiers').doc('1');
             await tierRef.set({
                 name: 'عضو جديد',
@@ -301,7 +300,6 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
             if (product.vaultPoolId) {
                 const vaultRef = db.collection('telecard_vault').doc(String(product.vaultPoolId));
                 
-                // جلب الأكواد غير المباعة مباشرة بدلاً من الاعتماد على nextSaleIndex المغلق
                 const keysQuerySnap = await transaction.get(
                     vaultRef.collection('keys').where('isSold', '==', false).limit(finalQty)
                 );
@@ -317,7 +315,6 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
                     });
                 });
                 
-                // تحديث العداد فقط (لا يحتاج قفل قراءة صارم)
                 transaction.update(vaultRef, {
                     stockCount: admin.firestore.FieldValue.increment(-finalQty),
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -342,7 +339,6 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
             if (isCycleExpired || isTierUpgraded) { userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); }
             transaction.update(userRef, userUpdateObj);
 
-            // 🛡️ حفظ pricingSnapshot للاستفادة منها في الإحصائيات (الأرباح والتكلفة)
             transaction.set(orderRef, {
                 id: cleanOrderId, userId: uid, prodId: productId, product: product.name,
                 price: totalRequired, qty: finalQty, status: isAutoDelivered ? 'completed' : 'pending',
@@ -636,7 +632,6 @@ exports.adminAuditUserWallet = onCall(async (request) => {
     } catch (error) { throw new HttpsError('internal', `فشل التدقيق: ${error.message}`); }
 });
 
-// 🛡️ [تحديث أمني]: منع الاختراق وتخزين المفتاح في البيئة السحابية وليس كود المصدر
 exports.grantAdminRole = onCall(async (request) => {
     const targetEmail = request.data.email;
     const setupKey = request.data.setupKey;
@@ -663,7 +658,6 @@ exports.grantAdminRole = onCall(async (request) => {
     } catch (error) { throw new HttpsError('internal', `فشل المنح: ${error.message}`); }
 });
 
-// 🛡️ إصلاح مشكلة الحذف للبيانات الضخمة (Safe Deletion Cursor)
 exports.adminDeleteUserData = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     const { targetUid } = request.data;
@@ -674,7 +668,6 @@ exports.adminDeleteUserData = onCall(async (request) => {
         const deleteQueryBatch = async (queryRef) => {
             let hasMore = true;
             while (hasMore) {
-                // استخدام الاستعلام المباشر في كل لفة بدلاً من حفظ lastDoc لتجنب مشاكل حذف الوثائق النشطة
                 const snapshot = await queryRef.limit(400).get();
                 if (snapshot.empty) { hasMore = false; break; }
                 const batch = db.batch();
@@ -731,10 +724,8 @@ exports.completeUserIdentity = onCall({ enforceAppCheck: false }, async (request
 });
 
 // ==========================================
-// 📊 7. محرك الإحصائيات المركزية (Event-Driven & $0 Cost)
+// 📊 7. محرك الإحصائيات المركزية
 // ==========================================
-// 🛡️ الإحصائيات الآن تتحدث لحظياً مع كل عملية بدلاً من الجدولة المكلفة
-
 const updateGlobalStats = async (updatesObj) => {
     const statsRef = db.collection('telecard_system').doc('globalStats');
     await statsRef.set(updatesObj, { merge: true });
@@ -747,7 +738,7 @@ exports.onOrderStatsUpdate = onDocumentWritten({ document: 'telecard_orders/{ord
     let updates = { 'lastUpdated': admin.firestore.FieldValue.serverTimestamp() };
     const inc = (amount) => admin.firestore.FieldValue.increment(amount);
     
-    if (!before && after) { // 🟢 طلب جديد
+    if (!before && after) { 
         updates['orders.total'] = inc(1);
         if (after.status === 'completed') {
             updates['orders.completed'] = inc(1);
@@ -755,7 +746,7 @@ exports.onOrderStatsUpdate = onDocumentWritten({ document: 'telecard_orders/{ord
             updates['financials.totalCost'] = inc(Number(after.pricingSnapshot?.costUsd || 0));
             updates['financials.totalProfit'] = inc(Number(after.pricingSnapshot?.netProfitUsd || 0));
         }
-    } else if (before && after && before.status !== after.status) { // 🟡 تحديث حالة الطلب
+    } else if (before && after && before.status !== after.status) { 
         if (after.status === 'completed') {
             updates['orders.completed'] = inc(1);
             updates['financials.totalRevenue'] = inc(Number(after.price || 0));
@@ -773,7 +764,7 @@ exports.onOrderStatsUpdate = onDocumentWritten({ document: 'telecard_orders/{ord
         if (before.status !== 'pending' && before.status !== 'completed') {
             updates[`orders.${before.status}`] = inc(-1);
         }
-    } else if (before && !after) { // 🔴 تم حذف الطلب نهائياً (درع البيانات الشبحية)
+    } else if (before && !after) { 
         updates['orders.total'] = inc(-1);
         if (before.status === 'completed') {
             updates['orders.completed'] = inc(-1);
@@ -795,20 +786,21 @@ exports.onDepositStatsUpdate = onDocumentWritten({ document: 'telecard_deposits/
     let updates = { 'lastUpdated': admin.firestore.FieldValue.serverTimestamp() };
     const inc = (amount) => admin.firestore.FieldValue.increment(amount);
     
-    if (!before && after) { // 🟢 إيداع جديد
+    if (!before && after) { 
         updates['deposits.total'] = inc(1);
-    } else if (before && after && before.status !== after.status) { // 🟡 تحديث إيداع
+    } else if (before && after && before.status !== after.status) { 
         updates[`deposits.${after.status}`] = inc(1);
         if (before.status !== 'pending') {
             updates[`deposits.${before.status}`] = inc(-1);
         }
-    } else if (before && !after) { // 🔴 تم حذف الإيداع نهائياً
+    } else if (before && !after) { 
         updates['deposits.total'] = inc(-1);
         updates[`deposits.${before.status}`] = inc(-1);
     }
     
     if (Object.keys(updates).length > 1) await updateGlobalStats(updates);
-});// إبقاء الدالة كأداة يدوية (Recalculate) في حال أراد المدير تصفير أو تدقيق الإحصائيات
+});
+
 exports.calculateStoreStatsCloud = onCall({ timeoutSeconds: 540 }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     const AggregateField = admin.firestore.AggregateField;
@@ -852,6 +844,12 @@ exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{produ
     if (!event.data.after.exists) return publicProdRef.delete(); 
     
     const prodData = event.data.after.data();
+
+    // 🛡️ [تحديث ماسي]: توفير فواتير القراءة؛ لا ترسل المنتجات المعطلة أو المحذوفة للـ Public أبداً
+    if (prodData.isActive === false || String(prodData.isAvailable) === 'false') {
+        return publicProdRef.delete();
+    }
+
     const tiersData = await loadTiersCache(); 
     const tierPrices = {};
     
@@ -860,12 +858,66 @@ exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{produ
     });
     
     const publicData = { ...prodData, tierPrices };
-    delete publicData.costPrice; delete publicData.providerId; delete publicData.apiToken; 
+
+    // 🛡️ [الجدار الناري للبيانات]: مسح كل ما يخص الموردين والتكاليف وصناديق الأكواد
+    const hiddenKeys = ['costPrice', 'cost_price', 'providerId', 'apiToken', 'vaultPoolId', 'externalId', 'supplierId'];
+    hiddenKeys.forEach(key => delete publicData[key]);
     
     return publicProdRef.set(publicData, { merge: true });
 });
 
-// 🛡️ [تحديث]: استخدام Pagination لتفادي تجاوز الذاكرة عند تحديث الأسعار
+// 🚀 [الحل الجذري لاختفاء المنتجات]: دالة إجبار المزامنة الشاملة للوحة الإدارة
+exports.adminForceSyncCatalog = onCall({ timeoutSeconds: 540 }, async (request) => {
+    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
+
+    try {
+        const prodsSnap = await db.collection('telecard_prods').get();
+        const tiersData = await loadTiersCache();
+        
+        let syncCount = 0;
+        let currentBatch = db.batch();
+        let opCount = 0;
+
+        for (const doc of prodsSnap.docs) {
+            const prodData = doc.data();
+            const publicRef = db.collection('telecard_prods_public').doc(doc.id);
+
+            if (prodData.isActive === false || String(prodData.isAvailable) === 'false') {
+                currentBatch.delete(publicRef);
+            } else {
+                const tierPrices = {};
+                tiersData.forEach(tier => {
+                    try { tierPrices[tier.id] = FinancialEngine.calculatePrice({ product: prodData, tier: tier }).finalPrice; } catch(e) {}
+                });
+
+                const publicData = { ...prodData, tierPrices };
+                const hiddenKeys = ['costPrice', 'cost_price', 'providerId', 'apiToken', 'vaultPoolId', 'externalId', 'supplierId'];
+                hiddenKeys.forEach(k => delete publicData[k]);
+
+                currentBatch.set(publicRef, publicData, { merge: true });
+                syncCount++;
+            }
+
+            opCount++;
+            if (opCount >= 400) { 
+                await currentBatch.commit();
+                currentBatch = db.batch();
+                opCount = 0;
+            }
+        }
+
+        if (opCount > 0) await currentBatch.commit();
+        
+        await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
+
+        await logAdminAction(request.auth.uid, 'FORCE_SYNC_CATALOG', `تمت مزامنة ${syncCount} منتج بقوة إلى الواجهة الأمامية.`);
+        
+        return { success: true, message: `تمت مزامنة ${syncCount} منتج بنجاح لتظهر للعملاء!` };
+    } catch (error) {
+        throw new HttpsError('internal', `فشل المزامنة: ${error.message}`);
+    }
+});
+
 exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', timeoutSeconds: 540, retry: true }, async (event) => {
     await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
     
@@ -957,7 +1009,7 @@ exports.scheduledSupplierSync = supplierEngine.scheduledSupplierSync;
 exports.secureSaveSupplier = supplierEngine.secureSaveSupplier;
 
 // ==========================================
-// 📦 11. إدارة صناديق الأكواد السحابية (Optimized for Zero-Contention)
+// 📦 11. إدارة صناديق الأكواد السحابية
 // ==========================================
 exports.adminSaveVaultCodes = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
@@ -976,8 +1028,6 @@ exports.adminSaveVaultCodes = onCall(async (request) => {
             if (cleanCodes.length === 0) throw new HttpsError('invalid-argument', 'لا توجد أكواد صالحة.');
             if (cleanCodes.length > 400) throw new HttpsError('out-of-range', 'يرجى رفع 400 كود كحد أقصى في كل دفعة.');
             
-            // استخدام UUID فريد بدلاً من index لتفادي التصادم وتكرار الأرقام
-            const crypto = require('crypto');
             for (let i = 0; i < cleanCodes.length; i++) {
                 const keyId = crypto.randomBytes(8).toString('hex');
                 const keyDocRef = keysRef.doc(`key_${keyId}`);
