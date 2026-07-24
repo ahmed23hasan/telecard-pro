@@ -1,10 +1,7 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V14.3 💎
+// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V14.5 💎
 // 🎯 الوظيفة: بوابة البيانات الآمنة للوحة الإدارة، إدارة الذاكرة، حماية الفواتير.
-// 🚀 التحديثات:
-// 1. Zombie Listeners Shield: نظام تتبع وتنظيف المستمعات لمنع تسرب الذاكرة واستهلاك القراءات.
-// 2. Billing Firewall: إجبار الـ Limit على جلب البيانات الشاملة لمنع الانهيار.
-// 3. Storage Gateway: حماية لوحة الإدارة من رفع الملفات الخبيثة والأحجام العملاقة.
+// 🚀 التحديث الأخير: دمج خوارزمية الرفع الهجينة الآمنة (Hybrid Upload) واستخراج الامتداد الفعلي.
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -30,9 +27,6 @@ export const FirebaseAdapter = {
     storage: storage,
     functions: functions,
 
-    // ==========================================
-    // 🧠 1. إدارة الذاكرة وحماية الفواتير (Memory & Billing Shield)
-    // ==========================================
     _activeListeners: new Map(),
 
     _registerListener: function(baseKey, unsubscribeFn) {
@@ -47,7 +41,6 @@ export const FirebaseAdapter = {
         };
     },
 
-    // 🧹 [هام جداً]: يجب استدعاء هذه الدالة في ملف admin.js عند تغيير القائمة (Navigation)
     killAllListeners: function() {
         this._activeListeners.forEach((unsubscribeFn) => {
             try { unsubscribeFn(); } catch(e){}
@@ -63,7 +56,6 @@ export const FirebaseAdapter = {
 
     _withTimeout: function(promise, ms = 10000, context = '') {
         let timeoutId;
-        promise.catch(() => {}); 
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
                 const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context} خلال ${ms/1000} ثوانٍ`);
@@ -74,10 +66,7 @@ export const FirebaseAdapter = {
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
 
-    // ==========================================
-    // 📥 2. جلب البيانات (مع درع حماية الفواتير)
-    // ==========================================
-    async getAll(collectionName, maxLimit = 3000, retryCount = 1) { // 🛡️ تم وضع حد 3000 لحماية المتصفح والفاتورة
+    async getAll(collectionName, maxLimit = 3000, retryCount = 1) { 
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
             const q = query(collection(db, collectionName), limit(maxLimit));
@@ -136,15 +125,12 @@ export const FirebaseAdapter = {
         } catch (error) { return false; }
     },
 
-    // ==========================================
-    // 🎧 3. الاستماع اللحظي (محمي بالذاكرة الذكية)
-    // ==========================================
     listenCollection(collectionName, callback) {
         const key = `admin_col_${collectionName}`;
         const unsub = onSnapshot(collection(db, collectionName), (snapshot) => {
             callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
-        return this._registerListener(key, unsub); // 🛡️ تسجيل المستمع للتنظيف التلقائي
+        return this._registerListener(key, unsub); 
     },
 
     listenDoc(collectionName, docId, callback) {
@@ -208,31 +194,37 @@ export const FirebaseAdapter = {
         } catch (error) { return { data: [], newLastDoc: null }; }
     },
 
-    // ==========================================
-    // 📁 4. الجدار الناري للتخزين السحابي (Storage Firewall)
-    // ==========================================
-    async uploadImage(file, folderName = 'general', customFileName = null) {
+    // 🛡️ [إصلاح أمني]: خوارزمية الرفع الهجينة (محسنة للإدارة بافتراضي isAdmin = true)
+    async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = true) {
         if (!file) return '';
         
-        // 🛡️ درع الامتدادات (السماح لـ SVG في لوحة الإدارة للشعارات)
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
-        if (!allowedTypes.includes(file.type)) throw new Error('مسموح بالصور فقط (JPG, PNG, WEBP, SVG).');
+        const allowedTypes = isAdmin ? ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'] : ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!allowedTypes.includes(file.type)) {
+            throw new Error(`نوع الملف غير مدعوم. مسموح بالصور فقط.`);
+        }
 
-        // 🛡️ درع الحجم (10 ميجابايت للوحة الإدارة)
-        const MAX_FILE_SIZE_MB = 10;
-        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) throw new Error(`حجم الملف يتجاوز ${MAX_FILE_SIZE_MB} ميجابايت.`);
+        const MAX_FILE_SIZE_MB = isAdmin ? 10 : 5;
+        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+            throw new Error(`حجم الملف كبير جداً. الحد الأقصى هو ${MAX_FILE_SIZE_MB} ميجابايت.`);
+        }
 
         try {
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general';
-            const safeFileName = file.name ? file.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'image.jpg';
+            const originalExt = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : 'jpg';
+            const safeFileName = file.name.replace(/[^a-zA-Z0-9\-_]/g, '').replace(/^\.+/, 'file');
+            
+            const uniqueId = Math.random().toString(36).substring(2, 9);
             const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null;
             
-            const finalFileName = safeCustomName || `${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeFileName}`;
-            const storageRef = ref(storage, `${safeFolder}/${finalFileName}`);
+            const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`;
             
-            const snapshot = await this._withTimeout(uploadBytes(storageRef, file, { contentType: file.type }), 60000, "رفع الصورة");
+            const snapshot = await this._withTimeout(
+                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع الصورة"
+            );
             return await getDownloadURL(snapshot.ref);
-        } catch (error) { throw new Error(error.message || 'تعذر الرفع.'); }
+        } catch (error) { 
+            throw new Error(error.message || 'تعذر الرفع. تأكد من جودة الاتصال.'); 
+        }
     },
 
     async deleteImageByUrl(url) {
@@ -240,9 +232,6 @@ export const FirebaseAdapter = {
         try { await deleteObject(ref(storage, url)); } catch (error) { }
     },
 
-    // ==========================================
-    // ⚡ 5. الموجه المركزي للـ Cloud Functions
-    // ==========================================
     async callFunction(functionName, payload = {}) {
         try {
             const targetFunction = httpsCallable(functions, functionName);

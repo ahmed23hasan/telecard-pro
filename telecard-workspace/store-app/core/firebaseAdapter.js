@@ -1,17 +1,13 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.0 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.5 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق
-// 🚀 التحديثات:
-// 1. Zero-Cost Reads (إضافة getCacheFirst لقراءة البيانات مجاناً من جهاز العميل).
-// 2. Storage Firewall (منع مسارات الاختراق Path Traversal وحظر الملفات > 5MB).
-// 3. Billing Shield (حظر قراءة المجموعات الكاملة بدون Limit).
-// 4. AppCheck Ready (جاهزية نظام التحقق البشري لمنع البوتات).
+// 🚀 التحديث الأخير: إصلاح تضارب الـ Region، فصل الإعدادات أمنياً، وتوحيد خوارزمية الرفع.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
     initializeFirestore, persistentLocalCache, persistentMultipleTabManager, 
-    collection, doc, getDoc, getDocs, getDocFromCache, getDocsFromCache, // 👈 تم إضافة دوال الكاش
+    collection, doc, getDoc, getDocs, getDocFromCache, getDocsFromCache,
     setDoc, addDoc, deleteDoc, onSnapshot, 
     query, where, orderBy, limit, startAfter 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -22,28 +18,21 @@ import {
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const firebaseConfig = {
-    apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
-    authDomain: "telecard-1.firebaseapp.com",
-    projectId: "telecard-1",
-    storageBucket: "telecard-1.firebasestorage.app",
-    messagingSenderId: "698672838633",
-    appId: "1:698672838633:web:743c8809615bd8308bfd78"
-};
+// 🛡️ [إصلاح أمني]: استيراد الإعدادات من ملف الكونفيج بدلاً من فضحها هنا
+import { firebaseConfig } from '../../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-
-// 💡 [App Check] ضع مفتاح ReCaptcha الخاص بك هنا مستقبلاً لمنع البوتات من سحب منتجاتك
 let appCheck = null; 
 
-// 📦 تهيئة Firestore مع كاش محلي متزامن لتقليل التكاليف
 const db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
 
 const auth = getAuth(app);
 const storage = getStorage(app);
-const functions = getFunctions(app, 'us-central1');
+
+// 🛡️ [إصلاح كارثي]: توحيد المنطقة الجغرافية مع السيرفر والإدارة لمنع الـ CORS و 404
+const functions = getFunctions(app, 'us-east1');
 
 export { auth, db, storage, functions, appCheck };
 
@@ -91,7 +80,6 @@ export const FirebaseAdapter = {
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
 
-    // 🛡️ [إصلاح التكلفة]: حظر القراءة المفتوحة وإجبار Limit لحماية الفاتورة
     async getAll(collectionName, maxLimit = 1000, retryCount = 1) {
         try {
             const q = query(collection(db, collectionName), limit(maxLimit));
@@ -106,20 +94,15 @@ export const FirebaseAdapter = {
         }
     },
 
-    // 💰 [Zero-Cost Data]: تقرأ البيانات من جهاز العميل مجاناً، وإذا لم تكن موجودة تجلبها من السيرفر
     async getCacheFirst(collectionName, docId) {
         const safeId = this._sanitizeDocId(docId);
         const docRef = doc(db, collectionName, safeId);
         try {
-            // المحاولة الأولى: قراءة مجانية 100% من الكاش المحلي
             const cachedSnap = await getDocFromCache(docRef);
             if (cachedSnap.exists()) return { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
-        } catch (e) {
-            // الكاش فارغ أو غير متاح، ننتقل للسيرفر
-        }
+        } catch (e) { }
         
         try {
-            // المحاولة الثانية: جلب من السيرفر
             const serverSnap = await this._withTimeout(getDoc(docRef), 10000);
             return serverSnap.exists() ? { id: serverSnap.id, ...serverSnap.data(), fromCache: false } : null;
         } catch (error) { return null; }
@@ -241,38 +224,36 @@ export const FirebaseAdapter = {
         } catch (error) { return { data: [], newLastDoc: null }; }
     },
 
-    // 🛡️ [Storage Firewall]: حماية من ثغرة Path Traversal واستنزاف المساحة
-    async uploadImage(file, folderName = 'general', customFileName = null) {
-        if (!file) return '';
+    // 🛡️ [إصلاح أمني]: خوارزمية الرفع الهجينة الآمنة
+    async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = false) { 
+        if (!file) return ''; 
         
-        // 1. القائمة البيضاء للامتدادات
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-        if (!allowedTypes.includes(file.type)) {
-            throw new Error('نوع الملف غير مدعوم. يرجى رفع صور فقط (JPG, PNG, WEBP, GIF).');
-        }
-
-        // 2. حظر الملفات العملاقة (الحد الأقصى: 5 ميجابايت)
-        const MAX_FILE_SIZE_MB = 5;
-        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-            throw new Error(`حجم الملف كبير جداً. الحد الأقصى هو ${MAX_FILE_SIZE_MB} ميجابايت.`);
-        }
-
-        try {
-            const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general';
-            const uniqueId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9);
+        const allowedTypes = isAdmin ? ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'] : ['image/jpeg', 'image/png', 'image/webp', 'image/gif']; 
+        if (!allowedTypes.includes(file.type)) { 
+            throw new Error(`نوع الملف غير مدعوم. مسموح بالصور فقط.`); 
+        } 
+        
+        const MAX_FILE_SIZE_MB = isAdmin ? 10 : 5; 
+        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) { 
+            throw new Error(`حجم الملف كبير جداً. الحد الأقصى هو ${MAX_FILE_SIZE_MB} ميجابايت.`); 
+        } 
+        
+        try { 
+            const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general'; 
+            const originalExt = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : 'jpg'; 
+            const safeFileName = file.name.replace(/[^a-zA-Z0-9\-_]/g, '').replace(/^\.+/, 'file'); 
             
-            const originalExt = file.name.split('.').pop().toLowerCase();
-            const safeFileName = file.name.replace(/[^a-zA-Z0-9\-_]/g, '').replace(/^\.+/, 'file');
+            const uniqueId = Math.random().toString(36).substring(2, 9); 
+            const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null; 
             
-            // 🛡️ حماية الـ customFileName من ثغرة المسارات (Path Traversal)
-            const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null;
-            const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`;
-            
-            const snapshot = await this._withTimeout(
-                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000
-            );
-            return await getDownloadURL(snapshot.ref);
-        } catch (error) { throw new Error('تعذر رفع الملف. تأكد من اتصالك بالإنترنت وحجم الملف.'); }
+            const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`; 
+            const snapshot = await this._withTimeout( 
+                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع الصورة" 
+            ); 
+            return await getDownloadURL(snapshot.ref); 
+        } catch (error) { 
+            throw new Error(error.message || 'تعذر الرفع. تأكد من جودة الاتصال.'); 
+        } 
     },
 
     async deleteImageByUrl(url) {
@@ -339,7 +320,7 @@ export const FirebaseAdapter = {
             const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Cloud Function -> ${functionName}`);
             return result.data;
         } catch (error) {
-            const isSensitiveFunction = ['createOrder', 'submitBalanceRequest', 'externalCreateOrder'].includes(functionName);
+            const isSensitiveFunction = ['createOrder', 'submitBalanceRequest'].includes(functionName);
             const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
             
             if (isTransientError && retryCount > 0 && !isSensitiveFunction) {

@@ -1,8 +1,8 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers)
-// 🚀 الهندسة: Provider Pattern (Pure Agnostic Core - Zero Dependencies)
+// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Enterprise V14.6 💎
+// 🚀 الهندسة: Provider Pattern (Pure Agnostic Core) + Destructuring-Safe
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث الأقصى: دمج حماية OWASP + طباعة فواتير الجوال الآمنة (No BDI)
+// 🌟 التحديث الأقصى: حماية RangeError، تحصين الـ Context (إزالة this)، حماية XSS
 // ============================================================================
 
 let _injectedSource = null;
@@ -22,7 +22,7 @@ export const RenderHelpers = Object.freeze({
     _getDataSource: function() {
         if (_injectedSource) return _injectedSource;
         
-        console.warn("⚠️ RenderHelpers: محاولة استخدام المحرك قبل الحقن (init). سيتم استخدام قيم افتراضية لمنع الانهيار.");
+        console.warn("⚠️ RenderHelpers: محاولة استخدام المحرك قبل الحقن (init). سيتم استخدام قيم افتراضية.");
         return { settings: {}, rates: [], offers: [], isStore: false };
     },
 
@@ -31,7 +31,6 @@ export const RenderHelpers = Object.freeze({
      */
     _esc: function(str) {
         if (str === null || str === undefined) return '';
-        // 🚀 ترقية التعقيم ليشمل كافة الرموز الخطرة حسب معايير OWASP
         return String(str)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
@@ -43,10 +42,10 @@ export const RenderHelpers = Object.freeze({
             .replace(/\//g, '&#x2F;');
     },
 
-/**
- * 🔢 دالة تنسيق الأرقام (البنكية) - [تم تحصينها ضد RangeError]
- */
-_enNum: function(num, decimals = 2) {
+    /**
+     * 🔢 دالة تنسيق الأرقام (البنكية) - [محصنة ضد RangeError]
+     */
+    _enNum: function(num, decimals = 2) {
         const parsedNum = Number(num) || 0;
         // 🛡️ حماية المتصفح: دوال JS تقبل الخانات العشرية من 0 إلى 20 فقط
         const safeDecimals = Math.min(20, Math.max(0, Number(decimals) || 2));
@@ -74,38 +73,35 @@ _enNum: function(num, decimals = 2) {
             finalId = strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
         }
         
-        // 🛡️ [تعديل]: في حال كان الآي دي فارغاً، نعطي قيمة عشوائية آمنة بدلاً من USR- فارغة
         if (!finalId || finalId.trim() === '') finalId = 'UKNWN';
-        
         const formatted = withPrefix ? `USR-${finalId}` : finalId;
-        return this._esc(formatted);
+        
+        // 🛡️ استخدام RenderHelpers بدلاً من this لمنع ضياع السياق
+        return RenderHelpers._esc(formatted);
     },
     
     formatOrderId: function(orderObj, withPrefix = true) {
         if (!orderObj) return '---';
         const rawId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
         
-        // 🛡️ [تعديل]: الحماية من المعرفات الفارغة
         if (!rawId || String(rawId).trim() === '') return '---';
-        
-        return this._esc(withPrefix ? `ORD-${String(rawId).toUpperCase()}` : String(rawId).toUpperCase());
+        return RenderHelpers._esc(withPrefix ? `ORD-${String(rawId).toUpperCase()}` : String(rawId).toUpperCase());
     },
     
     formatDepositId: function(depObj, withPrefix = true) {
         if (!depObj) return '---';
         const rawId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
         
-        // 🛡️ [تعديل]: الحماية من المعرفات الفارغة
         if (!rawId || String(rawId).trim() === '') return '---';
-        
-        return this._esc(withPrefix ? `DEP-${String(rawId).toUpperCase()}` : String(rawId).toUpperCase());
+        return RenderHelpers._esc(withPrefix ? `DEP-${String(rawId).toUpperCase()}` : String(rawId).toUpperCase());
     },    
+
     // ============================================================================
     // 💰 المحركات المالية والعملات 
     // ============================================================================
     
     getCurrencySymbolText: function(currCode = 'USD') {
-        const source = this._getDataSource();
+        const source = RenderHelpers._getDataSource();
         const { settings, rates } = source;
         const code = String(currCode).toUpperCase();
         
@@ -136,19 +132,14 @@ _enNum: function(num, decimals = 2) {
     },
 
     formatMoney: function(amount, currencyCode = 'USD', decimals = 2) {
-        const num = Number(amount) || 0;
+        // 🛡️ استخدام الدالة المحصنة ضد RangeError بدلاً من toLocaleString المباشر
+        const formattedNum = RenderHelpers._enNum(amount, decimals);
         
-        const formattedNum = num.toLocaleString('en-US', {
-            minimumFractionDigits: decimals,
-            maximumFractionDigits: decimals
-        });
-        
-        const displayCur = this.getCurrencySymbolText(currencyCode);
+        const displayCur = RenderHelpers.getCurrencySymbolText(currencyCode);
         const isLongText = displayCur.trim().length > 1;
         const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
-        const safeCur = this._esc(displayCur);
+        const safeCur = RenderHelpers._esc(displayCur);
         
-        // 🛡️ [الترقيع المستعاد]: استخدام Flexbox و dir="ltr" لمنع تحطم الفواتير على الجوال بدلاً من <bdi>
         return `<span class="money-pro" dir="ltr" style="display: inline-flex; align-items: baseline; gap: 4px; direction: ltr;"><span class="num-en money-val">${formattedNum}</span><span class="cur-symbol ${symbolClass}">${safeCur}</span></span>`;
     },    
 
@@ -161,7 +152,7 @@ _enNum: function(num, decimals = 2) {
         const f = u.firstName || u.first_name || u.name || '';
         const l = u.lastName || u.last_name || '';
         let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
-        return this._esc(fullName ? fullName : 'مستخدم جديد');
+        return RenderHelpers._esc(fullName ? fullName : 'مستخدم جديد');
     },
 
     _getExplicitName: function(u) {
@@ -169,11 +160,11 @@ _enNum: function(num, decimals = 2) {
         const f = u.firstName || u.first_name || u.name || '';
         const l = u.lastName || u.last_name || '';
         const fullName = (f + ' ' + l).trim();
-        return this._esc(fullName || u.username || 'مستخدم غير معروف');
+        return RenderHelpers._esc(fullName || u.username || 'مستخدم غير معروف');
     },
 
     _getActiveOfferBadge: function(prodId) {
-        const source = this._getDataSource();
+        const source = RenderHelpers._getDataSource();
         const now = Date.now();
         if (!source.offers || !Array.isArray(source.offers)) return '';
 
@@ -183,7 +174,7 @@ _enNum: function(num, decimals = 2) {
         );
 
         if (!activeOffer) return '';
-        const safeName = this._esc(activeOffer.name);
+        const safeName = RenderHelpers._esc(activeOffer.name);
         return `<span class="promo-badge b-success icon-ms-2 badge-micro" title="مشمول في عرض: ${safeName}"><i class="fa-solid fa-bolt"></i> عرض نشط</span>`;
     },
 
@@ -194,7 +185,7 @@ _enNum: function(num, decimals = 2) {
     parseUnifiedTime: function(item) {
         if (!item) return 0;
         const t = item.time ?? item.createdAt ?? item.actionTime ?? null;
-        return this.parseTime(t);
+        return RenderHelpers.parseTime(t);
     },
 
     parseTime: function(ts) {
@@ -203,7 +194,6 @@ _enNum: function(num, decimals = 2) {
         if (ts instanceof Date) return ts.getTime();
         
         if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
-        
         if (ts.seconds !== undefined) return ts.seconds * 1000; 
         if (ts._seconds !== undefined) return ts._seconds * 1000; 
         
@@ -216,7 +206,7 @@ _enNum: function(num, decimals = 2) {
     },
 
     formatSafeDate: function(ts) {
-        const timeMs = this.parseTime(ts);
+        const timeMs = RenderHelpers.parseTime(ts);
         if (!timeMs) return '---';
         const dateObj = new Date(timeMs);
         if (isNaN(dateObj.getTime())) return '---';

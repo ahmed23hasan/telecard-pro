@@ -1,46 +1,26 @@
 // ============================================================================
-// 💻 المحاكي المالي للواجهة الأمامية (Client-Side Simulator) - النسخة الماسية المطلقة V14.1 💎
+// 💻 المحاكي المالي للواجهة الأمامية (Client-Side Simulator) - V15.1 💎
 // 🎯 الوظيفة: محاكاة الأسعار، عرض الخصومات للعميل، وتنسيق العملات.
-// 🚀 التحديثات:
-// 1. التطابق المعماري التام مع السيرفر (Number.EPSILON) لمنع فوارق السنتات.
-// 2. إزالة this لمنع انهيار الواجهة الأمامية (White Screen of Death).
-// 3. تطبيق الجدار الناري الصفري (MIN_SALE_PRICE) في الواجهة لمنع الأوهام البصرية.
+// 🚀 التحديثات: إضافة التسوية المحاسبية لمنع التضارب البصري في سلة العميل.
 // ============================================================================
 
 export const FinancialEngine = {
-
     CONFIG: Object.freeze({
         BASE_CURRENCY: 'USD',
         PRECISION: 10000,
         MAX_UI_QTY: 10000,
-        MIN_SALE_PRICE: 0.01 // 🛡️ التطابق مع السيرفر لمنع استغلال الكوبونات بنسبة 100%
+        MIN_SALE_PRICE: 0.01 
     }),
 
-    // ==========================================
-    // 🛡️ 1. دوال الرياضيات الآمنة (Bank-Grade)
-    // ==========================================
-    safeAdd: function(a, b) {
-        return Math.round(( (Number(a) || 0) + (Number(b) || 0) + Number.EPSILON ) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION;
-    },
-    
-    safeSub: function(a, b) {
-        return Math.round(( (Number(a) || 0) - (Number(b) || 0) + Number.EPSILON ) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION;
-    },
-    
-    safeMul: function(a, b) {
-        return Math.round(( (Number(a) || 0) * (Number(b) || 0) + Number.EPSILON ) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION;
-    },
-    
+    safeAdd: function(a, b) { return Math.round(((Number(a) || 0) + (Number(b) || 0) + Number.EPSILON) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION; },
+    safeSub: function(a, b) { return Math.round(((Number(a) || 0) - (Number(b) || 0) + Number.EPSILON) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION; },
+    safeMul: function(a, b) { return Math.round(((Number(a) || 0) * (Number(b) || 0) + Number.EPSILON) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION; },
     safeDiv: function(a, b) {
         const numA = Number(a) || 0;
-        let numB = Number(b);
-        if (isNaN(numB) || numB === 0) numB = 1; 
-        return Math.round(( (numA / numB) + Number.EPSILON ) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION;
+        const numB = Number(b) || 0;
+        if (numB === 0) return 0;
+        return Math.round(((numA / numB) + Number.EPSILON) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION;
     },
-
-    // ==========================================
-    // 🛡️ 2. تنقية المدخلات وتنسيق العملات
-    // ==========================================
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '' || Array.isArray(val) || typeof val === 'object') return 0;
         const num = Number(val);
@@ -48,62 +28,41 @@ export const FinancialEngine = {
         if (!allowZero && num === 0) return 1;
         return num;
     },
-
     normalizeRates: function(rawArray) {
         const ratesMap = {};
-        ratesMap[FinancialEngine.CONFIG.BASE_CURRENCY] = { 
-            code: FinancialEngine.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', 
-            priceRate: 1, depRate: 1, isBase: true 
-        };
-
+        ratesMap[FinancialEngine.CONFIG.BASE_CURRENCY] = { code: FinancialEngine.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
         if (Array.isArray(rawArray)) {
             for (const rate of rawArray) {
                 if (rate && rate.code && rate.code !== FinancialEngine.CONFIG.BASE_CURRENCY) {
                     const code = String(rate.code).toUpperCase();
-                    ratesMap[code] = { 
-                        code: code, 
-                        priceRate: FinancialEngine.extractNum(rate.priceRate, false), 
-                        depRate: FinancialEngine.extractNum(rate.depRate, false) 
-                    };
+                    ratesMap[code] = { code: code, priceRate: FinancialEngine.extractNum(rate.priceRate, false), depRate: FinancialEngine.extractNum(rate.depRate, false) };
                 }
             }
         }
         return ratesMap;
     },
-
     convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel = 'pricing') {
         const amt = FinancialEngine.extractNum(amount);
         const fCode = String(fromCode || FinancialEngine.CONFIG.BASE_CURRENCY).toUpperCase();
         const tCode = String(toCode || FinancialEngine.CONFIG.BASE_CURRENCY).toUpperCase();
-        
         if (amt === 0 || fCode === tCode) return amt;
         
         const ratesMap = FinancialEngine.normalizeRates(ratesArray);
-        
-        // 🛡️ في الواجهة: نمنع الانهيار (Crash) ونعيد 0 إذا اختفت العملة لحماية تصميم الـ UI
-        if (!ratesMap[fCode] || !ratesMap[tCode]) return 0; 
+        if (!ratesMap[fCode] || !ratesMap[tCode]) return 0;
         
         const from = ratesMap[fCode];
         const to = ratesMap[tCode];
-        
         const fRate = channel === 'deposit' ? from.depRate : from.priceRate;
         const tRate = channel === 'deposit' ? to.depRate : to.priceRate;
-        
+
+        if (fRate === 0 || tRate === 0) return 0;
+
         return FinancialEngine.safeMul(FinancialEngine.safeDiv(amt, fRate), tRate);
     },
-
-    // ==========================================
-    // 🚀 3. المحرك المالي النظيف للعميل
-    // ==========================================
     calculatePrice: function(params = {}) {
         const { product = {}, tier = null, offer = null, coupon = null, optIdx = null } = params;
-        
         if (!product || typeof product !== 'object' || Object.keys(product).length === 0) {
-            return { 
-                originalPrice: 0, finalPrice: 0, totalDiscountVal: 0, 
-                offerName: null, couponCode: null, 
-                isFirewallActive: true, isPricingFirewallViolated: true 
-            };
+            return { originalPrice: 0, finalPrice: 0, totalDiscountVal: 0, offerName: null, couponCode: null, isFirewallActive: true, isPricingFirewallViolated: true };
         }
 
         let baseSellingPrice = 0;
@@ -118,57 +77,52 @@ export const FinancialEngine = {
         }
 
         if (isFixed) {
-            baseSellingPrice = activeOption 
-                ? FinancialEngine.extractNum(activeOption.fixedPriceUsd || activeOption.price) 
-                : FinancialEngine.extractNum(product.fixedPriceUsd || product.fixed_price_usd || product.price);
+            baseSellingPrice = activeOption ? FinancialEngine.extractNum(activeOption.fixedPriceUsd || activeOption.price) : FinancialEngine.extractNum(product.fixedPriceUsd || product.fixed_price_usd || product.price);
         } else if (tier) {
             const tierPriceField = activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id];
             if (tierPriceField !== undefined && tierPriceField !== null) {
                 baseSellingPrice = FinancialEngine.extractNum(tierPriceField);
             } else {
-                baseSellingPrice = activeOption 
-                    ? FinancialEngine.extractNum(activeOption.price || activeOption.basePriceUsd) 
-                    : FinancialEngine.extractNum(product.price || product.basePriceUsd);
+                baseSellingPrice = activeOption ? FinancialEngine.extractNum(activeOption.price || activeOption.basePriceUsd) : FinancialEngine.extractNum(product.price || product.basePriceUsd);
             }
         } else {
-            baseSellingPrice = activeOption 
-                ? FinancialEngine.extractNum(activeOption.price) 
-                : FinancialEngine.extractNum(product.price);
+            baseSellingPrice = activeOption ? FinancialEngine.extractNum(activeOption.price) : FinancialEngine.extractNum(product.price);
         }
 
         let currentPrice = baseSellingPrice;
         const originalPrice = currentPrice;
 
-        // 🛡️ الحماية الكسرية للخصومات (العروض)
-        let offerName = null;
-        let offerDiscount = 0;
+        let offerName = null, offerDiscount = 0;
         if (offer && typeof offer === 'object' && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name;
             const val = FinancialEngine.extractNum(offer.value);
-            const valDec = FinancialEngine.safeDiv(val, 100); 
-            offerDiscount = offer.type === 'percentage' ? FinancialEngine.safeMul(originalPrice, valDec) : val;
+            if (offer.type === 'percentage') {
+                const valDec = FinancialEngine.safeDiv(val, 100);
+                offerDiscount = FinancialEngine.safeMul(originalPrice, valDec);
+            } else {
+                offerDiscount = Math.min(val, currentPrice);
+            }
         }
-
         currentPrice = FinancialEngine.safeSub(currentPrice, offerDiscount);
 
-        // 🛡️ الحماية الكسرية للكوبونات
-        let couponCode = null;
-        let couponDiscount = 0;
-        let isFirewallActive = false;
-        let isPricingFirewallViolated = false;
-
+        let couponCode = null, couponDiscount = 0, isFirewallActive = false, isPricingFirewallViolated = false;
+        
         if (product.disableCoupons === true || isFixed) {
             isFirewallActive = true;
         } else if (coupon && typeof coupon === 'object' && coupon.isActive !== false) {
             couponCode = coupon.code;
             const val = FinancialEngine.extractNum(coupon.value);
-            const valDec = FinancialEngine.safeDiv(val, 100); 
-            couponDiscount = coupon.type === 'percentage' ? FinancialEngine.safeMul(currentPrice, valDec) : val;
+            if (coupon.type === 'percentage') {
+                const valDec = FinancialEngine.safeDiv(val, 100);
+                couponDiscount = FinancialEngine.safeMul(currentPrice, valDec);
+            } else {
+                couponDiscount = Math.min(val, currentPrice);
+            }
         }
-
         currentPrice = FinancialEngine.safeSub(currentPrice, couponDiscount);
 
-        // 🛑 الجدار الناري المطور (مطابق للسيرفر 100%)
+        let preFirewallPrice = currentPrice;
+
         if (currentPrice < 0) {
             isPricingFirewallViolated = true;
             currentPrice = 0;
@@ -176,7 +130,21 @@ export const FinancialEngine = {
 
         if (originalPrice > 0 && currentPrice < FinancialEngine.CONFIG.MIN_SALE_PRICE) {
             isPricingFirewallViolated = true;
-            currentPrice = FinancialEngine.CONFIG.MIN_SALE_PRICE; // الواجهة ستعرض للعميل الحد الأدنى ولن تخدعه بصفر
+            currentPrice = FinancialEngine.CONFIG.MIN_SALE_PRICE; 
+        }
+
+        // ⚖️ التسوية المحاسبية للعميل (لكي لا يرى أرقاماً متناقضة في الفاتورة)
+        if (currentPrice > preFirewallPrice) {
+            let clawback = FinancialEngine.safeSub(currentPrice, preFirewallPrice);
+            if (couponDiscount >= clawback) {
+                couponDiscount = FinancialEngine.safeSub(couponDiscount, clawback);
+                clawback = 0;
+            } else {
+                clawback = FinancialEngine.safeSub(clawback, couponDiscount);
+                couponDiscount = 0;
+                offerDiscount = FinancialEngine.safeSub(offerDiscount, clawback);
+                if (offerDiscount < 0) offerDiscount = 0;
+            }
         }
 
         return {
@@ -192,23 +160,17 @@ export const FinancialEngine = {
             isPricingFirewallViolated
         };
     },
-
-    // ==========================================
-    // 🛒 4. حساب إجمالي الطلب للواجهة
-    // ==========================================
     calculateOrderTotalUi: function(params = {}, rawQty = 1) {
         const safeQty = Math.min(FinancialEngine.CONFIG.MAX_UI_QTY, Math.max(1, Math.floor(FinancialEngine.extractNum(rawQty) || 1)));
         const unitMath = FinancialEngine.calculatePrice(params);
-        
-        return { 
-            ...unitMath, 
-            qty: safeQty, 
-            totalOriginalPrice: FinancialEngine.safeMul(unitMath.originalPrice, safeQty), 
-            totalFinalPrice: FinancialEngine.safeMul(unitMath.finalPrice, safeQty), 
-            totalDiscountVal: FinancialEngine.safeMul(unitMath.totalDiscountVal, safeQty) 
+        return {
+            ...unitMath,
+            qty: safeQty,
+            totalOriginalPrice: FinancialEngine.safeMul(unitMath.originalPrice, safeQty),
+            totalFinalPrice: FinancialEngine.safeMul(unitMath.finalPrice, safeQty),
+            totalDiscountVal: FinancialEngine.safeMul(unitMath.totalDiscountVal, safeQty)
         };
     }
 };
 
-// 🔒 تجميد الكائن كاملاً لضمان عدم تلاعب أي إضافة بالمتصفح بأسعارك
 Object.freeze(FinancialEngine);

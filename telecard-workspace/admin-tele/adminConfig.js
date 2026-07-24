@@ -1,14 +1,11 @@
 // ============================================================================
-// ⚙️ ملف الإعدادات والأساسيات (adminConfig.js) - Enterprise V14.5 💎
+// ⚙️ ملف الإعدادات والأساسيات (adminConfig.js) - Enterprise V14.6 💎
 // 🎯 الوظيفة: مصدر الحقيقة الوحيد للمفاتيح، إعدادات فايربيز، والمحرك المالي
-// 🚀 التحديثات:
-// 1. Audit Logs Sync: تصحيح مفتاح السجلات ليتطابق مع السيرفر (telecard_audit_logs).
-// 2. Deep Freeze: تجميد عميق لمنع اختراق المتغيرات (Shallow Freeze Bypass).
+// 🚀 التحديث: دمج مفاتيح محرك الموردين وتنظيف التصدير المالي من bind.
 // ============================================================================
 
 import { FinancialEngine } from './core/financialEngine.js';
 
-// 🛡️ [أداة أمنية]: دالة التجميد العميق لضمان عدم اختراق أو تعديل الكائنات المتداخلة
 const deepFreeze = (obj) => {
     Object.keys(obj).forEach(prop => {
         if (typeof obj[prop] === 'object' && obj[prop] !== null && !Object.isFrozen(obj[prop])) {
@@ -18,7 +15,6 @@ const deepFreeze = (obj) => {
     return Object.freeze(obj);
 };
 
-// ☁️ إعدادات فايربيز (Firebase Config) - المصدر الوحيد في النظام
 export const firebaseConfig = deepFreeze({
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
@@ -28,10 +24,9 @@ export const firebaseConfig = deepFreeze({
     appId: "1:698672838633:web:743c8809615bd8308bfd78"
 });
 
-// 🗄️ مفاتيح قواعد البيانات (Collections in Firestore)
 export const DB_KEYS = deepFreeze({
     CATS: 'telecard_cats',
-    PRODS: 'telecard_prods', // 👈 صحيح جداً: الإدارة يجب أن تقرأ المجموعة السرية لرؤية أسعار التكلفة
+    PRODS: 'telecard_prods', // 👈 الإدارة ترى كل شيء
     SETTINGS: 'telecard_settings',
     USERS: 'telecard_users',
     BANNERS: 'telecard_banners',
@@ -48,25 +43,23 @@ export const DB_KEYS = deepFreeze({
     VAULT: 'telecard_vault',
     COUPONS: 'telecard_coupons',
     OFFERS: 'telecard_offers',
-    LOGS: 'telecard_audit_logs', // 🛡️ [إصلاح الكارثة]: تم ربطه مع نفس المجموعة التي يكتب فيها السيرفر (functions/index.js)
+    LOGS: 'telecard_audit_logs',
     ALERTS: 'telecard_alerts',
-    KYC: 'telecard_kyc'
+    KYC: 'telecard_kyc',
+    SUPPLIERS: 'telecard_suppliers', // 🛡️ تم إضافته لربط محرك الموردين
+    SYSTEM_ERRORS: 'telecard_system_errors' // 🛡️ تم إضافته لمراقبة الانهيارات
 });
 
 // ============================================================================
-// 💱 إعادة تصدير دوال المعالجة المالية 
+// 💱 إعادة تصدير دوال المعالجة المالية (نظيفة بدون bind)
 // ============================================================================
-
-// 🛡️ التخلص من الـ bind(this) لأنه لم يعد مطلوباً في المحرك המاسي الجديد (V14.2) 
-// ولكنه لا يضر كطبقة توافقية
-export const normalizeRates = FinancialEngine.normalizeRates.bind(FinancialEngine);
-export const convertViaUSD = FinancialEngine.convertViaUSD.bind(FinancialEngine);
+export const normalizeRates = (rawArray) => FinancialEngine.normalizeRates(rawArray);
+export const convertViaUSD = (amount, fromCode, toCode, ratesArray, channel) =>
+    FinancialEngine.convertViaUSD(amount, fromCode, toCode, ratesArray, channel);
 
 // ============================================================================
 // ⚖️ المحرك المالي المركزي (Telecard Pricing Engine)
 // ============================================================================
 export const TelecardPricingEngine = deepFreeze({
-    calculate: function(params) {
-        return FinancialEngine.calculatePrice(params);
-    }
+    calculate: (params) => FinancialEngine.calculatePrice(params)
 });

@@ -1,16 +1,15 @@
 // ============================================================================
-// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module
+// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V14.5
 // 🎯 الوظيفة: يحتوي على دوال الحماية (XSS)، وتنسيق النصوص، وتصفية التواريخ
-// 🚀 التحديث الأقصى: حماية مطلقة للروابط (URL Parsing)، حل جذري للـ Timezone
+// 🚀 التحديث الأقصى: إصلاح ثغرة الـ DST Timezone، وتوحيد تنسيق الأرقام مع السيرفر
 // ============================================================================
 
 import { FinancialEngine } from './core/financialEngine.js';
 
 export const Utils = {
-    // === 1. أدوات حماية النصوص وتنسيقها (XSS & Formatting Mitigation) ===
+    // === 1. أدوات حماية النصوص وتنسيقها (OWASP Standard) ===
     escapeHtml: function(val) {
         if (val === undefined || val === null) return '';
-        // 🛡️ ترقية لمعايير OWASP العالمية للحماية من الـ XSS
         return String(val)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
@@ -30,22 +29,14 @@ export const Utils = {
     // 🛡️ درع حماية الروابط المتقدم (Whitelist Protocol Validation)
     safeUrl: function(url, fallback = '#') {
         if (!url) return fallback;
-        
-        // إزالة رموز التحكم (Control Characters) التي يستخدمها الهاكرز لتخطي الفلاتر
         let cleaned = String(url).replace(/[\x00-\x1F\x7F]/g, '').trim();
         
         try {
-            // محاولة تحليل الرابط (إذا كان Absolute)
             const parsedUrl = new URL(cleaned, window.location.origin);
             const protocol = parsedUrl.protocol.toLowerCase();
-            
-            // القائمة البيضاء للبروتوكولات الآمنة فقط
-            if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) {
-                return this.escapeHtml(cleaned);
-            }
+            if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) return this.escapeHtml(cleaned);
             return fallback;
         } catch (e) {
-            // إذا فشل التحليل (يعني أنه رابط نسبي Relative مثل "/about" أو "#section")
             if (cleaned.startsWith('/') || cleaned.startsWith('./') || cleaned.startsWith('../') || cleaned.startsWith('#') || cleaned.startsWith('?')) {
                 return this.escapeHtml(cleaned);
             }
@@ -53,13 +44,18 @@ export const Utils = {
         }
     },
     
-    // 🌟 شبكة أمان لمنع انهيار الواجهات عند تنسيق القيم العددية
+    // 🌟 تم توحيدها مع الإدارة لضمان العرض الدقيق للأرقام الكبيرة بدون أخطاء ToFixed
     enNum: function(val, decimals = 2) {
         const num = Number(val);
-        return isNaN(num) ? Number(0).toFixed(decimals) : num.toFixed(decimals);
+        if (isNaN(num)) return Number(0).toFixed(decimals);
+        return new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals,
+            useGrouping: false
+        }).format(num);
     },
     
-    // === 2. جسر تحويل العملات (Backward Compatibility FX Bridge) ===
+    // === 2. جسر تحويل العملات ===
     normalizeRates: function(raw) {
         return FinancialEngine.normalizeRates(raw);
     },
@@ -68,7 +64,7 @@ export const Utils = {
         return FinancialEngine.convertViaUSD(amount, fromCode, toCode, ratesArray, channel);
     },
     
-    // === 3. أداة الجوكر لتصفية التواريخ والبحث ===
+    // === 3. أداة تصفية التواريخ والبحث (مصححة وثابتة زمنياً) ===
     getSearchAndDateFilters: function(searchId, datePrefixId) {
         if (typeof document === 'undefined') return { q: '', dStart: '', dEnd: '', tStart: null, tEnd: null, error: null };
         
@@ -85,43 +81,35 @@ export const Utils = {
         const yestObj = new Date(todayObj);
         yestObj.setDate(todayObj.getDate() - 1);
         
+        // 🚀 [الحل הגذري لثغرة الـ DST Timezone]: استخراج النص الآمن بناءً على التوقيت المحلي الفعلي
         const toLocalISODate = (dateObj) => {
-            const tzOffset = dateObj.getTimezoneOffset() * 60000;
-            return new Date(dateObj.getTime() - tzOffset).toISOString().split('T')[0];
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         };
         
         const defStart = toLocalISODate(yestObj);
         const defEnd = toLocalISODate(todayObj);
         
-        // تطبيق القيم الافتراضية إذا كانت فارغة تماماً
         if (dEnd && !dStart) { dStart = defStart; if (dStartEl) dStartEl.value = defStart; }
         if (dStart && !dEnd) { dEnd = defEnd; if (dEndEl) dEndEl.value = defEnd; }
         
         let tStart = null;
         let tEnd = null;
         
-        // 🚀 [الحل الجذري للـ Timezone]: تمرير السنة والشهر واليوم صراحةً لمنع المتصفح من افتراض توقيت UTC
         if (dStart) {
             const [year, month, day] = dStart.split('-').map(Number);
-            if (year && month && day) {
-                // ملاحظة: الأشهر في Date تبدأ من 0 (يناير = 0)
-                const startObj = new Date(year, month - 1, day, 0, 0, 0, 0);
-                tStart = startObj.getTime();
-            }
+            if (year && month && day) tStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
         }
         
         if (dEnd) {
             const [year, month, day] = dEnd.split('-').map(Number);
-            if (year && month && day) {
-                const endObj = new Date(year, month - 1, day, 23, 59, 59, 999);
-                tEnd = endObj.getTime();
-            }
+            if (year && month && day) tEnd = new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
         }
         
         let error = null;
-        if (tStart && tEnd && tStart > tEnd) {
-            error = 'تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء';
-        }
+        if (tStart && tEnd && tStart > tEnd) error = 'تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء';
         
         return { q, dStart, dEnd, tStart, tEnd, error };
     },
@@ -129,7 +117,6 @@ export const Utils = {
     // === 4. أداة ذكية لاستخراج أكواد الخزنة ===
     extractCodeText: function(dCode) {
         if (!dCode || dCode === 'null') return '';
-        
         let extracted = '';
         if (Array.isArray(dCode)) {
             extracted = dCode.map(c => (typeof c === 'object' && c !== null) ? (c.text || c.code || '') : String(c)).join(' | ');
@@ -138,7 +125,6 @@ export const Utils = {
         } else {
             extracted = String(dCode);
         }
-        
         return this.escapeHtml(extracted);
     },
     
@@ -146,30 +132,13 @@ export const Utils = {
     calculateOrderDuration: function(startTime, endTime) {
         if (!startTime || !endTime) return "---";
         
-        let startMs, endMs;
+        const startMs = (typeof startTime.toMillis === 'function') ? startTime.toMillis() : Number(startTime);
+        const endMs = (typeof endTime.toMillis === 'function') ? endTime.toMillis() : Number(endTime);
         
-        // معالجة تاريخ البدء
-        if (startTime && typeof startTime.toMillis === 'function') {
-            startMs = startTime.toMillis(); // إذا كان Firestore Timestamp
-        } else {
-            startMs = Number(startTime); // إذا كان رقم عادي (Milliseconds)
-        }
+        if (isNaN(startMs) || isNaN(endMs)) return "---";
         
-        // معالجة تاريخ الانتهاء
-        if (endTime && typeof endTime.toMillis === 'function') {
-            endMs = endTime.toMillis();
-        } else {
-            endMs = Number(endTime);
-        }
-        
-        const startObj = new Date(startMs);
-        const endObj = new Date(endMs); // ✅ تم مسح النسخة المكررة التي كانت أسفل هذا السطر
-        
-        if (isNaN(startObj.getTime()) || isNaN(endObj.getTime())) return "---";
-        
-        const diffMs = endObj.getTime() - startObj.getTime();
+        const diffMs = endMs - startMs;
         if (diffMs < 0) return "---";
-        
         if (diffMs < 2000) return "فوري ⚡";
         
         const diffSecs = Math.floor(diffMs / 1000);
@@ -184,23 +153,18 @@ export const Utils = {
         return `${diffSecs} ثانية`;
     },
     
-    // === 6. محرك حساب الأسعار ===
+    // === 6. محرك حساب الأسعار المضمن للواجهة ===
     TelecardPricingEngine: Object.freeze({
         calculate: function(params) {
             return FinancialEngine.calculatePrice(params);
         },
-        // 🚀 فتح الجسر للدالة الجديدة التي تحسب إجمالي الكميات للواجهة الأمامية
         calculateOrderTotalUi: function(params, rawQty) {
-            // نتحقق من وجودها أولاً لتجنب الأخطاء إذا لم يتم تحديث المحرك بعد
             if (typeof FinancialEngine.calculateOrderTotalUi === 'function') {
                 return FinancialEngine.calculateOrderTotalUi(params, rawQty);
             }
-            
-            // Fallback احتياطي آمن بدقة حسابية بنكية
             const unit = FinancialEngine.calculatePrice(params);
             const q = Math.max(1, Math.floor(Number(rawQty) || 1));
             
-            // استخدام دالة safeMul لحماية الأرقام العشرية من التشوه (Floating Point Precision)
             const safeMul = typeof FinancialEngine.safeMul === 'function' ?
                 (a, b) => FinancialEngine.safeMul(a, b) :
                 (a, b) => Math.round((Number(a) * Number(b)) * 10000) / 10000;
@@ -214,4 +178,4 @@ export const Utils = {
             };
         }
     })
-}; // نهاية كائن Utils
+};

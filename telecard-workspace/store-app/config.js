@@ -1,15 +1,11 @@
 // ============================================================================
-// 📁 ملف الإعدادات المركزي (config.js) - Enterprise V14.0 💎
+// 📁 ملف الإعدادات المركزي (config.js) - Enterprise V14.1 💎
 // 🎯 الوظيفة: يحتوي على جميع الثوابت، مفاتيح قواعد البيانات، وإعدادات المتجر
-// 🚀 التحديثات:
-// 1. Zero Memory Leaks: تثبيت مفتاح الكاش لمنع التراكم العشوائي في هواتف العملاء.
-// 2. Deep Freeze Shield: تجميد كافة إعدادات النظام (StoreConfig) لمنع العبث العرضي.
+// 🚀 التحديث: تم إضافة firebaseConfig لحل مشكلة الانهيار (Blank Screen).
 // ============================================================================
 
-// 🌟 رقم إصدار المتجر الأساسي
-export const APP_VERSION = 'v14.0';
+export const APP_VERSION = 'v14.1';
 
-// 🛡️ [أداة أمنية]: دالة التجميد العميق لضمان عدم اختراق أو تعديل الكائنات المتداخلة
 const deepFreeze = (obj) => {
     Object.keys(obj).forEach(prop => {
         if (typeof obj[prop] === 'object' && obj[prop] !== null && !Object.isFrozen(obj[prop])) {
@@ -19,12 +15,19 @@ const deepFreeze = (obj) => {
     return Object.freeze(obj);
 };
 
-// ============================================================================
-// 1. مفاتيح قواعد البيانات السحابية (Firestore Collections)
-// ============================================================================
+// ☁️ إعدادات فايربيز (يجب أن تكون هنا ليقرأها firebaseAdapter.js)
+export const firebaseConfig = deepFreeze({
+    apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
+    authDomain: "telecard-1.firebaseapp.com",
+    projectId: "telecard-1",
+    storageBucket: "telecard-1.firebasestorage.app",
+    messagingSenderId: "698672838633",
+    appId: "1:698672838633:web:743c8809615bd8308bfd78"
+});
+
 export const DB_KEYS = deepFreeze({
     CATS: 'telecard_cats',
-    PRODS: 'telecard_prods_public',
+    PRODS: 'telecard_prods_public', // 🛡️ درع الحماية الفعال
     SETTINGS: 'telecard_settings',
     USERS: 'telecard_users',
     BANNERS: 'telecard_banners',
@@ -46,19 +49,12 @@ export const DB_KEYS = deepFreeze({
     FEEDBACKS: 'telecard_private_feedbacks'
 });
 
-// ============================================================================
-// 2. مفاتيح الذاكرة المحلية (Local Storage & Cache Keys)
-// ============================================================================
 export const CACHE_KEYS = deepFreeze({
     ACTIVE_USER: 'telecard_active_user',
     ACTIVE_UID: 'telecard_active_user_uid',
     STORE_CACHE: 'telecard_store_cache',
     STORE_CACHE_FALLBACK: 'telecard_store_cache_fallback',
-    
-    // 🛡️ [إصلاح تسرب الذاكرة الماسي]: تم تثبيت المفتاح ليقوم بعمل (Overwrite) دائماً 
-    // بدلاً من توليد ملفات جديدة مهجورة في ذاكرة العميل كلما تغير رقم الإصدار.
-    SMART_CATALOG: 'telecard_store_catalog_master',
-    
+    SMART_CATALOG: 'telecard_store_catalog_master', // 🛡️ كاش ذكي لا يسبب تسرب
     CATALOG_VERSION: 'telecard_catalog_version',
     TIME_SYNC: 'telecard_time_sync_ts',
     THEME: 'telecard_theme',
@@ -78,10 +74,6 @@ export const DYNAMIC_PREFIXES = deepFreeze({
 
 export const ACTIVE_USER_KEY = CACHE_KEYS.ACTIVE_USER;
 
-// ============================================================================
-// 3. كائن الإعدادات العامة (Store Configuration & Fallbacks)
-// 🛡️ [التحديث]: تم تجميد الكائن (deepFreeze) لمنع أي تلاعب به أثناء عمل المتجر
-// ============================================================================
 export const StoreConfig = deepFreeze({
     currencies: ['USD', 'TRY', 'SYP'],
     
