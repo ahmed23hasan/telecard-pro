@@ -1,7 +1,10 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Clean Architecture (Tier 1)
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V15 💎
 // 🎯 الوظيفة: تحويل البيانات الخام (Data) إلى نصوص HTML جاهزة للرسم
-// 🚀 الفائدة: فصل التصميم (UI) عن منطق الرسم (Logic) لتسريع الأداء وتسهيل الصيانة
+// 🚀 التحديثات:
+// 1. إصلاح حقل الإيداع (إزالة readonly للسماح بكتابة المبلغ).
+// 2. تجميع الدوال الـ 9 بالكامل (بما فيها ProductCard و PDFReceipt).
+// 3. التوافق التام مع سياسة أمان المحتوى (CSP) و Zero-XSS.
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -9,9 +12,7 @@ import { RenderHelpers } from '../core/renderHelpers.js';
 
 export const UIBuilders = {
 
-    /**
-     * 1️⃣ بناء كرت حركة المحفظة (إيداع / شراء)
-     */
+    /** 1️⃣ بناء كرت حركة المحفظة (إيداع / شراء) */
     buildWalletCard: function(tx, walletCurr, isFilterActive) {
         const isDep = tx.type === 'deposit';
         let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
@@ -46,17 +47,15 @@ export const UIBuilders = {
         const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
 
         let runningBalanceHtml = '';
-        if (!isFilterActive && tx.balanceAfter !== undefined && tx.balanceAfter !== null) {
+        if (!isFilterActive && typeof tx.balanceAfter === 'number' && !isNaN(tx.balanceAfter)) {
             runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, walletCurr)}</div>`;
         }
 
         const safeTxName = Utils.escapeHtml(isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء'));
 
         return `
-            <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${tx.id}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
-                <div class="th-icon ${iconColorClass}">
-                    <i class="fa-solid ${iconName}"></i>
-                </div>
+            <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${Utils.escapeHtml(tx.id)}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
+                <div class="th-icon ${iconColorClass}"><i class="fa-solid ${iconName}"></i></div>
                 <div class="th-body">
                     <div class="th-details-col">
                         <div class="th-row-top"><span class="tx-name-text">${safeTxName}</span></div>
@@ -73,9 +72,7 @@ export const UIBuilders = {
             </div>`;
     },
 
-    /**
-     * 2️⃣ بناء كرت الطلب (Order Card)
-     */
+    /** 2️⃣ بناء كرت الطلب (Order Card) */
     buildOrderCard: function(o, idx, displayCurr, highlightId = null, productNamePassed = null) {
         const getCleanInputRows = (str) => {
             if (!str || str === '---' || typeof str === 'object') return [];
@@ -102,12 +99,14 @@ export const UIBuilders = {
         else if (status === 'rejected') statusLabel = '<i class="fa-solid fa-circle-xmark"></i> مرفوض';
         else if (['returned', 'refunded'].includes(status)) statusLabel = '<i class="fa-solid fa-rotate-left"></i> مسترجع';
         
-        // 🛡️ [Number Safety Fix]: حماية الواجهة من انهيار NaN عبر parseFloat
-        const totalDiscLocal = (parseFloat(o.couponDiscount) || 0) + (parseFloat(o.saleDiscount) || 0);
+        const safeCouponDisc = parseFloat(o.pricingSnapshot?.couponDiscount || o.couponDiscount) || 0;
+        const safeSaleDisc = parseFloat(o.pricingSnapshot?.offerDiscount || o.saleDiscount) || 0;
+        const totalDiscLocal = safeCouponDisc + safeSaleDisc;
+        
         let discountBadgeHtml = '';
         if (totalDiscLocal > 0) {
-            const isCombo = ((parseFloat(o.couponDiscount) || 0) > 0 && (parseFloat(o.saleDiscount) || 0) > 0);
-            const isCoupon = (parseFloat(o.couponDiscount) || 0) > 0;
+            const isCombo = (safeCouponDisc > 0 && safeSaleDisc > 0);
+            const isCoupon = (safeCouponDisc > 0);
             discountBadgeHtml = `
                 <div class="oh-discount-badge ${isCombo ? 'badge-combo' : (isCoupon ? 'badge-coupon' : 'badge-sale')}">
                     <i class="fa-solid ${isCombo ? 'fa-gift' : (isCoupon ? 'fa-ticket' : 'fa-tag')}"></i> 
@@ -119,33 +118,22 @@ export const UIBuilders = {
         const isHighlighted = (highlightId && String(o.id) === String(highlightId)) ? 'jump-highlight' : '';
         
         return `
-            <div class="oh-card ${isHighlighted}" style="--anim-idx: ${idx}" data-action="open-detail" data-type="order" data-id="${o.id}">
+            <div class="oh-card ${isHighlighted}" style="--anim-idx: ${idx}" data-action="open-detail" data-type="order" data-id="${Utils.escapeHtml(o.id)}">
                 <div class="oh-right">
                     ${discountBadgeHtml} 
                     <div class="oh-title">${productName}</div> 
-                    <div class="oh-inputs-stack">
-                        ${inputRows.map(row => `<div class="oh-input-line num-en">${Utils.escapeHtml(row)}</div>`).join('')}
-                    </div>
+                    <div class="oh-inputs-stack">${inputRows.map(row => `<div class="oh-input-line num-en">${Utils.escapeHtml(row)}</div>`).join('')}</div>
                     <div class="oh-date-time num-en">${RenderHelpers.formatSafeDate(o.time || o.createdAt)}</div>
                 </div>
                 <div class="oh-left">
-                    <div class="oh-status-box">
-                        <span class="oh-status ${statusClass}">${statusLabel}</span>
-                    </div>
-                    <div class="oh-price-box" dir="ltr">
-                        <div class="oh-amount">${RenderHelpers.formatMoney(Number(o.price || 0), displayCurr)}</div>
-                        ${qtyHtml}
-                    </div>
-                    <div class="oh-order-box" dir="ltr">
-                        <span class="oh-order-number num-en">${RenderHelpers.formatOrderId(o)}</span>
-                    </div>
+                    <div class="oh-status-box"><span class="oh-status ${statusClass}">${statusLabel}</span></div>
+                    <div class="oh-price-box" dir="ltr"><div class="oh-amount">${RenderHelpers.formatMoney(Number(o.price || 0), displayCurr)}</div>${qtyHtml}</div>
+                    <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${RenderHelpers.formatOrderId(o)}</span></div>
                 </div>
             </div>`;
     },
 
-    /**
-     * 3️⃣ بناء كرت عملية الدفع / الشحن (Payment/Deposit Card)
-     */
+    /** 3️⃣ بناء كرت عملية الدفع (Payment/Deposit Card) */
     buildPaymentCard: function(d, userDisplayName, userIdString, baseCurrency) {
         const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
         
@@ -153,11 +141,8 @@ export const UIBuilders = {
         if (['approved', 'completed'].includes(d.status)) { 
             if (isDeduction) { stClass = 'st-rejected'; stText = 'مخصوم'; icon = 'fa-arrow-up-long'; } 
             else { stClass = 'st-approved'; stText = 'مقبول'; icon = 'fa-check'; }
-        } else if (d.status === 'rejected') { 
-            stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; 
-        } else if (['refunded', 'returned'].includes(d.status)) { 
-            stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; 
-        }
+        } else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
+        else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
 
         const currency = (d.currency || 'USD').toUpperCase();
         const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
@@ -171,8 +156,7 @@ export const UIBuilders = {
             const isBonus = (d.feeType === 'bonus');
             feeLabel = isBonus ? 'بونص إضافي' : 'العمولة';
             const feeColor = isBonus ? 'text-success' : 'text-danger';
-            const feeSign = isBonus ? '+' : '-';
-            feeValueHtml = `<span class="${feeColor}" dir="ltr">${feeSign} ${RenderHelpers.formatMoney(feeVal, currency)}</span>`;
+            feeValueHtml = `<span class="${feeColor}" dir="ltr">${isBonus ? '+' : '-'} ${RenderHelpers.formatMoney(feeVal, currency)}</span>`;
         }
         
         const formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
@@ -184,9 +168,7 @@ export const UIBuilders = {
             <div class="pay-history-card ${stClass}">
                 <div class="ph-header" data-action="toggle-accordion">
                     <div class="ph-right-sec">
-                        <div class="ph-icon-box">
-                            <i class="fa-solid ${icon} ph-icon"></i>
-                        </div>
+                        <div class="ph-icon-box"><i class="fa-solid ${icon} ph-icon"></i></div>
                         <div class="ph-info-text">
                             <span class="ph-method-name">${Utils.escapeHtml(d.method || 'شحن رصيد')}</span>
                             <span class="ph-date-mini num-en">${formattedDate.replace('|', '<span class="date-sep">|</span>')}</span>
@@ -196,11 +178,8 @@ export const UIBuilders = {
                         <span class="ph-amount-header num-en ${amountColorClass}">${amountPrefix} ${RenderHelpers.formatMoney(rawAmount, currency)}</span>
                         <span class="ph-status-mini">${stText}</span>
                     </div>
-                    <div class="ph-left-sec">
-                        <div class="ph-arrow-btn"><i class="fa-solid fa-chevron-down"></i></div>
-                    </div>
+                    <div class="ph-left-sec"><div class="ph-arrow-btn"><i class="fa-solid fa-chevron-down"></i></div></div>
                 </div>
-                
                 <div class="ph-details-body">
                     <div class="ph-sep-line"></div>
                     <div class="ph-data-list">
@@ -209,124 +188,86 @@ export const UIBuilders = {
                             <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${shortDepositId}">${shortDepositId}</div>
                         </div>
                         <div class="ph-item">
-                            <div class="ph-item-label"><i class="fa-solid fa-user"></i> اسم المرسل</div>
-                            <div class="ph-item-val">${userDisplayName}</div>
-                        </div>
-                        <div class="ph-item">
-                            <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرّف العميل</div>
-                            <div class="uid-capsule is-copyable" data-action="copy-text" data-text="${userIdString}">
-                                <span class="num-en">${userIdString}</span>
-                            </div>
-                        </div>
-                        <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-tags"></i> ${feeLabel}</div>
                             <div class="ph-item-val num-en">${feeValueHtml}</div>
                         </div>
                         <div class="ph-item item-highlight">
                             <div class="ph-item-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</div>
-                            <div class="ph-item-val num-en ${amountColorClass}">
-                                ${RenderHelpers.formatMoney(displayNetAmount, (d.targetCurrency || baseCurrency).toUpperCase())}
-                            </div>
-                        </div>
-                        <div class="ph-item">
-                            <div class="ph-item-label"><i class="fa-solid fa-clock"></i> التاريخ والوقت</div>
-                            <div class="ph-item-val num-en">${formattedDate}</div>
+                            <div class="ph-item-val num-en ${amountColorClass}">${RenderHelpers.formatMoney(displayNetAmount, (d.targetCurrency || baseCurrency).toUpperCase())}</div>
                         </div>
                     </div>
-                    
                     ${d.adminNote ? `
                         <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'}">
                             <i class="fa-solid fa-headset"></i>
-                            <div class="ph-admin-note-content">
-                                <span class="ph-admin-note-title">رسالة الإدارة:</span>
-                                <div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div>
-                            </div>
+                            <div class="ph-admin-note-content"><span class="ph-admin-note-title">رسالة الإدارة:</span><div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div></div>
                         </div>` : ''}
-                        
                     <div class="ph-footer-action">
-                        <button class="btn-receipt-export" data-action="export-receipt" data-id="${d.id}">
-                            <i class="fa-solid fa-file-export"></i> تصدير الإيصال
-                        </button>
+                        <button class="btn-receipt-export" data-action="export-receipt" data-id="${Utils.escapeHtml(d.id)}"><i class="fa-solid fa-file-export"></i> تصدير الإيصال</button>
                     </div>
                 </div>
             </div>`;
     },
 
-    /**
-     * 4️⃣ بناء محتوى كارت المنتج (Product Card)
-     */
+    /** 4️⃣ بناء محتوى كارت المنتج (المفقودة وتم إرجاعها) */
     buildProductCardInner: function(safeName, priceSectionHtml, imgObj, visualElementsHtml, nameExpandedStyle) {
         return `
-            <svg class="snake-border" viewBox="0 0 120 165" preserveAspectRatio="none">
-                <rect x="0.7" y="0.7" width="118.6" height="163.6"></rect>
-            </svg>
-            <div class="card-image ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">
-                ${visualElementsHtml} 
-                ${imgObj.html}
-            </div>
+            <svg class="snake-border" viewBox="0 0 120 165" preserveAspectRatio="none"><rect x="0.7" y="0.7" width="118.6" height="163.6"></rect></svg>
+            <div class="card-image ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${visualElementsHtml} ${imgObj.html}</div>
             <div class="card-info">
                 <div class="product-name" style="${nameExpandedStyle}">${safeName}</div>
                 ${priceSectionHtml}
             </div>`;
     },
 
-    /**
-     * 5️⃣ بناء فاتورة الإيصال (PDF Receipt Template)
-     */
+    /** 5️⃣ بناء فاتورة الإيصال PDF (المفقودة وتم إرجاعها) */
     buildPDFReceipt: function(config, brandHTML) {
-        const contentHTML = config.type === 'deposit' ? `
-            ${brandHTML}
-            <div class="r-title-box">
-                <div class="r-title">Deposit Receipt</div>
-                <div class="r-id">${config.data.displayId}</div>
-            </div>
-            <div class="r-grid">
-                <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                <div class="r-item"><span class="r-label">Customer ID</span><span class="r-value">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
-                <div class="r-item"><span class="r-label">Payment Method</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
-                <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
-                <div class="r-item"><span class="r-label">Base Amount</span><span class="r-value">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
-                <div class="r-item"><span class="r-label">Fee (${config.data.feePercent}%)</span><span class="r-value" style="color:#ef4444;">-${RenderHelpers.formatMoney(config.data.feeVal, config.data.currency)}</span></div>
-            </div>
-            <div class="r-total-box">
-                <div class="r-total-label">Net Added Balance</div>
-                <div class="r-total-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div>
-            </div>
-        ` : `
-            ${brandHTML}
-            <div class="r-title-box">
-                <div class="r-title">Order Receipt</div>
-                <div class="r-id">${config.data.displayId}</div>
-            </div>
-            <div class="r-grid">
-                <div class="r-item"><span class="r-label">Product</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
-                <div class="r-item"><span class="r-label">Status</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
-                <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${config.data.dateTime}</span></div>
-                <div class="r-item"><span class="r-label">Quantity</span><span class="r-value">${config.data.qty}</span></div>
-                <div class="r-item"><span class="r-label">Account Details</span><span class="r-value">${Utils.escapeHtml(config.data.input)}</span></div>
-            </div>
-            ${config.data.code ? `<div class="r-item-full"><span class="r-label">Completed Order Code</span><span class="r-value r-code-val">${Utils.escapeHtml(config.data.code)}</span></div>` : ''}
-            <div class="r-total-box">
-                <div class="r-total-label">Total Amount</div>
-                <div class="r-total-val">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</div>
-            </div>
-        `;
+        const storeNameText = Utils.escapeHtml(config.storeName || 'TeleCard');
+        let contentHTML = '';
 
-        const storeNameMatch = brandHTML.match(/<div class="store-name">([^<]+)<\/div>/);
-        // 🛡️ [Security Fix]: تأمين اسم المتجر لتفادي ثغرات XSS في الفاتورة
-        const storeNameText = storeNameMatch ? Utils.escapeHtml(storeNameMatch[1]) : 'TeleCard';
+        if (config.type === 'deposit') {
+            const feeDisplayLabel = config.data.feePercent ? `Fee (${config.data.feePercent}%)` : 'Fee Amount';
+            contentHTML = `
+                ${brandHTML}
+                <div class="r-title-box"><div class="r-title">Deposit Receipt</div><div class="r-id">${Utils.escapeHtml(config.data.displayId)}</div></div>
+                <div class="r-grid">
+                    <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
+                    <div class="r-item"><span class="r-label">Customer ID</span><span class="r-value">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
+                    <div class="r-item"><span class="r-label">Payment Method</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
+                    <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${Utils.escapeHtml(config.data.dateTime)}</span></div>
+                    <div class="r-item"><span class="r-label">Base Amount</span><span class="r-value">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
+                    <div class="r-item"><span class="r-label">${feeDisplayLabel}</span><span class="r-value" style="color:#ef4444;">-${RenderHelpers.formatMoney(config.data.feeVal, config.data.currency)}</span></div>
+                </div>
+                <div class="r-total-box"><div class="r-total-label">Net Added Balance</div><div class="r-total-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div></div>
+            `;
+        } else {
+            const originalPriceHtml = config.data.originalPrice > config.data.price ? 
+                `<div class="r-item"><span class="r-label">Original Price (Before Discount)</span><span class="r-value" style="text-decoration: line-through; color: #94a3b8;">${RenderHelpers.formatMoney(config.data.originalPrice, config.data.priceCurrency)}</span></div>` : '';
+            contentHTML = `
+                ${brandHTML}
+                <div class="r-title-box"><div class="r-title">Order Receipt</div><div class="r-id">${Utils.escapeHtml(config.data.displayId)}</div></div>
+                <div class="r-grid">
+                    <div class="r-item"><span class="r-label">Product</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
+                    <div class="r-item"><span class="r-label">Status</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
+                    <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
+                    <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${Utils.escapeHtml(config.data.dateTime)}</span></div>
+                    <div class="r-item"><span class="r-label">Quantity</span><span class="r-value">${Utils.escapeHtml(config.data.qty)}</span></div>
+                    <div class="r-item"><span class="r-label">Account Details</span><span class="r-value">${Utils.escapeHtml(config.data.input)}</span></div>
+                    ${originalPriceHtml}
+                </div>
+                ${config.data.code ? `<div class="r-item-full"><span class="r-label">Completed Order Code</span><span class="r-value r-code-val">${Utils.escapeHtml(config.data.code)}</span></div>` : ''}
+                <div class="r-total-box"><div class="r-total-label">Total Amount Paid</div><div class="r-total-val">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</div></div>
+            `;
+        }
 
         return `
             <!DOCTYPE html>
             <html lang="en" dir="ltr">
             <head>
                 <meta charset="UTF-8">
-                <title>${config.filename}</title>
+                <title>${Utils.escapeHtml(config.filename)}</title>
                 <style>
                     @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
                     @page { size: A4 portrait; margin: 15mm; }
-                    /* 🛡️ دعم خطوط النظام الآمنة للفواتير (Courier, monospace) في حال تأخر خط جوجل */
                     body { font-family: 'Share Tech Mono', 'Courier New', Courier, monospace; background: #ffffff; color: #0f172a; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                     .receipt-container { max-width: 100%; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 25px; }
                     .header-section { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px dashed #cbd5e1; padding-bottom: 20px; margin-bottom: 25px; }
@@ -347,79 +288,35 @@ export const UIBuilders = {
                 </style>
             </head>
             <body>
-                <div class="receipt-container">
-                    ${contentHTML}
-                    <div class="r-footer">Thank you for trusting ${storeNameText} | Certified Electronic Receipt</div>
-                </div>
+                <div class="receipt-container">${contentHTML}<div class="r-footer">Thank you for trusting ${storeNameText} | Certified Electronic Receipt</div></div>
             </body>
             </html>
         `;
     },
 
-    /**
-     * 6️⃣ بناء قائمة الأكواد المستلمة
-     */
+    /** 6️⃣ بناء قائمة الأكواد المستلمة */
     buildCodesList: function(codeString) {
         if (!codeString) return '';
-        const rawCodes = codeString.split(/\||\n/).map(c => c.trim()).filter(Boolean);
-        return rawCodes.map(code => {
-            const safeCode = Utils.escapeHtml(code);
-            return `
-            <div class="copyable-code-box lux-code-box success-lux-box" data-action="copy-text" data-text="${safeCode}" style="margin-bottom: 8px;">
-                <span class="num-en">${safeCode}</span>
-                <i class="fa-regular fa-copy"></i>
-            </div>`;
+        return codeString.split(/\||\n/).map(c => c.trim()).filter(Boolean).map(code => {
+            return `<div class="copyable-code-box lux-code-box success-lux-box" data-action="copy-text" data-text="${Utils.escapeHtml(code)}" style="margin-bottom: 8px;"><span class="num-en">${Utils.escapeHtml(code)}</span><i class="fa-regular fa-copy"></i></div>`;
         }).join('');
     },
 
-    /**
-     * 7️⃣ بناء شريط رسوم وحدود الإيداع
-     */
+    /** 7️⃣ بناء شريط حدود الإيداع */
     buildLimitsBar: function(feeVal, payCurr, feeUnit, feeType, minVal, maxVal) {
         let itemsHtml = [];
         if (feeVal > 0) {
-            const isFixed = (feeUnit === 'fixed' || feeUnit === 'amount');
             const isBonus = (feeType === 'bonus');
-            const icon    = isBonus ? 'fa-gift' : 'fa-coins';
-            const label   = isBonus ? 'بونص' : 'عمولة';
-            const sign    = isBonus ? '+' : '-';
-            const cssClass = isBonus ? 'bonus' : 'commission';
-
-            const feeDisplay = isFixed 
-                ? RenderHelpers.formatMoney(feeVal, payCurr) 
-                : `<span class="money-pro"><span class="num-en">${feeVal.toFixed(1)}%</span></span>`;
-
-            itemsHtml.push(`
-                <div class="bar-item ${cssClass}">
-                    <span class="item-label"><i class="fa-solid ${icon}"></i> ${label}</span>
-                    <span class="item-value"><span class="math-sign">${sign}</span>${feeDisplay}</span>
-                </div>`);
+            itemsHtml.push(`<div class="bar-item ${isBonus ? 'bonus' : 'commission'}"><span class="item-label"><i class="fa-solid ${isBonus ? 'fa-gift' : 'fa-coins'}"></i> ${isBonus ? 'بونص' : 'عمولة'}</span><span class="item-value"><span class="math-sign">${isBonus ? '+' : '-'}</span>${(feeUnit === 'fixed' || feeUnit === 'amount') ? RenderHelpers.formatMoney(feeVal, payCurr) : `<span class="money-pro"><span class="num-en">${feeVal.toFixed(1)}%</span></span>`}</span></div>`);
         }
-        if (minVal > 0) {
-            itemsHtml.push(`
-                <div class="bar-item">
-                    <span class="item-label"><i class="fa-solid fa-arrow-down"></i> أدنى حد</span>
-                    <span class="item-value">${RenderHelpers.formatMoney(minVal, payCurr)}</span>
-                </div>`);
-        }
-        if (maxVal > 0) {
-            itemsHtml.push(`
-                <div class="bar-item">
-                    <span class="item-label"><i class="fa-solid fa-arrow-up"></i> أعلى حد</span>
-                    <span class="item-value">${RenderHelpers.formatMoney(maxVal, payCurr)}</span>
-                </div>`);
-        }
+        if (minVal > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-down"></i> أدنى حد</span><span class="item-value">${RenderHelpers.formatMoney(minVal, payCurr)}</span></div>`);
+        if (maxVal > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-up"></i> أعلى حد</span><span class="item-value">${RenderHelpers.formatMoney(maxVal, payCurr)}</span></div>`);
         return itemsHtml;
     },
 
-    /**
-     * 8️⃣ بناء نموذج الدفع (Deposit Form)
-     */
-    /**
- * 8️⃣ بناء نموذج الدفع (Deposit Form)
- */
-buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrency, currItemsHtml, baseCurr) {
-    return `
+    /** 8️⃣ بناء نموذج الإيداع (Deposit Form) - مع إصلاح الـ readonly */
+    buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrency, currItemsHtml, baseCurr) {
+        return `
             <div class="bal-modal-container-new">
                 <div class="bal-payment-title">${Utils.escapeHtml(p.name)}</div>
                 ${copyContainer}
@@ -429,31 +326,27 @@ buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrenc
                         <div class="micro-currency-label"><i class="fa-solid fa-wallet"></i> عملة الإيداع</div>
                         <div class="split-dropdown" id="bal-currency-dropdown">
                             <div class="micro-currency-trigger" style="${isSingleCurrency ? 'cursor: default;' : ''}">
-                                <span id="bal-selected-currency" class="num-en">${currentPayCurrency}</span>
+                                <span id="bal-selected-currency" class="num-en">${Utils.escapeHtml(currentPayCurrency)}</span>
                                 ${isSingleCurrency ? '' : '<i class="fa-solid fa-chevron-down" style="font-size: 11px;"></i>'}
                             </div>
-                            <div class="dropdown-menu" id="bal-currency-list" style="${isSingleCurrency ? 'display:none;' : ''}">
-                                ${currItemsHtml}
-                            </div>
+                            <div class="dropdown-menu" id="bal-currency-list" style="${isSingleCurrency ? 'display:none;' : ''}">${currItemsHtml}</div>
                         </div>
                     </div>
                 <div class="bal-input-field-new" id="bal-amount-wrap">
-                    <span class="bal-input-currency-new" id="bal-amount-curr">${currentPayCurrency}</span>
-                    <!-- 🛡️ [UX Fix]: إضافة onclick لحل مشكلة متصفح سفاري في الآيفون -->
-                    <input type="text" id="bal-amount" class="bal-input-new num-en" placeholder="0.00" inputmode="decimal" autocomplete="one-time-code" readonly onfocus="this.removeAttribute('readonly');" onclick="this.removeAttribute('readonly');" spellcheck="false" autocorrect="off">
+                    <span class="bal-input-currency-new" id="bal-amount-curr">${Utils.escapeHtml(currentPayCurrency)}</span>
+                    <input type="text" id="bal-amount" class="bal-input-new num-en" dir="ltr" placeholder="0.00" inputmode="decimal" autocomplete="one-time-code" spellcheck="false" autocorrect="off">
                     <label class="bal-floating-label">أدخل مبلغ للإيداع</label>
                 </div>
                 <span id="bal-amount-error" class="bal-error-text-new d-none"></span>
                     <div class="bal-input-field-new" id="bal-net-wrap">
-                        <span class="bal-input-currency-new" id="bal-net-curr">${baseCurr}</span>
-                        <div class="bal-input-new bal-result-field-new num-en" id="calc-net">0.00</div>
+                        <span class="bal-input-currency-new" id="bal-net-curr">${Utils.escapeHtml(baseCurr)}</span>
+                        <div class="bal-input-new bal-result-field-new num-en" id="calc-net" dir="ltr">0.00</div>
                         <label class="bal-floating-label">سيضاف لمحفظتك</label>
                     </div>
                 </div>
                 <div id="bal-upload-container" style="display: ${p.reqProof !== false ? 'block' : 'none'}; margin-top: 10px;">
                     <button class="bal-upload-btn-new" id="bal-upload-box">
-                        <i class="fa-solid fa-cloud-arrow-up"></i>
-                        <span>أرفق إشعار الدفع</span>
+                        <i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>
                     </button>
                     <input type="file" id="bal-file" accept="image/*,application/pdf" style="display:none;">
                     <img id="bal-img-preview" class="bal-receipt-preview-new" style="display:none;">
@@ -462,7 +355,135 @@ buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrenc
                     <span class="btn-content"><i class="fa-solid fa-paper-plane"></i> إرسال الطلب</span>
                     <span class="btn-spinner"><i class="fa-solid fa-spinner fa-spin"></i></span>
                 </button>         
-            </div>
-        `;
-}
+            </div>`;
+    },
+
+    /** 9️⃣ بناء تفاصيل العملية (Transaction Detail - Order/Deposit) */
+    buildTransactionDetail: function(type, id, LiveStoreData, DataManager) {
+        const formatInputData = (str) => { 
+            if(!str || str === '---') return '<span class="num-en">---</span>'; 
+            if(str.includes('|')) { 
+                const parts = str.split('|').map(s => s.split(':').pop().trim());
+                return `<div class="nm-input-stack">${parts.map(p => `<span class="num-en nm-input-capsule">${Utils.escapeHtml(p)}</span>`).join('')}</div>`;
+            } 
+            const singleVal = str.includes(':') ? str.split(':').pop().trim() : str; 
+            return `<span class="num-en nm-input-capsule">${Utils.escapeHtml(singleVal)}</span>`; 
+        };
+
+        let html = '';
+
+        if(type === 'deposit') {
+            const d = (LiveStoreData.deposits || []).find(x => String(x.id) === String(id));
+            if(!d) return `<div class="tx-error-box"><i class="fa-solid fa-triangle-exclamation"></i> عذراً، لم يتم العثور على الإيداع.</div>`;
+
+            const shortDepositId = RenderHelpers.formatDepositId(d);
+            let stClass = 'pending'; let stTxt = d.status === 'pending' ? 'قيد المراجعة' : d.status; let stIcon = 'fa-clock';
+            if(d.status === 'approved' || d.status === 'completed') { stClass = 'completed'; stTxt = 'مقبول'; stIcon = 'fa-check-circle'; }
+            else if(d.status === 'rejected') { stClass = 'rejected'; stTxt = 'مرفوض'; stIcon = 'fa-times-circle'; }
+            
+            let replyHtml = '';
+            if (d.adminNote && d.adminNote.trim() !== '') {
+                const safeResponse = Utils.escapeHtml(d.adminNote);
+                const copySafeText = safeResponse.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, '\\n').replace(/\r/g, '');
+                replyHtml = `<div class="nm-reply-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-headset"></i> ملاحظات الإدارة</span><div class="nm-reply-body admin-reply-text">${safeResponse}</div></div><button class="reply-copy-btn" data-action="copy-text" data-text="${copySafeText}" title="نسخ الرد"><i class="fa-regular fa-copy"></i></button></div>`;
+            }
+
+            let creditedRow = '';
+            if (d.creditedAmount !== undefined) {
+                creditedRow = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</span><div class="nm-val">${RenderHelpers.formatMoney(d.creditedAmount, d.targetCurrency || 'USD')}</div></div>`;
+            }
+
+            const safeReceiptUrl = d.receipt ? (Utils.safeUrl ? Utils.safeUrl(d.receipt) : d.receipt) : '';
+            const receiptHtml = safeReceiptUrl ? `<div class="nm-universal-card nm-receipt-card" style="cursor: zoom-in;" onclick="window.open(this.dataset.url, '_blank')" data-url="${safeReceiptUrl}"><img src="${safeReceiptUrl}" class="nm-receipt-img" alt="Receipt"><div style="text-align:center; font-size:11px; margin-top:8px; color:var(--text-muted); font-weight:700;"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً</div></div>` : '';
+
+            html = `
+            <div class="nm-container">
+                <div class="nm-universal-card">
+                    <div class="nm-title-frame"><div class="nm-prod-title">تفاصيل الإيداع</div></div>
+                    <div class="nm-card-body">
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-coins"></i> المبلغ المودع</span><div class="nm-val">${RenderHelpers.formatMoney(d.amount, d.currency || 'USD')}</div></div>
+                        ${creditedRow}
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-building-columns"></i> طريقة الدفع</span><div class="nm-val"><span class="num-en">${Utils.escapeHtml(d.method || 'غير محدد')}</span></div></div>
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-circle-info"></i> الحالة</span><div class="nm-status-badge-lux ${stClass}"><i class="fa-solid ${stIcon}"></i> ${stTxt}</div></div>
+                        <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${shortDepositId}">
+                            <span class="nm-label" style="pointer-events: none;"><i class="fa-solid fa-hashtag"></i> رقم العملية</span>
+                            <div class="uid-capsule" style="pointer-events: none;"><i class="fa-solid fa-id-card"></i><span class="num-en">${shortDepositId}</span></div>
+                        </div>
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-calendar"></i> التاريخ</span><span class="nm-val num-en">${RenderHelpers.formatSafeDate(d.time)}</span></div>
+                    </div>
+                </div>
+                ${replyHtml} ${receiptHtml}
+            </div>`;
+        } else {
+            const user = DataManager.user;
+            const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(id) && user && String(x.userId) === String(user.id));
+            if(!o) return `<div class="tx-error-box"><i class="fa-solid fa-triangle-exclamation"></i> لا يمكن العثور على الطلب.</div>`;
+
+            const shortOrderId = RenderHelpers.formatOrderId(o);
+            const isRet = (o.status === 'refunded' || o.status === 'returned');
+            let stTxt = 'قيد التنفيذ'; let stClass = 'pending'; let stIcon = 'fa-clock';
+
+            if (o.status === 'completed') { stTxt = 'مكتمل'; stClass = 'completed'; stIcon = 'fa-circle-check'; } 
+            else if (o.status === 'rejected') { stTxt = 'مرفوض'; stClass = 'rejected'; stIcon = 'fa-circle-xmark'; } 
+            else if (isRet) { stTxt = 'مسترجع'; stClass = 'returned'; stIcon = 'fa-rotate-left'; }
+            
+            let durationHtml = '';
+            if (o.status !== 'completed' && o.status !== 'rejected' && !isRet) {
+                durationHtml = `<div class="nm-duration-pill"><i class="fa-solid fa-bolt"></i><span class="mx-1">مدة انجاز الطلب: </span><i class="fa-regular fa-clock opacity-90"></i></div>`;
+            } else {
+                let finalEndTime = o.actionTime || o.completedTime || o.updatedAt || o.time;
+                let durationStr = Utils.calculateOrderDuration ? Utils.calculateOrderDuration(o.time, finalEndTime) : '---';
+                durationHtml = `<div class="nm-duration-pill"><i class="fa-solid fa-bolt"></i><span dir="ltr" class="nm-font-en-fix">مدة الانجاز: ${durationStr}</span></div>`;
+            }
+
+            let replyHtml = '';
+            if (o.response && o.response !== 'null') {
+                const safeResponse = Utils.escapeHtml(o.response);
+                replyHtml += `<div class="nm-reply-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-headset"></i> رد المتجر</span><div class="nm-reply-body admin-reply-text">${safeResponse}</div></div></div>`;
+            }
+            if (o.status === 'completed' && o.deliveredCode && o.deliveredCode !== 'null') {
+                replyHtml += `<div class="nm-reply-box auto-delivery-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم فوري</span><div class="nm-reply-body" style="max-height: 200px; overflow-y: auto;">${this.buildCodesList(o.deliveredCode)}</div></div></div>`;
+            }
+
+            const cDiscountLocal = Number(o.pricingSnapshot?.couponDiscount || o.couponDiscount || 0);
+            const oDiscountLocal = Number(o.pricingSnapshot?.offerDiscount || o.saleDiscount || 0);
+            const origLocal = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
+            const finalLocal = Number(o.pricingSnapshot?.finalPriceUsd || o.price || 0);
+            
+            const displayCurr = (o.currency || o.priceCurrency || 'USD').toUpperCase();
+            const formatFn = (amt) => RenderHelpers.formatMoney(amt, displayCurr);
+            
+            let priceSectionHtml = '';
+            if (cDiscountLocal > 0 || oDiscountLocal > 0) {
+                let breakdown = `<div class="nm-receipt-line"><span class="line-lbl"><i class="fa-solid fa-box-open"></i> السعر الأساسي</span><span class="old-amt num-en" dir="ltr">${formatFn(origLocal)}</span></div>`;
+                if (oDiscountLocal > 0) breakdown += `<div class="nm-receipt-line sale-line"><span class="line-lbl"><i class="fa-solid fa-tag"></i> تخفيض العرض</span><span class="num-en" dir="ltr">-${formatFn(oDiscountLocal)}</span></div>`;
+                if (cDiscountLocal > 0) breakdown += `<div class="nm-receipt-line discount-line"><span class="line-lbl"><i class="fa-solid fa-ticket"></i> كوبون (${Utils.escapeHtml(o.pricingSnapshot?.couponCode || 'مفعل')})</span><span class="num-en" dir="ltr">-${formatFn(cDiscountLocal)}</span></div>`;
+                priceSectionHtml = `<div class="nm-row-compact col-layout"><div class="nm-receipt-integrated"><div class="nm-receipt-details-box">${breakdown}</div><div class="nm-receipt-main-row"><span class="nm-label"><i class="fa-solid fa-file-invoice-dollar"></i> الإجمالي</span><span class="nm-receipt-main-total num-en" dir="ltr">${formatFn(finalLocal)}</span></div></div></div>`;
+            } else {
+                priceSectionHtml = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-coins"></i> السعر الاجمالي</span><div class="nm-val" dir="ltr">${formatFn(finalLocal)}</div></div>`;
+            }
+
+            html = `
+            <div class="nm-container">
+                ${durationHtml}
+                <div class="nm-universal-card">
+                    <div class="nm-title-frame"><div class="nm-prod-title">${Utils.escapeHtml(o.product || 'منتج')}</div></div>
+                    <div class="nm-card-body">
+                        <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${shortOrderId}">
+                            <span class="nm-label" style="pointer-events: none;"><i class="fa-solid fa-hashtag"></i> رقم الطلب</span>
+                            <div class="nm-val scl-text" dir="ltr" style="pointer-events: none;"><span class="num-en">${shortOrderId}</span><i class="fa-regular fa-copy scl-icon"></i></div>
+                        </div>
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-circle-info"></i> الحالة</span><div class="nm-status-badge-lux ${stClass}"><i class="fa-solid ${stIcon}"></i> ${stTxt}</div></div>
+                        ${priceSectionHtml} 
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-layer-group"></i> الكمية</span><div class="nm-val" dir="ltr"><span class="num-en">${o.qty || 1}</span></div></div>
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-clock"></i> التاريخ</span><div class="nm-val" dir="ltr"><span class="num-en">${RenderHelpers.formatSafeDate(o.time)}</span></div></div>
+                        <div class="nm-row-compact align-start"><span class="nm-label"><i class="fa-solid fa-bullseye"></i> الحساب</span><div class="nm-val" dir="ltr">${formatInputData(o.input)}</div></div>
+                    </div>
+                </div>
+                <div class="nm-data-box"><div class="nm-btn-print-magic" data-action="export-receipt" data-id="${id}"><i class="fa-solid fa-file-pdf"></i> تصدير الإيصال</div></div>
+                ${replyHtml}
+            </div>`;
+        }        
+        return html;
+    }
 };

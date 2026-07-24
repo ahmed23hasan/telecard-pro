@@ -1,14 +1,18 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي الموحد (core/firebaseAdapter.js) - Enterprise V13.0 💎
-// 🎯 الوظيفة: البوابة الذكية للمتجر للاتصال بـ Firestore & Storage & Auth & Functions
-// 🚀 التحديث الأقصى: زراعة دالة الترقية السرية، استقرار الشبكة، ومنع تسريب الذاكرة
-// 👑 الهوية المعتمدة: Telecard Store
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.0 💎
+// 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق
+// 🚀 التحديثات:
+// 1. Zero-Cost Reads (إضافة getCacheFirst لقراءة البيانات مجاناً من جهاز العميل).
+// 2. Storage Firewall (منع مسارات الاختراق Path Traversal وحظر الملفات > 5MB).
+// 3. Billing Shield (حظر قراءة المجموعات الكاملة بدون Limit).
+// 4. AppCheck Ready (جاهزية نظام التحقق البشري لمنع البوتات).
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
     initializeFirestore, persistentLocalCache, persistentMultipleTabManager, 
-    collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, 
+    collection, doc, getDoc, getDocs, getDocFromCache, getDocsFromCache, // 👈 تم إضافة دوال الكاش
+    setDoc, addDoc, deleteDoc, onSnapshot, 
     query, where, orderBy, limit, startAfter 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -18,7 +22,6 @@ import {
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-// 🔑 مفاتيح الربط الخاصة بمتجر Telecard 
 const firebaseConfig = {
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
@@ -30,11 +33,10 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// 🛑 تم إيقاف نظام الحماية App Check بناءً على المتطلبات الحالية للتطوير والاختبار
-let appCheck = null;
-console.warn("⚠️ درع App Check معطل حالياً لتسهيل عمليات التطوير والاختبار السريع.");
+// 💡 [App Check] ضع مفتاح ReCaptcha الخاص بك هنا مستقبلاً لمنع البوتات من سحب منتجاتك
+let appCheck = null; 
 
-// 📦 [توفير التكاليف]: تهيئة Firestore مع كاش محلي متزامن بين النوافذ (Tabs)
+// 📦 تهيئة Firestore مع كاش محلي متزامن لتقليل التكاليف
 const db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
@@ -50,35 +52,37 @@ export const FirebaseAdapter = {
     storage: storage,
     functions: functions,
     
-    // 🧠 سجل إدارة الذاكرة (لمنع WebSockets المفتوحة المتكررة)
-    _activeListeners: {},
+    _activeListeners: new Map(),
 
-    _registerListener: function(key, unsubscribeFn) {
-        if (this._activeListeners[key]) {
-            try { this._activeListeners[key](); } catch (e) {}
-        }
-        this._activeListeners[key] = unsubscribeFn;
-        return unsubscribeFn;
+    _registerListener: function(baseKey, unsubscribeFn) {
+        const uniqueListenerId = `${baseKey}_${Math.random().toString(36).substr(2, 9)}`;
+        this._activeListeners.set(uniqueListenerId, unsubscribeFn);
+        
+        return () => {
+            if (this._activeListeners.has(uniqueListenerId)) {
+                this._activeListeners.get(uniqueListenerId)();
+                this._activeListeners.delete(uniqueListenerId);
+            }
+        };
     },
 
     killAllListeners: function() {
-        Object.keys(this._activeListeners).forEach(key => {
-            try { this._activeListeners[key](); } catch(e){}
+        this._activeListeners.forEach((unsubscribeFn) => {
+            try { unsubscribeFn(); } catch(e){}
         });
-        this._activeListeners = {}; // التنظيف السليم للذاكرة
-        console.debug("🧹 [Memory] All active Firestore listeners cleaned up.");
+        this._activeListeners.clear();
+        console.debug("🧹 [Memory] All active Firestore listeners cleaned up safely.");
     },
 
     _sanitizeDocId: function(id) {
-        if (!id) return '';
-        return String(id).replace(/[\/\\]/g, '_').trim(); 
+        return id ? String(id).replace(/[\/\\]/g, '_').trim() : '';
     },
 
     _withTimeout: function(promise, ms = 10000, context = '') {
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
-                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context} خلال ${ms/1000} ثوانٍ`);
+                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context}`);
                 err.code = 'deadline-exceeded'; 
                 reject(err);
             }, ms);
@@ -87,25 +91,44 @@ export const FirebaseAdapter = {
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
 
-    async getAll(collectionName, retryCount = 1) {
+    // 🛡️ [إصلاح التكلفة]: حظر القراءة المفتوحة وإجبار Limit لحماية الفاتورة
+    async getAll(collectionName, maxLimit = 1000, retryCount = 1) {
         try {
-            if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
-            const snapshot = await this._withTimeout(getDocs(collection(db, collectionName)), 10000, `getAll -> ${collectionName}`);
+            const q = query(collection(db, collectionName), limit(maxLimit));
+            const snapshot = await this._withTimeout(getDocs(q), 10000, `getAll -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (error) {
             if (error.code === 'deadline-exceeded' && retryCount > 0) {
-                console.warn(`⏳ جاري إعادة المحاولة بصمت لمجموعة [${collectionName}]...`);
                 await new Promise(resolve => setTimeout(resolve, 1000));
-                return this.getAll(collectionName, retryCount - 1); 
+                return this.getAll(collectionName, maxLimit, retryCount - 1); 
             }
             return [];
         }
     },
 
+    // 💰 [Zero-Cost Data]: تقرأ البيانات من جهاز العميل مجاناً، وإذا لم تكن موجودة تجلبها من السيرفر
+    async getCacheFirst(collectionName, docId) {
+        const safeId = this._sanitizeDocId(docId);
+        const docRef = doc(db, collectionName, safeId);
+        try {
+            // المحاولة الأولى: قراءة مجانية 100% من الكاش المحلي
+            const cachedSnap = await getDocFromCache(docRef);
+            if (cachedSnap.exists()) return { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
+        } catch (e) {
+            // الكاش فارغ أو غير متاح، ننتقل للسيرفر
+        }
+        
+        try {
+            // المحاولة الثانية: جلب من السيرفر
+            const serverSnap = await this._withTimeout(getDoc(docRef), 10000);
+            return serverSnap.exists() ? { id: serverSnap.id, ...serverSnap.data(), fromCache: false } : null;
+        } catch (error) { return null; }
+    },
+
     async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
         try {
             const q = query(collection(db, collectionName), orderBy(orderByField, 'desc'), limit(limitCount));
-            const snapshot = await this._withTimeout(getDocs(q), 10000, `getRecent -> ${collectionName}`);
+            const snapshot = await this._withTimeout(getDocs(q), 10000);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (error) { return []; }
     },
@@ -113,7 +136,7 @@ export const FirebaseAdapter = {
     async getById(collectionName, docId) {
         try {
             const safeId = this._sanitizeDocId(docId);
-            const docSnap = await this._withTimeout(getDoc(doc(db, collectionName, safeId)), 10000, `getById -> ${safeId}`);
+            const docSnap = await this._withTimeout(getDoc(doc(db, collectionName, safeId)), 10000);
             return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
         } catch (error) { return null; }
     },
@@ -121,12 +144,11 @@ export const FirebaseAdapter = {
     async set(collectionName, docId, data, options = { merge: true }, retryCount = 1) {
         try {
             const safeId = this._sanitizeDocId(docId);
-            await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000, `set -> ${collectionName}/${safeId}`);
+            await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000);
             return true;
         } catch (error) {
-            const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable' || error.message?.includes('Timeout');
+            const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
             if (isTransientError && retryCount > 0) {
-                console.warn(`⏳ تذبذب في الشبكة أثناء الحفظ في [${collectionName}]. جاري إعادة المحاولة...`);
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 return this.set(collectionName, docId, data, options, retryCount - 1);
             }
@@ -178,17 +200,20 @@ export const FirebaseAdapter = {
             queryConstraints.push(orderBy(orderByField, 'desc'), limit(limitCount));
             
             const key = `query_${collectionName}_${JSON.stringify(conditions)}`;
+            let cleanupFn = () => {};
+            
             const unsub = onSnapshot(query(...queryConstraints), (snapshot) => {
                 const arr = [];
                 snapshot.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
-                const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
-                callback(arr, lastDoc);
+                callback(arr, snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null);
             }, (error) => {
-                console.error(`🚨 خطأ استماع استعلام [${collectionName}]:`, error.message);
-            }); // 🛡️ إصلاح تسريب الذاكرة ومعرفة الخطأ
-            return this._registerListener(key, unsub);
+                console.error(`🚨 خطأ استماع [${collectionName}]:`, error.message);
+                cleanupFn(); 
+            }); 
+            
+            cleanupFn = this._registerListener(key, unsub);
+            return cleanupFn;
         } catch (error) { 
-            console.error(error);
             return () => {}; 
         }
     },
@@ -216,21 +241,38 @@ export const FirebaseAdapter = {
         } catch (error) { return { data: [], newLastDoc: null }; }
     },
 
+    // 🛡️ [Storage Firewall]: حماية من ثغرة Path Traversal واستنزاف المساحة
     async uploadImage(file, folderName = 'general', customFileName = null) {
         if (!file) return '';
+        
+        // 1. القائمة البيضاء للامتدادات
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!allowedTypes.includes(file.type)) {
+            throw new Error('نوع الملف غير مدعوم. يرجى رفع صور فقط (JPG, PNG, WEBP, GIF).');
+        }
+
+        // 2. حظر الملفات العملاقة (الحد الأقصى: 5 ميجابايت)
+        const MAX_FILE_SIZE_MB = 5;
+        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+            throw new Error(`حجم الملف كبير جداً. الحد الأقصى هو ${MAX_FILE_SIZE_MB} ميجابايت.`);
+        }
+
         try {
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general';
-            
             const uniqueId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9);
-            // 🛡️ إصلاح أمان اسم الملف لمنع المسارات الخبيثة
-            const safeFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '').replace(/^\.+/, 'file');
-            const finalFileName = customFileName || `${Date.now()}_${uniqueId}_${safeFileName}`;
+            
+            const originalExt = file.name.split('.').pop().toLowerCase();
+            const safeFileName = file.name.replace(/[^a-zA-Z0-9\-_]/g, '').replace(/^\.+/, 'file');
+            
+            // 🛡️ حماية الـ customFileName من ثغرة المسارات (Path Traversal)
+            const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null;
+            const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`;
             
             const snapshot = await this._withTimeout(
                 uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000
             );
             return await getDownloadURL(snapshot.ref);
-        } catch (error) { throw new Error('تعذر رفع الملف.'); }
+        } catch (error) { throw new Error('تعذر رفع الملف. تأكد من اتصالك بالإنترنت وحجم الملف.'); }
     },
 
     async deleteImageByUrl(url) {
@@ -254,6 +296,12 @@ export const FirebaseAdapter = {
         try {
             const user = auth.currentUser;
             if (!user) throw new Error("auth/no-user");
+
+            const hasPasswordProvider = user.providerData.some(p => p.providerId === 'password');
+            if (!hasPasswordProvider) {
+                return { success: false, msg: 'لا يمكن تغيير كلمة المرور للحسابات المسجلة عبر جوجل أو مزودات الطرف الثالث.' };
+            }
+
             await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
             await updatePassword(user, newPassword);
             return { success: true };
@@ -291,10 +339,11 @@ export const FirebaseAdapter = {
             const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Cloud Function -> ${functionName}`);
             return result.data;
         } catch (error) {
-            const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable' || error.message?.includes('Timeout');
+            const isSensitiveFunction = ['createOrder', 'submitBalanceRequest', 'externalCreateOrder'].includes(functionName);
+            const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
             
-            if (isTransientError && retryCount > 0) {
-                console.warn(`⏳ خطأ شبكة أثناء استدعاء الوظيفة السحابية [${functionName}]. جاري إعادة المحاولة...`);
+            if (isTransientError && retryCount > 0 && !isSensitiveFunction) {
+                console.warn(`⏳ خطأ شبكة. إعادة محاولة [${functionName}]...`);
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 return this.callFunction(functionName, payload, retryCount - 1); 
             }
@@ -303,23 +352,5 @@ export const FirebaseAdapter = {
             errObj.code = error.code || 'unknown';
             throw errObj;
         }
-    }
-};
-
-// ============================================================================
-// 🪄 الدالة السرية: لترقية حسابك الشخصي بضغطة زر 
-// بمجرد أن تنتهي من ترقية حسابك، يمكنك حذف هذا الجزء لاحقاً إن أردت.
-// ============================================================================
-window.upgradeMe = async function() {
-    try {
-        console.log("🚀 جاري الاتصال بالسيرفر لترقية حسابك...");
-        const result = await FirebaseAdapter.callFunction('grantAdminRole', {
-            email: "ahmed23hasan1994@gmail.com",
-            setupKey: "TELECARD_SECURE_ADMIN_2024" // كلمة السر التي وضعناها في Backend
-        }, 0); 
-        console.log("👑 النتيجة:", result.message);
-        console.log("✅ يرجى تحديث الصفحة (Refresh) لتفعيل صلاحيات الإدارة!");
-    } catch(e) {
-        console.error("❌ فشل الترقية:", e.message);
     }
 };

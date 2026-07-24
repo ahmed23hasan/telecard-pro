@@ -1,10 +1,14 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية (Pro V4.3)
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - Ultimate V15 💎
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🌟 التحديث الأقصى: إصلاح تسرب الذاكرة للمراقب، توحيد حالة التوثيق، وحماية ضغط الصور (Race Condition Guard)
+// 🚀 التحديثات:
+// 1. استعادة استقرار V4.5 بالكامل وإلغاء أخطاء setAttribute الكارثية.
+// 2. دمج حماية الذاكرة (Zero Memory Leaks) عبر URL.revokeObjectURL.
+// 3. تأمين أحداث رفع الصور عبر (cloneNode) لمنع التكرار (Memory Leak).
+// 4. تحميل آمن لسكريبت 2FA مع التحقق من جاهزية الشبكة.
 // ============================================================================
 
-import { DB_KEYS } from '../config.js'; 
+import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
 import { Utils } from '../utils.js';
 import { DataManager, LiveStoreData, StoreDB } from '../dataManager.js';
 import { FirebaseAdapter, auth } from '../core/firebaseAdapter.js';
@@ -12,25 +16,18 @@ import { RenderHelpers } from '../core/renderHelpers.js';
 
 const DEFAULT_AVATAR_URL = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
 
-// ✅ دالة آمنة لجلب النظام تمنع انهيار الواجهة (Proxy Fallback)
 const getSys = () => {
     if (window.ClientSystem) return window.ClientSystem;
     if (window.UIManager) return window.UIManager;
-    
-    return new Proxy({}, {
-        get: (target, prop) => () => {
-            console.warn(`🚨 تم إيقاف استدعاء [${String(prop)}] لأن النظام (ClientSystem) لم يكتمل إقلاعه بعد!`);
-        }
-    });
+    return new Proxy({}, { get: (target, prop) => () => { console.warn(`🚨 System not ready for: ${String(prop)}`); } });
 };
 
 export const UIAuth = {
 
     kycFiles: {},
     _isSubmittingKyc: false, 
-    _isProcessingImg: false, // 🛡️ قفل حماية لمنع تداخل عمليات ضغط الصور
+    _isProcessingImg: false, 
 
-    // 🚀 [Storage Saver - Secure]: محرك ضغط الصور الاحترافي
     _compressImage: function(file, maxWidth = 1000) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -45,7 +42,7 @@ export const UIAuth = {
                         
                         canvas.width = width; canvas.height = height;
                         const ctx = canvas.getContext('2d');
-                        if (!ctx) throw new Error("تعذر إنشاء مساحة العمل للصورة (Canvas Context).");
+                        if (!ctx) throw new Error("تعذر إنشاء مساحة العمل للصورة.");
                         
                         ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height);
                         ctx.drawImage(img, 0, 0, width, height);
@@ -55,11 +52,9 @@ export const UIAuth = {
                             const safeName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "image";
                             const compressedFile = new File([blob], `${safeName}.webp`, { type: 'image/webp' });
                             resolve({ file: compressedFile, previewUrl: URL.createObjectURL(blob) });
-                            canvas.width = 0; canvas.height = 0; // تنظيف الذاكرة
+                            canvas.width = 0; canvas.height = 0; 
                         }, 'image/webp', 0.80);
-                    } catch (error) {
-                        reject(error);
-                    }
+                    } catch (error) { reject(error); }
                 };
                 img.onerror = () => reject(new Error("ملف الصورة تالف أو غير صالح."));
                 img.src = e.target.result;
@@ -68,8 +63,7 @@ export const UIAuth = {
             reader.readAsDataURL(file);
         });
     },
-// 👤 إدارة الملف الشخصي (Profile Management)
-    // =========================================================
+
     openProfileInfo: function() {
         getSys().resetUI?.();
         if(DataManager.syncUser) DataManager.syncUser();
@@ -78,10 +72,8 @@ export const UIAuth = {
         if (!DataManager.user) return;
         const user = DataManager.user;
         
-        // 🚀 توحيد حالة التوثيق (الهاتف أو الهوية)
         const isVerified = (user.isVerified === true || String(user.isVerified) === 'true' || user.kycStatus === 'approved' || user.kycStatus === 'verified'); 
 
-        // 🚀 Fallback ذكي لتجميع الاسم
         const fallbackName = (user.fullName || user.name || (user.firstName ? `${user.firstName} ${user.lastName || ''}` : 'العميل')).trim();
         const fullName = getSys()._getFullName ? getSys()._getFullName(user) : fallbackName;
         
@@ -91,184 +83,193 @@ export const UIAuth = {
         const phoneTxt = (user.phone && user.phone.trim()) ? user.phone : 'غير محدد';
         const idTxt = RenderHelpers.formatUserId(user);
 
-        const displayNameEl = document.getElementById('display-name');
-        const editNameEl = document.getElementById('edit-name-input');
-        const usernameEl = document.getElementById('profile-info-username');
-        const emailEl = document.getElementById('profile-info-email');
-        const phoneEl = document.getElementById('profile-info-phone');
-        const countryEl = document.getElementById('profile-info-country');
-        const baseCurrView = document.getElementById('profile-base-curr-text');
-        const idBadge = document.getElementById('profile-client-id');
-        const tierView = document.getElementById('profile-info-tier');
-        const tierIconBox = document.getElementById('profile-tier-icon-box');
-        
-        const sidebarName = document.getElementById('cs-name'); 
-        if (sidebarName) sidebarName.textContent = fullName;
+        // 🚀 استخدام requestAnimationFrame لتسريع الرسم بدون Layout Thrashing
+        window.requestAnimationFrame(() => {
+            const displayNameEl = document.getElementById('display-name');
+            const editNameEl = document.getElementById('edit-name-input');
+            const usernameEl = document.getElementById('profile-info-username');
+            const emailEl = document.getElementById('profile-info-email');
+            const phoneEl = document.getElementById('profile-info-phone');
+            const countryEl = document.getElementById('profile-info-country');
+            const baseCurrView = document.getElementById('profile-base-curr-text');
+            const idBadge = document.getElementById('profile-client-id');
+            const tierView = document.getElementById('profile-info-tier');
+            const tierIconBox = document.getElementById('profile-tier-icon-box');
+            
+            const sidebarName = document.getElementById('cs-name'); 
+            if (sidebarName) sidebarName.textContent = fullName;
 
-        const editBtnToggle = document.getElementById('profile-edit-toggle');
-        if (editBtnToggle) {
-            editBtnToggle.style.display = isVerified ? 'none' : 'flex';
-            const icon = editBtnToggle.querySelector('i'); 
-            if (icon) icon.className = 'fa-solid fa-pen'; 
-            editBtnToggle.setAttribute('data-action', 'toggle-name-edit');
-        }
-        
-        if (displayNameEl && editNameEl) { 
-            displayNameEl.textContent = fullName;
-            displayNameEl.classList.remove('d-none'); 
-            editNameEl.classList.add('d-none'); 
-            editNameEl.value = fullName;
-        }
-
-        if(usernameEl) {
-            usernameEl.textContent = `@${usernameVal}`;
-            usernameEl.setAttribute('data-action', 'copy-text');
-            usernameEl.setAttribute('data-text', usernameVal);
-            usernameEl.style.cursor = 'pointer';
-        }
-        
-        if(emailEl) {
-            emailEl.textContent = emailTxt;
-            emailEl.setAttribute('data-action', 'copy-text');
-            emailEl.setAttribute('data-text', emailTxt);
-            emailEl.style.cursor = 'pointer';
-        }
-
-        if(phoneEl) {
-            phoneEl.innerHTML = `<span dir="ltr">${Utils.escapeHtml(phoneTxt)}</span>`;
-            const phoneCard = phoneEl.closest('.info-card-item');
-            if (phoneCard) {
-                phoneCard.style.cursor = 'pointer';
-                phoneCard.setAttribute('data-action', 'show-phone-toast');
+            const editBtnToggle = document.getElementById('profile-edit-toggle');
+            if (editBtnToggle) {
+                editBtnToggle.style.display = isVerified ? 'none' : 'flex';
+                const icon = editBtnToggle.querySelector('i'); 
+                if (icon) icon.className = 'fa-solid fa-pen'; 
+                editBtnToggle.setAttribute('data-action', 'toggle-name-edit');
             }
-        }
-        
-        if(countryEl) countryEl.textContent = countryTxt;
-        
-        if(idBadge) {
-            idBadge.textContent = idTxt;
-            const idWrap = idBadge.closest('.uid-capsule');
-            if (idWrap) {
-                idWrap.setAttribute('data-action', 'copy-text');
-                idWrap.setAttribute('data-text', idTxt);
-                idWrap.style.cursor = 'pointer';
+            
+            if (displayNameEl && editNameEl) { 
+                displayNameEl.textContent = fullName;
+                displayNameEl.classList.remove('d-none'); 
+                editNameEl.classList.add('d-none'); 
+                editNameEl.value = fullName;
             }
-        }
-        
-        if(baseCurrView) { const base = (user.baseCurrency || user.base_currency || 'USD').toUpperCase(); baseCurrView.textContent = base; }
-        
-        const currentTier = typeof DataManager.getUserTier === 'function' ? DataManager.getUserTier(user) : null;
 
-        if (tierView) {
-            const tierName = currentTier ? (currentTier.nameAr || currentTier.name) : '---';
-            const tierColor = currentTier ? (currentTier.color || '#FFD700') : '#9ca3af'; 
-            let iconClass = currentTier ? (currentTier.icon || 'fa-solid fa-medal') : 'fa-solid fa-circle-exclamation';
-            if (!iconClass.includes('fa-solid') && !iconClass.includes('fa-regular') && !iconClass.includes('fa-brands')) iconClass = 'fa-solid ' + iconClass;
+            if(usernameEl) {
+                usernameEl.textContent = `@${usernameVal}`;
+                usernameEl.setAttribute('data-action', 'copy-text');
+                usernameEl.setAttribute('data-text', usernameVal);
+                usernameEl.style.cursor = 'pointer';
+            }
+            
+            if(emailEl) {
+                emailEl.textContent = emailTxt;
+                emailEl.setAttribute('data-action', 'copy-text');
+                emailEl.setAttribute('data-text', emailTxt);
+                emailEl.style.cursor = 'pointer';
+            }
 
-            tierView.innerHTML = `<div class="tier-view-wrapper"><span>${Utils.safeText(tierName)}</span><i class="${Utils.safeText(iconClass.trim())}" style="color: ${tierColor}; margin-inline-start: 8px;"></i></div>`;
-            if (tierIconBox) { tierIconBox.style.color = tierColor; }
-        }
-
-        const currentAvatar = user.img || DEFAULT_AVATAR_URL;
-        const imgEl = document.getElementById('profile-img');
-        const sidebarAvatar = document.getElementById('cs-avatar');
-        const cameraBtn = document.getElementById('avatar-menu-trigger');
-        const fileInput = document.getElementById('avatar-upload-input');
-        
-        if(imgEl) imgEl.src = currentAvatar;
-        if(sidebarAvatar) sidebarAvatar.src = currentAvatar;
-        
-        if(imgEl) { imgEl.style.cursor = 'pointer'; imgEl.setAttribute('data-action', 'handle-avatar-click'); }
-        if(cameraBtn) { cameraBtn.setAttribute('data-action', 'handle-avatar-click'); }
-
-        const deleteAvatarBtn = document.getElementById('inline-delete-avatar-btn');
-        if (deleteAvatarBtn) {
-            const hasCustomImage = user.img && user.img.trim() !== '' && user.img !== DEFAULT_AVATAR_URL;
-            deleteAvatarBtn.classList.toggle('active', !!hasCustomImage);
-        }
-
-        if(fileInput && !fileInput._boundChange) {
-            fileInput.addEventListener('change', async (e) => {
-                const originalFile = e.target.files && e.target.files[0];
-                
-                if (!originalFile || !originalFile.type.startsWith('image/')) {
-                    getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
-                    fileInput.value = ''; return;
+            if(phoneEl) {
+                phoneEl.innerHTML = `<span dir="ltr">${Utils.escapeHtml(phoneTxt)}</span>`;
+                const phoneCard = phoneEl.closest('.info-card-item');
+                if (phoneCard) {
+                    phoneCard.style.cursor = 'pointer';
+                    phoneCard.setAttribute('data-action', 'show-phone-toast');
                 }
-                
-                if (originalFile.size > 5 * 1024 * 1024) { 
-                    getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
-                    fileInput.value = ''; return;
+            }
+            
+            if(countryEl) countryEl.textContent = countryTxt;
+            
+            if(idBadge) {
+                idBadge.textContent = idTxt;
+                const idWrap = idBadge.closest('.uid-capsule');
+                if (idWrap) {
+                    idWrap.setAttribute('data-action', 'copy-text');
+                    idWrap.setAttribute('data-text', idTxt);
+                    idWrap.style.cursor = 'pointer';
                 }
+            }
+            
+            if(baseCurrView) { const base = (user.baseCurrency || user.base_currency || 'USD').toUpperCase(); baseCurrView.textContent = base; }
+            
+            const currentTier = typeof DataManager.getUserTier === 'function' ? DataManager.getUserTier(user) : null;
 
-                const avatarWrapper = document.querySelector('.profile-container .avatar-wrapper');
-                if (avatarWrapper) avatarWrapper.classList.add('is-loading');
+            if (tierView) {
+                const tierName = currentTier ? (currentTier.nameAr || currentTier.name) : '---';
+                const tierColor = currentTier ? (currentTier.color || '#FFD700') : '#9ca3af'; 
+                let iconClass = currentTier ? (currentTier.icon || 'fa-solid fa-medal') : 'fa-solid fa-circle-exclamation';
+                if (!iconClass.includes('fa-solid') && !iconClass.includes('fa-regular') && !iconClass.includes('fa-brands')) iconClass = 'fa-solid ' + iconClass;
 
-                const shield = document.createElement('div');
-                shield.id = 'invisible-tx-shield';
-                document.body.appendChild(shield);
+                tierView.innerHTML = `<div class="tier-view-wrapper"><span>${Utils.safeText(tierName)}</span><i class="${Utils.safeText(iconClass.trim())}" style="color: ${tierColor}; margin-inline-start: 8px;"></i></div>`;
+                if (tierIconBox) { tierIconBox.style.color = tierColor; }
+            }
 
-                // 🛡️ تتبع الرابط للرول باك بأمان
-                let downloadUrl = null;
+            const currentAvatar = user.img || DEFAULT_AVATAR_URL;
+            const imgEl = document.getElementById('profile-img');
+            const sidebarAvatar = document.getElementById('cs-avatar');
+            const cameraBtn = document.getElementById('avatar-menu-trigger');
+            const fileInput = document.getElementById('avatar-upload-input');
+            
+            if(imgEl) imgEl.src = currentAvatar;
+            if(sidebarAvatar) sidebarAvatar.src = currentAvatar;
+            
+            if(imgEl) { imgEl.style.cursor = 'pointer'; imgEl.setAttribute('data-action', 'handle-avatar-click'); }
+            if(cameraBtn) { cameraBtn.setAttribute('data-action', 'handle-avatar-click'); }
 
-                try {
-                    const compressed = await this._compressImage(originalFile, 400); 
+            const deleteAvatarBtn = document.getElementById('inline-delete-avatar-btn');
+            if (deleteAvatarBtn) {
+                const hasCustomImage = user.img && user.img.trim() !== '' && user.img !== DEFAULT_AVATAR_URL;
+                deleteAvatarBtn.classList.toggle('active', !!hasCustomImage);
+            }
+
+            // 🛡️ استعادة الحماية الكلاسيكية القوية لمسح الأحداث المتكررة للـ Input
+            if(fileInput) {
+                const newFileInput = fileInput.cloneNode(true);
+                fileInput.parentNode.replaceChild(newFileInput, fileInput);
+                
+                newFileInput.addEventListener('change', async (e) => {
+                    const originalFile = e.target.files && e.target.files[0];
                     
-                    // 🛡️ [Memory Fix]: مسح البلوب القديم قبل وضع الجديد
-                    if(imgEl) {
-                        if (imgEl.src && imgEl.src.startsWith('blob:')) URL.revokeObjectURL(imgEl.src);
-                        imgEl.src = compressed.previewUrl; 
+                    if (!originalFile || !originalFile.type.startsWith('image/')) {
+                        getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
+                        newFileInput.value = ''; return;
                     }
-                    if(sidebarAvatar) {
-                        if (sidebarAvatar.src && sidebarAvatar.src.startsWith('blob:')) URL.revokeObjectURL(sidebarAvatar.src);
-                        sidebarAvatar.src = compressed.previewUrl; 
+                    
+                    if (originalFile.size > 5 * 1024 * 1024) { 
+                        getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
+                        newFileInput.value = ''; return;
                     }
 
-                    const oldImageUrl = DataManager.user.img; 
-                    downloadUrl = await FirebaseAdapter.uploadImage(compressed.file, 'avatars', `avatar_${DataManager.user.id}_${Date.now()}.webp`);               
-                    
-                    // 🛡️ التحديث (ACID-like Transaction): حماية من الفشل المرحلي
-                    const dbUpdateSuccess = DataManager.updateUserProfile ? await DataManager.updateUserProfile({ img: downloadUrl }) : false;
-                    
-                    if (dbUpdateSuccess) {
-                        localStorage.setItem('telecard_user_image_' + DataManager.user.id, downloadUrl);
+                    const avatarWrapper = document.querySelector('.profile-container .avatar-wrapper');
+                    if (avatarWrapper) avatarWrapper.classList.add('is-loading');
 
-                        if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
-                            FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(e => console.warn("Failed to delete old avatar:", e));
+                    const shield = document.createElement('div');
+                    shield.id = 'invisible-tx-shield';
+                    document.body.appendChild(shield);
+
+                    let downloadUrl = null;
+                    let compressed = null;
+
+                    try {
+                        compressed = await this._compressImage(originalFile, 400); 
+                        
+                        if(imgEl) {
+                            if (imgEl.src && imgEl.src.startsWith('blob:')) URL.revokeObjectURL(imgEl.src);
+                            imgEl.src = compressed.previewUrl; 
+                        }
+                        if(sidebarAvatar) {
+                            if (sidebarAvatar.src && sidebarAvatar.src.startsWith('blob:')) URL.revokeObjectURL(sidebarAvatar.src);
+                            sidebarAvatar.src = compressed.previewUrl; 
                         }
 
-                        if (deleteAvatarBtn) deleteAvatarBtn.classList.add('active');
+                        const oldImageUrl = DataManager.user.img; 
+                        downloadUrl = await FirebaseAdapter.uploadImage(compressed.file, 'avatars', `avatar_${DataManager.user.id}_${Date.now()}.webp`);               
+                        
+                        const dbUpdateSuccess = DataManager.updateUserProfile ? await DataManager.updateUserProfile({ img: downloadUrl }) : false;
+                        
+                        if (dbUpdateSuccess) {
+                            try {
+                                localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id, downloadUrl);
+                            } catch(e) { console.warn("Storage restricted - Incognito mode"); }
 
-                        getSys().showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
-                        getSys().sfx?.('success');
-                        downloadUrl = null; // العملية اكتملت 100%، نلغي الرابط لمنع حذفه في الـ catch
-                    } else {
-                        throw new Error("قاعدة البيانات رفضت التحديث.");
+                            if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
+                                FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(e => console.warn("Failed to delete old avatar:", e));
+                            }
+
+                            if (deleteAvatarBtn) deleteAvatarBtn.classList.add('active');
+
+                            getSys().showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
+                            getSys().sfx?.('success');
+                            downloadUrl = null; 
+                        } else {
+                            throw new Error("قاعدة البيانات رفضت التحديث.");
+                        }
+                        
+                    } catch (err) {
+                        console.error("Avatar Upload Error:", err);
+                        getSys().showToast?.('عذراً، تعذر حفظ الصورة، قد تكون تالفة أو الاتصال ضعيف.', 'error');
+                        
+                        if (downloadUrl && FirebaseAdapter.deleteImageByUrl) {
+                            FirebaseAdapter.deleteImageByUrl(downloadUrl).catch(()=>{});
+                        }
+
+                        const fallbackImg = DataManager.user.img || DEFAULT_AVATAR_URL;
+                        if(imgEl) imgEl.src = fallbackImg; 
+                        if(sidebarAvatar) sidebarAvatar.src = fallbackImg; 
+                    } finally {
+                        // 🛡️ تنظيف الذاكرة (Memory Leak Fix from V4.6)
+                        if (compressed && compressed.previewUrl) URL.revokeObjectURL(compressed.previewUrl);
+                        if (avatarWrapper) avatarWrapper.classList.remove('is-loading');
+                        shield.remove();
+                        newFileInput.value = ''; 
                     }
-                    
-                } catch (err) {
-                    console.error("Avatar Upload Error:", err);
-                    getSys().showToast?.('عذراً، تعذر حفظ الصورة، قد تكون تالفة أو الاتصال ضعيف.', 'error');
-                    
-                    // 🛡️ [Rollback Fix]: التراجع الأكيد ومسح الصورة من فايربيز إذا تم رفعها وفشل الداتابيز
-                    if (downloadUrl && FirebaseAdapter.deleteImageByUrl) {
-                        FirebaseAdapter.deleteImageByUrl(downloadUrl).catch(()=>{});
-                    }
+                });
+            }
 
-                    const fallbackImg = DataManager.user.img || DEFAULT_AVATAR_URL;
-                    if(imgEl) imgEl.src = fallbackImg; 
-                    if(sidebarAvatar) sidebarAvatar.src = fallbackImg; 
-                } finally {
-                    if (avatarWrapper) avatarWrapper.classList.remove('is-loading');
-                    shield.remove();
-                    fileInput.value = ''; 
-                }
-            });
-            fileInput._boundChange = true;
-        }
-
-        getSys().openModal?.('profile-info');
-    },    toggleNameEdit: function() {
+            getSys().openModal?.('profile-info');
+        });
+    },    
+    
+    toggleNameEdit: function() {
         const nameEl = document.getElementById('display-name');
         const inpEl = document.getElementById('edit-name-input');
         const btn = document.getElementById('profile-edit-toggle');
@@ -281,33 +282,34 @@ export const UIAuth = {
             inpEl.focus();
             btn.innerHTML = '<i class="fa-solid fa-check"></i>';
         } else {
-            let newVal = inpEl.value.trim().replace(/[<>"{}[\]\\]/g, ''); 
+            let newVal = inpEl.value.trim().replace(/[<>"{}[\]\\]/g, '');
             
-            if (!newVal) {
-                getSys().showToast?.('لا يمكن ترك الاسم فارغاً', 'warning');
+            if (newVal.length < 2) {
+                getSys().showToast?.('الاسم قصير جداً أو فارغ، يرجى كتابة اسم صحيح', 'warning');
                 return;
             }
+            
             if (newVal.length > 40) {
                 getSys().showToast?.('الاسم طويل جداً، يرجى كتابة اسم أقصر', 'warning');
                 return;
             }
-
+            
             if (DataManager.user && newVal !== DataManager.user.name) {
                 DataManager.updateUserProfile({ name: newVal, fullName: newVal }).then(success => {
                     if (success) {
-                        nameEl.innerText = newVal;
+                        nameEl.textContent = newVal; // 🛡️ آمنة ومطابقة لمعايير الـ DOM
                         getSys().showToast?.('تم تحديث الاسم بنجاح', 'success');
-                        if(typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
+                        if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
                     }
                 });
             }
-            inpEl.value = newVal; 
+            inpEl.value = newVal;
             inpEl.classList.add('d-none');
             nameEl.classList.remove('d-none');
             btn.innerHTML = '<i class="fa-solid fa-pen"></i>';
         }
-    },
-
+    },    
+    
     handleAvatarClick: function(e) {
         if (DataManager.user && DataManager.user.img && DataManager.user.img !== DEFAULT_AVATAR_URL) {
             this.toggleAvatarMenu(e);
@@ -397,6 +399,7 @@ export const UIAuth = {
             const nameEl = document.getElementById('cs-name');
             const displayNameEl = document.getElementById('display-name');
             
+            // 🛡️ استخدام textContent لحماية الـ DOM وعدم تعارضه
             if (nameEl) nameEl.textContent = fullName;
             if (displayNameEl) displayNameEl.textContent = fullName;
             
@@ -457,7 +460,9 @@ export const UIAuth = {
             if (DataManager.updateUserProfile) {
                 DataManager.updateUserProfile({ img: null });
             }
-            localStorage.removeItem('telecard_user_image_' + DataManager.user.id);
+            try {
+                localStorage.removeItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id);
+            } catch(e) {}
             
             if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
                 FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(e => console.warn("Failed to delete old avatar:", e));
@@ -507,7 +512,10 @@ export const UIAuth = {
         const sidebarAvatar = document.getElementById('cs-avatar');
         if(!sidebarAvatar) return;
         sidebarAvatar.classList.add('loading');
-        const savedImage = localStorage.getItem('telecard_user_image_' + DataManager.user.id);
+        
+        let savedImage = null;
+        try { savedImage = localStorage.getItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id); } 
+        catch(e) {}
         
         if(savedImage) { this.applyUserImage(savedImage); } 
         else if(DataManager.user.img) { this.loadUserImageWithFallback(DataManager.user.img); } 
@@ -517,8 +525,16 @@ export const UIAuth = {
     loadUserImageWithFallback: function(imageUrl) {
         if (!DataManager.user) return;
         const tempImg = new Image();
-        tempImg.onload = () => { this.applyUserImage(imageUrl); localStorage.setItem('telecard_user_image_' + DataManager.user.id, imageUrl); };
-        tempImg.onerror = () => { this.applyUserImage(DEFAULT_AVATAR_URL); localStorage.setItem('telecard_user_image_' + DataManager.user.id, DEFAULT_AVATAR_URL); };
+        tempImg.onload = () => { 
+            this.applyUserImage(imageUrl); 
+            try { localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id, imageUrl); }
+            catch(e) {}
+        };
+        tempImg.onerror = () => { 
+            this.applyUserImage(DEFAULT_AVATAR_URL); 
+            try { localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id, DEFAULT_AVATAR_URL); }
+            catch(e) {}
+        };
         tempImg.src = imageUrl;
     },
 
@@ -529,9 +545,6 @@ export const UIAuth = {
         setTimeout(() => { sidebarAvatar.classList.remove('loading'); }, 300);
     },
 
-    // =========================================================
-    // 🛡️ الأمان والمصادقة (Security & 2FA Native Engine)
-    // =========================================================
     openSecurityModal: function() {
         getSys().resetUI?.();
         
@@ -628,7 +641,7 @@ export const UIAuth = {
 
             this._pendingTfaSecret = result.secret;
 
-            const storeName = LiveStoreData.settings?.storeName || 'Telecard';
+            const storeName = LiveStoreData.settings?.storeName || 'MaliMor';
             const userEmail = DataManager.user?.email || 'User';
             
             const qrUri = this._pendingTfaSecret.generateQrCodeUrl(userEmail, storeName);
@@ -640,6 +653,7 @@ export const UIAuth = {
             if (qrContainer) {
                 qrContainer.innerHTML = ''; 
                 
+                // 🛡️ استعادة التحميل الآمن لـ QRCode كما في النسخة V4.5 (تحقق ذكي)
                 if (typeof window.QRCode === 'undefined') {
                     sys.toggleLoader?.(true, 'جاري تحميل نظام التشفير المرئي...');
                     await new Promise((resolve, reject) => {
@@ -751,105 +765,103 @@ export const UIAuth = {
         }
     },
 
-// =========================================================
-// 👆 نظام المصادقة الحيوية (WebAuthn / Local Lock)
-// =========================================================
-handleBiometricToggle: async function() {
-    const sys = getSys();
-    const user = DataManager.user;
-    const isCurrentlyEnabled = user?.biometricEnabled === true;
-    
-    if (isCurrentlyEnabled) {
-        sys.toggleLoader?.(true, 'جاري إيقاف البصمة في السيرفر...');
+    handleBiometricToggle: async function() {
+        const sys = getSys();
+        const user = DataManager.user;
+        const isCurrentlyEnabled = user?.biometricEnabled === true;
+        
+        if (isCurrentlyEnabled) {
+            sys.toggleLoader?.(true, 'جاري إيقاف البصمة في السيرفر...');
+            try {
+                const success = await DataManager.updateUserProfile({ biometricEnabled: false });
+                if (success) {
+                    try {
+                        localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY);
+                    } catch(e) {}
+                    sys.showToast?.('تم إيقاف المصادقة بالبصمة بنجاح', 'info');
+                    sys.sfx?.('nav');
+                    this.openSecurityModal();
+                } else {
+                    sys.showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
+                }
+            } finally {
+                sys.toggleLoader?.(false);
+            }
+            return;
+        }
+        
+        if (!window.PublicKeyCredential) {
+            sys.showToast?.('عذراً، متصفحك لا يدعم البصمة أو الاتصال غير آمن (HTTPS مطلوب)', 'error');
+            return;
+        }
+        
         try {
-            const success = await DataManager.updateUserProfile({ biometricEnabled: false });
+            sys.toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
+            
+            const challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+            
+            const userIdStr = String(user?.id || 'unknown');
+            const userIdBytes = new TextEncoder().encode(userIdStr);
+            const userEmail = user?.email || 'user@malimor.com';
+            const storeName = LiveStoreData.settings?.storeName || "MaliMor Store";
+            
+            const publicKeyCredentialCreationOptions = {
+                challenge: challenge,
+                rp: { name: Utils.escapeHtml(storeName) }, 
+                user: { id: userIdBytes, name: userEmail, displayName: userEmail },
+                pubKeyCredParams: [
+                    { alg: -7, type: "public-key" }, 
+                    { alg: -257, type: "public-key" } 
+                ],
+                authenticatorSelection: {
+                    authenticatorAttachment: "platform", 
+                    userVerification: "required"
+                },
+                timeout: 60000
+            };
+            
+            const credential = await navigator.credentials.create({ publicKey: publicKeyCredentialCreationOptions });
+            
+            const rawId = Array.from(new Uint8Array(credential.rawId))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+            
+            try {
+                localStorage.setItem(CACHE_KEYS.BIOMETRIC_KEY, rawId);
+            } catch (e) {
+                throw new Error("storage_full");
+            }
+            
+            const success = await DataManager.updateUserProfile({ biometricEnabled: true });
+            
             if (success) {
-                localStorage.removeItem('telecard_biometric_key');
-                sys.showToast?.('تم إيقاف المصادقة بالبصمة بنجاح', 'info');
-                sys.sfx?.('nav');
+                sys.showToast?.('تم تفعيل البصمة بنجاح! سيتم قفل المتجر بها.', 'success');
+                sys.sfx?.('success');
                 this.openSecurityModal();
             } else {
-                sys.showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
+                try {
+                    localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY);
+                } catch(e) {}
+                throw new Error('server_error');
+            }
+        } catch (error) {
+            console.error("Biometric Error:", error);
+            
+            if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
+                sys.showToast?.('تم إلغاء عملية البصمة من قبلك', 'warning');
+            } else if (error.message === 'storage_full') {
+                sys.showToast?.('تعذر تفعيل البصمة (التصفح المخفي يمنع حفظ البيانات)', 'error');
+            } else if (error.name === 'SecurityError') {
+                sys.showToast?.('بيئة غير آمنة. البصمة تتطلب اتصال HTTPS', 'error');
+            } else {
+                sys.showToast?.('تعذر تفعيل البصمة، تأكد من إعدادات القفل في جهازك', 'error');
             }
         } finally {
             sys.toggleLoader?.(false);
         }
-        return;
-    }
-    
-    // 🛡️ التحقق من دعم المتصفح والبيئة الآمنة (HTTPS)
-    if (!window.PublicKeyCredential) {
-        sys.showToast?.('عذراً، متصفحك لا يدعم البصمة أو الاتصال غير آمن (HTTPS مطلوب)', 'error');
-        return;
-    }
-    
-    try {
-        sys.toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
-        
-        const challenge = new Uint8Array(32);
-        window.crypto.getRandomValues(challenge);
-        
-        // 🚀 [إصلاح التشفير]: استخدام TextEncoder لضمان تحويل الـ UID بالكامل بدون قص أو فقدان للبيانات
-        const userIdStr = String(user?.id || 'unknown');
-        const userIdBytes = new TextEncoder().encode(userIdStr);
-        const userEmail = user?.email || 'user@telecard.com';
-        const storeName = LiveStoreData.settings?.storeName || "TeleCard Store";
-        
-        const publicKeyCredentialCreationOptions = {
-            challenge: challenge,
-            rp: { name: Utils.escapeHtml(storeName) }, // تعقيم اسم المتجر
-            user: { id: userIdBytes, name: userEmail, displayName: userEmail },
-            pubKeyCredParams: [
-                { alg: -7, type: "public-key" }, // خوارزمية ES256 (Apple & Android)
-                { alg: -257, type: "public-key" } // خوارزمية RS256 (Windows Hello)
-            ],
-            authenticatorSelection: {
-                authenticatorAttachment: "platform", // إجبار المتصفح على استخدام مستشعر الجهاز نفسه
-                userVerification: "required"
-            },
-            timeout: 60000
-        };
-        
-        const credential = await navigator.credentials.create({ publicKey: publicKeyCredentialCreationOptions });
-        
-        // تحويل الـ RawId إلى Hex String للحفظ الآمن في LocalStorage
-        const rawId = Array.from(new Uint8Array(credential.rawId))
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join('');
-        
-        try {
-            localStorage.setItem('telecard_biometric_key', rawId);
-        } catch (e) {
-            throw new Error("storage_full");
-        }
-        
-        const success = await DataManager.updateUserProfile({ biometricEnabled: true });
-        
-        if (success) {
-            sys.showToast?.('تم تفعيل البصمة بنجاح! سيتم قفل المتجر بها.', 'success');
-            sys.sfx?.('success');
-            this.openSecurityModal();
-        } else {
-            localStorage.removeItem('telecard_biometric_key');
-            throw new Error('server_error');
-        }
-    } catch (error) {
-        console.error("Biometric Error:", error);
-        
-        // 🛡️ معالجة دقيقة لجميع أسباب الفشل لتوجيه المستخدم
-        if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
-            sys.showToast?.('تم إلغاء عملية البصمة من قبلك', 'warning');
-        } else if (error.message === 'storage_full') {
-            sys.showToast?.('تعذر تفعيل البصمة (التصفح المخفي يمنع حفظ البيانات)', 'error');
-        } else if (error.name === 'SecurityError') {
-            sys.showToast?.('بيئة غير آمنة. البصمة تتطلب اتصال HTTPS', 'error');
-        } else {
-            sys.showToast?.('تعذر تفعيل البصمة، تأكد من إعدادات القفل في جهازك', 'error');
-        }
-    } finally {
-        sys.toggleLoader?.(false);
-    }
-},    // --- معالجة كلمات المرور (Password Reset & Change) ---
+    },
+
     handlePasswordSubmit: function() {
         const securityModal = document.getElementById('security-modal');
         if (!securityModal) return;
@@ -905,9 +917,6 @@ handleBiometricToggle: async function() {
         }
     },
 
-    // =========================================================
-    // 🌍 التوثيق (KYC) واستكمال الهوية (Identity)
-    // =========================================================
     selectRegCurrency: function(name, code) {
         const textEl = document.getElementById('selected-currency-text');
         const hiddenInput = document.getElementById('reg-currency');
@@ -939,100 +948,96 @@ handleBiometricToggle: async function() {
     },
 
     saveIdentityData: async function() {
-    const btn = document.querySelector('[data-action="save-identity"]');
-    
-    // 1. 🛡️ منع النقرات المزدوجة
-    if (this._isSavingIdentity || (btn && btn.disabled)) return;
-    
-    if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
-        getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
-        getSys().sfx?.('error');
-        getSys().closeModal?.('identity');
-        return;
-    }
-    
-    const countryEl = document.getElementById('selected-country-text');
-    const phoneEl = document.getElementById('reg-phone');
-    const hiddenCurrency = document.getElementById('reg-currency');
-    
-    const country = countryEl ? countryEl.innerText.trim() : '';
-    const phone = phoneEl ? phoneEl.value.trim() : '';
-    const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
-    
-    if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
-        getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
-        getSys().sfx?.('error');
-        return;
-    }
-    
-    if (!/^[\d\s\+\-\(\)]+$/.test(phone)) {
-        getSys().showToast?.('رقم الهاتف غير صالح، يرجى استخدام الأرقام فقط.', 'error');
-        return;
-    }
-    
-    // ========================================================
-    // 🚀 2. تشغيل اللودر الذكي داخل الزر مباشرة وإلغاء اللودر الشامل
-    // ========================================================
-    this._isSavingIdentity = true;
-    let originalBtnHtml = '';
-    
-    if (btn) {
-        originalBtnHtml = btn.innerHTML; // حفظ شكل الزر القديم
-        btn.disabled = true; // تعطيل الزر
-        const btnWidth = btn.offsetWidth; // تثبيت العرض لكي لا ينكمش
-        if (btnWidth > 0) btn.style.width = `${btnWidth}px`;
+        const btn = document.querySelector('[data-action="save-identity"]');
         
-        // زرع اللودر الأنيق داخل الزر
-        btn.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري الربط...</span>';
-    }
-    
-    try {
-        const result = await StoreDB.callFunction('completeUserIdentity', {
-            country: country,
-            phone: phone,
-            currency: currency
-        });
+        if (this._isSavingIdentity || (btn && btn.disabled)) return;
         
-        if (result && result.success) {
-            const finalCurr = result.lockedCurrency || currency;
-            
-            localStorage.setItem('telecard_display_currency', finalCurr);
-            DataManager.selectedCurr = finalCurr;
-            
-            DataManager.user.country = country;
-            DataManager.user.phone = phone;
-            DataManager.user.baseCurrency = finalCurr;
-            DataManager.user.isVerified = true;
-            
-            if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
-            if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(finalCurr);
-            if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
-            
-            const inputsWrap = document.getElementById('identity-inputs-wrap');
-            const statusWrap = document.getElementById('identity-verified-status');
-            if (inputsWrap) inputsWrap.style.display = 'none';
-            if (statusWrap) statusWrap.classList.remove('hide-element');
-            
-            getSys().sfx?.('success');
-            getSys().showToast?.(result.message || 'تم ربط المحفظة وتأكيد البيانات بنجاح! يمكنك الآن إغلاق النافذة.', 'success');
+        if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
+            getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
+            getSys().sfx?.('error');
+            getSys().closeModal?.('identity');
+            return;
         }
-    } catch (error) {
-        console.error("Identity Error:", error);
-        getSys().sfx?.('error');
-        getSys().showToast?.(error.message || 'فشلت العملية، يرجى المحاولة لاحقاً.', 'error');
-        if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
-    } finally {
-        // ========================================================
-        // 🔄 3. إغلاق اللودر واستعادة الزر لحالته الطبيعية
-        // ========================================================
-        this._isSavingIdentity = false;
+        
+        const countryEl = document.getElementById('selected-country-text');
+        const phoneEl = document.getElementById('reg-phone');
+        const hiddenCurrency = document.getElementById('reg-currency');
+        
+        const country = countryEl ? countryEl.innerText.trim() : '';
+        const phone = phoneEl ? phoneEl.value.trim() : '';
+        const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
+        
+        if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
+            getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
+            getSys().sfx?.('error');
+            return;
+        }
+        
+        if (!/^[\d\s\+\-\(\)]+$/.test(phone)) {
+            getSys().showToast?.('رقم الهاتف غير صالح، يرجى استخدام الأرقام فقط.', 'error');
+            return;
+        }
+        
+        this._isSavingIdentity = true;
+        let originalBtnHtml = '';
+        
         if (btn) {
-            btn.disabled = false;
-            btn.style.width = ''; // إزالة التثبيت
-            btn.innerHTML = originalBtnHtml; // استعادة شكل الزر الأصلي
+            originalBtnHtml = btn.innerHTML; 
+            btn.disabled = true; 
+            const btnWidth = btn.offsetWidth; 
+            if (btnWidth > 0) btn.style.width = `${btnWidth}px`;
+            
+            btn.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري الربط...</span>';
         }
-    }
-},    loadDynamicCurrenciesForModal: function() {
+        
+        try {
+            const result = await StoreDB.callFunction('completeUserIdentity', {
+                country: country,
+                phone: phone,
+                currency: currency
+            });
+            
+            if (result && result.success) {
+                const finalCurr = result.lockedCurrency || currency;
+                
+                try {
+                    localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, finalCurr);
+                } catch(e) {}
+                DataManager.selectedCurr = finalCurr;
+                
+                DataManager.user.country = country;
+                DataManager.user.phone = phone;
+                DataManager.user.baseCurrency = finalCurr;
+                DataManager.user.isVerified = true;
+                
+                if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
+                if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(finalCurr);
+                if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
+                
+                const inputsWrap = document.getElementById('identity-inputs-wrap');
+                const statusWrap = document.getElementById('identity-verified-status');
+                if (inputsWrap) inputsWrap.style.display = 'none';
+                if (statusWrap) statusWrap.classList.remove('hide-element');
+                
+                getSys().sfx?.('success');
+                getSys().showToast?.(result.message || 'تم ربط المحفظة وتأكيد البيانات بنجاح! يمكنك الآن إغلاق النافذة.', 'success');
+            }
+        } catch (error) {
+            console.error("Identity Error:", error);
+            getSys().sfx?.('error');
+            getSys().showToast?.(error.message || 'فشلت العملية، يرجى المحاولة لاحقاً.', 'error');
+            if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
+        } finally {
+            this._isSavingIdentity = false;
+            if (btn) {
+                btn.disabled = false;
+                btn.style.width = ''; 
+                btn.innerHTML = originalBtnHtml; 
+            }
+        }
+    },    
+    
+    loadDynamicCurrenciesForModal: function() {
         const listTarget = document.getElementById('reg-currency-list-target');
         if (!listTarget) return;
         
@@ -1050,152 +1055,147 @@ handleBiometricToggle: async function() {
     },
 
     handleKycImage: async function(input, previewId) {
-    // 🛡️ [Race Condition Guard]: قفل يمنع تداخل العمليات
-    if (this._isProcessingImg) return;
-    
-    const file = input.files && input.files[0];
-    const parentBox = input.closest('.kyc-upload-box');
-    const previewImg = document.getElementById(previewId);
-    
-    this.kycFiles = this.kycFiles || {};
-    
-    if (!file || !file.type.startsWith('image/')) {
-        getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
-        input.value = '';
-        if (previewImg) previewImg.src = '';
-        if (parentBox) parentBox.classList.remove('has-img');
-        delete this.kycFiles[previewId];
-        return;
-    }
-    
-    if (file.size > 8 * 1024 * 1024) {
-        getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 8MB', 'warning');
-        input.value = '';
-        delete this.kycFiles[previewId];
-        return;
-    }
-    
-    this._isProcessingImg = true;
-    
-    try {
-        getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
-        const compressed = await this._compressImage(file, 1200);
+        if (this._isProcessingImg) return;
         
-        this.kycFiles[previewId] = compressed.file;
+        const file = input.files && input.files[0];
+        const parentBox = input.closest('.kyc-upload-box');
+        const previewImg = document.getElementById(previewId);
         
-        if (previewImg) {
-            // 🛡️ [Memory Leak Fix]: تحرير الرام من الصورة القديمة قبل وضع الجديدة
-            if (previewImg.src && previewImg.src.startsWith('blob:')) {
-                URL.revokeObjectURL(previewImg.src);
-            }
-            previewImg.src = compressed.previewUrl;
+        this.kycFiles = this.kycFiles || {};
+        
+        if (!file || !file.type.startsWith('image/')) {
+            getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
+            input.value = '';
+            if (previewImg) previewImg.src = '';
+            if (parentBox) parentBox.classList.remove('has-img');
+            delete this.kycFiles[previewId];
+            return;
         }
-        if (parentBox) parentBox.classList.add('has-img');
-    } catch (e) {
-        getSys().showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
-        input.value = '';
-    } finally {
-        this._isProcessingImg = false;
-        getSys().toggleLoader?.(false);
-    }
-},
+        
+        if (file.size > 8 * 1024 * 1024) {
+            getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 8MB', 'warning');
+            input.value = '';
+            delete this.kycFiles[previewId];
+            return;
+        }
+        
+        this._isProcessingImg = true;
+        
+        try {
+            getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
+            const compressed = await this._compressImage(file, 1200);
+            
+            this.kycFiles[previewId] = compressed.file;
+            
+            if (previewImg) {
+                if (previewImg.src && previewImg.src.startsWith('blob:')) {
+                    URL.revokeObjectURL(previewImg.src);
+                }
+                previewImg.src = compressed.previewUrl;
+            }
+            if (parentBox) parentBox.classList.add('has-img');
+        } catch (e) {
+            getSys().showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
+            input.value = '';
+        } finally {
+            this._isProcessingImg = false;
+            getSys().toggleLoader?.(false);
+        }
+    },
+    
     submitKycData: async function() {
-    if (this._isSubmittingKyc) return;
-    
-    const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
-    const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
-    
-    this.kycFiles = this.kycFiles || {};
-    const frontFile = this.kycFiles['kyc-prev-front'];
-    const backFile = this.kycFiles['kyc-prev-back'];
-    const selfieFile = this.kycFiles['kyc-prev-selfie'];
-    
-    if (!fullName || !idNumber || !frontFile || !backFile || !selfieFile) {
-        getSys().showToast?.('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
-        return;
-    }
-    
-    this._isSubmittingKyc = true;
-    getSys().toggleLoader?.(true, 'جاري تشفير ورفع الملفات...');
-    
-    let uploadedUrls = []; // 🛡️ مصفوفة تتبع الروابط للتراجع عنها عند الفشل (Rollback)
-    
-    try {
-        const userId = DataManager.user.id || 'unknown_user';
-        const kycTimestamp = Date.now();
-        const oldKycData = DataManager.user.kycData; // نحتفظ بالبيانات القديمة لمسحها لاحقاً
+        if (this._isSubmittingKyc) return;
         
-        const uploadPromises = [
-            FirebaseAdapter.uploadImage(frontFile, 'kyc_docs', `${userId}_front_${kycTimestamp}.webp`),
-            FirebaseAdapter.uploadImage(backFile, 'kyc_docs', `${userId}_back_${kycTimestamp}.webp`),
-            FirebaseAdapter.uploadImage(selfieFile, 'kyc_docs', `${userId}_selfie_${kycTimestamp}.webp`)
-        ];
+        const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
+        const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
         
-        const results = await Promise.allSettled(uploadPromises);
-        const failedUploads = results.filter(r => r.status === 'rejected');
+        this.kycFiles = this.kycFiles || {};
+        const frontFile = this.kycFiles['kyc-prev-front'];
+        const backFile = this.kycFiles['kyc-prev-back'];
+        const selfieFile = this.kycFiles['kyc-prev-selfie'];
         
-        // إذا فشل رفع إحدى الصور، نقوم بمسح الصور التي نجحت في هذه الدفعة ونتوقف
-        if (failedUploads.length > 0) {
-            const successfulUploads = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
-            if (successfulUploads.length > 0) {
-                successfulUploads.forEach(url => {
+        if (!fullName || !idNumber || !frontFile || !backFile || !selfieFile) {
+            getSys().showToast?.('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
+            return;
+        }
+        
+        this._isSubmittingKyc = true;
+        getSys().toggleLoader?.(true, 'جاري تشفير ورفع الملفات...');
+        
+        let uploadedUrls = []; 
+        
+        try {
+            const userId = DataManager.user.id || 'unknown_user';
+            const kycTimestamp = Date.now();
+            const oldKycData = DataManager.user.kycData; 
+            
+            const uploadPromises = [
+                FirebaseAdapter.uploadImage(frontFile, 'kyc_docs', `${userId}_front_${kycTimestamp}.webp`),
+                FirebaseAdapter.uploadImage(backFile, 'kyc_docs', `${userId}_back_${kycTimestamp}.webp`),
+                FirebaseAdapter.uploadImage(selfieFile, 'kyc_docs', `${userId}_selfie_${kycTimestamp}.webp`)
+            ];
+            
+            const results = await Promise.allSettled(uploadPromises);
+            const failedUploads = results.filter(r => r.status === 'rejected');
+            
+            if (failedUploads.length > 0) {
+                const successfulUploads = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
+                if (successfulUploads.length > 0) {
+                    successfulUploads.forEach(url => {
+                        if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
+                    });
+                }
+                throw new Error("فشل رفع إحدى الصور.");
+            }
+            
+            uploadedUrls = results.map(r => r.value);
+            const [frontImgUrl, backImgUrl, selfieImgUrl] = uploadedUrls;
+            
+            const safeFullName = fullName.replace(/[<>"{}[\]\\]/g, '');
+            const newKycData = { ...(oldKycData || {}), idNumber: idNumber, frontImg: frontImgUrl, backImg: backImgUrl, selfieImg: selfieImgUrl, submittedAt: Date.now() };
+            
+            const success = await StoreDB.set(DB_KEYS.USERS, userId, {
+                kycStatus: 'pending',
+                kycData: newKycData
+            }, { merge: true });
+            
+            if (!success) throw new Error("فشل تحديث بيانات الحساب في السيرفر.");
+            
+            if (oldKycData) {
+                const oldUrls = [oldKycData.frontImg, oldKycData.backImg, oldKycData.selfieImg].filter(Boolean);
+                oldUrls.forEach(url => {
+                    if (FirebaseAdapter.deleteImageByUrl) {
+                        FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
+                    }
+                });
+            }
+            
+            uploadedUrls = [];
+            
+            if (DataManager.updateUserProfile) await DataManager.updateUserProfile({ fullName: safeFullName });
+            DataManager.user.kycStatus = 'pending';
+            DataManager.user.kycData = newKycData;
+            
+            this.closeKycModal();
+            getSys().showToast?.('تم إرسال مستندات التوثيق بنجاح! طلبك قيد المراجعة.', 'success');
+            this.renderKycUI();
+            
+        } catch (e) {
+            console.error('KYC Upload Error:', e);
+            getSys().showToast?.('تعذر إرسال المستندات، يرجى المحاولة مجدداً', 'error');
+            
+            if (uploadedUrls.length > 0) {
+                uploadedUrls.forEach(url => {
                     if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
                 });
             }
-            throw new Error("فشل رفع إحدى الصور.");
+        } finally {
+            this._isSubmittingKyc = false;
+            getSys().toggleLoader?.(false);
         }
-        
-        // حفظ الروابط لتسجيلها
-        uploadedUrls = results.map(r => r.value);
-        const [frontImgUrl, backImgUrl, selfieImgUrl] = uploadedUrls;
-        
-        const safeFullName = fullName.replace(/[<>"{}[\]\\]/g, '');
-        const newKycData = { ...(oldKycData || {}), idNumber: idNumber, frontImg: frontImgUrl, backImg: backImgUrl, selfieImg: selfieImgUrl, submittedAt: Date.now() };
-        
-        // 🛡️ التحديث في قاعدة البيانات أولاً
-        const success = await StoreDB.set(DB_KEYS.USERS, userId, {
-            kycStatus: 'pending',
-            kycData: newKycData
-        }, { merge: true });
-        
-        if (!success) throw new Error("فشل تحديث بيانات الحساب في السيرفر.");
-        
-        // 🛡️ الآن فقط، بعد النجاح المؤكد بنسبة 100%، نمسح الصور القديمة
-        if (oldKycData) {
-            const oldUrls = [oldKycData.frontImg, oldKycData.backImg, oldKycData.selfieImg].filter(Boolean);
-            oldUrls.forEach(url => {
-                if (FirebaseAdapter.deleteImageByUrl) {
-                    FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
-                }
-            });
-        }
-        
-        // تفريغ المصفوفة لأن العملية نجحت ولا حاجة للتراجع (Rollback)
-        uploadedUrls = [];
-        
-        if (DataManager.updateUserProfile) await DataManager.updateUserProfile({ fullName: safeFullName });
-        DataManager.user.kycStatus = 'pending';
-        DataManager.user.kycData = newKycData;
-        
-        this.closeKycModal();
-        getSys().showToast?.('تم إرسال مستندات التوثيق بنجاح! طلبك قيد المراجعة.', 'success');
-        this.renderKycUI();
-        
-    } catch (e) {
-        console.error('KYC Upload Error:', e);
-        getSys().showToast?.('تعذر إرسال المستندات، يرجى المحاولة مجدداً', 'error');
-        
-        // 🛡️ [Rollback Fix]: التراجع الأكيد ومسح الصور من السحابة إذا تم رفعها وفشل الداتابيز
-        if (uploadedUrls.length > 0) {
-            uploadedUrls.forEach(url => {
-                if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
-            });
-        }
-    } finally {
-        this._isSubmittingKyc = false;
-        getSys().toggleLoader?.(false);
-    }
-},    renderKycUI: function() {
+    },    
+
+    renderKycUI: function() {
         if (!DataManager.user) return;
         const user = DataManager.user;
         const status = user.kycStatus || 'none';
@@ -1255,19 +1255,18 @@ handleBiometricToggle: async function() {
     },
 
     closeKycModal: function() { 
-    // تنظيف الذاكرة من روابط المعاينة
-    const previews = ['kyc-prev-front', 'kyc-prev-back', 'kyc-prev-selfie'];
-    previews.forEach(id => {
-        const imgEl = document.getElementById(id);
-        if (imgEl && imgEl.src && imgEl.src.startsWith('blob:')) {
-            URL.revokeObjectURL(imgEl.src);
-            imgEl.src = '';
-        }
-    });
-    
-    this.kycFiles = {}; 
-    getSys().closeModal?.('kyc-upload'); 
-},
+        const previews = ['kyc-prev-front', 'kyc-prev-back', 'kyc-prev-selfie'];
+        previews.forEach(id => {
+            const imgEl = document.getElementById(id);
+            if (imgEl && imgEl.src && imgEl.src.startsWith('blob:')) {
+                URL.revokeObjectURL(imgEl.src);
+                imgEl.src = '';
+            }
+        });
+        
+        this.kycFiles = {}; 
+        getSys().closeModal?.('kyc-upload'); 
+    },
 
     openKycStatusModal: function(state) {
         getSys().closeSidebar?.();
@@ -1286,12 +1285,18 @@ handleBiometricToggle: async function() {
         const user = DataManager.user;
         if (!user) return;
         const isKycApproved = (user.kycStatus === 'approved' || user.kycStatus === 'verified');
-        const celebrationKey = `kyc_celebrated_${user.id}`;
+        const celebrationKey = DYNAMIC_PREFIXES.KYC_CELEBRATION + user.id;
 
-        if (!isKycApproved) { localStorage.removeItem(celebrationKey); return; }
-        if (localStorage.getItem(celebrationKey)) return;
+        if (!isKycApproved) { 
+            try { localStorage.removeItem(celebrationKey); } catch(e) {}
+            return; 
+        }
+        
+        let hasCelebrated = false;
+        try { hasCelebrated = localStorage.getItem(celebrationKey); } catch(e) {}
+        if (hasCelebrated) return;
 
-        localStorage.setItem(celebrationKey, 'true');
+        try { localStorage.setItem(celebrationKey, 'true'); } catch(e) {}
         setTimeout(() => { getSys().openModal?.('kyc-celebration'); getSys().sfx?.('success'); }, 1500);
     },
     

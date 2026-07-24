@@ -1,7 +1,7 @@
 // ============================================================================
 // 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - ES6 Module
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديث الأقصى: ترقيع ثغرة (XSS)، منع تسريب الذاكرة، تحسين أداء Observer وتجربة الموبايل
+// 🚀 التحديث الأقصى: ترقيع ثغرة الكوبون الصفري، منع تسريب مستمعات المستند، وحماية التقويم من الانهيار
 // ============================================================================
 
 import { DataManager, LiveStoreData } from './dataManager.js';
@@ -19,7 +19,8 @@ export const CalendarApp = {
     currMonth: new Date().getMonth(),
     activeInputId: null,
     tempSelectedDate: null, 
-    _isInitialized: false, 
+    _isInitialized: false,
+    _boundDocClick: false, // 🛡️ قفل حماية لمنع تسريب الذاكرة
 
     init: function() {
         const modal = document.getElementById('cal-modal');
@@ -61,84 +62,88 @@ export const CalendarApp = {
             });
         }
 
-        document.addEventListener('click', (e) => {
-            const dateField = e.target.closest('.custom-field');
-            if (dateField) {
-                const hiddenInput = dateField.querySelector('input[type="hidden"]');
-                if (hiddenInput) { e.preventDefault(); e.stopPropagation(); this.open(hiddenInput.id, dateField); return; }
-            }
-            if (!modal || !modal.classList.contains('show')) return;
-            if (!modal.contains(e.target) && !e.target.closest('.btn-action')) this.close();
-        });
+        // 🛡️ [Memory Fix]: التأكد من إضافة مستمع الأحداث مرة واحدة فقط
+        if (!this._boundDocClick) {
+            document.addEventListener('click', (e) => {
+                const dateField = e.target.closest('.custom-field');
+                if (dateField) {
+                    const hiddenInput = dateField.querySelector('input[type="hidden"]');
+                    if (hiddenInput) { e.preventDefault(); e.stopPropagation(); this.open(hiddenInput.id, dateField); return; }
+                }
+                const activeModal = document.getElementById('cal-modal');
+                if (!activeModal || !activeModal.classList.contains('show')) return;
+                if (!activeModal.contains(e.target) && !e.target.closest('.btn-action')) this.close();
+            });
+            this._boundDocClick = true;
+        }
     },
 
     open: function(inputId, eventOrElement) {
-    this.activeInputId = inputId;
-    let targetElement = null;
-    
-    if (eventOrElement) {
-        if (typeof eventOrElement.stopPropagation === 'function') eventOrElement.stopPropagation();
-        if (eventOrElement.currentTarget instanceof Element) targetElement = eventOrElement.currentTarget;
-        else if (eventOrElement.target instanceof Element) targetElement = eventOrElement.target.closest('.custom-field') || eventOrElement.target;
-        else if (eventOrElement instanceof Element || eventOrElement.nodeType === 1) targetElement = eventOrElement;
-    }
-    
-    if (!targetElement && inputId) {
-        const inputEl = document.getElementById(inputId);
-        if (inputEl) targetElement = inputEl.closest('.custom-field');
-    }
-    
-    document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
-    if (targetElement) targetElement.classList.add('active');
-    
-    const hiddenInput = document.getElementById(inputId);
-    const currentVal = hiddenInput ? hiddenInput.value : '';
-    
-    if (currentVal && currentVal.includes('-')) {
-        const parts = currentVal.split('-');
-        this.currYear = parseInt(parts[0], 10);
-        this.currMonth = parseInt(parts[1], 10) - 1;
-        const day = parseInt(parts[2], 10);
-        this.tempSelectedDate = isNaN(day) ? new Date() : new Date(this.currYear, this.currMonth, day);
-    } else {
-        const now = new Date();
-        this.currYear = now.getFullYear();
-        this.currMonth = now.getMonth();
-        this.tempSelectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    }
-    
-    this.render();
-    const modal = document.getElementById('cal-modal');
-    
-    if (modal) {
-        if (modal.parentNode !== document.body) document.body.appendChild(modal);
-        modal.classList.add('show');
+        this.activeInputId = inputId;
+        let targetElement = null;
         
-        // 🚀 [إصلاح تجربة الموبايل]: ضمان تمركز التقويم بشكل سليم على جميع الشاشات
-        modal.style.position = "fixed";
-        if (window.innerWidth > 500 && targetElement && typeof targetElement.getBoundingClientRect === 'function') {
-            const rect = targetElement.getBoundingClientRect();
-            const spaceBelow = window.innerHeight - rect.bottom;
-            if (spaceBelow < 340) {
-                modal.style.top = "auto";
-                modal.style.bottom = (window.innerHeight - rect.top + 10) + 'px';
+        if (eventOrElement) {
+            if (typeof eventOrElement.stopPropagation === 'function') eventOrElement.stopPropagation();
+            if (eventOrElement.currentTarget instanceof Element) targetElement = eventOrElement.currentTarget;
+            else if (eventOrElement.target instanceof Element) targetElement = eventOrElement.target.closest('.custom-field') || eventOrElement.target;
+            else if (eventOrElement instanceof Element || eventOrElement.nodeType === 1) targetElement = eventOrElement;
+        }
+        
+        if (!targetElement && inputId) {
+            const inputEl = document.getElementById(inputId);
+            if (inputEl) targetElement = inputEl.closest('.custom-field');
+        }
+        
+        document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
+        if (targetElement) targetElement.classList.add('active');
+        
+        const hiddenInput = document.getElementById(inputId);
+        const currentVal = hiddenInput ? hiddenInput.value : '';
+        
+        // 🛡️ [Crash Guard]: حماية من التواريخ التالفة أو الفارغة (NaN Prevention)
+        if (currentVal && currentVal.includes('-')) {
+            const parts = currentVal.split('-');
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10) - 1;
+            const d = parseInt(parts[2], 10);
+            
+            if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+                this.currYear = y;
+                this.currMonth = m;
+                this.tempSelectedDate = new Date(y, m, d);
             } else {
-                modal.style.bottom = "auto";
-                modal.style.top = (rect.bottom + 10) + 'px';
+                this._setFallbackDate();
             }
-            let leftPos = rect.left;
-            if (leftPos < 10) leftPos = 10;
-            modal.style.left = leftPos + 'px';
-            modal.style.transform = "none";
         } else {
-            // وضع الموبايل: توسيط إجباري
+            this._setFallbackDate();
+        }
+        
+        this.render();
+        const modal = document.getElementById('cal-modal');
+        
+        if (modal) {
+            if (modal.parentNode !== document.body) document.body.appendChild(modal);
+            modal.classList.add('show');
+            
+            // 🚀 [إصلاح تجربة المستخدم - Centered Modal]:
+            // توحيد ظهور التقويم ليكون في منتصف الشاشة دائماً لمنع طيرانه عند التمرير (Scroll)
+            modal.style.position = "fixed";
             modal.style.top = "50%";
             modal.style.left = "50%";
             modal.style.bottom = "auto";
             modal.style.transform = "translate(-50%, -50%)";
+            modal.style.zIndex = "9999";
         }
-    }
-},    close: function() {
+    },
+
+    _setFallbackDate: function() {
+        const now = new Date();
+        this.currYear = now.getFullYear();
+        this.currMonth = now.getMonth();
+        this.tempSelectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    },
+
+    close: function() {
         const modal = document.getElementById('cal-modal');
         if(modal) modal.classList.remove('show');
         document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
@@ -313,7 +318,6 @@ export const Components = {
             const infoEl = card.querySelector('.card-info');
             if (!infoEl || infoEl.classList.contains('shine-strong')) return;
             
-            // 🛡️ [إصلاح تسريب الذاكرة]: تنظيف المؤقتات السابقة قبل إنشاء جديد
             if (infoEl._shineTimer) clearTimeout(infoEl._shineTimer);
 
             window.requestAnimationFrame(() => {
@@ -385,8 +389,7 @@ export const Components = {
         try {
             const text = await navigator.clipboard.readText();
             if (text) {
-                // الاعتماد الحصري على .value لا يشكل XSS فورياً، لكن يجب تعقيمه قبل العرض
-                codeInput.value = text;
+                codeInput.value = Utils.escapeHtml(text);
                 this.checkInputState(); 
                 codeInput.focus();
                 if (typeof UIManager !== 'undefined') UIManager.showToast('تم إدراج الكوبون', 'success');
@@ -450,9 +453,10 @@ export const Components = {
 
         const pricingCheck = DataManager.calculateFinalPrice(DataManager.currentProd, DataManager.user, selection.qty, selection.optIdx, result.coupon);
 
-        if (pricingCheck.unitSnapshot.isFirewallActive && pricingCheck.unitSnapshot.couponDiscount === 0) {
-            this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-info"></i> عذراً، هذا المنتج متاح بأفضل سعر ممكن.`, 'error', 5000);
-            if(SysUI) { SysUI.showToast('السعر الحالي هو أفضل سعر متاح', 'warning'); SysUI.sfx?.('error'); }
+        // 🛡️ [إصلاح الكوبون الكاذب]: التحقق إذا كانت قيمة الخصم الفعلية صفر رغم صحة الكوبون
+        if (pricingCheck.unitSnapshot.couponDiscount === 0) {
+            this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-info"></i> عذراً، لا يمكن تطبيق الخصم على هذا المنتج.`, 'error', 5000);
+            if(SysUI) { SysUI.showToast('عذراً، هذا المنتج غير مشمول بالخصم الإضافي', 'warning'); SysUI.sfx?.('error'); }
             return; 
         }
 
@@ -461,7 +465,6 @@ export const Components = {
         if (SysUI && typeof SysUI.updatePriceDisplay === 'function') SysUI.updatePriceDisplay(); 
         if (SysUI) SysUI.sfx?.('success');
 
-        // 🚀 [إصلاح العملة الديناميكية]: عرض العملة الصحيحة للعميل بدلاً من التثبيت على الدولار
         const safeCouponValue = Utils.escapeHtml(String(result.coupon.value));
         const displayCurr = DataManager.selectedCurr || DataManager.user.baseCurrency || 'USD';
         const currencySymbol = RenderHelpers ? RenderHelpers.getCurrencySymbolText(displayCurr) : displayCurr;
@@ -480,6 +483,7 @@ export const Components = {
 
         if(SysUI) SysUI.showToast('تم تطبيق الخصم بنجاح', 'success');
     },
+    
     removeCoupon: function(silent = false) {
         const SysUI = typeof UIManager !== 'undefined' ? UIManager : null;
         const codeInput = document.getElementById('couponCode');
@@ -493,7 +497,6 @@ export const Components = {
         if (codeInput) {
             codeInput.value = '';
             codeInput.disabled = false;
-            // 🛡️ [تحسين تجربة المستخدم موبايل]: لا تطلب Focus إذا كان المستخدم يتصفح من هاتف لتجنب فتح الكيبورد المزعج
             if (!silent && window.innerWidth > 768) {
                 codeInput.focus();
             }
@@ -528,13 +531,12 @@ export const Components = {
         }
     },
 
-    // 🚀 [تحسين أداء المتصفح]: استخدام requestAnimationFrame لتجنب الـ Layout Thrashing 
     initBottomNavSync: function() {
         const navContainer = document.querySelector('.bottom-nav');
         if (!navContainer) return;
         
         const navIcons = navContainer.querySelectorAll('.nav-icon');
-        let isSyncQueued = false; // لمنع الاستدعاء المكرر في نفس اللحظة
+        let isSyncQueued = false; 
         
         function updateUIState() {
             navIcons.forEach(icon => icon.classList.remove('active'));

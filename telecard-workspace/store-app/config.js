@@ -1,8 +1,11 @@
 // ============================================================================
-// 📁 ملف الإعدادات المركزي (config.js) - النسخة الماسية المرنة
+// 📁 ملف الإعدادات المركزي (config.js) - النسخة الماسية المرنة V13.0 💎
 // 🎯 الوظيفة: يحتوي على جميع الثوابت، مفاتيح قواعد البيانات، وإعدادات المتجر
-// 🚀 التحديث الأقصى: تجميد المفاتيح الحساسة فقط، وترك الإعدادات مرنة للسماح بالإقلاع
+// 🚀 التحديث الأقصى: إضافة رقم الإصدار المركزي (App Version) للتحكم بالكاش عالمياً
 // ============================================================================
+
+// 🌟 رقم إصدار المتجر (غيّره هنا مستقبلاً لمسح كاش كل العملاء وإجبارهم على التحديث)
+export const APP_VERSION = 'v13.0';
 
 // 🛡️ [أداة أمنية]: دالة التجميد العميق لضمان عدم اختراق الكائنات المتداخلة
 const deepFreeze = (obj) => {
@@ -15,7 +18,6 @@ const deepFreeze = (obj) => {
 };
 
 // 1. مفاتيح قواعد البيانات السحابية (Firestore Collections)
-// 🌟 محمية بالتجميد العميق لمنع التعديل العرضي من أي ملف آخر (Read-Only)
 export const DB_KEYS = deepFreeze({
     CATS: 'telecard_cats',
     PRODS: 'telecard_prods_public',
@@ -48,6 +50,12 @@ export const CACHE_KEYS = deepFreeze({
     ACTIVE_UID: 'telecard_active_user_uid',
     STORE_CACHE: 'telecard_store_cache',
     STORE_CACHE_FALLBACK: 'telecard_store_cache_fallback',
+    
+    // 🚀 [التحكم الذكي]: ربط مفتاح الكاش برقم الإصدار المركزي
+    SMART_CATALOG: `telecard_store_catalog_${APP_VERSION}`,
+    
+    CATALOG_VERSION: 'telecard_catalog_version',
+    TIME_SYNC: 'telecard_time_sync_ts',
     THEME: 'telecard_theme',
     DISPLAY_CURRENCY: 'telecard_display_currency',
     DISPLAY_STATE: 'telecard_display_state',
@@ -67,14 +75,13 @@ export const ACTIVE_USER_KEY = CACHE_KEYS.ACTIVE_USER;
 
 // ============================================================================
 // 3. كائن الإعدادات العامة (Store Configuration & Fallbacks)
-// 🚀 [إصلاح الإقلاع]: إزالة التجميد للسماح للمحرك الأساسي بحقن التحديثات
 // ============================================================================
 export const StoreConfig = {
     currencies: ['USD', 'TRY', 'SYP'],
     
     orderStatusMap: {
         pending: { text: 'قيد التنفيذ', icon: 'fa-clock', class: 'pending' },
-        processing: { text: 'جاري التنفيذ', icon: 'fa-spinner fa-spin', class: 'processing' }, // 🚀 تم التعديل لتتوافق مع renderManager
+        processing: { text: 'جاري التنفيذ', icon: 'fa-spinner fa-spin', class: 'processing' },
         completed: { text: 'مكتمل', icon: 'fa-circle-check', class: 'completed' },
         refunded: { text: 'مسترجع', icon: 'fa-rotate-left', class: 'refunded' },
         returned: { text: 'مرتجع', icon: 'fa-rotate-left', class: 'returned' },
@@ -85,7 +92,7 @@ export const StoreConfig = {
     paymentStatusMap: {
         pending: { text: 'قيد المعالجة', icon: 'fa-clock', class: 'text-warning' },
         approved: { text: 'مقبول', icon: 'fa-check', class: 'text-success' },
-        completed: { text: 'مكتمل', icon: 'fa-check-double', class: 'text-success' }, // 🚀 تم إضافتها لمنع انهيار نافذة تفاصيل الدفع
+        completed: { text: 'مكتمل', icon: 'fa-check-double', class: 'text-success' },
         rejected: { text: 'مرفوض', icon: 'fa-xmark', class: 'text-danger' },
         refunded: { text: 'مسترجع', icon: 'fa-rotate-left', class: 'text-info' },
         returned: { text: 'مرتجع', icon: 'fa-rotate-left', class: 'text-info' }
@@ -102,6 +109,7 @@ export const StoreConfig = {
         currencySymbol: '$',
         defaultTierName: 'عضو',
         defaultTierIcon: 'fa-solid fa-medal',
-        defaultTierColor: 'var(--primary)'
+        defaultTierColor: 'var(--primary)',
+        defaultAvatar: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'
     }
 };

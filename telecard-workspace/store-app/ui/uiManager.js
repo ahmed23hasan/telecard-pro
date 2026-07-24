@@ -1,7 +1,7 @@
 // ============================================================================
 // 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة الماسية المطلقة
 // 🎯 الوظيفة: تجميع وحدات الواجهة المنفصلة وتصديرها ككائن واحد للنظام
-// 🚀 التحديث الأقصى: دمج الخصائص العميقة (Descriptors)، وحماية الـ Watchdog
+// 🚀 التحديث الأقصى: دمج الخصائص العميقة (Descriptors)، وحماية الـ Watchdog، وتحسين الـ FPS
 // ============================================================================
 
 import { UICore } from './uiCore.js';
@@ -56,13 +56,18 @@ export const UIManager = deepMergeModules(
 
 Object.defineProperties(UIManager, {
     toggleLoader: {
-        value: function(show, text = 'جاري المعالجة...') {
+        // 🛡️ إضافة معامل `force` لمنع حالة القفل الأبدي (Deadlock)
+        value: function(show, text = 'جاري المعالجة...', force = false) {
             if (show) {
                 _loaderActiveRequests++;
             } else {
-                _loaderActiveRequests = Math.max(0, _loaderActiveRequests - 1);
+                if (force) {
+                    _loaderActiveRequests = 0; // صمام الأمان الإجباري
+                } else {
+                    _loaderActiveRequests = Math.max(0, _loaderActiveRequests - 1);
+                }
             }
-
+            
             let loader = document.getElementById('global-dynamic-loader');
             
             if (!loader) {
@@ -77,35 +82,25 @@ Object.defineProperties(UIManager, {
             
             const textEl = document.getElementById('dynamic-loader-text');
             
-            if (textEl && _loaderActiveRequests > 0 && textEl.textContent !== text) {
-                textEl.textContent = text;
-            }
-            
+            // 🚀 [أداء فائق]: حصر التعديلات داخل إطار الرسوميات
             requestAnimationFrame(() => {
                 if (_loaderActiveRequests > 0) {
                     if (textEl && textEl.textContent !== text) {
-                        textEl.textContent = text; // ✔️ يتم الرسم في الوقت المثالي
+                        textEl.textContent = text;
                     }
                     loader.classList.add('is-active');
                 } else {
                     loader.classList.remove('is-active');
                 }
             });
-        }, // ✅ تم إضافة قوس الإغلاق هنا 
-        writable: false, 
+        },
+        writable: false,
         configurable: false
     },
     
-    // 🚀 [تحديث ألماسي]: صمام الأمان لمنع تعليق الشاشة للأبد
     forceHideLoader: {
         value: function() {
-            _loaderActiveRequests = 0; // تصفير العداد الجذري
-            const loader = document.getElementById('global-dynamic-loader');
-            if (loader) {
-                requestAnimationFrame(() => {
-                    loader.classList.remove('is-active');
-                });
-            }
+            this.toggleLoader(false, '', true); // استخدام وضع Force
         },
         writable: false,
         configurable: false

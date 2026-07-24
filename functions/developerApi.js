@@ -1,7 +1,10 @@
 // ============================================================================
-// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - Bank Grade 🏦
+// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية 💎
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🚀 التحديث الأخير: ترقية Gen 2 بالكامل + دمج منطق الإشعارات والتسعير الدقيق
+// 🚀 التحديثات المعمارية: 
+// 1. Zero-Contention Vault (بيع الأكواد عبر الـ API بدون اختناق)
+// 2. FinancialEngine Integration (منع تسريب السنتات)
+// 3. Analytics Sync (توافق الإحصائيات مع المركز الرئيسي)
 // ============================================================================
 
 const { onRequest } = require('firebase-functions/v2/https');
@@ -9,7 +12,7 @@ const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
 const crypto = require('crypto'); 
-const { FinancialEngine } = require('./financialEngine.js');
+const FinancialEngine = require('./financialEngine.js');
 
 if (!admin.apps.length) {
     admin.initializeApp();
@@ -22,10 +25,10 @@ const SYSTEM_LIMITS = {
 };
 
 // ==========================================
-// 🛡️ دوال مساعدة ورياضيات آمنة 
+// 🛡️ دوال مساعدة ورياضيات آمنة (اعتماداً على المحرك المالي الماسي)
 // ==========================================
-const safeAdd = (a, b) => Math.round(Number(a) * 10000 + Number(b) * 10000) / 10000;
-const safeSub = (a, b) => Math.max(0, Math.round(Number(a) * 10000 - Number(b) * 10000) / 10000);
+const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
+const safeSub = (a, b) => FinancialEngine.safeSub(a, b);
 
 function isSafeWebhookUrl(urlString) {
     try {
@@ -74,7 +77,7 @@ exports.orderStatusWebhook = onDocumentWritten({
     
     try {
         const payload = {
-            eventId: event.id, // استخدام معرف الحدث الخاص بـ Gen 2
+            eventId: event.id,
             event: before ? 'order_status_changed' : 'order_created',
             orderId: after.displayId || after.id, productId: after.prodId,
             productName: after.product, status: after.status,
@@ -141,7 +144,7 @@ exports.cronRetryWebhooks = onSchedule({
 });
 
 // ==========================================
-// 🔌 3. بوابة الـ API الخارجية (External API Gateway - Gen 2)
+// 🔌 3. بوابة الـ API الخارجية (Zero-Contention Architecture)
 // ==========================================
 exports.externalCreateOrder = onRequest({
     region: 'us-east1'
@@ -167,7 +170,7 @@ exports.externalCreateOrder = onRequest({
         if (!productId) return res.status(400).json({ success: false, error: 'Bad Request: productId is required.' });
 
         const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
-        if (finalQty > SYSTEM_LIMITS.MAX_QTY_PER_ORDER) return res.status(400).json({ success: false, error: `Bad Request: Quantity exceeds maximum allowed (${SYSTEM_LIMITS.MAX_QTY_PER_ORDER}).` });
+        if (finalQty > SYSTEM_LIMITS.MAX_QTY_PER_ORDER) return res.status(400).json({ success: false, error: `Bad Request: Quantity limit exceeded.` });
 
         let resultData = null;
         const cleanOrderId = 'TC-' + Date.now().toString(36).toUpperCase() + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -196,94 +199,109 @@ exports.externalCreateOrder = onRequest({
             if (userData.isBanned || userData.isIpBanned) throw new Error('Unauthorized: Account Banned');
             if (product.vaultPoolId && finalQty > SYSTEM_LIMITS.MAX_VAULT_QTY_PER_ORDER) throw new Error(`Vault limit exceeded.`);
 
-            const orderRef = db.collection('telecard_orders').doc(cleanOrderId);
             const tierId = String(userData.tierId || userData.tier || 1);
             
-            let vaultKeysQuery = null;
+            // 🛡️ التوافق التام مع هندسة الـ (Zero-Contention) الخاصة بالـ Vault
+            let selectedVaultDocs = [];
+            let vaultRef = null;
+
             if (product.vaultPoolId) {
-                 vaultKeysQuery = db.collection('telecard_vault').doc(String(product.vaultPoolId)).collection('keys').where('isSold', '==', false).limit(finalQty + 20);
+                vaultRef = db.collection('telecard_vault').doc(String(product.vaultPoolId));
+                
+                // جلب الأكواد غير المباعة مباشرة بدلاً من النظام القديم المغلق (nextSaleIndex)
+                const keysQuerySnap = await transaction.get(
+                    vaultRef.collection('keys').where('isSold', '==', false).limit(finalQty)
+                );
+
+                if (keysQuerySnap.size < finalQty) {
+                    throw new Error('Out of stock.');
+                }
+                
+                keysQuerySnap.forEach(docSnap => selectedVaultDocs.push(docSnap));
             }
 
-            const [tierSnap, keysSnap] = await Promise.all([
-                transaction.get(db.collection('telecard_tiers').doc(tierId)),
-                vaultKeysQuery ? transaction.get(vaultKeysQuery) : Promise.resolve(null)
-            ]);
+            const tierSnap = await transaction.get(db.collection('telecard_tiers').doc(tierId));
 
             const pricingSnapshot = FinancialEngine.calculateOrderTotal({
-                product: product, tier: tierSnap.exists ? tierSnap.data() : null, offer: null, coupon: null
+                product: product, tier: tierSnap.exists ? { id: tierSnap.id, ...tierSnap.data() } : null, offer: null, coupon: null
             }, finalQty); 
 
-            if (pricingSnapshot.isFirewallViolated) throw new HttpsError('Firewall Violation');
+            if (pricingSnapshot.isFirewallViolated) throw new Error('Firewall Violation');
             const exactPrice = pricingSnapshot.totalFinalPrice;
-            const currentBalance = Number(userData.walletBalance || userData.balance || 0);
+            const currentBalance = Number(userData.walletBalance || 0);
 
             if (exactPrice <= 0 || currentBalance < exactPrice) throw new Error('Insufficient balance.');
 
-            let deliveredCodeText = null, isAutoDelivered = false, extractedCodes = [];
+            let deliveredCodeText = null, isAutoDelivered = false;
 
-            if (vaultKeysQuery) {
-                if (!keysSnap || keysSnap.size < finalQty) throw new Error('Out of stock.');
-                let docsArray = keysSnap.docs;
-                docsArray.sort(() => 0.5 - Math.random()); 
-                let selectedDocs = docsArray.slice(0, finalQty);
-                
-                selectedDocs.forEach(doc => {
-                    extractedCodes.push(doc.data().codeText);
-                    transaction.update(doc.ref, { isSold: true, soldAt: admin.firestore.FieldValue.serverTimestamp(), orderId: cleanOrderId, userId: uid });
+            // 🛡️ سحب الأكواد وتحديث الصندوق الآمن
+            if (vaultRef && selectedVaultDocs.length > 0) {
+                selectedVaultDocs.forEach(docSnap => {
+                    transaction.update(docSnap.ref, { 
+                        isSold: true, soldAt: admin.firestore.FieldValue.serverTimestamp(), orderId: cleanOrderId, userId: uid 
+                    });
                 });
-                transaction.update(db.collection('telecard_vault').doc(String(product.vaultPoolId)), { stockCount: admin.firestore.FieldValue.increment(-finalQty) });
-                deliveredCodeText = extractedCodes.join(' | ');
+
+                transaction.update(vaultRef, {
+                    stockCount: admin.firestore.FieldValue.increment(-finalQty),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                deliveredCodeText = selectedVaultDocs.map(d => d.data().codeText).join(' | ');
                 isAutoDelivered = true;
             }
 
             const newBalance = safeSub(currentBalance, exactPrice);
             
-            // 💎 تم دمج التسجيل الشامل لتسعير الطلب
+            // 💎 حفظ الإحصائيات بشكل متطابق مع Index.js
             const newOrder = {
                 id: cleanOrderId, displayId: cleanOrderId, userId: uid, prodId: productId, product: product.name,
                 price: exactPrice, qty: finalQty, input: inputStr || 'API Request',
                 status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText, balanceAfter: newBalance,
                 merchantData: { webhookUrl: userData.webhookUrl || null, webhookSecret: userData.webhookSecret || null },
                 pricingSnapshot: { 
-                    costUsd: pricingSnapshot.totalCost, 
-                    originalPriceUsd: pricingSnapshot.totalOriginalPrice, 
-                    finalPriceUsd: exactPrice,
-                    tierName: pricingSnapshot.tierName, 
-                    netProfitUsd: pricingSnapshot.totalProfit, 
-                    isFirewallActive: pricingSnapshot.isFirewallActive
+                    costUsd: pricingSnapshot.totalCostUsd || 0, 
+                    netProfitUsd: pricingSnapshot.totalNetProfitUsd || 0 
                 },
                 time: admin.firestore.FieldValue.serverTimestamp(), isApiOrder: true
             };
 
             resultData = { orderId: cleanOrderId, status: newOrder.status, pricePaid: exactPrice, deliveredCode: deliveredCodeText };
-            transaction.update(userDoc.ref, { walletBalance: newBalance, balance: newBalance, totalSpent: safeAdd(userData.totalSpent || 0, exactPrice), tierCycleSpent: safeAdd(userData.tierCycleSpent || 0, exactPrice) });
             
-            // 💎 تم دمج توليد الإشعار للعميل مباشرة في حال تسليم الـ API
+            transaction.update(userDoc.ref, { 
+                walletBalance: newBalance, 
+                totalSpent: safeAdd(userData.totalSpent || 0, exactPrice), 
+                tierCycleSpent: safeAdd(userData.tierCycleSpent || 0, exactPrice) 
+            });
+            
             if (isAutoDelivered) {
                 const notifId = `notif_api_${cleanOrderId}`;
                 transaction.set(userDoc.ref.collection('notifications').doc(notifId), {
                     id: notifId, title: "🔌 تم تسليم طلب API بنجاح!",
                     message: `تم إكمال طلبك الخارجي لشراء ( ${product.name} ) بنجاح.`,
-                    type: 'notification', jumpTarget: 'order', createdAt: Date.now()
+                    type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp()
                 });
             }
 
-            transaction.set(orderRef, newOrder);
+            transaction.set(db.collection('telecard_orders').doc(cleanOrderId), newOrder);
 
-            if (idempotencyRef) transaction.set(idempotencyRef, { createdAt: admin.firestore.FieldValue.serverTimestamp(), resultData: resultData, orderId: cleanOrderId, requestHash: requestHash });        
+            if (idempotencyRef) {
+                transaction.set(idempotencyRef, { 
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(), resultData: resultData, orderId: cleanOrderId, requestHash: requestHash 
+                });        
+            }
         });
 
         return res.status(200).json({ success: true, data: resultData });
     } catch (error) {
-        // 💎 تم دمج معالجة الأخطاء الدقيقة لتوجيه التاجر لسبب المشكلة الفعلي
         if (error.message === 'Unauthorized: Account Banned') return res.status(403).json({ success: false, error: 'Account is banned.' });
         if (error.message === 'Insufficient balance.') return res.status(402).json({ success: false, error: 'Insufficient balance.' });
         if (error.message === 'Out of stock.') return res.status(409).json({ success: false, error: 'Product out of stock.' });
         if (error.message === 'Product not found.') return res.status(404).json({ success: false, error: 'Product not found.' });
         if (error.message.includes('Vault limit exceeded')) return res.status(400).json({ success: false, error: error.message });
-        if (error.message.includes('Firewall')) return res.status(400).json({ success: false, error: 'Order rejected by security policy.' });
-        if (error.message.includes('Idempotency Conflict')) return res.status(409).json({ success: false, error: error.message });
+        if (error.message.includes('Firewall Violation')) return res.status(400).json({ success: false, error: 'Order rejected by security policy.' });
+        if (error.message.includes('Idempotency Conflict')) return res.status(409).json({ success: false, error: 'Conflict: Please retry the request with the same idempotency key.' });
         
-        return res.status(500).json({ success: false, error: 'Internal Server Errorr' });
+        return res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
 });
