@@ -1,7 +1,10 @@
 // ============================================================================
-// 🗄️ مدير البيانات المركزي (adminData.js) - النسخة الماسية V10.5 💎
+// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V14.4 💎
 // 🎯 الوظيفة: SSOT (المصدر الوحيد للحقيقة)، معالجة البيانات الضخمة، والبحث اللحظي
-// 🚀 التحديث الأقصى: إصلاح انهيار البروفايل، حماية الأرباح القديمة، ومنع الأخطاء
+// 🚀 التحديثات:
+// 1. Cache Invalidator Fix: ربط البنرات (banners) بنظام مسح الكاش لإظهار العروض فوراً.
+// 2. Prods Separation: فصل قراءة الإدارة عن المتجر لضمان رؤية الـ Cost Price.
+// 3. Force Sync Engine: إضافة جسر لدالة (adminForceSyncCatalog) السحابية.
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -80,11 +83,15 @@ export const AdminData = {
             return res ? res : fallback;
         };
 
+        // 🛡️ [تحديث أمني ماسي]: يجب قراءة مجموعة المنتجات السرية للوحة الإدارة 
+        // لأن DB_KEYS.PRODS قد تكون موجهة لـ prods_public التي لا تحتوي على أسعار التكلفة
+        const ADMIN_PRODS_KEY = 'telecard_prods'; 
+
         try {
             const results = await Promise.all([
                 fetchArray(DB_KEYS.RATES), fetchArray(DB_KEYS.TIERS), fetchRecent(DB_KEYS.USERS, 200, 'createdAt'),
                 fetchRecent(DB_KEYS.DEPOSITS, 150, 'time'), fetchRecent(DB_KEYS.ORDERS, 150, 'time'),
-                fetchArray(DB_KEYS.CATS), fetchArray(DB_KEYS.PRODS), fetchArray(DB_KEYS.PAYMENTS),
+                fetchArray(DB_KEYS.CATS), fetchArray(ADMIN_PRODS_KEY), fetchArray(DB_KEYS.PAYMENTS), // 👈 تصحيح قراءة المنتجات
                 fetchArray(DB_KEYS.BANNERS), fetchSingleton(DB_KEYS.SETTINGS), fetchSingleton(DB_KEYS.POPUP),
                 fetchSingleton(DB_KEYS.SYSTEM), fetchSingleton(DB_KEYS.ADMIN), fetchArray(DB_KEYS.COUNTRIES),
                 fetchArray(DB_KEYS.VAULT), fetchArray(DB_KEYS.COUPONS), fetchArray(DB_KEYS.OFFERS),
@@ -227,14 +234,11 @@ export const AdminData = {
             const snap = o.pricingSnapshot;
             const rev = Number(snap?.finalPriceUsd || o.price || 0);
             
-            // 🛡️ [إصلاح محاسبي]: حماية الأرباح من التحول للصفر للطلبات القديمة (افتراض ربح 5% إذا لم يتوفر القديم)
             let prof = Number(snap?.netProfitUsd || snap?.profit || 0);
             let cst = Number(snap?.costUsd || 0);
 
             if (cst === 0 && prof === 0 && rev > 0) {
-                // للطلبات التي تمت قبل التحديث الجديد، نقوم بتقدير التكلفة بـ 95% من المبيعات لكي لا يبدو المتجر خاسراً
-                cst = rev * 0.95;
-                prof = rev * 0.05;
+                cst = rev * 0.95; prof = rev * 0.05;
             } else if (cst === 0) {
                 cst = Math.max(0, rev - prof);
             }
@@ -305,11 +309,9 @@ export const AdminData = {
             .map(([uid, spent]) => {
                 const u = d.usersMap[uid]; 
                 return u ? {
-                    id: u.id,
-                    displayId: u.displayId || String(u.id).substring(0, 8),
+                    id: u.id, displayId: u.displayId || String(u.id).substring(0, 8),
                     name: u.name || u.fullName || u.username || 'عميل مميز',
-                    img: u.profileImage || u.img || null,
-                    spent: spent
+                    img: u.profileImage || u.img || null, spent: spent
                 } : null;
             }).filter(Boolean);
         
@@ -365,11 +367,15 @@ export const AdminData = {
         });
         return liquidity;
     },
-// ==========================================
-// 💾 نظام الحفظ الذكي (Atomic Collection Save)
-// ==========================================
-saveCollection: async function(key, prop) {
+
+    // ==========================================
+    // 💾 نظام الحفظ الذكي (Atomic Collection Save)
+    // ==========================================
+    saveCollection: async function(key, prop) {
         if (!this.isCloudSyncSuccessful) return false;
+        
+        // 🛡️ [تحديث]: التوجيه الصحيح لمجموعة المنتجات أثناء الحفظ
+        const targetCollectionKey = (prop === 'prods') ? 'telecard_prods' : key;
         
         const currentArr = this.data[prop] || [];
         const snapArr = this._snapshots[prop] || [];
@@ -381,23 +387,22 @@ saveCollection: async function(key, prop) {
         currentMap.forEach((item, id) => {
             const old = snapMap.get(id);
             if (!old || JSON.stringify(item) !== JSON.stringify(old)) {
-                promises.push(FirebaseAdapter.set(key, id, item));
+                // 🛡️ التأكد من وجود حقل isActive لمنتجات الإدارة قبل الحفظ
+                if (prop === 'prods' && item.isActive === undefined) item.isActive = true;
+                promises.push(FirebaseAdapter.set(targetCollectionKey, id, item));
             }
         });
         
         snapMap.forEach((_, id) => {
-            if (!currentMap.has(id)) promises.push(FirebaseAdapter.delete(key, id));
+            if (!currentMap.has(id)) promises.push(FirebaseAdapter.delete(targetCollectionKey, id));
         });
         
         if (promises.length > 0) {
-            // انتظار حفظ البيانات في السحابة
             await Promise.all(promises);
             
-            // 🚀 [النظام السحري لإبطال الكاش - Cache Invalidator]
-            // إذا كان التعديل يخص المنتجات، الأقسام، المستويات، العروض، أو أسعار الصرف
-            if (['prods', 'cats', 'tiers', 'offers', 'rates'].includes(prop)) {
+            // 🚀 [إصلاح البنرات الماسي]: إضافة البنرات للقائمة لتحديث كاش العملاء فوراً
+            if (['prods', 'cats', 'tiers', 'offers', 'rates', 'banners'].includes(prop)) {
                 if (!this.data.settings) this.data.settings = {};
-                // توليد كود إصدار جديد وإجبار المتجر على مسح كاش العملاء
                 this.data.settings.catalogVersion = Date.now().toString(36);
                 await this.saveSystemSettings();
             }
@@ -409,6 +414,28 @@ saveCollection: async function(key, prop) {
         return true;
     },
     
+    // 🚀 [الجسر السحري]: دالة المزامنة الجبرية من لوحة الإدارة إلى المتجر
+    forceSyncCatalog: async function() {
+        console.log("🚀 جاري إجبار السيرفر على مزامنة كتالوج المنتجات بالكامل...");
+        try {
+            const result = await FirebaseAdapter.callFunction('adminForceSyncCatalog', {});
+            if (result && result.success) {
+                console.log("✅ المزامنة تمت بنجاح:", result.message);
+                
+                // تحديث رقم الكاش الإجمالي لإجبار كل الهواتف على التحديث
+                if (!this.data.settings) this.data.settings = {};
+                this.data.settings.catalogVersion = Date.now().toString(36);
+                await this.saveSystemSettings();
+                
+                return { success: true, message: result.message };
+            }
+            return { success: false, message: 'تعذر تأكيد المزامنة من السيرفر.' };
+        } catch (error) {
+            console.error("🚨 فشل في استدعاء المزامنة الجبرية:", error);
+            return { success: false, message: error.message };
+        }
+    },
+
     saveCountries: function() { return this.saveCollection(DB_KEYS.COUNTRIES, 'countries'); },
     saveCoupons: function() { return this.saveCollection(DB_KEYS.COUPONS, 'coupons'); },
     saveTiers: function() { return this.saveCollection(DB_KEYS.TIERS, 'tiers'); },
@@ -422,23 +449,22 @@ saveCollection: async function(key, prop) {
     saveBanners: function() { return this.saveCollection(DB_KEYS.BANNERS, 'banners'); },
     saveOffers: function() { return this.saveCollection(DB_KEYS.OFFERS, 'offers'); },
     
-    // 🛡️ [تحديث]: حفظ إعدادات النظام المفردة
     saveSystemSettings: async function() {
-            if (!this.isCloudSyncSuccessful) return false;
-            try {
-                await FirebaseAdapter.set(DB_KEYS.SETTINGS, 'singleton', this.data.settings);
-                return true;
-            } catch (e) { console.error("خطأ في حفظ الإعدادات:", e); return false; }
-        },
+        if (!this.isCloudSyncSuccessful) return false;
+        try {
+            await FirebaseAdapter.set(DB_KEYS.SETTINGS, 'singleton', this.data.settings);
+            return true;
+        } catch (e) { console.error("خطأ في حفظ الإعدادات:", e); return false; }
+    },
         
-        // 🛡️ [تحديث مفقود عاد للحياة]: حفظ بروفايل الإدمن لتجنب الانهيار (Crash) في لوحة التحكم
-        saveAdminProfile: async function() {
-            if (!this.isCloudSyncSuccessful) return false;
-            try {
-                await FirebaseAdapter.set(DB_KEYS.ADMIN, 'singleton', this.data.adminProfile);
-                return true;
-            } catch (e) { console.error("خطأ في حفظ بروفايل الأدمن:", e); return false; }
-        },
+    saveAdminProfile: async function() {
+        if (!this.isCloudSyncSuccessful) return false;
+        try {
+            await FirebaseAdapter.set(DB_KEYS.ADMIN, 'singleton', this.data.adminProfile);
+            return true;
+        } catch (e) { console.error("خطأ في حفظ بروفايل الأدمن:", e); return false; }
+    },
+
     autoAdvanceSweep: async function() {
         const tiers = [...this.data.tiers].sort((a,b) => b.threshold - a.threshold);
         let changed = false;
@@ -485,14 +511,8 @@ saveCollection: async function(key, prop) {
             if (this.data.countries.some(c => c.id === defaultCountryId || c.code === 'SA')) return;
             
             const defaultCountry = {
-                id: defaultCountryId,
-                name: 'السعودية',
-                code: 'SA',
-                dialCode: '+966',
-                flag: '🇸🇦',
-                currency: 'SAR',
-                isActive: true,
-                createdAt: Date.now()
+                id: defaultCountryId, name: 'السعودية', code: 'SA', dialCode: '+966',
+                flag: '🇸🇦', currency: 'SAR', isActive: true, createdAt: Date.now()
             };
             if (!Array.isArray(this.data.countries)) this.data.countries = [];
             this.data.countries.push(defaultCountry);

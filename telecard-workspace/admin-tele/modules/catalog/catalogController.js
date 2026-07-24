@@ -1,11 +1,10 @@
 // ============================================================================
-// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - النسخة V10.2 💎
+// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Enterprise V14.5 💎
 // 🎯 الوظيفة: المنطق التجاري للمنتجات، الأقسام، الدول، وصناديق الأكواد (Vault)
-// 🌟 التحديث الأقصى: 
-// 1. [Server-Side Vault]: نقل التشفير والحفظ كلياً للسيرفر لمنع تشنج متصفح الأدمن.
-// 2. [Fail-Fast UI]: منع الأدمن من حفظ أسعار فلكية تتجاوز 10,000$.
-// 3. [Decoupling]: هندسة نظيفة ومعزولة للتحكم بمخزون المتجر.
-// 4. 🚀 [V10.2 Update]: تحديث الذاكرة المحلية للـ Vault مباشرة لتوفير قراءات Firestore (Zero-Read Update).
+// 🚀 التحديثات: 
+// 1. Data Contract Fix: إضافة حقلي `isActive` و `isAvailable` لمنع السيرفر من إخفاء المنتجات.
+// 2. Force Sync Button: إضافة دالة `forceSyncStore` كزر طوارئ لإعادة المنتجات للواجهة.
+// 3. Server-Side Vault & Fail-Fast UI مدعومة ومفعلة.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -24,7 +23,6 @@ export const CatalogController = {
     openProductModal: function(id = null) {
         let strId = id ? String(id) : null;
         
-        // ⚡ جلب سريع بـ O(1) بدلاً من البحث في المصفوفة
         if (!strId && !AdminData.currFolder) {
             EventBus.emit('req-show-toast', {message:'يرجى الدخول إلى قسم أولاً لإضافة المنتج.', type:'warning'});
             return;
@@ -61,7 +59,7 @@ export const CatalogController = {
             return EventBus.emit('req-show-toast', {message:'لا يمكن أن تكون التكلفة 0 للمنتجات الفردية', type:'error'});
         }
 
-        // 🛡️ [تنبيه أمان الواجهة]: تطبيق قاعدة (Fail-Fast) لمنع الإدخال الفلكي في الواجهة!
+        // 🛡️ [Fail-Fast]: حماية الواجهة من الأخطاء البشرية (الحد الأقصى للتكلفة)
         const MAX_PRICE_LIMIT = 10000;
         if (rawCost > MAX_PRICE_LIMIT) {
             return EventBus.emit('req-show-toast', { 
@@ -75,7 +73,10 @@ export const CatalogController = {
         try {
             const hasImg = AdminUI?.CatalogUI?.hasImage?.('pr-img-wrap');
             const tempEditId = AdminData.tempEditId;
-            const oldImg = tempEditId ? AdminData.data.prodsMap?.[tempEditId]?.img : null;
+            const isEdit = !!tempEditId;
+            
+            const oldProd = isEdit ? AdminData.data.prodsMap?.[tempEditId] : null;
+            const oldImg = oldProd?.img || null;
             
             let finalImg = oldImg || '';
             if (hasImg) {
@@ -87,10 +88,8 @@ export const CatalogController = {
             }
 
             const vaultPoolId = Utils.getVal('pr-vault');
-            const isEdit = !!tempEditId;
             const newProdId = isEdit ? String(tempEditId) : 'prod_' + Date.now();
 
-            // 🛡️ [الترقيع المحاسبي]: إنشاء سعر بيع افتراضي كخطة طوارئ (Fallback) لمنع ظهور 0$ في المتجر للزوار
             const defaultTier = AdminData.data.tiers?.find(t => t.isDefault) || AdminData.data.tiers?.[0];
             let fallbackPrice = rawCost;
             if (defaultTier && type !== 'select') {
@@ -109,9 +108,13 @@ export const CatalogController = {
                 type: type,
                 img: finalImg,
                 costPrice: rawCost,
-                price: fallbackPrice, // ✅ تمت إضافة السعر الاحتياطي هنا لتجنب الـ 0$
+                price: fallbackPrice, 
                 vaultPoolId: vaultPoolId,
-                hideGridPrice: Utils.getCheck('pr-hide-price')
+                hideGridPrice: Utils.getCheck('pr-hide-price'),
+                
+                // 🛡️ [إصلاح الكارثة الماسي]: هذه الأعلام هي التي تجعل السيرفر يظهر المنتج!
+                isActive: isEdit ? (oldProd.isActive !== undefined ? oldProd.isActive : true) : true,
+                isAvailable: isEdit ? (oldProd.isAvailable !== undefined ? oldProd.isAvailable : true) : true
             };
 
             const l1 = Utils.escapeHTML(Utils.getVal('h-lbl1')) || 'حقل إدخال';
@@ -151,7 +154,7 @@ export const CatalogController = {
                 modalId: 'prod',
                 logAction: isEdit ? 'EDIT_PROD' : 'ADD_PROD',
                 logDetails: `تحديث منتج: ${name}`,
-                toastMsg: 'تم حفظ المنتج بنجاح'
+                toastMsg: 'تم حفظ المنتج بنجاح وتحديثه في المتجر!'
             });
             
         } catch (error) {
@@ -160,6 +163,34 @@ export const CatalogController = {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },    
+
+    // =========================================================
+    // 🚀 1.1 دالة المزامنة الجبرية (زر الطوارئ)
+    // =========================================================
+    forceSyncStore: async function() {
+        if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من رغبتك في إجبار السيرفر على مزامنة وتحديث المتجر بالكامل؟ (استخدم هذا الخيار إذا كانت بعض المنتجات لا تظهر للعملاء)')) {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إرسال أوامر المزامنة الشاملة للسيرفر...');
+            
+            try {
+                if (!AdminData || typeof AdminData.forceSyncCatalog !== 'function') {
+                    throw new Error("دالة المزامنة غير مدعومة في إصدار قاعدة البيانات الحالي.");
+                }
+                
+                const result = await AdminData.forceSyncCatalog();
+                
+                if (result && result.success) {
+                    EventBus.emit('req-show-toast', { message: result.message || 'تمت المزامنة بنجاح!', type: 'success' });
+                    if (AdminData?.addLog) AdminData.addLog('FORCE_SYNC', 'تمت المزامنة القسرية للمتجر من قبل الإدارة.');
+                } else {
+                    throw new Error(result ? result.message : "السيرفر لم يستجب لطلب المزامنة.");
+                }
+            } catch (error) {
+                EventBus.emit('req-show-toast', { message: `فشل المزامنة: ${error.message}`, type: 'error' });
+            } finally {
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            }
+        }
+    },
 
     saveCat: async function() {
         const name = Utils.escapeHTML(Utils.getVal('c-name'));
@@ -187,7 +218,7 @@ export const CatalogController = {
             } else {
                 const sameParentCats = AdminData.data.cats.filter(c => String(c.parentId) === String(AdminData.currFolder));
                 const maxOrder = sameParentCats.length > 0 ? Math.max(...sameParentCats.map(c => Number(c.order) || -1)) + 1 : 0;
-                AdminData.data.cats.push({ id: catId, name: name, parentId: AdminData.currFolder != null ? String(AdminData.currFolder) : null, img: finalImg, order: maxOrder });
+                AdminData.data.cats.push({ id: catId, name: name, parentId: AdminData.currFolder != null ? String(AdminData.currFolder) : null, img: finalImg, order: maxOrder, isActive: true });
             }
 
             await AdminData?.saveCategories?.();
@@ -240,13 +271,12 @@ export const CatalogController = {
                 const categoryToDelete = AdminData.data.catsMap?.[catId] || AdminData.data.cats.find(c => String(c.id) === catId);
                 const catName = categoryToDelete?.name || 'القسم';
                 
-                // 🛡️ [الترقيع الماسي]: خوارزمية (Recursive Flat) لجمع كل الأقسام الفرعية مهما كان عمقها
                 let allChildCatIds = new Set();
                 const findChildren = (parentId) => {
                     const children = AdminData.data.cats.filter(c => String(c.parentId) === String(parentId));
                     children.forEach(child => {
                         allChildCatIds.add(String(child.id));
-                        findChildren(child.id); // البحث في العمق
+                        findChildren(child.id); 
                     });
                 };
                 findChildren(catId);
@@ -266,7 +296,6 @@ export const CatalogController = {
                 await AdminData?.saveCategories?.();
                 await AdminData?.saveProducts?.();
                 
-                // إذا كان المدير بداخل القسم المحذوف، أو أحد أبنائه، أخرجه للقسم الرئيسي (Root)
                 if (String(AdminData.currFolder) === catId || allChildCatIds.has(String(AdminData.currFolder))) {
                     EventBus.emit('req-update-state', { currFolder: null });
                 }
@@ -303,7 +332,6 @@ export const CatalogController = {
             }
         });
         
-        // حفظ الداتا في الخلفية بدون لودر لكي لا نزعج المدير
         if (catsChanged) await AdminData?.saveCategories?.();
         if (prodsChanged) await AdminData?.saveProducts?.();
     },
@@ -424,7 +452,7 @@ export const CatalogController = {
     },
 
     // =========================================================
-    // 🏦 3. إدارة صناديق الأكواد (Vault) - Server Integrated 🚀
+    // 🏦 3. إدارة صناديق الأكواد (Vault)
     // =========================================================
     saveVaultPool: async function() {
         const id = Utils.getVal('v-pool-id');
@@ -437,11 +465,8 @@ export const CatalogController = {
 
         try {
             const lines = rawText.split('\n').map(c => c.trim()).filter(Boolean);
-            
-            // إنشاء الـ ID إذا لم يكن موجوداً
             const finalPoolId = id && id !== '' ? id : 'vpool_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
             
-            // 🚀 التحديث الجذري V10.1: تفويض المهمة الثقيلة للسيرفر (Cloud Function)
             const result = await FirebaseAdapter.callFunction('adminSaveVaultCodes', {
                 poolId: finalPoolId,
                 poolName: name,
@@ -450,8 +475,6 @@ export const CatalogController = {
             });
 
             if (result && result.success) {
-                // 🛡️ [تحديث V10.2: Local Mutation]: 
-                // تحديث الذاكرة المحلية مباشرة بدلاً من جلب كل البيانات عبر AdminData.loadData()
                 if (!AdminData.data.vault) AdminData.data.vault = [];
                 
                 const existingPoolIndex = AdminData.data.vault.findIndex(v => String(v.id) === finalPoolId);
@@ -463,8 +486,7 @@ export const CatalogController = {
                     AdminData.data.vault[existingPoolIndex].totalCount = Number(AdminData.data.vault[existingPoolIndex].totalCount || 0) + addedCount;
                 } else {
                     AdminData.data.vault.push({
-                        id: finalPoolId,
-                        name: name,
+                        id: finalPoolId, name: name,
                         alertLimit: Number(Utils.getVal('v-alert-limit', 5)) || 5,
                         totalCount: addedCount
                     });
@@ -492,15 +514,9 @@ export const CatalogController = {
         if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف صندوق الأكواد بالكامل. يفضل ترك هذه المهمة لعملية التنظيف السحابي (Cloud Function). متأكد؟')) {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إتلاف الصندوق سحابياً...');
             try {
-                // 🛡️ التحديث المعماري V10.1: استدعاء السيرفر لتدمير المستند والمجموعة الفرعية معاً
                 const result = await FirebaseAdapter.callFunction('adminDeleteVaultPool', { poolId: String(id) });
-                
                 if (result && result.success) {
-                    // 🛡️ [تحديث V10.2: Local Mutation]: تدمير محلي لتوفير قراءات فايربيز
-                    if (AdminData.data.vault) {
-                        AdminData.data.vault = AdminData.data.vault.filter(v => String(v.id) !== String(id));
-                    }
-                    
+                    if (AdminData.data.vault) AdminData.data.vault = AdminData.data.vault.filter(v => String(v.id) !== String(id));
                     EventBus.emit('req-render-vault');
                     EventBus.emit('req-show-toast', { message: 'تم التدمير بنجاح', type: 'success' });
                 }

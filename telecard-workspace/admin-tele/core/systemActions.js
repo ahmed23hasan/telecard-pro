@@ -1,7 +1,7 @@
 // ============================================================================
-// ⚙️ خريطة مسارات النظام (System Actions Router) - 💎 Pure Edition V2.0
+// ⚙️ خريطة مسارات النظام (System Actions Router) - Enterprise V14.8 💎
 // 🎯 الوظيفة: الأحداث المشتركة، النوافذ، الملاحة، التقويم، وإعدادات النظام العامة
-// 🌟 التحديث الأقصى: إضافة مسار العودة (go-back) لربط الأسهم الميتة بالمحرك
+// 🚀 التحديثات: ربط مسار (force-sync) لإنقاذ الكتالوج.
 // ============================================================================
 
 import { AdminUI, AdminCalendar } from '../adminUI.js';
@@ -15,7 +15,7 @@ export const SystemActions = {
     'nav': (data) => EventBus.emit('req-navigate', { page: data.target, btnEl: data.element }),
     'nav-with-filter': (data) => EventBus.emit('req-navigate-filter', { section: data.section, status: data.status }),
     
-    // 🛡️ [الترقيع الماسي]: تفعيل مسار العودة المفقود لتعمل أسهم الرجوع في واجهة الأدمن
+    // 🛡️ تفعيل مسار العودة
     'go-back': () => EventBus.emit('req-go-back'),
     
     'toggle-sidebar': () => AdminUI?.toggleSidebar?.(),
@@ -23,6 +23,9 @@ export const SystemActions = {
     'refresh': (data) => EventBus.emit('req-refresh', { type: data.type || data.target }),
     'refresh-dash': () => EventBus.emit('req-refresh', { type: 'dash' }),
     'render-users': () => EventBus.emit('req-refresh', { type: 'users' }),
+    
+    // 🚀 [الجسر السحري]: مسار زر إنقاذ الكتالوج والمزامنة الجبرية
+    'force-sync': () => EventBus.emit('req-force-sync'),
     
     // --- 2. إعدادات النظام والهوية ---
     'save-system': () => EventBus.emit('req-save-system'),
@@ -38,7 +41,7 @@ export const SystemActions = {
     // --- 3. النوافذ المشتركة ---
     'open-modal': (data) => AdminUI?.openModal?.(data.target),
     
-    // 🛡️ [تحسين]: السماح بإغلاق نافذة محددة (بالـ ID) بدلاً من الإغلاق العشوائي
+    // 🛡️ إغلاق نافذة محددة
     'close-modal': (data) => AdminUI?.closeModal?.(data.target || data.id || null),
     
     'close-drawer': (data) => {

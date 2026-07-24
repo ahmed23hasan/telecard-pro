@@ -1,7 +1,10 @@
 // ============================================================================
-// 🧠 الموجه المركزي للنظام (core/appController.js) - Master Orchestrator V9.5 🚀
-// الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🌟 التحديث الأقصى: إغلاق ثغرة Session Bypass، ترشيد مساحة الأدمن، وحماية الحظر
+// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V14.9 💎
+// 🎯 الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
+// 🚀 التحديثات:
+// 1. Zero Trust Security: إغلاق ثغرة الـ Backdoor والاعتماد حصرياً على الـ Custom Claims.
+// 2. Force Sync Bridge: تفعيل ربط دالة المزامنة الجبرية (req-force-sync) لإنقاذ الكتالوج.
+// 3. Auth Memory Leak Fix: تدمير مستمع المصادقة فور الانتهاء من التحقق (One-Time Check).
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -20,7 +23,7 @@ import { SystemActions } from './systemActions.js';
 
 import { CatalogController } from '../modules/catalog/catalogController.js';
 import { MarketingController } from '../modules/marketing/marketingController.js';
-import { FirebaseAdapter, auth } from './firebaseAdapter.js'; // 🛡️ استيراد auth للتحقق الحقيقي
+import { FirebaseAdapter, auth } from './firebaseAdapter.js'; 
 
 import { DeveloperActions } from '../modules/developer/developerActions.js';
 import { IntegrationsActions } from '../modules/integrations/integrationsActions.js';
@@ -43,15 +46,15 @@ export const AppController = {
     selectedUserId: null, selectedTierId: null,
 
     updateState: function(newState) {
-    for (let key in newState) {
-        try {
-            this[key] = newState[key];
-            // 🛡️ [إصلاح الثغرة]: تمرير حالة الملاحة إلى AdminData لكي تقرأها باقي الملفات كالكتالوج
-            if (AdminData) AdminData[key] = newState[key];
-        } catch (e) {}
-    }
-    EventBus.emit('state-update', newState);
-},
+        for (let key in newState) {
+            try {
+                this[key] = newState[key];
+                if (AdminData) AdminData[key] = newState[key];
+            } catch (e) {}
+        }
+        EventBus.emit('state-update', newState);
+    },
+    
     init: async function() {
         if (this.isInitialized) return; 
         
@@ -69,7 +72,7 @@ export const AppController = {
                 AdminUI.onResize();
             }
             
-            // 🚀 2. الآن، وبما أننا متأكدون من هويته، نحمل البيانات بأمان
+            // 🚀 2. تحميل البيانات بأمان
             if (AdminData?.loadData) {
                 await AdminData.loadData();
                 RenderHelpers?.init?.(AdminData.data);
@@ -103,21 +106,24 @@ export const AppController = {
         }
     },
 
-    // 🛡️ [تحديث أمني V9.5]: التحقق الحقيقي من Firebase Auth لمنع تجاوز الـ Storage
+    // 🛡️ [تحديث أمني ماسي]: إغلاق الـ Backdoor وتأمين الذاكرة
     setupAuthGate: function() {
         return new Promise((resolve) => {
             const isSessionFlagged = sessionStorage.getItem('telecard_admin_auth') === 'true'; 
             
-            auth.onAuthStateChanged((user) => {
+            // 🛡️ حفظ المستمع لإيقافه فوراً بعد الاستخدام الأول (Memory Leak Fix)
+            const unsubscribe = auth.onAuthStateChanged((user) => {
+                unsubscribe(); 
+                
                 if (user && isSessionFlagged) {
                     user.getIdTokenResult().then((idTokenResult) => {
-                        // يجب أن يمتلك كليم (admin: true) أو يكون هو الجذر (Root Owner)
-                        const isRealAdmin = idTokenResult.claims.admin === true || user.uid === 'e064MQJyn6dhU9mNXZvXItc7VYg2';
+                        // 🔒 الاعتماد التام والمطلق على الـ Custom Claims القادمة من السيرفر (لا يوجد Backdoors)
+                        const isRealAdmin = idTokenResult.claims.admin === true;
                         
                         if (isRealAdmin) {
-                            resolve(true); // السماح بالدخول
+                            resolve(true); 
                         } else {
-                            console.warn("🚨 محاولة دخول بصلاحيات غير إدارية!");
+                            console.warn("🚨 تم إحباط محاولة دخول بصلاحيات غير إدارية!");
                             this.logoutAdmin();
                             resolve(false);
                         }
@@ -139,7 +145,7 @@ export const AppController = {
 
     logoutAdmin: function() { 
         sessionStorage.removeItem('telecard_admin_auth'); 
-        if (auth) auth.signOut().catch(()=>{}); // تسجيل خروج من فايربيز أيضاً
+        if (auth) auth.signOut().catch(()=>{}); 
         window.location.replace('login.html'); 
     },
 
@@ -149,17 +155,19 @@ export const AppController = {
         EventBus.on('req-navigate', (data) => this.nav?.(data.page, data.btnEl));
         EventBus.on('req-navigate-filter', (data) => this.navWithFilter?.(data.section, data.status));
         EventBus.on('req-refresh', (data) => this.refresh?.(data.type));
-        // --- مستمعات العودة وإغلاق النوافذ (تم إضافتها لحل مشكلة السهم) ---
         EventBus.on('req-go-back', () => this.back());
         EventBus.on('req-close-modal', (data) => AdminUI?.closeModal?.(data?.id || null));
+        
         // --- 2. أحداث حفظ الإعدادات والهوية ---
         EventBus.on('req-save-system', () => this.saveSystem());
         EventBus.on('req-save-admin-profile', () => this.saveAdminProfile());
         EventBus.on('req-toggle-system', (data) => this.confirmSystemToggle?.(data.type, data.element));
         EventBus.on('req-save-support', () => this.saveSupportSettings?.());
         EventBus.on('req-save-terms', () => this.saveTerms?.());
-        
         EventBus.on('req-auto-save-settings', () => { MarketingController.autoSaveSettings?.(); });
+        
+        // 🚀 [الجسر السحري تم ربطه]: الاستماع لأمر المزامنة الجبرية لإنقاذ المنتجات
+        EventBus.on('req-force-sync', () => { CatalogController.forceSyncStore?.(); });
         
         // --- 3. أحداث الحذف والفلاتر ---
         EventBus.on('req-delete-item', (data) => this.delItem?.(data.type, data.id));
@@ -171,7 +179,7 @@ export const AppController = {
         EventBus.on('req-remove-ban-ip', (data) => this.removeGlobalBanIp(data.ip));
         EventBus.on('req-remove-ban-device', (data) => this.removeGlobalBanDevice(data.device));
         
-        // --- 5. الموجه الديناميكي للأقسام (Dynamic Routing) 💎 ---
+        // --- 5. الموجه الديناميكي للأقسام (Dynamic Routing) ---
         EventBus.on('req-edit-item', (data) => {
             if (data.type === 'cat') AdminUI?.CatalogUI?.openCategoryModal?.(data.id);
             else if (data.type === 'prod') CatalogController.openProductModal?.(data.id);
@@ -194,17 +202,16 @@ export const AppController = {
             if (routers[data.action]) await routers[data.action](data);
             else console.warn(`⚠️ حدث غير مبرمج في النظام: ${data.action}`);
         });
-      // --- 7. أحداث النوافذ والـ UI ---
-EventBus.on('req-show-toast', (data) => AdminUI?.showToast?.(data.message, data.type || 'success'));
-EventBus.on('req-open-modal', (modalId) => AdminUI?.openModal?.(modalId));
-EventBus.on('modals-closed', () => this.updateState({ tempEditId: null, tempPackages: [], tempPayDetails: [] }));
-EventBus.on('set-temp-edit-id', (id) => this.updateState({ tempEditId: id !== null ? String(id) : null }));
-EventBus.on('tier-option-selected', (tierId) => this.updateState({ selectedTierId: tierId }));
 
-// 🧲 [تمت الإضافة هنا]: تشغيل محرك السحب والإفلات للكتالوج
-EventBus.on('req-init-sortable', (data) => AdminUI?.CatalogUI?.initSortableEngine?.(data.container, data.type));
+        // --- 7. أحداث النوافذ والـ UI ---
+        EventBus.on('req-show-toast', (data) => AdminUI?.showToast?.(data.message, data.type || 'success'));
+        EventBus.on('req-open-modal', (modalId) => AdminUI?.openModal?.(modalId));
+        EventBus.on('modals-closed', () => this.updateState({ tempEditId: null, tempPackages: [], tempPayDetails: [] }));
+        EventBus.on('set-temp-edit-id', (id) => this.updateState({ tempEditId: id !== null ? String(id) : null }));
+        EventBus.on('tier-option-selected', (tierId) => this.updateState({ selectedTierId: tierId }));
+        EventBus.on('req-init-sortable', (data) => AdminUI?.CatalogUI?.initSortableEngine?.(data.container, data.type));
 
-// --- 8. إعدادات الأمان والتوثيق (KYC) ---      // --- 8. إعدادات الأمان والتوثيق (KYC) ---
+        // --- 8. إعدادات الأمان والتوثيق (KYC) ---
         EventBus.on('req-save-kyc-config', async (newKycConfig) => {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات التوثيق...');
             try {
@@ -336,22 +343,21 @@ EventBus.on('req-init-sortable', (data) => AdminUI?.CatalogUI?.initSortableEngin
     },
 
     back: function() {
-    if (this.currFolder) {
-        const curr = AdminData.data.catsMap?.[this.currFolder] || this.data.cats.find(x => String(x.id) === String(this.currFolder));
-        if (curr && curr.parentId && curr.parentId !== 'null') {
-            this.updateState({ currFolder: String(curr.parentId) });
+        if (this.currFolder) {
+            const curr = AdminData.data.catsMap?.[this.currFolder] || this.data.cats.find(x => String(x.id) === String(this.currFolder));
+            if (curr && curr.parentId && curr.parentId !== 'null') {
+                this.updateState({ currFolder: String(curr.parentId) });
+            } else {
+                this.updateState({ currFolder: null });
+            }
+            EventBus.emit('req-render-prods');
         } else {
-            // إذا لم يكن هناك قسم أب، نعود للشاشة الرئيسية
-            this.updateState({ currFolder: null });
+            AdminUI?.closeModal?.();
         }
-        EventBus.emit('req-render-prods');
-    } else {
-        // إذا كنا في الرئيسية ونريد العودة، نغلق أي نافذة مفتوحة
-        AdminUI?.closeModal?.();
-    }
-},
+    },
+
     // ==========================================
-    // 🛡️ إدارة الجدار الناري والقائمة السوداء (Firewall & Blacklist)
+    // 🛡️ إدارة الجدار الناري والقائمة السوداء (Firewall)
     // ==========================================
     
     renderFirewallBlacklist: function() {
@@ -400,7 +406,6 @@ EventBus.on('req-init-sortable', (data) => AdminUI?.CatalogUI?.initSortableEngin
             return AdminUI.showToast('صيغة الـ IP غير صحيحة، يرجى إدخال IP حقيقي', 'error');
         }
 
-        // 🛡️ [حماية انتحار الجدار الناري]: تحذير شديد قبل حظر أي IP
         if (AdminUI && !await AdminUI.showConfirm(`تنبيه أمني خطير!\nهل أنت متأكد من حظر هذا الـ IP (${newIp})؟\nإذا كان هذا الـ IP يخصك أو يخص سيرفر النظام، فلن تتمكن من دخول اللوحة بعد الآن!`, 'تأكيد الحظر')) return;
         
         if (!AdminData.data.settings) AdminData.data.settings = {};
@@ -519,7 +524,7 @@ EventBus.on('req-init-sortable', (data) => AdminUI?.CatalogUI?.initSortableEngin
             const success = await AdminData?.saveSystemSettings?.();
             if (success) {
                 AdminUI?.showToast?.('تم حفظ الشروط والأحكام بنجاح!', 'success');
-                if (AdminData?.addLog) AdminData.addLog('UPDATE_TERMS', 'قام بتحديث الشروط والأحكام (الكروت الذكية).');
+                if (AdminData?.addLog) AdminData.addLog('UPDATE_TERMS', 'قام بتحديث الشروط والأحكام.');
             } else {
                 AdminUI?.showToast?.('حدث خطأ أثناء حفظ الشروط في السحابة', 'error');
             }
@@ -531,7 +536,6 @@ EventBus.on('req-init-sortable', (data) => AdminUI?.CatalogUI?.initSortableEngin
         }
     },
     
-    // 🛡️ [تحديث أمني 9.5]: ترشيد مساحة الأدمن (استبدال دائم وحفظ المال)
     saveAdminProfile: async function() { 
         const name = Utils.escapeHTML(Utils.getVal('adm-name')), 
               email = Utils.escapeHTML(Utils.getVal('adm-email')), 
@@ -553,13 +557,11 @@ EventBus.on('req-init-sortable', (data) => AdminUI?.CatalogUI?.initSortableEngin
                 if (fileToUpload) {
                     AdminUI?.showToast('جاري رفع صورتك الشخصية...', 'info');
                     const oldImgUrl = this.data.adminProfile?.img || null;
-                    // تم تمرير اسم مخصص للصورة + الرابط القديم لحذفه
                     finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'admin', 'admin_profile_pic.webp', oldImgUrl);
                 } else {
                     finalImg = this.data.adminProfile.img || '';
                 }
             } else {
-                // إذا مسح الصورة، نحذف القديمة من السيرفر
                 const oldImgUrl = this.data.adminProfile?.img || null;
                 if (oldImgUrl && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
                     FirebaseAdapter.deleteImageByUrl(oldImgUrl).catch(()=>{});

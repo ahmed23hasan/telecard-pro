@@ -1,10 +1,10 @@
 // ============================================================================
-// 📦 محرك رسم المنتجات والكتالوج (modules/catalog/catalogRender.js) - Pro 🚀
+// 📦 محرك رسم المنتجات والكتالوج (modules/catalog/catalogRender.js) - Enterprise V14.6 💎
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، إعدادات المنتجات، الخزنة المركزية، والبلدان
-// 🌟 التحديث الأقصى: 
-// 1. [Subcollections Compatibility]: توافق رادار المخزون مع الـ Cloud Counters.
-// 2. [O(1) Optimization]: بناء فهارس سريعة قبل الرسم لتحسين الأداء.
-// 3. [Visual Stability]: منع الارتعاش أثناء إعادة الترتيب.
+// 🚀 التحديثات: 
+// 1. Navigation State Fix: إصلاح تضارب الـ State عند حذف الأقسام.
+// 2. Vault Math Correction: مطابقة رياضيات الصناديق مع بنية السيرفر الماسية (V17).
+// 3. Flicker Free Drag: إضافة كلاسات السحب برمجياً أثناء الرسم لمنع الارتعاش البصري.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -23,88 +23,96 @@ export const CatalogRender = {
     // 📦 1. رسم شبكة المنتجات والأقسام
     // =========================================================
     renderProds: function(forceRender = false) {
-    const grid = document.getElementById('prod-grid');
-    if (!grid) return;
-    
-    // 🌟 استقرار بصري: لا نُعيد الرسم إذا كان الأدمن يقوم بالترتيب (إلا إذا فرضنا الرسم بقوة)
-    if (this.state.dragEditMode && !forceRender) return;
-    
-    const act = document.getElementById('prod-actions');
-    const bread = document.getElementById('prod-bread');
-    const currCatId = this.state.currFolder != null ? String(this.state.currFolder) : null;
-    
-    let currentLayout = (currCatId === null || currCatId === 'root') ?
-        (AdminData.data.settings?.rootLayout || 2) :
-        2;
-    
-    if (currCatId && currCatId !== 'root') {
-        const cat = AdminData.data.catsMap?.[currCatId];
-        if (cat?.layout) currentLayout = cat.layout;
-    }
-    
-    grid.style.setProperty('--layout-cols', currentLayout);
-    
-    if (currCatId === null) {
-        bread.innerText = 'الأقسام الرئيسية';
-        act.innerHTML = AdminTemplates.catRootActions(currentLayout);
-        grid.className = 'items-grid cats-grid sortable-container'; // 🛡️ الترقيع: إضافة كلاس sortable-container للروت
+        const grid = document.getElementById('prod-grid');
+        if (!grid) return;
         
-        const mainCats = (AdminData.data.cats || []).filter(c => !c.parentId || String(c.parentId) === 'null' || String(c.parentId) === '')
-            .sort((a, b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
+        // 🌟 استقرار بصري: لا نُعيد الرسم إذا كان الأدمن يقوم بالترتيب (إلا إذا فرضنا الرسم بقوة)
+        if (this.state.dragEditMode && !forceRender) return;
         
-        grid.innerHTML = mainCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
+        const act = document.getElementById('prod-actions');
+        const bread = document.getElementById('prod-bread');
+        const currCatId = this.state.currFolder != null ? String(this.state.currFolder) : null;
         
-        // 🛡️ الترقيع: تمرير الـ grid نفسه كحاوية (Container)
-        EventBus.emit('req-init-sortable', { container: grid, type: 'cat' });
-    } else {
-        const parent = AdminData.data.catsMap?.[currCatId];
-        if (!parent) {
-            this.state.currFolder = null;
-            EventBus.emit('state-update', { currFolder: null });
-            return this.renderProds(true); // 🛡️ الترقيع: فرض الرسم عند الرجوع التلقائي
+        let currentLayout = (currCatId === null || currCatId === 'root') ?
+            (AdminData.data.settings?.rootLayout || 2) : 2;
+        
+        if (currCatId && currCatId !== 'root') {
+            const cat = AdminData.data.catsMap?.[currCatId];
+            if (cat?.layout) currentLayout = cat.layout;
         }
         
-        bread.innerText = parent.name;
-        act.innerHTML = AdminTemplates.catSubActions(currentLayout);
+        grid.style.setProperty('--layout-cols', currentLayout);
         
-        const childCats = (AdminData.data.cats || []).filter(c => String(c.parentId) === currCatId)
-            .sort((a, b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
-        const prods = (AdminData.data.prods || []).filter(p => String(p.catId) === currCatId)
-            .sort((a, b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
-        
-        grid.className = 'prod-grid-stack';
-        if (!childCats.length && !prods.length) {
-            grid.innerHTML = AdminTemplates.emptyFolder();
-        } else {
-            let catsHtml = childCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
-            let prodsHtml = prods.map((p, i) => {
-                const baseCard = AdminTemplates.prodCard(p, i);
-                const offerBadge = RenderHelpers._getActiveOfferBadge(p.id);
-                return offerBadge ? baseCard.replace('<div class="item-info">', `<div class="item-info">${offerBadge}`) : baseCard;
-            }).join('');
+        // 🛡️ [تحديث ماسي 3]: تجهيز كلاسات السحب مسبقاً لمنع الارتعاش البصري
+        const dragClass = this.state.dragEditMode ? 'drag-enabled' : '';
+
+        if (currCatId === null) {
+            bread.innerText = 'الأقسام الرئيسية';
+            act.innerHTML = AdminTemplates.catRootActions(currentLayout);
+            grid.className = 'items-grid cats-grid sortable-container'; 
             
-            grid.innerHTML = AdminTemplates.gridContainer(catsHtml, prodsHtml);
+            const mainCats = (AdminData.data.cats || []).filter(c => !c.parentId || String(c.parentId) === 'null' || String(c.parentId) === '')
+                .sort((a, b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
+            
+            // حقن كلاس السحب داخل الكرت نفسه (نحتاج لتعديل في الـ Template، لكن سنعوضه هنا بالاستبدال السريع)
+            let rawHtml = mainCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
+            if (dragClass) rawHtml = rawHtml.replace(/class="item-box/g, `class="item-box ${dragClass}`);
+            
+            grid.innerHTML = rawHtml;
+            
+            EventBus.emit('req-init-sortable', { container: grid, type: 'cat' });
+        } else {
+            const parent = AdminData.data.catsMap?.[currCatId];
+            
+            // 🛡️ [إصلاح ماسي 1]: في حال تم حذف القسم، نرسل تحديثاً جذرياً للـ State لضمان التزامن الملاحي
+            if (!parent) {
+                this.state.currFolder = null;
+                EventBus.emit('req-update-state', { currFolder: null }); // إشعار كل المتنصتين (Controllers) بالخروج!
+                return this.renderProds(true); 
+            }
+            
+            bread.innerText = parent.name;
+            act.innerHTML = AdminTemplates.catSubActions(currentLayout);
+            
+            const childCats = (AdminData.data.cats || []).filter(c => String(c.parentId) === currCatId)
+                .sort((a, b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
+            const prods = (AdminData.data.prods || []).filter(p => String(p.catId) === currCatId)
+                .sort((a, b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
+            
+            grid.className = 'prod-grid-stack';
+            if (!childCats.length && !prods.length) {
+                grid.innerHTML = AdminTemplates.emptyFolder();
+            } else {
+                let catsHtml = childCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
+                
+                let prodsHtml = prods.map((p, i) => {
+                    const baseCard = AdminTemplates.prodCard(p, i);
+                    const offerBadge = RenderHelpers._getActiveOfferBadge(p.id);
+                    return offerBadge ? baseCard.replace('<div class="item-info">', `<div class="item-info">${offerBadge}`) : baseCard;
+                }).join('');
+                
+                // حقن كلاس السحب المسبق
+                if (dragClass) {
+                    catsHtml = catsHtml.replace(/class="item-box/g, `class="item-box ${dragClass}`);
+                    prodsHtml = prodsHtml.replace(/class="item-box/g, `class="item-box ${dragClass}`);
+                }
+                
+                grid.innerHTML = AdminTemplates.gridContainer(catsHtml, prodsHtml);
+            }
+            
+            requestAnimationFrame(() => {
+                const catCont = grid.querySelector('.cats-grid.sortable-container');
+                const prodCont = grid.querySelector('.prods-grid.sortable-container');
+                if (catCont) EventBus.emit('req-init-sortable', { container: catCont, type: 'cat' });
+                if (prodCont) EventBus.emit('req-init-sortable', { container: prodCont, type: 'prod' });
+            });
         }
         
-        // 🛡️ الترقيع: ربط الـ Sortable بشكل أكثر دقة
-        requestAnimationFrame(() => {
-            const catCont = grid.querySelector('.cats-grid.sortable-container');
-            const prodCont = grid.querySelector('.prods-grid.sortable-container');
-            if (catCont) EventBus.emit('req-init-sortable', { container: catCont, type: 'cat' });
-            if (prodCont) EventBus.emit('req-init-sortable', { container: prodCont, type: 'prod' });
-        });
-    }
-    
-    const syncToggle = document.getElementById('sync-grid-store');
-    if (syncToggle) syncToggle.checked = !!AdminData.data.settings?.syncGridLayout;
-    
-    // 🛡️ الترقيع: إعادة تفعيل وضع السحب إذا كان مفعلاً مسبقاً وانتقلنا لقسم آخر
-    if (this.state.dragEditMode) {
-        document.querySelectorAll('.item-box,.banner-item').forEach(card => {
-            card.classList.add('drag-enabled');
-        });
-    }
-},    // =========================================================
+        const syncToggle = document.getElementById('sync-grid-store');
+        if (syncToggle) syncToggle.checked = !!AdminData.data.settings?.syncGridLayout;
+    },
+
+    // =========================================================
     // ⚙️ 2. رسم إعدادات شكل حقول المنتج (Mockups)
     // =========================================================
     renderProdConfig: function() {
@@ -149,7 +157,7 @@ export const CatalogRender = {
     },
 
     // =========================================================
-    // 🏦 3. رسم الخزنة المركزية (Vault) - Optimized for Subcollections
+    // 🏦 3. رسم الخزنة المركزية (Vault) - Server-Side Matching
     // =========================================================
     renderVault: function() {
         const grid = document.getElementById('vault-grid'); 
@@ -161,7 +169,7 @@ export const CatalogRender = {
             return; 
         }
         
-        // ⚡ بناء فهرس لعد المنتجات المرتبطة بـ O(N) مرة واحدة فقط خارج الـ Loop
+        // ⚡ بناء فهرس لعد المنتجات المرتبطة بـ O(1) 
         const linkedProdsMap = {};
         (AdminData.data.prods || []).forEach(p => {
             if (p.vaultPoolId) {
@@ -170,17 +178,20 @@ export const CatalogRender = {
         });
         
         grid.innerHTML = vault.map(pool => {
-            // 🛡️ التحديث الجذري: قراءة العداد القادم من السيرفر مباشرة (Subcollection Counters)
+            // 🛡️ [تحديث ماسي 2]: مطابقة الرياضيات والعدادات مع السيرفر الجديد (Zero-Contention)
             const availableCount = Number(pool.stockCount || 0); 
-            // بما أن الأكواد المباعة تنقل، نعتبر المباع صفر للواجهة أو نستخدم عداداً إذا كان موجوداً
-            const soldCount = Number(pool.soldCount || 0); 
-            const defectCount = Number(pool.defectCount || 0);
+            const totalUploaded = Number(pool.totalAdded || pool.totalCount || 0); 
             
-            const totalCount = availableCount + soldCount + defectCount;
-            const healthPercent = totalCount > 0 ? Math.round((availableCount / totalCount) * 100) : 0;
+            // السيرفر لم يعد يرسل soldCount. نستنتجه رياضياً: (المُضاف الكلي - المتبقي)
+            // (بشرط أن يكون totalAdded متوفراً، وإلا نجعله 0 مؤقتاً لتجنب الأرقام السالبة)
+            const soldCount = totalUploaded > 0 ? Math.max(0, totalUploaded - availableCount) : 0; 
+            const defectCount = 0; // تم إيقاف نظام الأكواد التالفة مؤقتاً لتخفيف الحمل السحابي
+            
+            const totalCountForHealth = availableCount + soldCount;
+            // حساب نسبة توفر الأكواد (المتبقي مقارنة بالمُباع) لمعرفة هل الصندوق بحاجة لشحن جديد؟
+            const healthPercent = totalCountForHealth > 0 ? Math.round((availableCount / totalCountForHealth) * 100) : (availableCount > 0 ? 100 : 0);
             const linkedProds = linkedProdsMap[String(pool.id)] || 0;
             
-            // تمرير الأرقام الدقيقة للقالب
             return AdminTemplates.vaultCard(pool, availableCount, soldCount, linkedProds, defectCount, healthPercent);
         }).join('');
     },

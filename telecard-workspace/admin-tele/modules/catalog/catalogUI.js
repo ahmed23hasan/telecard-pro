@@ -1,25 +1,27 @@
 // ============================================================================
-// 📦 وحدة المنتجات والأقسام (modules/catalog/catalogUI.js)
+// 📦 وحدة المنتجات والأقسام (modules/catalog/catalogUI.js) - Enterprise V14.7 💎
 // 🎯 الوظيفة: التعديل المباشر، شجرة الأقسام، وتهيئة نوافذ الكتالوج (DOM Isolation)
+// 🚀 التحديثات:
+// 1. Vault Sync: تصحيح قراءة أعداد الأكواد من stockCount لتتوافق مع السيرفر السحابي.
+// 2. Financial Math Fix: تصحيح تمرير المتغيرات للمحرك المالي في المعاينة الحية.
+// 3. State Purge: تفريغ النماذج بالكامل عند الإضافة الجديدة لمنع تداخل البيانات.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js'; 
 import { Utils, EventBus } from '../../adminUtils.js';
 import { AdminTemplates } from '../../adminTemplates.js';
 import { UIService } from '../../core/uiService.js';
+// 🛡️ [إصلاح ماسي 4]: إزالة التكرار، نعتمد على المحرك المالي الموثوق من المصدر
+import { TelecardPricingEngine } from '../../adminConfig.js';
 
 export const CatalogUI = {
   dragEditMode: false,
   
   // =========================================================
-  // 🪟 1. دوال فتح النوافذ المنبثقة (Modal Triggers)
+  // 🪟 1. دوال فتح النوافذ المنبثقة (Modal Triggers - O(1) Optimized)
   // =========================================================
-  
-  // =========================================================
-// 🪟 1. دوال فتح النوافذ المنبثقة (Modal Triggers - O(1) Optimized)
-// =========================================================
 
-openCategoryModal: function(id = null) {
+  openCategoryModal: function(id = null) {
     EventBus.emit('set-temp-edit-id', id);
     // ⚡ جلب سريع جداً بـ O(1)
     const cat = id ? (AdminData.data.catsMap?.[id] || (AdminData.data.cats || []).find(c => String(c.id) === String(id))) : null;
@@ -50,7 +52,9 @@ openCategoryModal: function(id = null) {
     const pool = id ? (AdminData.data.vault || []).find(v => String(v.id) === String(id)) : null;
     this.setupVaultModal(pool);
     EventBus.emit('req-open-modal', 'vault');
-  },  // =========================================================
+  },  
+
+  // =========================================================
   // 🎨 2. تهيئة النوافذ المنبثقة (Modal Setups) - DOM Isolation
   // =========================================================
   
@@ -72,7 +76,6 @@ openCategoryModal: function(id = null) {
       imgEl.classList.add('hide-element');
       wrapEl.classList.remove('has-img');
     }
-
   },
   
   setupProductModal: function(p, vaultData) {
@@ -83,8 +86,9 @@ openCategoryModal: function(id = null) {
     const titleEl = document.getElementById('prod-modal-title');
     if (titleEl) titleEl.innerText = strId ? 'تعديل المنتج' : 'إضافة منتج';
     
+    // 🛡️ [إصلاح ماسي 3]: تفريغ حقيقي للحقول عند الإضافة الجديدة لمنع تسرب بيانات المنتجات الأخرى
     safeSetVal('pr-name', p ? p.name : '');
-    safeSetVal('pr-desc', p ? p.description : '');
+    safeSetVal('pr-desc', p ? (p.description || '') : '');
     safeSetVal('pr-type', p ? p.type : 'simple');
     safeSetVal('pr-cost', p ? (p.costPrice || p.unitCost || 0) : '');
     safeSetVal('pr-min', p ? (p.minQty || 1) : 1);
@@ -99,7 +103,8 @@ openCategoryModal: function(id = null) {
     if (vaultSelect) {
       let vHtml = '<option value="">-- بدون ربط (منتج يدوي) --</option>';
       (vaultData || []).forEach(v => {
-        const count = v.codes ? v.codes.length : 0;
+        // 🛡️ [إصلاح ماسي 1]: قراءة العداد السحابي stockCount بدلاً من مصفوفة codes المحدوفة من السيرفر
+        const count = Number(v.stockCount || 0);
         vHtml += `<option value="${Utils.escapeHTML(v.id)}">${Utils.escapeHTML(v.name)} (${count} كود متاح)</option>`;
       });
       vaultSelect.innerHTML = vHtml;
@@ -112,12 +117,11 @@ openCategoryModal: function(id = null) {
       imgEl.src = p.img;
       imgEl.classList.remove('hide-element');
       wrapEl.classList.add('has-img');
-        } else if (imgEl && wrapEl) {
+    } else if (imgEl && wrapEl) {
       imgEl.removeAttribute('src');
       imgEl.classList.add('hide-element');
       wrapEl.classList.remove('has-img');
     }
-
   },
   
   setupCountryModal: function(country) {
@@ -149,15 +153,11 @@ openCategoryModal: function(id = null) {
     safeSetVal('v-name', pool ? pool.name : '');
     safeSetVal('v-alert-limit', pool ? (pool.alertLimit || 5) : 5);
     
-    let availableCodesText = '';
-    if (pool && pool.codes) {
-      const avail = pool.codes.filter(c => typeof c === 'string' || c.status === 'available');
-      availableCodesText = avail.map(c => typeof c === 'string' ? c : c.text).join('\n');
-    }
-    safeSetVal('v-codes', availableCodesText);
+    // الصناديق في السيرفر الجديد لم تعد تعرض أكواداً في الواجهة، نترك المربع فارغاً لإضافة الجديد
+    safeSetVal('v-codes', '');
     
     const titleEl = document.getElementById('vault-modal-title');
-    if (titleEl) titleEl.innerHTML = isEdit ? '<i class="fa-solid fa-box-open"></i> تعديل الصندوق' : '<i class="fa-solid fa-plus"></i> إنشاء صندوق جديد';
+    if (titleEl) titleEl.innerHTML = isEdit ? '<i class="fa-solid fa-box-open"></i> إضافة أكواد للصندوق' : '<i class="fa-solid fa-plus"></i> إنشاء صندوق جديد';
   },
   
   // =========================================================
@@ -266,14 +266,13 @@ openCategoryModal: function(id = null) {
       });
   },
 
-  // 🌟 إضافة منطق الحقول المنقول من الموجه
   toggleSimpleQty: function(isChecked) {
     const limitBox = document.getElementById('simple-qty-limit-box');
     if (limitBox) limitBox.classList.toggle('hide-element', !isChecked);
   },
 
-  // 🌟 دالة المعاينة النظيفة بالكلاسات الجديدة
-  renderPricePreview: function(type, cost, tiers, pkgs, TelecardPricingEngine) {
+  // 🛡️ [إصلاح ماسي 2]: تصحيح الحساب المالي للمعاينة الحية للمستويات
+  renderPricePreview: function(type, cost, tiers, pkgs) {
       const previewContainer = document.getElementById('universal-price-preview');
       if (!previewContainer) return;
       
@@ -287,7 +286,8 @@ openCategoryModal: function(id = null) {
           
           html += '<div class="preview-tiers-grid">';
           tiers.forEach(tier => {
-              const pricing = TelecardPricingEngine.calculate({ costPrice: cost, tier: tier });
+              // 🛡️ تمرير الكائن بالشكل الصحيح للمحرك المالي
+              const pricing = TelecardPricingEngine.calculate({ product: { costPrice: cost }, tier: tier });
               html += `
                   <div class="preview-tier-card text-center">
                       <div class="fs-11 fw-bold text-main mb-10">
@@ -306,7 +306,7 @@ openCategoryModal: function(id = null) {
           }
           
           html += '<div class="preview-pkg-list">';
-          pkgs.forEach((pkg) => {
+          (pkgs || []).forEach((pkg) => {
               const pkgCost = parseFloat(pkg.price) || 0; 
               let pkgHtml = `
                   <div class="preview-pkg-card">
@@ -317,7 +317,7 @@ openCategoryModal: function(id = null) {
                       <div class="preview-mini-grid">`;
               
               tiers.forEach(tier => {
-                  const pricing = TelecardPricingEngine.calculate({ costPrice: pkgCost, tier: tier });
+                  const pricing = TelecardPricingEngine.calculate({ product: { costPrice: pkgCost }, tier: tier });
                   pkgHtml += `
                           <div class="preview-micro-card text-center">
                               <div class="fs-10 text-main mb-10">
@@ -375,7 +375,6 @@ openCategoryModal: function(id = null) {
     }
   },
 
-  // 🌟 إضافة منطق الشجرة المنقول من الموجه
   toggleAllTree: function(targetId) {
     const cbs = document.querySelectorAll(`#${targetId} .tree-parent-cb, #${targetId} .tree-child-cb`);
     if (cbs.length > 0) {
@@ -387,10 +386,10 @@ openCategoryModal: function(id = null) {
     }
   },
 
-// =========================================================
-// 🎟️ 5. الأكواد التالفة (Defective Codes)
-// =========================================================
-renderDefectiveCodesModal: function(poolName, defectiveCodes) {
+  // =========================================================
+  // 🎟️ 5. الأكواد التالفة (Defective Codes)
+  // =========================================================
+  renderDefectiveCodesModal: function(poolName, defectiveCodes) {
     const oldOverlay = document.getElementById('defective-codes-overlay');
     if (oldOverlay) oldOverlay.remove();
     
@@ -410,7 +409,7 @@ renderDefectiveCodesModal: function(poolName, defectiveCodes) {
       overlay.classList.remove('active');
       setTimeout(() => { overlay.remove(); }, 300);
     }
-  }, // ✅ لاحظ: وضعنا فاصلة هنا لنكمل الكائن
+  }, 
   
   // =========================================================
   // 🧲 6. محرك السحب والإفلات (Drag & Drop Engine)
@@ -421,21 +420,18 @@ renderDefectiveCodesModal: function(poolName, defectiveCodes) {
       return;
     }
     
-    // تنظيف المحرك القديم إن وجد لمنع التكرار
     if (container.sortableInstance) {
       container.sortableInstance.destroy();
     }
     
-    // تشغيل المحرك
     container.sortableInstance = new window.Sortable(container, {
-      animation: 200, // حركة انسيابية ناعمة
-      disabled: !this.dragEditMode, // يعمل فقط إذا كان زر "ترتيب" مفعلاً
-      ghostClass: 'sortable-ghost', // كلاس CSS للعنصر أثناء السحب
-      delay: window.innerWidth < 992 ? 150 : 0, // تأخير بسيط في الجوال لمنع التعارض مع التمرير
+      animation: 200, 
+      disabled: !this.dragEditMode, 
+      ghostClass: 'sortable-ghost', 
+      delay: window.innerWidth < 992 ? 150 : 0, 
       delayOnTouchOnly: true,
       
       onEnd: (evt) => {
-        // 🚀 بمجرد إفلات العنصر، نقوم بجمع الترتيب الجديد
         const items = Array.from(container.children);
         const orderArray = items.map((item, index) => ({
           id: item.getAttribute('data-id'),
@@ -443,14 +439,10 @@ renderDefectiveCodesModal: function(poolName, defectiveCodes) {
           order: index
         }));
         
-        // إرسال الترتيب الجديد ليتم حفظه في السحابة فوراً (O(1))
         EventBus.emit('action-triggered', { action: 'save-order', orderArray });
-        
-        // تشغيل صوت نجاح خفيف
         if (window.ClientSystem && window.ClientSystem.sfx) window.ClientSystem.sfx('success');
       }
     });
   }
 
-}; 
-// ✅ الآن نغلق كائن CatalogUI بشكل صحيح
+};
