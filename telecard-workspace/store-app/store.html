@@ -1381,9 +1381,9 @@
 <script>
     (function initMobileDevTools() {
         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        if (!isLocal && localStorage.getItem('dev_mode') !== '1') return;
-        
-        localStorage.setItem('dev_mode', '1');
+const isDebugUrl = window.location.search.includes('debug=1');
+
+if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;        localStorage.setItem('dev_mode', '1');
         
         // 🛠️ [الإصلاح البصري]: تغيير موضع الشريط إلى absolute top:0 وإضافة flex-wrap للأزرار وتصغير حجمها قليلاً
         document.body.insertAdjacentHTML('beforeend', `
