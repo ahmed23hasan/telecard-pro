@@ -1376,113 +1376,98 @@
     <script type="module" src="script.js?v=13.0.0"></script>
 
 <!-- ========================================================================= -->
-<!-- 🛠️ كونسول المطور السري (TeleCard DevConsole) - V2 -->
+<!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.1 💎 -->
 <!-- ========================================================================= -->
 <script>
-    (function initTeleCardConsole() {
-        // 1. الأمان: الكونسول لن يظهر للعملاء
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('debug') !== '1' && localStorage.getItem('dev_mode') !== '1') return;
+    (function initMobileDevTools() {
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (!isLocal && localStorage.getItem('dev_mode') !== '1') return;
         
         localStorage.setItem('dev_mode', '1');
         
-        // 2. إنشاء واجهة الكونسول (مع دعم التحديد وزر النسخ الشامل)
+        // 🛠️ [الإصلاح البصري]: تغيير موضع الشريط إلى absolute top:0 وإضافة flex-wrap للأزرار وتصغير حجمها قليلاً
         document.body.insertAdjacentHTML('beforeend', `
-            <div id="tc-dev-console" style="position:fixed; bottom:0; left:0; width:100%; height:40%; background:rgba(0,0,0,0.95); color:#0f0; font-family:monospace; font-size:12px; z-index:9999999999; overflow-y:auto; border-top:3px solid #333; direction:ltr; text-align:left; display:none; padding-top:40px; user-select:text !important; -webkit-user-select:text !important;">
-                <div style="position:fixed; bottom:40%; left:0; width:100%; height:40px; background:#222; display:flex; justify-content:space-between; align-items:center; padding:0 10px; box-sizing:border-box; border-bottom:1px solid #444; z-index:10000000000;">
-                    <span style="color:gold; font-weight:bold; font-size:14px;">🛠️ TeleCard CMD</span>
-                    <div style="display:flex; gap:5px;">
-                        <button id="tc-copy-btn" style="background:#28a745; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-weight:bold;">Copy All</button>
-                        <button onclick="document.getElementById('tc-dev-logs').innerHTML=''" style="background:#dc3545; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-weight:bold;">Clear</button>
-                        <button onclick="document.getElementById('tc-dev-console').style.display='none'; localStorage.removeItem('dev_mode');" style="background:#6c757d; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-weight:bold;">Close</button>
+            <div id="tc-dev-console" style="position:fixed; bottom:0; left:0; width:100%; height:50%; background:rgba(15, 23, 42, 0.98); color:#10b981; font-family:'Courier New', monospace; font-size:12px; z-index:9999999999; overflow-y:auto; border-top:4px solid #3b82f6; direction:ltr; text-align:left; display:none; padding-top:60px; box-shadow: 0 -10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);">
+                
+                <div style="position:absolute; top:0; left:0; width:100%; min-height:45px; height:auto; background:#1e293b; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; padding:8px 10px; box-sizing:border-box; border-bottom:1px solid #334155; z-index:10000000000; gap:8px;">
+                    <span style="color:#eab308; font-weight:900; font-size:13px; display:flex; gap:6px; align-items:center; white-space:nowrap;">
+                        <span style="width:10px;height:10px;background:#22c55e;border-radius:50%;display:inline-block;animation:pulse 2s infinite;"></span> DevTools
+                    </span>
+                    <div style="display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end;">
+                        <button onclick="window.runDependencyScan()" style="background:#8b5cf6; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Scan</button>
+                        <button id="tc-copy-btn" style="background:#0ea5e9; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Copy</button>
+                        <button onclick="document.getElementById('tc-dev-logs').innerHTML=''" style="background:#ef4444; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Clear</button>
+                        <button onclick="document.getElementById('tc-dev-console').style.display='none';" style="background:#64748b; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Close</button>
                     </div>
                 </div>
-                <div id="tc-dev-logs" style="padding:10px; padding-bottom:50px; word-wrap:break-word; user-select:text !important; -webkit-user-select:text !important;"></div>
+
+                <div id="tc-dev-logs" style="padding:10px; padding-bottom:50px; word-wrap:break-word; line-height: 1.6;"></div>
             </div>
-            <!-- زر عائم لفتح الكونسول -->
-            <button id="tc-dev-btn" onclick="document.getElementById('tc-dev-console').style.display='block'" style="position:fixed; bottom:80px; right:15px; width:50px; height:50px; border-radius:50%; background:gold; color:#000; border:none; z-index:9999999998; font-weight:900; box-shadow:0 4px 15px rgba(0,0,0,0.5);">CMD</button>
+            <button id="tc-dev-btn" onclick="document.getElementById('tc-dev-console').style.display='block'" style="position:fixed; bottom:90px; right:15px; width:50px; height:50px; border-radius:50%; background:linear-gradient(135deg, #3b82f6, #8b5cf6); color:#fff; border:none; z-index:9999999998; font-weight:900; box-shadow:0 4px 15px rgba(0,0,0,0.5); font-size: 12px; border: 2px solid rgba(255,255,255,0.2);">DEV</button>
         `);
         
         const logsContainer = document.getElementById('tc-dev-logs');
         const devConsole = document.getElementById('tc-dev-console');
-        const copyBtn = document.getElementById('tc-copy-btn');
-        
-        devConsole.style.display = 'block';
-        
-        // 🚀 دالة النسخ الشامل لكل ما بداخل الكونسول بضغطة زر
-        copyBtn.addEventListener('click', () => {
-            const textToCopy = logsContainer.innerText;
-            if (!textToCopy) return;
-            
-            const copyAction = (text) => {
-                const textarea = document.createElement('textarea');
-                textarea.value = text;
-                document.body.appendChild(textarea);
-                textarea.select();
-                try { document.execCommand('copy'); return true; }
-                catch (e) { return false; }
-                finally { document.body.removeChild(textarea); }
-            };
-            
-            let success = false;
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(textToCopy).then(() => { success = true; }).catch(() => { success = copyAction(textToCopy); });
-                success = true; 
-            } else {
-                success = copyAction(textToCopy);
-            }
-            
-            if (success) {
-                const origText = copyBtn.textContent;
-                copyBtn.textContent = 'Copied! ✔️';
-                copyBtn.style.background = '#20c997';
-                setTimeout(() => {
-                    copyBtn.textContent = origText;
-                    copyBtn.style.background = '#28a745';
-                }, 2000);
-            }
-        });
-        
-        const stringifyArgs = (args) => {
-            return Array.from(args).map(a => {
-                if (typeof a === 'object') {
-                    try { return JSON.stringify(a, null, 2); } catch (e) { return String(a); }
-                }
-                return String(a);
-            }).join(' ');
-        };
         
         const origLog = console.log;
         const origWarn = console.warn;
         const origError = console.error;
         
+        const formatMsg = (args) => Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+
         console.log = function(...args) {
             origLog.apply(console, args);
-            logsContainer.innerHTML += `<div style="color:#0f0; border-bottom:1px solid #333; padding:6px 0; user-select:text;">[LOG] ${stringifyArgs(args)}</div>`;
+            logsContainer.innerHTML += `<div style="color:#34d399; border-bottom:1px dashed #334155; padding:8px 0;">[LOG] ${formatMsg(args)}</div>`;
             devConsole.scrollTop = devConsole.scrollHeight;
         };
         
         console.warn = function(...args) {
             origWarn.apply(console, args);
-            logsContainer.innerHTML += `<div style="color:#fd0; border-bottom:1px solid #333; padding:6px 0; user-select:text;">[WARN] ${stringifyArgs(args)}</div>`;
+            logsContainer.innerHTML += `<div style="color:#fbbf24; border-bottom:1px dashed #334155; padding:8px 0;">[WARN] ${formatMsg(args)}</div>`;
             devConsole.scrollTop = devConsole.scrollHeight;
         };
         
         console.error = function(...args) {
             origError.apply(console, args);
-            logsContainer.innerHTML += `<div style="color:#f44; font-weight:bold; border-bottom:1px solid #333; padding:6px 0; user-select:text;">[ERROR] ${stringifyArgs(args)}</div>`;
+            logsContainer.innerHTML += `<div style="color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);">[ERROR] ${formatMsg(args)}</div>`;
             devConsole.scrollTop = devConsole.scrollHeight;
+            devConsole.style.display = 'block'; 
         };
         
         window.addEventListener('error', function(e) {
-            console.error(`Runtime Error: ${e.message} at ${e.filename}:${e.lineno}`);
+            if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
+                const missingFile = e.target.src || e.target.href || 'Unknown File';
+                console.error(`❌ فشل في تحميل الملف: \n${missingFile}`);
+            } else {
+                console.error(`💥 Runtime Crash: ${e.message} \n📍 السطر: ${e.lineno} \n📁 الملف: ${e.filename}`);
+            }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(e) { console.error(`🔌 Async Promise Failed: ${e.reason}`); });
+
+        window.runDependencyScan = async function() {
+            console.log("🔍 جاري فحص ملفات النظام الأساسية...");
+            const filesToTest = ['./script.js', './config.js', './utils.js', './dataManager.js', './renderManager.js', './ui/uiManager.js', './core/firebaseAdapter.js'];
+            let passed = 0;
+            for (const file of filesToTest) {
+                try {
+                    const res = await fetch(file, { method: 'HEAD' });
+                    if (res.ok) { console.log(`✅ ملف سليم: ${file}`); passed++; } 
+                    else { console.error(`❌ ملف مفقود (404): ${file}`); }
+                } catch (err) { console.error(`⚠️ خطأ مسار (CORS): ${file}`); }
+            }
+            console.log(`🏁 نتيجة الفحص: ${passed}/${filesToTest.length} ملفات تعمل.`);
+        };
+
+        document.getElementById('tc-copy-btn').addEventListener('click', function() {
+            const text = logsContainer.innerText;
+            const textarea = document.createElement('textarea');
+            textarea.value = text; document.body.appendChild(textarea); textarea.select();
+            try { document.execCommand('copy'); this.textContent = 'Copied!'; setTimeout(()=>this.textContent='Copy', 2000); } catch(e){}
+            document.body.removeChild(textarea);
         });
 
-        window.addEventListener('unhandledrejection', function(e) {
-            console.error(`Promise Rejected: ${e.reason}`);
-        });
-
-        console.log("🚀 TeleCard In-App Console Initialized!");
+        console.log("🚀 TeleCard DevTools V3.1 Initialized!");
     })();
 </script>
 </body>

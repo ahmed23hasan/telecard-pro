@@ -122,4 +122,3 @@ Object.defineProperties(UIManager, {
 });
 
 // 🔒 تجميد الكائن النهائي لمنع التلاعب به أثناء الـ Runtime
-Object.freeze(UIManager);
