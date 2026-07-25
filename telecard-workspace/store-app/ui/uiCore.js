@@ -1,10 +1,11 @@
+
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - Enterprise V14.1 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - Enterprise V14.2 💎
 // 🎯 الوظيفة: النوافذ، الإشعارات، القائمة الجانبية، النسخ، الثيم، والتوجيه العام
 // 🚀 التحديثات:
-// 1. Battery Saver: تحويل الـ Slider للعمل بـ IntersectionObserver (ينام خارج الشاشة).
-// 2. Zero Memory Leaks: نقل أحداث اللمس (Touch) للمكون نفسه بدلاً من الـ Document.
-// 3. Audio & Toast Firewall: منع انهيار الـ DOM وتأمين الـ AudioContext.
+// 1. Click State Machine: حل مشكلة ابتلاع النقرات للمستخدمين السريعين.
+// 2. Double Billing Fix: إزالة البنرات من الجلب المزدوج توفيراً لفواتير فايربيز.
+// 3. True Battery Saver: دمج Page Visibility API مع الـ Slider لمنع استنزاف الخلفية.
 // ============================================================================
 
 import { DB_KEYS } from '../config.js';           
@@ -29,7 +30,7 @@ export const UICore = {
     historyStateSet: false,
 
     // =========================================================
-    // 🚨 0. نافذة الطرد المباشر الآمنة (Secure Session Eviction)
+    // 🚨 0. نافذة الطرد المباشر الآمنة
     // =========================================================
     triggerLiveBanAlert: function(reasonMessage) {
         const msgText = Utils.escapeHtml(reasonMessage || 'تم تقييد حسابك.');
@@ -48,7 +49,6 @@ export const UICore = {
         
         getSys().sfx?.('error');
         
-        // 🛡️ التخلص الآمن من الـ History بدون حلقة مفرغة
         if (window.history && window.history.replaceState) {
             window.history.replaceState(null, null, window.location.href);
         }
@@ -70,7 +70,7 @@ export const UICore = {
     closeSettings: function() { getSys().closeModal?.('settings'); },
 
     // =========================================================
-    // 🌗 1. دوال الثيم والهوية البصرية والتزامن الذكي
+    // 🌗 1. دوال الثيم والهوية البصرية
     // =========================================================
     toggleTheme: function() {
         const isCurrentlyLight = document.body.classList.contains('light-mode');
@@ -111,7 +111,7 @@ export const UICore = {
     initTheme: function() { getSys().setThemePref((DataManager.prefs && DataManager.prefs.theme) ? DataManager.prefs.theme : (localStorage.getItem('telecard_theme') || 'dark')); },
     
     // =========================================================
-    // 🔊 دوال الأصوات وتأمين الـ AudioContext
+    // 🔊 دوال الأصوات
     // =========================================================
     toggleSoundPref: function() {
         if (!DataManager.prefs) return;
@@ -156,7 +156,7 @@ export const UICore = {
     },
 
     // =========================================================
-    // 🪟 2. الإدارة المركزية للنوافذ (Modals)
+    // 🪟 2. الإدارة المركزية للنوافذ
     // =========================================================
     openModal: function(modalId) {
         const overlay = document.getElementById(`${modalId}-overlay`);
@@ -281,7 +281,7 @@ export const UICore = {
     },
 
     // =========================================================
-    // 🚀 3. التوجيه والقائمة الجانبية (Memory Leak Shield)
+    // 🚀 3. التوجيه والقائمة الجانبية
     // =========================================================
     openSidebar: function() { 
         this.resetUI();
@@ -300,7 +300,7 @@ export const UICore = {
             const menuList = menu.querySelector('.menu-list');
             if(menuList) menuList.scrollTop = 0;
             menu.scrollTop = 0;
-            this.initSwipeGestures(menu, overlay); // 🛡️ آمنة الآن
+            this.initSwipeGestures(menu, overlay);
         }
         getSys().saveDisplayState?.();
     },
@@ -361,7 +361,6 @@ export const UICore = {
         if (this._mainContentClickHandler) { document.removeEventListener('click', this._mainContentClickHandler, true); this._mainContentClickHandler = null; }
     },
 
-    // 🛡️ [إصلاح ماسي 1]: منع تسرب الذاكرة (Memory Leak) بنقل الحدث إلى الشاشة نفسها بدلاً من Document
     initSwipeGestures: function(menu, overlay) {
         if (!menu) menu = document.querySelector('.sidebar') || document.getElementById('cs-menu');
         if (!overlay) overlay = document.querySelector('.sidebar-overlay') || document.getElementById('cs-overlay');
@@ -411,7 +410,6 @@ export const UICore = {
             menu.style.willChange = 'transform'; if(overlay) overlay.style.willChange = 'opacity';
             isDragging = true; isSwipeConfirmed = false; startTime = Date.now();
             
-            // 🛡️ نقل الحدث إلى الـ menu نفسه لحصر النطاق
             menu.addEventListener('touchmove', onTouchMove, { passive: false });
             menu.addEventListener('touchend', onTouchEnd, { passive: true });
             menu.addEventListener('touchcancel', onTouchEnd, { passive: true });
@@ -468,8 +466,273 @@ export const UICore = {
             removeListeners();
         };
 
-        // 🛡️ المراقبة على عنصر النافذة (Window) وليس المستند لتفادي تراكم المستمعات
         window.addEventListener('touchstart', onTouchStart, { passive: true });
+    },
+
+    // =========================================================
+    // 🎛️ إدارة الأحداث المركزية (Global Event Delegator)
+    // =========================================================
+    initGlobalListeners: function() {
+        if (this._listenersBound) return;
+        this._listenersBound = true;
+        this.initNetworkSensors(); 
+
+        document.body.addEventListener('touchstart', () => {}, { passive: true });
+        window.addEventListener('contextmenu', (e) => { if (e.target.closest('[data-action], .cat-card, .product-card')) e.preventDefault(); });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            const action = e.target.getAttribute('data-action');
+            if (action === 'store-search-enter') { this.sfx?.('nav'); this.applyStoreSearch?.(); }
+            if (action === 'order-search-enter') { this.sfx?.('nav'); this.renderOrders?.(); }
+            if (action === 'wallet-search-enter') { this.sfx?.('nav'); this.renderWallet?.(); }
+            if (action === 'pay-search-enter') { this.sfx?.('nav'); this.renderPayments?.(); }
+        });
+
+        document.addEventListener('change', (e) => {
+            const action = e.target.getAttribute('data-action');
+            if (action === 'change-currency') this.setDisplayCurrency?.(e.target.value);
+            if (action === 'kyc-upload-front') this.handleKycImage?.(e.target, 'kyc-prev-front');
+            if (action === 'kyc-upload-back') this.handleKycImage?.(e.target, 'kyc-prev-back');
+            if (action === 'kyc-upload-selfie') this.handleKycImage?.(e.target, 'kyc-prev-selfie');
+            if (action === 'upload-avatar') this.handleAvatarChange?.(e);
+        });
+
+        document.addEventListener('click', (e) => {
+            const packageWrapper = document.getElementById('pkg-custom-dropdown');
+            if (packageWrapper?.classList.contains('open') && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
+                packageWrapper.classList.remove('open');
+            }
+            const walletDrawer = document.getElementById('walletStatsDrawer');
+            if (walletDrawer?.classList.contains('active')) {
+                if (!walletDrawer.contains(e.target) && !e.target.closest('.detail-arrow') && !e.target.closest('.wallet-toggle-btn') && !e.target.closest('[data-action="toggle-wallet-stats"]')) {
+                    this.closeWalletStats?.(); 
+                }
+            }
+        }, true); 
+
+        const ActionDictionary = {
+            'nav-home': () => this.navigateHome?.(),
+            'nav-deposit': () => this.navigateBalance?.(),
+            'nav-payments': () => this.navigateMyPayments?.(),
+            'nav-orders': () => this.navigateOrders?.(),
+            'nav-settings': () => this.navigateSettings?.(),
+            'nav-wallet': () => this.openWallet?.(),
+            'open-sidebar': () => this.openSidebar?.(),
+            'close-sidebar': () => this.closeSidebar?.(),
+            'open-notif-center': () => this.openNotifCenter?.(),
+            'open-about': (e) => { e.preventDefault(); this.openAboutModal?.(); },
+            'open-community': () => this.openCommunityModal?.(),
+            'open-security-modal': () => this.openSecurityModal?.(),
+            'open-rating': () => this.openRatingModal?.(),
+            'open-terms': () => this.openTermsModal?.(),
+            'open-support': () => this.openSupport?.(),
+            'open-favorites': () => this.openFavorites?.(),
+            'open-add-balance': () => this.openAddBalance?.(),
+            'open-tier-info': (e) => { e.stopPropagation(); this.openTierInfoModal?.(); },
+            'logout': () => DataManager.logout?.(),
+            'enforce-biometric': () => this.enforceBiometricLock?.(),
+            'close-orders': () => this.closeOrders?.(),
+            'close-wallet': () => this.closeWallet?.(),
+            'close-mypayments': () => this.closeMyPayments?.(),
+            'close-settings': () => this.closeSettings?.(),
+            'close-balance': () => this.closeBalanceModal?.(),
+            'back-balance-step': () => this.backToPayMethods?.(),
+            'close-purchase': () => this.closeModal?.('purchase'),
+            'close-success': () => this.closeModal?.('success'),
+            'close-purchase-success': () => this.closePurchaseSuccess?.(), 
+            'open-kyc-upload': () => { this.closeSidebar?.(); this.openModal?.('kyc-upload'); },
+            'open-kyc-status': (e, id, val, target) => { this.closeSidebar?.(); this.openKycStatusModal?.(target.getAttribute('data-state')); },
+            'close-tx-detail': () => this.closeModal?.('tx-detail'),
+            'close-profile': () => this.closeProfileInfo?.(),
+            'close-pay-receipt': () => this.closePayReceipt?.(),
+            'close-terms': () => this.closeModal?.('terms'),
+            'close-identity': () => this.closeModal?.('identity'),
+            'close-kyc-upload': () => this.closeKycModal?.(),
+            'close-kyc-status': () => this.closeKycStatusModal?.(),
+            'close-notif-center': () => this.closeNotifCenter?.(),
+            'close-tier-info': () => this.closeModal?.('tier-info'),
+            'close-kyc-celebration': () => this.closeModal?.('kyc-celebration'),
+            'close-community': () => this.closeModal?.('community'),
+            'close-rating': () => this.closeModal?.('rating'),
+            'close-about': () => this.closeModal?.('about'),
+            'close-security-modal': () => this.closeSecurityModal?.(),
+            'close-setup-2fa': () => this.closeModal?.('setup-2fa'),
+            'toggle-currency-menu': () => this.toggleDisplayCurrencyMenu?.(),
+            'toggle-theme': () => this.toggleTheme?.(),
+            'store-search-btn': () => this.applyStoreSearch?.(),
+            'open-category': (e, id) => { e.preventDefault(); this.openCategory?.(id); },
+            'toggle-fav-modal': () => this.toggleFavoriteFromModal?.(),
+            'update-simple-qty': (e, id, val) => this.updateSimpleQty?.(parseInt(val)),
+            'toggle-pkg-dropdown': (e, id, val, target) => target.parentElement.classList.toggle('open'),
+            'toggle-coupon-ui': (e, id, val, target) => this.toggleCoupon?.(target),
+            'apply-coupon': () => this.applyCoupon?.(),
+            'remove-coupon': () => this.removeCoupon?.(),
+            'paste-coupon': () => this.pasteText?.(),
+            
+            'confirm-purchase': async (e, id, val, target) => { 
+                if (target.disabled || target.dataset.processing === 'true') return;
+                target.disabled = true; target.dataset.processing = 'true';
+                const originalHtml = target.innerHTML;
+                target.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ...</span>';
+                try { await this.handlePurchaseSubmit?.(); } 
+                finally { target.disabled = false; target.dataset.processing = 'false'; target.innerHTML = originalHtml; }
+            },
+            
+            'nav-orders-from-success': () => { this.closePurchaseSuccess?.(); this.openOrders?.(); },
+            'navigate-orders-success': () => { this.closeModal?.('purchase-success'); this.openOrders?.(); }, 
+            'select-pay': (e, id) => this.selectPay?.(id),
+            
+            'submit-balance': async (e, id, val, target, dataType, dataCurr) => { 
+                if (target.disabled || target.dataset.processing === 'true') return;
+                target.disabled = true; target.dataset.processing = 'true';
+                const originalHtml = target.innerHTML;
+                target.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ...</span>';
+                try { await this.handleBalanceSubmit?.(dataCurr); } 
+                finally { target.disabled = false; target.dataset.processing = 'false'; target.innerHTML = originalHtml; }
+            },
+            
+            'toggle-accordion': (e, id, val, target) => { e.preventDefault(); this.togglePayDetail?.(target); },
+            'jump-transaction': (e, id, val, target, dataType) => this.jumpToTransaction?.(id, dataType),
+            'open-detail': (e, id, val, target, dataType) => this.openDetail?.(e, dataType, id),
+            'render-orders': () => this.renderOrders?.(),
+            'render-wallet': () => this.renderWallet?.(),
+            'render-payments': () => this.renderPayments?.(),
+            'filter-order': (e, id, val, target) => this.setOrderFilter?.(val, target),
+            'filter-wallet': (e, id, val, target) => this.setWalletFilter?.(val, target),
+            'filter-pay': (e, id, val, target) => this.setPaymentFilter?.(val, target),
+            'toggle-wallet-stats': (e, id, val, target) => this.toggleWalletStats?.(target),
+            'open-cal-order-start': (e) => CalendarApp?.open('order-date-start', e),
+            'open-cal-order-end': (e) => CalendarApp?.open('order-date-end', e),
+            'open-cal-wallet-start': (e) => CalendarApp?.open('wallet-date-start', e),
+            'open-cal-wallet-end': (e) => CalendarApp?.open('wallet-date-end', e),
+            'open-cal-pay-start': (e) => CalendarApp?.open('pay-date-start', e),
+            'open-cal-pay-end': (e) => CalendarApp?.open('pay-date-end', e),
+            'cal-adj-month': (e, id, val) => CalendarApp?.adjustMonth(parseInt(val)),
+            'cal-adj-year': (e, id, val) => CalendarApp?.adjustYear(parseInt(val)),
+            'cal-toggle-list': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget) => CalendarApp?.toggleList(dataTarget, e),
+            'toggle-theme-pref': () => this.toggleThemePref?.(),
+            'toggle-sound-pref': () => this.toggleSoundPref?.(),
+            'open-profile-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.openProfileInfo?.(); }, 150),
+            'open-wallet-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.openWallet?.(); }, 150),
+            'open-identity-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.openModal?.('identity'); }, 150),
+            'trigger-click': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget) => document.getElementById(dataTarget)?.click(),
+            'delete-avatar': () => this.deleteProfileImage?.(),
+            'toggle-name-edit': () => this.toggleNameEdit?.(),
+            'toggle-2fa': () => this.handle2FAToggle?.(),
+            'toggle-biometric': () => this.handleBiometricToggle?.(),
+            'send-reset-pass': () => this.sendResetPasswordEmail?.(),
+            'submit-password-change': () => this.handlePasswordSubmit?.(),
+            'request-account-delete': () => this.toggleSecurityPref?.(),
+            'verify-and-enable-2fa': () => this.verifyAndEnable2FA?.(),
+            'toggle-parent-dropdown': (e, id, val, target) => target.parentElement.classList.toggle('open'),
+            'select-reg-currency': (e, id, val, target, dataType, dataCurr, dataName, dataCode) => { e.preventDefault(); this.selectRegCurrency?.(dataName, dataCode); },
+            'select-country': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen) => { e.preventDefault(); this.selectCountry?.(dataName, dataCode, dataLen); },
+            'save-identity': () => this.saveIdentityData?.(),
+            'submit-kyc': () => this.submitKycData?.(),
+            'select-rating': (e, id, val) => this.selectRatingStar?.(parseInt(val)),
+            'submit-rating-step': () => this.submitRatingStep?.(),
+            'submit-private-feedback': () => this.submitPrivateFeedback?.(),
+            'copy-text': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget, dataText) => {
+                e.preventDefault(); e.stopPropagation();
+                this.copyToClipboard?.(dataText || target.innerText, target);
+            },
+            'show-phone-toast': () => this.showToast?.('هذا الرقم مرتبط بحسابك الأساسي.', 'info'),
+            
+            'export-receipt': (e, id, val, target) => {
+                e.preventDefault(); e.stopPropagation();
+                if (target.closest('.nm-btn-print-magic')) RenderManager?.exportReceipt?.(id, target);
+                else if (target.closest('.btn-receipt-export')) RenderManager?.exportPaymentReceipt?.(id, target);
+                else this.exportReceipt?.(id, target);
+            },
+            
+            'mark-all-read': () => {
+                const notifContainer = document.getElementById('notif-center-list');
+                if (notifContainer) {
+                    const topBar = notifContainer.querySelector('.nc-top-action-bar');
+                    if (topBar) topBar.style.display = 'none';
+                    notifContainer.querySelectorAll('.nc-item.unread').forEach(item => {
+                        item.classList.replace('unread', 'is-read');
+                        const dot = item.querySelector('.unread-indicator-dot');
+                        if (dot) dot.style.display = 'none';
+                    });
+                }
+                this.markAllNotificationsRead?.();
+            },
+            
+            'mark-single-read': (e, id) => {
+                e.stopPropagation();
+                const item = e.target.closest('.nc-item');
+                if (item?.classList.contains('unread')) {
+                    item.classList.replace('unread', 'is-read');
+                    const dot = item.querySelector('.unread-indicator-dot');
+                    if (dot) dot.style.display = 'none';
+                    
+                    const countNumEl = document.querySelector('.nc-unread-count-num');
+                    if (countNumEl) {
+                        const newCount = Math.max(0, (parseInt(countNumEl.innerText) || 0) - 1);
+                        if (newCount > 0) countNumEl.innerText = newCount;
+                        else { const topBar = document.querySelector('.nc-top-action-bar'); if (topBar) topBar.style.display = 'none'; }
+                    }
+                }
+                (this.markSingleNotificationRead || DataManager.markSingleNotificationRead)?.(id);
+                if (item?.hasAttribute('data-target-id')) this.openDetail?.(e, item.getAttribute('data-jump-type') || 'order', item.getAttribute('data-target-id'));
+            }
+        };
+
+        // 🛡️ [إصلاح ماسي 1]: آلة الحالة (State Machine) لحل مشكلة تضارب الدبل كليك
+        document.body.addEventListener('click', (e) => {
+            const target = e.target;
+            
+            if (target.classList.contains('pm-overlay') || target.classList.contains('modal-overlay')) {
+                e.preventDefault();
+                this.closeModal?.(target.id.replace('-overlay', ''));
+                this.sfx?.('nav'); return;
+            }
+            
+            const actionBtn = target.closest('[data-action]');
+            if (!actionBtn) return;
+            
+            const action = actionBtn.getAttribute('data-action');
+            const prodId = actionBtn.getAttribute('data-id');
+            
+            if (action === 'open-product' && target.closest('.card-image')) {
+                if (!this._clickState) this._clickState = {};
+                const state = this._clickState;
+    
+                if (state.timer && state.id === prodId) {
+                    clearTimeout(state.timer);
+                    state.timer = null; state.id = null;
+                    this.triggerMagicFavorite?.(e, prodId);
+                    return;
+                }
+    
+                // تفريغ النقرة السابقة فوراً قبل البدء بمنتج جديد (منع الابتلاع)
+                if (state.timer && state.id !== prodId) {
+                    clearTimeout(state.timer);
+                    ActionDictionary[action]?.(e, state.id, state.val, state.btn);
+                }
+    
+                state.id = prodId; state.val = actionBtn.getAttribute('data-val'); state.btn = actionBtn;
+                state.timer = setTimeout(() => {
+                    state.timer = null; state.id = null;
+                    this.sfx?.('nav');
+                    ActionDictionary[action]?.(e, prodId, state.val, state.btn);
+                }, 250);
+                return;
+            }
+            
+            if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigger-click', 'update-simple-qty', 'delete-avatar', 'open-product', 'mark-single-read'].includes(action)) {
+                this.sfx?.('nav');
+            }
+            
+            if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) target.blur();
+            
+            try {
+                const res = ActionDictionary[action]?.(e, prodId, actionBtn.getAttribute('data-val'), actionBtn, actionBtn.getAttribute('data-type'), actionBtn.getAttribute('data-curr'), actionBtn.getAttribute('data-name'), actionBtn.getAttribute('data-code'), actionBtn.getAttribute('data-len'), actionBtn.getAttribute('data-target'), actionBtn.getAttribute('data-text'));
+                if (res instanceof Promise) res.catch(err => this.logCloudError(action, err));
+            } catch (err) { this.logCloudError(action, err); }
+        });
     },
 
     // =========================================================
@@ -817,7 +1080,6 @@ export const UICore = {
         }, 50);
     },
 
-    // 🛡️ [إصلاح ماسي 3]: منع انهيار التنبيهات وإضافة نظام تأكيد الاتصال بالـ DOM
     showToast: function(msg, type = 'info') {
         if (type === 'info') {
             if (/فشل|خطأ|عذراً|كاف|نفد/.test(msg)) type = 'error';
@@ -850,7 +1112,7 @@ export const UICore = {
         getSys().sfx?.(type === 'error' ? 'error' : 'success');
         
         setTimeout(() => {
-            if(toast.isConnected) { // 🛡️ التأكد من وجوده لتفادي أخطاء الـ DOM
+            if(toast.isConnected) {
                 toast.style.animation = 'toastOutTop 0.4s forwards';
                 setTimeout(() => { if(toast.isConnected) toast.remove(); }, 400);
             }
@@ -875,7 +1137,6 @@ export const UICore = {
                 else if (type === 'error') { osc.type='triangle'; osc.frequency.setValueAtTime(150,t); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.2); osc.start(t); osc.stop(t+0.2); }
             };
 
-            // 🛡️ حماية الـ AudioContext
             if(this.audioCtx.state === 'suspended') { this.audioCtx.resume().then(playSound).catch(()=>{}); } 
             else { playSound(); }
             
@@ -891,7 +1152,7 @@ export const UICore = {
     },    
 
     // =========================================================
-    // ⚙️ 5. إعدادات المتجر العامة والهوية البصرية (Enterprise Safe)
+    // ⚙️ 5. إعدادات المتجر العامة والهوية البصرية
     // =========================================================
     
     _sanitizeCssValue: function(val) {
@@ -1058,7 +1319,7 @@ export const UICore = {
         this.updateDisplayCurrencyUI(displayCurrency);
     },
 
-    // 🛡️ [إصلاح ماسي 2]: توفير البطارية للموبايل (Battery Saver API)
+    // 🛡️ [إصلاح ماسي 3]: دمج Visibility API مع الـ Slider لتوفير حقيقي للبطارية
     initSlider: function() {
         const banners = LiveStoreData.banners || [];
         const settings = LiveStoreData.settings || {};
@@ -1087,36 +1348,29 @@ export const UICore = {
         let idx = 0; 
         const intervalMs = (settings.sliderDuration ? Number(settings.sliderDuration) * 1000 : 3000) || 3000;
         
-        // 🛡️ إيقاف الانيميشن تماماً إذا لم يكن البنر في شاشة العميل (توفر RAM وبطارية)
+        const nextSlide = () => {
+            // 🛡️ درع البطارية: التوقف الفوري إذا غادر المستخدم التاب (حتى لو كان Observer متقاطعاً)
+            if (document.hidden) return;
+            const slides = container.querySelectorAll('.slide');
+            if (slides.length === 0) return;
+            slides[idx].classList.remove('active'); 
+            idx = (idx + 1) % slides.length; 
+            slides[idx].classList.add('active');
+        };
+
         if ('IntersectionObserver' in window) {
             if (this._sliderObserver) this._sliderObserver.disconnect();
             
             this._sliderObserver = new IntersectionObserver((entries) => {
                 if (entries[0].isIntersecting) {
-                    if (!this.sliderTimer) {
-                        this.sliderTimer = setInterval(() => {
-                            const slides = container.querySelectorAll('.slide');
-                            if (slides.length === 0) return;
-                            slides[idx].classList.remove('active'); 
-                            idx = (idx + 1) % slides.length; 
-                            slides[idx].classList.add('active');
-                        }, intervalMs);
-                    }
+                    if (!this.sliderTimer) this.sliderTimer = setInterval(nextSlide, intervalMs);
                 } else {
                     if (this.sliderTimer) { clearInterval(this.sliderTimer); this.sliderTimer = null; }
                 }
             });
             this._sliderObserver.observe(container);
         } else {
-            // متصفح قديم، استخدم الطريقة العادية كاحتياطي
-            this.sliderTimer = setInterval(() => {
-                if (document.hidden) return; // توفير جزئي إذا غادر التاب
-                const slides = container.querySelectorAll('.slide');
-                if (slides.length === 0) return;
-                slides[idx].classList.remove('active'); 
-                idx = (idx + 1) % slides.length; 
-                slides[idx].classList.add('active');
-            }, intervalMs);
+            this.sliderTimer = setInterval(nextSlide, intervalMs);
         }
     }, 
 

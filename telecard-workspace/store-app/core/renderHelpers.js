@@ -1,8 +1,8 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Enterprise V14.6 💎
+// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Enterprise V14.7 💎
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core) + Destructuring-Safe
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث الأقصى: حماية RangeError، تحصين الـ Context (إزالة this)، حماية XSS
+// 🌟 التحديث الأقصى: حماية RangeError، تحصين الـ Context (إزالة this)، وإصلاح تواريخ Safari.
 // ============================================================================
 
 let _injectedSource = null;
@@ -76,7 +76,7 @@ export const RenderHelpers = Object.freeze({
         if (!finalId || finalId.trim() === '') finalId = 'UKNWN';
         const formatted = withPrefix ? `USR-${finalId}` : finalId;
         
-        // 🛡️ استخدام RenderHelpers بدلاً من this لمنع ضياع السياق
+        // 🛡️ استخدام RenderHelpers بدلاً من this لمنع ضياع السياق عند التفكيك (Destructuring)
         return RenderHelpers._esc(formatted);
     },
     
@@ -132,7 +132,6 @@ export const RenderHelpers = Object.freeze({
     },
 
     formatMoney: function(amount, currencyCode = 'USD', decimals = 2) {
-        // 🛡️ استخدام الدالة المحصنة ضد RangeError بدلاً من toLocaleString المباشر
         const formattedNum = RenderHelpers._enNum(amount, decimals);
         
         const displayCur = RenderHelpers.getCurrencySymbolText(currencyCode);
@@ -198,7 +197,8 @@ export const RenderHelpers = Object.freeze({
         if (ts._seconds !== undefined) return ts._seconds * 1000; 
         
         if (typeof ts === 'string') {
-            const parsed = new Date(ts).getTime();
+            // 🛡️ [إصلاح سفاري]: تحصين التواريخ لأجهزة آبل لعدم ظهور NaN
+            const parsed = new Date(ts.replace(/-/g, '/')).getTime();
             return isNaN(parsed) ? 0 : parsed;
         }
         

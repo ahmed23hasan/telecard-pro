@@ -1,7 +1,10 @@
 // ============================================================================
-// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V14.5
+// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V14.6 💎
 // 🎯 الوظيفة: يحتوي على دوال الحماية (XSS)، وتنسيق النصوص، وتصفية التواريخ
-// 🚀 التحديث الأقصى: إصلاح ثغرة الـ DST Timezone، وتوحيد تنسيق الأرقام مع السيرفر
+// 🚀 التحديثات:
+// 1. URL Hijacking Shield: منع ثغرة Protocol-Relative URLs والروابط الخبيثة.
+// 2. RangeError Protection: تحصين Intl.NumberFormat من انهيار الواجهة.
+// 3. NaN Cascade Fix: منع تشوه النصوص عند فشل الحسابات الزمنية.
 // ============================================================================
 
 import { FinancialEngine } from './core/financialEngine.js';
@@ -26,17 +29,27 @@ export const Utils = {
         return this.escapeHtml(val);
     },
     
-    // 🛡️ درع حماية الروابط المتقدم (Whitelist Protocol Validation)
+    // 🛡️ درع حماية الروابط المتقدم (Strict Protocol & Traversal Validation)
     safeUrl: function(url, fallback = '#') {
         if (!url) return fallback;
-        let cleaned = String(url).replace(/[\x00-\x1F\x7F]/g, '').trim();
+        // إزالة الفراغات ورموز التحكم التي تخدع المتصفح
+        let cleaned = String(url).replace(/[\x00-\x1F\x7F\s]/g, '').trim();
+        
+        // 🚨 حظر صريح لمحاولات الحقن المباشرة
+        if (/^(javascript|vbscript|data):/i.test(cleaned)) return fallback;
         
         try {
             const parsedUrl = new URL(cleaned, window.location.origin);
             const protocol = parsedUrl.protocol.toLowerCase();
-            if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) return this.escapeHtml(cleaned);
+            if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) {
+                return this.escapeHtml(cleaned);
+            }
             return fallback;
         } catch (e) {
+            // 🛡️ حظر الـ Protocol-Relative URLs (//evil.com)
+            if (cleaned.startsWith('//')) return fallback;
+            
+            // السماح بالروابط النسبية الآمنة فقط
             if (cleaned.startsWith('/') || cleaned.startsWith('./') || cleaned.startsWith('../') || cleaned.startsWith('#') || cleaned.startsWith('?')) {
                 return this.escapeHtml(cleaned);
             }
@@ -44,13 +57,16 @@ export const Utils = {
         }
     },
     
-    // 🌟 تم توحيدها مع الإدارة لضمان العرض الدقيق للأرقام الكبيرة بدون أخطاء ToFixed
+    // 🌟 حماية ضد RangeError لضمان الاستقرار التام للواجهة
     enNum: function(val, decimals = 2) {
         const num = Number(val);
-        if (isNaN(num)) return Number(0).toFixed(decimals);
+        const safeDecimals = Math.min(20, Math.max(0, Number(decimals) || 2));
+        
+        if (isNaN(num)) return Number(0).toFixed(safeDecimals);
+        
         return new Intl.NumberFormat('en-US', {
-            minimumFractionDigits: decimals,
-            maximumFractionDigits: decimals,
+            minimumFractionDigits: safeDecimals,
+            maximumFractionDigits: safeDecimals,
             useGrouping: false
         }).format(num);
     },
@@ -81,7 +97,7 @@ export const Utils = {
         const yestObj = new Date(todayObj);
         yestObj.setDate(todayObj.getDate() - 1);
         
-        // 🚀 [الحل הגذري لثغرة الـ DST Timezone]: استخراج النص الآمن بناءً على التوقيت المحلي الفعلي
+        // استخراج النص الآمن بناءً على التوقيت المحلي الفعلي
         const toLocalISODate = (dateObj) => {
             const year = dateObj.getFullYear();
             const month = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -138,7 +154,9 @@ export const Utils = {
         if (isNaN(startMs) || isNaN(endMs)) return "---";
         
         const diffMs = endMs - startMs;
-        if (diffMs < 0) return "---";
+        
+        // 🛡️ حماية ضد الـ NaN Cascade والأوقات السالبة
+        if (isNaN(diffMs) || diffMs < 0) return "---";
         if (diffMs < 2000) return "فوري ⚡";
         
         const diffSecs = Math.floor(diffMs / 1000);

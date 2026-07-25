@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V15 💎
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V15.1 💎
 // 🎯 الوظيفة: تحويل البيانات الخام (Data) إلى نصوص HTML جاهزة للرسم
 // 🚀 التحديثات:
-// 1. إصلاح حقل الإيداع (إزالة readonly للسماح بكتابة المبلغ).
-// 2. تجميع الدوال الـ 9 بالكامل (بما فيها ProductCard و PDFReceipt).
-// 3. التوافق التام مع سياسة أمان المحتوى (CSP) و Zero-XSS.
+// 1. [إصلاح المحاسبة]: الفواتير الـ PDF تدعم البونص (+) والعمولة (-) ديناميكياً.
+// 2. [إصلاح المتغيرات]: تطابق تام مع مخرجات FinancialEngine (finalPrice).
+// 3. [إصلاح المدخلات]: منع بتر (Truncation) نصوص وحقول طلبات العميل.
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -74,12 +74,10 @@ export const UIBuilders = {
 
     /** 2️⃣ بناء كرت الطلب (Order Card) */
     buildOrderCard: function(o, idx, displayCurr, highlightId = null, productNamePassed = null) {
+        // 🛡️ [إصلاح المدخلات]: عرض السطر بالكامل بعد تعقيمه لمنع ضياع أسماء الحقول
         const getCleanInputRows = (str) => {
             if (!str || str === '---' || typeof str === 'object') return [];
-            const rawStr = String(str);
-            if (rawStr.includes('|')) return rawStr.split('|').map(s => s.split(':').pop().trim());
-            if (rawStr.includes(':')) return [rawStr.split(':').pop().trim()];
-            return [rawStr.trim()];
+            return String(str).split('|').map(s => s.trim()).filter(s => s !== '');
         };
         
         const status = o.status || 'pending';
@@ -208,7 +206,7 @@ export const UIBuilders = {
             </div>`;
     },
 
-    /** 4️⃣ بناء محتوى كارت المنتج (المفقودة وتم إرجاعها) */
+    /** 4️⃣ بناء محتوى كارت المنتج */
     buildProductCardInner: function(safeName, priceSectionHtml, imgObj, visualElementsHtml, nameExpandedStyle) {
         return `
             <svg class="snake-border" viewBox="0 0 120 165" preserveAspectRatio="none"><rect x="0.7" y="0.7" width="118.6" height="163.6"></rect></svg>
@@ -219,13 +217,28 @@ export const UIBuilders = {
             </div>`;
     },
 
-    /** 5️⃣ بناء فاتورة الإيصال PDF (المفقودة وتم إرجاعها) */
+    /** 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية) */
     buildPDFReceipt: function(config, brandHTML) {
         const storeNameText = Utils.escapeHtml(config.storeName || 'TeleCard');
         let contentHTML = '';
 
         if (config.type === 'deposit') {
-            const feeDisplayLabel = config.data.feePercent ? `Fee (${config.data.feePercent}%)` : 'Fee Amount';
+            // 🛡️ [إصلاح المحاسبة]: تمييز البونص (+) عن العمولة (-) ديناميكياً
+            const isBonus = config.data.feeType === 'bonus';
+            const feeValNum = Number(config.data.feeVal) || 0;
+            
+            let feeDisplayLabel = isBonus ? 'Bonus Added' : 'Fee Deduction';
+            if (config.data.feePercent) feeDisplayLabel += ` (${config.data.feePercent}%)`;
+            
+            let feeValueHtml = '';
+            if (feeValNum === 0) {
+                feeValueHtml = `<span class="r-value" style="color: #64748b;">${RenderHelpers.formatMoney(0, config.data.currency)}</span>`;
+            } else if (isBonus) {
+                feeValueHtml = `<span class="r-value" style="color: #16a34a;">+${RenderHelpers.formatMoney(feeValNum, config.data.currency)}</span>`;
+            } else {
+                feeValueHtml = `<span class="r-value" style="color: #ef4444;">-${RenderHelpers.formatMoney(feeValNum, config.data.currency)}</span>`;
+            }
+
             contentHTML = `
                 ${brandHTML}
                 <div class="r-title-box"><div class="r-title">Deposit Receipt</div><div class="r-id">${Utils.escapeHtml(config.data.displayId)}</div></div>
@@ -235,7 +248,7 @@ export const UIBuilders = {
                     <div class="r-item"><span class="r-label">Payment Method</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
                     <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${Utils.escapeHtml(config.data.dateTime)}</span></div>
                     <div class="r-item"><span class="r-label">Base Amount</span><span class="r-value">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
-                    <div class="r-item"><span class="r-label">${feeDisplayLabel}</span><span class="r-value" style="color:#ef4444;">-${RenderHelpers.formatMoney(config.data.feeVal, config.data.currency)}</span></div>
+                    <div class="r-item"><span class="r-label">${feeDisplayLabel}</span>${feeValueHtml}</div>
                 </div>
                 <div class="r-total-box"><div class="r-total-label">Net Added Balance</div><div class="r-total-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div></div>
             `;
@@ -314,7 +327,7 @@ export const UIBuilders = {
         return itemsHtml;
     },
 
-    /** 8️⃣ بناء نموذج الإيداع (Deposit Form) - مع إصلاح الـ readonly */
+    /** 8️⃣ بناء نموذج الإيداع (Deposit Form) */
     buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrency, currItemsHtml, baseCurr) {
         return `
             <div class="bal-modal-container-new">
@@ -360,14 +373,14 @@ export const UIBuilders = {
 
     /** 9️⃣ بناء تفاصيل العملية (Transaction Detail - Order/Deposit) */
     buildTransactionDetail: function(type, id, LiveStoreData, DataManager) {
+        // 🛡️ [إصلاح حرج]: عرض مدخلات العميل كاملة دون بتر النص قبل النقطتين
         const formatInputData = (str) => { 
             if(!str || str === '---') return '<span class="num-en">---</span>'; 
             if(str.includes('|')) { 
-                const parts = str.split('|').map(s => s.split(':').pop().trim());
+                const parts = str.split('|').map(s => s.trim());
                 return `<div class="nm-input-stack">${parts.map(p => `<span class="num-en nm-input-capsule">${Utils.escapeHtml(p)}</span>`).join('')}</div>`;
             } 
-            const singleVal = str.includes(':') ? str.split(':').pop().trim() : str; 
-            return `<span class="num-en nm-input-capsule">${Utils.escapeHtml(singleVal)}</span>`; 
+            return `<span class="num-en nm-input-capsule">${Utils.escapeHtml(str)}</span>`; 
         };
 
         let html = '';
@@ -448,7 +461,9 @@ export const UIBuilders = {
             const cDiscountLocal = Number(o.pricingSnapshot?.couponDiscount || o.couponDiscount || 0);
             const oDiscountLocal = Number(o.pricingSnapshot?.offerDiscount || o.saleDiscount || 0);
             const origLocal = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
-            const finalLocal = Number(o.pricingSnapshot?.finalPriceUsd || o.price || 0);
+            
+            // 🛡️ [إصلاح المتغيرات]: استخدام finalPrice ليتطابق مع المحرك المالي
+            const finalLocal = Number(o.pricingSnapshot?.finalPrice || o.price || 0);
             
             const displayCurr = (o.currency || o.priceCurrency || 'USD').toUpperCase();
             const formatFn = (amt) => RenderHelpers.formatMoney(amt, displayCurr);

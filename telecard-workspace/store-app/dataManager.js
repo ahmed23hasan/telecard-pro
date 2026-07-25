@@ -1,10 +1,10 @@
 // ============================================================================
-// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - Ultimate V15.2 💎
+// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - Ultimate V15.3 💎
 // 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة ومحرك الكاش
 // 🚀 التحديثات:
-// 1. [Idempotency Persistence]: حفظ مفاتيح الدفع في sessionStorage لمنع الدفع المزدوج عند تحديث الصفحة.
-// 2. [Garbage Collection]: تفريغ الذاكرة العشوائية (JS Heap) عند تسجيل الخروج لمنع التشنج.
-// 3. [حماية الكاش]: منع إبادة الكاش المحلي عند انقطاع الشبكة أثناء الجلب.
+// 1. [Network Resilience]: استخدام Promise.allSettled لمنع انهيار المتجر إذا فشل جزء بسيط.
+// 2. [Idempotency Isolation]: ربط مفاتيح الحماية بـ (Product ID) لمنع قفل سلة المشتريات.
+// 3. [RAM Crash Shield]: تحديد جلب الإشعارات الحية بآخر 50 إشعار فقط لخفض التكلفة والذاكرة.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -152,14 +152,26 @@ export const DataManager = {
             
             if (!(await SmartCacheManager.shouldFetchFromServer(serverCatalogVersion))) return true;
             
-            const [prods, cats, offers, tiers, rates, banners] = await Promise.all([
+            // 🛡️ [إصلاح ماسي 1]: استخدام allSettled لمنع انهيار النظام إذا فشل جلب فرعي
+            const fetchPromises = [
                 StoreDB.getAll(DB_KEYS.PRODS, 15000), StoreDB.getAll(DB_KEYS.CATS, 1000),
                 StoreDB.getAll(DB_KEYS.OFFERS, 500), StoreDB.getAll(DB_KEYS.TIERS, 100), 
                 StoreDB.getAll(DB_KEYS.RATES, 100), StoreDB.getAll(DB_KEYS.BANNERS, 50) 
-            ]);
+            ];
+            
+            const results = await Promise.allSettled(fetchPromises);
+            
+            const extractData = (resIndex, fallback = []) => results[resIndex].status === 'fulfilled' ? results[resIndex].value : fallback;
+            
+            const prods = extractData(0);
+            const cats = extractData(1);
+            const offers = extractData(2);
+            const tiers = extractData(3);
+            const rates = extractData(4);
+            const banners = extractData(5);
 
             if (cats.length === 0 && prods.length === 0) {
-                console.warn("⚠️ تم اكتشاف فقدان للبيانات أثناء الجلب. حماية الكاش من المسح واستعادة الذاكرة...");
+                console.warn("⚠️ تم اكتشاف فقدان للبيانات الرئيسية أثناء الجلب. حماية الكاش من المسح واستعادة الذاكرة...");
                 const fallback = await SmartCacheManager.loadCatalogFromLocal();
                 if (fallback) Object.assign(LiveStoreData, fallback);
                 LiveStoreData.isOfflineMode = true;
@@ -196,7 +208,8 @@ export const DataManager = {
             walletBalance: Number(this.user.walletBalance ?? this.user.balance ?? 0),
             baseCurrency: String(this.user.baseCurrency || 'USD').toUpperCase(),
             tierId: String(this.user.tierId || '1'), tierCycleSpent: Number(this.user.tierCycleSpent || 0),
-            tierCycleStartDate: this.user.tierCycleStartDate, readAlerts: Array.isArray(this.user.readAlerts) ? this.user.readAlerts : [],
+            tierCycleStartDate: this.user.tierCycleStartDate, 
+            readAlerts: Array.isArray(this.user.readAlerts) ? this.user.readAlerts.slice(0, 50) : [], // 🛡️ كبح حجم المصفوفة محلياً
             createdAt: this._parseSafeTime(this.user.createdAt)
         };
         
@@ -373,7 +386,6 @@ export const DataManager = {
         } catch (e) {}
     },
 
-    // 🛡️ [إصلاح ماسي]: الإخلاء الذكي للذاكرة عند تسجيل الخروج (Garbage Collection)
     logout: async function() {
         try {
             if (auth) await signOut(auth);
@@ -383,7 +395,6 @@ export const DataManager = {
             if (this._notifUnsubscribe) this._notifUnsubscribe(); 
             if (this._userUnsubscribe) this._userUnsubscribe(); 
 
-            // تفريغ الكائنات وإجبار محرك V8 على تحرير الذاكرة العشوائية
             LiveStoreData.cats = []; LiveStoreData.prods = []; LiveStoreData.settings = {}; 
             LiveStoreData.banners = []; LiveStoreData.users = []; LiveStoreData.orders = []; 
             LiveStoreData.deposits = []; LiveStoreData.payments = []; LiveStoreData.tiers = []; 
@@ -506,8 +517,8 @@ export const DataManager = {
         if (LiveStoreData.isOfflineMode) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
         
-        // 🛡️ [إصلاح ماسي]: حماية Idempotency Key في sessionStorage
-        const SESSION_ORDER_KEY = 'tc_pending_order_key';
+        // 🛡️ [إصلاح ماسي 2]: ربط المفتاح بالمنتج لمنع القفل العابر للطلبات
+        const SESSION_ORDER_KEY = `tc_pending_order_${prod.id}`;
         this._currentPurchaseKey = sessionStorage.getItem(SESSION_ORDER_KEY) || this.generateIdempotencyKey();
         sessionStorage.setItem(SESSION_ORDER_KEY, this._currentPurchaseKey);
 
@@ -523,7 +534,6 @@ export const DataManager = {
             const code = err.code || '';
             const msg = String(err.message || '').toLowerCase();
             
-            // في حالة الأخطاء المتقطعة لا نمسح المفتاح لضمان المحاولة الآمنة
             if (!['unavailable', 'deadline-exceeded', 'internal'].includes(code)) {
                 sessionStorage.removeItem(SESSION_ORDER_KEY);
                 this._currentPurchaseKey = null;
@@ -561,8 +571,7 @@ export const DataManager = {
         if (amt <= 0) return { success: false, msg: 'مبلغ غير صالح' };
         if (method.reqProof !== false && !receipt) return { success: false, msg: 'أرفق الإشعار', errType: 'receipt' };
         
-        // 🛡️ [إصلاح ماسي]: حماية مفتاح الإيداع
-        const SESSION_DEPOSIT_KEY = 'tc_pending_deposit_key';
+        const SESSION_DEPOSIT_KEY = `tc_pending_deposit_${method.id}`;
         this._currentDepositKey = sessionStorage.getItem(SESSION_DEPOSIT_KEY) || this.generateIdempotencyKey();
         sessionStorage.setItem(SESSION_DEPOSIT_KEY, this._currentDepositKey);
 
@@ -611,7 +620,8 @@ export const DataManager = {
         if (!this.user?.uid) return null;
         if (this._notifUnsubscribe) this._notifUnsubscribe();
         try {
-            this._notifUnsubscribe = StoreDB.listenCollection(`telecard_users/${this.user.uid}/notifications`, (notifs) => {
+            // 🛡️ [إصلاح ماسي 3]: حماية الذاكرة العشوائية بالاقتصار على آخر 50 إشعار فقط
+            this._notifUnsubscribe = StoreDB.listenQuery(`telecard_users/${this.user.uid}/notifications`, [], 'createdAt', 50, (notifs) => {
                 LiveStoreData.userNotifications = (notifs || []).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
                 if (renderCb) renderCb();
             });

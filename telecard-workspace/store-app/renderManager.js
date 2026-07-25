@@ -1,11 +1,10 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V14.3 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V14.4 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه
 // 🚀 التحديثات:
-// 1. CPU Saver: تدمير الـ MutationObserver القاتل واستبداله بربط الأحداث في الذاكرة (O(1)).
-// 2. Network Lock: قفل أزرار "عرض المزيد" لمنع استنزاف فايربيز (Write-Storm).
-// 3. PDF Fix: تأمين الـ Blob Engine لمنع ظهور الفواتير البيضاء.
-// 4. Battery Saver: إيقاف عدادات العروض تلقائياً إذا غادر العميل الصفحة.
+// 1. Historical Data Vault: منع اختفاء الطلبات القديمة عند عمل الـ Firebase Listener.
+// 2. Dynamic Fee Calculator: إصلاح فواتير PDF لتعكس العمولة والبونص الحقيقي.
+// 3. Highlight Garbage Collection: تنظيف الكروت المضيئة لمنع الـ Sticky Bug.
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -17,7 +16,7 @@ import { RenderHelpers } from './core/renderHelpers.js';
 import { UIBuilders } from './ui/uiBuilders.js'; 
 
 // ============================================================================
-// 🛡️ المساعدات العامة للنافذة وإدارة الذاكرة (Global Namespace - Zero CPU Load) 
+// 🛡️ المساعدات العامة للنافذة وإدارة الذاكرة (Global Namespace) 
 // ============================================================================
 window.StoreRenderApp = window.StoreRenderApp || {
     imgCache: new Set(),
@@ -73,6 +72,9 @@ export const RenderManager = {
     highlightId: null,
     limits: { wallet: 15, orders: 15, payments: 15 },
     
+    // 🛡️ [إصلاح الإبادة الشبحية]: مستودع تاريخي معزول عن الـ Listeners الحية
+    _historicalData: { orders: [], deposits: [] },
+    
     _debounceTimers: {},
     _debounce: function(key, fn, delay = 150) {
         return (...args) => {
@@ -81,13 +83,11 @@ export const RenderManager = {
         };
     },
 
-    // 🚀 [الحل الماسي لمعالج الهاتف CPU]: استخراج الصور من الـ Fragment وربطها في الذاكرة
     _renderHtmlToFragment: function(htmlString) {
         const template = document.createElement('template');
         template.innerHTML = htmlString;
         const fragment = template.content;
         
-        // اصطياد الصور وربطها قبل عرضها على الشاشة (صفر استهلاك للمعالج)
         const images = fragment.querySelectorAll('img[data-img-onload="true"]');
         images.forEach(img => {
             if (img.complete) window.StoreRenderApp.onImgLoad(img);
@@ -194,7 +194,6 @@ export const RenderManager = {
         return `<div class="product-card" data-action="open-product" data-id="${p.id}" style="--anim-idx: ${idx}">${UIBuilders.buildProductCardInner(safeName, priceSectionHtml, imgObj, visualElementsHtml, nameExpandedStyle)}</div>`;
     },
 
-    // 🛡️ [إصلاح عاصفة الشبكة]: إضافة Lock لمنع الاستعلامات المكررة
     _appendLoadMoreButton: function(container, type, uid, totalCount, limitKey) {
         const hasMoreData = DataManager.cursors && DataManager.cursors[type];
         if (totalCount > this.limits[limitKey] || hasMoreData) {
@@ -204,7 +203,7 @@ export const RenderManager = {
             
             loadMoreBtn.querySelector('button').addEventListener('click', async (e) => {
                 const btn = e.target.closest('button');
-                if (btn.disabled || btn.dataset.locked === 'true') return; // 🔒 منع التكرار
+                if (btn.disabled || btn.dataset.locked === 'true') return;
                 
                 if (totalCount > this.limits[limitKey]) {
                     this.limits[limitKey] += 15;
@@ -224,8 +223,10 @@ export const RenderManager = {
                         const res = await StoreDB.fetchMoreWithCursor(dbKey, ['userId', '==', String(uid)], 'time', DataManager.cursors[type], 15);
                         if (res.data && res.data.length > 0) {
                             const normData = res.data.map(item => ({...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt)}));
-                            const existing = new Set(LiveStoreData[type].map(x => String(x.id)));
-                            LiveStoreData[type] = [...LiveStoreData[type], ...normData.filter(x => !existing.has(String(x.id)))];
+                            
+                            // 🛡️ [إصلاح معماري]: تخزين التاريخي في المستودع المعزول بدلاً من تلويث LiveStoreData المباشر
+                            this._historicalData[type] = [...this._historicalData[type], ...normData];
+                            
                             DataManager.cursors[type] = res.newLastDoc;
                             this.limits[limitKey] += 15;
                             
@@ -353,7 +354,6 @@ export const RenderManager = {
         container.replaceChildren(this._renderHtmlToFragment(skeletonsHTML));
     },
 
-    // 🛡️ [توفير البطارية]: إيقاف مؤقتات العروض الترويجية إذا انتقل العميل لتطبيق آخر
     initTimersEngine: function() {
         if (window.StoreRenderApp.timerInterval) clearInterval(window.StoreRenderApp.timerInterval);
         
@@ -363,7 +363,7 @@ export const RenderManager = {
         const timersArray = Array.from(timers).map(el => ({ element: el, expireTime: Number(el.dataset.expire) }));
 
         window.StoreRenderApp.timerInterval = setInterval(() => {
-            if (document.hidden) return; // 🛡️ التوفير الفائق للبطارية: توقف الحسابات إذا كانت الشاشة مطفأة
+            if (document.hidden) return; 
             
             const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
             let activeCount = 0;
@@ -620,7 +620,15 @@ export const RenderManager = {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-wallet"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
         }
 
-        const deposits = (LiveStoreData.deposits || []).filter(d => String(d.userId) === String(uid)).map(d => {
+        // 🛡️ الدمج المعماري الآمن مع التاريخ المستقل
+        const rawDeposits = [...(LiveStoreData.deposits || []), ...(this._historicalData.deposits || [])];
+        const rawOrders = [...(LiveStoreData.orders || []), ...(this._historicalData.orders || [])];
+        
+        // إزالة التكرار
+        const uniqueDeposits = Array.from(new Map(rawDeposits.map(item => [String(item.id), item])).values());
+        const uniqueOrders = Array.from(new Map(rawOrders.map(item => [String(item.id), item])).values());
+
+        const deposits = uniqueDeposits.filter(d => String(d.userId) === String(uid)).map(d => {
             const credited = d.creditedAmount !== undefined ? Number(d.creditedAmount) : Number(d.amount || 0);
             return {
                 ...d, type: 'deposit', amountVal: Math.abs(credited), amountCurrency: d.targetCurrency || walletCurr,
@@ -629,7 +637,7 @@ export const RenderManager = {
             };
         });
         
-        const orders = (LiveStoreData.orders || []).filter(o => String(o.userId) === String(uid)).map(o => {
+        const orders = uniqueOrders.filter(o => String(o.userId) === String(uid)).map(o => {
             return {
                 ...o, type: 'purchase', amountVal: Number(o.price || 0), amountCurrency: o.priceCurrency || walletCurr, 
                 searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id} ${RenderHelpers.formatOrderId(o).toLowerCase()}`,
@@ -726,7 +734,11 @@ export const RenderManager = {
         const user = DataManager.user || { id: 0 };
         const baseCurrency = (user.baseCurrency || 'USD').toUpperCase();
         
-        let myDeposits = (LiveStoreData.deposits || []).filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: RenderHelpers.parseUnifiedTime(d) }));
+        // 🛡️ الدمج المعماري
+        const rawDeposits = [...(LiveStoreData.deposits || []), ...(this._historicalData.deposits || [])];
+        const uniqueDeposits = Array.from(new Map(rawDeposits.map(item => [String(item.id), item])).values());
+        
+        let myDeposits = uniqueDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: RenderHelpers.parseUnifiedTime(d) }));
 
         const filters = DataManager.filters || { payments: 'all' };
         if (filters.payments !== 'all') myDeposits = myDeposits.filter(d => filters.payments === 'rejected' ? ['rejected', 'refunded', 'returned'].includes(d.status) : d.status === filters.payments);
@@ -777,7 +789,11 @@ export const RenderManager = {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
         }
 
-        let orders = (LiveStoreData.orders || []).filter(o => String(o.userId) === String(uid)).map(o => ({ ...o, sortTime: RenderHelpers.parseUnifiedTime(o) }));
+        // 🛡️ الدمج المعماري للطلبات
+        const rawOrders = [...(LiveStoreData.orders || []), ...(this._historicalData.orders || [])];
+        const uniqueOrders = Array.from(new Map(rawOrders.map(item => [String(item.id), item])).values());
+
+        let orders = uniqueOrders.filter(o => String(o.userId) === String(uid)).map(o => ({ ...o, sortTime: RenderHelpers.parseUnifiedTime(o) }));
 
         const filters = DataManager.filters || { orders: 'all' };
         if (filters.orders !== 'all') orders = orders.filter(o => o.status === filters.orders);
@@ -808,10 +824,12 @@ export const RenderManager = {
             
             list.replaceChildren(this._renderHtmlToFragment(rawHtml));
             if (!q && !dStart && !dEnd) this._appendLoadMoreButton(list, 'orders', uid, totalOrdersCount, 'orders');
+            
+            // 🛡️ تفريغ الهايلايت لمنع الالتصاق
+            if (this.highlightId) { setTimeout(() => { this.highlightId = null; }, 2000); }
         });
     },
 
-    // 🛡️ [إصلاح الفواتير البيضاء PDF Race Condition Fix]:
     _getSys: function() {
         if (typeof window.ClientSystem !== 'undefined') return window.ClientSystem;
         if (typeof window.UIManager !== 'undefined') return window.UIManager;
@@ -836,7 +854,6 @@ export const RenderManager = {
                 if (isMobile) {
                     const link = document.createElement('a'); link.href = blobUrl; link.target = '_blank';
                     document.body.appendChild(link); link.click(); document.body.removeChild(link);
-                    // 🛡️ تأخير الحذف لضمان تحميل الملف
                     setTimeout(() => URL.revokeObjectURL(blobUrl), 120000); 
                     resolve(true);
                 } else {
@@ -850,7 +867,6 @@ export const RenderManager = {
                             try {
                                 iframe.contentWindow.focus();
                                 iframe.contentWindow.print();
-                                // 🛡️ الحذف بعد وقت كافٍ لتجنب خطأ الشاشة البيضاء في Chrome/Safari
                                 setTimeout(() => {
                                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                                     URL.revokeObjectURL(blobUrl);
@@ -875,13 +891,19 @@ export const RenderManager = {
         let originalHtml = '';
         if (btnElement) { btnElement.disabled = true; originalHtml = btnElement.innerHTML; btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`; }
         
+        // 🛡️ [إصلاح خصم الفاتورة]: جلب السعر الأصلي بدقة ليظهر التخفيض في الـ PDF
+        const finalPrice = Number(o.pricingSnapshot?.finalPrice || o.price || 0);
+        const originalPrice = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
+
         const success = await this.generatePDFReceipt({
             type: 'order', filename: `Order_${RenderHelpers.formatOrderId(o)}.pdf`,
             data: {
                 id: o.id, displayId: RenderHelpers.formatOrderId(o),
                 userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
                 userDisplayId: RenderHelpers.formatUserId(DataManager.user),
-                status: o.status, product: o.product, price: o.price, priceCurrency: o.priceCurrency, qty: o.qty || 1, input: o.input || '---',
+                status: o.status, product: o.product, 
+                price: finalPrice, originalPrice: originalPrice, priceCurrency: o.priceCurrency || 'USD', 
+                qty: o.qty || 1, input: o.input || '---',
                 dateTime: RenderHelpers.formatSafeDate(o.time || o.createdAt), code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null
             }
         });
@@ -897,14 +919,21 @@ export const RenderManager = {
         let originalHtml = '';
         if (btnElement) { btnElement.disabled = true; originalHtml = btnElement.innerHTML; btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`; }
         
+        // 🛡️ [إصلاح رسوم الدفع]: الحساب الحقيقي للعمولة أو البونص 
+        const rawAmt = Number(d.amount || 0);
+        const credAmt = d.creditedAmount !== undefined ? Number(d.creditedAmount) : rawAmt;
+        const calcFee = Math.abs(rawAmt - credAmt);
+        const isBonus = credAmt > rawAmt;
+
         const success = await this.generatePDFReceipt({
             type: 'deposit', filename: `Deposit_${RenderHelpers.formatDepositId(d)}.pdf`,
             data: {
                 id: d.id, displayId: RenderHelpers.formatDepositId(d),
                 userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
                 userDisplayId: RenderHelpers.formatUserId(DataManager.user),
-                method: d.method || '---', amount: d.amount, currency: d.currency,
-                feePercent: d.feesPercent || 0, feeVal: d.fees || 0, netVal: d.creditedAmount || d.amount, targetCurrency: d.targetCurrency || 'USD',
+                method: d.method || '---', amount: rawAmt, currency: d.currency || 'USD',
+                feePercent: d.feesPercent || 0, feeVal: calcFee, feeType: isBonus ? 'bonus' : 'fee', 
+                netVal: credAmt, targetCurrency: d.targetCurrency || 'USD',
                 dateTime: RenderHelpers.formatSafeDate(d.time || d.createdAt)
             }
         });

@@ -1,10 +1,10 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة الماسية المطلقة V4.6 💎
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة الماسية المطلقة V4.7 💎
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
 // 🚀 التحديثات:
-// 1. Zero Memory Leaks: استخدام AbortController للأحداث وتنظيف Blob URLs.
-// 2. DOM Batching: منع (Layout Thrashing) لتسريع فتح النوافذ بنسبة 300%.
-// 3. Event Delegation: التخلص من ربط الأحداث المتكرر.
+// 1. Phantom Blob Fix: مسح جبري للذاكرة العشوائية لمنع نزيف الرام عند الرفع المكرر.
+// 2. Ghost Modal Shield: فك الارتباط الزمني لمنع تجمد الـ CSS عند الانتقال بين النوافذ.
+// 3. Destructuring-Safe Events: حماية السياق (Context) عند ربط الـ Document Events.
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -25,12 +25,11 @@ export const UIFinance = {
     pendingReceiptFile: null,
     _isProcessingTx: false, 
     _watchdogTimer: null,
-    _txAbortController: null, // 🛡️ درع تنظيف الأحداث التلقائي
+    _txAbortController: null, 
     
     _toggleButtonLoader: function(btn, isLoading) {
         if (!btn) return;
         
-        // 🚀 استخدام requestAnimationFrame لمنع اختناق الرسم
         window.requestAnimationFrame(() => {
             if (isLoading) {
                 btn.disabled = true;
@@ -54,7 +53,7 @@ export const UIFinance = {
     },
 
     _startTxWatchdog: function(submitBtn, shieldId) {
-        this._cleanupTxUI(null, null); // تنظيف استباقي
+        this._cleanupTxUI(null, null); 
         
         this._watchdogTimer = setTimeout(() => {
             if (this._isProcessingTx) {
@@ -64,7 +63,6 @@ export const UIFinance = {
             }
         }, 20000);
         
-        // 🛡️ استخدام AbortController يضمن مسح الحدث من الذاكرة تلقائياً
         this._txAbortController = new AbortController();
         window.addEventListener('offline', () => {
             if (this._isProcessingTx) getSys().showToast?.('تم انقطاع الاتصال! يرجى التأكد من استقرار الشبكة.', 'warning');
@@ -84,7 +82,7 @@ export const UIFinance = {
         if (this._watchdogTimer) { clearTimeout(this._watchdogTimer); this._watchdogTimer = null; }
         
         if (this._txAbortController) {
-            this._txAbortController.abort(); // مسح الـ Event Listener من الرام فورا!
+            this._txAbortController.abort(); 
             this._txAbortController = null;
         }
     },
@@ -109,16 +107,19 @@ export const UIFinance = {
         getSys().sfx?.('nav');
         getSys().closeWallet?.();
         
-        if (type === 'purchase') getSys().openOrders?.();
-        else getSys().openMyPayments?.();
-        
-        const searchInput = document.getElementById((type === 'purchase') ? 'order-search-input' : 'pay-search-input');
-        if (searchInput) searchInput.value = id;
+        // 🛡️ [إصلاح ماسي]: منع تضارب الـ CSS والـ DOM بمعالجة القفز بعد 150ms
+        setTimeout(() => {
+            if (type === 'purchase') getSys().openOrders?.();
+            else getSys().openMyPayments?.();
+            
+            const searchInput = document.getElementById((type === 'purchase') ? 'order-search-input' : 'pay-search-input');
+            if (searchInput) searchInput.value = id;
 
-        if (RenderManager) RenderManager.highlightId = id;
+            if (RenderManager) RenderManager.highlightId = id;
 
-        if (type === 'purchase') { if(RenderManager.renderOrders) RenderManager.renderOrders(); } 
-        else { if(RenderManager.renderPayments) RenderManager.renderPayments(); }
+            if (type === 'purchase') { if(RenderManager.renderOrders) RenderManager.renderOrders(); } 
+            else { if(RenderManager.renderPayments) RenderManager.renderPayments(); }
+        }, 150);
     },    
 
     _validateKycAndSystem: function(actionType = 'purchase') {
@@ -184,10 +185,8 @@ export const UIFinance = {
         const originalProd = prods.find(p => String(p.id) === String(id));
         if (!originalProd) return;
 
-        // 🛡️ التعديل الآمن: الاستنساخ السريع للمنتج
         DataManager.currentProd = structuredClone(originalProd);
 
-        // 🚀 DOM Batching: تجميع التحديثات في (requestAnimationFrame) لزيادة السرعة
         window.requestAnimationFrame(() => {
             const badgeContainer = document.getElementById('pm-badge-container');
             const nameEl = document.getElementById('pm-name');
@@ -198,7 +197,6 @@ export const UIFinance = {
             const inputContainer = document.getElementById('pm-input-container');
             const simpleQtyBox = document.getElementById('simple-qty-wrapper');
 
-            // 1. Badge Setup
             if (badgeContainer) {
                 const activeOffer = DataManager.getActiveOffer(DataManager.currentProd.id);
                 if (activeOffer?.visualConfig?.grid && activeOffer.visualConfig.badgeStyle !== 'none') {
@@ -210,7 +208,6 @@ export const UIFinance = {
                 } else { badgeContainer.innerHTML = ''; }
             }
 
-            // 2. Name & Fav & Desc
             if (nameEl) nameEl.innerText = DataManager.currentProd.name;
             if (favBtn) {
                 const isFav = DataManager.isFavorite ? DataManager.isFavorite(DataManager.currentProd.id) : false;
@@ -224,7 +221,6 @@ export const UIFinance = {
                 } else descBox.style.display = 'none';
             }
 
-            // 3. Inputs Setup
             if (dynOps) { dynOps.style.display = 'none'; dynOps.innerHTML = ''; dynOps.classList.remove('pm-ops-visible'); }
             if (staOps) staOps.style.display = 'none';
             if (simpleQtyBox) simpleQtyBox.style.display = 'none';
@@ -263,7 +259,6 @@ export const UIFinance = {
                     sel.innerHTML = selHtml;
                     menu.innerHTML = menuHtml;
 
-                    // 🛡️ Event Delegation: نربط الحدث مرة واحدة على الـ Document أو الحاوية العلوية (تم حله هنا)
                     if (!this._selectDropdownBound) {
                         document.addEventListener('click', (e) => {
                             const item = e.target.closest('#pkg-custom-menu .dropdown-item');
@@ -280,7 +275,8 @@ export const UIFinance = {
                             item.parentNode.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
                             item.classList.add('active');
                             
-                            this.updatePriceDisplay();
+                            // 🛡️ [إصلاح ماسي]: استدعاء System-level لمنع فقدان السياق بسبب הـ Arrow function
+                            getSys().updatePriceDisplay?.();
                             getSys().revalidateAppliedCoupon?.();
                             getSys().sfx?.('nav');
                         });
@@ -304,12 +300,23 @@ export const UIFinance = {
                 if (qInp) {
                     let minQ = parseInt(DataManager.currentProd.minQty) || 1;
                     qInp.value = minQ; 
-                    qInp.addEventListener('input', (e) => { e.target.value = e.target.value.replace(/[^0-9]/g, ''); this.updatePriceDisplay(); getSys().revalidateAppliedCoupon?.(); });
-                    qInp.addEventListener('blur', (e) => { let val = parseInt(e.target.value, 10); if (isNaN(val) || val < minQ) { e.target.value = minQ; this.updatePriceDisplay(); getSys().revalidateAppliedCoupon?.(); } });
+                    qInp.addEventListener('input', (e) => { 
+                        e.target.value = e.target.value.replace(/[^0-9]/g, ''); 
+                        getSys().updatePriceDisplay?.(); 
+                        getSys().revalidateAppliedCoupon?.(); 
+                    });
+                    qInp.addEventListener('blur', (e) => { 
+                        let val = parseInt(e.target.value, 10); 
+                        if (isNaN(val) || val < minQ) { 
+                            e.target.value = minQ; 
+                            getSys().updatePriceDisplay?.(); 
+                            getSys().revalidateAppliedCoupon?.(); 
+                        } 
+                    });
                 }
             }
 
-            this.updatePriceDisplay();
+            getSys().updatePriceDisplay?.();
             getSys().openModal?.('purchase');
         });
     },
@@ -354,7 +361,7 @@ export const UIFinance = {
 
         el.value = newVal;
         getSys().hideQtyError?.();
-        this.updatePriceDisplay(); 
+        getSys().updatePriceDisplay?.(); 
         getSys().revalidateAppliedCoupon?.();
     },
 
@@ -644,12 +651,13 @@ export const UIFinance = {
 
         this.currentReceiptData = null; 
         
-        // 🛡️ تنظيف الذاكرة بشكل قطعي عند التراجع
-        if (this.pendingReceiptFile) {
-            const preview = document.getElementById('bal-img-preview');
-            if (preview && preview.src && preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
-            this.pendingReceiptFile = null;
+        // 🛡️ [إصلاح ماسي 1]: التنظيف غير المشروط للـ Blob من المتصفح لمنع نزيف الرام
+        const preview = document.getElementById('bal-img-preview');
+        if (preview && preview.src && preview.src.startsWith('blob:')) {
+            URL.revokeObjectURL(preview.src);
+            preview.src = '';
         }
+        this.pendingReceiptFile = null;
 
         setTimeout(() => {
             const section = document.getElementById('bal-method-info-section');
@@ -664,7 +672,7 @@ export const UIFinance = {
         getSys().closeModal?.('balance');
         if (modal) {
             modal.addEventListener('transitionend', () => {
-                this.backToPayMethods(); // BackToPayMethods will handle the BLOB cleanup
+                this.backToPayMethods(); 
             }, { once: true });
         }
     },
@@ -672,10 +680,11 @@ export const UIFinance = {
     previewReceipt: function(inp) { 
         const file = inp.files && inp.files[0];
         
-        // 🛡️ تنظيف فوري لأي صورة سابقة لمنع نزيف الذاكرة (Memory Leak)
-        if (this.pendingReceiptFile) {
-            const preview = document.getElementById('bal-img-preview');
-            if (preview && preview.src && preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
+        // 🛡️ [إصلاح ماسي 1]: التنظيف الفوري للـ Blob القديم قبل إنشاء واحد جديد
+        const preview = document.getElementById('bal-img-preview');
+        if (preview && preview.src && preview.src.startsWith('blob:')) {
+            URL.revokeObjectURL(preview.src);
+            preview.src = '';
         }
         
         if(!file) {
@@ -696,7 +705,6 @@ export const UIFinance = {
         }
 
         const isPdf = file.type === 'application/pdf';
-        const preview = document.getElementById('bal-img-preview');
         const uploadBox = document.getElementById('bal-upload-box'); 
 
         const setUploadSuccessUI = (type) => {
@@ -744,14 +752,17 @@ export const UIFinance = {
                                 const safeName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "receipt";
                                 this.pendingReceiptFile = new File([blob], `${safeName}.webp`, { type: 'image/webp' });
                                 
-                                const previewUrl = URL.createObjectURL(blob); // سيتم تنظيفه في backToPayMethods
+                                const previewUrl = URL.createObjectURL(blob); 
                                 if(preview) { 
                                     preview.src = previewUrl; 
                                     preview.style.display = 'block'; 
                                     preview.className = 'bal-receipt-preview-new'; 
                                 }
                                 setUploadSuccessUI('image');
-                                canvas.width = 0; canvas.height = 0; // مسح الكانفاس لتخفيف الرام
+                                
+                                // 🛡️ كنس الذاكرة الإجباري لصور الموبايل العملاقة
+                                canvas.width = 0; canvas.height = 0; 
+                                img.src = '';
                             }, 'image/webp', 0.75);
                         } catch (err) {
                             getSys().showToast?.('تعذر معالجة الصورة، قد تكون تالفة أو كبيرة', 'error');
@@ -926,7 +937,6 @@ export const UIFinance = {
         const content = document.getElementById('tx-detail-content');
         if (!content) return;
 
-        // 🚀 توليد الـ HTML عبر UIBuilders لسرعة الاستجابة ومنع تكرار الكود
         const html = UIBuilders.buildTransactionDetail(type, id, LiveStoreData, DataManager);
         
         if (html) {

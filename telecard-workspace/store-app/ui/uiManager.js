@@ -1,7 +1,10 @@
 // ============================================================================
-// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة الماسية المطلقة
+// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة الماسية المطلقة V15 💎
 // 🎯 الوظيفة: تجميع وحدات الواجهة المنفصلة وتصديرها ككائن واحد للنظام
-// 🚀 التحديث الأقصى: دمج الخصائص العميقة (Descriptors)، وحماية الـ Watchdog، وتحسين الـ FPS
+// 🚀 التحديثات:
+// 1. Prototype Shield: منع ثغرة تسمم النماذج (Prototype Pollution).
+// 2. Collision Detector: كشف التحذيرات إذا قامت وحدة بمسح دوال وحدة أخرى.
+// 3. Destructuring-Safe: حماية دوال اللودر من فقدان الـ this.
 // ============================================================================
 
 import { UICore } from './uiCore.js';
@@ -18,7 +21,6 @@ const verifyModule = (name, mod) => {
     }
     
     if (typeof window !== 'undefined') {
-        // 🛡️ [إصلاح أمني]: منع تسمم الكائنات (Prototype Pollution) باستخدام defineProperty
         if (!window.ModuleWatchdog) {
             Object.defineProperty(window, 'ModuleWatchdog', {
                 value: Object.freeze({ loadedModules: new Set() }),
@@ -28,7 +30,6 @@ const verifyModule = (name, mod) => {
         }
         window.ModuleWatchdog.loadedModules.add(name);
     }
-    
     return true;
 };
 
@@ -36,11 +37,23 @@ verifyModule('UICore', UICore);
 verifyModule('UIFinance', UIFinance);
 verifyModule('UIAuth', UIAuth);
 
+// 🛡️ [إصلاح ماسي 1 و 2]: دمج آمن مع كاشف للتصادم ومانع للاختراق
 const deepMergeModules = (targetObject, ...modules) => {
+    const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+    
     for (const mod of modules) {
         if (!mod) continue;
         const descriptors = Object.getOwnPropertyDescriptors(mod);
+        
         for (const [key, descriptor] of Object.entries(descriptors)) {
+            // 🛡️ درع الحماية ضد Prototype Pollution
+            if (FORBIDDEN_KEYS.has(key)) continue;
+            
+            // 🚨 كاشف التصادم المعماري (Architectural Collision Detector)
+            if (key in targetObject) {
+                console.warn(`⚠️ [UI Architecture Warning]: تم اكتشاف تصادم! الدالة/الخاصية [${key}] تم الكتابة فوقها.`);
+            }
+            
             Object.defineProperty(targetObject, key, descriptor);
         }
     }
@@ -56,13 +69,12 @@ export const UIManager = deepMergeModules(
 
 Object.defineProperties(UIManager, {
     toggleLoader: {
-        // 🛡️ إضافة معامل `force` لمنع حالة القفل الأبدي (Deadlock)
         value: function(show, text = 'جاري المعالجة...', force = false) {
             if (show) {
                 _loaderActiveRequests++;
             } else {
                 if (force) {
-                    _loaderActiveRequests = 0; // صمام الأمان الإجباري
+                    _loaderActiveRequests = 0; 
                 } else {
                     _loaderActiveRequests = Math.max(0, _loaderActiveRequests - 1);
                 }
@@ -73,6 +85,8 @@ Object.defineProperties(UIManager, {
             if (!loader) {
                 loader = document.createElement('div');
                 loader.id = 'global-dynamic-loader';
+                // تم إضافة aria-live لمعايير إمكانية الوصول (Enterprise Accessibility)
+                loader.setAttribute('aria-live', 'assertive');
                 loader.innerHTML = `
                     <i class="fa-solid fa-circle-notch fa-spin loader-spinner"></i>
                     <div id="dynamic-loader-text" class="loader-text"></div>
@@ -82,7 +96,6 @@ Object.defineProperties(UIManager, {
             
             const textEl = document.getElementById('dynamic-loader-text');
             
-            // 🚀 [أداء فائق]: حصر التعديلات داخل إطار الرسوميات
             requestAnimationFrame(() => {
                 if (_loaderActiveRequests > 0) {
                     if (textEl && textEl.textContent !== text) {
@@ -100,9 +113,13 @@ Object.defineProperties(UIManager, {
     
     forceHideLoader: {
         value: function() {
-            this.toggleLoader(false, '', true); // استخدام وضع Force
+            // 🛡️ [إصلاح ماسي 3]: استدعاء صريح لمنع انهيار الـ Destructuring
+            UIManager.toggleLoader(false, '', true); 
         },
         writable: false,
         configurable: false
     }
 });
+
+// 🔒 تجميد الكائن النهائي لمنع التلاعب به أثناء الـ Runtime
+Object.freeze(UIManager);

@@ -1,10 +1,9 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V13.0 - Stable Enterprise) 💎
-// 🎯 الوظيفة: الإقلاع السريع، دمج البيانات الآمن، والتوافقية الشاملة مع جميع الأجهزة
-// 🌟 التحديثات: ربط رقم الإصدار المركزي، الختم الأمني (Read-Only Fix)، وسد ثغرة التحديث اللانهائي
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V13.1 - Stable Enterprise) 💎
+// 🎯 الوظيفة: الإقلاع السريع، دمج البيانات الآمن، والتوافقية الشاملة
+// 🚀 التحديثات: سد تسرب مستمع الـ Auth، حماية تفضيلات العميل، وإصلاح تضارب الدبل كليك
 // ============================================================================
 
-// 🛡️ [حارس التوافقية]: منع انهيار متصفحات سفاري وآيفون التي لا تدعم requestIdleCallback
 window.requestIdleCallback = window.requestIdleCallback || function(cb) {
     const start = Date.now();
     return setTimeout(() => cb({
@@ -25,7 +24,6 @@ import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 import { UIFinance } from './ui/uiFinance.js'; 
 
-// 🕒 تسوية التواريخ مع حماية الذاكرة
 const _normalizeDataTime = (dataArray) => {
     if (!Array.isArray(dataArray)) return [];
     return dataArray.map(item => ({
@@ -41,6 +39,7 @@ const ClientSystem = {
     activeListeners: [], 
     userAuthListeners: [],
     _listenersBound: false, 
+    _authUnsubscribe: null, // 🛡️ [إصلاح ماسي]: مرجع ثابت لمستمع المصادقة لمنع التسرب
 
     // 🧹 التنظيف المركزي الشامل للاتصالات
     clearFirebaseListeners: function() {
@@ -128,12 +127,6 @@ const ClientSystem = {
             if (action === 'kyc-upload-back') this.handleKycImage?.(e.target, 'kyc-prev-back');
             if (action === 'kyc-upload-selfie') this.handleKycImage?.(e.target, 'kyc-prev-selfie');
             if (action === 'upload-avatar') this.handleAvatarChange?.(e);
-        });
-
-        document.addEventListener('input', (e) => {
-            const action = e.target.getAttribute('data-action');
-            if (action === 'filter-countries') this.filterCountries?.(e.target.value);
-            if (action === 'check-coupon-state') this.checkInputState?.();
         });
 
         document.addEventListener('click', (e) => {
@@ -335,22 +328,24 @@ const ClientSystem = {
             const action = actionBtn.getAttribute('data-action');
             const prodId = actionBtn.getAttribute('data-id');
             
-            // معالجة الدبل كليك للصور
+            // 🛡️ [إصلاح ماسي]: حل تضارب التايمر الخاص بالدبل كليك
             if (action === 'open-product' && target.closest('.card-image')) {
-                if (this._prodClickTimer && this._clickedProdId === prodId) {
+                if (this._prodClickTimer) {
                     clearTimeout(this._prodClickTimer);
-                    this._prodClickTimer = null; this._clickedProdId = null;
-                    this.triggerMagicFavorite?.(e, prodId); return;
-                } else {
-                    if (this._prodClickTimer) clearTimeout(this._prodClickTimer);
-                    this._clickedProdId = prodId;
-                    this._prodClickTimer = setTimeout(() => {
-                        this._prodClickTimer = null; this._clickedProdId = null;
-                        this.sfx?.('nav');
-                        ActionDictionary[action]?.(e, prodId, actionBtn.getAttribute('data-val'), actionBtn);
-                    }, 250);
-                    return;
+                    this._prodClickTimer = null;
+                    if (this._clickedProdId === prodId) {
+                        this._clickedProdId = null;
+                        this.triggerMagicFavorite?.(e, prodId); 
+                        return;
+                    }
                 }
+                this._clickedProdId = prodId;
+                this._prodClickTimer = setTimeout(() => {
+                    this._prodClickTimer = null; this._clickedProdId = null;
+                    this.sfx?.('nav');
+                    ActionDictionary[action]?.(e, prodId, actionBtn.getAttribute('data-val'), actionBtn);
+                }, 250);
+                return;
             }
             
             if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigger-click', 'update-simple-qty', 'delete-avatar', 'open-product', 'mark-single-read'].includes(action)) {
@@ -411,7 +406,16 @@ ClientSystem.initFirebaseListeners = function() {
                     localStorage.setItem('telecard_app_version', serverVersion);
                     try { if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('TeleCardStoreDB'); } catch(e){}
                     
-                    // 🛡️ [إصلاح حلقة التحديث اللانهائية]: مسح الـ Caches الحديثة قبل الـ SW
+                    // 🛡️ [إصلاح الذاكرة]: تنظيف محدد بدلاً من localStorage.clear() المدمر
+                    const keysToRemove = [];
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const k = localStorage.key(i);
+                        if (k && (k.startsWith('telecard_store_cache') || k === CACHE_KEYS.SMART_CATALOG || k === CACHE_KEYS.CATALOG_VERSION)) {
+                            keysToRemove.push(k);
+                        }
+                    }
+                    keysToRemove.forEach(k => localStorage.removeItem(k));
+                    
                     if ('caches' in window) {
                         const cacheNames = await caches.keys();
                         await Promise.all(cacheNames.map(name => caches.delete(name)));
@@ -420,7 +424,6 @@ ClientSystem.initFirebaseListeners = function() {
                         const regs = await navigator.serviceWorker.getRegistrations(); 
                         await Promise.all(regs.map(r => r.unregister())); 
                     }
-                    // إعطاء المتصفح 150ms لتنظيف الذاكرة العميقة قبل إعادة التحميل
                     setTimeout(() => window.location.reload(true), 150);
                 }, 2000);
                 return;
@@ -441,7 +444,10 @@ ClientSystem.initFirebaseListeners = function() {
     
     if (!auth) return; 
     
-    onAuthStateChanged(auth, (firebaseUser) => {
+    // 🛡️ [إصلاح ماسي]: منع تكرار مستمع المصادقة عند انقطاع الشبكة
+    if (this._authUnsubscribe) this._authUnsubscribe();
+    
+    this._authUnsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
         this.userAuthListeners.forEach(unsub => { if (typeof unsub === 'function') unsub(); });
         this.userAuthListeners = [];
 
@@ -458,7 +464,6 @@ ClientSystem.initFirebaseListeners = function() {
                 this.userAuthListeners.push(StoreDB.listenDoc(DB_KEYS.USERS, uidStr, (userData) => {
                     if (userData) {
                         if (userData.isBanned || userData.isIpBanned) {
-                            // 🛡️ [إصلاح نافذة الحظر]: إيقاف الاتصال فوراً والسماح لـ triggerLiveBanAlert بعرض الرسالة
                             this.clearFirebaseListeners();
                             if (this.triggerLiveBanAlert) {
                                 this.triggerLiveBanAlert(userData.banReason || 'نعتذر، تم حظر حسابك.');
@@ -496,13 +501,12 @@ ClientSystem.initFirebaseListeners = function() {
 };
 
 // ============================================================================
-// 🚀 إقلاع النظام المدمج (Smart Boot) - النسخة الماسية المحصنة
+// 🚀 إقلاع النظام المدمج (Smart Boot)
 // ============================================================================
 ClientSystem.init = async function() {
     this.isReady = true;
     console.log("🚀 جاري إقلاع النظام (نمط مكافحة الانهيار + الكاش الذكي O(1) Reads)...");
     
-    // 🛡️ [إصلاح التحذير]: تهيئة صامتة للمحرك قبل مزامنة المستخدم لمنع تحذيرات الكونسول
     if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
         RenderHelpers.init({ settings: {}, rates: [], offers: [], isStore: true });
     }
@@ -516,12 +520,16 @@ ClientSystem.init = async function() {
             try { if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('TeleCardStoreDB'); } catch(e){}
             if ('serviceWorker' in navigator) { const regs = await navigator.serviceWorker.getRegistrations(); for (let r of regs) await r.unregister(); }
             
-            const activeUid = localStorage.getItem('telecard_active_user_uid');
-            const theme = localStorage.getItem('telecard_theme');
-            localStorage.clear();
+            // 🛡️ [إصلاح ماسي]: الحفاظ على بيانات المستخدم المهمة عند تحديث الكود
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && (k.startsWith('telecard_store_cache') || k === CACHE_KEYS.SMART_CATALOG || k === CACHE_KEYS.CATALOG_VERSION)) {
+                    keysToRemove.push(k);
+                }
+            }
+            keysToRemove.forEach(k => localStorage.removeItem(k));
             
-            if (activeUid) localStorage.setItem('telecard_active_user_uid', activeUid);
-            if (theme) localStorage.setItem('telecard_theme', theme);
             localStorage.setItem('telecard_app_version', currentVersion);
             window.location.reload(true); return; 
         } else if (!savedVersion) {
@@ -544,12 +552,10 @@ ClientSystem.init = async function() {
 
         await DataManager.initStoreCatalog();
 
-        // 🛡️ [تحديث البيانات]: إعادة تهيئة المحرك بالبيانات الحقيقية بعد جلبها من الكاش/السيرفر
         if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
             RenderHelpers.init({ settings: LiveStoreData.settings || {}, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
         }
         
-        // 🛡️ [تأمين الشاشة]: إزالة شاشة الـ Splash Screen فوراً وبشكل حتمي
         const removeSplashScreen = () => {
             const splash = document.getElementById('global-splash-screen');
             if (splash) { 
@@ -561,7 +567,6 @@ ClientSystem.init = async function() {
         requestAnimationFrame(removeSplashScreen);
 
         UIManager.applyStoreIdentity?.();
-        RenderManager.renderHome?.();
         UIManager.initSlider?.(); 
         UIManager.renderTicker?.(); 
         UIManager.updateProfileDisplay?.();
@@ -571,6 +576,7 @@ ClientSystem.init = async function() {
         if (splashName) splashName.innerText = sName;
         localStorage.setItem('telecard_splash_name', sName);
 
+        // 🛡️ [إصلاح ترتيب الإقلاع]: لا نرسم الصفحة الرئيسية حتى نضمن جلب البنرات وباقي البيانات
         if (this.isReady && RenderManager) {
             const secKeys = ['COUPONS', 'COUNTRIES', 'PAYMENTS', 'BANNERS'];
             const promises = secKeys.map(k => StoreDB.getAll(DB_KEYS[k]).catch(() => []));
@@ -581,14 +587,13 @@ ClientSystem.init = async function() {
                         LiveStoreData[key.toLowerCase()] = results[i];
                     }
                 });
-                RenderManager.renderHome?.();
+                RenderManager.renderHome?.(); // 👈 رسم الرئيسية بشكل آمن الآن!
                 UIManager.initSlider?.(); 
                 UIManager.updateDisplayBalance?.();
             });
         }
     } catch (e) {
         console.error("🚨 خطأ أثناء محاولة إقلاع الواجهة:", e);
-        // 🛡️ صمام الأمان: إزالة الشاشة النبضية بقوة حتى لو حدث خطأ كارثي أو انقطع الاتصال
         const splash = document.getElementById('global-splash-screen');
         if (splash) splash.remove();
     }
@@ -615,16 +620,13 @@ ClientSystem.init = async function() {
 // ============================================================================
 // 🛡️ الختم الأمني النهائي (Enterprise Global Object Registration)
 // ============================================================================
-
-// 1. حقن النظام في الـ Window بخصائص غير قابلة للاستبدال (لمنع الـ Hijacking)
 if (typeof window !== 'undefined') {
     Object.defineProperty(window, 'ClientSystem', {
         value: ClientSystem,
-        writable: false, // يمنع المخترق من كتابة window.ClientSystem = {...}
-        configurable: false // يمنع المخترق من حذف الكائن
+        writable: false, 
+        configurable: false 
     });
     
-    // ربط UIManager بالنظام المغلق للتوافقية مع الأكواد السابقة
     Object.defineProperty(window, 'UIManager', {
         value: ClientSystem,
         writable: false,

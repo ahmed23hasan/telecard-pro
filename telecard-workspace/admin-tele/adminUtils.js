@@ -1,12 +1,12 @@
 // ============================================================================
-// 🛠️ ملف الأدوات المساعدة (adminUtils.js) - Bank Grade 🏦
-// الوظيفة: دوال مشتركة، ناقل الأحداث، حماية XSS صارمة
+// 🛠️ ملف الأدوات المساعدة للإدارة (adminUtils.js) - Bank Grade 🏦 V14.7
+// الوظيفة: دوال مشتركة، ناقل الأحداث، حماية XSS، وتأمين الروابط والأرقام
+// 🚀 التحديث: ترقية EventBus لاستخدام (Set) لمنع تسرب الذاكرة وتكرار الأحداث.
 // ============================================================================
 
 import { RenderHelpers } from './core/renderHelpers.js';
 
 export const Utils = {
-    // 1. 🛡️ ترقية لمعايير OWASP العالمية للحماية من الـ XSS (متطابق مع العميل)
     escapeHTML: function(val) {
         if (val === undefined || val === null) return '';
         return String(val)
@@ -20,35 +20,47 @@ export const Utils = {
             .replace(/\//g, '&#x2F;');
     },
     
-    // 2. تنسيق الأرقام لعرضها في الـ UI (يعيد نص String)
+    safeUrl: function(url, fallback = '#') {
+        if (!url) return fallback;
+        let cleaned = String(url).replace(/[\x00-\x1F\x7F\s]/g, '').trim();
+        if (/^(javascript|vbscript|data):/i.test(cleaned)) return fallback;
+        
+        try {
+            const parsedUrl = new URL(cleaned, window.location.origin);
+            const protocol = parsedUrl.protocol.toLowerCase();
+            if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) return this.escapeHTML(cleaned);
+            return fallback;
+        } catch (e) {
+            if (cleaned.startsWith('//')) return fallback;
+            if (cleaned.startsWith('/') || cleaned.startsWith('./') || cleaned.startsWith('../') || cleaned.startsWith('#') || cleaned.startsWith('?')) return this.escapeHTML(cleaned);
+            return fallback;
+        }
+    },
+    
     enNum: function(num, decimals = null) {
         if (num === null || num === undefined || num === '') return '';
         const n = Number(num);
         if (isNaN(n)) return '';
+        
+        const targetDecimals = decimals !== null ? decimals : 6;
+        const safeDecimals = Math.min(20, Math.max(0, Number(targetDecimals) || 0));
+        
         return new Intl.NumberFormat('en-US', {
             minimumFractionDigits: 0,
-            maximumFractionDigits: decimals !== null ? decimals : 6,
+            maximumFractionDigits: safeDecimals,
             useGrouping: false
         }).format(n);
     },
     
-    // 3. توجيه التنسيق للمحرك المركزي
-    formatDate: function(ts) {
-        return RenderHelpers.formatSafeDate(ts);
-    },
+    formatDate: function(ts) { return RenderHelpers.formatSafeDate(ts); },
+    formatMoney: function(amount, code = 'USD', decimals = 2) { return RenderHelpers.formatMoney(amount, code, decimals); },
     
-    formatMoney: function(amount, code = 'USD', decimals = 2) {
-        return RenderHelpers.formatMoney(amount, code, decimals);
-    },
-    
-    // 4. 🌟 توليد ID عشوائي آمن جداً (Cryptographically Secure)
     generateID: function() {
         const array = new Uint8Array(12);
         window.crypto.getRandomValues(array);
         return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
     },
     
-    // 5. أدوات استخراج البيانات الموحدة
     getVal: function(id, defaultValue = '') {
         const el = document.getElementById(id);
         return el ? el.value.trim() : defaultValue;
@@ -61,24 +73,27 @@ export const Utils = {
 };
 
 // ============================================================================
-// 📡 ناقل الأحداث (EventBus) - لفك الارتباط الدائري
+// 📡 ناقل الأحداث (EventBus) - Memory Leak Proof
 // ============================================================================
 export const EventBus = {
     events: {},
     
     on(event, listener) {
-        if (!this.events[event]) this.events[event] = [];
-        this.events[event].push(listener);
+        // 🛡️ استخدام Set يضمن عدم تسجيل نفس الدالة مرتين أبداً
+        if (!this.events[event]) this.events[event] = new Set();
+        this.events[event].add(listener);
     },
     
     emit(event, data) {
         if (this.events[event]) {
-            this.events[event].forEach(listener => listener(data));
+            this.events[event].forEach(listener => {
+                try { listener(data); } catch (e) { console.error(`EventBus Error [${event}]:`, e); }
+            });
         }
     },
     
     off(event, listenerToRemove) {
         if (!this.events[event]) return;
-        this.events[event] = this.events[event].filter(l => l !== listenerToRemove);
+        this.events[event].delete(listenerToRemove);
     }
 };

@@ -1,11 +1,10 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - Ultimate V15 💎
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - Ultimate V15.1 💎
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
 // 🚀 التحديثات:
-// 1. استعادة استقرار V4.5 بالكامل وإلغاء أخطاء setAttribute الكارثية.
-// 2. دمج حماية الذاكرة (Zero Memory Leaks) عبر URL.revokeObjectURL.
-// 3. تأمين أحداث رفع الصور عبر (cloneNode) لمنع التكرار (Memory Leak).
-// 4. تحميل آمن لسكريبت 2FA مع التحقق من جاهزية الشبكة.
+// 1. DOM Preservation: إزالة استنساخ العناصر واستبدالها بـ Dataset Flags.
+// 2. State Sync: حفظ الـ LocalStorage فوراً بعد تعديل الهوية لمنع الـ Desync.
+// 3. V8 Garbage Collection: تفريغ نصوص الـ Base64 العملاقة فوراً لتوفير الرام.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -52,7 +51,11 @@ export const UIAuth = {
                             const safeName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "image";
                             const compressedFile = new File([blob], `${safeName}.webp`, { type: 'image/webp' });
                             resolve({ file: compressedFile, previewUrl: URL.createObjectURL(blob) });
+                            
+                            // 🛡️ [إصلاح ماسي 3]: إخلاء الذاكرة العشوائية (RAM) فوراً
                             canvas.width = 0; canvas.height = 0; 
+                            img.src = ''; 
+                            img.onload = null; img.onerror = null;
                         }, 'image/webp', 0.80);
                     } catch (error) { reject(error); }
                 };
@@ -83,7 +86,6 @@ export const UIAuth = {
         const phoneTxt = (user.phone && user.phone.trim()) ? user.phone : 'غير محدد';
         const idTxt = RenderHelpers.formatUserId(user);
 
-        // 🚀 استخدام requestAnimationFrame لتسريع الرسم بدون Layout Thrashing
         window.requestAnimationFrame(() => {
             const displayNameEl = document.getElementById('display-name');
             const editNameEl = document.getElementById('edit-name-input');
@@ -181,22 +183,20 @@ export const UIAuth = {
                 deleteAvatarBtn.classList.toggle('active', !!hasCustomImage);
             }
 
-            // 🛡️ استعادة الحماية الكلاسيكية القوية لمسح الأحداث المتكررة للـ Input
-            if(fileInput) {
-                const newFileInput = fileInput.cloneNode(true);
-                fileInput.parentNode.replaceChild(newFileInput, fileInput);
-                
-                newFileInput.addEventListener('change', async (e) => {
+            // 🛡️ [إصلاح ماسي 1]: استخدام dataset لمنع استنساخ الـ DOM المدمر
+            if(fileInput && !fileInput.dataset.eventBound) {
+                fileInput.dataset.eventBound = "true";
+                fileInput.addEventListener('change', async (e) => {
                     const originalFile = e.target.files && e.target.files[0];
                     
                     if (!originalFile || !originalFile.type.startsWith('image/')) {
                         getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
-                        newFileInput.value = ''; return;
+                        fileInput.value = ''; return;
                     }
                     
                     if (originalFile.size > 5 * 1024 * 1024) { 
                         getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
-                        newFileInput.value = ''; return;
+                        fileInput.value = ''; return;
                     }
 
                     const avatarWrapper = document.querySelector('.profile-container .avatar-wrapper');
@@ -227,12 +227,11 @@ export const UIAuth = {
                         const dbUpdateSuccess = DataManager.updateUserProfile ? await DataManager.updateUserProfile({ img: downloadUrl }) : false;
                         
                         if (dbUpdateSuccess) {
-                            try {
-                                localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id, downloadUrl);
-                            } catch(e) { console.warn("Storage restricted - Incognito mode"); }
+                            try { localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id, downloadUrl); } 
+                            catch(e) { console.warn("Storage restricted - Incognito mode"); }
 
                             if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
-                                FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(e => console.warn("Failed to delete old avatar:", e));
+                                FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(()=>{});
                             }
 
                             if (deleteAvatarBtn) deleteAvatarBtn.classList.add('active');
@@ -256,11 +255,10 @@ export const UIAuth = {
                         if(imgEl) imgEl.src = fallbackImg; 
                         if(sidebarAvatar) sidebarAvatar.src = fallbackImg; 
                     } finally {
-                        // 🛡️ تنظيف الذاكرة (Memory Leak Fix from V4.6)
                         if (compressed && compressed.previewUrl) URL.revokeObjectURL(compressed.previewUrl);
                         if (avatarWrapper) avatarWrapper.classList.remove('is-loading');
                         shield.remove();
-                        newFileInput.value = ''; 
+                        fileInput.value = ''; 
                     }
                 });
             }
@@ -284,20 +282,13 @@ export const UIAuth = {
         } else {
             let newVal = inpEl.value.trim().replace(/[<>"{}[\]\\]/g, '');
             
-            if (newVal.length < 2) {
-                getSys().showToast?.('الاسم قصير جداً أو فارغ، يرجى كتابة اسم صحيح', 'warning');
-                return;
-            }
-            
-            if (newVal.length > 40) {
-                getSys().showToast?.('الاسم طويل جداً، يرجى كتابة اسم أقصر', 'warning');
-                return;
-            }
+            if (newVal.length < 2) { getSys().showToast?.('الاسم قصير جداً أو فارغ، يرجى كتابة اسم صحيح', 'warning'); return; }
+            if (newVal.length > 40) { getSys().showToast?.('الاسم طويل جداً، يرجى كتابة اسم أقصر', 'warning'); return; }
             
             if (DataManager.user && newVal !== DataManager.user.name) {
                 DataManager.updateUserProfile({ name: newVal, fullName: newVal }).then(success => {
                     if (success) {
-                        nameEl.textContent = newVal; // 🛡️ آمنة ومطابقة لمعايير الـ DOM
+                        nameEl.textContent = newVal; 
                         getSys().showToast?.('تم تحديث الاسم بنجاح', 'success');
                         if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
                     }
@@ -399,7 +390,6 @@ export const UIAuth = {
             const nameEl = document.getElementById('cs-name');
             const displayNameEl = document.getElementById('display-name');
             
-            // 🛡️ استخدام textContent لحماية الـ DOM وعدم تعارضه
             if (nameEl) nameEl.textContent = fullName;
             if (displayNameEl) displayNameEl.textContent = fullName;
             
@@ -460,9 +450,7 @@ export const UIAuth = {
             if (DataManager.updateUserProfile) {
                 DataManager.updateUserProfile({ img: null });
             }
-            try {
-                localStorage.removeItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id);
-            } catch(e) {}
+            try { localStorage.removeItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id); } catch(e) {}
             
             if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
                 FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(e => console.warn("Failed to delete old avatar:", e));
@@ -653,7 +641,6 @@ export const UIAuth = {
             if (qrContainer) {
                 qrContainer.innerHTML = ''; 
                 
-                // 🛡️ استعادة التحميل الآمن لـ QRCode كما في النسخة V4.5 (تحقق ذكي)
                 if (typeof window.QRCode === 'undefined') {
                     sys.toggleLoader?.(true, 'جاري تحميل نظام التشفير المرئي...');
                     await new Promise((resolve, reject) => {
@@ -775,18 +762,14 @@ export const UIAuth = {
             try {
                 const success = await DataManager.updateUserProfile({ biometricEnabled: false });
                 if (success) {
-                    try {
-                        localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY);
-                    } catch(e) {}
+                    try { localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY); } catch(e) {}
                     sys.showToast?.('تم إيقاف المصادقة بالبصمة بنجاح', 'info');
                     sys.sfx?.('nav');
                     this.openSecurityModal();
                 } else {
                     sys.showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
                 }
-            } finally {
-                sys.toggleLoader?.(false);
-            }
+            } finally { sys.toggleLoader?.(false); }
             return;
         }
         
@@ -827,11 +810,8 @@ export const UIAuth = {
                 .map(b => b.toString(16).padStart(2, '0'))
                 .join('');
             
-            try {
-                localStorage.setItem(CACHE_KEYS.BIOMETRIC_KEY, rawId);
-            } catch (e) {
-                throw new Error("storage_full");
-            }
+            try { localStorage.setItem(CACHE_KEYS.BIOMETRIC_KEY, rawId); } 
+            catch (e) { throw new Error("storage_full"); }
             
             const success = await DataManager.updateUserProfile({ biometricEnabled: true });
             
@@ -840,9 +820,7 @@ export const UIAuth = {
                 sys.sfx?.('success');
                 this.openSecurityModal();
             } else {
-                try {
-                    localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY);
-                } catch(e) {}
+                try { localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY); } catch(e) {}
                 throw new Error('server_error');
             }
         } catch (error) {
@@ -1000,15 +978,16 @@ export const UIAuth = {
             if (result && result.success) {
                 const finalCurr = result.lockedCurrency || currency;
                 
-                try {
-                    localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, finalCurr);
-                } catch(e) {}
+                try { localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, finalCurr); } catch(e) {}
                 DataManager.selectedCurr = finalCurr;
                 
                 DataManager.user.country = country;
                 DataManager.user.phone = phone;
                 DataManager.user.baseCurrency = finalCurr;
                 DataManager.user.isVerified = true;
+                
+                // 🛡️ [إصلاح ماسي 2]: حفظ الحالة محلياً فوراً لمنع التضارب عند التحديث السريع
+                if (typeof DataManager.saveUserLocal === 'function') DataManager.saveUserLocal();
                 
                 if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
                 if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(finalCurr);
