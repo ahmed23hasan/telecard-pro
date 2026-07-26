@@ -131,7 +131,7 @@ export const RenderManager = {
         };
     },
 
-    _generateImageHTML    _generateProductCardHTML: function(p, idx) {
+   _generateProductCardHTML: function(p, idx) {
         const rates = DataManager.getRates();
         const displayCurrency = DataManager.selectedCurr || 'USD';
         
