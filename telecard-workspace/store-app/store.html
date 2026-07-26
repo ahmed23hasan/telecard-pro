@@ -1387,7 +1387,7 @@
     <script type="module" src="script.js"></script>
 
 <!-- ========================================================================= -->
-<!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.2 💎 -->
+<!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.3 💎 -->
 <!-- ========================================================================= -->
 <script>
     (function initMobileDevTools() {
@@ -1446,11 +1446,21 @@
             devConsole.style.display = 'block'; 
         };
         
+        // 🛡️ التحديث الماسي 3.3: التمييز بين الصور المفقودة وانهيار الكود الحقيقي
         window.addEventListener('error', function(e) {
-            if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
-                const missingFile = e.target.src || e.target.href || 'Unknown File';
-                console.error(`❌ فشل في تحميل الملف: \n${missingFile}`);
-            } else {
+            if (e.target && e.target.tagName) {
+                const tag = e.target.tagName;
+                if (tag === 'IMG') {
+                    console.warn(`⚠️ فشل في تحميل صورة (رابط مكسور): ${e.target.src || 'غير معروف'}`);
+                    return; // تجاهل الخطأ ولا تعتبره انهياراً
+                } else if (tag === 'SCRIPT' || tag === 'LINK') {
+                    console.error(`❌ فشل في تحميل ملف أساسي: ${e.target.src || e.target.href}`);
+                    return;
+                }
+            }
+            
+            // إذا وصلنا لهنا، فهذا انهيار جافاسكريبت حقيقي
+            if (e.message && e.lineno) {
                 console.error(`💥 Runtime Crash: ${e.message} \n📍 السطر: ${e.lineno} \n📁 الملف: ${e.filename}`);
             }
         }, true);
@@ -1466,7 +1476,7 @@
                     const res = await fetch(file, { method: 'HEAD' });
                     if (res.ok) { console.log(`✅ ملف سليم: ${file}`); passed++; } 
                     else { console.error(`❌ ملف مفقود (404): ${file}`); }
-                } catch (err) { console.error(`⚠️ خطأ مسار (CORS): ${file}`); }
+                } catch (err) { console.warn(`⚠️ خطأ مسار/سيرفر محلي: ${file}`); }
             }
             console.log(`🏁 نتيجة الفحص: ${passed}/${filesToTest.length} ملفات تعمل.`);
         };
@@ -1479,7 +1489,7 @@
             document.body.removeChild(textarea);
         });
 
-        console.log("🚀 TeleCard DevTools V3.2 Initialized!");
+        console.log("🚀 TeleCard DevTools V3.3 Initialized!");
     })();
 </script>
 </body>
