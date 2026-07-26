@@ -188,29 +188,34 @@ export const UICore = {
     },
 
     closeModal: function(modalId) {
-        if (!modalId) { getSys().closePurchaseModal?.(); return; }
-        const overlay = document.getElementById(`${modalId}-overlay`);
-        const modal = document.getElementById(`${modalId}-modal`);
-        
-        if (modal) {
-            modal.classList.remove('active');
-            if (modal._scrollTimer) clearTimeout(modal._scrollTimer);
-            modal._scrollTimer = setTimeout(() => {
-                modal.scrollTop = 0;
-                modal.querySelectorAll('.pm-scroll-content, .scrollable, .modal-content, .profile-container, .profile-pass-body, [id$="-list"]').forEach(s => s.scrollTop = 0);
-            }, 350);
-        }
-        
-        if (overlay) overlay.classList.remove('active');
-        
-        if (this.activeModals) {
-            this.activeModals = this.activeModals.filter(id => id !== modalId);
-            if (this.activeModals.length === 0 && !document.querySelector('.sidebar.active')) document.body.classList.remove('no-scroll');
-        }
-        
-        if (['wallet', 'orders', 'mypay', 'profile-info'].includes(modalId)) this.syncBottomNavWithBaseState();
-    },    
+    if (!modalId) { getSys().closePurchaseModal?.(); return; }
     
+    // 🛡️ [إصلاح تسريب الكوبون]: تصفير حالة الكوبون عند إغلاق نافذة الشراء
+    if (modalId === 'purchase' || modalId === 'purchase-success') {
+        if (typeof getSys().removeCoupon === 'function') getSys().removeCoupon(true);
+    }
+    
+    const overlay = document.getElementById(`${modalId}-overlay`);
+    const modal = document.getElementById(`${modalId}-modal`);
+    
+    if (modal) {
+        modal.classList.remove('active');
+        if (modal._scrollTimer) clearTimeout(modal._scrollTimer);
+        modal._scrollTimer = setTimeout(() => {
+            modal.scrollTop = 0;
+            modal.querySelectorAll('.pm-scroll-content, .scrollable, .modal-content, .profile-container, .profile-pass-body, [id$="-list"]').forEach(s => s.scrollTop = 0);
+        }, 350);
+    }
+    
+    if (overlay) overlay.classList.remove('active');
+    
+    if (this.activeModals) {
+        this.activeModals = this.activeModals.filter(id => id !== modalId);
+        if (this.activeModals.length === 0 && !document.querySelector('.sidebar.active')) document.body.classList.remove('no-scroll');
+    }
+    
+    if (['wallet', 'orders', 'mypay', 'profile-info'].includes(modalId)) this.syncBottomNavWithBaseState();
+},    
     closeAllModals: function() { if (this.activeModals) [...this.activeModals].forEach(id => this.closeModal(id)); },
 
     resetUI: function() {

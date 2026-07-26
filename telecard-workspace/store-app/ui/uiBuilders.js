@@ -1,10 +1,11 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V15.1 💎
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V15.2 💎
 // 🎯 الوظيفة: تحويل البيانات الخام (Data) إلى نصوص HTML جاهزة للرسم
 // 🚀 التحديثات:
 // 1. [إصلاح المحاسبة]: الفواتير الـ PDF تدعم البونص (+) والعمولة (-) ديناميكياً.
 // 2. [إصلاح المتغيرات]: تطابق تام مع مخرجات FinancialEngine (finalPrice).
 // 3. [إصلاح المدخلات]: منع بتر (Truncation) نصوص وحقول طلبات العميل.
+// 4. [تنظيف الواجهة]: حماية مخرجات الـ HTML من قيم undefined و null الوهمية.
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -14,6 +15,7 @@ export const UIBuilders = {
 
     /** 1️⃣ بناء كرت حركة المحفظة (إيداع / شراء) */
     buildWalletCard: function(tx, walletCurr, isFilterActive) {
+        if (!tx) return '';
         const isDep = tx.type === 'deposit';
         let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
         let formattedDate = RenderHelpers.formatSafeDate(tx.time || tx.createdAt);
@@ -54,7 +56,7 @@ export const UIBuilders = {
         const safeTxName = Utils.escapeHtml(isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء'));
 
         return `
-            <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${Utils.escapeHtml(tx.id)}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
+            <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${Utils.escapeHtml(tx.id || '')}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
                 <div class="th-icon ${iconColorClass}"><i class="fa-solid ${iconName}"></i></div>
                 <div class="th-body">
                     <div class="th-details-col">
@@ -65,7 +67,7 @@ export const UIBuilders = {
                         <span class="th-order num-en is-copyable" data-action="copy-text" data-text="${shortTxId}" title="اضغط لنسخ رقم العملية">
                             <i class="fa-regular fa-copy" style="margin-right:4px; font-size:10px; opacity:0.7;"></i> ${shortTxId}
                         </span>
-                        <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal, tx.amountCurrency)}</div>
+                        <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal || 0, tx.amountCurrency)}</div>
                         ${runningBalanceHtml} 
                     </div>
                 </div>
@@ -74,6 +76,7 @@ export const UIBuilders = {
 
     /** 2️⃣ بناء كرت الطلب (Order Card) */
     buildOrderCard: function(o, idx, displayCurr, highlightId = null, productNamePassed = null) {
+        if (!o) return '';
         // 🛡️ [إصلاح المدخلات]: عرض السطر بالكامل بعد تعقيمه لمنع ضياع أسماء الحقول
         const getCleanInputRows = (str) => {
             if (!str || str === '---' || typeof str === 'object') return [];
@@ -116,7 +119,7 @@ export const UIBuilders = {
         const isHighlighted = (highlightId && String(o.id) === String(highlightId)) ? 'jump-highlight' : '';
         
         return `
-            <div class="oh-card ${isHighlighted}" style="--anim-idx: ${idx}" data-action="open-detail" data-type="order" data-id="${Utils.escapeHtml(o.id)}">
+            <div class="oh-card ${isHighlighted}" style="--anim-idx: ${idx}" data-action="open-detail" data-type="order" data-id="${Utils.escapeHtml(o.id || '')}">
                 <div class="oh-right">
                     ${discountBadgeHtml} 
                     <div class="oh-title">${productName}</div> 
@@ -133,6 +136,7 @@ export const UIBuilders = {
 
     /** 3️⃣ بناء كرت عملية الدفع (Payment/Deposit Card) */
     buildPaymentCard: function(d, userDisplayName, userIdString, baseCurrency) {
+        if (!d) return '';
         const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
         
         let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
@@ -200,7 +204,7 @@ export const UIBuilders = {
                             <div class="ph-admin-note-content"><span class="ph-admin-note-title">رسالة الإدارة:</span><div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div></div>
                         </div>` : ''}
                     <div class="ph-footer-action">
-                        <button class="btn-receipt-export" data-action="export-receipt" data-id="${Utils.escapeHtml(d.id)}"><i class="fa-solid fa-file-export"></i> تصدير الإيصال</button>
+                        <button class="btn-receipt-export" data-action="export-receipt" data-id="${Utils.escapeHtml(d.id || '')}"><i class="fa-solid fa-file-export"></i> تصدير الإيصال</button>
                     </div>
                 </div>
             </div>`;
@@ -228,7 +232,7 @@ export const UIBuilders = {
             const feeValNum = Number(config.data.feeVal) || 0;
             
             let feeDisplayLabel = isBonus ? 'Bonus Added' : 'Fee Deduction';
-            if (config.data.feePercent) feeDisplayLabel += ` (${config.data.feePercent}%)`;
+            if (config.data.feePercent) feeDisplayLabel += ` (${Utils.escapeHtml(config.data.feePercent)}%)`;
             
             let feeValueHtml = '';
             if (feeValNum === 0) {
@@ -329,9 +333,10 @@ export const UIBuilders = {
 
     /** 8️⃣ بناء نموذج الإيداع (Deposit Form) */
     buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrency, currItemsHtml, baseCurr) {
+        if (!p) return '';
         return `
             <div class="bal-modal-container-new">
-                <div class="bal-payment-title">${Utils.escapeHtml(p.name)}</div>
+                <div class="bal-payment-title">${Utils.escapeHtml(p.name || 'طريقة الدفع')}</div>
                 ${copyContainer}
                 <div class="compact-limits-bar" id="bal-limits-bar"></div>
                 <div class="bal-inputs-section">
@@ -495,7 +500,7 @@ export const UIBuilders = {
                         <div class="nm-row-compact align-start"><span class="nm-label"><i class="fa-solid fa-bullseye"></i> الحساب</span><div class="nm-val" dir="ltr">${formatInputData(o.input)}</div></div>
                     </div>
                 </div>
-                <div class="nm-data-box"><div class="nm-btn-print-magic" data-action="export-receipt" data-id="${id}"><i class="fa-solid fa-file-pdf"></i> تصدير الإيصال</div></div>
+                <div class="nm-data-box"><div class="nm-btn-print-magic" data-action="export-receipt" data-id="${Utils.escapeHtml(id)}"><i class="fa-solid fa-file-pdf"></i> تصدير الإيصال</div></div>
                 ${replyHtml}
             </div>`;
         }        

@@ -389,7 +389,7 @@ export const Components = {
         try {
             const text = await navigator.clipboard.readText();
             if (text) {
-                codeInput.value = Utils.escapeHtml(text);
+                codeInput.value = String(text).replace(/[<>'"/;`%]/g, '').trim().toUpperCase();
                 this.checkInputState(); 
                 codeInput.focus();
                 if (typeof UIManager !== 'undefined') UIManager.showToast('تم إدراج الكوبون', 'success');

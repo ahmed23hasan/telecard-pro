@@ -1387,7 +1387,7 @@
     <script type="module" src="script.js"></script>
 
 <!-- ========================================================================= -->
-<!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.3 💎 -->
+<!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.4 💎 -->
 <!-- ========================================================================= -->
 <script>
     (function initMobileDevTools() {
@@ -1426,7 +1426,6 @@
         
         const formatMsg = (args) => Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
 
-        // 🛡️ إصلاح تسريب الأداء (Performance Thrashing Fix)
         console.log = function(...args) {
             origLog.apply(console, args);
             logsContainer.insertAdjacentHTML('beforeend', `<div style="color:#34d399; border-bottom:1px dashed #334155; padding:8px 0;">[LOG] ${formatMsg(args)}</div>`);
@@ -1443,25 +1442,35 @@
             origError.apply(console, args);
             logsContainer.insertAdjacentHTML('beforeend', `<div style="color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);">[ERROR] ${formatMsg(args)}</div>`);
             devConsole.scrollTop = devConsole.scrollHeight;
-            devConsole.style.display = 'block'; 
+            if (!document.hidden) devConsole.style.display = 'block'; 
         };
         
-        // 🛡️ التحديث الماسي 3.3: التمييز بين الصور المفقودة وانهيار الكود الحقيقي
+        // 🛡️ التحديث الماسي 3.4: حماية ذكية من أخطاء السيرفر المحلي والصور
         window.addEventListener('error', function(e) {
-            if (e.target && e.target.tagName) {
-                const tag = e.target.tagName;
-                if (tag === 'IMG') {
-                    console.warn(`⚠️ فشل في تحميل صورة (رابط مكسور): ${e.target.src || 'غير معروف'}`);
-                    return; // تجاهل الخطأ ولا تعتبره انهياراً
-                } else if (tag === 'SCRIPT' || tag === 'LINK') {
-                    console.error(`❌ فشل في تحميل ملف أساسي: ${e.target.src || e.target.href}`);
+            const target = e.target || e.srcElement;
+            const tag = target?.tagName?.toUpperCase();
+
+            if (tag === 'IMG') {
+                console.warn(`⚠️ رابط صورة مكسور: ${target.src || 'غير معروف'}`);
+                return;
+            } 
+            
+            if (tag === 'SCRIPT' || tag === 'LINK') {
+                const missingFile = target.src || target.href || 'Unknown File';
+                
+                // 🛡️ تجاهل أخطاء Spck Editor التي تمنع الـ Modules وإظهار تنبيه لطيف
+                if (isLocal && target.type === 'module') {
+                    console.warn(`⚠️ السيرفر المحلي للمحرر حظر ملف (Module) بسبب قيود (MIME/CORS). المتجر سيعمل بشكل مثالي عند الرفع على Firebase.\nالملف المحظور: ${missingFile}`);
                     return;
                 }
+                
+                console.error(`❌ فشل في تحميل ملف أساسي: ${missingFile}`);
+                return;
             }
             
-            // إذا وصلنا لهنا، فهذا انهيار جافاسكريبت حقيقي
-            if (e.message && e.lineno) {
-                console.error(`💥 Runtime Crash: ${e.message} \n📍 السطر: ${e.lineno} \n📁 الملف: ${e.filename}`);
+            // انهيار جافاسكريبت حقيقي
+            if (e.message) {
+                console.error(`💥 Runtime Crash: ${e.message} \n📍 السطر: ${e.lineno || 'N/A'} \n📁 الملف: ${e.filename || 'N/A'}`);
             }
         }, true);
 
@@ -1476,20 +1485,26 @@
                     const res = await fetch(file, { method: 'HEAD' });
                     if (res.ok) { console.log(`✅ ملف سليم: ${file}`); passed++; } 
                     else { console.error(`❌ ملف مفقود (404): ${file}`); }
-                } catch (err) { console.warn(`⚠️ خطأ مسار/سيرفر محلي: ${file}`); }
+                } catch (err) { console.warn(`⚠️ حظر أمني للسيرفر المحلي: ${file}`); }
             }
-            console.log(`🏁 نتيجة الفحص: ${passed}/${filesToTest.length} ملفات تعمل.`);
+            console.log(`🏁 نتيجة الفحص: ${passed}/${filesToTest.length} ملفات تم الوصول إليها.`);
         };
 
+        // 🛡️ الترقيع الماسي 3.4: إصلاح قفزة الكيبورد في iOS Safari عند النسخ
         document.getElementById('tc-copy-btn').addEventListener('click', function() {
             const text = logsContainer.innerText;
             const textarea = document.createElement('textarea');
-            textarea.value = text; document.body.appendChild(textarea); textarea.select();
+            textarea.value = text; 
+            textarea.readOnly = true; // 👈 هذا السطر يمنع الكيبورد من الظهور في الآيفون
+            textarea.style.position = 'fixed'; 
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea); 
+            textarea.select();
             try { document.execCommand('copy'); this.textContent = 'Copied!'; setTimeout(()=>this.textContent='Copy', 2000); } catch(e){}
             document.body.removeChild(textarea);
         });
 
-        console.log("🚀 TeleCard DevTools V3.3 Initialized!");
+        console.log("🚀 TeleCard DevTools V3.4 Initialized!");
     })();
 </script>
 </body>
