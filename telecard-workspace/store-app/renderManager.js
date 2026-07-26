@@ -130,6 +130,26 @@ export const RenderManager = {
             imgStyle: 'opacity: 0 !important; visibility: hidden !important;', wrapperStyle: ''
         };
     },
+    _generateImageHTML: function(rawUrl, safeName, type, isHighPriority = false) {
+        let defaultIcon = type === 'cat' ? 'fa-layer-group' : (type === 'pay' ? 'fa-building-columns' : 'fa-box-open');
+        let defaultClass = type === 'pay' ? 'pay-icon-default' : 'default-prod-icon';
+        let extraStyle = type === 'story' ? 'width: 100%; height: 100%;' : '';
+
+        const fallbackHTML = `<div class="${defaultClass} fallback-icon-ready" style="display: none; align-items: center; justify-content: center; width: 100%; height: 100%; color: var(--text-muted); font-size: 24px; ${extraStyle}"><i class="fa-solid ${defaultIcon}"></i></div>`;
+
+        if (!rawUrl) return { html: fallbackHTML.replace('display: none;', 'display: flex;'), wrapperClass: ' shimmer-stop', wrapperStyle: ' animation: none !important; background-color: transparent !important;' };
+
+        const safeUrl = typeof Utils !== 'undefined' && Utils.escapeHtml ? Utils.escapeHtml(rawUrl) : String(rawUrl).replace(/"/g, '&quot;');
+        
+        const imgVars = this._getImgLoadVars(rawUrl);
+        const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
+        const imgClass = type === 'pay' ? `pay-icon-img ${imgVars.imgClass}` : imgVars.imgClass;
+        
+        let imgHTML = `<img src="${safeUrl}" data-key="${imgVars.cacheKey}" class="${imgClass}" style="${imgVars.imgStyle}" ${imgVars.lazyAttrs} alt="${safeName}" ${priorityAttr} data-img-type="${type}" onload="window.StoreRenderApp.onImgLoad(this)" onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
+        imgHTML += fallbackHTML;
+        
+        return { html: imgHTML, wrapperClass: imgVars.wrapperClass, wrapperStyle: imgVars.wrapperStyle };
+    },
 
    _generateProductCardHTML: function(p, idx) {
         const rates = DataManager.getRates();
