@@ -1,14 +1,14 @@
-
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - Enterprise V14.2 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - Enterprise V14.3 💎
 // 🎯 الوظيفة: النوافذ، الإشعارات، القائمة الجانبية، النسخ، الثيم، والتوجيه العام
 // 🚀 التحديثات:
-// 1. Click State Machine: حل مشكلة ابتلاع النقرات للمستخدمين السريعين.
-// 2. Double Billing Fix: إزالة البنرات من الجلب المزدوج توفيراً لفواتير فايربيز.
-// 3. True Battery Saver: دمج Page Visibility API مع الـ Slider لمنع استنزاف الخلفية.
+// 1. Queue System: طابور متسلسل للإشعارات المنبثقة لمنع التداخل وحذف الرسائل.
+// 2. Battery & Memory Shield: إيقاف تام للـ Timers في الخلفية وتنظيف عُقد الصوت و Observers.
+// 3. iOS UI Fixes: تشغيل الصوت بشكل متزامن وحل مشكلة قفزة النسخ التلقائي في أبل.
+// 4. State Machine Args: تمرير كامل للمتغيرات داخل الـ Timer لمنع الفشل الصامت.
 // ============================================================================
 
-import { DB_KEYS } from '../config.js';           
+import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY } from '../config.js';           
 import { Utils } from '../utils.js';             
 import { DataManager, LiveStoreData, StoreDB } from '../dataManager.js'; 
 import { RenderManager } from '../renderManager.js'; 
@@ -47,7 +47,7 @@ export const UICore = {
             </div>
         `;
         
-        getSys().sfx?.('error');
+        this.sfx?.('error');
         
         if (window.history && window.history.replaceState) {
             window.history.replaceState(null, null, window.location.href);
@@ -55,7 +55,9 @@ export const UICore = {
         
         try {
             if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('TeleCardStoreDB');
-            localStorage.clear(); 
+            // 🛡️ مسح البيانات الحساسة فقط دون تدمير الإعدادات والبصمة
+            localStorage.removeItem(ACTIVE_USER_KEY); 
+            localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
             sessionStorage.clear();
             
             import('../core/firebaseAdapter.js').then(module => {
@@ -75,7 +77,7 @@ export const UICore = {
     toggleTheme: function() {
         const isCurrentlyLight = document.body.classList.contains('light-mode');
         getSys().setThemePref(isCurrentlyLight ? 'dark' : 'light');
-        getSys().sfx?.('nav');
+        this.sfx?.('nav');
     },
     
     toggleThemePref: function() { getSys().toggleTheme(); },
@@ -83,7 +85,7 @@ export const UICore = {
     setThemePref: function(mode) {
         const isLight = mode === 'light';
         document.body.classList.toggle('light-mode', isLight);
-        localStorage.setItem('telecard_theme', isLight ? 'light' : 'dark');
+        localStorage.setItem(CACHE_KEYS.THEME || 'telecard_theme', isLight ? 'light' : 'dark');
         
         if (DataManager.prefs) {
             DataManager.prefs.theme = isLight ? 'light' : 'dark';
@@ -107,8 +109,8 @@ export const UICore = {
         });
     },    
 
-    applySavedTheme: function() { getSys().setThemePref(localStorage.getItem('telecard_theme') || 'dark'); },
-    initTheme: function() { getSys().setThemePref((DataManager.prefs && DataManager.prefs.theme) ? DataManager.prefs.theme : (localStorage.getItem('telecard_theme') || 'dark')); },
+    applySavedTheme: function() { getSys().setThemePref(localStorage.getItem(CACHE_KEYS.THEME || 'telecard_theme') || 'dark'); },
+    initTheme: function() { getSys().setThemePref((DataManager.prefs && DataManager.prefs.theme) ? DataManager.prefs.theme : (localStorage.getItem(CACHE_KEYS.THEME || 'telecard_theme') || 'dark')); },
     
     // =========================================================
     // 🔊 دوال الأصوات
@@ -118,7 +120,7 @@ export const UICore = {
         DataManager.prefs.sound = !DataManager.prefs.sound;
         if (DataManager.savePrefs) DataManager.savePrefs();
         getSys().updateSoundUI();
-        getSys().sfx?.('nav');
+        this.sfx?.('nav');
     },
     
     updateSoundUI: function() {
@@ -322,7 +324,7 @@ export const UICore = {
     bindSidebarProfileTriggers: function() {
         const avatarEl = document.getElementById('cs-avatar');
         const nameEl = document.getElementById('cs-name');
-        const handleProfileClick = (e) => { e.preventDefault(); e.stopPropagation(); getSys().openProfileInfo?.(); getSys().sfx?.('nav'); };
+        const handleProfileClick = (e) => { e.preventDefault(); e.stopPropagation(); getSys().openProfileInfo?.(); this.sfx?.('nav'); };
 
         if (avatarEl && !avatarEl.dataset.eventBound) { avatarEl.addEventListener('click', handleProfileClick); avatarEl.dataset.eventBound = "true"; avatarEl.style.cursor = 'pointer'; }
         if (nameEl && !nameEl.dataset.eventBound) { nameEl.addEventListener('click', handleProfileClick); nameEl.dataset.eventBound = "true"; nameEl.style.cursor = 'pointer'; }
@@ -379,7 +381,9 @@ export const UICore = {
             });
         };
 
-        const stateObserver = new MutationObserver((mutations) => {
+        // 🛡️ إصلاح تسريب הـ Observer
+        if (this._sidebarObserver) this._sidebarObserver.disconnect();
+        this._sidebarObserver = new MutationObserver((mutations) => {
             mutations.forEach((m) => {
                 if (m.attributeName === 'class') {
                     const isOpen = menu.classList.contains('active');
@@ -388,7 +392,7 @@ export const UICore = {
                 }
             });
         });
-        stateObserver.observe(menu, { attributes: true, attributeFilter: ['class'] });
+        this._sidebarObserver.observe(menu, { attributes: true, attributeFilter: ['class'] });
 
         const cleanupPerformance = () => { menu.style.willChange = 'auto'; if(overlay) overlay.style.willChange = 'auto'; };
         
@@ -407,6 +411,7 @@ export const UICore = {
             initialOpenState = menu.classList.contains('active');
             if (!initialOpenState && startX <= (window.innerWidth - edgeZone)) return;
 
+            menuWidth = menu.offsetWidth || 260; // 🛡️ قراءة العرض خارج التحريك
             menu.style.willChange = 'transform'; if(overlay) overlay.style.willChange = 'opacity';
             isDragging = true; isSwipeConfirmed = false; startTime = Date.now();
             
@@ -424,7 +429,6 @@ export const UICore = {
                 if (Math.abs(diffY) > Math.abs(diffX) * 1.5) { isDragging = false; removeListeners(); cleanupPerformance(); return; }
                 isSwipeConfirmed = true;
                 if (!initialOpenState) resetSidebarScroll();
-                menuWidth = menu.offsetWidth || 260;
                 menu.style.visibility = 'visible'; menu.style.transition = 'none';
                 if(overlay) { overlay.style.transition = 'none'; overlay.style.opacity = initialOpenState ? getComputedStyle(overlay).opacity : '0'; }
             }
@@ -475,99 +479,65 @@ export const UICore = {
     initGlobalListeners: function() {
         if (this._listenersBound) return;
         this._listenersBound = true;
-        this.initNetworkSensors(); 
-
-        document.body.addEventListener('touchstart', () => {}, { passive: true });
-        window.addEventListener('contextmenu', (e) => { if (e.target.closest('[data-action], .cat-card, .product-card')) e.preventDefault(); });
-
-        document.addEventListener('keydown', (e) => {
-            if (e.key !== 'Enter') return;
-            const action = e.target.getAttribute('data-action');
-            if (action === 'store-search-enter') { this.sfx?.('nav'); this.applyStoreSearch?.(); }
-            if (action === 'order-search-enter') { this.sfx?.('nav'); this.renderOrders?.(); }
-            if (action === 'wallet-search-enter') { this.sfx?.('nav'); this.renderWallet?.(); }
-            if (action === 'pay-search-enter') { this.sfx?.('nav'); this.renderPayments?.(); }
-        });
-
-        document.addEventListener('change', (e) => {
-            const action = e.target.getAttribute('data-action');
-            if (action === 'change-currency') this.setDisplayCurrency?.(e.target.value);
-            if (action === 'kyc-upload-front') this.handleKycImage?.(e.target, 'kyc-prev-front');
-            if (action === 'kyc-upload-back') this.handleKycImage?.(e.target, 'kyc-prev-back');
-            if (action === 'kyc-upload-selfie') this.handleKycImage?.(e.target, 'kyc-prev-selfie');
-            if (action === 'upload-avatar') this.handleAvatarChange?.(e);
-        });
-
-        document.addEventListener('click', (e) => {
-            const packageWrapper = document.getElementById('pkg-custom-dropdown');
-            if (packageWrapper?.classList.contains('open') && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
-                packageWrapper.classList.remove('open');
-            }
-            const walletDrawer = document.getElementById('walletStatsDrawer');
-            if (walletDrawer?.classList.contains('active')) {
-                if (!walletDrawer.contains(e.target) && !e.target.closest('.detail-arrow') && !e.target.closest('.wallet-toggle-btn') && !e.target.closest('[data-action="toggle-wallet-stats"]')) {
-                    this.closeWalletStats?.(); 
-                }
-            }
-        }, true); 
-
+        
+        // استخدام getSys() بدلاً من this للوصول للدوال الموجودة في UIManager
         const ActionDictionary = {
             'nav-home': () => this.navigateHome?.(),
             'nav-deposit': () => this.navigateBalance?.(),
             'nav-payments': () => this.navigateMyPayments?.(),
             'nav-orders': () => this.navigateOrders?.(),
             'nav-settings': () => this.navigateSettings?.(),
-            'nav-wallet': () => this.openWallet?.(),
+            'nav-wallet': () => this.navigateWallet?.(),
             'open-sidebar': () => this.openSidebar?.(),
             'close-sidebar': () => this.closeSidebar?.(),
             'open-notif-center': () => this.openNotifCenter?.(),
             'open-about': (e) => { e.preventDefault(); this.openAboutModal?.(); },
             'open-community': () => this.openCommunityModal?.(),
-            'open-security-modal': () => this.openSecurityModal?.(),
+            'open-security-modal': () => getSys().openSecurityModal?.(),
             'open-rating': () => this.openRatingModal?.(),
             'open-terms': () => this.openTermsModal?.(),
             'open-support': () => this.openSupport?.(),
             'open-favorites': () => this.openFavorites?.(),
-            'open-add-balance': () => this.openAddBalance?.(),
-            'open-tier-info': (e) => { e.stopPropagation(); this.openTierInfoModal?.(); },
+            'open-add-balance': () => getSys().openAddBalance?.(),
+            'open-tier-info': (e) => { e.stopPropagation(); getSys().openTierInfoModal?.(); },
             'logout': () => DataManager.logout?.(),
-            'enforce-biometric': () => this.enforceBiometricLock?.(),
+            'enforce-biometric': () => getSys().enforceBiometricLock?.(),
             'close-orders': () => this.closeOrders?.(),
             'close-wallet': () => this.closeWallet?.(),
             'close-mypayments': () => this.closeMyPayments?.(),
             'close-settings': () => this.closeSettings?.(),
-            'close-balance': () => this.closeBalanceModal?.(),
-            'back-balance-step': () => this.backToPayMethods?.(),
+            'close-balance': () => getSys().closeBalanceModal?.(),
+            'back-balance-step': () => getSys().backToPayMethods?.(),
             'close-purchase': () => this.closeModal?.('purchase'),
             'close-success': () => this.closeModal?.('success'),
-            'close-purchase-success': () => this.closePurchaseSuccess?.(), 
+            'close-purchase-success': () => getSys().closePurchaseSuccess?.(), 
             'open-kyc-upload': () => { this.closeSidebar?.(); this.openModal?.('kyc-upload'); },
-            'open-kyc-status': (e, id, val, target) => { this.closeSidebar?.(); this.openKycStatusModal?.(target.getAttribute('data-state')); },
+            'open-kyc-status': (e, id, val, target) => { this.closeSidebar?.(); getSys().openKycStatusModal?.(target.getAttribute('data-state')); },
             'close-tx-detail': () => this.closeModal?.('tx-detail'),
-            'close-profile': () => this.closeProfileInfo?.(),
-            'close-pay-receipt': () => this.closePayReceipt?.(),
+            'close-profile': () => getSys().closeProfileInfo?.(),
+            'close-pay-receipt': () => getSys().closePayReceipt?.(),
             'close-terms': () => this.closeModal?.('terms'),
             'close-identity': () => this.closeModal?.('identity'),
-            'close-kyc-upload': () => this.closeKycModal?.(),
-            'close-kyc-status': () => this.closeKycStatusModal?.(),
+            'close-kyc-upload': () => getSys().closeKycModal?.(),
+            'close-kyc-status': () => getSys().closeKycStatusModal?.(),
             'close-notif-center': () => this.closeNotifCenter?.(),
             'close-tier-info': () => this.closeModal?.('tier-info'),
             'close-kyc-celebration': () => this.closeModal?.('kyc-celebration'),
             'close-community': () => this.closeModal?.('community'),
             'close-rating': () => this.closeModal?.('rating'),
             'close-about': () => this.closeModal?.('about'),
-            'close-security-modal': () => this.closeSecurityModal?.(),
+            'close-security-modal': () => getSys().closeSecurityModal?.(),
             'close-setup-2fa': () => this.closeModal?.('setup-2fa'),
             'toggle-currency-menu': () => this.toggleDisplayCurrencyMenu?.(),
             'toggle-theme': () => this.toggleTheme?.(),
             'store-search-btn': () => this.applyStoreSearch?.(),
             'open-category': (e, id) => { e.preventDefault(); this.openCategory?.(id); },
             'toggle-fav-modal': () => this.toggleFavoriteFromModal?.(),
-            'update-simple-qty': (e, id, val) => this.updateSimpleQty?.(parseInt(val)),
+            'update-simple-qty': (e, id, val) => getSys().updateSimpleQty?.(parseInt(val)),
             'toggle-pkg-dropdown': (e, id, val, target) => target.parentElement.classList.toggle('open'),
-            'toggle-coupon-ui': (e, id, val, target) => this.toggleCoupon?.(target),
-            'apply-coupon': () => this.applyCoupon?.(),
-            'remove-coupon': () => this.removeCoupon?.(),
+            'toggle-coupon-ui': (e, id, val, target) => getSys().toggleCoupon?.(target),
+            'apply-coupon': () => getSys().applyCoupon?.(),
+            'remove-coupon': () => getSys().removeCoupon?.(),
             'paste-coupon': () => this.pasteText?.(),
             
             'confirm-purchase': async (e, id, val, target) => { 
@@ -575,61 +545,65 @@ export const UICore = {
                 target.disabled = true; target.dataset.processing = 'true';
                 const originalHtml = target.innerHTML;
                 target.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ...</span>';
-                try { await this.handlePurchaseSubmit?.(); } 
+                try { await getSys().handlePurchaseSubmit?.(); } 
                 finally { target.disabled = false; target.dataset.processing = 'false'; target.innerHTML = originalHtml; }
             },
             
-            'nav-orders-from-success': () => { this.closePurchaseSuccess?.(); this.openOrders?.(); },
-            'navigate-orders-success': () => { this.closeModal?.('purchase-success'); this.openOrders?.(); }, 
-            'select-pay': (e, id) => this.selectPay?.(id),
+            'nav-orders-from-success': () => { 
+                // 🛡️ التوجيه الآمن بعد الدفع
+                if (getSys().closePurchaseSuccess) getSys().closePurchaseSuccess(); else this.closeModal('purchase-success');
+                setTimeout(() => { this.navigateOrders?.(); }, 360); 
+            },
+            'navigate-orders-success': () => { this.closeModal?.('purchase-success'); setTimeout(() => { this.navigateOrders?.(); }, 360); }, 
+            'select-pay': (e, id) => getSys().selectPay?.(id),
             
             'submit-balance': async (e, id, val, target, dataType, dataCurr) => { 
                 if (target.disabled || target.dataset.processing === 'true') return;
                 target.disabled = true; target.dataset.processing = 'true';
                 const originalHtml = target.innerHTML;
                 target.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ...</span>';
-                try { await this.handleBalanceSubmit?.(dataCurr); } 
+                try { await getSys().handleBalanceSubmit?.(dataCurr); } 
                 finally { target.disabled = false; target.dataset.processing = 'false'; target.innerHTML = originalHtml; }
             },
             
-            'toggle-accordion': (e, id, val, target) => { e.preventDefault(); this.togglePayDetail?.(target); },
-            'jump-transaction': (e, id, val, target, dataType) => this.jumpToTransaction?.(id, dataType),
-            'open-detail': (e, id, val, target, dataType) => this.openDetail?.(e, dataType, id),
-            'render-orders': () => this.renderOrders?.(),
-            'render-wallet': () => this.renderWallet?.(),
-            'render-payments': () => this.renderPayments?.(),
-            'filter-order': (e, id, val, target) => this.setOrderFilter?.(val, target),
-            'filter-wallet': (e, id, val, target) => this.setWalletFilter?.(val, target),
-            'filter-pay': (e, id, val, target) => this.setPaymentFilter?.(val, target),
-            'toggle-wallet-stats': (e, id, val, target) => this.toggleWalletStats?.(target),
-            'open-cal-order-start': (e) => CalendarApp?.open('order-date-start', e),
-            'open-cal-order-end': (e) => CalendarApp?.open('order-date-end', e),
-            'open-cal-wallet-start': (e) => CalendarApp?.open('wallet-date-start', e),
-            'open-cal-wallet-end': (e) => CalendarApp?.open('wallet-date-end', e),
-            'open-cal-pay-start': (e) => CalendarApp?.open('pay-date-start', e),
-            'open-cal-pay-end': (e) => CalendarApp?.open('pay-date-end', e),
-            'cal-adj-month': (e, id, val) => CalendarApp?.adjustMonth(parseInt(val)),
-            'cal-adj-year': (e, id, val) => CalendarApp?.adjustYear(parseInt(val)),
-            'cal-toggle-list': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget) => CalendarApp?.toggleList(dataTarget, e),
+            'toggle-accordion': (e, id, val, target) => { e.preventDefault(); getSys().togglePayDetail?.(target); },
+            'jump-transaction': (e, id, val, target, dataType) => getSys().jumpToTransaction?.(id, dataType),
+            'open-detail': (e, id, val, target, dataType) => getSys().openDetail?.(e, dataType, id),
+            'render-orders': () => getSys().renderOrders?.(),
+            'render-wallet': () => getSys().renderWallet?.(),
+            'render-payments': () => getSys().renderPayments?.(),
+            'filter-order': (e, id, val, target) => getSys().setOrderFilter?.(val, target),
+            'filter-wallet': (e, id, val, target) => getSys().setWalletFilter?.(val, target),
+            'filter-pay': (e, id, val, target) => getSys().setPaymentFilter?.(val, target),
+            'toggle-wallet-stats': (e, id, val, target) => getSys().toggleWalletStats?.(target),
+            'open-cal-order-start': (e) => window.CalendarApp?.open('order-date-start', e),
+            'open-cal-order-end': (e) => window.CalendarApp?.open('order-date-end', e),
+            'open-cal-wallet-start': (e) => window.CalendarApp?.open('wallet-date-start', e),
+            'open-cal-wallet-end': (e) => window.CalendarApp?.open('wallet-date-end', e),
+            'open-cal-pay-start': (e) => window.CalendarApp?.open('pay-date-start', e),
+            'open-cal-pay-end': (e) => window.CalendarApp?.open('pay-date-end', e),
+            'cal-adj-month': (e, id, val) => window.CalendarApp?.adjustMonth(parseInt(val)),
+            'cal-adj-year': (e, id, val) => window.CalendarApp?.adjustYear(parseInt(val)),
+            'cal-toggle-list': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget) => window.CalendarApp?.toggleList(dataTarget, e),
             'toggle-theme-pref': () => this.toggleThemePref?.(),
             'toggle-sound-pref': () => this.toggleSoundPref?.(),
-            'open-profile-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.openProfileInfo?.(); }, 150),
-            'open-wallet-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.openWallet?.(); }, 150),
+            'open-profile-sidebar': () => setTimeout(() => { this.closeSidebar?.(); getSys().openProfileInfo?.(); }, 150),
+            'open-wallet-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.navigateWallet?.(); }, 150),
             'open-identity-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.openModal?.('identity'); }, 150),
             'trigger-click': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget) => document.getElementById(dataTarget)?.click(),
-            'delete-avatar': () => this.deleteProfileImage?.(),
-            'toggle-name-edit': () => this.toggleNameEdit?.(),
-            'toggle-2fa': () => this.handle2FAToggle?.(),
-            'toggle-biometric': () => this.handleBiometricToggle?.(),
-            'send-reset-pass': () => this.sendResetPasswordEmail?.(),
-            'submit-password-change': () => this.handlePasswordSubmit?.(),
-            'request-account-delete': () => this.toggleSecurityPref?.(),
-            'verify-and-enable-2fa': () => this.verifyAndEnable2FA?.(),
+            'delete-avatar': () => getSys().deleteProfileImage?.(),
+            'toggle-name-edit': () => getSys().toggleNameEdit?.(),
+            'toggle-2fa': () => getSys().handle2FAToggle?.(),
+            'toggle-biometric': () => getSys().handleBiometricToggle?.(),
+            'send-reset-pass': () => getSys().sendResetPasswordEmail?.(),
+            'submit-password-change': () => getSys().handlePasswordSubmit?.(),
+            'request-account-delete': () => getSys().toggleSecurityPref?.(),
+            'verify-and-enable-2fa': () => getSys().verifyAndEnable2FA?.(),
             'toggle-parent-dropdown': (e, id, val, target) => target.parentElement.classList.toggle('open'),
-            'select-reg-currency': (e, id, val, target, dataType, dataCurr, dataName, dataCode) => { e.preventDefault(); this.selectRegCurrency?.(dataName, dataCode); },
-            'select-country': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen) => { e.preventDefault(); this.selectCountry?.(dataName, dataCode, dataLen); },
-            'save-identity': () => this.saveIdentityData?.(),
-            'submit-kyc': () => this.submitKycData?.(),
+            'select-reg-currency': (e, id, val, target, dataType, dataCurr, dataName, dataCode) => { e.preventDefault(); getSys().selectRegCurrency?.(dataName, dataCode); },
+            'select-country': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen) => { e.preventDefault(); getSys().selectCountry?.(dataName, dataCode, dataLen); },
+            'save-identity': () => getSys().saveIdentityData?.(),
+            'submit-kyc': () => getSys().submitKycData?.(),
             'select-rating': (e, id, val) => this.selectRatingStar?.(parseInt(val)),
             'submit-rating-step': () => this.submitRatingStep?.(),
             'submit-private-feedback': () => this.submitPrivateFeedback?.(),
@@ -643,7 +617,7 @@ export const UICore = {
                 e.preventDefault(); e.stopPropagation();
                 if (target.closest('.nm-btn-print-magic')) RenderManager?.exportReceipt?.(id, target);
                 else if (target.closest('.btn-receipt-export')) RenderManager?.exportPaymentReceipt?.(id, target);
-                else this.exportReceipt?.(id, target);
+                else getSys().exportReceipt?.(id, target);
             },
             
             'mark-all-read': () => {
@@ -676,11 +650,47 @@ export const UICore = {
                     }
                 }
                 (this.markSingleNotificationRead || DataManager.markSingleNotificationRead)?.(id);
-                if (item?.hasAttribute('data-target-id')) this.openDetail?.(e, item.getAttribute('data-jump-type') || 'order', item.getAttribute('data-target-id'));
+                if (item?.hasAttribute('data-target-id')) getSys().openDetail?.(e, item.getAttribute('data-jump-type') || 'order', item.getAttribute('data-target-id'));
             }
         };
 
-        // 🛡️ [إصلاح ماسي 1]: آلة الحالة (State Machine) لحل مشكلة تضارب الدبل كليك
+        if (this.initNetworkSensors) this.initNetworkSensors(); 
+
+        document.body.addEventListener('touchstart', () => {}, { passive: true });
+        window.addEventListener('contextmenu', (e) => { if (e.target.closest('[data-action], .cat-card, .product-card')) e.preventDefault(); });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            const action = e.target.getAttribute('data-action');
+            if (action === 'store-search-enter') { this.sfx?.('nav'); this.applyStoreSearch?.(); }
+            if (action === 'order-search-enter') { this.sfx?.('nav'); getSys().renderOrders?.(); }
+            if (action === 'wallet-search-enter') { this.sfx?.('nav'); getSys().renderWallet?.(); }
+            if (action === 'pay-search-enter') { this.sfx?.('nav'); getSys().renderPayments?.(); }
+        });
+
+        document.addEventListener('change', (e) => {
+            const action = e.target.getAttribute('data-action');
+            if (action === 'change-currency') this.setDisplayCurrency?.(e.target.value);
+            if (action === 'kyc-upload-front') getSys().handleKycImage?.(e.target, 'kyc-prev-front');
+            if (action === 'kyc-upload-back') getSys().handleKycImage?.(e.target, 'kyc-prev-back');
+            if (action === 'kyc-upload-selfie') getSys().handleKycImage?.(e.target, 'kyc-prev-selfie');
+            if (action === 'upload-avatar') getSys().handleAvatarChange?.(e);
+        });
+
+        document.addEventListener('click', (e) => {
+            const packageWrapper = document.getElementById('pkg-custom-dropdown');
+            if (packageWrapper?.classList.contains('open') && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
+                packageWrapper.classList.remove('open');
+            }
+            const walletDrawer = document.getElementById('walletStatsDrawer');
+            if (walletDrawer?.classList.contains('active')) {
+                if (!walletDrawer.contains(e.target) && !e.target.closest('.detail-arrow') && !e.target.closest('.wallet-toggle-btn') && !e.target.closest('[data-action="toggle-wallet-stats"]')) {
+                    getSys().closeWalletStats?.(); 
+                }
+            }
+        }, true); 
+
+        // 🛡️ آلة الحالة الآمنة (State Machine Fix)
         document.body.addEventListener('click', (e) => {
             const target = e.target;
             
@@ -695,6 +705,7 @@ export const UICore = {
             
             const action = actionBtn.getAttribute('data-action');
             const prodId = actionBtn.getAttribute('data-id');
+            const args = [e, prodId, actionBtn.getAttribute('data-val'), actionBtn, actionBtn.getAttribute('data-type'), actionBtn.getAttribute('data-curr'), actionBtn.getAttribute('data-name'), actionBtn.getAttribute('data-code'), actionBtn.getAttribute('data-len'), actionBtn.getAttribute('data-target'), actionBtn.getAttribute('data-text')];
             
             if (action === 'open-product' && target.closest('.card-image')) {
                 if (!this._clickState) this._clickState = {};
@@ -707,17 +718,17 @@ export const UICore = {
                     return;
                 }
     
-                // تفريغ النقرة السابقة فوراً قبل البدء بمنتج جديد (منع الابتلاع)
                 if (state.timer && state.id !== prodId) {
                     clearTimeout(state.timer);
-                    ActionDictionary[action]?.(e, state.id, state.val, state.btn);
+                    ActionDictionary[action]?.(...state.args);
                 }
     
-                state.id = prodId; state.val = actionBtn.getAttribute('data-val'); state.btn = actionBtn;
+                this.sfx?.('nav'); // تشغيل الصوت خارج المؤقت ليدعمه سفاري 
+    
+                state.id = prodId; state.args = args;
                 state.timer = setTimeout(() => {
                     state.timer = null; state.id = null;
-                    this.sfx?.('nav');
-                    ActionDictionary[action]?.(e, prodId, state.val, state.btn);
+                    ActionDictionary[action]?.(...args);
                 }, 250);
                 return;
             }
@@ -729,9 +740,9 @@ export const UICore = {
             if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) target.blur();
             
             try {
-                const res = ActionDictionary[action]?.(e, prodId, actionBtn.getAttribute('data-val'), actionBtn, actionBtn.getAttribute('data-type'), actionBtn.getAttribute('data-curr'), actionBtn.getAttribute('data-name'), actionBtn.getAttribute('data-code'), actionBtn.getAttribute('data-len'), actionBtn.getAttribute('data-target'), actionBtn.getAttribute('data-text'));
-                if (res instanceof Promise) res.catch(err => this.logCloudError(action, err));
-            } catch (err) { this.logCloudError(action, err); }
+                const res = ActionDictionary[action]?.(...args);
+                if (res instanceof Promise && this.logCloudError) res.catch(err => this.logCloudError(action, err));
+            } catch (err) { if (this.logCloudError) this.logCloudError(action, err); }
         });
     },
 
@@ -788,8 +799,14 @@ export const UICore = {
     navigateSettings: function() { this.closeSidebar(); getSys().openSettings?.(); },
 
     openCategory: function(id) {
-        if (!this.historyStateSet) { window.addEventListener('popstate', () => { this._manualGoBack(); }); this.historyStateSet = true; }
+        // 🛡️ إصلاح تكرار Popstate
+        if (!window._tcPopStateBound) { 
+            window.addEventListener('popstate', () => { this._manualGoBack(); }); 
+            window._tcPopStateBound = true; 
+        }
+        
         this.navHistory.push(this.currentCategoryId === null ? 'HOME' : this.currentCategoryId);
+        if(this.navHistory.length > 20) this.navHistory.shift(); // حماية الذاكرة من التضخم
         
         const hash = '#cat-' + id;
         if(window.location.hash !== hash) window.history.pushState({ internalId: Date.now() }, '', hash); 
@@ -945,9 +962,17 @@ export const UICore = {
             }
         };
 
-        if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(successVisuals).catch(() => this.showToast('فشل النسخ', 'error')); } 
-        else {
-            const textarea = document.createElement('textarea'); textarea.value = text; document.body.appendChild(textarea); textarea.select();
+        if (navigator.clipboard && window.isSecureContext) { 
+            navigator.clipboard.writeText(text).then(successVisuals).catch(() => this.showToast('فشل النسخ', 'error')); 
+        } else {
+            // 🛡️ إصلاح مشكلة اهتزاز واجهة iOS
+            const textarea = document.createElement('textarea'); 
+            textarea.value = text; 
+            textarea.readOnly = true; 
+            textarea.style.position = 'fixed'; 
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea); 
+            textarea.select();
             try { document.execCommand('copy'); successVisuals(); } catch (e) { this.showToast('فشل النسخ', 'error'); }
             document.body.removeChild(textarea);
         }
@@ -974,7 +999,7 @@ export const UICore = {
         if (document.getElementById('admin-direct-msg-popup')) return;
         const html = `<div id="admin-direct-msg-popup" class="sys-dialog-wrapper"><div class="sys-dialog-overlay"></div><div class="sys-dialog-card"><div class="sys-dialog-header"><div class="sys-dialog-icon"><i class="fa-solid fa-envelope-open-text fa-bounce"></i></div><h3 class="sys-dialog-title">رسالة إدارية هامة</h3></div><div class="sys-dialog-msg-container"><p class="sys-dialog-msg">${Utils.escapeHtml(msgText)}</p></div><div class="sys-dialog-actions"><button id="ack-admin-msg-btn" class="sys-dialog-btn">قرأت ذلك، شكراً</button></div></div></div>`;
         document.body.insertAdjacentHTML('beforeend', html);
-        getSys().sfx?.('success');
+        this.sfx?.('success');
         document.getElementById('ack-admin-msg-btn').addEventListener('click', () => { if (DataManager.ackAdminMessage) DataManager.ackAdminMessage(); document.getElementById('admin-direct-msg-popup').remove(); });
     },
 
@@ -986,16 +1011,24 @@ export const UICore = {
         let shownToasts = [];
         try { shownToasts = JSON.parse(localStorage.getItem('telecard_shown_toasts') || "[]"); } catch (e) {}
         
-        unreadAlerts.forEach((msg) => {
-            const msgId = String(msg.id);
-            if (!shownToasts.includes(msgId)) {
-                if (msg.type === 'popup' || msg.isPopup) this.showAdvancedPopup(msg, []); else this.showToast(msg.message, 'info');
-                shownToasts.push(msgId);
-                if (shownToasts.length > 50) shownToasts.shift();
-                localStorage.setItem('telecard_shown_toasts', JSON.stringify(shownToasts));
-                this.updateNotifBadges();
-            }
+        // 🛡️ إصلاح التداخل (Queue System & Thrash Fix)
+        const popups = unreadAlerts.filter(m => (m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
+        const toasts = unreadAlerts.filter(m => !(m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
+
+        toasts.forEach(msg => {
+            this.showToast(msg.message, 'info');
+            shownToasts.push(String(msg.id));
         });
+
+        if (popups.length > 0) {
+            popups.forEach(p => shownToasts.push(String(p.id)));
+            this.showAdvancedPopup(popups[0], popups.slice(1));
+        }
+
+        if (shownToasts.length > 50) shownToasts = shownToasts.slice(-50);
+        localStorage.setItem('telecard_shown_toasts', JSON.stringify(shownToasts));
+        
+        this.updateNotifBadges(); // نقل التحديث لخارج الحلقة للحفاظ على المعالج
     },
 
     showAdvancedPopup: function(alertObj, remainingQueue) {
@@ -1012,7 +1045,7 @@ export const UICore = {
         
         const modalHtml = `<div id="advanced-alert-modal" class="modal-overlay active" style="z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);"><div class="sys-dialog-card" style="animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1); position: relative; max-width: 400px; width: 90%; background: #111a2b; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 25px;"><div class="sys-dialog-header" style="text-align: center; margin-bottom: 15px;"><div class="sys-dialog-icon" style="width: 50px; height: 50px; margin: 0 auto 15px; background: rgba(255, 215, 0, 0.15); color: #FFD700; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 1px solid #FFD700;"><i class="fa-solid fa-bell"></i></div><h3 class="sys-dialog-title" style="color: #FFD700; font-size: 18px; font-weight: 900; margin: 0;">${Utils.escapeHtml(alertObj.title || 'إشعار هام')}</h3></div><div class="sys-dialog-msg" style="color: #f1f5f9; font-size: 14px; line-height: 1.6; text-align: center; white-space: pre-wrap;">${Utils.escapeHtml(alertObj.message || '')}</div>${extraHtml}<button id="close-advanced-alert" class="btn btn-ghost" style="width: 100%; margin-top: 20px; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 10px; color: #94a3b8; font-weight: 800; cursor: pointer; background: transparent;">إغلاق النافذة</button></div></div>`;
         document.body.insertAdjacentHTML('beforeend', modalHtml);
-        getSys().sfx?.('success');
+        this.sfx?.('success');
         
         const copyBtn = document.getElementById('adv-alert-copy-btn');
         if (copyBtn) copyBtn.onclick = function() { if (navigator.clipboard) { navigator.clipboard.writeText(this.dataset.code); this.innerHTML = '<i class="fa-solid fa-check"></i>'; setTimeout(() => { if (this.isConnected) this.innerHTML = '<i class="fa-solid fa-copy"></i>'; }, 2000); } };
@@ -1059,7 +1092,7 @@ export const UICore = {
         getSys().toggleLoader?.(true, 'جاري تحديث الإشعارات...');
         try {
             await DataManager.markAllNotificationsRead();
-            getSys().sfx?.('success'); this.updateNotifBadges();
+            this.sfx?.('success'); this.updateNotifBadges();
             if (RenderManager?.renderNotifCenterList) RenderManager.renderNotifCenterList();
         } catch (e) { getSys().showToast?.('حدث خطأ بالاتصال', 'error'); } 
         finally { getSys().toggleLoader?.(false); }
@@ -1075,7 +1108,7 @@ export const UICore = {
             el.className = `custom-notification ${type}`;
             if(icon) icon.className = `notif-icon fa-solid ${type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`;
             requestAnimationFrame(() => el.classList.add('active'));
-            getSys().sfx?.(type === 'error' ? 'error' : 'success');
+            this.sfx?.(type === 'error' ? 'error' : 'success');
             this.notifTimer = setTimeout(() => el.classList.remove('active'), 3000);
         }, 50);
     },
@@ -1109,7 +1142,7 @@ export const UICore = {
 
         toast.innerHTML = `<i class="fa-solid ${iconClass}"></i><div class="toast-content"><span class="toast-title">${titleText}</span><span class="toast-msg">${Utils.escapeHtml(msg)}</span></div>`;
         container.appendChild(toast);
-        getSys().sfx?.(type === 'error' ? 'error' : 'success');
+        this.sfx?.(type === 'error' ? 'error' : 'success');
         
         setTimeout(() => {
             if(toast.isConnected) {
@@ -1135,6 +1168,9 @@ export const UICore = {
                 if (type === 'nav') { osc.type='sine'; osc.frequency.setValueAtTime(1200,t); gain.gain.setValueAtTime(0.05,t); gain.gain.exponentialRampToValueAtTime(0.001,t+0.03); osc.start(t); osc.stop(t+0.03); } 
                 else if (type === 'success') { osc.type='sine'; osc.frequency.setValueAtTime(400,t); osc.frequency.linearRampToValueAtTime(800,t+0.15); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.3); osc.start(t); osc.stop(t+0.3); } 
                 else if (type === 'error') { osc.type='triangle'; osc.frequency.setValueAtTime(150,t); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.2); osc.start(t); osc.stop(t+0.2); }
+                
+                // 🛡️ تدمير العقد لتنظيف الذاكرة العشوائية
+                osc.onended = () => { osc.disconnect(); gain.disconnect(); };
             };
 
             if(this.audioCtx.state === 'suspended') { this.audioCtx.resume().then(playSound).catch(()=>{}); } 
@@ -1282,16 +1318,18 @@ export const UICore = {
         const displayCurrency = DataManager.selectedCurr || baseCurrency;        
         const rates = DataManager.getRates ? DataManager.getRates() : null;
 
-        const rawBal = Number(user.walletBalance || 0);
-        const rawSpent = Number(user.totalSpent || 0);
-        const rawDep = Number(user.totalDeposit || 0);
+        // 🛡️ حماية من الـ NaN للكميات المخزنة كنصوص بفاصلة عربية بالخطأ
+        const rawBal = Number(user.walletBalance);
+        const safeRawBal = isNaN(rawBal) ? 0 : rawBal;
+        const safeRawSpent = isNaN(Number(user.totalSpent)) ? 0 : Number(user.totalSpent);
+        const safeRawDep = isNaN(Number(user.totalDeposit)) ? 0 : Number(user.totalDeposit);
         
-        let displayBal = rawBal, displaySpent = rawSpent, displayDep = rawDep;
+        let displayBal = safeRawBal, displaySpent = safeRawSpent, displayDep = safeRawDep;
 
         if (displayCurrency !== baseCurrency && Utils.convertViaUSD) {
-            displayBal = Utils.convertViaUSD(rawBal, baseCurrency, displayCurrency, rates, 'deposit');
-            displaySpent = Utils.convertViaUSD(rawSpent, baseCurrency, displayCurrency, rates, 'pricing');
-            displayDep = Utils.convertViaUSD(rawDep, baseCurrency, displayCurrency, rates, 'deposit');
+            displayBal = Utils.convertViaUSD(safeRawBal, baseCurrency, displayCurrency, rates, 'deposit');
+            displaySpent = Utils.convertViaUSD(safeRawSpent, baseCurrency, displayCurrency, rates, 'pricing');
+            displayDep = Utils.convertViaUSD(safeRawDep, baseCurrency, displayCurrency, rates, 'deposit');
         }
         
         const beautifulBalHtml = (RenderHelpers?.formatMoney) ? RenderHelpers.formatMoney(displayBal, displayCurrency) : `${Number(displayBal).toFixed(2)} ${displayCurrency}`;
@@ -1328,8 +1366,6 @@ export const UICore = {
         if (this._lastBannerHash === currentBannerHash) return;
         this._lastBannerHash = currentBannerHash;
 
-        if (this.sliderTimer) { clearInterval(this.sliderTimer); this.sliderTimer = null; }
-        
         const container = document.getElementById('slider'); 
         if (!container || banners.length === 0) { if(container) container.innerHTML = ''; return; }
         
@@ -1349,8 +1385,6 @@ export const UICore = {
         const intervalMs = (settings.sliderDuration ? Number(settings.sliderDuration) * 1000 : 3000) || 3000;
         
         const nextSlide = () => {
-            // 🛡️ درع البطارية: التوقف الفوري إذا غادر المستخدم التاب (حتى لو كان Observer متقاطعاً)
-            if (document.hidden) return;
             const slides = container.querySelectorAll('.slide');
             if (slides.length === 0) return;
             slides[idx].classList.remove('active'); 
@@ -1358,19 +1392,27 @@ export const UICore = {
             slides[idx].classList.add('active');
         };
 
+        const startTimer = () => { if (!this.sliderTimer) this.sliderTimer = setInterval(nextSlide, intervalMs); };
+        const stopTimer = () => { if (this.sliderTimer) { clearInterval(this.sliderTimer); this.sliderTimer = null; } };
+
+        // 🛡️ التحكم العميق لإنقاذ البطارية
+        if (!this._visibilityBound) {
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) stopTimer(); else if (container.offsetParent !== null) startTimer();
+            });
+            this._visibilityBound = true;
+        }
+
         if ('IntersectionObserver' in window) {
             if (this._sliderObserver) this._sliderObserver.disconnect();
             
             this._sliderObserver = new IntersectionObserver((entries) => {
-                if (entries[0].isIntersecting) {
-                    if (!this.sliderTimer) this.sliderTimer = setInterval(nextSlide, intervalMs);
-                } else {
-                    if (this.sliderTimer) { clearInterval(this.sliderTimer); this.sliderTimer = null; }
-                }
+                if (entries[0].isIntersecting && !document.hidden) startTimer();
+                else stopTimer();
             });
             this._sliderObserver.observe(container);
         } else {
-            this.sliderTimer = setInterval(nextSlide, intervalMs);
+            startTimer();
         }
     }, 
 
@@ -1395,7 +1437,7 @@ export const UICore = {
     setDisplayCurrency: function(curr) {
         if (!DataManager.user) return; 
         DataManager.selectedCurr = curr || (DataManager.user.baseCurrency || 'USD');
-        localStorage.setItem('telecard_display_currency', DataManager.selectedCurr);
+        localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY || 'telecard_display_currency', DataManager.selectedCurr);
         this.updateDisplayBalance();
         const pm = document.getElementById('purchase-modal');
         if(pm && pm.classList.contains('active') && DataManager.currentProd) { getSys().updatePriceDisplay?.(); }
@@ -1474,7 +1516,7 @@ export const UICore = {
                 const newBtn = btn.cloneNode(true);
                 btn.replaceWith(newBtn);
                 
-                if(supportLink && supportLink.trim()) { newBtn.addEventListener('click', (e) => { e.stopPropagation(); getSys().sfx?.('nav'); this.openSupport(); }); } 
+                if(supportLink && supportLink.trim()) { newBtn.addEventListener('click', (e) => { e.stopPropagation(); this.sfx?.('nav'); this.openSupport(); }); } 
                 else { newBtn.addEventListener('click', (e) => { e.stopPropagation(); }); }
             }
         };
@@ -1573,7 +1615,7 @@ export const UICore = {
     // =========================================================
     toggleFavoriteFromModal: function() {
         if (!DataManager.currentProd) return;
-        if (!DataManager.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); getSys().sfx?.('error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
+        if (!DataManager.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); this.sfx?.('error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
         
         const productId = DataManager.currentProd.id;
         const wasFavorite = DataManager.isFavorite?.(productId);
@@ -1586,7 +1628,7 @@ export const UICore = {
             if (icon) icon.className = !wasFavorite ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
         }
         
-        getSys().sfx?.('nav');
+        this.sfx?.('nav');
         if (wasFavorite) {
             getSys().showToast?.('تمت إزالة المنتج من المفضلة', 'info');
             if (document.body.classList.contains('is-favorites')) {
@@ -1603,7 +1645,7 @@ export const UICore = {
     
     triggerMagicFavorite: function(e, productId) {
         if (e) e.preventDefault();
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); getSys().sfx?.('error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); this.sfx?.('error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
         
         const wasFavorite = DataManager.isFavorite?.(productId);
         if (DataManager.toggleFavorite) DataManager.toggleFavorite(productId);
@@ -1613,7 +1655,7 @@ export const UICore = {
         const imgBox = productCard?.querySelector('.card-image');
         
         if (wasFavorite) {
-            getSys().showToast?.('تمت الإزالة', 'info'); getSys().sfx?.('nav');
+            getSys().showToast?.('تمت الإزالة', 'info'); this.sfx?.('nav');
             if (imgBox) { const popHeart = document.createElement('i'); popHeart.className = 'fa-solid fa-heart-crack center-crack-heart'; imgBox.appendChild(popHeart); setTimeout(() => popHeart.remove(), 800); }
             if (typeof this.updateFavBadgeCount === 'function') this.updateFavBadgeCount();
             if (document.body.classList.contains('is-favorites') && productCard) {
@@ -1623,7 +1665,7 @@ export const UICore = {
             return;
         }
         
-        getSys().showToast?.('تمت الإضافة للمفضلة', 'success'); getSys().sfx?.('success');
+        getSys().showToast?.('تمت الإضافة للمفضلة', 'success'); this.sfx?.('success');
         
         let startX = window.innerWidth / 2, startY = window.innerHeight / 2;
         if (imgBox) {
@@ -1683,7 +1725,7 @@ export const UICore = {
     },
     
     selectRatingStar: function(val) {
-        this._currentRating = val; getSys().sfx?.('nav');
+        this._currentRating = val; this.sfx?.('nav');
         document.querySelectorAll('.rating-star').forEach(star => {
             star.className = parseInt(star.dataset.value || star.getAttribute('data-value')) <= val ? 'fa-solid fa-star rating-star active' : 'fa-regular fa-star rating-star';
         });
@@ -1691,7 +1733,7 @@ export const UICore = {
     },
     
     submitRatingStep: function() {
-        getSys().sfx?.('nav');
+        this.sfx?.('nav');
         document.getElementById('rating-step-stars').style.display = 'none';
         document.getElementById((this._currentRating || 0) <= 3 ? 'rating-step-feedback' : 'rating-step-share').style.display = 'block';
     },
@@ -1707,14 +1749,14 @@ export const UICore = {
         
         try {
             await StoreDB.add(DB_KEYS.FEEDBACKS, {
-                userId: DataManager.user?.id || localStorage.getItem('telecard_active_user_uid') || 'guest',
+                userId: DataManager.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID || 'telecard_active_user_uid') || 'guest',
                 username: DataManager.user?.username || 'ضيف',
                 rating: this._currentRating || 0,
                 feedback: feedback,
                 time: Date.now()
             });
             
-            getSys().toggleLoader?.(false); getSys().closeModal?.('rating'); getSys().showToast?.("نشكرك جداً! تم الإرسال للإدارة.", "success"); getSys().sfx?.('success');
+            getSys().toggleLoader?.(false); getSys().closeModal?.('rating'); getSys().showToast?.("نشكرك جداً! تم الإرسال للإدارة.", "success"); this.sfx?.('success');
         } catch (error) {
             if (btn) { btn.textContent = "إرسال للإدارة"; btn.disabled = false; }
             getSys().showToast?.("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
@@ -1724,7 +1766,7 @@ export const UICore = {
     openAboutModal: function() {
         this.closeSidebar(); 
         const s = LiveStoreData.settings || {};
-        const storeName = s.storeName || s.name || 'تيليكارد';
+        const storeName = s.storeName || s.name || 'المتجر';
         const logoDark = s.storeLogo || s.logo || '';
         
         const logoTarget = document.getElementById('about-logo-box');

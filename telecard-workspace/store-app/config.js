@@ -4,7 +4,7 @@
 // 🚀 التحديث: تم إضافة firebaseConfig لحل مشكلة الانهيار (Blank Screen).
 // ============================================================================
 
-export const APP_VERSION = 'v14.1';
+export const APP_VERSION = window.TELECARD_VERSION || 'v14.5';
 
 const deepFreeze = (obj) => {
     Object.keys(obj).forEach(prop => {
@@ -75,7 +75,7 @@ export const DYNAMIC_PREFIXES = deepFreeze({
 export const ACTIVE_USER_KEY = CACHE_KEYS.ACTIVE_USER;
 
 export const StoreConfig = deepFreeze({
-    currencies: ['USD', 'TRY', 'SYP'],
+    fallbackCurrencies: ['USD', 'TRY', 'SYP'], // 🛡️ شبكة أمان تُستخدم فقط إذا فشل الاتصال بالسيرفر
     
     orderStatusMap: {
         pending: { text: 'قيد التنفيذ', icon: 'fa-clock', class: 'pending' },

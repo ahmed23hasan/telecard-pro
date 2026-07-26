@@ -1,11 +1,11 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ MaliMor - النسخة الماسية المطلقة V17.2 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الماسية المطلقة V17.3 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
 // 🚀 التحديثات المعمارية: 
-// 1. Data Sanitizer Factory: حماية عميقة من تسريب التكلفة داخل مصفوفات الخيارات.
-// 2. ACID Compliance: ضمان تنفيذ عمليات القراءة قبل الكتابة في قواعد البيانات.
-// 3. Cache Invalidation: آلية كسر الكاش (forceRefresh) لضمان مزامنة حية 100%.
-// 4. Zero Contention Architecture: معالجة الأكواد وصناديق التخزين بدون اختناق.
+// 1. Vault Batching: تقسيم صناديق الأكواد لحزم (Chunks) لتجاوز حد الـ 500 عملية.
+// 2. Base64 Shield: حماية مستندات الإيداع من تجاوز حجم 1MB للصور.
+// 3. Logic Correction: تصحيح الخصم الإداري لمنع تدمير مستويات العملاء.
+// 4. Error Tracing: معالجة أخطاء التسعير الصامتة لتجنب انهيار المنتجات.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -25,7 +25,8 @@ const db = admin.firestore();
 const SYSTEM_LIMITS = {
     MAX_QTY_PER_ORDER: 10000, 
     MAX_VAULT_QTY_PER_ORDER: 200, 
-    MAX_SAFE_AMOUNT: 100000000 
+    MAX_SAFE_AMOUNT: 100000000,
+    MAX_RECEIPT_SIZE: 700000 // ~700KB لمنع تجاوز حد الفايربيز
 };
 
 // ==========================================
@@ -41,7 +42,12 @@ const generatePublicProductData = (prodData, tiersData) => {
     // 2. حساب أسعار المستويات للمنتج الأساسي
     const baseTierPrices = {};
     tiersData.forEach(tier => {
-        try { baseTierPrices[tier.id] = FinancialEngine.calculatePrice({ product: prodData, tier: tier }).finalPrice; } catch(e) {}
+        try { 
+            baseTierPrices[tier.id] = FinancialEngine.calculatePrice({ product: prodData, tier: tier }).finalPrice; 
+        } catch(e) {
+            console.error(`🚨 [Product Sync] خطأ تسعير المنتج ${prodData.id} للمستوى ${tier.id}:`, e.message);
+            baseTierPrices[tier.id] = 0; // Fallback آمن
+        }
     });
     publicData.tierPrices = baseTierPrices;
 
@@ -54,7 +60,10 @@ const generatePublicProductData = (prodData, tiersData) => {
             tiersData.forEach(tier => {
                 try { 
                     optTierPrices[tier.id] = FinancialEngine.calculatePrice({ product: prodData, tier: tier, optIdx: idx }).finalPrice; 
-                } catch(e) {}
+                } catch(e) {
+                    console.error(`🚨 [Product Sync] خطأ تسعير خيار ${idx} للمنتج ${prodData.id}:`, e.message);
+                    optTierPrices[tier.id] = 0;
+                }
             });
             optClean.tierPrices = optTierPrices;
 
@@ -135,7 +144,6 @@ let fetchOrderPromise = null, fetchDepositPromise = null, fetchTiersPromise = nu
 
 const getGlobalCacheVersion = async (forceRefresh = false) => {
     const now = Date.now();
-    // 🛡️ إذا طُلب التحديث الإجباري، نتجاوز فحص الـ 15 ثانية
     if (!forceRefresh && (now - lastVersionFetchTime < 15000)) return cachedGlobalVersion;
     if (fetchVersionPromise && !forceRefresh) return fetchVersionPromise;
     fetchVersionPromise = (async () => {
@@ -234,7 +242,6 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
         let deliveredCodeText = null, isAutoDelivered = false;
 
         await db.runTransaction(async (transaction) => {
-            // جميع عمليات القراءة تتم أولاً (READS FIRST)
             const [userSnap, productSnap] = await Promise.all([transaction.get(userRef), transaction.get(productRef)]);
             if (!userSnap.exists) throw new HttpsError('not-found', 'المستخدم غير موجود.');
             if (!productSnap.exists) throw new HttpsError('not-found', 'المنتج غير متوفر.');
@@ -267,7 +274,6 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
                 }
             }
 
-            // 🛡️ الحماية الافتراضية للحسابات القديمة
             const assignedTierId = String(userData.tierId || userData.tier || '1');
             const tierRef = db.collection('telecard_tiers').doc(assignedTierId);
             const tierSnap = await transaction.get(tierRef);
@@ -313,7 +319,7 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
             }        
 
             // ==================
-            // جميع عمليات الكتابة تتم هنا (WRITES)
+            // الكتابات (WRITES)
             // ==================
             if (selectedDocs.length > 0 && vaultRef) {
                 selectedDocs.forEach(docSnap => {
@@ -369,6 +375,12 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
     
     if (isNaN(amount) || amount <= 0 || amount > SYSTEM_LIMITS.MAX_SAFE_AMOUNT) throw new HttpsError('out-of-range', 'المبلغ المدخل غير صالح.');
 
+    // 🛡️ درع حجم الـ Base64 لمنع تجاوز حد المستند
+    const receiptStr = data.receiptData ? String(data.receiptData) : null;
+    if (receiptStr && receiptStr.length > SYSTEM_LIMITS.MAX_RECEIPT_SIZE) {
+        throw new HttpsError('invalid-argument', 'حجم صورة الإشعار كبير جداً، يرجى تقليل الجودة والمحاولة مجدداً.');
+    }
+
     try {
         const cache = await loadDepositCache();
         const paymentMethod = cache.payments.find(p => p.name === paymentMethodName);
@@ -396,7 +408,7 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
             
             if (feeType !== 'bonus' && amount <= feeAmount) throw new HttpsError('invalid-argument', 'المبلغ المودع أقل من عمولة البوابة!');
             
-            let netPayCurr = feeType === 'bonus' ? amount + feeAmount : amount - feeAmount;
+            let netPayCurr = Math.max(0, feeType === 'bonus' ? amount + feeAmount : amount - feeAmount);
             let safeNetBase = netPayCurr;
             if (payCurr !== baseCurr) safeNetBase = FinancialEngine.convertViaUSD(netPayCurr, payCurr, baseCurr, cache.rates, 'deposit');
             
@@ -406,7 +418,7 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
             transaction.set(db.collection('telecard_deposits').doc(cleanId), {
                 id: cleanId, displayId: cleanId, userId: uid, method: paymentMethodName, amount, currency: payCurr, 
                 creditedAmount: safeNetBase, status: 'pending', time: admin.firestore.FieldValue.serverTimestamp(), 
-                createdAt: admin.firestore.FieldValue.serverTimestamp(), receipt: data.receiptData || null
+                createdAt: admin.firestore.FieldValue.serverTimestamp(), receipt: receiptStr
             });
 
             if (idempotencyRef) {
@@ -448,9 +460,6 @@ exports.adminProcessOrder = onCall(async (request) => {
     if (!validActions.includes(action)) throw new HttpsError('invalid-argument', 'حالة غير صالحة.');
     
     return await db.runTransaction(async (transaction) => {
-        // ==========================
-        // 1. جميع القراءات أولاً (ACID READS)
-        // ==========================
         const orderRef = db.collection('telecard_orders').doc(String(orderId));
         const orderSnap = await transaction.get(orderRef);
         if (!orderSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود.');
@@ -472,9 +481,6 @@ exports.adminProcessOrder = onCall(async (request) => {
             couponSnap = await transaction.get(db.collection('telecard_coupons').where('code', '==', orderData.couponCode).limit(1));
         }
 
-        // ==========================
-        // 2. جميع الكتابات أخيراً (ACID WRITES)
-        // ==========================
         let newWalletBal = 0; 
         if (isRefundingAction && !wasAlreadyRefunded) {
             if (userSnap && userSnap.exists) {
@@ -550,15 +556,13 @@ exports.adminAdjustBalance = onCall(async (request) => {
 
         const userData = userDoc.data();
         const currentBal = Number(userData.walletBalance || 0);
-        const currentSpent = Number(userData.totalSpent || 0);
-        const currentCycle = Number(userData.tierCycleSpent || 0);
 
         const newBal = type === 'add' ? safeAdd(currentBal, adjustAmount) : strictSub(currentBal, adjustAmount);
         
-        let updateObj = { walletBalance: newBal, totalDeposit: type === 'add' ? safeAdd(userData.totalDeposit || 0, adjustAmount) : Number(userData.totalDeposit || 0) };
-        if (type === 'subtract') {
-            updateObj.totalSpent = Math.max(0, safeSub(currentSpent, adjustAmount));
-            updateObj.tierCycleSpent = Math.max(0, safeSub(currentCycle, adjustAmount));
+        // 🛡️ تصحيح أمني: الخصم الإداري يخصم من الرصيد فقط (لا نخفض totalSpent للحفاظ على مستوى العميل)
+        let updateObj = { walletBalance: newBal };
+        if (type === 'add') {
+            updateObj.totalDeposit = safeAdd(userData.totalDeposit || 0, adjustAmount);
         }
 
         transaction.update(userRef, updateObj);
@@ -671,46 +675,50 @@ exports.completeUserIdentity = onCall({ enforceAppCheck: false }, async (request
 const updateGlobalStats = async (updatesObj) => { await db.collection('telecard_system').doc('globalStats').set(updatesObj, { merge: true }); };
 
 exports.onOrderStatsUpdate = onDocumentWritten({ document: 'telecard_orders/{orderId}', retry: true }, async (event) => {
-    const before = event.data.before?.data(); const after = event.data.after?.data();
-    let updates = { 'lastUpdated': admin.firestore.FieldValue.serverTimestamp() };
-    const inc = (amount) => admin.firestore.FieldValue.increment(amount);
-    
-    if (!before && after) { 
-        updates['orders.total'] = inc(1);
-        if (after.status === 'completed') {
-            updates['orders.completed'] = inc(1); updates['financials.totalRevenue'] = inc(Number(after.price || 0));
-            updates['financials.totalCost'] = inc(Number(after.pricingSnapshot?.costUsd || 0)); updates['financials.totalProfit'] = inc(Number(after.pricingSnapshot?.netProfitUsd || 0));
+    try {
+        const before = event.data.before?.data(); const after = event.data.after?.data();
+        let updates = { 'lastUpdated': admin.firestore.FieldValue.serverTimestamp() };
+        const inc = (amount) => admin.firestore.FieldValue.increment(amount);
+        
+        if (!before && after) { 
+            updates['orders.total'] = inc(1);
+            if (after.status === 'completed') {
+                updates['orders.completed'] = inc(1); updates['financials.totalRevenue'] = inc(Number(after.price || 0));
+                updates['financials.totalCost'] = inc(Number(after.pricingSnapshot?.costUsd || 0)); updates['financials.totalProfit'] = inc(Number(after.pricingSnapshot?.netProfitUsd || 0));
+            }
+        } else if (before && after && before.status !== after.status) { 
+            if (after.status === 'completed') {
+                updates['orders.completed'] = inc(1); updates['financials.totalRevenue'] = inc(Number(after.price || 0));
+                updates['financials.totalCost'] = inc(Number(after.pricingSnapshot?.costUsd || 0)); updates['financials.totalProfit'] = inc(Number(after.pricingSnapshot?.netProfitUsd || 0));
+            } else if (before.status === 'completed' && ['refunded', 'rejected', 'returned'].includes(after.status)) {
+                updates['orders.completed'] = inc(-1); updates['financials.totalRevenue'] = inc(-Number(before.price || 0));
+                updates['financials.totalCost'] = inc(-Number(before.pricingSnapshot?.costUsd || 0)); updates['financials.totalProfit'] = inc(-Number(before.pricingSnapshot?.netProfitUsd || 0));
+                updates[`orders.${after.status}`] = inc(1);
+            } else { updates[`orders.${after.status}`] = inc(1); }
+            if (before.status !== 'pending' && before.status !== 'completed') { updates[`orders.${before.status}`] = inc(-1); }
+        } else if (before && !after) { 
+            updates['orders.total'] = inc(-1);
+            if (before.status === 'completed') {
+                updates['orders.completed'] = inc(-1); updates['financials.totalRevenue'] = inc(-Number(before.price || 0));
+                updates['financials.totalCost'] = inc(-Number(before.pricingSnapshot?.costUsd || 0)); updates['financials.totalProfit'] = inc(-Number(before.pricingSnapshot?.netProfitUsd || 0));
+            } else { updates[`orders.${before.status}`] = inc(-1); }
         }
-    } else if (before && after && before.status !== after.status) { 
-        if (after.status === 'completed') {
-            updates['orders.completed'] = inc(1); updates['financials.totalRevenue'] = inc(Number(after.price || 0));
-            updates['financials.totalCost'] = inc(Number(after.pricingSnapshot?.costUsd || 0)); updates['financials.totalProfit'] = inc(Number(after.pricingSnapshot?.netProfitUsd || 0));
-        } else if (before.status === 'completed' && ['refunded', 'rejected', 'returned'].includes(after.status)) {
-            updates['orders.completed'] = inc(-1); updates['financials.totalRevenue'] = inc(-Number(before.price || 0));
-            updates['financials.totalCost'] = inc(-Number(before.pricingSnapshot?.costUsd || 0)); updates['financials.totalProfit'] = inc(-Number(before.pricingSnapshot?.netProfitUsd || 0));
-            updates[`orders.${after.status}`] = inc(1);
-        } else { updates[`orders.${after.status}`] = inc(1); }
-        if (before.status !== 'pending' && before.status !== 'completed') { updates[`orders.${before.status}`] = inc(-1); }
-    } else if (before && !after) { 
-        updates['orders.total'] = inc(-1);
-        if (before.status === 'completed') {
-            updates['orders.completed'] = inc(-1); updates['financials.totalRevenue'] = inc(-Number(before.price || 0));
-            updates['financials.totalCost'] = inc(-Number(before.pricingSnapshot?.costUsd || 0)); updates['financials.totalProfit'] = inc(-Number(before.pricingSnapshot?.netProfitUsd || 0));
-        } else { updates[`orders.${before.status}`] = inc(-1); }
-    }
-    if (Object.keys(updates).length > 1) await updateGlobalStats(updates);
+        if (Object.keys(updates).length > 1) await updateGlobalStats(updates);
+    } catch (e) { console.warn("Stat update skipped to prevent write limit bottleneck."); }
 });
 
 exports.onDepositStatsUpdate = onDocumentWritten({ document: 'telecard_deposits/{depositId}', retry: true }, async (event) => {
-    const before = event.data.before?.data(); const after = event.data.after?.data();
-    let updates = { 'lastUpdated': admin.firestore.FieldValue.serverTimestamp() };
-    const inc = (amount) => admin.firestore.FieldValue.increment(amount);
-    
-    if (!before && after) { updates['deposits.total'] = inc(1); } 
-    else if (before && after && before.status !== after.status) { updates[`deposits.${after.status}`] = inc(1); if (before.status !== 'pending') updates[`deposits.${before.status}`] = inc(-1); } 
-    else if (before && !after) { updates['deposits.total'] = inc(-1); updates[`deposits.${before.status}`] = inc(-1); }
-    
-    if (Object.keys(updates).length > 1) await updateGlobalStats(updates);
+    try {
+        const before = event.data.before?.data(); const after = event.data.after?.data();
+        let updates = { 'lastUpdated': admin.firestore.FieldValue.serverTimestamp() };
+        const inc = (amount) => admin.firestore.FieldValue.increment(amount);
+        
+        if (!before && after) { updates['deposits.total'] = inc(1); } 
+        else if (before && after && before.status !== after.status) { updates[`deposits.${after.status}`] = inc(1); if (before.status !== 'pending') updates[`deposits.${before.status}`] = inc(-1); } 
+        else if (before && !after) { updates['deposits.total'] = inc(-1); updates[`deposits.${before.status}`] = inc(-1); }
+        
+        if (Object.keys(updates).length > 1) await updateGlobalStats(updates);
+    } catch (e) { console.warn("Stat update skipped to prevent write limit bottleneck."); }
 });
 
 exports.calculateStoreStatsCloud = onCall({ timeoutSeconds: 540 }, async (request) => {
@@ -744,7 +752,6 @@ exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{produ
     if (!event.data.after.exists) return publicProdRef.delete(); 
     const prodData = event.data.after.data();
     if (prodData.isActive === false || String(prodData.isAvailable) === 'false') return publicProdRef.delete();
-    // 👈 كسر الكاش لضمان مزامنة المنتج بأسعار حية وحديثة 100%
     const tiersData = await loadTiersCache(true); 
     return publicProdRef.set(generatePublicProductData(prodData, tiersData), { merge: true });
 });
@@ -753,7 +760,6 @@ exports.adminForceSyncCatalog = onCall({ timeoutSeconds: 540 }, async (request) 
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     try {
         const prodsSnap = await db.collection('telecard_prods').get();
-        // 👈 الإدارة أمرت بمزامنة كل شيء، يجب كسر الكاش وجلب أحدث المستويات
         const tiersData = await loadTiersCache(true);
         
         let syncCount = 0, currentBatch = db.batch(), opCount = 0;
@@ -782,7 +788,6 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
     const oldTier = event.data.before.data(); const newTier = event.data.after.data();
     if (oldTier.profitPercent === newTier.profitPercent && oldTier.minProfitUsd === newTier.minProfitUsd) return null;
 
-    // 👈 كسر الكاش لجلب أحدث المستويات (بما فيها المستوى الذي تم تحديثه للتو)
     const allTiers = await loadTiersCache(true); 
 
     let hasMore = true, lastDoc = null, totalUpdated = 0;
@@ -859,17 +864,35 @@ exports.adminSaveVaultCodes = onCall(async (request) => {
     
     try {
         const vaultRef = db.collection('telecard_vault').doc(String(poolId));
-        return await db.runTransaction(async (transaction) => {
-            const vaultSnap = await transaction.get(vaultRef);
-            let currentStock = vaultSnap.exists ? (vaultSnap.data().stockCount || 0) : 0;
-            const cleanCodes = codesList.map(c => String(c).trim()).filter(c => c.length > 0);
-            
-            for (let i = 0; i < cleanCodes.length; i++) {
-                transaction.set(vaultRef.collection('keys').doc(`key_${crypto.randomBytes(8).toString('hex')}`), { codeText: cleanCodes[i], isSold: false, addedAt: admin.firestore.FieldValue.serverTimestamp() });
-            }
-            transaction.set(vaultRef, { id: poolId, name: poolName || 'صندوق أكواد', alertLimit: Number(alertLimit) || 5, stockCount: currentStock + cleanCodes.length, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-            return { success: true, addedCount: cleanCodes.length };
-        });
+        const cleanCodes = codesList.map(c => String(c).trim()).filter(c => c.length > 0);
+        
+        if (cleanCodes.length === 0) return { success: true, addedCount: 0 };
+
+        // 🛡️ تقسيم الأكواد لحزم (Batches) لتجاوز حد الفايربيز للعمليات (500)
+        let currentStock = 0;
+        const vaultSnap = await vaultRef.get();
+        if (vaultSnap.exists) currentStock = vaultSnap.data().stockCount || 0;
+
+        const chunks = [];
+        for (let i = 0; i < cleanCodes.length; i += 450) {
+            chunks.push(cleanCodes.slice(i, i + 450));
+        }
+
+        for (const chunk of chunks) {
+            const batch = db.batch();
+            chunk.forEach(codeText => {
+                const keyRef = vaultRef.collection('keys').doc(`key_${crypto.randomBytes(8).toString('hex')}`);
+                batch.set(keyRef, { codeText, isSold: false, addedAt: admin.firestore.FieldValue.serverTimestamp() });
+            });
+            await batch.commit();
+        }
+
+        await vaultRef.set({ 
+            id: poolId, name: poolName || 'صندوق أكواد', alertLimit: Number(alertLimit) || 5, 
+            stockCount: currentStock + cleanCodes.length, updatedAt: admin.firestore.FieldValue.serverTimestamp() 
+        }, { merge: true });
+
+        return { success: true, addedCount: cleanCodes.length };
     } catch (error) { throw new HttpsError('internal', error.message); }
 });
 

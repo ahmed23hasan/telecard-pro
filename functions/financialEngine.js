@@ -86,13 +86,16 @@ const FinancialEngineDef = {
         let activeOption = null;
 
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && optIdx !== undefined) {
-            activeOption = product.options[optIdx];
-            if (activeOption) {
+            const index = Number(optIdx);
+            // 🛡️ حماية ضد التلاعب بالفهرس (Index Injection)
+            if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
+                activeOption = product.options[index];
                 cost = FinancialEngineDef.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
                 if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+            } else {
+                throw new Error(`[SECURITY] Invalid option index detected.`);
             }
         }
-
         if (cost > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new Error(`[SECURITY] Cost exceeds limits.`);
 
         let baseSellingPrice = 0;

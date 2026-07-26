@@ -1,12 +1,3 @@
-// ============================================================================
-// 🗄️ مدير البيانات والعمليات الحسابية (dataManager.js) - Ultimate V15.3 💎
-// 🎯 الوظيفة: معالجة البيانات، الحسابات، والاتصال المباشر بالسحابة ومحرك الكاش
-// 🚀 التحديثات:
-// 1. [Network Resilience]: استخدام Promise.allSettled لمنع انهيار المتجر إذا فشل جزء بسيط.
-// 2. [Idempotency Isolation]: ربط مفاتيح الحماية بـ (Product ID) لمنع قفل سلة المشتريات.
-// 3. [RAM Crash Shield]: تحديد جلب الإشعارات الحية بآخر 50 إشعار فقط لخفض التكلفة والذاكرة.
-// ============================================================================
-
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
 import { DB_KEYS, ACTIVE_USER_KEY, CACHE_KEYS, DYNAMIC_PREFIXES } from './config.js';
 import { FirebaseAdapter, auth } from './core/firebaseAdapter.js'; 
@@ -86,7 +77,11 @@ export const SmartCacheManager = {
         const cacheData = { timestamp: Date.now(), data: { prods, cats, offers, tiers, rates, banners } };
         const saved = await LocalDBHelper.set(this.CACHE_KEY, cacheData);
         if (!saved) {
-            try { localStorage.setItem(this.CACHE_KEY, JSON.stringify(cacheData)); } catch (e) { }
+            try { 
+                localStorage.setItem(this.CACHE_KEY, JSON.stringify(cacheData)); 
+            } catch (e) {
+                console.warn("⚠️ حجم الكاش تجاوز سعة الذاكرة المحلية (LocalStorage). تم تجاوز الحفظ.");
+            }
         }
     },
     
@@ -152,7 +147,6 @@ export const DataManager = {
             
             if (!(await SmartCacheManager.shouldFetchFromServer(serverCatalogVersion))) return true;
             
-            // 🛡️ [إصلاح ماسي 1]: استخدام allSettled لمنع انهيار النظام إذا فشل جلب فرعي
             const fetchPromises = [
                 StoreDB.getAll(DB_KEYS.PRODS, 15000), StoreDB.getAll(DB_KEYS.CATS, 1000),
                 StoreDB.getAll(DB_KEYS.OFFERS, 500), StoreDB.getAll(DB_KEYS.TIERS, 100), 
@@ -160,6 +154,15 @@ export const DataManager = {
             ];
             
             const results = await Promise.allSettled(fetchPromises);
+            
+            // 🛡️ [إصلاح ماسي 1]: حماية من تسمم الكاش (Cache Poisoning)
+            if (results[0].status === 'rejected' || results[1].status === 'rejected') {
+                console.warn("⚠️ تم اكتشاف فشل في جلب المنتجات أو الأقسام. حماية الكاش من المسح واستعادة الذاكرة...");
+                const fallback = await SmartCacheManager.loadCatalogFromLocal();
+                if (fallback) Object.assign(LiveStoreData, fallback);
+                LiveStoreData.isOfflineMode = true;
+                return true;
+            }
             
             const extractData = (resIndex, fallback = []) => results[resIndex].status === 'fulfilled' ? results[resIndex].value : fallback;
             
@@ -169,14 +172,6 @@ export const DataManager = {
             const tiers = extractData(3);
             const rates = extractData(4);
             const banners = extractData(5);
-
-            if (cats.length === 0 && prods.length === 0) {
-                console.warn("⚠️ تم اكتشاف فقدان للبيانات الرئيسية أثناء الجلب. حماية الكاش من المسح واستعادة الذاكرة...");
-                const fallback = await SmartCacheManager.loadCatalogFromLocal();
-                if (fallback) Object.assign(LiveStoreData, fallback);
-                LiveStoreData.isOfflineMode = true;
-                return true;
-            }
             
             const activeProds = prods.filter(p => p.isActive !== false);
             Object.assign(LiveStoreData, { prods: activeProds, cats, offers, tiers, rates, banners });
@@ -209,7 +204,7 @@ export const DataManager = {
             baseCurrency: String(this.user.baseCurrency || 'USD').toUpperCase(),
             tierId: String(this.user.tierId || '1'), tierCycleSpent: Number(this.user.tierCycleSpent || 0),
             tierCycleStartDate: this.user.tierCycleStartDate, 
-            readAlerts: Array.isArray(this.user.readAlerts) ? this.user.readAlerts.slice(0, 50) : [], // 🛡️ كبح حجم المصفوفة محلياً
+            readAlerts: Array.isArray(this.user.readAlerts) ? this.user.readAlerts.slice(0, 50) : [], 
             createdAt: this._parseSafeTime(this.user.createdAt)
         };
         
@@ -222,17 +217,22 @@ export const DataManager = {
     
     updateUserProfile: async function(newData) {
         const uid = this.user?.uid || this.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
-        if (!uid || typeof newData !== 'object' || Array.isArray(newData)) return false;
+        if (!uid || typeof newData !== 'object' || Array.isArray(newData) || newData === null) return false;
         
+        // 🛡️ حماية أقوى للمفاتيح الممنوعة
         const FORBIDDEN_KEYS = new Set([
             'walletBalance', 'balance', 'wallet_balance', 'tierId', 'tier', 'totalSpent', 'totalDeposit', 'isBanned', 'isIpBanned', 
             'isRestricted', 'kycStatus', 'kycData', 'role', 'adminMessage', 'isVerified', 'devicePrints', 'passwordChangeHistory',
-            'baseCurrency', 'base_currency', 'email', 'phone'
+            'baseCurrency', 'base_currency', 'email', 'phone', 
+            '__proto__', 'constructor', 'prototype' // 🚨 إغلاق ثغرة Prototype Pollution
         ]);
         
         const sanitized = {};
         for (const key in newData) {
-            if (!FORBIDDEN_KEYS.has(key) && Object.prototype.hasOwnProperty.call(newData, key)) sanitized[key] = newData[key];
+            if (!FORBIDDEN_KEYS.has(key) && Object.prototype.hasOwnProperty.call(newData, key)) {
+                // التأكد من أن القيمة ليست كائناً معقداً قد يسبب مشاكل
+                sanitized[key] = typeof newData[key] === 'object' && newData[key] !== null ? JSON.parse(JSON.stringify(newData[key])) : newData[key];
+            }
         }
         if (Object.keys(sanitized).length === 0) return true;
         
@@ -289,7 +289,8 @@ export const DataManager = {
     },
 
     calculateFinalPrice: function(prod, user, qty, optIdx, appliedCoupon) {
-        let q = Math.max(1, Number(qty) || 1);
+        // 🛡️ [إصلاح ماسي 4]: منع الكميات الكسرية (Fractional Lock)
+        let q = Math.max(1, Math.floor(Number(qty)) || 1);
         if (prod.type === 'select') q = 1; 
 
         const activeOffer = this.getActiveOffer(prod.id);
@@ -476,14 +477,23 @@ export const DataManager = {
         try {
             const banned = LiveStoreData.settings?.bannedIps || [];
             if (!banned.length) return false;
+            
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000);
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
             
             let ip = null;
-            try { ip = (await fetch('https://api.ipify.org?format=json', { signal: controller.signal }).then(r => r.json())).ip; } 
+            try { 
+                const res = await fetch('https://api.ipify.org?format=json', { signal: controller.signal });
+                if(res.ok) ip = (await res.json()).ip; 
+            } 
             catch (e) {
-                try { ip = (await fetch('https://ipapi.co/json/', { signal: controller.signal }).then(r => r.json())).ip; } 
-                catch (e2) {}
+                try { 
+                    const res2 = await fetch('https://api.myip.com/', { signal: controller.signal }); 
+                    if(res2.ok) ip = (await res2.json()).ip; 
+                } 
+                catch (e2) {
+                    console.warn("🛡️ IP API blocked by client (Adblocker/Network)");
+                }
             }
             clearTimeout(timeoutId);
 
@@ -517,13 +527,17 @@ export const DataManager = {
         if (LiveStoreData.isOfflineMode) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
         
-        // 🛡️ [إصلاح ماسي 2]: ربط المفتاح بالمنتج لمنع القفل العابر للطلبات
-        const SESSION_ORDER_KEY = `tc_pending_order_${prod.id}`;
-        this._currentPurchaseKey = sessionStorage.getItem(SESSION_ORDER_KEY) || this.generateIdempotencyKey();
-        sessionStorage.setItem(SESSION_ORDER_KEY, this._currentPurchaseKey);
+        const SESSION_DEPOSIT_KEY = `tc_pending_deposit_${method.id}`;
 
+// 🛡️ درع النقر المزدوج لطلبات الشحن
+if (sessionStorage.getItem(SESSION_DEPOSIT_KEY)) {
+    return { success: false, msg: 'لديك طلب جاري إرساله، يرجى الانتظار...' };
+}
+
+this._currentDepositKey = this.generateIdempotencyKey();
+sessionStorage.setItem(SESSION_DEPOSIT_KEY, this._currentDepositKey);
         try {
-            const req = { productId: String(prod.id), qty: Number(qty) || 1, optIdx: optIdx ?? null, finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null, idempotencyKey: this._currentPurchaseKey };
+            const req = { productId: String(prod.id), qty: Math.max(1, Math.floor(Number(qty)) || 1), optIdx: optIdx ?? null, finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null, idempotencyKey: this._currentPurchaseKey };
             const res = await StoreDB.callFunction('createOrder', req);
             
             sessionStorage.removeItem(SESSION_ORDER_KEY);
@@ -572,9 +586,14 @@ export const DataManager = {
         if (method.reqProof !== false && !receipt) return { success: false, msg: 'أرفق الإشعار', errType: 'receipt' };
         
         const SESSION_DEPOSIT_KEY = `tc_pending_deposit_${method.id}`;
-        this._currentDepositKey = sessionStorage.getItem(SESSION_DEPOSIT_KEY) || this.generateIdempotencyKey();
-        sessionStorage.setItem(SESSION_DEPOSIT_KEY, this._currentDepositKey);
 
+// 🛡️ درع النقر المزدوج لطلبات الشحن
+if (sessionStorage.getItem(SESSION_DEPOSIT_KEY)) {
+    return { success: false, msg: 'لديك طلب جاري إرساله، يرجى الانتظار...' };
+}
+
+this._currentDepositKey = this.generateIdempotencyKey();
+sessionStorage.setItem(SESSION_DEPOSIT_KEY, this._currentDepositKey);
         try {
             const req = { amount: Number(amt), paymentMethodName: method.name, payCurr, receiptData: receipt, idempotencyKey: this._currentDepositKey };
             const res = await StoreDB.callFunction('submitBalanceRequest', req);
@@ -620,13 +639,16 @@ export const DataManager = {
         if (!this.user?.uid) return null;
         if (this._notifUnsubscribe) this._notifUnsubscribe();
         try {
-            // 🛡️ [إصلاح ماسي 3]: حماية الذاكرة العشوائية بالاقتصار على آخر 50 إشعار فقط
             this._notifUnsubscribe = StoreDB.listenQuery(`telecard_users/${this.user.uid}/notifications`, [], 'createdAt', 50, (notifs) => {
                 LiveStoreData.userNotifications = (notifs || []).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
                 if (renderCb) renderCb();
             });
             return this._notifUnsubscribe; 
-        } catch (e) { return null; }
+        } catch (e) { 
+            // 🛡️ [إصلاح ماسي]: منع تكدس العمليات في حال فشل المستمع
+            this._notifUnsubscribe = null; 
+            return null; 
+        }
     },
 
     _parseSafeTime: function(val) {

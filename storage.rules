@@ -10,6 +10,7 @@ service firebase.storage {
     }
 
     function isMasterAdmin() {
+      // 👑 الصلاحية المزدوجة: عبر الـ Custom Claim (أساسي) أو الـ UID الخاص بك كباب طوارئ (Fallback)
       return isAuthenticated() && (
         request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2' || 
         ('admin' in request.auth.token && request.auth.token.admin == true)
@@ -17,7 +18,7 @@ service firebase.storage {
     }
 
     // ==========================================
-    // 🛡️ دوال حماية البيانات (Spoofing-Proof)
+    // 🛡️ دوال حماية البيانات (Spoofing & Polyglot Proof)
     // ==========================================
     
     // فحص المحتوى + الامتداد الحقيقي للملف (يمنع رفع فايروسات بصيغة صور)
@@ -35,6 +36,7 @@ service firebase.storage {
     }
 
     function isValidSize(maxSizeMB) {
+      // يمنع استنزاف مساحة التخزين (Storage Exhaustion)
       return request.resource != null && request.resource.size <= maxSizeMB * 1024 * 1024;
     }
 
@@ -47,10 +49,10 @@ service firebase.storage {
     }
 
     // ==========================================
-    // 🧾 إيصالات الدفع
+    // 🧾 إيصالات الدفع (Receipts Sandboxing)
     // ==========================================
     match /receipts/{fileName} {
-      // 🔒 إجبار بدء الاسم بـ dep_ والـ UID الخاص بالعميل
+      // 🔒 إجبار بدء الاسم بـ dep_ والـ UID الخاص بالعميل لمنع التلاعب بملفات الآخرين
       allow read: if isAuthenticated() && fileName.matches('^dep_' + request.auth.uid + '_[a-zA-Z0-9_-]+\\.(jpg|jpeg|png|webp|pdf)$');
       
       allow create: if isAuthenticated()
@@ -62,12 +64,12 @@ service firebase.storage {
     }
 
     // ==========================================
-    // 👤 الصور الشخصية للعملاء
+    // 👤 الصور الشخصية للعملاء (Avatar Overwrite)
     // ==========================================
     match /avatars/{fileName} {
       allow read: if true;
       
-      // 🔒 إجبار صورة واحدة فقط لكل عميل (Overwrite)
+      // 🔒 إجبار صورة واحدة فقط لكل عميل (يمنع المستخدم من رفع آلاف الصور واستهلاك الباقة)
       allow create, update: if isAuthenticated() 
                    && fileName.matches('^avatar_' + request.auth.uid + '\\.(jpg|jpeg|png|webp)$')
                    && isImage() 
@@ -81,7 +83,7 @@ service firebase.storage {
     // 🛡️ التوثيق الأمني KYC (مضاد للاستنزاف 100%)
     // ==========================================
     match /kyc_docs/{fileName} {
-      // 🔒 يُسمح بملفين اثنين حصراً (document أو selfie)
+      // 🔒 يُسمح بملفين اثنين حصراً (document أو selfie) فقط لا غير
       allow read: if isAuthenticated() && fileName.matches('^' + request.auth.uid + '_(document|selfie)\\.(jpg|jpeg|png|webp)$');
       
       allow create, update: if isAuthenticated() 
@@ -93,7 +95,7 @@ service firebase.storage {
     }
 
     // ==========================================
-    // 🖼️ الملفات العامة للمتجر والإدارة (للعرض فقط)
+    // 🖼️ الملفات العامة للمتجر والإدارة (للعرض فقط Public Read)
     // ==========================================
     match /products/{allPaths=**} { allow read: if true; }
     match /categories/{allPaths=**} { allow read: if true; }

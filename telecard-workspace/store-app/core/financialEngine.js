@@ -70,12 +70,15 @@ export const FinancialEngine = {
         let activeOption = null;
 
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && optIdx !== undefined) {
-            activeOption = product.options[optIdx];
-            if (activeOption && activeOption.isFixedPrice !== undefined) {
-                isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
-            }
+    const index = Number(optIdx);
+    // 🛡️ حماية الفهرس لمنع أخطاء الواجهة
+    if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
+        activeOption = product.options[index];
+        if (activeOption && activeOption.isFixedPrice !== undefined) {
+            isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
         }
-
+    }
+}
         if (isFixed) {
             baseSellingPrice = activeOption ? FinancialEngine.extractNum(activeOption.fixedPriceUsd || activeOption.price) : FinancialEngine.extractNum(product.fixedPriceUsd || product.fixed_price_usd || product.price);
         } else if (tier) {

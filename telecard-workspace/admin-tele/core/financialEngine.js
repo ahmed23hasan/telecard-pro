@@ -73,13 +73,14 @@ export const FinancialEngine = {
         let activeOption = null;
 
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && optIdx !== undefined) {
-            activeOption = product.options[optIdx];
-            if (activeOption) {
-                cost = FinancialEngine.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
-                if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
-            }
-        }
-
+    const index = Number(optIdx);
+    // 🛡️ حماية الفهرس للمدير
+    if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
+        activeOption = product.options[index];
+        cost = FinancialEngine.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
+        if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+    }
+}
         let currentPrice = cost;
         let standardPrice = activeOption ? FinancialEngine.extractNum(activeOption.price) : FinancialEngine.extractNum(product.price);
         let tierName = null;

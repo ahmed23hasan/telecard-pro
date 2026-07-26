@@ -3,19 +3,26 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ==========================================
-    // 🛠️ دوال التحقق الأساسية
+    // 🛠️ دوال التحقق الأساسية (Core Authentication)
     // ==========================================
     function isAuthenticated() { return request.auth != null; }
+    
     function isMasterAdmin() {
-return isAuthenticated() && ('admin' in request.auth.token && request.auth.token.admin == true);
-}    function isNotBanned() { return isAuthenticated() && (!('banned' in request.auth.token) || request.auth.token.banned != true); }
+      return isAuthenticated() && ('admin' in request.auth.token && request.auth.token.admin == true);
+    }    
+    
+    function isNotBanned() { 
+      return isAuthenticated() && (!('banned' in request.auth.token) || request.auth.token.banned != true); 
+    }
+    
     function isOwner(userId) { return isAuthenticated() && request.auth.uid == userId; }
 
     // ==========================================
-    // 🛡️ دروع حماية ملف المستخدم
+    // 🛡️ دروع حماية ملف المستخدم (Profile Firewalls)
     // ==========================================
     function isStandardProfileUpdate() {
-      let allowedKeys = ['name', 'firstName', 'lastName', 'fullName', 'username', 'img', 'phone', 'country', 'theme', 'devicePrints', 'passwordChangeHistory', 'adminMessage', 'biometricEnabled', 'readAlerts', 'baseCurrency', 'base_currency'];
+      // 🚨 تم إزالة 'adminMessage' لمنع المستخدم من تعديل أو مسح رسائل الإدارة الموجهة إليه
+      let allowedKeys = ['name', 'firstName', 'lastName', 'fullName', 'username', 'img', 'phone', 'country', 'theme', 'devicePrints', 'passwordChangeHistory', 'biometricEnabled', 'readAlerts', 'baseCurrency', 'base_currency'];
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
     }
 
@@ -38,12 +45,12 @@ return isAuthenticated() && ('admin' in request.auth.token && request.auth.token
                        data.get('isIpBanned', false) == false;
       
       let allowedCreationKeys = ['email', 'fullName', 'walletBalance', 'balance', 'totalSpent', 'totalDeposit', 'tierId', 'role', 'isBanned', 'isIpBanned', 'createdAt', 'provider'];
-      // 🚀 الإصلاح الحرج: استخدام hasOnly بدلاً من hasAny لمنع حقن الحقول الخبيثة
+      // 🚀 مقصلة الـ Keys لمنع حقن الحقول الخبيثة (NoSQL Injection)
       return safeValues && data.keys().hasOnly(allowedCreationKeys);
     }
 
     // ==========================================
-    // 👥 إدارة المستخدمين
+    // 👥 إدارة المستخدمين (User Profiles)
     // ==========================================
     match /telecard_users/{userId} {
       allow read: if (isOwner(userId) && isNotBanned()) || isMasterAdmin();
@@ -59,7 +66,7 @@ return isAuthenticated() && ('admin' in request.auth.token && request.auth.token
     }
 
     // ==========================================
-    // 🌐 المجموعات العامة و 🎟️ الكوبونات
+    // 🌐 المجموعات العامة و 🎟️ الكوبونات (Public Catalog)
     // ==========================================
     match /telecard_tiers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     match /telecard_cats/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
@@ -77,18 +84,18 @@ return isAuthenticated() && ('admin' in request.auth.token && request.auth.token
     }
 
     // ==========================================
-    // 🔒 البيانات المحمية (Server-Only Writes)
+    // 🔒 البيانات المحمية - كتابة السيرفر فقط (Server-Only Writes)
     // ==========================================
     match /telecard_prods/{docId} { allow read, write: if isMasterAdmin(); }
     
     match /telecard_orders/{docId} {
       allow read: if (isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
-      allow write: if isMasterAdmin(); 
+      allow write: if isMasterAdmin(); // العميل يقرأ فقط، الدوال السحابية هي من تكتب الطلب
     }
 
     match /telecard_deposits/{docId} {
       allow read: if (isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
-      allow write: if isMasterAdmin(); 
+      allow write: if isMasterAdmin(); // العميل يقرأ فقط، الدوال السحابية هي من تكتب الشحن
     }
 
     // ==========================================

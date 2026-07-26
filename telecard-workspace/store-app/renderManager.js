@@ -70,8 +70,8 @@ window.StoreRenderApp = window.StoreRenderApp || {
 export const RenderManager = {
     currentRenderId: 0,
     highlightId: null,
+    _highlightTimer: null, // 👈 أضف هذا السطر هنا
     limits: { wallet: 15, orders: 15, payments: 15 },
-    
     // 🛡️ [إصلاح الإبادة الشبحية]: مستودع تاريخي معزول عن الـ Listeners الحية
     _historicalData: { orders: [], deposits: [] },
     
@@ -141,7 +141,8 @@ export const RenderManager = {
 
         if (!rawUrl) return { html: fallbackHTML, wrapperClass: ' shimmer-stop', wrapperStyle: ' animation: none !important; background-color: transparent !important;' };
 
-        const safeUrl = String(rawUrl).replace(/"/g, '%22');
+        // استخراج الرابط بشكل آمن تماماً بدون كسر الـ HTML
+const safeUrl = encodeURI(String(rawUrl).replace(/"/g, '%22'));
         const imgVars = this._getImgLoadVars(rawUrl);
         const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
         const imgClass = type === 'pay' ? `pay-icon-img ${imgVars.imgClass}` : imgVars.imgClass;
@@ -825,10 +826,16 @@ export const RenderManager = {
             list.replaceChildren(this._renderHtmlToFragment(rawHtml));
             if (!q && !dStart && !dEnd) this._appendLoadMoreButton(list, 'orders', uid, totalOrdersCount, 'orders');
             
-            // 🛡️ تفريغ الهايلايت لمنع الالتصاق
-            if (this.highlightId) { setTimeout(() => { this.highlightId = null; }, 2000); }
-        });
-    },
+            // 🛡️ تفريغ الهايلايت لمنع الالتصاق (مع إصلاح التضارب الزمني)
+if (this.highlightId) {
+    if (this._highlightTimer) clearTimeout(this._highlightTimer);
+    this._highlightTimer = setTimeout(() => {
+        this.highlightId = null;
+        this._highlightTimer = null;
+    }, 2000);
+}
+});
+},
 
     _getSys: function() {
         if (typeof window.ClientSystem !== 'undefined') return window.ClientSystem;

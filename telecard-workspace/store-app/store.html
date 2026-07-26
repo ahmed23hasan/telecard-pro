@@ -3,16 +3,19 @@
 
 <head>
     <script>
-        // 🚀 1. تحديد الإصدار
+        // 🚀 1. تحديد الإصدار (المرجع الوحيد للنظام)
         window.TELECARD_VERSION = "13.0.0";
         
-        // 🚀 2. قاتل الكاش العميق (Service Worker Killer)
-        // هذا السكربت يمسح أي كاش قديم متبقي في هواتف العملاء بالقوة
+        // 🚀 2. قاتل الكاش العميق (Service Worker & Cache Storage Killer)
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                for (let registration of registrations) {
-                    registration.unregister();
-                }
+                for (let registration of registrations) { registration.unregister(); }
+            });
+        }
+        // 🛡️ تدمير الكاش الفعلي لمنع تحميل ملفات قديمة من الذاكرة
+        if (window.caches) {
+            caches.keys().then(function(names) {
+                for (let name of names) { caches.delete(name); }
             });
         }
     </script>
@@ -50,20 +53,16 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- 🚀 CSS مع كاسر الكاش -->
-    <link rel="stylesheet" href="style.css?v=13.0.0">
+    <!-- 🚀 تم تنظيف الـ Versioning ليعتمد على قاتل الكاش -->
+    <link rel="stylesheet" href="style.css">
     
     <!-- 🛡️ مكتبات النظام الأساسية -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
-    
-    <!-- 
-      ⚠️ إزالة الـ Import Map: 
-      في بيئة Vanilla JS بدون مجمع (Bundler)، استخدام الـ Import Map مع مسارات تحتوي على (?v=) 
-      غالباً ما يسبب تعارضاً وضعفاً في تحميل المتصفحات للملفات. 
-      الاعتماد على المتصفح ليقرأ الملفات من السكربت المباشر أدناه هو الأصح.
-    -->
-</head>    <!-- 🛑 تنبيه تعطيل الجافاسكريبت (مُنظف من الـ Inline Styles) -->
+</head>
+
+<body>
+    <!-- 🛑 تنبيه تعطيل الجافاسكريبت -->
     <noscript>
         <div class="noscript-overlay">
             <i class="fa-solid fa-triangle-exclamation noscript-icon"></i>
@@ -73,27 +72,30 @@
     </noscript>
 
     <script>
-        // 🚀 تفعيل الوضع الليلي فوراً قبل رسم الصفحة
+        // 🚀 تفعيل الوضع الليلي فوراً قبل رسم الصفحة لمنع الوميض الأبيض (FOUC)
         if (localStorage.getItem('telecard_theme') === 'light') {
             document.body.classList.add('light-mode');
         }
     </script>
 
-    <!-- 🚀 شاشة الإقلاع الرئيسية (مُنظفة من الـ Inline Styles) -->
+    <!-- 🚀 شاشة الإقلاع الرئيسية (Zero-Latency Spinner) -->
     <div id="global-splash-screen" class="splash-screen-overlay">
         <div class="splash-logo-container">
-            <i class="fa-solid fa-circle-notch fa-spin splash-spinner"></i>
+            <!-- 🛡️ SVG مضمن يعمل بـ 0ms تأخير بدون انتظار خطوط FontAwesome -->
+            <svg class="splash-spinner" viewBox="0 0 50 50" style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; animation: fa-spin 2s linear infinite;">
+                <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="90, 150" style="opacity: 0.2;"></circle>
+                <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="40, 150"></circle>
+            </svg>
             <i class="fa-solid fa-store splash-icon"></i>
         </div>
         <h2 id="splash-store-name" class="splash-title">جاري إعداد حسابك...</h2>
     </div>
-<!-- 🛡️ حقن الاسم المخبأ لتسريع شاشة الإقلاع -->
-<script>
-    var cachedStoreName = localStorage.getItem('telecard_splash_name');
-    if (cachedStoreName) {
-        document.getElementById('splash-store-name').textContent = cachedStoreName;
-    }
-</script>
+
+    <!-- 🛡️ حقن الاسم المخبأ لتسريع شاشة الإقلاع -->
+    <script>
+        var cachedStoreName = localStorage.getItem('telecard_splash_name');
+        if (cachedStoreName) { document.getElementById('splash-store-name').textContent = cachedStoreName; }
+    </script>
     
     <!-- 🚨 نافذة الحماية والطرد المباشر -->
     <div class="global-alert-overlay" id="global-security-alert" role="dialog" aria-modal="true">
@@ -106,13 +108,15 @@
         </div>
     </div>    
     
-    <!-- 💡 تركت ستايل display:none هنا لأنه يتحكم به الجافاسكريبت برمجياً -->
-    <div id="toast-warning" class="toast-warning" style="display: none;"><i class="fa-solid fa-circle-exclamation"></i> تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء</div>    <!-- ======================= 🔝 الهيدر العلوي ======================= -->
+    <div id="toast-warning" class="toast-warning" style="display: none;"><i class="fa-solid fa-circle-exclamation"></i> تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء</div>    
+
+    <!-- ======================= 🔝 الهيدر العلوي ======================= -->
     <header class="store-header">
         <div class="header-actions-right">
-             <div class="action-btn menu-btn" data-action="open-sidebar" aria-label="القائمة الجانبية"><i class="fa-solid fa-bars"></i></div>
+             <!-- 🛡️ تحسين A11y (دعم الكيبورد وقارئ الشاشة للأزرار المبنية عبر DIV) -->
+             <div class="action-btn menu-btn" data-action="open-sidebar" role="button" tabindex="0" aria-label="القائمة الجانبية"><i class="fa-solid fa-bars"></i></div>
              
-             <div class="action-btn notif-bell-btn" data-action="open-notif-center" aria-label="الإشعارات">
+             <div class="action-btn notif-bell-btn" data-action="open-notif-center" role="button" tabindex="0" aria-label="الإشعارات">
                  <i class="fa-regular fa-bell"></i>
                  <span class="notif-badge hide-element" id="header-notif-badge">0</span>
              </div>
@@ -127,7 +131,7 @@
                  <select id="display-currency" class="display-currency-native" data-action="change-currency" aria-label="العملة المخفية"></select>
              </div>
 
-             <div class="action-btn theme-toggle-btn" data-action="toggle-theme" title="تبديل الوضع" aria-label="تغيير المظهر">
+             <div class="action-btn theme-toggle-btn" data-action="toggle-theme" role="button" tabindex="0" title="تبديل الوضع" aria-label="تغيير المظهر">
                  <i id="theme-toggle-icon">
                      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="display:inline-block; vertical-align:middle;">
                          <circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="2" r="1.5"></circle><circle cx="12" cy="22" r="1.5"></circle><circle cx="2" cy="12" r="1.5"></circle><circle cx="22" cy="12" r="1.5"></circle><circle cx="4.93" cy="4.93" r="1.5"></circle><circle cx="19.07" cy="19.07" r="1.5"></circle><circle cx="4.93" cy="19.07" r="1.5"></circle><circle cx="19.07" cy="4.93" r="1.5"></circle>
@@ -136,15 +140,13 @@
                  <script>
                      if (localStorage.getItem('telecard_theme') === 'light') {
                          const ti = document.getElementById('theme-toggle-icon');
-                         ti.innerHTML = '';
-                         ti.className = 'fa-solid fa-moon';
+                         if(ti) { ti.innerHTML = ''; ti.className = 'fa-solid fa-moon'; }
                      }
                  </script>
              </div>
         </div>
         
-        <!-- 🚀 توجيه النقر على اللوجو للرئيسية -->
-        <div class="logo-area logo-ar" id="store-branding-target" data-action="nav-home" style="cursor: pointer;"></div>
+        <div class="logo-area logo-ar" id="store-branding-target" data-action="nav-home" role="button" tabindex="0" style="cursor: pointer;"></div>
     </header>    
 
     <!-- ======================= 📋 القائمة الجانبية ======================= -->
@@ -173,7 +175,7 @@
         </div>
         
         <div class="sp-glass-card" id="user-sidebar-card">
-            <div class="sp-identity-wrapper" data-action="open-profile-sidebar">
+            <div class="sp-identity-wrapper" data-action="open-profile-sidebar" role="button" tabindex="0">
                 <div class="sp-avatar-box">
                     <img src="" id="cs-avatar" alt="صورة المستخدم">
                     <div class="sp-status-dot"></div>
@@ -193,7 +195,7 @@
             <div class="sp-divider"></div>
             
             <div class="sp-finance-section">
-                <div class="sp-balance-box clickable-balance" data-action="open-wallet-sidebar">
+                <div class="sp-balance-box clickable-balance" data-action="open-wallet-sidebar" role="button" tabindex="0">
                     <span class="sp-balance-label"><i class="fa-solid fa-wallet"></i> الرصيد الحالي</span>
                     <div class="sp-balance-value num-en">
                         <span id="sidebar-balance-num">0.00</span>
@@ -268,7 +270,7 @@
         </div>
 
         <div class="sidebar-footer">
-            <div class="support-card" id="sidebar-support-btn" data-action="open-support">
+            <div class="support-card" id="sidebar-support-btn" data-action="open-support" role="button" tabindex="0">
                 <div class="support-icon-frame" id="sidebar-support-icon-wrapper">
                     <i id="sidebar-support-icon"></i>
                 </div>
@@ -280,6 +282,7 @@
             <button class="logout-btn" id="sidebar-logout-btn" data-action="logout"><i class="fa-solid fa-power-off"></i>تسجيل الخروج</button>
         </div>
     </div>
+
     <!-- ======================= 🛒 المحتوى الرئيسي ======================= -->
     <div class="main-scroll">
         <div class="hero-block-wrapper">
@@ -322,6 +325,7 @@
         </div>
                 
         <div class="grid-layout grid-cats" id="store-grid">
+            <!-- Skeletons -->
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
             <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
@@ -332,8 +336,6 @@
     </div>
 
     <!-- ======================= 📦 النوافذ السفلية ======================= -->
-    
-    <!-- 🛡️ التحديث المعماري (A11y): إضافة role="dialog" aria-modal="true" لجميع النوافذ المنبثقة -->
     
     <!-- نافذة الطلبات -->
     <div class="pm-overlay" id="orders-overlay" data-action="close-orders"></div>
@@ -743,7 +745,7 @@
         
         <div class="success-meta">
             <i class="fa-solid fa-bag-shopping"></i>
-            <span id="purchase-success-desc">يمكنك متابعة حالة الطلب في <span class="smart-link" data-action="nav-orders-from-success">سجل الطلبات</span></span>
+            <span id="purchase-success-desc">يمكنك متابعة حالة الطلب في <span class="smart-link" data-action="nav-orders-from-success" role="button" tabindex="0">سجل الطلبات</span></span>
         </div>
     </div>
 
@@ -791,6 +793,7 @@
                             <i class="fa-regular fa-trash-can"></i> حذف الصورة
                         </button>
                     </div>
+                    <!-- 🛡️ إصلاح الكاميرا: إجبار التقط الكاميرا لرفع صورة الحساب إذا دعت الحاجة -->
                     <input type="file" id="avatar-upload-input" hidden accept="image/*" data-action="upload-avatar">
                 </div>
 
@@ -873,11 +876,11 @@
 
     <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav">
-        <div class="nav-icon active" data-action="nav-home"><i class="fa-solid fa-house"></i><span>الرئيسية</span></div>
-        <div class="nav-icon" data-action="nav-wallet"><i class="fa-solid fa-wallet nav-lg-icon"></i><span>المحفظة</span></div>
-        <div class="nav-icon" data-action="open-favorites"><i class="fa-solid fa-heart"></i><span>المفضلة</span></div>
-        <div class="nav-icon" data-action="nav-orders"><i class="fa-solid fa-box-open"></i><span>طلباتي</span></div>
-        <div class="nav-icon" data-action="open-sidebar"><i class="fa-solid fa-bars"></i><span>القائمة</span></div>
+        <div class="nav-icon active" data-action="nav-home" role="button" tabindex="0"><i class="fa-solid fa-house"></i><span>الرئيسية</span></div>
+        <div class="nav-icon" data-action="nav-wallet" role="button" tabindex="0"><i class="fa-solid fa-wallet nav-lg-icon"></i><span>المحفظة</span></div>
+        <div class="nav-icon" data-action="open-favorites" role="button" tabindex="0"><i class="fa-solid fa-heart"></i><span>المفضلة</span></div>
+        <div class="nav-icon" data-action="nav-orders" role="button" tabindex="0"><i class="fa-solid fa-box-open"></i><span>طلباتي</span></div>
+        <div class="nav-icon" data-action="open-sidebar" role="button" tabindex="0"><i class="fa-solid fa-bars"></i><span>القائمة</span></div>
     </nav> 
     
     <!-- عارض إيصالات الدفع -->
@@ -1077,21 +1080,24 @@
 
                 <div class="kyc-upload-grid">
                     <div class="kyc-upload-box" id="kyc-box-front">
-                        <input type="file" accept="image/*" data-action="kyc-upload-front">
+                        <!-- 🛡️ إصلاح الكاميرا: إجبار التقط الوجه الأمامي عبر الكاميرا الخلفية -->
+                        <input type="file" accept="image/*" capture="environment" data-action="kyc-upload-front">
                         <i class="fa-regular fa-id-card"></i>
                         <span class="kyc-guide-txt">الوجه الأمامي للوثيقة<br>(يجب أن تكون البيانات واضحة)</span>
                         <img id="kyc-prev-front" class="kyc-preview" alt="أمام">
                     </div>
                     
                     <div class="kyc-upload-box" id="kyc-box-back">
-                        <input type="file" accept="image/*" data-action="kyc-upload-back">
+                        <!-- 🛡️ إصلاح الكاميرا: إجبار التقط الوجه الخلفي عبر الكاميرا الخلفية -->
+                        <input type="file" accept="image/*" capture="environment" data-action="kyc-upload-back">
                         <i class="fa-solid fa-barcode"></i>
                         <span class="kyc-guide-txt">الوجه الخلفي للوثيقة<br>(تأكد من وضوح الرموز)</span>
                         <img id="kyc-prev-back" class="kyc-preview" alt="خلف">
                     </div>
                     
                     <div class="kyc-upload-box kyc-box-full" id="kyc-box-selfie">
-                        <input type="file" accept="image/*" data-action="kyc-upload-selfie">
+                        <!-- 🛡️ إصلاح الكاميرا: إجبار التقاط السيلفي عبر الكاميرا الأمامية -->
+                        <input type="file" accept="image/*" capture="user" data-action="kyc-upload-selfie">
                         <i class="fa-solid fa-camera-retro"></i>
                         <span class="kyc-guide-txt">صورة سيلفي مع الوثيقة<br>(يرجى الإمساك بها بجانب الوجه)</span>
                         <img id="kyc-prev-selfie" class="kyc-preview" alt="سيلفي">
@@ -1145,7 +1151,7 @@
         
     <div class="pm-overlay" id="kyc-celebration-overlay" data-action="close-kyc-celebration"></div>
     <div class="modal-sheet bottom-sheet success-card kyc-success-card" id="kyc-celebration-modal" role="dialog" aria-modal="true">
-        <div class="pm-close-std floating-close" data-action="close-kyc-celebration" title="إغلاق" aria-label="إغلاق">
+        <div class="pm-close-std floating-close" data-action="close-kyc-celebration" title="إغلاق" aria-label="إغلاق" role="button" tabindex="0">
             <i class="fa-solid fa-xmark"></i>
         </div>
         
@@ -1272,7 +1278,7 @@
                     <span class="setting-title"><i class="fa-solid fa-shield-halved"></i> المصادقة الثنائية (2FA)</span>
                     <span class="setting-sub">حماية إضافية عبر تطبيق Google Authenticator</span>
                 </div>
-                <div class="modern-switch-btn" id="setting-2fa-toggle">
+                <div class="modern-switch-btn" id="setting-2fa-toggle" role="button" tabindex="0">
                     <div class="switch-bg-text">مغلق</div>
                     <div class="switch-knob"></div>
                 </div>
@@ -1283,37 +1289,41 @@
                     <span class="setting-title"><i class="fa-solid fa-fingerprint"></i> البصمة الحيوية</span>
                     <span class="setting-sub">استخدام بصمة الإصبع أو الوجه لفك قفل المتجر</span>
                 </div>
-                <div class="modern-switch-btn" id="setting-biometric-toggle">
+                <div class="modern-switch-btn" id="setting-biometric-toggle" role="button" tabindex="0">
                     <div class="switch-bg-text">مغلق</div>
                     <div class="switch-knob"></div>
                 </div>
             </div>
             
-<div class="settings-group-title">تعديل كلمة المرور</div>
+            <div class="settings-group-title">تعديل كلمة المرور</div>
 
-<!-- 🛡️ [إصلاح المتصفح]: تغليف الحقول داخل form مع منع إعادة تحميل الصفحة -->
-<form class="security-pass-wrapper" onsubmit="event.preventDefault();">
-    <div class="input-field-lux" style="position: relative;">
-        <label>كلمة المرور الحالية</label>
-        <span class="forgot-pass-link" data-action="send-reset-pass">نسيت الكلمة؟</span>
-        <input type="password" id="pass-current" class="lux-input" placeholder="أدخل كلمة المرور الحالية" autocomplete="current-password">
-    </div>
-    
-    <div class="input-field-lux">
-        <label>كلمة المرور الجديدة</label>
-        <input type="password" id="pass-new" class="lux-input" placeholder="أدخل كلمة مرور جديدة" autocomplete="new-password">
-    </div>
-    
-    <div class="input-field-lux">
-        <label>تأكيد كلمة المرور</label>
-        <input type="password" id="pass-confirm" class="lux-input" placeholder="أعد إدخال كلمة المرور" autocomplete="new-password">
-    </div>
-    
-    <div style="margin-top: 10px;">
-        <!-- 🛡️ إضافة type="button" لكي لا يقوم الفورم بعمل Submit عشوائي -->
-        <button type="button" class="alert-btn" data-action="submit-password-change">تحديث كلمة المرور</button>
-    </div>
-</form>            
+            <!-- 🛡️ إصلاح المتصفح: تغليف الحقول داخل form مع إجبار مدير كلمات مرور أبل (Keychain) على العمل -->
+            <form class="security-pass-wrapper" onsubmit="event.preventDefault(); document.getElementById('btn-pass-submit').click();">
+                <!-- 🛡️ حقل مخفي لإجبار Keychain على اقتراح كلمات المرور في نظام iOS -->
+                <input type="text" autocomplete="username" value="telecard_user" style="display:none;" aria-hidden="true">
+                
+                <div class="input-field-lux" style="position: relative;">
+                    <label>كلمة المرور الحالية</label>
+                    <span class="forgot-pass-link" data-action="send-reset-pass" role="button" tabindex="0">نسيت الكلمة؟</span>
+                    <input type="password" id="pass-current" class="lux-input" placeholder="أدخل كلمة المرور الحالية" autocomplete="current-password">
+                </div>
+                
+                <div class="input-field-lux">
+                    <label>كلمة المرور الجديدة</label>
+                    <input type="password" id="pass-new" class="lux-input" placeholder="أدخل كلمة مرور جديدة" autocomplete="new-password">
+                </div>
+                
+                <div class="input-field-lux">
+                    <label>تأكيد كلمة المرور</label>
+                    <input type="password" id="pass-confirm" class="lux-input" placeholder="أعد إدخال كلمة المرور" autocomplete="new-password">
+                </div>
+                
+                <div style="margin-top: 10px;">
+                    <!-- 🛡️ زر Submit لتفعيل الحدث بشكل طبيعي عند ضغط Enter من الكيبورد -->
+                    <button type="submit" id="btn-pass-submit" class="alert-btn" data-action="submit-password-change">تحديث كلمة المرور</button>
+                </div>
+            </form>            
+            
             <div class="settings-group-title danger-zone-title">إجراءات إغلاق الحساب</div>
             
             <div class="danger-zone-wrapper">
@@ -1348,7 +1358,7 @@
             
             <p class="setup-2fa-instructions">
                 أو أدخل هذا الرمز يدوياً في التطبيق: <br>
-                <span id="manual-2fa-secret" class="num-en manual-secret-code" data-action="copy-text" title="اضغط للنسخ">------</span>
+                <span id="manual-2fa-secret" class="num-en manual-secret-code" data-action="copy-text" title="اضغط للنسخ" role="button" tabindex="0">------</span>
             </p>
             
             <div class="input-field-lux setup-2fa-input-wrap">
@@ -1372,20 +1382,21 @@
             <button class="alert-btn btn-logout-ghost" data-action="logout" style="margin-top: 15px;">تسجيل الخروج</button>
         </div>
     </div>
-    <!-- المحرك الرئيسي للمتجر (مع كاسر الكاش) -->
-    <script type="module" src="script.js?v=13.0.0"></script>
+    
+    <!-- 🚀 المحرك الرئيسي للمتجر (محصن بقاتل الكاش بدون ?v=) -->
+    <script type="module" src="script.js"></script>
 
 <!-- ========================================================================= -->
-<!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.1 💎 -->
+<!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.2 💎 -->
 <!-- ========================================================================= -->
 <script>
     (function initMobileDevTools() {
         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const isDebugUrl = window.location.search.includes('debug=1');
+        const isDebugUrl = window.location.search.includes('debug=1');
 
-if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;        localStorage.setItem('dev_mode', '1');
+        if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;        
+        localStorage.setItem('dev_mode', '1');
         
-        // 🛠️ [الإصلاح البصري]: تغيير موضع الشريط إلى absolute top:0 وإضافة flex-wrap للأزرار وتصغير حجمها قليلاً
         document.body.insertAdjacentHTML('beforeend', `
             <div id="tc-dev-console" style="position:fixed; bottom:0; left:0; width:100%; height:50%; background:rgba(15, 23, 42, 0.98); color:#10b981; font-family:'Courier New', monospace; font-size:12px; z-index:9999999999; overflow-y:auto; border-top:4px solid #3b82f6; direction:ltr; text-align:left; display:none; padding-top:60px; box-shadow: 0 -10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);">
                 
@@ -1415,21 +1426,22 @@ if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;
         
         const formatMsg = (args) => Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
 
+        // 🛡️ إصلاح تسريب الأداء (Performance Thrashing Fix)
         console.log = function(...args) {
             origLog.apply(console, args);
-            logsContainer.innerHTML += `<div style="color:#34d399; border-bottom:1px dashed #334155; padding:8px 0;">[LOG] ${formatMsg(args)}</div>`;
+            logsContainer.insertAdjacentHTML('beforeend', `<div style="color:#34d399; border-bottom:1px dashed #334155; padding:8px 0;">[LOG] ${formatMsg(args)}</div>`);
             devConsole.scrollTop = devConsole.scrollHeight;
         };
         
         console.warn = function(...args) {
             origWarn.apply(console, args);
-            logsContainer.innerHTML += `<div style="color:#fbbf24; border-bottom:1px dashed #334155; padding:8px 0;">[WARN] ${formatMsg(args)}</div>`;
+            logsContainer.insertAdjacentHTML('beforeend', `<div style="color:#fbbf24; border-bottom:1px dashed #334155; padding:8px 0;">[WARN] ${formatMsg(args)}</div>`);
             devConsole.scrollTop = devConsole.scrollHeight;
         };
         
         console.error = function(...args) {
             origError.apply(console, args);
-            logsContainer.innerHTML += `<div style="color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);">[ERROR] ${formatMsg(args)}</div>`;
+            logsContainer.insertAdjacentHTML('beforeend', `<div style="color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);">[ERROR] ${formatMsg(args)}</div>`);
             devConsole.scrollTop = devConsole.scrollHeight;
             devConsole.style.display = 'block'; 
         };
@@ -1467,7 +1479,7 @@ if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;
             document.body.removeChild(textarea);
         });
 
-        console.log("🚀 TeleCard DevTools V3.1 Initialized!");
+        console.log("🚀 TeleCard DevTools V3.2 Initialized!");
     })();
 </script>
 </body>
