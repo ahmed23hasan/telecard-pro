@@ -1,5 +1,5 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V14.6 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V14.7 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه
 // 🚀 التحديثات:
 // 1. Safe Image Fallback: إظهار الأيقونات الاحتياطية بأمان ومنع تكرار النصوص.
@@ -7,6 +7,7 @@
 // 3. Fast DOM Fragment: إزالة مستمعات الصور اليدوية وتسريع الرسم بنسبة 40%.
 // 4. Memory Cap & Zero-Price Shield: حد أقصى للبيانات التاريخية ومنع التسعير الصفري.
 // 5. Live DOM Timers & Fuzzy Search: مؤقتات حية وبحث متقدم للكلمات المركبة.
+// 6. Safe URL Fix: استخدام safeUrl لحماية روابط Firebase Storage من الكسر.
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -130,6 +131,7 @@ export const RenderManager = {
             imgStyle: 'opacity: 0 !important; visibility: hidden !important;', wrapperStyle: ''
         };
     },
+
     _generateImageHTML: function(rawUrl, safeName, type, isHighPriority = false) {
         let defaultIcon = type === 'cat' ? 'fa-layer-group' : (type === 'pay' ? 'fa-building-columns' : 'fa-box-open');
         let defaultClass = type === 'pay' ? 'pay-icon-default' : 'default-prod-icon';
@@ -139,7 +141,8 @@ export const RenderManager = {
 
         if (!rawUrl) return { html: fallbackHTML.replace('display: none;', 'display: flex;'), wrapperClass: ' shimmer-stop', wrapperStyle: ' animation: none !important; background-color: transparent !important;' };
 
-        const safeUrl = typeof Utils !== 'undefined' && Utils.escapeHtml ? Utils.escapeHtml(rawUrl) : String(rawUrl).replace(/"/g, '&quot;');
+        // 🛡️ [إصلاح حرج]: استخدام Utils.safeUrl بدلاً من escapeHtml لمنع إفساد روابط Firebase Storage
+        const safeUrl = typeof Utils !== 'undefined' && Utils.safeUrl ? Utils.safeUrl(rawUrl) : String(rawUrl).replace(/"/g, '&quot;');
         
         const imgVars = this._getImgLoadVars(rawUrl);
         const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
@@ -151,13 +154,13 @@ export const RenderManager = {
         return { html: imgHTML, wrapperClass: imgVars.wrapperClass, wrapperStyle: imgVars.wrapperStyle };
     },
 
-   _generateProductCardHTML: function(p, idx) {
+    _generateProductCardHTML: function(p, idx) {
         const rates = DataManager.getRates();
         const displayCurrency = DataManager.selectedCurr || 'USD';
         
         let pricing = null;
         try { pricing = DataManager.calculateFinalPrice(p, DataManager.user, 1, null, null); } catch(e){}
-        if (!pricing) return ''; // 🛡️ حماية صارمة: منع رسم الكرت بـ 0 دولار عند الخطأ
+        if (!pricing) return ''; 
         
         let priceSectionHtml = '', nameExpandedStyle = '';
         if (p.hideGridPrice !== true) {
@@ -224,7 +227,6 @@ export const RenderManager = {
                         if (res.data && res.data.length > 0) {
                             const normData = res.data.map(item => ({...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt)}));
                             
-                            // 🛡️ حماية الذاكرة (Memory Cap): منع تضخم المصفوفة فوق 500
                             const mergedData = [...this._historicalData[type], ...normData];
                             this._historicalData[type] = mergedData.length > 500 ? mergedData.slice(-500) : mergedData;
                             
@@ -356,12 +358,14 @@ export const RenderManager = {
     },
 
     initTimersEngine: function() {
-        if (window.StoreRenderApp.timerInterval) clearInterval(window.StoreRenderApp.timerInterval);
+        if (window.StoreRenderApp.timerInterval) {
+            clearInterval(window.StoreRenderApp.timerInterval);
+            window.StoreRenderApp.timerInterval = null;
+        }
         
         window.StoreRenderApp.timerInterval = setInterval(() => {
             if (document.hidden) return; 
             
-            // 🛡️ جلب العناصر المحدثة من الـ DOM الحي في كل ثانية لتجنب تجميد العدادات
             const timers = document.querySelectorAll('.live-countdown');
             if (timers.length === 0) {
                 clearInterval(window.StoreRenderApp.timerInterval);
@@ -501,11 +505,11 @@ export const RenderManager = {
         document.body.classList.remove('is-home', 'is-favorites'); 
 
         const term = q.trim().toLowerCase();
-        // 🛡️ تنظيف الكلمة من الرموز الخاصة لتسهيل البحث (Fuzzy Search)
+        // 🛡️ [إصلاح حرج]: توحيد الكلمة المنظفة للأقسام والمنتجات معاً لمنع التضارب
         const cleanTerm = term.replace(/[-_.:,]/g, ' ');
         const searchTerms = cleanTerm.split(/\s+/).filter(t => t.length > 0);
 
-        const matchedCats = (LiveStoreData.cats || []).filter(c => c.name?.toLowerCase().replace(/[-_.:,]/g, ' ').includes(term));
+        const matchedCats = (LiveStoreData.cats || []).filter(c => c.name?.toLowerCase().replace(/[-_.:,]/g, ' ').includes(cleanTerm));
         const matchedProds = (LiveStoreData.prods || []).filter(p => p.name && searchTerms.every(word => p.name.toLowerCase().replace(/[-_.:,]/g, ' ').includes(word)));
 
         const grid = document.getElementById('store-grid'); 
