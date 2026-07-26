@@ -19,7 +19,8 @@ import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "http
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
 // 🛡️ [إصلاح أمني]: استيراد الإعدادات من ملف الكونفيج بدلاً من فضحها هنا
-import { firebaseConfig } from '../../config.js';
+import { firebaseConfig } from '../config.js';
+
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 let appCheck = null; 
