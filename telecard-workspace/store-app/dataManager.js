@@ -230,7 +230,6 @@ export const DataManager = {
         const sanitized = {};
         for (const key in newData) {
             if (!FORBIDDEN_KEYS.has(key) && Object.prototype.hasOwnProperty.call(newData, key)) {
-                // التأكد من أن القيمة ليست كائناً معقداً قد يسبب مشاكل
                 sanitized[key] = typeof newData[key] === 'object' && newData[key] !== null ? JSON.parse(JSON.stringify(newData[key])) : newData[key];
             }
         }
@@ -289,7 +288,6 @@ export const DataManager = {
     },
 
     calculateFinalPrice: function(prod, user, qty, optIdx, appliedCoupon) {
-        // 🛡️ [إصلاح ماسي 4]: منع الكميات الكسرية (Fractional Lock)
         let q = Math.max(1, Math.floor(Number(qty)) || 1);
         if (prod.type === 'select') q = 1; 
 
@@ -527,15 +525,17 @@ export const DataManager = {
         if (LiveStoreData.isOfflineMode) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
         
-        const SESSION_DEPOSIT_KEY = `tc_pending_deposit_${method.id}`;
+        // 🛡️ [إصلاح حرج]: تصحيح متغير مفتاح الجلسة ليكون خاصاً بالطلبات وليس بالإيداع
+        const SESSION_ORDER_KEY = `tc_pending_order_${prod.id}`;
 
-// 🛡️ درع النقر المزدوج لطلبات الشحن
-if (sessionStorage.getItem(SESSION_DEPOSIT_KEY)) {
-    return { success: false, msg: 'لديك طلب جاري إرساله، يرجى الانتظار...' };
-}
+        // 🛡️ درع النقر المزدوج لطلبات الشراء
+        if (sessionStorage.getItem(SESSION_ORDER_KEY)) {
+            return { success: false, msg: 'لديك طلب جاري إرساله، يرجى الانتظار...' };
+        }
 
-this._currentDepositKey = this.generateIdempotencyKey();
-sessionStorage.setItem(SESSION_DEPOSIT_KEY, this._currentDepositKey);
+        this._currentPurchaseKey = this.generateIdempotencyKey();
+        sessionStorage.setItem(SESSION_ORDER_KEY, this._currentPurchaseKey);
+        
         try {
             const req = { productId: String(prod.id), qty: Math.max(1, Math.floor(Number(qty)) || 1), optIdx: optIdx ?? null, finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null, idempotencyKey: this._currentPurchaseKey };
             const res = await StoreDB.callFunction('createOrder', req);
@@ -587,13 +587,14 @@ sessionStorage.setItem(SESSION_DEPOSIT_KEY, this._currentDepositKey);
         
         const SESSION_DEPOSIT_KEY = `tc_pending_deposit_${method.id}`;
 
-// 🛡️ درع النقر المزدوج لطلبات الشحن
-if (sessionStorage.getItem(SESSION_DEPOSIT_KEY)) {
-    return { success: false, msg: 'لديك طلب جاري إرساله، يرجى الانتظار...' };
-}
+        // 🛡️ درع النقر المزدوج لطلبات الشحن
+        if (sessionStorage.getItem(SESSION_DEPOSIT_KEY)) {
+            return { success: false, msg: 'لديك طلب جاري إرساله، يرجى الانتظار...' };
+        }
 
-this._currentDepositKey = this.generateIdempotencyKey();
-sessionStorage.setItem(SESSION_DEPOSIT_KEY, this._currentDepositKey);
+        this._currentDepositKey = this.generateIdempotencyKey();
+        sessionStorage.setItem(SESSION_DEPOSIT_KEY, this._currentDepositKey);
+        
         try {
             const req = { amount: Number(amt), paymentMethodName: method.name, payCurr, receiptData: receipt, idempotencyKey: this._currentDepositKey };
             const res = await StoreDB.callFunction('submitBalanceRequest', req);
@@ -645,7 +646,6 @@ sessionStorage.setItem(SESSION_DEPOSIT_KEY, this._currentDepositKey);
             });
             return this._notifUnsubscribe; 
         } catch (e) { 
-            // 🛡️ [إصلاح ماسي]: منع تكدس العمليات في حال فشل المستمع
             this._notifUnsubscribe = null; 
             return null; 
         }

@@ -30,6 +30,7 @@ export const Utils = {
     },
     
     // 🛡️ درع حماية الروابط المتقدم (Strict Protocol & Traversal Validation)
+        // 🛡️ درع حماية الروابط المتقدم (Strict Protocol & Traversal Validation)
     safeUrl: function(url, fallback = '#') {
         if (!url) return fallback;
         // إزالة الفراغات ورموز التحكم التي تخدع المتصفح
@@ -37,12 +38,17 @@ export const Utils = {
         
         // 🚨 حظر صريح لمحاولات الحقن المباشرة
         if (/^(javascript|vbscript|data):/i.test(cleaned)) return fallback;
+
+        // 💡 [الإصلاح الماسي]: تشفير الروابط لتعمل مع HTML و CSS بأمان دون كسر روابط Firebase
+        const encodeUrlSafely = (u) => {
+            return u.replace(/"/g, '%22').replace(/'/g, '%27').replace(/</g, '%3C').replace(/>/g, '%3E');
+        };
         
         try {
             const parsedUrl = new URL(cleaned, window.location.origin);
             const protocol = parsedUrl.protocol.toLowerCase();
             if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) {
-                return this.escapeHtml(cleaned);
+                return encodeUrlSafely(cleaned);
             }
             return fallback;
         } catch (e) {
@@ -51,12 +57,11 @@ export const Utils = {
             
             // السماح بالروابط النسبية الآمنة فقط
             if (cleaned.startsWith('/') || cleaned.startsWith('./') || cleaned.startsWith('../') || cleaned.startsWith('#') || cleaned.startsWith('?')) {
-                return this.escapeHtml(cleaned);
+                return encodeUrlSafely(cleaned);
             }
             return fallback;
         }
     },
-    
     // 🌟 حماية ضد RangeError لضمان الاستقرار التام للواجهة
     enNum: function(val, decimals = 2) {
         const num = Number(val);

@@ -4,7 +4,7 @@
 <head>
     <script>
         // 🚀 1. تحديد الإصدار (المرجع الوحيد للنظام)
-        window.TELECARD_VERSION = "13.0.0";
+        window.TELECARD_VERSION = "14.6.0";
         
         // 🚀 2. قاتل الكاش العميق (Service Worker & Cache Storage Killer)
         if ('serviceWorker' in navigator) {
@@ -54,7 +54,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- 🚀 تم تنظيف الـ Versioning ليعتمد على قاتل الكاش -->
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=14.6"></script> <!-- تأكد من إضافة ?v=14.6 -->
+
     
     <!-- 🛡️ مكتبات النظام الأساسية -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
@@ -1384,7 +1385,8 @@
     </div>
     
     <!-- 🚀 المحرك الرئيسي للمتجر (محصن بقاتل الكاش بدون ?v=) -->
-    <script type="module" src="script.js"></script>
+    <script type="module" src="script.js?v=14.6"></script>
+
 
 <!-- ========================================================================= -->
 <!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.4 💎 -->
