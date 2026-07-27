@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية V7.2 💎
+// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية V7.3 💎
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🚀 التحديث الأخير: بناء خوارزمية (Pre-fetch & Shuffle Retry Backoff) لمنع اختناق المعاملات.
+// 🚀 التحديث الأخير: إزالة التمرد الجغرافي، خضوع تام للمنطقة المركزية (us-central1).
 // ============================================================================
 
 const { onRequest } = require('firebase-functions/v2/https');
@@ -41,7 +41,8 @@ function generateHmacSignature(payload, secret) {
     return crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
 }
 
-exports.orderStatusWebhook = onDocumentWritten({ document: 'telecard_orders/{orderId}', region: 'us-east1' }, async (event) => {
+// 🛡️ التحديث: إزالة تحديد المنطقة، لتخضع لخيارات السيرفر الشاملة
+exports.orderStatusWebhook = onDocumentWritten({ document: 'telecard_orders/{orderId}' }, async (event) => {
     if (!event.data.after.exists) return null;
     const after = event.data.after.data();
     const before = event.data.before.exists ? event.data.before.data() : null;
@@ -75,7 +76,8 @@ exports.orderStatusWebhook = onDocumentWritten({ document: 'telecard_orders/{ord
     } catch (error) { return null; }
 });
 
-exports.cronRetryWebhooks = onSchedule({ schedule: 'every 1 hours', timeZone: 'Asia/Riyadh', region: 'us-east1' }, async (event) => {
+// 🛡️ التحديث: إزالة تحديد المنطقة (مع الإبقاء على المنطقة الزمنية لجدولة الكرون)
+exports.cronRetryWebhooks = onSchedule({ schedule: 'every 1 hours', timeZone: 'Asia/Riyadh' }, async (event) => {
     const failedSnaps = await db.collection('telecard_failed_webhooks').where('status', '==', 'failed').where('attempts', '<', 5).limit(50).get();
     if (failedSnaps.empty) return null;
     const promises = failedSnaps.docs.map(async (doc) => {
@@ -95,7 +97,8 @@ exports.cronRetryWebhooks = onSchedule({ schedule: 'every 1 hours', timeZone: 'A
     return true;
 });
 
-exports.externalCreateOrder = onRequest({ region: 'us-east1' }, async (req, res) => {
+// 🛡️ التحديث: إزالة تحديد المنطقة
+exports.externalCreateOrder = onRequest(async (req, res) => {
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed. Use POST.' });
 
     const apiKeyHeader = req.headers['x-api-key'] || req.headers['authorization'];
@@ -144,8 +147,7 @@ exports.externalCreateOrder = onRequest({ region: 'us-east1' }, async (req, res)
                 if (product.vaultPoolId) {
                     vaultRef = db.collection('telecard_vault').doc(String(product.vaultPoolId));
                     // سحب شريحة واسعة عشوائياً (Pool Limit)
-                    // سحب شريحة واسعة عشوائياً بحد أقصى 500 مستند أو ضعف الكمية المطلوبة (أيهما أكبر)
-const poolLimit = Math.max(finalQty * 3, Math.min(finalQty * 10, 500)); 
+                    const poolLimit = Math.max(finalQty * 3, Math.min(finalQty * 10, 500)); 
                     const keysQuerySnap = await vaultRef.collection('keys').where('isSold', '==', false).limit(poolLimit).get();
                     
                     if (keysQuerySnap.size < finalQty) throw new Error('Out of stock.');

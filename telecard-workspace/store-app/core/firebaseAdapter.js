@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.6 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.7 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق
-// 🚀 التحديث الأخير: تحسين الاستجابة في وضع Offline، توحيد الـ Region، وخوارزمية الرفع الآمن.
+// 🚀 التحديث الأخير: التوافق الجغرافي التام مع السيرفر المركزي (us-central1).
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -31,11 +31,11 @@ const db = initializeFirestore(app, {
 const auth = getAuth(app);
 const storage = getStorage(app);
 
-// 🛡️ [إصلاح كارثي]: توحيد المنطقة الجغرافية مع السيرفر والإدارة لمنع الـ CORS و 404
-const functions = getFunctions(app, 'us-east1');
+// 🛡️ [الإصلاح المعماري النهائي]: إزالة تحديد المنطقة، ليقوم النظام تلقائياً بالاتصال 
+// بالمنطقة الافتراضية (us-central1) التي تعيش فيها جميع دوال السيرفر حالياً.
+const functions = getFunctions(app);
 
 export { auth, db, storage, functions, appCheck };
-
 export const FirebaseAdapter = {
     db: db,
     storage: storage,

@@ -10,6 +10,15 @@
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentWritten, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+
+// 🛡️ [تحديث معماري]: استيراد أداة التحكم الشامل في السيرفرات
+const { setGlobalOptions } = require("firebase-functions/v2");
+
+// 🌐 [السيادة الجغرافية - Sovereign Shield]: 
+// إجبار جميع الدوال (حتى المستوردة من ملفات أخرى) على التمركز في المنطقة المجانية الموحدة
+// لمنع تشتت الواجهة الأمامية، ومنع فواتير نقل البيانات (Cross-Region Egress).
+setGlobalOptions({ region: 'us-central1' });
+
 const admin = require('firebase-admin');
 const functions = require('firebase-functions/v1'); // مستقر وآمن لدوال الـ Auth 
 const crypto = require('crypto'); // 🚀 O(1) Init
@@ -23,12 +32,11 @@ const db = admin.firestore();
 
 // 🛡️ درع التيتانيوم الأمني
 const SYSTEM_LIMITS = {
-    MAX_QTY_PER_ORDER: 10000, 
-    MAX_VAULT_QTY_PER_ORDER: 200, 
+    MAX_QTY_PER_ORDER: 10000,
+    MAX_VAULT_QTY_PER_ORDER: 200,
     MAX_SAFE_AMOUNT: 100000000,
     MAX_URL_LENGTH: 1000 // 🚀 تم استبدال حد الـ Base64 بحد لروابط الصور لحماية قاعدة البيانات
 };
-
 // ==========================================
 // 🛡️ مصنع المزامنة النظيف (Data Sanitizer & Compiler)
 // ==========================================

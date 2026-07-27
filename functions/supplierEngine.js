@@ -1,10 +1,7 @@
 // ============================================================================
-// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة الماسية المطلقة V7.2 💎
+// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة الماسية المطلقة V7.3 💎
 // 🎯 الوظيفة: استيراد المنتجات، وبناء الجداول المركزية بأمان
-// 🚀 التحديث الأخير: 
-// 1. القضاء على OOM عبر خوارزمية (Sync Session ID) والتحديث بـ O(1) Memory.
-// 2. التنظيف المحلي للأكواد (Local GC) لمنع إبادة المخزون السليم.
-// 3. استرجاع المنتجات لحماية خيار التسعير الثابت (Fixed Price Shield).
+// 🚀 التحديث الأخير: إزالة التمرد الجغرافي (us-east1) لضمان الخضوع للسيرفر المركزي.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -242,7 +239,8 @@ const coreSyncLogic = async (supplierId) => {
 // ==========================================
 // 🚀 1. المزامنة اليدوية (من لوحة تحكم الإدارة)
 // ==========================================
-exports.syncSupplierData = onCall({ region: 'us-east1', memory: '1GiB', timeoutSeconds: 540, enforceAppCheck: false }, async (request) => {
+// 🛡️ التحديث: إزالة `region` ليخضع للسيرفر المركزي
+exports.syncSupplierData = onCall({ memory: '1GiB', timeoutSeconds: 540, enforceAppCheck: false }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     try {
         const result = await coreSyncLogic(request.data.supplierId);
@@ -254,10 +252,10 @@ exports.syncSupplierData = onCall({ region: 'us-east1', memory: '1GiB', timeoutS
 // ==========================================
 // ⏱️ 2. المزامنة التلقائية (Cron Job) 
 // ==========================================
+// 🛡️ التحديث: إزالة `region` 
 exports.scheduledSupplierSync = onSchedule({ 
     schedule: '0 */12 * * *', 
     timeZone: 'Asia/Riyadh', 
-    region: 'us-east1', 
     memory: '1GiB', 
     timeoutSeconds: 540 
 }, async (event) => {
@@ -282,7 +280,8 @@ exports.scheduledSupplierSync = onSchedule({
 // ==========================================
 // 🛡️ 3. حفظ بيانات المورد من الإدارة
 // ==========================================
-exports.secureSaveSupplier = onCall({ region: 'us-east1', enforceAppCheck: false }, async (request) => {
+// 🛡️ التحديث: إزالة `region`
+exports.secureSaveSupplier = onCall({ enforceAppCheck: false }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     
     const { id, name, type, baseUrl, token, defaultMargin, autoSync } = request.data;
