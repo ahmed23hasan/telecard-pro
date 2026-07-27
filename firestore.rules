@@ -122,7 +122,14 @@ service cloud.firestore {
     // ==========================================
     match /telecard_vault/{document=**} { allow read, write: if isMasterAdmin(); }
     match /telecard_admin/{document=**} { allow read, write: if isMasterAdmin(); }
-    match /telecard_system/{document=**} { allow read, write: if isMasterAdmin(); }
+    match /telecard_system/{docId} {
+
+allow read: if docId == 'cache_version' || isMasterAdmin();
+allow write: if isMasterAdmin();
+}
+match /telecard_system/{docId}/{document=**} {
+allow read, write: if isMasterAdmin();
+}
     match /telecard_logs/{document=**} { allow read, write: if isMasterAdmin(); }
     match /telecard_idempotency_keys/{document=**} { allow read, write: if isMasterAdmin(); }
     match /telecard_failed_webhooks/{document=**} { allow read, write: if isMasterAdmin(); }
