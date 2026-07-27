@@ -1,7 +1,7 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.5 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.6 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق
-// 🚀 التحديث الأخير: إصلاح تضارب الـ Region، فصل الإعدادات أمنياً، وتوحيد خوارزمية الرفع.
+// 🚀 التحديث الأخير: تحسين الاستجابة في وضع Offline، توحيد الـ Region، وخوارزمية الرفع الآمن.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -20,7 +20,6 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
 
 // 🛡️ [إصلاح أمني]: استيراد الإعدادات من ملف الكونفيج بدلاً من فضحها هنا
 import { firebaseConfig } from '../config.js';
-
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 let appCheck = null; 
@@ -103,6 +102,11 @@ export const FirebaseAdapter = {
             if (cachedSnap.exists()) return { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
         } catch (e) { }
         
+        // 🚀 [إصلاح أداء]: الخروج الفوري إذا كان المتصفح غير متصل بالإنترنت ولم يتوفر كاش
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            return null;
+        }
+
         try {
             const serverSnap = await this._withTimeout(getDoc(docRef), 10000);
             return serverSnap.exists() ? { id: serverSnap.id, ...serverSnap.data(), fromCache: false } : null;

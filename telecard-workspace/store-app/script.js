@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V14.5 - Stable Enterprise) 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V14.6 - Stable Enterprise) 💎
 // 🎯 الوظيفة: الإقلاع السريع، دمج البيانات الآمن، والتوافقية الشاملة
-// 🚀 التحديثات: إزالة التضارب المعماري، تفويض الأحداث لنواة الواجهة (uiCore)، والختم الأمني.
+// 🚀 التحديثات: توافقية الـ Reload مع متصفحات 2024+، تفويض الأحداث لنواة الواجهة (uiCore)، والختم الأمني.
 // ============================================================================
 
 window.requestIdleCallback = window.requestIdleCallback || function(cb) {
@@ -39,9 +39,8 @@ const ClientSystem = {
     activeListeners: [], 
     userAuthListeners: [],
     _listenersBound: false, 
-    _authUnsubscribe: null, // 🛡️ [إصلاح ماسي]: مرجع ثابت لمستمع المصادقة لمنع التسرب
+    _authUnsubscribe: null, 
 
-    // 🧹 التنظيف المركزي الشامل للاتصالات
     clearFirebaseListeners: function() {
         [...this.activeListeners, ...this.userAuthListeners].forEach(unsub => {
             if (typeof unsub === 'function') try { unsub(); } catch(e){}
@@ -54,7 +53,6 @@ const ClientSystem = {
         }
     },
 
-    // 🔒 نظام الحماية بالبصمة البيومترية (Bank-Grade Security)
     enforceBiometricLock: async function() {
         const lockScreen = document.getElementById('biometric-lock-screen');
         if (!lockScreen) return false;
@@ -101,13 +99,8 @@ const ClientSystem = {
             if (this.isReady) { try { this.initFirebaseListeners(); } catch(e){} }
         });
     }
-    
-    // 🛡️ ملاحظة معمارية: تم إزالة initGlobalListeners و logCloudError من هنا.
-    // سيتم استدعاؤهما تلقائياً من uiCore.js (عبر وحدة UIManager) في خوارزمية الدمج أدناه، 
-    // لضمان تطبيق مبدأ "المركزية" (Single Source of Truth).
 };
 
-// 🔗 دمج الوحدات (Module Aggregation)
 const baseKeys = Object.keys(ClientSystem);
 [DataManager, UIManager, RenderManager, Components, Utils, UIFinance].forEach(mod => {
     if (!mod) return;
@@ -118,17 +111,13 @@ const baseKeys = Object.keys(ClientSystem);
     });
 });
 
-// ============================================================================
-// 🔄 محرك المزامنة الحي (Real-time Firebase Sync Engine)
-// ============================================================================
 ClientSystem.initFirebaseListeners = function() {
     console.log("📡 جاري تشغيل مستمعات السحابة الحية (النظام التفاعلي)...");
     this.clearFirebaseListeners(); 
     
     if (DB_KEYS.SETTINGS) {
-    // 🛡️ استخدام listenDoc لمراقبة ملف واحد فقط وتوفير الفواتير
-    this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.SETTINGS, 'singleton', (incoming) => {
-                    if (!incoming) return;            
+        this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.SETTINGS, 'singleton', (incoming) => {
+            if (!incoming) return;            
             const serverVersion = String(incoming.appVersion || '0');
             const localVersion = localStorage.getItem('telecard_app_version') || window.TELECARD_VERSION || '0';
             
@@ -139,7 +128,6 @@ ClientSystem.initFirebaseListeners = function() {
                     localStorage.setItem('telecard_app_version', serverVersion);
                     try { if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('TeleCardStoreDB'); } catch(e){}
                     
-                    // 🛡️ [إصلاح الذاكرة]: تنظيف محدد للبيانات القديمة دون تدمير الجلسة الحالية
                     const keysToRemove = [];
                     for (let i = 0; i < localStorage.length; i++) {
                         const k = localStorage.key(i);
@@ -157,8 +145,9 @@ ClientSystem.initFirebaseListeners = function() {
                         const regs = await navigator.serviceWorker.getRegistrations(); 
                         await Promise.all(regs.map(r => r.unregister())); 
                     }
-                    // 🛡️ استخدام الطريقة المعيارية الجديدة لعمل ريفريش
-                    setTimeout(() => window.location.reload(), 150);
+                    
+                    // 🛡️ [إصلاح التحديث]: استخدام location.href كبديل أقوى من reload() المتقلب
+                    setTimeout(() => { window.location.href = window.location.href.split('#')[0]; }, 150);
                 }, 2000);
                 return;
             }
@@ -183,7 +172,6 @@ ClientSystem.initFirebaseListeners = function() {
     
     if (!auth) return; 
     
-    // 🛡️ [إصلاح ماسي]: منع تكرار مستمع المصادقة عند انقطاع الشبكة
     if (this._authUnsubscribe) this._authUnsubscribe();
     
     this._authUnsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -252,9 +240,6 @@ ClientSystem.initFirebaseListeners = function() {
     });
 };
 
-// ============================================================================
-// 🚀 إقلاع النظام المدمج (Smart Boot)
-// ============================================================================
 ClientSystem.init = async function() {
     this.isReady = true;
     console.log("🚀 جاري إقلاع النظام (نمط مكافحة الانهيار + الكاش الذكي O(1) Reads)...");
@@ -272,7 +257,6 @@ ClientSystem.init = async function() {
             try { if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('TeleCardStoreDB'); } catch(e){}
             if ('serviceWorker' in navigator) { const regs = await navigator.serviceWorker.getRegistrations(); for (let r of regs) await r.unregister(); }
             
-            // 🛡️ [إصلاح ماسي]: الحفاظ على بيانات المستخدم المهمة عند تحديث الكود
             const keysToRemove = [];
             for (let i = 0; i < localStorage.length; i++) {
                 const k = localStorage.key(i);
@@ -283,8 +267,8 @@ ClientSystem.init = async function() {
             keysToRemove.forEach(k => localStorage.removeItem(k));
             
             localStorage.setItem('telecard_app_version', currentVersion);
-            // 🛡️ استخدام الطريقة المعيارية الجديدة
-            window.location.reload(); return; 
+            // 🛡️ [إصلاح التحديث]: استخدام location.href كبديل أقوى
+            window.location.href = window.location.href.split('#')[0]; return; 
         } else if (!savedVersion) {
             localStorage.setItem('telecard_app_version', currentVersion);
         }
@@ -303,7 +287,6 @@ ClientSystem.init = async function() {
     try {
         if (this.checkSystemStatus && this.checkSystemStatus()) return;
         
-        // 🚀 هنا السحر: سيتم جلب הדالة من uiCore.js عبر UIManager وتعمل بكفاءة
         if(this.initGlobalListeners) this.initGlobalListeners(); 
 
         await DataManager.initStoreCatalog();
@@ -332,7 +315,6 @@ ClientSystem.init = async function() {
         if (splashName) splashName.innerText = sName;
         localStorage.setItem(CACHE_KEYS.SPLASH_NAME || 'telecard_splash_name', sName);
 
-        // 🛡️ [إصلاح ترتيب الإقلاع]: لا نرسم الصفحة الرئيسية حتى نضمن جلب البنرات وباقي البيانات
         if (this.isReady && RenderManager) {
             const secKeys = ['COUPONS', 'COUNTRIES', 'PAYMENTS'];
             const promises = secKeys.map(k => StoreDB.getAll(DB_KEYS[k]).catch(() => []));
@@ -373,9 +355,6 @@ ClientSystem.init = async function() {
     } catch (e) {}
 };
 
-// ============================================================================
-// 🛡️ الختم الأمني النهائي (Enterprise Global Object Registration)
-// ============================================================================
 if (typeof window !== 'undefined') {
     Object.defineProperty(window, 'ClientSystem', {
         value: ClientSystem,

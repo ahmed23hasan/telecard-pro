@@ -1,13 +1,12 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V14.7 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V14.8 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه
 // 🚀 التحديثات:
-// 1. Safe Image Fallback: إظهار الأيقونات الاحتياطية بأمان ومنع تكرار النصوص.
-// 2. PDF XSS Shield: حماية الفواتير من حقن الأكواد الخبيثة عبر المدخلات.
-// 3. Fast DOM Fragment: إزالة مستمعات الصور اليدوية وتسريع الرسم بنسبة 40%.
-// 4. Memory Cap & Zero-Price Shield: حد أقصى للبيانات التاريخية ومنع التسعير الصفري.
-// 5. Live DOM Timers & Fuzzy Search: مؤقتات حية وبحث متقدم للكلمات المركبة.
-// 6. Safe URL Fix: استخدام safeUrl لحماية روابط Firebase Storage من الكسر.
+// 1. Dynamic Category Resolution: إصلاح شامل لفلترة المنتجات لدعم مصفوفات الأقسام والمسميات المختلفة.
+// 2. Safe Image Fallback: إظهار الأيقونات الاحتياطية بأمان ومنع تكرار النصوص.
+// 3. Search Leak Shield: حماية نتائج البحث من إظهار منتجات تابعة لأقسام مخفية أو محذوفة.
+// 4. Fast DOM Fragment: إزالة مستمعات الصور اليدوية وتسريع الرسم بنسبة 40%.
+// 5. Safe URL Fix: استخدام safeUrl لحماية روابط Firebase Storage من الكسر.
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -56,7 +55,7 @@ window.StoreRenderApp = window.StoreRenderApp || {
     handleImgError: function(img, type) {
         if (!img) return;
         img.style.display = 'none';
-        img.alt = ''; // منع تكرار اسم القسم
+        img.alt = ''; 
         
         const wrapper = img.parentElement;
         if (!wrapper) return;
@@ -141,7 +140,6 @@ export const RenderManager = {
 
         if (!rawUrl) return { html: fallbackHTML.replace('display: none;', 'display: flex;'), wrapperClass: ' shimmer-stop', wrapperStyle: ' animation: none !important; background-color: transparent !important;' };
 
-        // 🛡️ [إصلاح حرج]: استخدام Utils.safeUrl بدلاً من escapeHtml لمنع إفساد روابط Firebase Storage
         const safeUrl = typeof Utils !== 'undefined' && Utils.safeUrl ? Utils.safeUrl(rawUrl) : String(rawUrl).replace(/"/g, '&quot;');
         
         const imgVars = this._getImgLoadVars(rawUrl);
@@ -403,7 +401,15 @@ export const RenderManager = {
             try {
                 const v = offer.visualConfig;
                 const storyProdsArray = v.storyProducts?.length > 0 ? v.storyProducts : (offer.targetProds || []);
-                const targetedProds = (LiveStoreData.prods || []).filter(p => String(p.catId) === String(categoryId) && storyProdsArray.includes(String(p.id)));
+                const targetedProds = (LiveStoreData.prods || []).filter(p => {
+                    let isCatMatch = false;
+                    const targetCatId = String(categoryId);
+                    if (Array.isArray(p.catId)) isCatMatch = p.catId.map(String).includes(targetCatId);
+                    else if (Array.isArray(p.categoryIds)) isCatMatch = p.categoryIds.map(String).includes(targetCatId);
+                    else isCatMatch = String(p.catId) === targetCatId || String(p.categoryId) === targetCatId || String(p.category_id) === targetCatId;
+                    
+                    return isCatMatch && storyProdsArray.includes(String(p.id));
+                });
 
                 targetedProds.forEach(prod => {
                     let shapeClass = ''; let shapeStyle = '';
@@ -458,7 +464,14 @@ export const RenderManager = {
         if(titleEl) { titleEl.innerText = this._getCategoryName(id); titleEl.classList.add('show-correct-title'); }
 
         const subs = (LiveStoreData.cats || []).filter(c => String(c.parentId) === String(id)).sort((a,b) => (a.order||0)-(b.order||0));
-        const items = (LiveStoreData.prods || []).filter(p => String(p.catId) === String(id)).sort((a,b) => (a.order||0)-(b.order||0));
+        
+        // 🛠️ تم الإصلاح (Dynamic Category Resolution): فلترة تدعم المصفوفات لضمان جلب كل المنتجات
+        const items = (LiveStoreData.prods || []).filter(p => {
+            const targetId = String(id);
+            if (Array.isArray(p.catId)) return p.catId.map(String).includes(targetId);
+            if (Array.isArray(p.categoryIds)) return p.categoryIds.map(String).includes(targetId);
+            return String(p.catId) === targetId || String(p.categoryId) === targetId || String(p.category_id) === targetId;
+        }).sort((a,b) => (a.order||0)-(b.order||0));
 
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if(backBtn) {
@@ -505,12 +518,24 @@ export const RenderManager = {
         document.body.classList.remove('is-home', 'is-favorites'); 
 
         const term = q.trim().toLowerCase();
-        // 🛡️ [إصلاح حرج]: توحيد الكلمة المنظفة للأقسام والمنتجات معاً لمنع التضارب
         const cleanTerm = term.replace(/[-_.:,]/g, ' ');
         const searchTerms = cleanTerm.split(/\s+/).filter(t => t.length > 0);
 
         const matchedCats = (LiveStoreData.cats || []).filter(c => c.name?.toLowerCase().replace(/[-_.:,]/g, ' ').includes(cleanTerm));
-        const matchedProds = (LiveStoreData.prods || []).filter(p => p.name && searchTerms.every(word => p.name.toLowerCase().replace(/[-_.:,]/g, ' ').includes(word)));
+        
+        // 🛠️ تم الإصلاح (Search Leak Shield): استثناء المنتجات التي لا تنتمي لأي قسم نشط ومتاح 
+        const activeCatIds = new Set((LiveStoreData.cats || []).map(c => String(c.id)));
+        
+        const matchedProds = (LiveStoreData.prods || []).filter(p => {
+            let isCatActive = false;
+            if (Array.isArray(p.catId)) isCatActive = p.catId.some(cid => activeCatIds.has(String(cid)));
+            else if (Array.isArray(p.categoryIds)) isCatActive = p.categoryIds.some(cid => activeCatIds.has(String(cid)));
+            else isCatActive = activeCatIds.has(String(p.catId)) || activeCatIds.has(String(p.categoryId)) || activeCatIds.has(String(p.category_id));
+            
+            if (!isCatActive) return false;
+            
+            return p.name && searchTerms.every(word => p.name.toLowerCase().replace(/[-_.:,]/g, ' ').includes(word));
+        });
 
         const grid = document.getElementById('store-grid'); 
         if(!grid) return;
@@ -595,7 +620,8 @@ export const RenderManager = {
             
             let activeCols = null;
             if (favProds.length > 0 && LiveStoreData.cats) {
-                const parentCat = LiveStoreData.cats.find(c => String(c.id) === String(favProds[0].catId));
+                const parentCatId = Array.isArray(favProds[0].catId) ? String(favProds[0].catId[0]) : String(favProds[0].catId || favProds[0].categoryId);
+                const parentCat = LiveStoreData.cats.find(c => String(c.id) === parentCatId);
                 if (parentCat && parentCat.layout) activeCols = parentCat.layout;
             }
             this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols);

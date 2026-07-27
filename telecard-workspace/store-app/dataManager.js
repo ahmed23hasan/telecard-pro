@@ -41,7 +41,10 @@ const LocalDBHelper = {
                 tx.oncomplete = () => resolve(true);
                 tx.onerror = () => reject(tx.error);
             });
-        } catch (e) { return false; }
+        } catch (e) { 
+            console.warn("[LocalDB] Error setting data:", e.message);
+            return false; 
+        }
     },
     get: async function(key) {
         try {
@@ -52,7 +55,10 @@ const LocalDBHelper = {
                 req.onsuccess = () => resolve(req.result);
                 req.onerror = () => reject(req.error);
             });
-        } catch (e) { return null; }
+        } catch (e) { 
+            console.warn("[LocalDB] Error getting data:", e.message);
+            return null; 
+        }
     },
     remove: async function(key) {
         try {
@@ -63,7 +69,10 @@ const LocalDBHelper = {
                 tx.oncomplete = () => resolve(true);
                 tx.onerror = () => reject(tx.error);
             });
-        } catch (e) { return false; }
+        } catch (e) { 
+            console.warn("[LocalDB] Error removing data:", e.message);
+            return false; 
+        }
     }
 };
 
@@ -99,7 +108,10 @@ export const SmartCacheManager = {
                 return null;
             }
             return parsed.data;
-        } catch (e) { return null; }
+        } catch (e) { 
+            console.warn("[SmartCache] Error loading catalog:", e.message);
+            return null; 
+        }
     },
     
     shouldFetchFromServer: async function(currentServerVersion) {
@@ -147,6 +159,7 @@ export const DataManager = {
             
             if (!(await SmartCacheManager.shouldFetchFromServer(serverCatalogVersion))) return true;
             
+            // 🚨 تلميح: تأكد أن DB_KEYS.PRODS في ملف config.js يشير إلى "telecard_prods_public"
             const fetchPromises = [
                 StoreDB.getAll(DB_KEYS.PRODS, 15000), StoreDB.getAll(DB_KEYS.CATS, 1000),
                 StoreDB.getAll(DB_KEYS.OFFERS, 500), StoreDB.getAll(DB_KEYS.TIERS, 100), 
@@ -155,7 +168,7 @@ export const DataManager = {
             
             const results = await Promise.allSettled(fetchPromises);
             
-            // 🛡️ [إصلاح ماسي 1]: حماية من تسمم الكاش (Cache Poisoning)
+            // 🛡️ حماية من تسمم الكاش (Cache Poisoning)
             if (results[0].status === 'rejected' || results[1].status === 'rejected') {
                 console.warn("⚠️ تم اكتشاف فشل في جلب المنتجات أو الأقسام. حماية الكاش من المسح واستعادة الذاكرة...");
                 const fallback = await SmartCacheManager.loadCatalogFromLocal();
@@ -181,6 +194,7 @@ export const DataManager = {
             return true;
             
         } catch (error) {
+            console.error("[DataManager] Init Store Error:", error.message);
             LiveStoreData.isOfflineMode = true;
             setTimeout(() => window.UIManager?.showToast?.('أنت في وضع عدم الاتصال', 'warning'), 1500);
             return false;
@@ -210,8 +224,9 @@ export const DataManager = {
         
         try { localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser)); } 
         catch (e) { 
+            console.warn("[DataManager] Storage full, clearing non-essentials.");
             Object.keys(localStorage).forEach(key => { if (key.startsWith(DYNAMIC_PREFIXES.ALERT_VIEWS) || key === CACHE_KEYS.SMART_CATALOG) localStorage.removeItem(key); });
-            try { localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser)); } catch(err) {}
+            try { localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser)); } catch(err) { console.error("Still full:", err); }
         }
     }, 
     
@@ -219,12 +234,12 @@ export const DataManager = {
         const uid = this.user?.uid || this.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
         if (!uid || typeof newData !== 'object' || Array.isArray(newData) || newData === null) return false;
         
-        // 🛡️ حماية أقوى للمفاتيح الممنوعة
+        // 🛡️ حماية أقوى للمفاتيح الممنوعة لمنع التلاعب
         const FORBIDDEN_KEYS = new Set([
             'walletBalance', 'balance', 'wallet_balance', 'tierId', 'tier', 'totalSpent', 'totalDeposit', 'isBanned', 'isIpBanned', 
             'isRestricted', 'kycStatus', 'kycData', 'role', 'adminMessage', 'isVerified', 'devicePrints', 'passwordChangeHistory',
             'baseCurrency', 'base_currency', 'email', 'phone', 
-            '__proto__', 'constructor', 'prototype' // 🚨 إغلاق ثغرة Prototype Pollution
+            '__proto__', 'constructor', 'prototype' 
         ]);
         
         const sanitized = {};
@@ -239,7 +254,10 @@ export const DataManager = {
             const success = await StoreDB.set(DB_KEYS.USERS, String(uid), sanitized, { merge: true });
             if (success) { this.user = { ...this.user, ...sanitized }; this.saveUserLocal(); return true; }
             return false;
-        } catch (error) { return false; }
+        } catch (error) { 
+            console.warn("[DataManager] Failed to update profile:", error.message);
+            return false; 
+        }
     },
 
     loadPrefs: function() {
@@ -247,10 +265,20 @@ export const DataManager = {
             const saved = JSON.parse(localStorage.getItem(DB_KEYS.PREFS) || '{}');
             this.prefs = { sound: saved.sound !== false, theme: saved.theme || localStorage.getItem(CACHE_KEYS.THEME) || 'dark', security2fa: saved.security2fa === true, favs: Array.isArray(saved.favs) ? saved.favs : [] };
             this.favs = new Set(this.prefs.favs.map(String).filter(s => s.trim() !== '' && s !== 'NaN' && s !== 'undefined'));
-        } catch (e) { this.prefs = { sound: true, theme: 'dark', security2fa: false, favs: [] }; this.favs = new Set(); }
+        } catch (e) { 
+            console.warn("[DataManager] Load prefs failed, using defaults.");
+            this.prefs = { sound: true, theme: 'dark', security2fa: false, favs: [] }; this.favs = new Set(); 
+        }
     },
     
-    savePrefs: function() { try { if (this.favs) this.prefs.favs = Array.from(this.favs); localStorage.setItem(DB_KEYS.PREFS, JSON.stringify(this.prefs || {})); } catch (e) { } },
+    savePrefs: function() { 
+        try { 
+            if (this.favs) this.prefs.favs = Array.from(this.favs); 
+            localStorage.setItem(DB_KEYS.PREFS, JSON.stringify(this.prefs || {})); 
+        } catch (e) { 
+            console.warn("[DataManager] Save prefs failed:", e.message); 
+        } 
+    },
 
     getTiers: function() { return LiveStoreData.tiers || []; },
     getUserTier: function(user) {
@@ -339,10 +367,8 @@ export const DataManager = {
         if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'غير مخصص لهذا المنتج' };
         if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.map(String).includes(String(this.user.uid || this.user.id))) return { valid: false, msg: 'مخصص لعملاء محددين' };
         
-        if (Number(cp.maxPerUser) > 0) {
-            const used = (cp.usageHistory?.[`user_${this.user.uid || this.user.id}`]) || 0;
-            if (used >= Number(cp.maxPerUser)) return { valid: false, msg: `استنفدت الحد الأقصى (${cp.maxPerUser} مرات)` };
-        }
+        // 🛡️ تم الإصلاح (Privacy Leak): التحقق من حصة العميل المحددة (maxPerUser) يتم برمجته وتأكيده في السيرفر فقط 
+        // لتجنب تسريب أرقام المستخدمين (usageHistory) للواجهة الأمامية.
         
         if (Number(cp.minOrder) > 0) {
             const p = this.calculateFinalPrice(prod, this.user, qty, optIdx, null);
@@ -382,7 +408,7 @@ export const DataManager = {
                     }
                 });
             }
-        } catch (e) {}
+        } catch (e) { console.warn("[DataManager] listenDoc failed:", e.message); }
     },
 
     logout: async function() {
@@ -406,7 +432,7 @@ export const DataManager = {
             this.favs = new Set();
             this.prefs = {};
 
-        } catch(e) {}
+        } catch(e) { console.warn("[DataManager] Error during logout:", e.message); }
         window.location.replace('login.html');
     },
 
@@ -490,13 +516,13 @@ export const DataManager = {
                     if(res2.ok) ip = (await res2.json()).ip; 
                 } 
                 catch (e2) {
-                    console.warn("🛡️ IP API blocked by client (Adblocker/Network)");
+                    console.warn("🛡️ IP API requests failed (likely Ad-blocker). Falling back to server-side enforcement.");
                 }
             }
             clearTimeout(timeoutId);
 
             if (ip && banned.includes(ip)) { this.logout(); return true; }
-        } catch (e) { }
+        } catch (e) { console.warn("[IP Ban Error]", e.message); }
         return false;
     },
 
@@ -525,7 +551,6 @@ export const DataManager = {
         if (LiveStoreData.isOfflineMode) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
         
-        // 🛡️ [إصلاح حرج]: تصحيح متغير مفتاح الجلسة ليكون خاصاً بالطلبات وليس بالإيداع
         const SESSION_ORDER_KEY = `tc_pending_order_${prod.id}`;
 
         // 🛡️ درع النقر المزدوج لطلبات الشراء
@@ -548,10 +573,9 @@ export const DataManager = {
             const code = err.code || '';
             const msg = String(err.message || '').toLowerCase();
             
-            if (!['unavailable', 'deadline-exceeded', 'internal'].includes(code)) {
-                sessionStorage.removeItem(SESSION_ORDER_KEY);
-                this._currentPurchaseKey = null;
-            }
+            // 🛠️ تم الإصلاح (UX Deadlock): تحرير القفل دائماً مهما كان نوع الخطأ، للسماح للعميل بالمحاولة مجدداً
+            sessionStorage.removeItem(SESSION_ORDER_KEY);
+            this._currentPurchaseKey = null;
             
             if (code === 'failed-precondition' || msg.includes('رصيد')) return { success: false, msg: 'رصيدك غير كافٍ.' };
             if (code === 'already-exists' || msg.includes('مسبقاً')) return { success: false, msg: 'تم استلام طلبك بالفعل.' };
@@ -606,10 +630,9 @@ export const DataManager = {
         } catch (err) {
             const code = err.code || '';
             
-            if (!['unavailable', 'deadline-exceeded', 'internal'].includes(code)) {
-                sessionStorage.removeItem(SESSION_DEPOSIT_KEY);
-                this._currentDepositKey = null;
-            }
+            // 🛠️ تم الإصلاح (UX Deadlock): تحرير القفل دائماً 
+            sessionStorage.removeItem(SESSION_DEPOSIT_KEY);
+            this._currentDepositKey = null;
             
             if (code === 'already-exists') return { success: false, msg: 'طلب قيد المراجعة.' };
             if (code === 'resource-exhausted') return { success: false, msg: 'انتظر قليلاً.' };
@@ -646,6 +669,7 @@ export const DataManager = {
             });
             return this._notifUnsubscribe; 
         } catch (e) { 
+            console.warn("[DataManager] listenQuery (notifications) failed:", e.message);
             this._notifUnsubscribe = null; 
             return null; 
         }
@@ -722,7 +746,8 @@ export const DataManager = {
         if (window.UIManager?.updateNotifBadges) window.UIManager.updateNotifBadges();
         
         if (this.user?.uid && localNotif) {
-            try { await StoreDB.set(`telecard_users/${this.user.uid}/notifications`, msgId, { isRead: true }, { merge: true }); } catch (e) {}
+            try { await StoreDB.set(`telecard_users/${this.user.uid}/notifications`, msgId, { isRead: true }, { merge: true }); } 
+            catch (e) { console.warn("[DataManager] mark single notif error:", e.message); }
         }
     },
 
@@ -772,7 +797,7 @@ export const DataManager = {
                 this.saveUserLocal();
                 StoreDB.set(DB_KEYS.USERS, this.user.uid, { devicePrints: devices }, { merge: true }).catch(() => {});
             }
-        } catch (e) { }
+        } catch (e) { console.warn("[DataManager] silent sensor bypassed:", e.message); }
     },
     
     generateTOTPSecret: async function() { return await StoreDB.generateTOTPSecret(); },

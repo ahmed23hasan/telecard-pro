@@ -1,5 +1,5 @@
 // ============================================================================
-// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة الماسية المطلقة V15 💎
+// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة الماسية المطلقة V15.1 💎
 // 🎯 الوظيفة: تجميع وحدات الواجهة المنفصلة وتصديرها ككائن واحد للنظام
 // 🚀 التحديثات:
 // 1. Prototype Shield: منع ثغرة تسمم النماذج (Prototype Pollution).
@@ -10,7 +10,7 @@
 import { UICore } from './uiCore.js';
 import { UIFinance } from './uiFinance.js';
 import { UIAuth } from './uiAuth.js';
-import { Utils } from '../utils.js'; 
+// 🧹 تم إزالة استيراد Utils الزائد لتنظيف الكود
 
 let _loaderActiveRequests = 0;
 
@@ -121,4 +121,4 @@ Object.defineProperties(UIManager, {
     }
 });
 
-// 🔒 تجميد الكائن النهائي لمنع التلاعب به أثناء الـ Runtime
+// 🔒 التجميد يتم في الملف الرئيسي (app.js / main.js) حفاظاً على دورة حياة التهيئة

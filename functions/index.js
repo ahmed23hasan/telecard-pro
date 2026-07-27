@@ -1,9 +1,9 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الماسية المطلقة V17.3 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الماسية المطلقة V18.0 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديثات المعمارية: 
-// 1. Vault Batching: تقسيم صناديق الأكواد لحزم (Chunks) لتجاوز حد الـ 500 عملية.
-// 2. Base64 Shield: حماية مستندات الإيداع من تجاوز حجم 1MB للصور.
+// 🚀 التحديثات المعمارية (V18.0): 
+// 1. Storage Optimization: التخلص من كابوس الـ Base64، واستقبال روابط Firebase Storage لتسريع قاعدة البيانات.
+// 2. Vault Batching: تقسيم صناديق الأكواد لحزم (Chunks) لتجاوز حد الـ 500 عملية.
 // 3. Logic Correction: تصحيح الخصم الإداري لمنع تدمير مستويات العملاء.
 // 4. Error Tracing: معالجة أخطاء التسعير الصامتة لتجنب انهيار المنتجات.
 // ============================================================================
@@ -11,7 +11,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentWritten, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const admin = require('firebase-admin');
-const functions = require('firebase-functions/v1'); 
+const functions = require('firebase-functions/v1'); // مستقر وآمن لدوال الـ Auth 
 const crypto = require('crypto'); // 🚀 O(1) Init
 
 const FinancialEngine = require('./financialEngine.js');
@@ -26,7 +26,7 @@ const SYSTEM_LIMITS = {
     MAX_QTY_PER_ORDER: 10000, 
     MAX_VAULT_QTY_PER_ORDER: 200, 
     MAX_SAFE_AMOUNT: 100000000,
-    MAX_RECEIPT_SIZE: 700000 // ~700KB لمنع تجاوز حد الفايربيز
+    MAX_URL_LENGTH: 1000 // 🚀 تم استبدال حد الـ Base64 بحد لروابط الصور لحماية قاعدة البيانات
 };
 
 // ==========================================
@@ -375,10 +375,10 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
     
     if (isNaN(amount) || amount <= 0 || amount > SYSTEM_LIMITS.MAX_SAFE_AMOUNT) throw new HttpsError('out-of-range', 'المبلغ المدخل غير صالح.');
 
-    // 🛡️ درع حجم الـ Base64 لمنع تجاوز حد المستند
-    const receiptStr = data.receiptData ? String(data.receiptData) : null;
-    if (receiptStr && receiptStr.length > SYSTEM_LIMITS.MAX_RECEIPT_SIZE) {
-        throw new HttpsError('invalid-argument', 'حجم صورة الإشعار كبير جداً، يرجى تقليل الجودة والمحاولة مجدداً.');
+    // 🚀 درع الروابط (نستقبل الرابط المرفوع مسبقاً بدلاً من حشو السيرفر بالـ Base64)
+    const receiptUrl = data.receiptUrl ? String(data.receiptUrl).trim() : null;
+    if (receiptUrl && receiptUrl.length > SYSTEM_LIMITS.MAX_URL_LENGTH) {
+        throw new HttpsError('invalid-argument', 'رابط الإيصال غير صالح أو طويل جداً.');
     }
 
     try {
@@ -415,10 +415,12 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
             const cleanId = generateUniqueId(); 
             
             transaction.update(userRef, { lastDepositReqTime: Date.now() });
+            
+            // تسجيل المستند برابط الـ URL الخفيف
             transaction.set(db.collection('telecard_deposits').doc(cleanId), {
                 id: cleanId, displayId: cleanId, userId: uid, method: paymentMethodName, amount, currency: payCurr, 
                 creditedAmount: safeNetBase, status: 'pending', time: admin.firestore.FieldValue.serverTimestamp(), 
-                createdAt: admin.firestore.FieldValue.serverTimestamp(), receipt: receiptStr
+                createdAt: admin.firestore.FieldValue.serverTimestamp(), receiptUrl: receiptUrl 
             });
 
             if (idempotencyRef) {

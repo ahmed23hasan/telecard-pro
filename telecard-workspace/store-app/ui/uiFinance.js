@@ -1,10 +1,10 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة الماسية المطلقة V4.7 💎
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة الماسية المطلقة V4.8 💎
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
 // 🚀 التحديثات:
 // 1. Phantom Blob Fix: مسح جبري للذاكرة العشوائية لمنع نزيف الرام عند الرفع المكرر.
 // 2. Ghost Modal Shield: فك الارتباط الزمني لمنع تجمد الـ CSS عند الانتقال بين النوافذ.
-// 3. Destructuring-Safe Events: حماية السياق (Context) عند ربط الـ Document Events.
+// 3. Event Delegation Fix: حل مشكلة تعطل أزرار الدفع عند الرجوع للخلف.
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -275,7 +275,6 @@ export const UIFinance = {
                             item.parentNode.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
                             item.classList.add('active');
                             
-                            // 🛡️ [إصلاح ماسي]: استدعاء System-level لمنع فقدان السياق بسبب הـ Arrow function
                             getSys().updatePriceDisplay?.();
                             getSys().revalidateAppliedCoupon?.();
                             getSys().sfx?.('nav');
@@ -661,7 +660,11 @@ export const UIFinance = {
 
         setTimeout(() => {
             const section = document.getElementById('bal-method-info-section');
-            if (section && !modal.classList.contains('is-step-2')) section.innerHTML = ''; 
+            if (section && !modal.classList.contains('is-step-2')) {
+                section.innerHTML = ''; 
+                // 🛡️ [إصلاح ماسي 3]: تصفير المتغير لضمان إعادة ربط الأحداث عند الدخول مرة أخرى
+                section._boundDelegation = false; 
+            }
         }, 400);
 
         getSys().sfx?.('nav');
