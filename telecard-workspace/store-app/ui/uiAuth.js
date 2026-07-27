@@ -1051,14 +1051,14 @@ export const UIAuth = {
             return;
         }
         
-        if (file.size > 8 * 1024 * 1024) {
-            getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 8MB', 'warning');
-            input.value = '';
-            delete this.kycFiles[previewId];
-            return;
-        }
-        
-        this._isProcessingImg = true;
+        // 🛡️ توحيد الحد الأقصى مع المحول (FirebaseAdapter)
+if (file.size > 5 * 1024 * 1024) {
+    getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
+    input.value = '';
+    delete this.kycFiles[previewId];
+    return;
+}
+this._isProcessingImg = true;
         
         try {
             getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');

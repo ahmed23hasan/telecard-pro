@@ -21,7 +21,6 @@ service cloud.firestore {
     // 🛡️ دروع حماية ملف المستخدم (Profile Firewalls)
     // ==========================================
     function isStandardProfileUpdate() {
-      // 🚨 تم إزالة 'adminMessage' لمنع المستخدم من تعديل أو مسح رسائل الإدارة الموجهة إليه
       let allowedKeys = ['name', 'firstName', 'lastName', 'fullName', 'username', 'img', 'phone', 'country', 'theme', 'devicePrints', 'passwordChangeHistory', 'biometricEnabled', 'readAlerts', 'baseCurrency', 'base_currency'];
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
     }
@@ -45,7 +44,6 @@ service cloud.firestore {
                        data.get('isIpBanned', false) == false;
       
       let allowedCreationKeys = ['email', 'fullName', 'walletBalance', 'balance', 'totalSpent', 'totalDeposit', 'tierId', 'role', 'isBanned', 'isIpBanned', 'createdAt', 'provider'];
-      // 🚀 مقصلة الـ Keys لمنع حقن الحقول الخبيثة (NoSQL Injection)
       return safeValues && data.keys().hasOnly(allowedCreationKeys);
     }
 
@@ -84,18 +82,24 @@ service cloud.firestore {
     }
 
     // ==========================================
+    // 🔓 تعديل مؤقت للتشخيص (السماح بقراءة المنتجات السرية)
+    // ==========================================
+    match /telecard_prods/{docId} { 
+      allow read: if true;  // 👈 تم فتح القراءة للجميع مؤقتاً
+      allow write: if isMasterAdmin(); 
+    }
+    
+    // ==========================================
     // 🔒 البيانات المحمية - كتابة السيرفر فقط (Server-Only Writes)
     // ==========================================
-    match /telecard_prods/{docId} { allow read, write: if isMasterAdmin(); }
-    
     match /telecard_orders/{docId} {
       allow read: if (isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
-      allow write: if isMasterAdmin(); // العميل يقرأ فقط، الدوال السحابية هي من تكتب الطلب
+      allow write: if isMasterAdmin();
     }
 
     match /telecard_deposits/{docId} {
       allow read: if (isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
-      allow write: if isMasterAdmin(); // العميل يقرأ فقط، الدوال السحابية هي من تكتب الشحن
+      allow write: if isMasterAdmin();
     }
 
     // ==========================================
@@ -123,13 +127,12 @@ service cloud.firestore {
     match /telecard_vault/{document=**} { allow read, write: if isMasterAdmin(); }
     match /telecard_admin/{document=**} { allow read, write: if isMasterAdmin(); }
     match /telecard_system/{docId} {
-
-allow read: if docId == 'cache_version' || isMasterAdmin();
-allow write: if isMasterAdmin();
-}
-match /telecard_system/{docId}/{document=**} {
-allow read, write: if isMasterAdmin();
-}
+      allow read: if docId == 'cache_version' || isMasterAdmin();
+      allow write: if isMasterAdmin();
+    }
+    match /telecard_system/{docId}/{document=**} {
+      allow read, write: if isMasterAdmin();
+    }
     match /telecard_logs/{document=**} { allow read, write: if isMasterAdmin(); }
     match /telecard_idempotency_keys/{document=**} { allow read, write: if isMasterAdmin(); }
     match /telecard_failed_webhooks/{document=**} { allow read, write: if isMasterAdmin(); }

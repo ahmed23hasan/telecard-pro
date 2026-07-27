@@ -27,7 +27,8 @@ export const firebaseConfig = deepFreeze({
 
 export const DB_KEYS = deepFreeze({
     CATS: 'telecard_cats',
-    PRODS: 'telecard_prods_public', // 🛡️ درع الحماية الفعال
+    PRODS: 'telecard_prods', 
+    // 🛡️ درع الحماية الفعال
     SETTINGS: 'telecard_settings',
     USERS: 'telecard_users',
     BANNERS: 'telecard_banners',
