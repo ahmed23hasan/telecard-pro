@@ -157,7 +157,12 @@ export const RenderManager = {
         const displayCurrency = DataManager.selectedCurr || 'USD';
         
         let pricing = null;
-        try { pricing = DataManager.calculateFinalPrice(p, DataManager.user, 1, null, null); } catch(e){}
+try { 
+    pricing = DataManager.calculateFinalPrice(p, DataManager.user, 1, null, null); 
+} catch(e) {
+    // هذا السطر سيفضح المشكلة ولن يخفيها بعد الآن
+    console.error("🚨 خطأ أثناء تسعير المنتج:", p.name, "السبب:", e.message, "بيانات المنتج:", p);
+}
         if (!pricing) return ''; 
         
         let priceSectionHtml = '', nameExpandedStyle = '';

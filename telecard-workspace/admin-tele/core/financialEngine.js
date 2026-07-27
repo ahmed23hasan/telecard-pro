@@ -1,7 +1,7 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - V15.1 💎
+// 💰 المحرك المالي المركزي (Admin Edition) - V15.2 💎
 // 🎯 الوظيفة: محاكاة الأسعار، كشف الأرباح للمدير، وتشخيص تصادم الخصومات.
-// 🚀 التحديثات: إضافة التسوية المحاسبية لضمان تطابق تقارير الخصومات مع الإيرادات.
+// 🚀 التحديثات: توحيد القاموس المحاسبي (DTO) مع الخادم لضمان تطابق التقارير.
 // ============================================================================
 
 export const FinancialEngine = {
@@ -63,9 +63,11 @@ export const FinancialEngine = {
     },
     calculatePrice: function(params = {}) {
         const { product = {}, costPrice = 0, fixedPrice = 0, tier = null, offer = null, coupon = null, optIdx = null } = params;
+        
+        // 🛡️ المواءمة: توحيد مفاتيح الإرجاع في حال الفشل
         if (!product || typeof product !== 'object' || Object.keys(product).length === 0) {
             console.warn("[Admin FinancialEngine] تم تمرير بيانات منتج تالفة للتسعير.");
-            return { cost: 0, tierPrice: 0, originalPrice: 0, finalPrice: 0, tierName: 'غير محدد', offerName: null, offerDiscount: 0, couponCode: null, couponDiscount: 0, totalDiscountVal: 0, profit: 0, marginPct: 0, isFirewallActive: true, isFirewallViolated: true };
+            return { costUsd: 0, tierPrice: 0, originalPrice: 0, finalPrice: 0, tierName: 'غير محدد', offerName: null, offerDiscount: 0, couponCode: null, couponDiscount: 0, totalDiscount: 0, netProfitUsd: 0, marginPct: 0, isFirewallActive: true, isFirewallViolated: true };
         }
 
         let cost = FinancialEngine.extractNum(costPrice || product.costPrice || product.cost_price || 0);
@@ -73,14 +75,14 @@ export const FinancialEngine = {
         let activeOption = null;
 
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && optIdx !== undefined) {
-    const index = Number(optIdx);
-    // 🛡️ حماية الفهرس للمدير
-    if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
-        activeOption = product.options[index];
-        cost = FinancialEngine.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
-        if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
-    }
-}
+            const index = Number(optIdx);
+            if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
+                activeOption = product.options[index];
+                cost = FinancialEngine.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
+                if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+            }
+        }
+        
         let currentPrice = cost;
         let standardPrice = activeOption ? FinancialEngine.extractNum(activeOption.price) : FinancialEngine.extractNum(product.price);
         let tierName = null;
@@ -160,7 +162,7 @@ export const FinancialEngine = {
             currentPrice = cost;
         }
 
-        // ⚖️ التسوية المحاسبية لضمان سلامة التقارير الإدارية
+        // ⚖️ التسوية المحاسبية
         if (currentPrice > preFirewallPrice) {
             let clawback = FinancialEngine.safeSub(currentPrice, preFirewallPrice);
             if (couponDiscount >= clawback) {
@@ -175,19 +177,31 @@ export const FinancialEngine = {
         }
 
         const finalPrice = currentPrice;
-        const totalDiscountVal = FinancialEngine.safeSub(originalPrice, finalPrice);
-        const profit = Math.max(0, FinancialEngine.safeSub(finalPrice, cost));
+        
+        // 🛡️ المواءمة المعمارية: توحيد مفاتيح الربح والتكلفة والخصم مع الباك إند
+        const totalDiscount = FinancialEngine.safeSub(originalPrice, finalPrice);
+        const netProfitUsd = Math.max(0, FinancialEngine.safeSub(finalPrice, cost));
         
         let marginPct = 0;
         if (finalPrice > 0) {
-            marginPct = FinancialEngine.safeMul(FinancialEngine.safeDiv(profit, finalPrice), 100);
+            marginPct = FinancialEngine.safeMul(FinancialEngine.safeDiv(netProfitUsd, finalPrice), 100);
         }
 
         return {
-            cost, tierPrice, originalPrice, finalPrice, tierName, 
-            offerName, offerDiscount, couponCode, couponDiscount, 
-            totalDiscountVal, profit, marginPct: Number(marginPct.toFixed(2)), 
-            isFirewallActive, isFirewallViolated
+            costUsd: cost,           // تغيير من cost
+            tierPrice, 
+            originalPrice, 
+            finalPrice, 
+            tierName, 
+            offerName, 
+            offerDiscount, 
+            couponCode, 
+            couponDiscount, 
+            totalDiscount,           // تغيير من totalDiscountVal
+            netProfitUsd,            // تغيير من profit
+            marginPct: Number(marginPct.toFixed(2)), 
+            isFirewallActive, 
+            isFirewallViolated
         };
     }
 };

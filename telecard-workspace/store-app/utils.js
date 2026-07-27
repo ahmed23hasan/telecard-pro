@@ -175,30 +175,32 @@ export const Utils = {
         
         return `${diffSecs} ثانية`;
     },
+  // === 6. محرك حساب الأسعار المضمن للواجهة ===
+TelecardPricingEngine: Object.freeze({
+    calculate: function(params) {
+        return FinancialEngine.calculatePrice(params);
+    },
     
-    // === 6. محرك حساب الأسعار المضمن للواجهة ===
-    TelecardPricingEngine: Object.freeze({
-        calculate: function(params) {
-            return FinancialEngine.calculatePrice(params);
-        },
-        calculateOrderTotalUi: function(params, rawQty) {
-            if (typeof FinancialEngine.calculateOrderTotalUi === 'function') {
-                return FinancialEngine.calculateOrderTotalUi(params, rawQty);
-            }
-            const unit = FinancialEngine.calculatePrice(params);
-            const q = Math.max(1, Math.floor(Number(rawQty) || 1));
-            
-            const safeMul = typeof FinancialEngine.safeMul === 'function' ?
-                (a, b) => FinancialEngine.safeMul(a, b) :
-                (a, b) => Math.round((Number(a) * Number(b)) * 10000) / 10000;
-            
-            return {
-                ...unit,
-                qty: q,
-                totalOriginalPrice: safeMul(unit.originalPrice || 0, q),
-                totalFinalPrice: safeMul(unit.finalPrice || 0, q),
-                totalDiscountVal: safeMul(unit.totalDiscountVal || 0, q)
-            };
+    // 🛡️ الإصلاح: تغيير الاسم إلى calculateOrderTotal وتحديث مفتاح totalDiscount
+    calculateOrderTotal: function(params, rawQty) {
+        if (typeof FinancialEngine.calculateOrderTotal === 'function') {
+            return FinancialEngine.calculateOrderTotal(params, rawQty);
         }
-    })
-};
+        
+        // كود احتياطي (Fallback) محصن في حال تعذر تحميل المحرك المالي الأصلي
+        const unit = FinancialEngine.calculatePrice(params);
+        const q = Math.max(1, Math.floor(Number(rawQty) || 1));
+        
+        const safeMul = typeof FinancialEngine.safeMul === 'function' ?
+            (a, b) => FinancialEngine.safeMul(a, b) :
+            (a, b) => Math.round((Number(a) * Number(b)) * 10000) / 10000;
+        
+        return {
+            ...unit,
+            qty: q,
+            totalOriginalPrice: safeMul(unit.originalPrice || 0, q),
+            totalFinalPrice: safeMul(unit.finalPrice || 0, q),
+            totalDiscount: safeMul(unit.totalDiscount || 0, q) // 🛡️ تم التحديث إلى totalDiscount
+        };
+    }
+})};

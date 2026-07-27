@@ -1,3 +1,7 @@
+// ============================================================================
+// ⚙️ مدير البيانات الرئيسي (DataManager.js)
+// ============================================================================
+
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
 import { DB_KEYS, ACTIVE_USER_KEY, CACHE_KEYS, DYNAMIC_PREFIXES } from './config.js';
 import { FirebaseAdapter, auth } from './core/firebaseAdapter.js'; 
@@ -133,74 +137,75 @@ export const SmartCacheManager = {
 // ⚙️ مدير البيانات الرئيسي (DataManager)
 // ============================================================================
 export const DataManager = {
+ initStoreCatalog: async function() {
+    console.log("⚡ جاري تشغيل المتجر...");
+    const t0 = performance.now();
+    LiveStoreData.isOfflineMode = false;
     
-    initStoreCatalog: async function() {
-        console.log("⚡ جاري تشغيل المتجر...");
-        const t0 = performance.now();
-        LiveStoreData.isOfflineMode = false;
+    try {
+        // 🛡️ الإصلاح: جلب نسخة الكاش الحقيقية من نظام السيرفر لكسر الكاش القديم
+        const [settingsSnap, systemSnap] = await Promise.all([
+            StoreDB.getById(DB_KEYS.SETTINGS, 'singleton'),
+            StoreDB.getById(DB_KEYS.SYSTEM, 'cache_version')
+        ]);
         
-        try {
-            let settingsSnap = await StoreDB.getById(DB_KEYS.SETTINGS, 'singleton');
-            let serverCatalogVersion = '1.0';
-            
-            if (!settingsSnap) {
-                console.warn("⚠️ السيرفر بطيء. جاري تشغيل المتجر من الذاكرة المحلية...");
-                const fallback = await SmartCacheManager.loadCatalogFromLocal();
-                if (fallback && fallback.cats && fallback.cats.length > 0) {
-                    Object.assign(LiveStoreData, fallback);
-                    LiveStoreData.isOfflineMode = true; 
-                    return true; 
-                } else throw new Error("لا يوجد اتصال ولا يوجد كاش محلي.");
-            } else {
-                serverCatalogVersion = settingsSnap.catalogVersion || '1.0';
-                LiveStoreData.settings = settingsSnap || {};
-                if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) RenderHelpers.init(LiveStoreData.settings);
-            }
-            
-            if (!(await SmartCacheManager.shouldFetchFromServer(serverCatalogVersion))) return true;
-            
-            // 🚨 تلميح: تأكد أن DB_KEYS.PRODS في ملف config.js يشير إلى "telecard_prods_public"
-            const fetchPromises = [
-                StoreDB.getAll(DB_KEYS.PRODS, 15000), StoreDB.getAll(DB_KEYS.CATS, 1000),
-                StoreDB.getAll(DB_KEYS.OFFERS, 500), StoreDB.getAll(DB_KEYS.TIERS, 100), 
-                StoreDB.getAll(DB_KEYS.RATES, 100), StoreDB.getAll(DB_KEYS.BANNERS, 50) 
-            ];
-            
-            const results = await Promise.allSettled(fetchPromises);
-            
-            // 🛡️ حماية من تسمم الكاش (Cache Poisoning)
-            if (results[0].status === 'rejected' || results[1].status === 'rejected') {
-                console.warn("⚠️ تم اكتشاف فشل في جلب المنتجات أو الأقسام. حماية الكاش من المسح واستعادة الذاكرة...");
-                const fallback = await SmartCacheManager.loadCatalogFromLocal();
-                if (fallback) Object.assign(LiveStoreData, fallback);
+        // قراءة الإصدار من telecard_system كما يفعل الباك إند
+        let serverCatalogVersion = systemSnap?.version || settingsSnap?.catalogVersion || '1.0';
+        
+        if (!settingsSnap) {
+            console.warn("⚠️ السيرفر بطيء. جاري تشغيل المتجر من الذاكرة المحلية...");
+            const fallback = await SmartCacheManager.loadCatalogFromLocal();
+            if (fallback && fallback.cats && fallback.cats.length > 0) {
+                Object.assign(LiveStoreData, fallback);
                 LiveStoreData.isOfflineMode = true;
                 return true;
-            }
-            
-            const extractData = (resIndex, fallback = []) => results[resIndex].status === 'fulfilled' ? results[resIndex].value : fallback;
-            
-            const prods = extractData(0);
-            const cats = extractData(1);
-            const offers = extractData(2);
-            const tiers = extractData(3);
-            const rates = extractData(4);
-            const banners = extractData(5);
-            
-            const activeProds = prods.filter(p => p.isActive !== false);
-            Object.assign(LiveStoreData, { prods: activeProds, cats, offers, tiers, rates, banners });
-            await SmartCacheManager.saveCatalogToLocal(activeProds, cats, offers, tiers, rates, banners);
-            
-            console.log(`✅ تم التحديث في ${Math.round(performance.now() - t0)}ms`);
-            return true;
-            
-        } catch (error) {
-            console.error("[DataManager] Init Store Error:", error.message);
-            LiveStoreData.isOfflineMode = true;
-            setTimeout(() => window.UIManager?.showToast?.('أنت في وضع عدم الاتصال', 'warning'), 1500);
-            return false;
+            } else throw new Error("لا يوجد اتصال ولا يوجد كاش محلي.");
+        } else {
+            LiveStoreData.settings = settingsSnap || {};
+            if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) RenderHelpers.init(LiveStoreData.settings);
         }
-    },
-
+        
+        if (!(await SmartCacheManager.shouldFetchFromServer(serverCatalogVersion))) return true;
+        
+        const fetchPromises = [
+            StoreDB.getAll(DB_KEYS.PRODS, 15000), StoreDB.getAll(DB_KEYS.CATS, 1000),
+            StoreDB.getAll(DB_KEYS.OFFERS, 500), StoreDB.getAll(DB_KEYS.TIERS, 100),
+            StoreDB.getAll(DB_KEYS.RATES, 100), StoreDB.getAll(DB_KEYS.BANNERS, 50)
+        ];
+        
+        const results = await Promise.allSettled(fetchPromises);
+        
+        if (results[0].status === 'rejected' || results[1].status === 'rejected') {
+            console.warn("⚠️ تم اكتشاف فشل في جلب المنتجات أو الأقسام. حماية الكاش من المسح...");
+            const fallback = await SmartCacheManager.loadCatalogFromLocal();
+            if (fallback) Object.assign(LiveStoreData, fallback);
+            LiveStoreData.isOfflineMode = true;
+            return true;
+        }
+        
+        const extractData = (resIndex, fallback = []) => results[resIndex].status === 'fulfilled' ? results[resIndex].value : fallback;
+        
+        const prods = extractData(0);
+        const cats = extractData(1);
+        const offers = extractData(2);
+        const tiers = extractData(3);
+        const rates = extractData(4);
+        const banners = extractData(5);
+        
+        const activeProds = prods.filter(p => p.isActive !== false);
+        Object.assign(LiveStoreData, { prods: activeProds, cats, offers, tiers, rates, banners });
+        await SmartCacheManager.saveCatalogToLocal(activeProds, cats, offers, tiers, rates, banners);
+        
+        console.log(`✅ تم التحديث بنجاح (نسخة الكاش: ${serverCatalogVersion}) في ${Math.round(performance.now() - t0)}ms`);
+        return true;
+        
+    } catch (error) {
+        console.error("[DataManager] Init Store Error:", error.message);
+        LiveStoreData.isOfflineMode = true;
+        setTimeout(() => window.UIManager?.showToast?.('أنت في وضع عدم الاتصال', 'warning'), 1500);
+        return false;
+    }
+},
     serverTimeOffset: 0, getNow: function() { return Date.now() + this.serverTimeOffset; },
     user: null, prefs: { sound: true, theme: 'dark', security2fa: false, favs: [] }, favs: new Set(),
     selectedCurr: 'USD', _notifUnsubscribe: null, _userUnsubscribe: null,
@@ -320,7 +325,16 @@ export const DataManager = {
         if (prod.type === 'select') q = 1; 
 
         const activeOffer = this.getActiveOffer(prod.id);
-        const orderSnap = FinancialEngine.calculateOrderTotalUi({ product: prod, tier: this.getUserTier(user), offer: activeOffer, coupon: appliedCoupon, optIdx }, q);
+        
+        // 🛡️ الإصلاح: تغيير calculateOrderTotalUi إلى calculateOrderTotal لتتطابق مع المحرك المالي
+        const orderSnap = FinancialEngine.calculateOrderTotal({ 
+            product: prod, 
+            tier: this.getUserTier(user), 
+            offer: activeOffer, 
+            coupon: appliedCoupon, 
+            optIdx 
+        }, q);
+        
         const oldPriceUsd = (activeOffer?.type === 'fake') ? Number(activeOffer.value || 0) : null;
 
         return {
@@ -329,8 +343,7 @@ export const DataManager = {
             couponDiscountUsd: FinancialEngine.safeMul(orderSnap.couponDiscount, q), oldPriceUsd, 
             displayOldTotalUsd: oldPriceUsd ? FinancialEngine.safeMul(oldPriceUsd, q) : orderSnap.totalOriginalPrice
         };
-    },
-    
+    }, 
     computeSellingUsd: function(p, u, q=1, i=null) { return this.calculateFinalPrice(p, u, q, i, null).totalUsd; },
     _safeConvert: function(amt, f, t, r, c) { return FinancialEngine.convertViaUSD(amt, f, t, r, c); },
 
@@ -598,7 +611,7 @@ export const DataManager = {
         if (s.max > 0 && amt > s.max) return { isValid: false, msg: `أقصى مبلغ: ${s.max} ${curr}`, ...s };
 
         let feeAmt = ['fixed', 'amount'].includes(s.feeUnit) ? s.fee : amt * (s.fee / 100);
-        let net = s.feeType === 'bonus' ? amt + feeAmt : amt - feeAmt;
+        let net = Math.max(0, s.feeType === 'bonus' ? amt + feeAmt : amt - feeAmt);
         let netBase = this.convertViaUSDHelper(net, curr, this.user.baseCurrency || 'USD', 'floor', 'deposit');
         return { isValid: true, netBase: isNaN(netBase) ? 0 : netBase, feePct: s.fee, feeType: s.feeType, feeUnit: s.feeUnit, feeAmount: feeAmt };
     },

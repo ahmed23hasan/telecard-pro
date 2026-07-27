@@ -1,7 +1,9 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V14.6 - Stable Enterprise) 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق (V14.6.1 - Stable Enterprise) 💎
 // 🎯 الوظيفة: الإقلاع السريع، دمج البيانات الآمن، والتوافقية الشاملة
-// 🚀 التحديثات: توافقية الـ Reload مع متصفحات 2024+، تفويض الأحداث لنواة الواجهة (uiCore)، والختم الأمني.
+// 🚀 التحديثات:
+// 1. [إصلاح حرج]: ترقيع ثغرة "حلقة إعادة التحميل اللانهائية" عبر فصل تتبع إصدارات السيرفر عن الواجهة.
+// 2. توافقية الـ Reload مع متصفحات 2024+، وتفويض الأحداث لنواة الواجهة (uiCore).
 // ============================================================================
 
 window.requestIdleCallback = window.requestIdleCallback || function(cb) {
@@ -119,13 +121,14 @@ ClientSystem.initFirebaseListeners = function() {
         this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.SETTINGS, 'singleton', (incoming) => {
             if (!incoming) return;            
             const serverVersion = String(incoming.appVersion || '0');
-            const localVersion = localStorage.getItem('telecard_app_version') || window.TELECARD_VERSION || '0';
+            // 🛡️ [إصلاح حرج]: استخدام مفتاح منفصل لمعرفة إصدار السيرفر لتجنب تضارب التحديثات المحلية
+            const localServerVersion = localStorage.getItem('telecard_server_version') || '0';
             
-            if (serverVersion !== '0' && serverVersion !== localVersion) {
-                console.warn(`🔄 الإدارة أصدرت تحديثاً إجبارياً! (من ${localVersion} إلى ${serverVersion})`);
+            if (serverVersion !== '0' && serverVersion !== localServerVersion) {
+                console.warn(`🔄 الإدارة أصدرت تحديثاً إجبارياً! (إلى الإصدار ${serverVersion})`);
                 if(this.showToast) this.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل...', 'success');
                 setTimeout(async () => {
-                    localStorage.setItem('telecard_app_version', serverVersion);
+                    localStorage.setItem('telecard_server_version', serverVersion);
                     try { if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('TeleCardStoreDB'); } catch(e){}
                     
                     const keysToRemove = [];
@@ -146,7 +149,7 @@ ClientSystem.initFirebaseListeners = function() {
                         await Promise.all(regs.map(r => r.unregister())); 
                     }
                     
-                    // 🛡️ [إصلاح التحديث]: استخدام location.href كبديل أقوى من reload() المتقلب
+                    // استخدام location.href كبديل أقوى من reload() المتقلب
                     setTimeout(() => { window.location.href = window.location.href.split('#')[0]; }, 150);
                 }, 2000);
                 return;
@@ -250,6 +253,7 @@ ClientSystem.init = async function() {
 
     try {
         const currentVersion = window.TELECARD_VERSION || "1.0.0";
+        // 🛡️ [إصلاح حرج]: استخدام مفتاح الإصدار المحلي فقط للواجهة
         const savedVersion = localStorage.getItem('telecard_app_version');
 
         if (savedVersion && savedVersion !== currentVersion) {
@@ -267,7 +271,7 @@ ClientSystem.init = async function() {
             keysToRemove.forEach(k => localStorage.removeItem(k));
             
             localStorage.setItem('telecard_app_version', currentVersion);
-            // 🛡️ [إصلاح التحديث]: استخدام location.href كبديل أقوى
+            // التنفيذ مرة واحدة فقط ولن يتصادم مع إصدار السيرفر
             window.location.href = window.location.href.split('#')[0]; return; 
         } else if (!savedVersion) {
             localStorage.setItem('telecard_app_version', currentVersion);

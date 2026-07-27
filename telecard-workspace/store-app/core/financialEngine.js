@@ -1,7 +1,7 @@
 // ============================================================================
-// 💻 المحاكي المالي للواجهة الأمامية (Client-Side Simulator) - V15.1 💎
+// 💻 المحاكي المالي للواجهة الأمامية (Client-Side Simulator) - V15.2 💎
 // 🎯 الوظيفة: محاكاة الأسعار، عرض الخصومات للعميل، وتنسيق العملات.
-// 🚀 التحديثات: إضافة التسوية المحاسبية لمنع التضارب البصري في سلة العميل.
+// 🚀 التحديثات: توحيد مفاتيح المخرجات مع الخادم (totalDiscount) ومزامنة الفواتير.
 // ============================================================================
 
 export const FinancialEngine = {
@@ -61,8 +61,10 @@ export const FinancialEngine = {
     },
     calculatePrice: function(params = {}) {
         const { product = {}, tier = null, offer = null, coupon = null, optIdx = null } = params;
+        
+        // 🛡️ المواءمة المعمارية 1: توحيد مفاتيح الفشل مع الخادم
         if (!product || typeof product !== 'object' || Object.keys(product).length === 0) {
-            return { originalPrice: 0, finalPrice: 0, totalDiscountVal: 0, offerName: null, couponCode: null, isFirewallActive: true, isPricingFirewallViolated: true };
+            return { originalPrice: 0, finalPrice: 0, totalDiscount: 0, offerName: null, couponCode: null, isFirewallViolated: true };
         }
 
         let baseSellingPrice = 0;
@@ -70,18 +72,19 @@ export const FinancialEngine = {
         let activeOption = null;
 
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && optIdx !== undefined) {
-    const index = Number(optIdx);
-    // 🛡️ حماية الفهرس لمنع أخطاء الواجهة
-    if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
-        activeOption = product.options[index];
-        if (activeOption && activeOption.isFixedPrice !== undefined) {
-            isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+            const index = Number(optIdx);
+            if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
+                activeOption = product.options[index];
+                if (activeOption && activeOption.isFixedPrice !== undefined) {
+                    isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+                }
+            }
         }
-    }
-}
+
         if (isFixed) {
             baseSellingPrice = activeOption ? FinancialEngine.extractNum(activeOption.fixedPriceUsd || activeOption.price) : FinancialEngine.extractNum(product.fixedPriceUsd || product.fixed_price_usd || product.price);
         } else if (tier) {
+            // 🛡️ هذا السطر عبقري: يعتمد على ما حسبه الخادم (secureProductSync) مسبقاً
             const tierPriceField = activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id];
             if (tierPriceField !== undefined && tierPriceField !== null) {
                 baseSellingPrice = FinancialEngine.extractNum(tierPriceField);
@@ -108,10 +111,10 @@ export const FinancialEngine = {
         }
         currentPrice = FinancialEngine.safeSub(currentPrice, offerDiscount);
 
-        let couponCode = null, couponDiscount = 0, isFirewallActive = false, isPricingFirewallViolated = false;
+        let couponCode = null, couponDiscount = 0, isFirewallViolated = false;
         
         if (product.disableCoupons === true || isFixed) {
-            isFirewallActive = true;
+            // لا خصومات
         } else if (coupon && typeof coupon === 'object' && coupon.isActive !== false) {
             couponCode = coupon.code;
             const val = FinancialEngine.extractNum(coupon.value);
@@ -126,17 +129,17 @@ export const FinancialEngine = {
 
         let preFirewallPrice = currentPrice;
 
+        // 🛑 توحيد الجدار الناري بالكامل مع السيرفر
         if (currentPrice < 0) {
-            isPricingFirewallViolated = true;
+            isFirewallViolated = true;
             currentPrice = 0;
         }
-
         if (originalPrice > 0 && currentPrice < FinancialEngine.CONFIG.MIN_SALE_PRICE) {
-            isPricingFirewallViolated = true;
+            isFirewallViolated = true;
             currentPrice = FinancialEngine.CONFIG.MIN_SALE_PRICE; 
         }
 
-        // ⚖️ التسوية المحاسبية للعميل (لكي لا يرى أرقاماً متناقضة في الفاتورة)
+        // ⚖️ التسوية المحاسبية
         if (currentPrice > preFirewallPrice) {
             let clawback = FinancialEngine.safeSub(currentPrice, preFirewallPrice);
             if (couponDiscount >= clawback) {
@@ -150,6 +153,7 @@ export const FinancialEngine = {
             }
         }
 
+        // 🛡️ المواءمة المعمارية 2: توحيد مفتاح totalDiscount
         return {
             originalPrice,
             finalPrice: currentPrice,
@@ -158,12 +162,13 @@ export const FinancialEngine = {
             offerDiscount,
             couponCode,
             couponDiscount,
-            totalDiscountVal: FinancialEngine.safeSub(originalPrice, currentPrice),
-            isFirewallActive,
-            isPricingFirewallViolated
+            totalDiscount: FinancialEngine.safeSub(originalPrice, currentPrice),
+            isFirewallViolated
         };
     },
-    calculateOrderTotalUi: function(params = {}, rawQty = 1) {
+    
+    // 🛡️ المواءمة المعمارية 3: تغيير اسم الدالة لتطابق الخادم وتمكين Re-usability
+    calculateOrderTotal: function(params = {}, rawQty = 1) {
         const safeQty = Math.min(FinancialEngine.CONFIG.MAX_UI_QTY, Math.max(1, Math.floor(FinancialEngine.extractNum(rawQty) || 1)));
         const unitMath = FinancialEngine.calculatePrice(params);
         return {
@@ -171,7 +176,7 @@ export const FinancialEngine = {
             qty: safeQty,
             totalOriginalPrice: FinancialEngine.safeMul(unitMath.originalPrice, safeQty),
             totalFinalPrice: FinancialEngine.safeMul(unitMath.finalPrice, safeQty),
-            totalDiscountVal: FinancialEngine.safeMul(unitMath.totalDiscountVal, safeQty)
+            totalDiscount: FinancialEngine.safeMul(unitMath.totalDiscount, safeQty)
         };
     }
 };

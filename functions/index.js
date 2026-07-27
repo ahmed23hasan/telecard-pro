@@ -131,11 +131,24 @@ exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         };
         
-        await userRef.set(initialProfile, { merge: true });
-    } catch (error) { console.error(`❌ [CRITICAL] Failed to init user ${user.uid}:`, error); }
-});
-
-// ==========================================
+        // 🛡️ اللمسة المعمارية: نستخدم create() بدلاً من set({merge: true})
+        // هذا يضمن أننا لن نمسح توثيق العميل إذا كانت دالة (الإصلاح الذاتي - KYC) قد سبقتنا وأنشأت المستند
+        try {
+            await userRef.create(initialProfile);
+            console.log(`[Auth Trigger] Profile built successfully for ${user.uid}`);
+        } catch (e) {
+            // كود الخطأ 6 في GRPC أو 'ALREADY_EXISTS' يعني أن المستند موجود مسبقاً
+            if (e.code === 6 || e.code === 'ALREADY_EXISTS') {
+                console.log(`[Auth Trigger] Skipped: Profile for ${user.uid} already built by KYC Self-Healing.`);
+            } else {
+                throw e; // إعادة رمي الأخطاء الأخرى الحقيقية
+            }
+        }
+        
+    } catch (error) { 
+        console.error(`❌ [CRITICAL] Failed to init user ${user.uid}:`, error); 
+    }
+});// ==========================================
 // 🚀 1. نظام التخزين المؤقت الذكي (مع ميزة كسر الكاش Force Refresh)
 // ==========================================
 let localCache = { order: { data: null, version: 0 }, deposit: { data: null, version: 0 }, tiers: { data: null, version: 0 } };
