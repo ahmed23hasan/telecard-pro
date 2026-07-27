@@ -661,29 +661,91 @@ exports.adminDeleteUserData = onCall(async (request) => {
 });
 
 // ==========================================
-// 🪪 6. استكمال هوية الحساب (KYC)
+// 🪪 6. استكمال هوية الحساب (KYC) - [تصميم ذاتي الإصلاح + كشف الأخطاء]
 // ==========================================
 exports.completeUserIdentity = onCall({ enforceAppCheck: false }, async (request) => {
+    // 1. التحقق من الهوية
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
     checkBanStatus(request);
     
     const uid = request.auth.uid;
     const { country, phone, currency } = request.data;
-    const cleanCurrency = String(currency || '').trim().toUpperCase();
     
-    return await db.runTransaction(async (transaction) => {
-        const userRef = db.collection('telecard_users').doc(uid);
-        const userSnap = await transaction.get(userRef);
-        const userData = userSnap.data();
+    // 2. إغلاق ثغرة الإغراق (Payload Size Limit)
+    const safeCountry = String(country || '').trim().substring(0, 100);
+    const safePhone = String(phone || '').trim().substring(0, 50);
+    const cleanCurrency = String(currency || '').trim().toUpperCase().substring(0, 10);
+    
+    try {
+        // 💡 [الإصلاح المعماري]:
+        // قراءة الإعدادات (المستوى الافتراضي) "خارج" الـ Transaction لمنع قفل قاعدة البيانات وانهيار السيرفر
+        let initialTierId = '1';
+        const defaultTierSnap = await db.collection('telecard_tiers').where('isDefault', '==', true).limit(1).get();
+        if (!defaultTierSnap.empty) {
+            initialTierId = defaultTierSnap.docs[0].id;
+        }
         
-        const hasBalance = Number(userData.walletBalance || 0) > 0;
-        if (userData.isVerified === true || hasBalance) throw new HttpsError('permission-denied', 'مرفوض.');
+        // 3. فتح الـ Transaction حصراً لتحديث ملف المستخدم بأمان
+        return await db.runTransaction(async (transaction) => {
+            const userRef = db.collection('telecard_users').doc(uid);
+            const userSnap = await transaction.get(userRef);
+            
+            let userData = {};
+            
+            // 🚨 خطة الطوارئ: بناء ملف المستخدم إذا فشلت دالة الخلفية
+            if (!userSnap.exists) {
+                console.warn(`[Self-Healing] Building missing profile for user: ${uid}`);
+                
+                userData = {
+                    email: request.auth.token.email || '',
+                    fullName: request.auth.token.name || 'عميل جديد',
+                    role: 'user',
+                    walletBalance: 0.0,
+                    totalSpent: 0.0,
+                    totalDeposit: 0.0,
+                    tierId: initialTierId,
+                    tierCycleSpent: 0.0,
+                    tierCycleStartDate: admin.firestore.FieldValue.serverTimestamp(),
+                    manualTierOverride: false,
+                    isBanned: false,
+                    isIpBanned: false,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                };
+            } else {
+                userData = userSnap.data();
+            }
+            
+            // 🛡️ منع تغيير العملة إذا كان الحساب موثقاً أو به رصيد
+            const hasBalance = Number(userData.walletBalance || 0) > 0;
+            if (userData.isVerified === true || hasBalance) {
+                throw new HttpsError('permission-denied', 'تم إعداد المحفظة مسبقاً ولا يمكن تعديلها.');
+            }
+            
+            const finalProfile = {
+                ...userData,
+                country: safeCountry,
+                phone: safePhone,
+                baseCurrency: cleanCurrency,
+                isVerified: true,
+                identityCompletedAt: admin.firestore.FieldValue.serverTimestamp()
+            };
+            
+            transaction.set(userRef, finalProfile, { merge: true });
+            
+            return { success: true, lockedCurrency: cleanCurrency };
+        });
         
-        transaction.update(userRef, { country: String(country || '').trim(), phone: String(phone || '').trim(), baseCurrency: cleanCurrency, isVerified: true, identityCompletedAt: admin.firestore.FieldValue.serverTimestamp() });
-        return { success: true, lockedCurrency: cleanCurrency };
-    });
+    } catch (error) {
+        console.error("KYC Internal Error: ", error);
+        
+        // 💡 [كشف الأخطاء المخفية]: 
+        // إذا كان الخطأ مبرمجاً مسبقاً (مثل رفض الصلاحية) نرسله كما هو
+        if (error instanceof HttpsError) throw error;
+        
+        // أما إذا كان خطأ داخلي غير متوقع، نأخذ رسالته الحقيقية ونرسلها للعميل بدلاً من كلمة "internal" الغبية!
+        throw new HttpsError('internal', `خطأ في الخادم: ${error.message}`);
+    }
 });
-
 // ==========================================
 // 📊 7. محرك الإحصائيات المركزية
 // ==========================================
