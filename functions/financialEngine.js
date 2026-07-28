@@ -40,18 +40,29 @@ const FinancialEngineDef = {
         if (!allowZero && num === 0) return 1;
         return num;
     },
-    normalizeRates: function(rawArray) {
+        normalizeRates: function(raw) {
         const ratesMap = {};
         ratesMap[FinancialEngineDef.CONFIG.BASE_CURRENCY] = { code: FinancialEngineDef.CONFIG.BASE_CURRENCY, priceRate: 1, depRate: 1, isBase: true };
-        if (Array.isArray(rawArray)) {
-            for (const rate of rawArray) {
+        
+        if (Array.isArray(raw)) {
+            for (const rate of raw) {
                 if (rate && rate.code && rate.code !== FinancialEngineDef.CONFIG.BASE_CURRENCY) {
                     const code = String(rate.code).toUpperCase();
                     ratesMap[code] = {
                         code: code,
-                        priceRate: FinancialEngineDef.extractNum(rate.priceRate, false),
-                        depRate: FinancialEngineDef.extractNum(rate.depRate, false)
+                        priceRate: FinancialEngineDef.extractNum(rate.priceRate || rate.value, false),
+                        depRate: FinancialEngineDef.extractNum(rate.depRate || rate.value, false)
                     };
+                }
+            }
+        } 
+        // 🛡️ دعم الكائنات المسطحة لحماية السيرفر من أي تنسيق مختلف
+        else if (raw && typeof raw === 'object') {
+            for (const [key, value] of Object.entries(raw)) {
+                const code = String(key).toUpperCase();
+                if (code !== FinancialEngineDef.CONFIG.BASE_CURRENCY && code !== 'ISBASE') {
+                    const numVal = FinancialEngineDef.extractNum(value, false);
+                    ratesMap[code] = { code: code, priceRate: numVal, depRate: numVal };
                 }
             }
         }

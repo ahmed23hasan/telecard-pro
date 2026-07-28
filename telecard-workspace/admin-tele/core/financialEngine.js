@@ -1,13 +1,14 @@
 // ============================================================================
 // 💰 المحرك المالي المركزي (Admin Edition) - V15.2 💎
 // 🎯 الوظيفة: محاكاة الأسعار، كشف الأرباح للمدير، وتشخيص تصادم الخصومات.
-// 🚀 التحديثات: توحيد القاموس المحاسبي (DTO) مع الخادم لضمان تطابق التقارير.
+// 🚀 التحديثات: تطابق 100% مع السيرفر، دعم كائنات العملات، ومحاكاة الفواتير.
 // ============================================================================
 
 export const FinancialEngine = {
     CONFIG: Object.freeze({
         BASE_CURRENCY: 'USD',
         PRECISION: 10000,
+        MAX_UI_QTY: 10000,
         MIN_SALE_PRICE: 0.01 
     }),
 
@@ -27,28 +28,45 @@ export const FinancialEngine = {
         if (!allowZero && num === 0) return 1;
         return num;
     },
-    normalizeRates: function(rawArray) {
+    
+    // 🛡️ التحديث 1: دعم المصفوفات والكائنات معاً (تطابق كامل مع السيرفر والواجهة)
+    normalizeRates: function(raw) {
         const ratesMap = {};
         ratesMap[FinancialEngine.CONFIG.BASE_CURRENCY] = { code: FinancialEngine.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
-        if (Array.isArray(rawArray)) {
-            for (const rate of rawArray) {
+        
+        if (Array.isArray(raw)) {
+            for (const rate of raw) {
                 if (rate && rate.code && rate.code !== FinancialEngine.CONFIG.BASE_CURRENCY) {
                     const code = String(rate.code).toUpperCase();
-                    ratesMap[code] = { code: code, priceRate: FinancialEngine.extractNum(rate.priceRate, false), depRate: FinancialEngine.extractNum(rate.depRate, false) };
+                    ratesMap[code] = { 
+                        code: code, 
+                        priceRate: FinancialEngine.extractNum(rate.priceRate || rate.value, false), 
+                        depRate: FinancialEngine.extractNum(rate.depRate || rate.value, false) 
+                    };
+                }
+            }
+        } 
+        else if (raw && typeof raw === 'object') {
+            for (const [key, value] of Object.entries(raw)) {
+                const code = String(key).toUpperCase();
+                if (code !== FinancialEngine.CONFIG.BASE_CURRENCY && code !== 'ISBASE') {
+                    const numVal = FinancialEngine.extractNum(value, false);
+                    ratesMap[code] = { code: code, priceRate: numVal, depRate: numVal };
                 }
             }
         }
         return ratesMap;
     },
-    convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel = 'pricing') {
+
+    convertViaUSD: function(amount, fromCode, toCode, ratesRaw, channel = 'pricing') {
         const amt = FinancialEngine.extractNum(amount);
         const fCode = String(fromCode || FinancialEngine.CONFIG.BASE_CURRENCY).toUpperCase();
         const tCode = String(toCode || FinancialEngine.CONFIG.BASE_CURRENCY).toUpperCase();
         if (amt === 0 || fCode === tCode) return amt;
         
-        const ratesMap = FinancialEngine.normalizeRates(ratesArray);
+        const ratesMap = FinancialEngine.normalizeRates(ratesRaw);
         if (!ratesMap[fCode] || !ratesMap[tCode]) {
-            console.error(`[Admin Simulator] Missing exchange rate for: ${fCode} or ${tCode}`);
+            console.warn(`[Admin Simulator] Missing exchange rate for: ${fCode} or ${tCode}`);
             return 0;
         }
         
@@ -61,12 +79,12 @@ export const FinancialEngine = {
 
         return FinancialEngine.safeMul(FinancialEngine.safeDiv(amt, fRate), tRate);
     },
+
     calculatePrice: function(params = {}) {
         const { product = {}, costPrice = 0, fixedPrice = 0, tier = null, offer = null, coupon = null, optIdx = null } = params;
         
-        // 🛡️ المواءمة: توحيد مفاتيح الإرجاع في حال الفشل
         if (!product || typeof product !== 'object' || Object.keys(product).length === 0) {
-            console.warn("[Admin FinancialEngine] تم تمرير بيانات منتج تالفة للتسعير.");
+            console.warn("[Admin Simulator] تم تمرير بيانات منتج تالفة للتسعير.");
             return { costUsd: 0, tierPrice: 0, originalPrice: 0, finalPrice: 0, tierName: 'غير محدد', offerName: null, offerDiscount: 0, couponCode: null, couponDiscount: 0, totalDiscount: 0, netProfitUsd: 0, marginPct: 0, isFirewallActive: true, isFirewallViolated: true };
         }
 
@@ -162,7 +180,7 @@ export const FinancialEngine = {
             currentPrice = cost;
         }
 
-        // ⚖️ التسوية المحاسبية
+        // ⚖️ التسوية المحاسبية (Clawback)
         if (currentPrice > preFirewallPrice) {
             let clawback = FinancialEngine.safeSub(currentPrice, preFirewallPrice);
             if (couponDiscount >= clawback) {
@@ -178,7 +196,6 @@ export const FinancialEngine = {
 
         const finalPrice = currentPrice;
         
-        // 🛡️ المواءمة المعمارية: توحيد مفاتيح الربح والتكلفة والخصم مع الباك إند
         const totalDiscount = FinancialEngine.safeSub(originalPrice, finalPrice);
         const netProfitUsd = Math.max(0, FinancialEngine.safeSub(finalPrice, cost));
         
@@ -188,7 +205,7 @@ export const FinancialEngine = {
         }
 
         return {
-            costUsd: cost,           // تغيير من cost
+            costUsd: cost,
             tierPrice, 
             originalPrice, 
             finalPrice, 
@@ -197,11 +214,27 @@ export const FinancialEngine = {
             offerDiscount, 
             couponCode, 
             couponDiscount, 
-            totalDiscount,           // تغيير من totalDiscountVal
-            netProfitUsd,            // تغيير من profit
+            totalDiscount,
+            netProfitUsd,
             marginPct: Number(marginPct.toFixed(2)), 
             isFirewallActive, 
             isFirewallViolated
+        };
+    },
+
+    // 🛡️ التحديث 2: إضافة الدالة الشاملة لحساب الفواتير (للتطابق مع الباك إند)
+    calculateOrderTotal: function(params = {}, rawQty = 1) {
+        const safeQty = Math.min(FinancialEngine.CONFIG.MAX_UI_QTY, Math.max(1, Math.floor(FinancialEngine.extractNum(rawQty) || 1)));
+        const unit = FinancialEngine.calculatePrice(params);
+        
+        return {
+            ...unit,
+            qty: safeQty,
+            totalCostUsd: FinancialEngine.safeMul(unit.costUsd, safeQty),
+            totalOriginalPrice: FinancialEngine.safeMul(unit.originalPrice, safeQty),
+            totalFinalPrice: FinancialEngine.safeMul(unit.finalPrice, safeQty),
+            totalNetProfitUsd: FinancialEngine.safeMul(unit.netProfitUsd, safeQty),
+            totalDiscount: FinancialEngine.safeMul(unit.totalDiscount, safeQty)
         };
     }
 };

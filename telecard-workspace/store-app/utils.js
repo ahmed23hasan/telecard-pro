@@ -5,6 +5,7 @@
 // 1. URL Hijacking Shield: منع ثغرة Protocol-Relative URLs والروابط الخبيثة.
 // 2. RangeError Protection: تحصين Intl.NumberFormat من انهيار الواجهة.
 // 3. NaN Cascade Fix: منع تشوه النصوص عند فشل الحسابات الزمنية.
+// 4. Zero-Crash Guarantee: تحصين محرك التسعير وجسر العملات بـ Try/Catch.
 // ============================================================================
 
 import { FinancialEngine } from './core/financialEngine.js';
@@ -30,7 +31,6 @@ export const Utils = {
     },
     
     // 🛡️ درع حماية الروابط المتقدم (Strict Protocol & Traversal Validation)
-        // 🛡️ درع حماية الروابط المتقدم (Strict Protocol & Traversal Validation)
     safeUrl: function(url, fallback = '#') {
         if (!url) return fallback;
         // إزالة الفراغات ورموز التحكم التي تخدع المتصفح
@@ -62,6 +62,7 @@ export const Utils = {
             return fallback;
         }
     },
+
     // 🌟 حماية ضد RangeError لضمان الاستقرار التام للواجهة
     enNum: function(val, decimals = 2) {
         const num = Number(val);
@@ -75,16 +76,28 @@ export const Utils = {
             useGrouping: false
         }).format(num);
     },
-    
-    // === 2. جسر تحويل العملات ===
+
+    // === 2. جسر تحويل العملات (محصن بالكامل) ===
     normalizeRates: function(raw) {
-        return FinancialEngine.normalizeRates(raw);
+        try {
+            return (typeof FinancialEngine !== 'undefined' && typeof FinancialEngine.normalizeRates === 'function')
+                ? FinancialEngine.normalizeRates(raw)
+                : (raw || {}); // إرجاع البيانات كما هي في حالة غياب المحرك
+        } catch (error) {
+            return raw || {};
+        }
     },
     
     convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel = 'pricing') {
-        return FinancialEngine.convertViaUSD(amount, fromCode, toCode, ratesArray, channel);
+        try {
+            return (typeof FinancialEngine !== 'undefined' && typeof FinancialEngine.convertViaUSD === 'function')
+                ? FinancialEngine.convertViaUSD(amount, fromCode, toCode, ratesArray, channel)
+                : (Number(amount) || 0); // إرجاع المبلغ كما هو لمنع ظهور NaN
+        } catch (error) {
+            return Number(amount) || 0;
+        }
     },
-    
+
     // === 3. أداة تصفية التواريخ والبحث (مصححة وثابتة زمنياً) ===
     getSearchAndDateFilters: function(searchId, datePrefixId) {
         if (typeof document === 'undefined') return { q: '', dStart: '', dEnd: '', tStart: null, tEnd: null, error: null };
@@ -175,32 +188,50 @@ export const Utils = {
         
         return `${diffSecs} ثانية`;
     },
-  // === 6. محرك حساب الأسعار المضمن للواجهة ===
-TelecardPricingEngine: Object.freeze({
-    calculate: function(params) {
-        return FinancialEngine.calculatePrice(params);
-    },
-    
-    // 🛡️ الإصلاح: تغيير الاسم إلى calculateOrderTotal وتحديث مفتاح totalDiscount
-    calculateOrderTotal: function(params, rawQty) {
-        if (typeof FinancialEngine.calculateOrderTotal === 'function') {
-            return FinancialEngine.calculateOrderTotal(params, rawQty);
+
+    // === 6. محرك حساب الأسعار المضمن للواجهة (محصن بالكامل) ===
+    TelecardPricingEngine: Object.freeze({
+        calculate: function(params) {
+            try {
+                return FinancialEngine.calculatePrice(params);
+            } catch (error) {
+                console.warn("[TelecardPricingEngine] Failed to calculate price, using safe fallback.");
+                // 🛡️ إرجاع كائن صفري آمن لمنع انهيار سلة المشتريات
+                return {
+                    originalPrice: 0, finalPrice: 0, totalDiscount: 0,
+                    offerName: null, couponCode: null, isFirewallViolated: true
+                };
+            }
+        },
+        
+        calculateOrderTotal: function(params, rawQty) {
+            try {
+                if (typeof FinancialEngine.calculateOrderTotal === 'function') {
+                    return FinancialEngine.calculateOrderTotal(params, rawQty);
+                }
+                
+                // كود احتياطي (Fallback) في حال كان المحرك قديماً
+                const unit = this.calculate(params); 
+                const q = Math.max(1, Math.floor(Number(rawQty) || 1));
+                
+                const safeMul = typeof FinancialEngine.safeMul === 'function' ?
+                    (a, b) => FinancialEngine.safeMul(a, b) :
+                    (a, b) => Math.round((Number(a) * Number(b)) * 10000) / 10000;
+                
+                return {
+                    ...unit,
+                    qty: q,
+                    totalOriginalPrice: safeMul(unit.originalPrice || 0, q),
+                    totalFinalPrice: safeMul(unit.finalPrice || 0, q),
+                    totalDiscount: safeMul(unit.totalDiscount || 0, q) 
+                };
+            } catch (error) {
+                console.warn("[TelecardPricingEngine] Failed to calculate total, using safe fallback.");
+                return {
+                    originalPrice: 0, finalPrice: 0, totalDiscount: 0, qty: 1,
+                    totalOriginalPrice: 0, totalFinalPrice: 0, isFirewallViolated: true
+                };
+            }
         }
-        
-        // كود احتياطي (Fallback) محصن في حال تعذر تحميل المحرك المالي الأصلي
-        const unit = FinancialEngine.calculatePrice(params);
-        const q = Math.max(1, Math.floor(Number(rawQty) || 1));
-        
-        const safeMul = typeof FinancialEngine.safeMul === 'function' ?
-            (a, b) => FinancialEngine.safeMul(a, b) :
-            (a, b) => Math.round((Number(a) * Number(b)) * 10000) / 10000;
-        
-        return {
-            ...unit,
-            qty: q,
-            totalOriginalPrice: safeMul(unit.originalPrice || 0, q),
-            totalFinalPrice: safeMul(unit.finalPrice || 0, q),
-            totalDiscount: safeMul(unit.totalDiscount || 0, q) // 🛡️ تم التحديث إلى totalDiscount
-        };
-    }
-})};
+    })
+};

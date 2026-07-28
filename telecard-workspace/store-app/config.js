@@ -55,8 +55,8 @@ export const CACHE_KEYS = deepFreeze({
     ACTIVE_UID: 'telecard_active_user_uid',
     STORE_CACHE: 'telecard_store_cache',
     STORE_CACHE_FALLBACK: 'telecard_store_cache_fallback',
-    SMART_CATALOG: 'telecard_store_catalog_master', // 🛡️ كاش ذكي لا يسبب تسرب
-    CATALOG_VERSION: 'telecard_catalog_version',
+    SMART_CATALOG: 'telecard_store_catalog_master_v3', // ✅ مفتاح جديد لكسر الكاش
+    CATALOG_VERSION: 'telecard_catalog_version_v3', // ✅ مفتاح جديد لكسر الكاش
     TIME_SYNC: 'telecard_time_sync_ts',
     THEME: 'telecard_theme',
     DISPLAY_CURRENCY: 'telecard_display_currency',
@@ -66,7 +66,6 @@ export const CACHE_KEYS = deepFreeze({
     LAYOUT_COLS: 'store_layout_cols',
     SHOWN_TOASTS: 'telecard_shown_toasts'
 });
-
 export const DYNAMIC_PREFIXES = deepFreeze({
     USER_IMAGE: 'telecard_user_image_',
     ALERT_VIEWS: 'alert_views_',
@@ -76,8 +75,10 @@ export const DYNAMIC_PREFIXES = deepFreeze({
 export const ACTIVE_USER_KEY = CACHE_KEYS.ACTIVE_USER;
 
 export const StoreConfig = deepFreeze({
+    baseCurrency: 'USD', // 👈 السطر الجديد الذي اقترحت إضافته هنا (لتوحيد عملة الأساس)
     fallbackCurrencies: ['USD', 'TRY', 'SYP'], // 🛡️ شبكة أمان تُستخدم فقط إذا فشل الاتصال بالسيرفر
     
+    // ... باقي الإعدادات كما هي ...
     orderStatusMap: {
         pending: { text: 'قيد التنفيذ', icon: 'fa-clock', class: 'pending' },
         processing: { text: 'جاري التنفيذ', icon: 'fa-spinner fa-spin', class: 'processing' },

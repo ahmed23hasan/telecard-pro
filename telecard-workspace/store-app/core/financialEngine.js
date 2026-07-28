@@ -28,14 +28,30 @@ export const FinancialEngine = {
         if (!allowZero && num === 0) return 1;
         return num;
     },
-    normalizeRates: function(rawArray) {
+        normalizeRates: function(raw) {
         const ratesMap = {};
         ratesMap[FinancialEngine.CONFIG.BASE_CURRENCY] = { code: FinancialEngine.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
-        if (Array.isArray(rawArray)) {
-            for (const rate of rawArray) {
+        
+        // 1. إذا كانت البيانات مصفوفة (قادمة من Firebase مباشرة)
+        if (Array.isArray(raw)) {
+            for (const rate of raw) {
                 if (rate && rate.code && rate.code !== FinancialEngine.CONFIG.BASE_CURRENCY) {
                     const code = String(rate.code).toUpperCase();
-                    ratesMap[code] = { code: code, priceRate: FinancialEngine.extractNum(rate.priceRate, false), depRate: FinancialEngine.extractNum(rate.depRate, false) };
+                    ratesMap[code] = { 
+                        code: code, 
+                        priceRate: FinancialEngine.extractNum(rate.priceRate || rate.value, false), 
+                        depRate: FinancialEngine.extractNum(rate.depRate || rate.value, false) 
+                    };
+                }
+            }
+        } 
+        // 2. 🛡️ التوافق مع DataManager: إذا كانت البيانات كائن مسطح (من الكاش)
+        else if (raw && typeof raw === 'object') {
+            for (const [key, value] of Object.entries(raw)) {
+                const code = String(key).toUpperCase();
+                if (code !== FinancialEngine.CONFIG.BASE_CURRENCY && code !== 'ISBASE') {
+                    const numVal = FinancialEngine.extractNum(value, false);
+                    ratesMap[code] = { code: code, priceRate: numVal, depRate: numVal };
                 }
             }
         }
