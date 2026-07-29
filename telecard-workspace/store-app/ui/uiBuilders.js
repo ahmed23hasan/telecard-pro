@@ -1,11 +1,11 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V15.2 💎
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V15.7 💎
 // 🎯 الوظيفة: تحويل البيانات الخام (Data) إلى نصوص HTML جاهزة للرسم
 // 🚀 التحديثات:
 // 1. [إصلاح المحاسبة]: الفواتير الـ PDF تدعم البونص (+) والعمولة (-) ديناميكياً.
-// 2. [إصلاح المتغيرات]: تطابق تام مع مخرجات FinancialEngine (finalPrice).
-// 3. [إصلاح المدخلات]: منع بتر (Truncation) نصوص وحقول طلبات العميل.
-// 4. [تنظيف الواجهة]: حماية مخرجات الـ HTML من قيم undefined و null الوهمية.
+// 2. [تحديث الدفعات]: ترقية كرت سجل الدفعات لعرض الهوية، والرصيد الحي، والنافذة المنبثقة الذكية.
+// 3. [إصلاح التواريخ]: عرض التاريخ والوقت بالدقة الكاملة في أعلى كرت الدفعات.
+// 4. [الإيصالات المطبوعة]: تصميم فواتير PDF احترافية باللغة العربية (RTL) مع خط Cairo وتصميم شبكي.
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -77,7 +77,6 @@ export const UIBuilders = {
     /** 2️⃣ بناء كرت الطلب (Order Card) */
     buildOrderCard: function(o, idx, displayCurr, highlightId = null, productNamePassed = null) {
         if (!o) return '';
-        // 🛡️ [إصلاح المدخلات]: عرض السطر بالكامل بعد تعقيمه لمنع ضياع أسماء الحقول
         const getCleanInputRows = (str) => {
             if (!str || str === '---' || typeof str === 'object') return [];
             return String(str).split('|').map(s => s.trim()).filter(s => s !== '');
@@ -134,11 +133,12 @@ export const UIBuilders = {
             </div>`;
     },
 
-    /** 3️⃣ بناء كرت عملية الدفع (Payment/Deposit Card) */
+    /** 3️⃣ بناء كرت عملية الدفع (Payment/Deposit Card) - Ultimate V15.7 💎 */
     buildPaymentCard: function(d, userDisplayName, userIdString, baseCurrency) {
         if (!d) return '';
         const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
         
+        // --- 1. تحديد حالة الدفعة والأيقونات ---
         let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
         if (['approved', 'completed'].includes(d.status)) { 
             if (isDeduction) { stClass = 'st-rejected'; stText = 'مخصوم'; icon = 'fa-arrow-up-long'; } 
@@ -146,14 +146,15 @@ export const UIBuilders = {
         } else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
         else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
 
+        // --- 2. الحسابات المالية ---
         const currency = (d.currency || 'USD').toUpperCase();
+        const targetCurr = (d.targetCurrency || baseCurrency).toUpperCase();
         const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
         const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
         const feeVal = parseFloat(d.fees || d.fee || 0); 
         
         let feeLabel = 'الرسوم الإضافية';
         let feeValueHtml = '<span class="text-muted">لا يوجد</span>';
-        
         if (feeVal > 0) {
             const isBonus = (d.feeType === 'bonus');
             feeLabel = isBonus ? 'بونص إضافي' : 'العمولة';
@@ -161,6 +162,74 @@ export const UIBuilders = {
             feeValueHtml = `<span class="${feeColor}" dir="ltr">${isBonus ? '+' : '-'} ${RenderHelpers.formatMoney(feeVal, currency)}</span>`;
         }
         
+        let exchangeRateHtml = '';
+        if (currency !== targetCurr && d.exchangeRate) {
+            exchangeRateHtml = `
+            <div class="ph-item">
+                <div class="ph-item-label"><i class="fa-solid fa-money-bill-transfer"></i> سعر الصرف المطبق</div>
+                <div class="ph-item-val num-en" dir="ltr" style="color: var(--text-muted); font-size: 13px;">1 ${targetCurr} = ${Number(d.exchangeRate).toFixed(4)} ${currency}</div>
+            </div>`;
+        }
+
+        // --- 3. استخراج اسم العميل بذكاء ---
+        let finalUserName = userDisplayName;
+        if (!finalUserName || finalUserName.trim() === 'العميل' || finalUserName.trim() === '') {
+            const u = (typeof window !== 'undefined' && window.DataManager) ? window.DataManager.user : null;
+            if (u) {
+                const sys = typeof window !== 'undefined' && window.UIManager ? window.UIManager : null;
+                const fallbackName = (u.fullName || u.name || (u.firstName ? `${u.firstName} ${u.lastName || ''}` : 'العميل')).trim();
+                finalUserName = (sys && typeof sys._getFullName === 'function') ? sys._getFullName(u) : fallbackName;
+            } else {
+                finalUserName = 'العميل';
+            }
+        }
+
+        // --- 4. رصيد المحفظة الحالي/بعد الإيداع ---
+        let balAfter = d.balanceAfter !== undefined ? d.balanceAfter : (d.postBalance !== undefined ? d.postBalance : d.newBalance); 
+        
+        if (balAfter === undefined || balAfter === null || balAfter === '') {
+            const u = (typeof window !== 'undefined' && window.DataManager) ? window.DataManager.user : null;
+            if (u && u.walletBalance !== undefined) {
+                balAfter = u.walletBalance;
+            } else {
+                balAfter = 0;
+            }
+        }
+
+        let balanceAfterHtml = `
+            <div class="ph-item" style="background: rgba(var(--primary-rgb), 0.05); border: 1px dashed rgba(var(--primary-rgb), 0.3); border-radius: 8px; margin-top: 8px; padding: 10px;">
+                <div class="ph-item-label" style="color: var(--primary);"><i class="fa-solid fa-piggy-bank"></i> رصيد المحفظة الحالي</div>
+                <div class="ph-item-val num-en" style="color: var(--primary); font-weight: 900; font-size: 15px;" dir="ltr">${RenderHelpers.formatMoney(balAfter, targetCurr)}</div>
+            </div>`;
+
+        // --- 5. نظام النافذة المنبثقة للصورة المصغرة (Smart Lightbox) ---
+        const safeReceiptUrl = d.receipt ? (Utils.safeUrl ? Utils.safeUrl(d.receipt) : d.receipt) : '';
+        let receiptHtml = '';
+        if (safeReceiptUrl) {
+            receiptHtml = `
+            <div class="ph-item align-center mt-10">
+                <div class="ph-item-label"><i class="fa-solid fa-file-invoice"></i> المرفقات (إشعار الدفع)</div>
+                <div class="ph-item-val">
+                    <div data-url="${safeReceiptUrl}" onclick="
+                        let box = document.getElementById('quick-receipt-modal');
+                        if(!box){
+                            box = document.createElement('div');
+                            box.id = 'quick-receipt-modal';
+                            box.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:999999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(5px); opacity:0; transition:opacity 0.3s ease; cursor:zoom-out;';
+                            box.innerHTML = '<div style=\\'position:relative; max-width:90%; max-height:85vh; padding:8px; background:#111a2b; border-radius:16px; box-shadow:0 15px 40px rgba(0,0,0,0.5); transform:scale(0.9); transition:transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); cursor:default;\\'><button onclick=\\'this.parentElement.parentElement.click()\\' style=\\'position:absolute; top:-12px; right:-12px; width:35px; height:35px; background:#ef4444; color:#fff; border:none; border-radius:50%; cursor:pointer; font-size:16px; box-shadow:0 4px 10px rgba(0,0,0,0.3); z-index:10;\\'><i class=\\'fa-solid fa-xmark\\'></i></button><img id=\\'quick-receipt-img\\' style=\\'max-width:100%; max-height:80vh; border-radius:10px; object-fit:contain; display:block;\\' src=\\'\\'></div>';
+                            document.body.appendChild(box);
+                            box.onclick = function(e){ if(e.target === this) { this.style.opacity='0'; this.firstChild.style.transform='scale(0.9)'; setTimeout(()=>this.remove(), 300); } };
+                        }
+                        document.getElementById('quick-receipt-img').src = this.dataset.url;
+                        box.style.display = 'flex';
+                        requestAnimationFrame(() => { box.style.opacity = '1'; box.firstChild.style.transform = 'scale(1)'; });
+                    " style="width: 45px; height: 45px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); cursor: zoom-in; display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.2); transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'" title="اضغط لتكبير الإشعار">
+                        <img src="${safeReceiptUrl}" style="width: 100%; height: 100%; object-fit: cover;" alt="إشعار الدفع">
+                    </div>
+                </div>
+            </div>`;
+        }
+
         const formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
         const shortDepositId = RenderHelpers.formatDepositId(d);
         const amountColorClass = isDeduction ? 'text-danger' : (stClass === 'st-approved' ? 'text-success' : '');
@@ -173,7 +242,7 @@ export const UIBuilders = {
                         <div class="ph-icon-box"><i class="fa-solid ${icon} ph-icon"></i></div>
                         <div class="ph-info-text">
                             <span class="ph-method-name">${Utils.escapeHtml(d.method || 'شحن رصيد')}</span>
-                            <span class="ph-date-mini num-en">${formattedDate.replace('|', '<span class="date-sep">|</span>')}</span>
+                            <span class="ph-date-mini num-en" style="font-size: 11px;">${formattedDate.replace('|', '&nbsp;|&nbsp;')}</span>
                         </div>
                     </div>
                     <div class="ph-center-zone">
@@ -182,29 +251,60 @@ export const UIBuilders = {
                     </div>
                     <div class="ph-left-sec"><div class="ph-arrow-btn"><i class="fa-solid fa-chevron-down"></i></div></div>
                 </div>
+                
                 <div class="ph-details-body">
                     <div class="ph-sep-line"></div>
                     <div class="ph-data-list">
+                        
+                        <!-- القسم الأول: المرجعيات الأساسية -->
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-hashtag"></i> رقم العملية</div>
                             <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${shortDepositId}">${shortDepositId}</div>
                         </div>
                         <div class="ph-item">
+                            <div class="ph-item-label"><i class="fa-regular fa-calendar-check"></i> الوقت والتاريخ</div>
+                            <div class="ph-item-val num-en" dir="ltr" style="font-size: 12.5px;">${formattedDate.replace('|', '&nbsp;&nbsp;|&nbsp;&nbsp;')}</div>
+                        </div>
+
+                        <div class="ph-sep-line" style="margin: 10px 0; opacity: 0.3;"></div>
+                        
+                        <!-- القسم الثاني: هوية العميل -->
+                        <div class="ph-item">
+                            <div class="ph-item-label"><i class="fa-solid fa-user-tag"></i> اسم العميل</div>
+                            <div class="ph-item-val" style="font-weight: 700;">${Utils.escapeHtml(finalUserName)}</div>
+                        </div>
+                        <div class="ph-item">
+                            <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرف الحساب</div>
+                            <div class="ph-item-val num-en is-copyable" data-action="copy-text" data-text="${Utils.escapeHtml(userIdString)}">${Utils.escapeHtml(userIdString)} <i class="fa-regular fa-copy" style="font-size:11px; margin-right:4px;"></i></div>
+                        </div>
+                        
+                        <div class="ph-sep-line" style="margin: 10px 0; opacity: 0.3;"></div>
+                        
+                        <!-- القسم الثالث: الحسابات والمالية -->
+                        <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-tags"></i> ${feeLabel}</div>
                             <div class="ph-item-val num-en">${feeValueHtml}</div>
                         </div>
+                        ${exchangeRateHtml}
                         <div class="ph-item item-highlight">
-                            <div class="ph-item-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</div>
-                            <div class="ph-item-val num-en ${amountColorClass}">${RenderHelpers.formatMoney(displayNetAmount, (d.targetCurrency || baseCurrency).toUpperCase())}</div>
+                            <div class="ph-item-label"><i class="fa-solid fa-hand-holding-dollar"></i> المبلغ الصافي المضاف</div>
+                            <div class="ph-item-val num-en ${amountColorClass}" style="font-size: 15px;">${RenderHelpers.formatMoney(displayNetAmount, targetCurr)}</div>
                         </div>
+                        
+                        <!-- القسم الرابع: النتائج والمرفقات -->
+                        ${balanceAfterHtml}
+                        ${receiptHtml}
                     </div>
+                    
+                    <!-- رسالة الإدارة إن وجدت -->
                     ${d.adminNote ? `
-                        <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'}">
+                        <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'}" style="margin-top: 15px;">
                             <i class="fa-solid fa-headset"></i>
                             <div class="ph-admin-note-content"><span class="ph-admin-note-title">رسالة الإدارة:</span><div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div></div>
                         </div>` : ''}
-                    <div class="ph-footer-action">
-                        <button class="btn-receipt-export" data-action="export-receipt" data-id="${Utils.escapeHtml(d.id || '')}"><i class="fa-solid fa-file-export"></i> تصدير الإيصال</button>
+                    
+                    <div class="ph-footer-action" style="margin-top: 15px;">
+                        <button class="btn-receipt-export" data-action="export-receipt" data-id="${Utils.escapeHtml(d.id || '')}"><i class="fa-solid fa-file-export"></i> تصدير الإيصال PDF</button>
                     </div>
                 </div>
             </div>`;
@@ -221,91 +321,130 @@ export const UIBuilders = {
             </div>`;
     },
 
-    /** 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية) */
+    /** 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية) - النسخة الاحترافية العربية 💎 */
     buildPDFReceipt: function(config, brandHTML) {
-        const storeNameText = Utils.escapeHtml(config.storeName || 'TeleCard');
+        const storeNameText = Utils.escapeHtml(config.storeName || 'المتجر');
         let contentHTML = '';
 
         if (config.type === 'deposit') {
-            // 🛡️ [إصلاح المحاسبة]: تمييز البونص (+) عن العمولة (-) ديناميكياً
             const isBonus = config.data.feeType === 'bonus';
             const feeValNum = Number(config.data.feeVal) || 0;
             
-            let feeDisplayLabel = isBonus ? 'Bonus Added' : 'Fee Deduction';
+            let feeDisplayLabel = isBonus ? 'بونص إضافي' : 'رسوم مخصومة';
             if (config.data.feePercent) feeDisplayLabel += ` (${Utils.escapeHtml(config.data.feePercent)}%)`;
             
             let feeValueHtml = '';
             if (feeValNum === 0) {
                 feeValueHtml = `<span class="r-value" style="color: #64748b;">${RenderHelpers.formatMoney(0, config.data.currency)}</span>`;
             } else if (isBonus) {
-                feeValueHtml = `<span class="r-value" style="color: #16a34a;">+${RenderHelpers.formatMoney(feeValNum, config.data.currency)}</span>`;
+                feeValueHtml = `<span class="r-value num-en" dir="ltr" style="color: #16a34a;">+${RenderHelpers.formatMoney(feeValNum, config.data.currency)}</span>`;
             } else {
-                feeValueHtml = `<span class="r-value" style="color: #ef4444;">-${RenderHelpers.formatMoney(feeValNum, config.data.currency)}</span>`;
+                feeValueHtml = `<span class="r-value num-en" dir="ltr" style="color: #ef4444;">-${RenderHelpers.formatMoney(feeValNum, config.data.currency)}</span>`;
             }
 
             contentHTML = `
                 ${brandHTML}
-                <div class="r-title-box"><div class="r-title">Deposit Receipt</div><div class="r-id">${Utils.escapeHtml(config.data.displayId)}</div></div>
+                <div class="r-title-box">
+                    <div class="r-title">إيصال شحن محفظة</div>
+                    <div class="r-id num-en">#${Utils.escapeHtml(config.data.displayId)}</div>
+                </div>
                 <div class="r-grid">
-                    <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                    <div class="r-item"><span class="r-label">Customer ID</span><span class="r-value">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
-                    <div class="r-item"><span class="r-label">Payment Method</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
-                    <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${Utils.escapeHtml(config.data.dateTime)}</span></div>
-                    <div class="r-item"><span class="r-label">Base Amount</span><span class="r-value">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
+                    <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
+                    <div class="r-item"><span class="r-label">معرف الحساب (ID)</span><span class="r-value num-en">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
+                    <div class="r-item"><span class="r-label">طريقة الدفع</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
+                    <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(config.data.dateTime).replace('|', '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
+                    <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
                     <div class="r-item"><span class="r-label">${feeDisplayLabel}</span>${feeValueHtml}</div>
                 </div>
-                <div class="r-total-box"><div class="r-total-label">Net Added Balance</div><div class="r-total-val">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div></div>
+                <div class="r-total-box">
+                    <div class="r-total-label">صافي الرصيد المضاف</div>
+                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div>
+                </div>
             `;
         } else {
             const originalPriceHtml = config.data.originalPrice > config.data.price ? 
-                `<div class="r-item"><span class="r-label">Original Price (Before Discount)</span><span class="r-value" style="text-decoration: line-through; color: #94a3b8;">${RenderHelpers.formatMoney(config.data.originalPrice, config.data.priceCurrency)}</span></div>` : '';
+                `<div class="r-item"><span class="r-label">السعر الأساسي (قبل الخصم)</span><span class="r-value num-en" dir="ltr" style="text-decoration: line-through; color: #94a3b8;">${RenderHelpers.formatMoney(config.data.originalPrice, config.data.priceCurrency)}</span></div>` : '';
+            
+            const formattedInput = Utils.escapeHtml(config.data.input).replace(/\|/g, '<br>');
+            const formattedCode = config.data.code ? Utils.escapeHtml(config.data.code).replace(/\||\n/g, '<br>') : '';
+
             contentHTML = `
                 ${brandHTML}
-                <div class="r-title-box"><div class="r-title">Order Receipt</div><div class="r-id">${Utils.escapeHtml(config.data.displayId)}</div></div>
+                <div class="r-title-box">
+                    <div class="r-title">فاتورة طلب شراء</div>
+                    <div class="r-id num-en">#${Utils.escapeHtml(config.data.displayId)}</div>
+                </div>
                 <div class="r-grid">
-                    <div class="r-item"><span class="r-label">Product</span><span class="r-value">${Utils.escapeHtml(config.data.product)}</span></div>
-                    <div class="r-item"><span class="r-label">Status</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
-                    <div class="r-item"><span class="r-label">Customer Name</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                    <div class="r-item"><span class="r-label">Date & Time</span><span class="r-value">${Utils.escapeHtml(config.data.dateTime)}</span></div>
-                    <div class="r-item"><span class="r-label">Quantity</span><span class="r-value">${Utils.escapeHtml(config.data.qty)}</span></div>
-                    <div class="r-item"><span class="r-label">Account Details</span><span class="r-value">${Utils.escapeHtml(config.data.input)}</span></div>
+                    <div class="r-item r-item-full" style="border-right: 4px solid #3b82f6;"><span class="r-label">المنتج</span><span class="r-value" style="font-size: 18px;">${Utils.escapeHtml(config.data.product)}</span></div>
+                    <div class="r-item"><span class="r-label">حالة الطلب</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
+                    <div class="r-item"><span class="r-label">الكمية</span><span class="r-value num-en">${Utils.escapeHtml(config.data.qty)}</span></div>
+                    <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
+                    <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(config.data.dateTime).replace('|', '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
+                    <div class="r-item r-item-full" style="background: #f1f5f9; border-color: #cbd5e1;"><span class="r-label">بيانات الحساب / المدخلات</span><span class="r-value num-en" dir="ltr" style="line-height: 1.8;">${formattedInput}</span></div>
                     ${originalPriceHtml}
                 </div>
-                ${config.data.code ? `<div class="r-item-full"><span class="r-label">Completed Order Code</span><span class="r-value r-code-val">${Utils.escapeHtml(config.data.code)}</span></div>` : ''}
-                <div class="r-total-box"><div class="r-total-label">Total Amount Paid</div><div class="r-total-val">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</div></div>
+                ${formattedCode ? `<div class="r-item-full" style="background: #eff6ff; border: 1px dashed #3b82f6;"><span class="r-label" style="color: #1d4ed8;">بيانات التسليم / الأكواد المستلمة</span><span class="r-value r-code-val num-en" dir="ltr" style="line-height: 1.8;">${formattedCode}</span></div>` : ''}
+                <div class="r-total-box">
+                    <div class="r-total-label">إجمالي المبلغ المدفوع</div>
+                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</div>
+                </div>
             `;
         }
 
         return `
             <!DOCTYPE html>
-            <html lang="en" dir="ltr">
+            <html lang="ar" dir="rtl">
             <head>
                 <meta charset="UTF-8">
                 <title>${Utils.escapeHtml(config.filename)}</title>
                 <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+                    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
                     @page { size: A4 portrait; margin: 15mm; }
-                    body { font-family: 'Share Tech Mono', 'Courier New', Courier, monospace; background: #ffffff; color: #0f172a; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .receipt-container { max-width: 100%; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 25px; }
+                    body { 
+                        font-family: 'Cairo', system-ui, -apple-system, sans-serif; 
+                        background: #f8fafc; 
+                        color: #0f172a; 
+                        margin: 0; padding: 0; 
+                        -webkit-print-color-adjust: exact; print-color-adjust: exact; 
+                    }
+                    .receipt-container { 
+                        max-width: 100%; margin: 0 auto; 
+                        background: #ffffff;
+                        border: 1px solid #e2e8f0; 
+                        border-radius: 16px; 
+                        padding: 35px; 
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+                    }
                     .header-section { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px dashed #cbd5e1; padding-bottom: 20px; margin-bottom: 25px; }
-                    .store-name { font-size: 26px; font-weight: 800; color: #0f172a; font-family: sans-serif; }
-                    .r-title-box { background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #eab308; margin-bottom: 25px; text-align: center; }
-                    .r-title { font-size: 18px; color: #ca8a04; font-weight: bold; margin-bottom: 5px; font-family: sans-serif; }
-                    .r-id { font-size: 18px; color: #0f172a; font-weight: bold; }
-                    .r-grid { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
-                    .r-item { width: calc(50% - 7.5px); background: #f8fafc; padding: 12px; border-radius: 8px; border-left: 4px solid #eab308; box-sizing: border-box; }
-                    .r-item-full { width: 100%; background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px dashed #eab308; text-align: center; box-sizing: border-box; }
-                    .r-label { font-size: 13px; color: #64748b; display: block; margin-bottom: 5px; font-weight: 600; }
-                    .r-value { font-size: 15px; color: #0f172a; font-weight: bold; word-break: break-word; }
-                    .r-code-val { font-size: 20px; color: #ca8a04; letter-spacing: 2px; }
-                    .r-total-box { background: #eab308; padding: 20px; border-radius: 8px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; color: #fff; }
-                    .r-total-label { font-size: 18px; font-weight: bold; color: #fff; }
-                    .r-total-val { font-size: 24px; font-weight: 900; color: #fff; }
-                    .r-footer { text-align: center; margin-top: 30px; font-size: 13px; color: #94a3b8; }
+                    .store-name { font-size: 28px; font-weight: 900; color: #0f172a; }
+                    
+                    .r-title-box { background: rgba(234, 179, 8, 0.1); padding: 20px; border-radius: 12px; border: 1px solid #eab308; margin-bottom: 30px; text-align: center; }
+                    .r-title { font-size: 24px; color: #ca8a04; font-weight: 900; margin-bottom: 8px; }
+                    .r-id { font-size: 18px; color: #0f172a; font-weight: 700; letter-spacing: 1px; }
+                    
+                    .r-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; }
+                    .r-item { background: #f8fafc; padding: 16px; border-radius: 10px; border-right: 4px solid #eab308; box-sizing: border-box; }
+                    .r-item-full { grid-column: 1 / -1; width: 100%; text-align: center; }
+                    
+                    .r-label { font-size: 14px; color: #64748b; display: block; margin-bottom: 8px; font-weight: 600; }
+                    .r-value { font-size: 16px; color: #0f172a; font-weight: 700; word-break: break-word; }
+                    .r-code-val { font-size: 20px; color: #1d4ed8; font-weight: 900; letter-spacing: 1px; }
+                    
+                    .r-total-box { background: #0f172a; padding: 25px; border-radius: 12px; margin-top: 25px; display: flex; justify-content: space-between; align-items: center; color: #fff; box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.3); }
+                    .r-total-label { font-size: 20px; font-weight: 700; color: #e2e8f0; }
+                    .r-total-val { font-size: 28px; font-weight: 900; color: #eab308; }
+                    
+                    .r-footer { text-align: center; margin-top: 40px; font-size: 14px; color: #94a3b8; font-weight: 600; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+                    .num-en { font-family: system-ui, -apple-system, sans-serif; }
                 </style>
             </head>
             <body>
-                <div class="receipt-container">${contentHTML}<div class="r-footer">Thank you for trusting ${storeNameText} | Certified Electronic Receipt</div></div>
+                <div class="receipt-container">
+                    ${contentHTML}
+                    <div class="r-footer">
+                        شكراً لثقتكم في ${storeNameText} | إيصال إلكتروني معتمد
+                    </div>
+                </div>
             </body>
             </html>
         `;
@@ -378,7 +517,6 @@ export const UIBuilders = {
 
     /** 9️⃣ بناء تفاصيل العملية (Transaction Detail - Order/Deposit) */
     buildTransactionDetail: function(type, id, LiveStoreData, DataManager) {
-        // 🛡️ [إصلاح حرج]: عرض مدخلات العميل كاملة دون بتر النص قبل النقطتين
         const formatInputData = (str) => { 
             if(!str || str === '---') return '<span class="num-en">---</span>'; 
             if(str.includes('|')) { 
@@ -466,8 +604,6 @@ export const UIBuilders = {
             const cDiscountLocal = Number(o.pricingSnapshot?.couponDiscount || o.couponDiscount || 0);
             const oDiscountLocal = Number(o.pricingSnapshot?.offerDiscount || o.saleDiscount || 0);
             const origLocal = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
-            
-            // 🛡️ [إصلاح المتغيرات]: استخدام finalPrice ليتطابق مع المحرك المالي
             const finalLocal = Number(o.pricingSnapshot?.finalPrice || o.price || 0);
             
             const displayCurr = (o.currency || o.priceCurrency || 'USD').toUpperCase();

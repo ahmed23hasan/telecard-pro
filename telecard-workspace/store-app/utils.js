@@ -76,15 +76,20 @@ export const Utils = {
             useGrouping: false
         }).format(num);
     },
-
-    // === 2. جسر تحويل العملات (محصن بالكامل) ===
+    // === 2. جسر تحويل العملات (محصن بالكامل ضد تسرب البيانات الخام) ===
     normalizeRates: function(raw) {
+        // 🛡️ كائن الطوارئ: يضمن عمل المتجر بالدولار إذا انهار كل شيء
+        const emergencyFallback = { 
+            'USD': { code: 'USD', symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true } 
+        };
+        
         try {
             return (typeof FinancialEngine !== 'undefined' && typeof FinancialEngine.normalizeRates === 'function')
                 ? FinancialEngine.normalizeRates(raw)
-                : (raw || {}); // إرجاع البيانات كما هي في حالة غياب المحرك
+                : emergencyFallback; 
         } catch (error) {
-            return raw || {};
+            console.warn("[Utils] FinancialEngine missing or failed, using emergency fallback (USD).");
+            return emergencyFallback;
         }
     },
     
@@ -92,7 +97,7 @@ export const Utils = {
         try {
             return (typeof FinancialEngine !== 'undefined' && typeof FinancialEngine.convertViaUSD === 'function')
                 ? FinancialEngine.convertViaUSD(amount, fromCode, toCode, ratesArray, channel)
-                : (Number(amount) || 0); // إرجاع المبلغ كما هو لمنع ظهور NaN
+                : (Number(amount) || 0); 
         } catch (error) {
             return Number(amount) || 0;
         }

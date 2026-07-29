@@ -337,47 +337,31 @@ export const DataManager = {
     
     computeSellingUsd: function(p, u, q=1, i=null) { return this.calculateFinalPrice(p, u, q, i, null).totalUsd; },
 
-    getRates: function() { 
-        // 1. إذا قمنا بمعالجة العملات مسبقاً، أرجعها فوراً
+        getRates: function() { 
+        // 1. إذا قمنا بمعالجة العملات مسبقاً، أرجعها فوراً من الكاش
         if (this._ratesCache) return this._ratesCache;
 
-        let ratesObj = {};
-        const rawRates = LiveStoreData.rates;
+        let rawData = LiveStoreData.rates;
         
-        // 2. استخراج العملات بذكاء
-        if (Array.isArray(rawRates)) {
-            rawRates.forEach(r => {
-                if (r.id === 'exchange_rates' || r.id === 'rates' || Object.keys(r).length > 3) {
-                    Object.keys(r).forEach(k => {
-                        if (k !== 'id' && !isNaN(r[k])) ratesObj[k.toUpperCase()] = Number(r[k]);
-                    });
-                } else {
-                    let code = r.id || r.currency || r.code;
-                    let val = r.value || r.rate || r.price || r.exchangeRate;
-                    if (code && val !== undefined) ratesObj[code.toUpperCase()] = Number(val);
-                }
-            });
-        }
-        
-        // 3. جلب العملات من الإعدادات إذا لم توجد
-        if (Object.keys(ratesObj).length === 0 && LiveStoreData.settings?.rates) {
-            ratesObj = typeof LiveStoreData.settings.rates === 'object' ? { ...LiveStoreData.settings.rates } : {};
+        // 2. شبكة أمان: إذا لم توجد عملات في المستند الرئيسي، ابحث عنها في الإعدادات
+        if ((!rawData || (Array.isArray(rawData) && rawData.length === 0)) && LiveStoreData.settings?.rates) {
+            rawData = LiveStoreData.settings.rates;
         }
 
-        // 4. تأمين العملة الأساسية
-        ratesObj['USD'] = 1;
-
-        // 5. حفظ النتيجة في الذاكرة المؤقتة
+        // 3. 🚀 التسليم المباشر (Direct Handoff): 
+        // نمرر البيانات الخام فوراً للمحرك المالي ليقوم بفلترتها بذكائه الجديد 
+        // دون أن نكسر هيكل الكائنات (Objects) في الطريق.
         if (typeof FinancialEngine.normalizeRates === 'function') {
-            this._ratesCache = FinancialEngine.normalizeRates(ratesObj);
+            this._ratesCache = FinancialEngine.normalizeRates(rawData);
         } else {
-            this._ratesCache = ratesObj;
+            // حالة طوارئ قصوى
+            this._ratesCache = { 'USD': { code: 'USD', symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true } };
         }
 
         return this._ratesCache;
     },
 
-    _safeConvert: function(amt, f, t, r, c) { 
+        _safeConvert: function(amt, f, t, r, c) { 
         if (!amt || typeof amt !== 'number' || amt <= 0) return 0;
         
         const fromCur = (f || 'USD').toUpperCase();
@@ -390,11 +374,20 @@ export const DataManager = {
             converted = FinancialEngine.convertViaUSD(amt, fromCur, toCur, r, c);
         } catch(e) { }
         
-        // 🛡️ درع الحماية المالي الصارم
+        // 🛡️ درع الحماية المالي الصارم (مُحدّث لدعم معمارية V15.2)
         if (!converted || converted === 0 || isNaN(converted)) {
             const safeRates = (r && Object.keys(r).length > 0) ? r : this.getRates();
-            const fromRate = Number(safeRates[fromCur]) || 1;
-            const toRate = Number(safeRates[toCur]) || 1;
+            
+            // 💡 أداة استخراج ذكية: تقرأ السعر من الكائن الجديد أو كقيمة مسطحة
+            const getSafeRateValue = (rateObj, channel) => {
+                if (typeof rateObj === 'object' && rateObj !== null) {
+                    return Number(channel === 'deposit' ? rateObj.depRate : rateObj.priceRate) || 1;
+                }
+                return Number(rateObj) || 1; // دعم الكاش القديم
+            };
+
+            const fromRate = getSafeRateValue(safeRates[fromCur], c);
+            const toRate = getSafeRateValue(safeRates[toCur], c);
             
             const amtInUsd = amt / fromRate;
             let rawConverted = amtInUsd * toRate;
@@ -404,7 +397,6 @@ export const DataManager = {
         
         return converted;
     },
-
     getPricingLocal: function(prod, qty, optIdx, appliedCoupon) {
         if (!prod) return null;
         

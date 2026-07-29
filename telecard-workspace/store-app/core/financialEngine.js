@@ -1,7 +1,7 @@
 // ============================================================================
 // 💻 المحاكي المالي للواجهة الأمامية (Client-Side Simulator) - V15.2 💎
 // 🎯 الوظيفة: محاكاة الأسعار، عرض الخصومات للعميل، وتنسيق العملات.
-// 🚀 التحديثات: توحيد مفاتيح المخرجات مع الخادم (totalDiscount) ومزامنة الفواتير.
+// 🚀 التحديثات: فلترة العملات الوهمية (PRICERATE/DEPRATE) وتوحيد مفاتيح المخرجات مع الخادم.
 // ============================================================================
 
 export const FinancialEngine = {
@@ -28,11 +28,14 @@ export const FinancialEngine = {
         if (!allowZero && num === 0) return 1;
         return num;
     },
-        normalizeRates: function(raw) {
+    
+    // 🛡️ التحديث الجذري: دالة شديدة الذكاء لمنع تسرب الكلمات المفتاحية كعملات
+    normalizeRates: function(raw) {
         const ratesMap = {};
+        // 1. إضافة الدولار كعملة أساسية دائماً
         ratesMap[FinancialEngine.CONFIG.BASE_CURRENCY] = { code: FinancialEngine.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
         
-        // 1. إذا كانت البيانات مصفوفة (قادمة من Firebase مباشرة)
+        // 2. إذا كانت البيانات مصفوفة (قادمة من Firebase مباشرة)
         if (Array.isArray(raw)) {
             for (const rate of raw) {
                 if (rate && rate.code && rate.code !== FinancialEngine.CONFIG.BASE_CURRENCY) {
@@ -45,18 +48,45 @@ export const FinancialEngine = {
                 }
             }
         } 
-        // 2. 🛡️ التوافق مع DataManager: إذا كانت البيانات كائن مسطح (من الكاش)
+        // 3. 🛡️ التوافق مع DataManager: فلترة صارمة للكائنات
         else if (raw && typeof raw === 'object') {
-            for (const [key, value] of Object.entries(raw)) {
-                const code = String(key).toUpperCase();
-                if (code !== FinancialEngine.CONFIG.BASE_CURRENCY && code !== 'ISBASE') {
-                    const numVal = FinancialEngine.extractNum(value, false);
-                    ratesMap[code] = { code: code, priceRate: numVal, depRate: numVal };
+            // أ: إذا تم تمرير كائن عملة واحد بالخطأ
+            if (raw.priceRate !== undefined || raw.depRate !== undefined || raw.code !== undefined) {
+                const code = String(raw.code || '').toUpperCase();
+                if (code && code !== FinancialEngine.CONFIG.BASE_CURRENCY) {
+                    ratesMap[code] = {
+                        code: code,
+                        priceRate: FinancialEngine.extractNum(raw.priceRate || raw.value, false),
+                        depRate: FinancialEngine.extractNum(raw.depRate || raw.value, false)
+                    };
+                }
+            } else {
+                // ب: حظر الكلمات المفتاحية لمنعها من الظهور كعملات في القائمة
+                const invalidKeys = ['ISBASE', 'PRICERATE', 'DEPRATE', 'CODE', 'VALUE', 'SYMBOL', 'NAME'];
+                
+                for (const [key, value] of Object.entries(raw)) {
+                    const code = String(key).toUpperCase();
+                    
+                    if (code !== FinancialEngine.CONFIG.BASE_CURRENCY && !invalidKeys.includes(code)) {
+                        if (typeof value === 'object' && value !== null) {
+                            // كائن متداخل
+                            ratesMap[code] = { 
+                                code: code, 
+                                priceRate: FinancialEngine.extractNum(value.priceRate || value.value, false), 
+                                depRate: FinancialEngine.extractNum(value.depRate || value.value, false) 
+                            };
+                        } else {
+                            // رقم مسطح
+                            const numVal = FinancialEngine.extractNum(value, false);
+                            ratesMap[code] = { code: code, priceRate: numVal, depRate: numVal };
+                        }
+                    }
                 }
             }
         }
         return ratesMap;
     },
+
     convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel = 'pricing') {
         const amt = FinancialEngine.extractNum(amount);
         const fCode = String(fromCode || FinancialEngine.CONFIG.BASE_CURRENCY).toUpperCase();
@@ -75,6 +105,7 @@ export const FinancialEngine = {
 
         return FinancialEngine.safeMul(FinancialEngine.safeDiv(amt, fRate), tRate);
     },
+
     calculatePrice: function(params = {}) {
         const { product = {}, tier = null, offer = null, coupon = null, optIdx = null } = params;
         

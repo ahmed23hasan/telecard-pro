@@ -40,7 +40,7 @@ const FinancialEngineDef = {
         if (!allowZero && num === 0) return 1;
         return num;
     },
-        normalizeRates: function(raw) {
+            normalizeRates: function(raw) {
         const ratesMap = {};
         ratesMap[FinancialEngineDef.CONFIG.BASE_CURRENCY] = { code: FinancialEngineDef.CONFIG.BASE_CURRENCY, priceRate: 1, depRate: 1, isBase: true };
         
@@ -56,13 +56,37 @@ const FinancialEngineDef = {
                 }
             }
         } 
-        // 🛡️ دعم الكائنات المسطحة لحماية السيرفر من أي تنسيق مختلف
+        // 🛡️ التوافق الذكي للسيرفر: فلترة صارمة لمنع التلاعب
         else if (raw && typeof raw === 'object') {
-            for (const [key, value] of Object.entries(raw)) {
-                const code = String(key).toUpperCase();
-                if (code !== FinancialEngineDef.CONFIG.BASE_CURRENCY && code !== 'ISBASE') {
-                    const numVal = FinancialEngineDef.extractNum(value, false);
-                    ratesMap[code] = { code: code, priceRate: numVal, depRate: numVal };
+            // أ: إذا استلم السيرفر كائن عملة واحد
+            if (raw.priceRate !== undefined || raw.depRate !== undefined || raw.code !== undefined) {
+                const code = String(raw.code || '').toUpperCase();
+                if (code && code !== FinancialEngineDef.CONFIG.BASE_CURRENCY) {
+                    ratesMap[code] = {
+                        code: code,
+                        priceRate: FinancialEngineDef.extractNum(raw.priceRate || raw.value, false),
+                        depRate: FinancialEngineDef.extractNum(raw.depRate || raw.value, false)
+                    };
+                }
+            } else {
+                // ب: حظر الكلمات المفتاحية لمنع الخادم من تسجيلها كعملات
+                const invalidKeys = ['ISBASE', 'PRICERATE', 'DEPRATE', 'CODE', 'VALUE', 'SYMBOL', 'NAME'];
+                
+                for (const [key, value] of Object.entries(raw)) {
+                    const code = String(key).toUpperCase();
+                    
+                    if (code !== FinancialEngineDef.CONFIG.BASE_CURRENCY && !invalidKeys.includes(code)) {
+                        if (typeof value === 'object' && value !== null) {
+                            ratesMap[code] = { 
+                                code: code, 
+                                priceRate: FinancialEngineDef.extractNum(value.priceRate || value.value, false), 
+                                depRate: FinancialEngineDef.extractNum(value.depRate || value.value, false) 
+                            };
+                        } else {
+                            const numVal = FinancialEngineDef.extractNum(value, false);
+                            ratesMap[code] = { code: code, priceRate: numVal, depRate: numVal };
+                        }
+                    }
                 }
             }
         }

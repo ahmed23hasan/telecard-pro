@@ -35,7 +35,6 @@
             --radius: 12px;
         }
 
-        /* منع مربع اللمس الشفاف المزعج في متصفحات الهواتف */
         * { 
             box-sizing: border-box; 
             outline: none; 
@@ -87,19 +86,8 @@
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; } 
         .full-width { grid-column: span 2; }
         
-        .input-group { 
-            display: flex; 
-            flex-direction: column; 
-            width: 100%; 
-            position: relative;
-        }
-
-        .input-box {
-            position: relative;
-            width: 100%;
-            height: 52px;
-            z-index: 10;
-        }
+        .input-group { display: flex; flex-direction: column; width: 100%; position: relative; }
+        .input-box { position: relative; width: 100%; height: 52px; z-index: 10; }
 
         .input-field {
             width: 100%; height: 100%; padding: 0 15px;
@@ -113,8 +101,7 @@
 
         /* === التسميات العائمة الذكية === */
         .label {
-            position: absolute; 
-            top: 50%; right: 15px; transform: translateY(-50%);
+            position: absolute; top: 50%; right: 15px; transform: translateY(-50%);
             color: var(--text-gray); font-size: 13px; pointer-events: none; transition: .2s; font-weight: 600;
             z-index: 3; background: transparent; padding: 0 4px;
         }
@@ -133,13 +120,6 @@
             animation: fadeIn 0.2s ease;
         }
         
-        .warning-text { 
-            font-size: 11px; color: var(--warn-orange); margin-top: 6px; padding-right: 5px;
-            display: flex; align-items: center; gap: 4px; font-weight: 700; line-height: 1.4;
-            position: relative; 
-            z-index: 1; 
-        }
-
         .password-warning {
             margin-top: 8px; background: rgba(246, 173, 85, 0.08); border: 1px solid rgba(246, 173, 85, 0.25);
             border-radius: 10px; padding: 10px 12px; display: none; align-items: flex-start; gap: 8px; animation: fadeIn 0.3s ease;
@@ -177,9 +157,7 @@
 
         .num-en { font-family: 'Inter', sans-serif !important; direction: ltr !important; text-align: left !important; }
         
-        /* =========================================================
-           🌟 تصاميم النوافذ المنبثقة الفاخرة (تم إضافتها هنا أيضاً)
-           ========================================================= */
+        /* === النوافذ المنبثقة الفاخرة === */
         .custom-alert-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(5, 9, 16, 0.85); backdrop-filter: blur(10px); 
@@ -312,7 +290,6 @@
         </form>
     </div>
 <script type="module">
-    // 🚀 استيراد أدوات فايربيز
     import { auth } from './core/firebaseAdapter.js';
     import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
     import { DB_KEYS } from './config.js';
@@ -321,7 +298,7 @@
     const googleProvider = new GoogleAuthProvider();
 
     // =================================================================
-    // 🪄 دوال النوافذ المنبثقة الفاخرة 
+    // 🪄 دوال النوافذ المنبثقة
     // =================================================================
     function showCustomAlert(title, message, isSuccess = true) {
         const overlay = document.getElementById('customAlert');
@@ -366,19 +343,12 @@
         try {
             if (StoreDB && typeof StoreDB.getById === 'function') {
                 const settingsDoc = await StoreDB.getById(DB_KEYS.SETTINGS, 'singleton');
-                if (settingsDoc) {
-                    return String(settingsDoc.defaultCurrency || settingsDoc.currency || 'USD').toUpperCase();
-                }
+                if (settingsDoc) { return String(settingsDoc.defaultCurrency || settingsDoc.currency || 'USD').toUpperCase(); }
             }
-        } catch (error) {
-            console.warn("⚠️ تعذر جلب العملة الافتراضية، سيتم استخدام USD كاحتياطي.");
-        }
+        } catch (error) { console.warn("⚠️ تعذر جلب العملة الافتراضية، سيتم استخدام USD كاحتياطي."); }
         return 'USD';
     }
 
-    // =================================================================
-    // 🧠 دالة توليد رقم عرض (Display ID)
-    // =================================================================
     async function generateUniqueDisplayId() {
         const timePart = String(Date.now()).slice(-4);
         const randPart = Math.floor(100 + Math.random() * 900);
@@ -401,20 +371,13 @@
 
     function checkPasswordStrength() {
         const val = passInput.value;
-        if (val.length === 0) {
-            passWarning.style.display = 'none';
-            passInput.classList.remove('input-error');
-            isPassStrong = false;
-            return;
-        }
+        if (val.length === 0) { passWarning.style.display = 'none'; passInput.classList.remove('input-error'); isPassStrong = false; return; }
 
         let missing = [];
         const remaining = 8 - val.length;
         if (remaining > 0) {
-            if (remaining === 1) missing.push("حرف واحد إضافي");
-            else if (remaining === 2) missing.push("حرفين إضافيين");
-            else if (remaining > 2 && remaining < 11) missing.push(`${remaining} أحرف إضافية`);
-            else missing.push(`${remaining} حرفاً إضافياً`);
+            if (remaining === 1) missing.push("حرف واحد إضافي"); else if (remaining === 2) missing.push("حرفين إضافيين");
+            else if (remaining > 2 && remaining < 11) missing.push(`${remaining} أحرف إضافية`); else missing.push(`${remaining} حرفاً إضافياً`);
         }
 
         if (!/[A-Z]/.test(val)) missing.push("حرف كبير (A-Z)");
@@ -425,12 +388,10 @@
         isPassStrong = missing.length === 0;
 
         if (!isPassStrong) {
-            passWarning.style.display = 'flex';
-            passInput.classList.add('input-error');
+            passWarning.style.display = 'flex'; passInput.classList.add('input-error');
             passWarningText.innerHTML = `<strong>ينقص كلمة المرور:</strong> ${missing.join('، ')}`;
         } else {
-            passWarning.style.display = 'none';
-            passInput.classList.remove('input-error');
+            passWarning.style.display = 'none'; passInput.classList.remove('input-error');
         }
     }
 
@@ -465,227 +426,214 @@
     function showError(inputId, errorId, msg) {
         document.getElementById(inputId).classList.add('input-error');
         const err = document.getElementById(errorId);
-        if(msg) err.textContent = msg;
-        err.style.display = 'block';
+        if(msg) err.textContent = msg; err.style.display = 'block';
     }
     function hideError(inputId, errorId) {
-        const input = document.getElementById(inputId);
-        if (input) input.classList.remove('input-error');
-        const err = document.getElementById(errorId);
-        if (err) err.style.display = 'none';
+        const input = document.getElementById(inputId); if (input) input.classList.remove('input-error');
+        const err = document.getElementById(errorId); if (err) err.style.display = 'none';
     }
 
-// =================================================================
-// 🌐 دالة التسجيل عبر جوجل (محمية ومسدودة من الثغرات)
-// =================================================================
-// =================================================================
-// 🌐 دالة التسجيل عبر جوجل (تم إصلاح المستوى وإظهار الأخطاء)
-// =================================================================
-async function handleGoogleLogin() {
-const btn = document.querySelector('.google-btn');
-const originalText = btn.innerHTML;
-btn.innerHTML = 'جاري الاتصال بجوجل...';
-btn.style.opacity = '0.7';
-btn.disabled = true;
+    // =================================================================
+    // 🌐 دالة التسجيل عبر جوجل (تم إصلاح معمارية الاسم) 💎
+    // =================================================================
+    async function handleGoogleLogin() {
+        const btn = document.querySelector('.google-btn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = 'جاري الاتصال بجوجل...';
+        btn.style.opacity = '0.7'; btn.disabled = true;
 
-try {
-const result = await signInWithPopup(auth, googleProvider);
-const firebaseUser = result.user;
+        try {
+            const result = await signInWithPopup(auth, googleProvider);
+            const firebaseUser = result.user;
 
-let activeUserObj = null;
-if(StoreDB && typeof StoreDB.getById === 'function') {
-activeUserObj = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid);
-}
+            let activeUserObj = null;
+            if(StoreDB && typeof StoreDB.getById === 'function') {
+                activeUserObj = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid);
+            }
 
-if (!activeUserObj) {
-// عميل جديد تماماً
-btn.innerHTML = 'جاري تهيئة الحساب...';
+            if (!activeUserObj) {
+                btn.innerHTML = 'جاري تهيئة الحساب...';
 
-const targetCurrency = await getAdminDefaultCurrency();
-const shortDisplayId = await generateUniqueDisplayId();
+                const targetCurrency = await getAdminDefaultCurrency();
+                const shortDisplayId = await generateUniqueDisplayId();
 
-const fullName = firebaseUser.displayName || 'عميل جديد';
-const nameParts = fullName.split(' ');
-const firstName = nameParts[0];
-const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
-const baseUsername = fullName.toLowerCase().replace(/\s+/g, '');
-const finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
+                // 🛡️ المعيار الاحترافي لاستخراج الاسم
+                const rawDisplayName = firebaseUser.displayName || '';
+                let firstName = ''; let lastName = ''; let finalFullName = '';
 
-let googleAvatar = null;
-if (firebaseUser.photoURL) {
-googleAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
-}
+                if (rawDisplayName) {
+                    finalFullName = rawDisplayName;
+                    const nameParts = finalFullName.split(' ');
+                    firstName = nameParts[0];
+                    lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+                } else {
+                    // إذا لم يوجد اسم في حساب جوجل، نستخرج الاسم من الإيميل 
+                    firstName = firebaseUser.email.split('@')[0];
+                    lastName = '';
+                    finalFullName = firstName;
+                }
 
-activeUserObj = {
-id: firebaseUser.uid,
-displayId: shortDisplayId,
-name: firstName,
-lastName: lastName,
-username: finalUsername,
-email: firebaseUser.email,
-img: googleAvatar,
-baseCurrency: "", // 💎 احترافية: نتركه فارغاً في الداتابيز
-    base_currency: "", // 💎 احترافية: نتركه فارغاً في الداتابيز
-phone: null,
-country: null,
-walletBalance: 0,
-balance: 0,
-totalSpent: 0,
-totalDeposit: 0,
-// ✅ تم الحل: إعطاء العميل المستوى الافتراضي فوراً لكي تظهر له المنتجات
-tierId: "TIER_DEFAULT_INITIAL",
-createdAt: Date.now()
-};
+                const baseUsername = finalFullName.toLowerCase().replace(/\s+/g, '');
+                const finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
 
-if (StoreDB && typeof StoreDB.set === 'function') {
-await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
-}
-} else {
-// 🛑 [الدرع الأمني]: العميل موجود مسبقاً في الداتابيز، هل هو محظور؟
-if (activeUserObj.isBanned === true || activeUserObj.isIpBanned === true) {
-await signOut(auth); // إعدام الجلسة فوراً
-localStorage.clear();
-btn.innerHTML = originalText;
-btn.style.opacity = '1';
-btn.disabled = false;
-showCustomAlert("حساب محظور", "عذراً، هذا الحساب تم حظره مسبقاً ولا يمكن استخدامه.", false);
-return; // إحباط الدخول
-}
+                let googleAvatar = null;
+                if (firebaseUser.photoURL) googleAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
 
-if (!activeUserObj.img && firebaseUser.photoURL) {
-const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
-activeUserObj.img = freshAvatar;
-if (StoreDB && typeof StoreDB.set === 'function') {
-await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { img: freshAvatar });
-}
-}
-}
+                activeUserObj = {
+                    id: firebaseUser.uid,
+                    displayId: shortDisplayId,
+                    firstName: firstName,       // ✅ المفتاح القياسي الأول
+                    lastName: lastName,         // ✅ المفتاح القياسي الثاني
+                    fullName: finalFullName,    // 💎 هذا ما كان ينقصنا! 
+                    name: firstName,            // ✅ متوافق مع الأنظمة القديمة
+                    username: finalUsername,
+                    email: firebaseUser.email,
+                    img: googleAvatar,
+                    baseCurrency: "",
+                    base_currency: "",
+                    phone: null,
+                    country: null,
+                    walletBalance: 0,
+                    balance: 0,
+                    totalSpent: 0,
+                    totalDeposit: 0,
+                    tierId: "TIER_DEFAULT_INITIAL",
+                    createdAt: Date.now()
+                };
 
-// إذا وصلنا لهنا، فالمستخدم سليم
-localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
-localStorage.setItem('telecard_active_user', JSON.stringify(activeUserObj));
-localStorage.setItem('telecard_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency || 'USD');
+                if (StoreDB && typeof StoreDB.set === 'function') {
+                    await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
+                }
+            } else {
+                if (activeUserObj.isBanned === true || activeUserObj.isIpBanned === true) {
+                    await signOut(auth); localStorage.clear();
+                    btn.innerHTML = originalText; btn.style.opacity = '1'; btn.disabled = false;
+                    showCustomAlert("حساب محظور", "عذراً، هذا الحساب تم حظره مسبقاً ولا يمكن استخدامه.", false);
+                    return; 
+                }
 
-if (activeUserObj.img) {
-localStorage.setItem('telecard_user_image_' + firebaseUser.uid, activeUserObj.img);
-}
+                if (!activeUserObj.img && firebaseUser.photoURL) {
+                    const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
+                    activeUserObj.img = freshAvatar;
+                    if (StoreDB && typeof StoreDB.set === 'function') await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { img: freshAvatar });
+                }
+            }
 
-const toast = document.getElementById('successToast');
-if (toast) toast.classList.add('show');
+            localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
+            localStorage.setItem('telecard_active_user', JSON.stringify(activeUserObj));
+            localStorage.setItem('telecard_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency || 'USD');
 
-setTimeout(() => { window.location.replace("store.html"); }, 1500);
+            if (activeUserObj.img) localStorage.setItem('telecard_user_image_' + firebaseUser.uid, activeUserObj.img);
 
-} catch (error) {
-console.error("Google Auth Error:", error);
-btn.innerHTML = originalText;
-btn.style.opacity = '1';
-btn.disabled = false;
-// ✅ تم الحل: إظهار رسالة الخطأ للعميل لكي نعرف السبب الحقيقي للمشكلة
-showCustomAlert("تعذر الدخول بواسطة جوجل", "السبب: " + error.message, false);
-}
-}
+            const toast = document.getElementById('successToast');
+            if (toast) toast.classList.add('show');
+            setTimeout(() => { window.location.replace("store.html"); }, 1500);
 
-// =================================================================
-// ✍️ دالة التسجيل اليدوي (تم إصلاح المستوى)
-// =================================================================
-async function validateAndRegister() {
-const fname = document.getElementById('fname');
-const lname = document.getElementById('lname');
-const email = document.getElementById('email');
-const pass = document.getElementById('password');
-const confirm = document.getElementById('confirm');
-let isValid = true;
+        } catch (error) {
+            console.error("Google Auth Error:", error);
+            btn.innerHTML = originalText; btn.style.opacity = '1'; btn.disabled = false;
+            showCustomAlert("تعذر الدخول بواسطة جوجل", "السبب: " + error.message, false);
+        }
+    }
 
-if(!fname.value.trim()) { showError('fname', 'fnameError', 'هذا الحقل مطلوب'); isValid = false; }
-else if(!latinRegex.test(fname.value)) { showError('fname', 'fnameError', 'يُرجى استخدام الأحرف اللاتينية فقط'); isValid = false; }
+    // =================================================================
+    // ✍️ دالة التسجيل اليدوي (تم إصلاح معمارية الاسم) 💎
+    // =================================================================
+    async function validateAndRegister() {
+        const fname = document.getElementById('fname');
+        const lname = document.getElementById('lname');
+        const email = document.getElementById('email');
+        const pass = document.getElementById('password');
+        const confirm = document.getElementById('confirm');
+        let isValid = true;
 
-if(!lname.value.trim()) { showError('lname', 'lnameError', 'هذا الحقل مطلوب'); isValid = false; }
-else if(!latinRegex.test(lname.value)) { showError('lname', 'lnameError', 'يُرجى استخدام الأحرف اللاتينية فقط'); isValid = false; }
+        if(!fname.value.trim()) { showError('fname', 'fnameError', 'هذا الحقل مطلوب'); isValid = false; }
+        else if(!latinRegex.test(fname.value)) { showError('fname', 'fnameError', 'يُرجى استخدام الأحرف اللاتينية فقط'); isValid = false; }
 
-if(!email.value.trim()) { showError('email', 'emailError', 'هذا الحقل مطلوب'); isValid = false; }
-else if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) { showError('email', 'emailError', 'البريد الإلكتروني غير صالح'); isValid = false; }
+        if(!lname.value.trim()) { showError('lname', 'lnameError', 'هذا الحقل مطلوب'); isValid = false; }
+        else if(!latinRegex.test(lname.value)) { showError('lname', 'lnameError', 'يُرجى استخدام الأحرف اللاتينية فقط'); isValid = false; }
 
-if(pass.value.trim() === '') {
-passInput.classList.add('input-error');
-passWarningText.innerHTML = `<strong>تنبيه الأمان:</strong> حقل كلمة المرور مطلوب.`;
-document.getElementById('passWarning').style.display = 'flex';
-isValid = false;
-} else if(!isPassStrong) { checkPasswordStrength(); isValid = false; }
+        if(!email.value.trim()) { showError('email', 'emailError', 'هذا الحقل مطلوب'); isValid = false; }
+        else if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) { showError('email', 'emailError', 'البريد الإلكتروني غير صالح'); isValid = false; }
 
-if(pass.value !== confirm.value || confirm.value.trim() === '') { showError('confirm', 'confirmError', 'كلمات المرور غير متطابقة'); isValid = false; }
+        if(pass.value.trim() === '') {
+            passInput.classList.add('input-error'); passWarningText.innerHTML = `<strong>تنبيه الأمان:</strong> حقل كلمة المرور مطلوب.`;
+            document.getElementById('passWarning').style.display = 'flex'; isValid = false;
+        } else if(!isPassStrong) { checkPasswordStrength(); isValid = false; }
 
-if(!isValid) return;
+        if(pass.value !== confirm.value || confirm.value.trim() === '') { showError('confirm', 'confirmError', 'كلمات المرور غير متطابقة'); isValid = false; }
 
-const btn = document.getElementById('submitBtn');
-const originalBtnText = btn.textContent;
-btn.textContent = "جاري إنشاء الحساب والمصادقة...";
-btn.style.opacity = "0.8";
-btn.style.pointerEvents = "none";
+        if(!isValid) return;
 
-try {
-const rawEmail = email.value.trim().toLowerCase();
-const userCredential = await createUserWithEmailAndPassword(auth, rawEmail, pass.value);
-const firebaseUser = userCredential.user;
+        const btn = document.getElementById('submitBtn');
+        const originalBtnText = btn.textContent;
+        btn.textContent = "جاري إنشاء الحساب والمصادقة...";
+        btn.style.opacity = "0.8"; btn.style.pointerEvents = "none";
 
-let baseUsername = `${fname.value.trim()}.${lname.value.trim()}`.toLowerCase().replace(/\s+/g, '');
-let finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
+        try {
+            const rawEmail = email.value.trim().toLowerCase();
+            const userCredential = await createUserWithEmailAndPassword(auth, rawEmail, pass.value);
+            const firebaseUser = userCredential.user;
 
-const targetCurrency = await getAdminDefaultCurrency();
-const shortDisplayId = await generateUniqueDisplayId();
+            const safeFirstName = fname.value.trim();
+            const safeLastName = lname.value.trim();
+            const finalFullName = `${safeFirstName} ${safeLastName}`; // 💎 المفتاح المفقود تم استرجاعه!
 
-const newUser = {
-id: firebaseUser.uid,
-displayId: shortDisplayId,
-name: fname.value.trim(),
-lastName: lname.value.trim(),
-username: finalUsername,
-email: firebaseUser.email,
-baseCurrency: "", // 💎 احترافية: نتركه فارغاً في الداتابيز
-    base_currency: "", // 💎 احترافية: نتركه فارغاً في الداتابيز
-phone: null,
-country: null,
-walletBalance: 0,
-balance: 0,
-totalSpent: 0,
-totalDeposit: 0,
-// ✅ تم الحل: إعطاء العميل المستوى الافتراضي فوراً
-tierId: "TIER_DEFAULT_INITIAL",
-createdAt: Date.now()
-};
+            let baseUsername = finalFullName.toLowerCase().replace(/\s+/g, '');
+            let finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
 
-if(StoreDB && typeof StoreDB.set === 'function') {
-await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, newUser);
-}
+            const targetCurrency = await getAdminDefaultCurrency();
+            const shortDisplayId = await generateUniqueDisplayId();
 
-localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
-localStorage.setItem('telecard_active_user', JSON.stringify(newUser));
-localStorage.setItem('telecard_display_currency', targetCurrency);
+            const newUser = {
+                id: firebaseUser.uid,
+                displayId: shortDisplayId,
+                firstName: safeFirstName,    // ✅ 
+                lastName: safeLastName,      // ✅ 
+                fullName: finalFullName,     // 💎 هنا سيعتمد عليه المتجر لاحقاً بدلاً من طباعة "العميل"
+                name: safeFirstName,         // ✅
+                username: finalUsername,
+                email: firebaseUser.email,
+                baseCurrency: "", 
+                base_currency: "", 
+                phone: null,
+                country: null,
+                walletBalance: 0,
+                balance: 0,
+                totalSpent: 0,
+                totalDeposit: 0,
+                tierId: "TIER_DEFAULT_INITIAL",
+                createdAt: Date.now()
+            };
 
-document.getElementById('successToast').classList.add('show');
+            if(StoreDB && typeof StoreDB.set === 'function') {
+                await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, newUser);
+            }
 
-setTimeout(() => { window.location.replace("store.html"); }, 1500);
+            localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
+            localStorage.setItem('telecard_active_user', JSON.stringify(newUser));
+            localStorage.setItem('telecard_display_currency', targetCurrency);
 
-} catch(error) {
-console.error("Auth Error:", error);
-if (error.code === 'auth/email-already-in-use') {
-showError('email', 'emailError', 'البريد مسجل مسبقاً! جاري توجيهك لصفحة تسجيل الدخول...');
-try {
-sessionStorage.setItem('prefilled_email', email.value.trim().toLowerCase());
-} catch(e) {}
-setTimeout(() => { window.location.replace("login.html"); }, 1800);
-}
-else if (error.code === 'auth/network-request-failed') { showError('email', 'emailError', 'خطأ في الاتصال بالإنترنت'); }
-else { showError('email', 'emailError', 'حدث خطأ أثناء التسجيل: ' + error.message); }
+            document.getElementById('successToast').classList.add('show');
+            setTimeout(() => { window.location.replace("store.html"); }, 1500);
 
-btn.textContent = originalBtnText;
-btn.style.opacity = "1";
-btn.style.pointerEvents = "auto";
-}
-}
+        } catch(error) {
+            console.error("Auth Error:", error);
+            if (error.code === 'auth/email-already-in-use') {
+                showError('email', 'emailError', 'البريد مسجل مسبقاً! جاري توجيهك لصفحة تسجيل الدخول...');
+                try { sessionStorage.setItem('prefilled_email', email.value.trim().toLowerCase()); } catch(e) {}
+                setTimeout(() => { window.location.replace("login.html"); }, 1800);
+            }
+            else if (error.code === 'auth/network-request-failed') { showError('email', 'emailError', 'خطأ في الاتصال بالإنترنت'); }
+            else { showError('email', 'emailError', 'حدث خطأ أثناء التسجيل: ' + error.message); }
 
-window.togglePass = togglePass;
-window.handleGoogleLogin = handleGoogleLogin;
-window.validateAndRegister = validateAndRegister;
+            btn.textContent = originalBtnText; btn.style.opacity = "1"; btn.style.pointerEvents = "auto";
+        }
+    }
+
+    window.togglePass = togglePass;
+    window.handleGoogleLogin = handleGoogleLogin;
+    window.validateAndRegister = validateAndRegister;
 
 </script></body>
 </html>

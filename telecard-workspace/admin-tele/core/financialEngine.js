@@ -28,12 +28,13 @@ export const FinancialEngine = {
         if (!allowZero && num === 0) return 1;
         return num;
     },
-    
-    // 🛡️ التحديث 1: دعم المصفوفات والكائنات معاً (تطابق كامل مع السيرفر والواجهة)
+       // 🛡️ التحديث 1 (الذكي): دعم المصفوفات والكائنات مع فلترة صارمة لمنع تسرب الكلمات المفتاحية
     normalizeRates: function(raw) {
         const ratesMap = {};
+        // 1. إضافة العملة الأساسية دائماً
         ratesMap[FinancialEngine.CONFIG.BASE_CURRENCY] = { code: FinancialEngine.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
         
+        // 2. إذا كانت البيانات مصفوفة (الوضع الطبيعي)
         if (Array.isArray(raw)) {
             for (const rate of raw) {
                 if (rate && rate.code && rate.code !== FinancialEngine.CONFIG.BASE_CURRENCY) {
@@ -46,19 +47,45 @@ export const FinancialEngine = {
                 }
             }
         } 
+        // 3. 🛡️ التوافق الذكي (الحل الجذري لمشكلة العملات الوهمية)
         else if (raw && typeof raw === 'object') {
-            for (const [key, value] of Object.entries(raw)) {
-                const code = String(key).toUpperCase();
-                if (code !== FinancialEngine.CONFIG.BASE_CURRENCY && code !== 'ISBASE') {
-                    const numVal = FinancialEngine.extractNum(value, false);
-                    ratesMap[code] = { code: code, priceRate: numVal, depRate: numVal };
+            // أ: إذا تم تمرير كائن عملة واحد بالخطأ
+            if (raw.priceRate !== undefined || raw.depRate !== undefined || raw.code !== undefined) {
+                const code = String(raw.code || '').toUpperCase();
+                if (code && code !== FinancialEngine.CONFIG.BASE_CURRENCY) {
+                    ratesMap[code] = {
+                        code: code,
+                        priceRate: FinancialEngine.extractNum(raw.priceRate || raw.value, false),
+                        depRate: FinancialEngine.extractNum(raw.depRate || raw.value, false)
+                    };
+                }
+            } else {
+                // ب: حظر الكلمات المفتاحية لمنعها من الظهور كعملات في القائمة!
+                const invalidKeys = ['ISBASE', 'PRICERATE', 'DEPRATE', 'CODE', 'VALUE', 'SYMBOL', 'NAME'];
+                
+                for (const [key, value] of Object.entries(raw)) {
+                    const code = String(key).toUpperCase();
+                    
+                    if (code !== FinancialEngine.CONFIG.BASE_CURRENCY && !invalidKeys.includes(code)) {
+                        if (typeof value === 'object' && value !== null) {
+                            // الكاش يحتوي على كائن متداخل
+                            ratesMap[code] = { 
+                                code: code, 
+                                priceRate: FinancialEngine.extractNum(value.priceRate || value.value, false), 
+                                depRate: FinancialEngine.extractNum(value.depRate || value.value, false) 
+                            };
+                        } else {
+                            // الكاش يحتوي على رقم مسطح
+                            const numVal = FinancialEngine.extractNum(value, false);
+                            ratesMap[code] = { code: code, priceRate: numVal, depRate: numVal };
+                        }
+                    }
                 }
             }
         }
         return ratesMap;
     },
-
-    convertViaUSD: function(amount, fromCode, toCode, ratesRaw, channel = 'pricing') {
+  convertViaUSD: function(amount, fromCode, toCode, ratesRaw, channel = 'pricing') {
         const amt = FinancialEngine.extractNum(amount);
         const fCode = String(fromCode || FinancialEngine.CONFIG.BASE_CURRENCY).toUpperCase();
         const tCode = String(toCode || FinancialEngine.CONFIG.BASE_CURRENCY).toUpperCase();

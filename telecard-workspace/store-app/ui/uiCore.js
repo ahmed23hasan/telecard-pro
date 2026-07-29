@@ -1439,15 +1439,42 @@ export const UICore = {
     },
     refreshCurrencyMenuFlags: function() { document.querySelectorAll('.ct-item').forEach(item => this.setFlagEl(item.querySelector('.ct-flag-box'), item.dataset.curr || item.getAttribute('data-curr'))); },
 
-    setDisplayCurrency: function(curr) {
+        setDisplayCurrency: function(curr) {
         if (!DataManager.user) return; 
+        
+        // 1. تحديث العملة في البيانات المحلية
         DataManager.selectedCurr = curr || (DataManager.user.baseCurrency || 'USD');
         localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY || 'telecard_display_currency', DataManager.selectedCurr);
+        
+        // 2. تحديث الرصيد والأعلام ونافذة الشراء (إن كانت مفتوحة)
         this.updateDisplayBalance();
         const pm = document.getElementById('purchase-modal');
         if(pm && pm.classList.contains('active') && DataManager.currentProd) { getSys().updatePriceDisplay?.(); }
         this.updateDisplayCurrencyUI(DataManager.selectedCurr);
+
+        // 3. 🚀 التحديث الماسي: إجبار الرسام (RenderManager) على تحديث الشاشة الحالية فوراً
+        if (typeof RenderManager !== 'undefined') {
+            if (this.currentCategoryId) {
+                // إذا كان المستخدم داخل قسم معين
+                RenderManager._renderContent(this.currentCategoryId);
+            } else if (document.body.classList.contains('is-home')) {
+                // إذا كان المستخدم في الصفحة الرئيسية
+                RenderManager.renderHome(true);
+            } else if (document.body.classList.contains('is-favorites')) {
+                // إذا كان المستخدم في المفضلة
+                RenderManager.renderFavorites();
+            }
+            
+            // تحديث فوري إذا كانت المحفظة أو الطلبات مفتوحة
+            if (document.getElementById('wallet-modal')?.classList.contains('active')) {
+                RenderManager.renderWallet(true);
+            }
+            if (document.getElementById('orders-modal')?.classList.contains('active')) {
+                RenderManager.renderOrders(true);
+            }
+        }
     },
+
 
     clearDisplayCurrencyTimer: function() { if(this.displayMenuTimer) { clearTimeout(this.displayMenuTimer); this.displayMenuTimer = null; } },
     toggleDisplayCurrencyMenu: function() {
