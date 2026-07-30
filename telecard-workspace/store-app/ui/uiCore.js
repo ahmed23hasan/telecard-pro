@@ -533,11 +533,15 @@ export const UICore = {
             'close-about': () => this.closeModal?.('about'),
             'close-security-modal': () => getSys().closeSecurityModal?.(),
             'close-setup-2fa': () => this.closeModal?.('setup-2fa'),
-            'toggle-currency-menu': () => this.toggleDisplayCurrencyMenu?.(),
-            'toggle-theme': () => this.toggleTheme?.(),
-            'store-search-btn': () => this.applyStoreSearch?.(),
-            'open-category': (e, id) => { e.preventDefault(); this.openCategory?.(id); },
-            'toggle-fav-modal': () => this.toggleFavoriteFromModal?.(),
+                  'toggle-currency-menu': () => this.toggleDisplayCurrencyMenu?.(),
+                'toggle-theme': () => this.toggleTheme?.(),
+                'store-search-btn': () => this.applyStoreSearch?.(),
+                'open-category': (e, id) => { e.preventDefault();
+                    this.openCategory?.(id); },
+                
+                // 💎 هذا هو السطر السحري الذي سيعيد الحياة للمنتجات وتأثيرات المفضلة
+                'open-product': (e, id) => getSys().openProdModal?.(id),
+                'toggle-fav-modal': () => this.toggleFavoriteFromModal?.(),
             'update-simple-qty': (e, id, val) => getSys().updateSimpleQty?.(parseInt(val)),
             'toggle-pkg-dropdown': (e, id, val, target) => target.parentElement.classList.toggle('open'),
             'toggle-coupon-ui': (e, id, val, target) => getSys().toggleCoupon?.(target),

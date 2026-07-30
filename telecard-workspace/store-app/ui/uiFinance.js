@@ -209,12 +209,13 @@ export const UIFinance = {
             }
 
             if (nameEl) nameEl.innerText = DataManager.currentProd.name;
-            if (favBtn) {
+                        if (favBtn) {
                 const isFav = DataManager.isFavorite ? DataManager.isFavorite(DataManager.currentProd.id) : false;
-                favBtn.className = `pm-btn-icon ${isFav ? 'active' : ''}`;
+                // نحافظ على التصميم الأصلي ونضيف أو نزيل حالة 'active' فقط بذكاء
+                favBtn.classList.toggle('active', isFav);
                 favBtn.innerHTML = `<i class="${isFav ? 'fa-solid' : 'fa-regular'} fa-heart"></i>`;
             }
-            if (descBox) {
+         if (descBox) {
                 if (DataManager.currentProd.description) {
                     descBox.innerHTML = `<i class="fa-solid fa-circle-info"></i> ${Utils.escapeHtml(DataManager.currentProd.description)}`;
                     descBox.style.display = 'block';
