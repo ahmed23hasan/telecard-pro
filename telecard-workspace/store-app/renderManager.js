@@ -1,12 +1,12 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V14.8 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V15.2 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه
-// 🚀 التحديثات:
-// 1. Dynamic Category Resolution: إصلاح شامل لفلترة المنتجات لدعم مصفوفات الأقسام والمسميات المختلفة.
-// 2. Safe Image Fallback: إظهار الأيقونات الاحتياطية بأمان ومنع تكرار النصوص.
-// 3. Search Leak Shield: حماية نتائج البحث من إظهار منتجات تابعة لأقسام مخفية أو محذوفة.
-// 4. Fast DOM Fragment: إزالة مستمعات الصور اليدوية وتسريع الرسم بنسبة 40%.
-// 5. Safe URL Fix: استخدام safeUrl لحماية روابط Firebase Storage من الكسر.
+// 🚀 التحديثات المعمارية الصارمة:
+// 1. Zero-Latency Rendering: إزالة لودرات الانتظار كلياً اعتماداً على معمارية الـ Cache-First.
+// 2. Smart Grid Engine: فصل تخطيط الأقسام (2) عن المنتجات (3) كافتراضي مع احترام الإدارة.
+// 3. State Pollution Fix: منع حفظ التخطيط في localStorage لتفادي تشوه الواجهات.
+// 4. WebKit Lazy Painting Fix: إجبار سفاري على رسم الإيصالات بشفافية شبه معدومة.
+// 5. Canvas Memory Sweep: الكنس الجبري للذاكرة بعد توليد الفواتير (منع الـ Crash).
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -17,9 +17,6 @@ import { Components } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 import { UIBuilders } from './ui/uiBuilders.js'; 
 
-// ============================================================================
-// 🛡️ المساعدات العامة للنافذة وإدارة الذاكرة (Global Namespace) 
-// ============================================================================
 window.StoreRenderApp = window.StoreRenderApp || {
     imgCache: new Set(),
     timerInterval: null,
@@ -108,16 +105,14 @@ export const RenderManager = {
         return posMap[posStr] || posStr || defaultPos;
     },
     
-    _applyGridLayout: function(gridElement, settings = {}, overrideCols = null) {
+    _applyGridLayout: function(gridElement, settings = {}, overrideCols = null, gridType = 'prods') {
         if (!gridElement) return;
-        if (settings.syncGridLayout) {
-            const cols = overrideCols || settings.rootLayout;
-            if (cols) { gridElement.style.setProperty('--layout-cols', cols); localStorage.setItem('store_layout_cols', cols); } 
-            else { gridElement.style.removeProperty('--layout-cols'); }
-        } else {
-            gridElement.style.removeProperty('--layout-cols');
-            localStorage.removeItem('store_layout_cols');
-        }
+        
+        let defaultCols = gridType === 'cats' ? '2' : '3';
+        let adminGlobalLayout = gridType === 'cats' ? settings.rootLayout : null;
+        const finalCols = String(overrideCols || adminGlobalLayout || defaultCols);
+        
+        gridElement.style.setProperty('--layout-cols', finalCols); 
     },
 
     _getImgLoadVars: function(rawUrl) {
@@ -157,12 +152,11 @@ export const RenderManager = {
         const displayCurrency = DataManager.selectedCurr || 'USD';
         
         let pricing = null;
-try { 
-    pricing = DataManager.calculateFinalPrice(p, DataManager.user, 1, null, null); 
-} catch(e) {
-    // هذا السطر سيفضح المشكلة ولن يخفيها بعد الآن
-    console.error("🚨 خطأ أثناء تسعير المنتج:", p.name, "السبب:", e.message, "بيانات المنتج:", p);
-}
+        try { 
+            pricing = DataManager.calculateFinalPrice(p, DataManager.user, 1, null, null); 
+        } catch(e) {
+            console.error("🚨 خطأ أثناء تسعير المنتج:", p.name, "السبب:", e.message);
+        }
         if (!pricing) return ''; 
         
         let priceSectionHtml = '', nameExpandedStyle = '';
@@ -205,7 +199,8 @@ try {
         if (totalCount > this.limits[limitKey] || hasMoreData) {
             const loadMoreBtn = document.createElement('div');
             loadMoreBtn.className = 'load-more-container mt-15 mb-15 text-center w-100';
-            loadMoreBtn.innerHTML = `<button class="load-more-btn"><i class="fa-solid fa-angle-down"></i> عرض المزيد</button>`;
+            const originalHtml = `<i class="fa-solid fa-angle-down"></i> عرض المزيد`;
+            loadMoreBtn.innerHTML = `<button class="load-more-btn">${originalHtml}</button>`;
             
             loadMoreBtn.querySelector('button').addEventListener('click', async (e) => {
                 const btn = e.target.closest('button');
@@ -224,12 +219,27 @@ try {
                     btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل...`; 
                     btn.disabled = true;
                     
+                    let isTimeout = false;
+                    
+                    const watchdog = setTimeout(() => {
+                        isTimeout = true;
+                        btn.innerHTML = `<i class="fa-solid fa-rotate-right"></i> فشل الاتصال، حاول مجدداً`;
+                        btn.disabled = false;
+                        btn.dataset.locked = 'false';
+                        
+                        setTimeout(() => { if (btn.dataset.locked === 'false') btn.innerHTML = originalHtml; }, 3000);
+                    }, 12000); 
+                    
                     const dbKey = type === 'orders' ? DB_KEYS.ORDERS : DB_KEYS.DEPOSITS;
                     try {
                         const res = await StoreDB.fetchMoreWithCursor(dbKey, ['userId', '==', String(uid)], 'time', DataManager.cursors[type], 15);
+                        
+                        if (!btn.isConnected) return;
+                        if (isTimeout) return;
+                        clearTimeout(watchdog);
+                        
                         if (res.data && res.data.length > 0) {
                             const normData = res.data.map(item => ({...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt)}));
-                            
                             const mergedData = [...this._historicalData[type], ...normData];
                             this._historicalData[type] = mergedData.length > 500 ? mergedData.slice(-500) : mergedData;
                             
@@ -245,9 +255,15 @@ try {
                             setTimeout(() => loadMoreBtn.remove(), 2000);
                         }
                     } catch (err) {
-                        btn.innerHTML = `خطأ في التحميل، أعد المحاولة`;
+                        if (!btn.isConnected) return;
+                        if (isTimeout) return;
+                        clearTimeout(watchdog);
+                        console.error("🚨 Load More Error:", err);
+                        btn.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> حدث خطأ، أعد المحاولة`;
                         btn.disabled = false;
                         btn.dataset.locked = 'false';
+                        
+                        setTimeout(() => { if (btn.dataset.locked === 'false') btn.innerHTML = originalHtml; }, 3000);
                     }
                 }
             });
@@ -263,7 +279,8 @@ try {
         const cats = LiveStoreData.cats || [];
         const rootCats = cats.filter(c => !c.parentId).sort((a, b) => (a.order || 0) - (b.order || 0));
         
-        const currentCatHash = JSON.stringify(rootCats.map(c => c.id + (c.img || '')));
+        const layoutConfig = (LiveStoreData.settings?.rootLayout || 'default');
+        const currentCatHash = JSON.stringify(rootCats.map(c => c.id + (c.img || ''))) + "_" + layoutConfig;
         const isAlreadyHome = document.body.classList.contains('is-home');
         const isCategoryView = (typeof UIManager !== 'undefined' && UIManager.currentCategoryId === null);
         const hasContent = grid && grid.innerHTML.includes('cat-card');
@@ -291,7 +308,7 @@ try {
             
             if (grid) {
                 if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-cats');
-                this._applyGridLayout(grid, LiveStoreData.settings || {}, null);
+                this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
             }
             
             const backBtn = document.getElementById('header-back-btn') || document.querySelector('.modern-back-btn') || document.getElementById('smart-back-btn');
@@ -333,7 +350,7 @@ try {
         const grid = document.getElementById('store-grid');
         if (grid) {
             if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-cats');
-            this._applyGridLayout(grid, LiveStoreData.settings || {}, null);
+            this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
             let catSkeletons = '';
             for (let i = 0; i < 6; i++) catSkeletons += `<div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>`;
             grid.replaceChildren(this._renderHtmlToFragment(catSkeletons));
@@ -351,7 +368,7 @@ try {
             const cat = LiveStoreData.cats.find(c => Number(c.id) === Number(UIManager.currentCategoryId));
             if (cat && cat.layout) activeCols = cat.layout;
         }
-        this._applyGridLayout(container, LiveStoreData.settings || {}, activeCols);
+        this._applyGridLayout(container, LiveStoreData.settings || {}, activeCols, 'prods');
         
         let skeletonsHTML = '';
         for (let i = 0; i < (overrideCount || 8); i++) {
@@ -470,7 +487,6 @@ try {
 
         const subs = (LiveStoreData.cats || []).filter(c => String(c.parentId) === String(id)).sort((a,b) => (a.order||0)-(b.order||0));
         
-        // 🛠️ تم الإصلاح (Dynamic Category Resolution): فلترة تدعم المصفوفات لضمان جلب كل المنتجات
         const items = (LiveStoreData.prods || []).filter(p => {
             const targetId = String(id);
             if (Array.isArray(p.catId)) return p.catId.map(String).includes(targetId);
@@ -487,7 +503,8 @@ try {
 
         if(grid) {
             const catCols = (LiveStoreData.cats || []).find(c => String(c.id) === String(id))?.layout || null;
-            this._applyGridLayout(grid, LiveStoreData.settings || {}, catCols);
+            const gridType = items.length > 0 ? 'prods' : 'cats';
+            this._applyGridLayout(grid, LiveStoreData.settings || {}, catCols, gridType);
 
             let combinedHtml = '';
             if(subs.length > 0) {
@@ -528,7 +545,6 @@ try {
 
         const matchedCats = (LiveStoreData.cats || []).filter(c => c.name?.toLowerCase().replace(/[-_.:,]/g, ' ').includes(cleanTerm));
         
-        // 🛠️ تم الإصلاح (Search Leak Shield): استثناء المنتجات التي لا تنتمي لأي قسم نشط ومتاح 
         const activeCatIds = new Set((LiveStoreData.cats || []).map(c => String(c.id)));
         
         const matchedProds = (LiveStoreData.prods || []).filter(p => {
@@ -550,7 +566,9 @@ try {
             const currentCat = (LiveStoreData.cats || []).find(c => String(c.id) === String(UIManager.currentCategoryId));
             if (currentCat && currentCat.layout) activeCols = currentCat.layout;
         }
-        this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols);
+        
+        const gridType = matchedProds.length > 0 ? 'prods' : 'cats';
+        this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols, gridType);
 
         UIManager.resetGridScroll(); UIManager.setGridMode(null);
 
@@ -629,11 +647,12 @@ try {
                 const parentCat = LiveStoreData.cats.find(c => String(c.id) === parentCatId);
                 if (parentCat && parentCat.layout) activeCols = parentCat.layout;
             }
-            this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols);
+            this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols, 'prods');
             if (Components?.initProductShine) Components.initProductShine();
         });
     },
 
+    // 🛡️ التحديث الماسي 3: التخلص من اللودر والتأخير لاعتماد معمارية (Cache-First)
     renderWallet: function(forceRender = false) {
         if (!forceRender) {
             if (!this._walletDebounced) this._walletDebounced = this._debounce('wallet', () => this.renderWallet(true), 250);
@@ -654,6 +673,9 @@ try {
         if (!uid || uid === '0' || uid === 'undefined') {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-wallet"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
         }
+
+        this._historicalData = this._historicalData || { deposits: [], orders: [] };
+        this.limits = this.limits || { payments: 15, wallet: 15, orders: 15 };
 
         const rawDeposits = [...(LiveStoreData.deposits || []), ...(this._historicalData.deposits || [])];
         const rawOrders = [...(LiveStoreData.orders || []), ...(this._historicalData.orders || [])];
@@ -678,7 +700,9 @@ try {
             };
         });
 
-        let allTransactions = [...deposits, ...orders].sort((a, b) => {
+        let allTransactions = [...deposits, ...orders];
+
+        allTransactions.sort((a, b) => {
             const timeDiff = b.sortTime - a.sortTime;
             return timeDiff !== 0 ? timeDiff : String(b.id || '').localeCompare(String(a.id || ''));
         });
@@ -767,6 +791,9 @@ try {
         const user = DataManager.user || { id: 0 };
         const baseCurrency = (user.baseCurrency || 'USD').toUpperCase();
         
+        this._historicalData = this._historicalData || { deposits: [], orders: [] };
+        this.limits = this.limits || { payments: 15, wallet: 15, orders: 15 };
+
         const rawDeposits = [...(LiveStoreData.deposits || []), ...(this._historicalData.deposits || [])];
         const uniqueDeposits = Array.from(new Map(rawDeposits.map(item => [String(item.id), item])).values());
         
@@ -821,6 +848,9 @@ try {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
         }
 
+        this._historicalData = this._historicalData || { deposits: [], orders: [] };
+        this.limits = this.limits || { payments: 15, wallet: 15, orders: 15 };
+
         const rawOrders = [...(LiveStoreData.orders || []), ...(this._historicalData.orders || [])];
         const uniqueOrders = Array.from(new Map(rawOrders.map(item => [String(item.id), item])).values());
 
@@ -872,51 +902,75 @@ try {
         return { showToast: () => {} };
     },
 
-    generatePDFReceipt: async function(config) {
-        return new Promise((resolve) => {
+    generateReceiptImage: async function(config) {
+        return new Promise(async (resolve) => {
+            const containerId = 'receipt-render-box-' + Date.now();
+            
+            const watchdog = setTimeout(() => {
+                console.error("🚨 انقضى وقت تحضير الإيصال (Timeout). السيرفر أو المتصفح لا يستجيب.");
+                const orphanedContainer = document.getElementById(containerId);
+                if (orphanedContainer) document.body.removeChild(orphanedContainer);
+                resolve(false); 
+            }, 10000); 
+
             try {
-                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
                 const settings = LiveStoreData.settings || {};
                 const storeName = settings.storeName || 'TeleCard';
                 const storeLogo = settings.storeLogoLight || settings.storeLogo || '';
                 
-                let safeLogoHtml = storeLogo ? `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;">` : '';
+                let safeLogoHtml = storeLogo ? `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;" crossorigin="anonymous">` : '';
                 const brandHTML = { html: `<div class="header-section"><div class="store-name">${Utils.escapeHtml(storeName)}</div>${safeLogoHtml}</div>` };
                 
                 const fullHTML = UIBuilders.buildPDFReceipt(config, brandHTML.html);
-                const blob = new Blob([fullHTML], { type: 'text/html;charset=utf-8' });
-                const blobUrl = URL.createObjectURL(blob);
                 
-                if (isMobile) {
-                    const link = document.createElement('a'); link.href = blobUrl; link.target = '_blank';
-                    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-                    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000); 
-                    resolve(true);
-                } else {
-                    const iframe = document.createElement('iframe');
-                    iframe.style.position = 'fixed'; iframe.style.right = '-10000px'; iframe.style.bottom = '-10000px';
-                    iframe.src = blobUrl;
-                    document.body.appendChild(iframe);
-                    
-                    iframe.onload = function() {
-                        setTimeout(() => {
-                            try {
-                                iframe.contentWindow.focus();
-                                iframe.contentWindow.print();
-                                setTimeout(() => {
-                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                    URL.revokeObjectURL(blobUrl);
-                                    resolve(true);
-                                }, 60000);
-                            } catch (e) {
-                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                URL.revokeObjectURL(blobUrl);
-                                resolve(false);
-                            }
-                        }, 800);
-                    };
-                }
-            } catch (err) { resolve(false); }
+                const container = document.createElement('div');
+                container.id = containerId;
+                container.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 420px;
+                    background-color: #ffffff;
+                    z-index: -9999;
+                    opacity: 0.01;
+                    pointer-events: none;
+                `;
+                container.innerHTML = fullHTML;
+                document.body.appendChild(container);
+                
+                await new Promise(r => setTimeout(r, 400));
+                
+                if (typeof html2canvas === 'undefined') throw new Error("مكتبة html2canvas مفقودة!");
+                
+                const canvas = await html2canvas(container, {
+                    scale: 2, 
+                    useCORS: true, 
+                    allowTaint: true,
+                    backgroundColor: '#ffffff'
+                });
+                
+                const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.95));
+                
+                canvas.width = 0; 
+                canvas.height = 0;
+                
+                if (document.getElementById(containerId)) document.body.removeChild(container);
+                
+                const safeFileName = config.filename || 'receipt.jpg';
+                const title = `إيصال - ${storeName}`;
+                
+                await Utils.smartShareOrDownload(blob, safeFileName, title, 'مرفق تفاصيل العملية الخاصة بك.');
+                
+                clearTimeout(watchdog); 
+                resolve(true);
+
+            } catch (err) { 
+                console.error("🚨 Receipt Image Generation Error:", err);
+                clearTimeout(watchdog); 
+                const orphanedContainer = document.getElementById(containerId);
+                if (orphanedContainer) document.body.removeChild(orphanedContainer);
+                resolve(false); 
+            }
         });
     },
 
@@ -925,27 +979,38 @@ try {
         if (!o) return;
         
         let originalHtml = '';
-        if (btnElement) { btnElement.disabled = true; originalHtml = btnElement.innerHTML; btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`; }
+        if (btnElement) { 
+            btnElement.disabled = true; 
+            originalHtml = btnElement.innerHTML; 
+            btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`; 
+        }
         
-        const finalPrice = Number(o.pricingSnapshot?.finalPrice || o.price || 0);
-        const originalPrice = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
+        try {
+            const finalPrice = Number(o.pricingSnapshot?.finalPrice || o.price || 0);
+            const originalPrice = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
 
-        const success = await this.generatePDFReceipt({
-            type: 'order', filename: `Order_${RenderHelpers.formatOrderId(o)}.pdf`,
-            data: {
-                id: o.id, displayId: RenderHelpers.formatOrderId(o),
-                userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
-                userDisplayId: RenderHelpers.formatUserId(DataManager.user),
-                status: o.status, product: o.product, 
-                price: finalPrice, originalPrice: originalPrice, priceCurrency: o.priceCurrency || 'USD', 
-                qty: o.qty || 1, 
-                input: Utils.escapeHtml(o.input || '---'),
-                dateTime: RenderHelpers.formatSafeDate(o.time || o.createdAt), code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null
+            const success = await this.generateReceiptImage({
+                type: 'order', 
+                filename: `Order_${RenderHelpers.formatOrderId(o)}.jpg`,
+                data: {
+                    id: o.id, displayId: RenderHelpers.formatOrderId(o),
+                    userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
+                    userDisplayId: RenderHelpers.formatUserId(DataManager.user),
+                    status: o.status, product: o.product, 
+                    price: finalPrice, originalPrice: originalPrice, priceCurrency: o.priceCurrency || 'USD', 
+                    qty: o.qty || 1, 
+                    input: Utils.escapeHtml(o.input || '---'),
+                    dateTime: RenderHelpers.formatSafeDate(o.time || o.createdAt), code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null
+                }
+            });
+            
+            if (!success) this._getSys().showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
+        } finally {
+            if (btnElement) { 
+                btnElement.disabled = false; 
+                btnElement.innerHTML = originalHtml; 
             }
-        });
-        
-        if (btnElement) { btnElement.disabled = false; btnElement.innerHTML = originalHtml; }
-        if (!success) this._getSys().showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
+        }
     },
     
     exportPaymentReceipt: async function(depositId, btnElement = null) {
@@ -953,28 +1018,39 @@ try {
         if (!d) return;
         
         let originalHtml = '';
-        if (btnElement) { btnElement.disabled = true; originalHtml = btnElement.innerHTML; btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`; }
+        if (btnElement) { 
+            btnElement.disabled = true; 
+            originalHtml = btnElement.innerHTML; 
+            btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`; 
+        }
         
-        const rawAmt = Number(d.amount || 0);
-        const credAmt = d.creditedAmount !== undefined ? Number(d.creditedAmount) : rawAmt;
-        const calcFee = Math.abs(rawAmt - credAmt);
-        const isBonus = credAmt > rawAmt;
+        try {
+            const rawAmt = Number(d.amount || 0);
+            const credAmt = d.creditedAmount !== undefined ? Number(d.creditedAmount) : rawAmt;
+            const calcFee = Math.abs(rawAmt - credAmt);
+            const isBonus = credAmt > rawAmt;
 
-        const success = await this.generatePDFReceipt({
-            type: 'deposit', filename: `Deposit_${RenderHelpers.formatDepositId(d)}.pdf`,
-            data: {
-                id: d.id, displayId: RenderHelpers.formatDepositId(d),
-                userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
-                userDisplayId: RenderHelpers.formatUserId(DataManager.user),
-                method: d.method || '---', amount: rawAmt, currency: d.currency || 'USD',
-                feePercent: d.feesPercent || 0, feeVal: calcFee, feeType: isBonus ? 'bonus' : 'fee', 
-                netVal: credAmt, targetCurrency: d.targetCurrency || 'USD',
-                dateTime: RenderHelpers.formatSafeDate(d.time || d.createdAt)
+            const success = await this.generateReceiptImage({
+                type: 'deposit', 
+                filename: `Deposit_${RenderHelpers.formatDepositId(d)}.jpg`,
+                data: {
+                    id: d.id, displayId: RenderHelpers.formatDepositId(d),
+                    userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
+                    userDisplayId: RenderHelpers.formatUserId(DataManager.user),
+                    method: d.method || '---', amount: rawAmt, currency: d.currency || 'USD',
+                    feePercent: d.feesPercent || 0, feeVal: calcFee, feeType: isBonus ? 'bonus' : 'fee', 
+                    netVal: credAmt, targetCurrency: d.targetCurrency || 'USD',
+                    dateTime: RenderHelpers.formatSafeDate(d.time || d.createdAt)
+                }
+            });
+            
+            if (!success) this._getSys().showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
+        } finally {
+            if (btnElement) { 
+                btnElement.disabled = false; 
+                btnElement.innerHTML = originalHtml; 
             }
-        });
-        
-        if (btnElement) { btnElement.disabled = false; btnElement.innerHTML = originalHtml; }
-        if (!success) this._getSys().showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
+        }
     },
 
     renderNotifCenterList: function() {

@@ -1,34 +1,43 @@
 // ============================================================================
-// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة الماسية المطلقة V15.1 💎
+// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة التيتانيوم V16.0 🛡️
 // 🎯 الوظيفة: تجميع وحدات الواجهة المنفصلة وتصديرها ككائن واحد للنظام
 // 🚀 التحديثات:
-// 1. Prototype Shield: منع ثغرة تسمم النماذج (Prototype Pollution).
-// 2. Collision Detector: كشف التحذيرات إذا قامت وحدة بمسح دوال وحدة أخرى.
-// 3. Destructuring-Safe: حماية دوال اللودر من فقدان الـ this.
+// 1. Fail Fast: إيقاف النظام كلياً برمّي خطأ عند حدوث أي تصادم في الدوال.
+// 2. Pure Dictionary: استخدام Object.create(null) لسد ثغرات الـ Prototype كلياً.
+// 3. Native Binding: استخدام .bind() الأصلي للحفاظ على هوية الدوال وسرعة V8.
+// 4. Environment Agnostic: استخدام globalThis المعياري بدلاً من window.
 // ============================================================================
 
 import { UICore } from './uiCore.js';
 import { UIFinance } from './uiFinance.js';
 import { UIAuth } from './uiAuth.js';
-// 🧹 تم إزالة استيراد Utils الزائد لتنظيف الكود
 
 let _loaderActiveRequests = 0;
 
+// 🛡️ حماية المراقب باستخدام globalThis الحديث
+const initWatchdog = () => {
+    if (typeof globalThis === 'undefined') return;
+    
+    const existingDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'ModuleWatchdog');
+    
+    if (!existingDescriptor || existingDescriptor.configurable) {
+        Object.defineProperty(globalThis, 'ModuleWatchdog', {
+            value: Object.freeze({ loadedModules: new Set() }),
+            writable: false,
+            configurable: false,
+            enumerable: false
+        });
+    }
+};
+initWatchdog();
+
 const verifyModule = (name, mod) => {
     if (!mod || Object.keys(mod).length === 0) {
-        console.error(`🚨 فشل استيراد الوحدة: [${name}] غير موجودة أو فارغة!`);
-        return false;
+        throw new Error(`🚨 [System Crash]: فشل استيراد الوحدة [${name}]. النظام غير قادر على الإقلاع!`);
     }
     
-    if (typeof window !== 'undefined') {
-        if (!window.ModuleWatchdog) {
-            Object.defineProperty(window, 'ModuleWatchdog', {
-                value: Object.freeze({ loadedModules: new Set() }),
-                writable: false,
-                configurable: false
-            });
-        }
-        window.ModuleWatchdog.loadedModules.add(name);
+    if (typeof globalThis !== 'undefined' && globalThis.ModuleWatchdog) {
+        globalThis.ModuleWatchdog.loadedModules.add(name);
     }
     return true;
 };
@@ -37,8 +46,8 @@ verifyModule('UICore', UICore);
 verifyModule('UIFinance', UIFinance);
 verifyModule('UIAuth', UIAuth);
 
-// 🛡️ [إصلاح ماسي 1 و 2]: دمج آمن مع كاشف للتصادم ومانع للاختراق
-const deepMergeModules = (targetObject, ...modules) => {
+// 🛡️ المحرك الماسي لدمج الوحدات
+const createSafeFacade = (baseObject, ...modules) => {
     const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
     
     for (const mod of modules) {
@@ -46,27 +55,33 @@ const deepMergeModules = (targetObject, ...modules) => {
         const descriptors = Object.getOwnPropertyDescriptors(mod);
         
         for (const [key, descriptor] of Object.entries(descriptors)) {
-            // 🛡️ درع الحماية ضد Prototype Pollution
             if (FORBIDDEN_KEYS.has(key)) continue;
             
-            // 🚨 كاشف التصادم المعماري (Architectural Collision Detector)
-            if (key in targetObject) {
-                console.warn(`⚠️ [UI Architecture Warning]: تم اكتشاف تصادم! الدالة/الخاصية [${key}] تم الكتابة فوقها.`);
+            // 🚨 Fail Fast: إيقاف النظام فوراً عند التصادم
+            if (key in baseObject) {
+                throw new Error(`🚨 [Fatal Architecture Error]: تصادم فادح في المتغير/الدالة [${key}]!`);
             }
             
-            Object.defineProperty(targetObject, key, descriptor);
+            // 🔗 Native Binding: استخدام bind الأسرع والأكثر أماناً معمارياً
+            if (descriptor.value && typeof descriptor.value === 'function') {
+                descriptor.value = descriptor.value.bind(baseObject);
+            }
+            
+            Object.defineProperty(baseObject, key, descriptor);
         }
     }
-    return targetObject;
+    return baseObject;
 };
 
-export const UIManager = deepMergeModules(
-    {}, 
-    UICore, 
-    UIFinance, 
+// 💎 تجميع الكائن النهائي كـ Pure Dictionary (كائن بلا جذور)
+export const UIManager = createSafeFacade(
+    Object.create(null), // 👈 الدرع المطلق ضد الـ Prototype Pollution
+    UICore,
+    UIFinance,
     UIAuth
 );
 
+// ⚙️ تعريف دوال اللودر بأمان
 Object.defineProperties(UIManager, {
     toggleLoader: {
         value: function(show, text = 'جاري المعالجة...', force = false) {
@@ -74,7 +89,7 @@ Object.defineProperties(UIManager, {
                 _loaderActiveRequests++;
             } else {
                 if (force) {
-                    _loaderActiveRequests = 0; 
+                    _loaderActiveRequests = 0;
                 } else {
                     _loaderActiveRequests = Math.max(0, _loaderActiveRequests - 1);
                 }
@@ -85,7 +100,6 @@ Object.defineProperties(UIManager, {
             if (!loader) {
                 loader = document.createElement('div');
                 loader.id = 'global-dynamic-loader';
-                // تم إضافة aria-live لمعايير إمكانية الوصول (Enterprise Accessibility)
                 loader.setAttribute('aria-live', 'assertive');
                 loader.innerHTML = `
                     <i class="fa-solid fa-circle-notch fa-spin loader-spinner"></i>
@@ -108,17 +122,16 @@ Object.defineProperties(UIManager, {
             });
         },
         writable: false,
-        configurable: false
+        configurable: false,
+        enumerable: true
     },
     
     forceHideLoader: {
         value: function() {
-            // 🛡️ [إصلاح ماسي 3]: استدعاء صريح لمنع انهيار الـ Destructuring
-            UIManager.toggleLoader(false, '', true); 
+            UIManager.toggleLoader(false, '', true);
         },
         writable: false,
-        configurable: false
+        configurable: false,
+        enumerable: true
     }
 });
-
-// 🔒 التجميد يتم في الملف الرئيسي (app.js / main.js) حفاظاً على دورة حياة التهيئة

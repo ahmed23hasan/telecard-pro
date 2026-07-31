@@ -1,13 +1,13 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.7 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.8 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق
-// 🚀 التحديث الأخير: التوافق الجغرافي التام مع السيرفر المركزي (us-central1).
+// 🚀 التحديث الأقصى: معالجة ثغرة "الأشباح"، Web Crypto API، وإصلاح الـ Syntax
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
     initializeFirestore, persistentLocalCache, persistentMultipleTabManager, 
-    collection, doc, getDoc, getDocs, getDocFromCache, getDocsFromCache,
+    collection, doc, getDoc, getDocs, getDocFromCache, 
     setDoc, addDoc, deleteDoc, onSnapshot, 
     query, where, orderBy, limit, startAfter 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -18,7 +18,6 @@ import {
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-// 🛡️ [إصلاح أمني]: استيراد الإعدادات من ملف الكونفيج بدلاً من فضحها هنا
 import { firebaseConfig } from '../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -27,26 +26,21 @@ let appCheck = null;
 const db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
-
 const auth = getAuth(app);
 const storage = getStorage(app);
-
-// 🛡️ [الإصلاح المعماري النهائي]: إزالة تحديد المنطقة، ليقوم النظام تلقائياً بالاتصال 
-// بالمنطقة الافتراضية (us-central1) التي تعيش فيها جميع دوال السيرفر حالياً.
 const functions = getFunctions(app);
 
 export { auth, db, storage, functions, appCheck };
+
 export const FirebaseAdapter = {
     db: db,
     storage: storage,
     functions: functions,
-    
     _activeListeners: new Map(),
 
     _registerListener: function(baseKey, unsubscribeFn) {
         const uniqueListenerId = `${baseKey}_${Math.random().toString(36).substr(2, 9)}`;
         this._activeListeners.set(uniqueListenerId, unsubscribeFn);
-        
         return () => {
             if (this._activeListeners.has(uniqueListenerId)) {
                 this._activeListeners.get(uniqueListenerId)();
@@ -56,22 +50,22 @@ export const FirebaseAdapter = {
     },
 
     killAllListeners: function() {
-        this._activeListeners.forEach((unsubscribeFn) => {
-            try { unsubscribeFn(); } catch(e){}
-        });
+        this._activeListeners.forEach((unsubscribeFn) => { try { unsubscribeFn(); } catch(e){} });
         this._activeListeners.clear();
-        console.debug("🧹 [Memory] All active Firestore listeners cleaned up safely.");
     },
 
     _sanitizeDocId: function(id) {
         return id ? String(id).replace(/[\/\\]/g, '_').trim() : '';
     },
 
-    _withTimeout: function(promise, ms = 10000, context = '') {
+    // 🛡️ إصلاح ثغرة الأشباح (Phantom Writes) بحماية العمليات الحساسة من المقاطعة
+    _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
+        if (isWriteOperation) return promise; 
+        
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
-                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context}`);
+                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب (Read): ${context}`);
                 err.code = 'deadline-exceeded'; 
                 reject(err);
             }, ms);
@@ -80,18 +74,12 @@ export const FirebaseAdapter = {
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
 
-    async getAll(collectionName, maxLimit = 1000, retryCount = 1) {
+    async getAll(collectionName, maxLimit = 1000) {
         try {
             const q = query(collection(db, collectionName), limit(maxLimit));
             const snapshot = await this._withTimeout(getDocs(q), 10000, `getAll -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (error) {
-            if (error.code === 'deadline-exceeded' && retryCount > 0) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                return this.getAll(collectionName, maxLimit, retryCount - 1); 
-            }
-            return [];
-        }
+        } catch (error) { return []; }
     },
 
     async getCacheFirst(collectionName, docId) {
@@ -102,10 +90,7 @@ export const FirebaseAdapter = {
             if (cachedSnap.exists()) return { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
         } catch (e) { }
         
-        // 🚀 [إصلاح أداء]: الخروج الفوري إذا كان المتصفح غير متصل بالإنترنت ولم يتوفر كاش
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-            return null;
-        }
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
 
         try {
             const serverSnap = await this._withTimeout(getDoc(docRef), 10000);
@@ -113,147 +98,70 @@ export const FirebaseAdapter = {
         } catch (error) { return null; }
     },
 
-    async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
-        try {
-            const q = query(collection(db, collectionName), orderBy(orderByField, 'desc'), limit(limitCount));
-            const snapshot = await this._withTimeout(getDocs(q), 10000);
-            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (error) { return []; }
-    },
-
-    async getById(collectionName, docId) {
+    async set(collectionName, docId, data, options = { merge: true }) {
         try {
             const safeId = this._sanitizeDocId(docId);
-            const docSnap = await this._withTimeout(getDoc(doc(db, collectionName, safeId)), 10000);
-            return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
-        } catch (error) { return null; }
-    },
-
-    async set(collectionName, docId, data, options = { merge: true }, retryCount = 1) {
-        try {
-            const safeId = this._sanitizeDocId(docId);
-            await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000);
+            await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000, 'set', true);
             return true;
-        } catch (error) {
-            const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
-            if (isTransientError && retryCount > 0) {
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                return this.set(collectionName, docId, data, options, retryCount - 1);
-            }
-            return false;
-        }
+        } catch (error) { return false; }
     },
 
     async add(collectionName, data) {
         try {
-            const docRef = await addDoc(collection(db, collectionName), data);
+            const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, 'add', true);
             return docRef.id;
         } catch (error) { return null; }
     },
 
     async delete(collectionName, docId) {
         try {
-            await deleteDoc(doc(db, collectionName, this._sanitizeDocId(docId)));
+            await this._withTimeout(deleteDoc(doc(db, collectionName, this._sanitizeDocId(docId))), 10000, 'delete', true);
             return true;
         } catch (error) { return false; }
     },
 
-    listenCollection(collectionName, callback) {
-        const key = `col_${collectionName}`;
-        const unsub = onSnapshot(collection(db, collectionName), (snapshot) => {
-            callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        }, (error) => console.error(`🚨 خطأ استماع [${collectionName}]:`, error.message));
-        return this._registerListener(key, unsub);
-    },
-
-    listenDoc(collectionName, docId, callback) {
-        const safeId = this._sanitizeDocId(docId);
-        const key = `doc_${collectionName}_${safeId}`;
-        const unsub = onSnapshot(doc(db, collectionName, safeId), (snapshot) => {
-            callback(snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null);
-        }, (error) => console.error(`🚨 خطأ استماع [${safeId}]:`, error.message));
-        return this._registerListener(key, unsub);
-    },
-
-    listenQuery(collectionName, conditions, orderByField = 'time', limitCount = 30, callback) {
+    // 🛡️ دالة الـ CallFunction الموحدة والمحمية
+    async callFunction(functionName, payload = {}, retryCount = 1) { 
         try {
-            const queryConstraints = [collection(db, collectionName)];
-            if (conditions && conditions.length > 0) {
-                if (Array.isArray(conditions[0])) {
-                    conditions.forEach(cond => { if (cond.length === 3) queryConstraints.push(where(cond[0], cond[1], cond[2])); });
-                } else if (conditions.length === 3) {
-                    queryConstraints.push(where(conditions[0], conditions[1], conditions[2]));
-                }
+            // isWriteOperation = true لحماية العمليات المالية (الشراء / الإيداع)
+            const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Function -> ${functionName}`, true);
+            return result.data;
+        } catch (error) {
+            const isSensitiveFunction = ['createOrder', 'submitBalanceRequest'].includes(functionName);
+            const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
+            
+            if (isTransientError && retryCount > 0 && !isSensitiveFunction) {
+                console.warn(`⏳ خطأ شبكة. إعادة محاولة [${functionName}]...`);
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                return this.callFunction(functionName, payload, retryCount - 1); 
             }
-            queryConstraints.push(orderBy(orderByField, 'desc'), limit(limitCount));
             
-            const key = `query_${collectionName}_${JSON.stringify(conditions)}`;
-            let cleanupFn = () => {};
-            
-            const unsub = onSnapshot(query(...queryConstraints), (snapshot) => {
-                const arr = [];
-                snapshot.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
-                callback(arr, snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null);
-            }, (error) => {
-                console.error(`🚨 خطأ استماع [${collectionName}]:`, error.message);
-                cleanupFn(); 
-            }); 
-            
-            cleanupFn = this._registerListener(key, unsub);
-            return cleanupFn;
-        } catch (error) { 
-            return () => {}; 
+            const errObj = new Error(error.message || 'فشل الاتصال بالخادم.');
+            errObj.code = error.code || 'unknown';
+            throw errObj;
         }
     },
-    
-    async fetchMoreWithCursor(collectionName, conditions, orderByField = 'time', lastDocMarker, limitCount = 15) {
-        try {
-            if (!lastDocMarker) return { data: [], newLastDoc: null };
-            const queryConstraints = [collection(db, collectionName)];
-            
-            if (conditions && conditions.length > 0) {
-                if (Array.isArray(conditions[0])) {
-                    conditions.forEach(cond => { if (cond.length === 3) queryConstraints.push(where(cond[0], cond[1], cond[2])); });
-                } else if (conditions.length === 3) {
-                    queryConstraints.push(where(conditions[0], conditions[1], conditions[2]));
-                }
-            }
-            
-            queryConstraints.push(orderBy(orderByField, 'desc'), startAfter(lastDocMarker), limit(limitCount));
-            const snapshot = await this._withTimeout(getDocs(query(...queryConstraints)), 10000);
-            
-            return { 
-                data: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })), 
-                newLastDoc: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null 
-            };
-        } catch (error) { return { data: [], newLastDoc: null }; }
-    },
 
-    // 🛡️ [إصلاح أمني]: خوارزمية الرفع الهجينة الآمنة
     async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = false) { 
         if (!file) return ''; 
         
         const allowedTypes = isAdmin ? ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'] : ['image/jpeg', 'image/png', 'image/webp', 'image/gif']; 
-        if (!allowedTypes.includes(file.type)) { 
-            throw new Error(`نوع الملف غير مدعوم. مسموح بالصور فقط.`); 
-        } 
+        if (!allowedTypes.includes(file.type)) throw new Error(`نوع الملف غير مدعوم.`); 
         
         const MAX_FILE_SIZE_MB = isAdmin ? 10 : 5; 
-        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) { 
-            throw new Error(`حجم الملف كبير جداً. الحد الأقصى هو ${MAX_FILE_SIZE_MB} ميجابايت.`); 
-        } 
+        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) throw new Error(`حجم الملف كبير جداً.`); 
         
         try { 
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general'; 
             const originalExt = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : 'jpg'; 
             const safeFileName = file.name.replace(/[^a-zA-Z0-9\-_]/g, '').replace(/^\.+/, 'file'); 
             
-            const uniqueId = Math.random().toString(36).substring(2, 9); 
+            const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9); 
             const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null; 
-            
             const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`; 
+            
             const snapshot = await this._withTimeout( 
-                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع الصورة" 
+                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع الصورة", true 
             ); 
             return await getDownloadURL(snapshot.ref); 
         } catch (error) { 
@@ -318,25 +226,5 @@ export const FirebaseAdapter = {
             if (factors.length > 0) await multiFactor(auth.currentUser).unenroll(factors[0].uid);
             return { success: true };
         } catch (error) { return { success: false, msg: 'تعذر الإيقاف.' }; }
-    },
-
-    async callFunction(functionName, payload = {}, retryCount = 1) { 
-        try {
-            const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Cloud Function -> ${functionName}`);
-            return result.data;
-        } catch (error) {
-            const isSensitiveFunction = ['createOrder', 'submitBalanceRequest'].includes(functionName);
-            const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
-            
-            if (isTransientError && retryCount > 0 && !isSensitiveFunction) {
-                console.warn(`⏳ خطأ شبكة. إعادة محاولة [${functionName}]...`);
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                return this.callFunction(functionName, payload, retryCount - 1); 
-            }
-            
-            const errObj = new Error(error.message || 'فشل الاتصال.');
-            errObj.code = error.code || 'unknown';
-            throw errObj;
-        }
     }
-};
+}; // 👈 إغلاق نهائي ونظيف للكائن هنا

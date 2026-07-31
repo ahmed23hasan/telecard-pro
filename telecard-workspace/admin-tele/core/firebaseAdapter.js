@@ -1,7 +1,10 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V14.5 💎
+// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V14.6 💎
 // 🎯 الوظيفة: بوابة البيانات الآمنة للوحة الإدارة، إدارة الذاكرة، حماية الفواتير.
-// 🚀 التحديث الأخير: دمج خوارزمية الرفع الهجينة الآمنة (Hybrid Upload) واستخراج الامتداد الفعلي.
+// 🚀 التحديث الأقصى: 
+// 1. معالجة ثغرة "الأشباح" (Phantom Writes) لحماية عمليات الإدارة الحساسة (كقبول الإيداعات).
+// 2. دمج التشفير الآمن (Web Crypto API) للرفع.
+// 3. إصلاح الانهيار الصامت لتواريخ آبل (Safari ISO Fix) في سجلات العملاء.
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -46,7 +49,7 @@ export const FirebaseAdapter = {
             try { unsubscribeFn(); } catch(e){}
         });
         this._activeListeners.clear();
-        console.debug("🧹 [Admin Memory] تم تنظيف كافة المستمعات الشبحية بنجاح. فاتورتك بأمان.");
+        console.debug("🧹 [Admin Memory] تم تنظيف كافة المستمعات الشبحية بنجاح. ذاكرة المتصفح بأمان.");
     },
 
     _sanitizeDocId: function(id) {
@@ -54,11 +57,15 @@ export const FirebaseAdapter = {
         return String(id).replace(/[\/\\]/g, '_').trim(); 
     },
 
-    _withTimeout: function(promise, ms = 10000, context = '') {
+    // 🛡️ [تحديث ماسي 1]: فصل القراءة عن الكتابة لمنع كارثة تكرار أوامر الإدارة (Phantom Writes)
+    _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
+        // عمليات الكتابة (قبول طلب، حذف، إضافة) يجب ألا تُقاطع أبداً من طرف المتصفح
+        if (isWriteOperation) return promise; 
+        
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
-                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context} خلال ${ms/1000} ثوانٍ`);
+                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب (Read): ${context} خلال ${ms/1000} ثوانٍ`);
                 err.code = 'deadline-exceeded'; 
                 reject(err);
             }, ms);
@@ -102,17 +109,19 @@ export const FirebaseAdapter = {
         } catch (error) { return null; }
     },
 
+    // --- عمليات الكتابة المحصنة (Writes) ---
     async set(collectionName, docId, data) {
         try {
             const safeId = this._sanitizeDocId(docId);
-            await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, { merge: true }), 10000);
+            // 🛡️ إبلاغ الـ Timeout بأن هذه عملية كتابة حساسة (isWriteOperation = true)
+            await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, { merge: true }), 10000, 'set', true);
             return true;
         } catch (error) { return false; }
     },
 
     async add(collectionName, data) {
         try {
-            const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000);
+            const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, 'add', true);
             return docRef.id;
         } catch (error) { return null; }
     },
@@ -120,10 +129,11 @@ export const FirebaseAdapter = {
     async delete(collectionName, docId) {
         try {
             const safeId = this._sanitizeDocId(docId);
-            await this._withTimeout(deleteDoc(doc(db, collectionName, safeId)), 10000);
+            await this._withTimeout(deleteDoc(doc(db, collectionName, safeId)), 10000, 'delete', true);
             return true;
         } catch (error) { return false; }
     },
+    // -----------------------------------------
 
     listenCollection(collectionName, callback) {
         const key = `admin_col_${collectionName}`;
@@ -194,7 +204,7 @@ export const FirebaseAdapter = {
         } catch (error) { return { data: [], newLastDoc: null }; }
     },
 
-    // 🛡️ [إصلاح أمني]: خوارزمية الرفع الهجينة (محسنة للإدارة بافتراضي isAdmin = true)
+    // 🛡️ [تحديث ماسي 2]: دمج Web Crypto API مع حماية عملية الرفع من المقاطعة
     async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = true) {
         if (!file) return '';
         
@@ -213,13 +223,15 @@ export const FirebaseAdapter = {
             const originalExt = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : 'jpg';
             const safeFileName = file.name.replace(/[^a-zA-Z0-9\-_]/g, '').replace(/^\.+/, 'file');
             
-            const uniqueId = Math.random().toString(36).substring(2, 9);
+            // التشفير الآمن للمعرفات لمنع التصادم
+            const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
             const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null;
             
             const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`;
             
+            // 🛡️ isWriteOperation = true لحماية الرفع
             const snapshot = await this._withTimeout(
-                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع الصورة"
+                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع الصورة", true
             );
             return await getDownloadURL(snapshot.ref);
         } catch (error) { 
@@ -229,13 +241,17 @@ export const FirebaseAdapter = {
 
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
-        try { await deleteObject(ref(storage, url)); } catch (error) { }
+        try { 
+            // 🛡️ isWriteOperation = true
+            await this._withTimeout(deleteObject(ref(storage, url)), 10000, 'deleteImage', true);
+        } catch (error) { }
     },
 
     async callFunction(functionName, payload = {}) {
         try {
             const targetFunction = httpsCallable(functions, functionName);
-            const result = await this._withTimeout(targetFunction(payload), 60000, `Function -> ${functionName}`);
+            // 🛡️ دوال الإدارة خطيرة (Refund, Approve, Reject)، يجب ألا تقاطع أبداً
+            const result = await this._withTimeout(targetFunction(payload), 60000, `Function -> ${functionName}`, true);
             return result.data;
         } catch (error) {
             throw new Error(error.message || 'فشل الاتصال بالسيرفر.');
@@ -257,9 +273,19 @@ export const FirebaseAdapter = {
             ordersSnap.forEach(doc => { activities.push({ id: doc.id, txType: 'order', ...doc.data() }); });
             depositsSnap.forEach(doc => { activities.push({ id: doc.id, txType: 'deposit', ...doc.data() }); });
             
+            // 🛡️ [تحديث ماسي 3]: درع حماية تواريخ آبل (Safari ISO Shield) داخل وظائف الإدارة
             const parseTimeSafe = (t) => {
                 if (!t) return 0;
                 if (typeof t.toMillis === 'function') return t.toMillis();
+                if (typeof t === 'number') return t;
+                if (typeof t === 'string') {
+                    let safeString = t;
+                    if (!t.includes('T')) {
+                        safeString = t.replace(/-/g, '/');
+                    }
+                    const parsed = new Date(safeString).getTime();
+                    return isNaN(parsed) ? 0 : parsed;
+                }
                 return isNaN(new Date(t).getTime()) ? 0 : new Date(t).getTime();
             };
             

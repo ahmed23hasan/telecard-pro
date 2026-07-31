@@ -76,6 +76,15 @@ export const Utils = {
             useGrouping: false
         }).format(num);
     },
+        // 🛡️ [إضافة معمارية]: دالة عامة لتوحيد الأرقام العربية وإزالة الفواصل
+    parseSafeNumber: function(val) {
+        if (!val) return 0;
+        const englishVal = String(val)
+            .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)) // تحويل الأرقام العربية
+            .replace(/,/g, '') // إزالة فواصل الآلاف
+            .replace(/\s/g, ''); // إزالة المسافات
+        return parseFloat(englishVal) || 0;
+    },
     // === 2. جسر تحويل العملات (محصن بالكامل ضد تسرب البيانات الخام) ===
     normalizeRates: function(raw) {
         // 🛡️ كائن الطوارئ: يضمن عمل المتجر بالدولار إذا انهار كل شيء
@@ -238,5 +247,47 @@ export const Utils = {
                 };
             }
         }
-    })
+    }), // 💎 التعديل: إضافة هذه الفاصلة مهم جداً جداً!
+
+    // === 7. محرك المشاركة الذكي (Web Share API Wrapper) ===
+    smartShareOrDownload: async function(blob, fileName, shareTitle = 'مشاركة', shareText = '') {
+        const file = new File([blob], fileName, { type: blob.type });
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+        // 🛡️ دالة التنزيل المباشر المدمجة (للكمبيوتر أو عند فشل المشاركة)
+        const forceDownload = () => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                if (document.body.contains(a)) document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 300);
+        };
+
+        // إذا كان جوال ويدعم المشاركة المتقدمة للملفات
+        if (isMobile && navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+                await navigator.share({
+                    title: shareTitle,
+                    text: shareText,
+                    files: [file]
+                });
+                return true; // نجاح المشاركة
+            } catch (error) {
+                // العميل أغلق شاشة المشاركة بدون إرسال
+                if (error.name !== 'AbortError') {
+                    forceDownload(); // تنزيل الملف بدلاً من ضياعه
+                }
+                return true;
+            }
+        } else {
+            // أجهزة الكمبيوتر أو المتصفحات غير الداعمة: تنزيل مباشر سريع
+            forceDownload();
+            return true;
+        }
+    }
 };

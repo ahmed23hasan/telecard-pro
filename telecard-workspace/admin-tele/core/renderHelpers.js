@@ -1,8 +1,11 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Enterprise V14.6 💎
+// 🛠️ مساعدات محرك الرسم للإدارة (Admin Render Helpers) - Enterprise V14.8 💎
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core) + Destructuring-Safe
-// 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث الأقصى: حماية RangeError، تحصين الـ Context (إزالة this)، حماية XSS
+// 🎯 الوظيفة: تنسيق الفواتير، التقارير، والواجهات الخاصة بلوحة تحكم المدير.
+// 🌟 التحديث الأقصى: 
+// 1. دعم المزامنة الهيكلية للعملات (Object Maps) لتطابق مخرجات FinancialEngine.
+// 2. درع تواريخ آبل (Safari ISO Shield) لمنع انهيار التقارير على أجهزة Mac/iPad.
+// 3. تأمين الأعلام الوهمية (Fallback Global Icon).
 // ============================================================================
 
 let _injectedSource = null;
@@ -22,7 +25,7 @@ export const RenderHelpers = Object.freeze({
     _getDataSource: function() {
         if (_injectedSource) return _injectedSource;
         
-        console.warn("⚠️ RenderHelpers: محاولة استخدام المحرك قبل الحقن (init). سيتم استخدام قيم افتراضية.");
+        console.warn("⚠️ [Admin RenderHelpers]: محاولة استخدام المحرك قبل الحقن (init). سيتم استخدام قيم افتراضية.");
         return { settings: {}, rates: [], offers: [], isStore: false };
     },
 
@@ -76,7 +79,6 @@ export const RenderHelpers = Object.freeze({
         if (!finalId || finalId.trim() === '') finalId = 'UKNWN';
         const formatted = withPrefix ? `USR-${finalId}` : finalId;
         
-        // 🛡️ استخدام RenderHelpers بدلاً من this لمنع ضياع السياق
         return RenderHelpers._esc(formatted);
     },
     
@@ -115,7 +117,14 @@ export const RenderHelpers = Object.freeze({
 
         if (displayType === 'code') return code;
         
-        const curObj = Array.isArray(rates) ? rates.find(r => r.code === code) : null;
+        // 🛡️ [التحديث الماسي 1]: دعم المزامنة الهيكلية (Object Maps & Arrays) 
+        let curObj = null;
+        if (Array.isArray(rates)) {
+            curObj = rates.find(r => r.code === code);
+        } else if (rates && typeof rates === 'object') {
+            curObj = rates[code]; 
+        }
+        
         return (curObj && curObj.symbol) ? curObj.symbol : code;
     },
 
@@ -127,12 +136,15 @@ export const RenderHelpers = Object.freeze({
             'KWD': 'kw', 'BHD': 'bh', 'QAR': 'qa', 'OMR': 'om',
             'GBP': 'gb', 'DZD': 'dz', 'MAD': 'ma'
         };
-        const countryCode = currencyToCountry[code] || 'us'; 
+        const countryCode = currencyToCountry[code]; 
+        
+        // 🛡️ [التحديث الماسي 2]: تأمين الأعلام بلوحة الإدارة (أيقونة عالمية بدلاً من علم مكسور)
+        if (!countryCode) return `https://cdn-icons-png.flaticon.com/512/1198/1198696.png`;
+        
         return `https://flagcdn.com/w40/${countryCode}.png`;
     },
 
     formatMoney: function(amount, currencyCode = 'USD', decimals = 2) {
-        // 🛡️ استخدام الدالة المحصنة ضد RangeError بدلاً من toLocaleString المباشر
         const formattedNum = RenderHelpers._enNum(amount, decimals);
         
         const displayCur = RenderHelpers.getCurrencySymbolText(currencyCode);
@@ -198,7 +210,12 @@ export const RenderHelpers = Object.freeze({
         if (ts._seconds !== undefined) return ts._seconds * 1000; 
         
         if (typeof ts === 'string') {
-            const parsed = new Date(ts).getTime();
+            // 🛡️ [التحديث الماسي 3]: إصلاح آبل الماسي (Safari ISO Bug)
+            let safeString = ts;
+            if (!ts.includes('T')) {
+                safeString = ts.replace(/-/g, '/');
+            }
+            const parsed = new Date(safeString).getTime();
             return isNaN(parsed) ? 0 : parsed;
         }
         

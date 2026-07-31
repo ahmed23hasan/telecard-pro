@@ -1,26 +1,45 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - V15.2 💎
+// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الماسية V15.3 💎
 // 🎯 الوظيفة: محاكاة الأسعار، كشف الأرباح للمدير، وتشخيص تصادم الخصومات.
-// 🚀 التحديثات: تطابق 100% مع السيرفر، دعم كائنات العملات، ومحاكاة الفواتير.
+// 🚀 التحديثات المعمارية: 
+// 1. التطابق البنكي (Banker Rounding) لضمان تطابق أرباح الإدارة مع السيرفر.
+// 2. الجدار الناري العكسي (Fail-Fast Division) لمنع الانهيار الصامت.
+// 3. درع الأسعار الثابتة لمنع تداخل العروض الترويجية.
 // ============================================================================
 
 export const FinancialEngine = {
     CONFIG: Object.freeze({
         BASE_CURRENCY: 'USD',
-        PRECISION: 10000,
+        PRECISION: 4, // 👈 دقة متناهية لمعالجة الفواصل بأسلوب علمي ليتطابق مع السيرفر
         MAX_UI_QTY: 10000,
         MIN_SALE_PRICE: 0.01 
     }),
 
-    safeAdd: function(a, b) { return Math.round(((Number(a) || 0) + (Number(b) || 0) + Number.EPSILON) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION; },
-    safeSub: function(a, b) { return Math.round(((Number(a) || 0) - (Number(b) || 0) + Number.EPSILON) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION; },
-    safeMul: function(a, b) { return Math.round(((Number(a) || 0) * (Number(b) || 0) + Number.EPSILON) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION; },
+    // 🛡️ الخوارزمية البنكية الدقيقة للجافاسكريبت (Exponential Rounding)
+    _bankerRound: function(num) {
+        return Number(Math.round(Number(num + 'e' + this.CONFIG.PRECISION)) + 'e-' + this.CONFIG.PRECISION);
+    },
+
+    safeAdd: function(a, b) { 
+        return this._bankerRound((Number(a) || 0) + (Number(b) || 0)); 
+    },
+    
+    safeSub: function(a, b) { 
+        return this._bankerRound((Number(a) || 0) - (Number(b) || 0)); 
+    },
+    
+    safeMul: function(a, b) { 
+        return this._bankerRound((Number(a) || 0) * (Number(b) || 0)); 
+    },
+    
     safeDiv: function(a, b) {
         const numA = Number(a) || 0;
         const numB = Number(b) || 0;
-        if (numB === 0) return 0;
-        return Math.round(((numA / numB) + Number.EPSILON) * FinancialEngine.CONFIG.PRECISION) / FinancialEngine.CONFIG.PRECISION;
+        // 🚨 Fail Fast: إيقاف محاكاة الإدارة فوراً لكشف الخطأ الهندسي (مثل غياب أسعار الصرف)
+        if (numB === 0) throw new Error("🚨 [Admin Finance Guard]: محاولة قسمة على صفر! تم إيقاف المحاكاة لمنع الحسابات الوهمية.");
+        return this._bankerRound(numA / numB);
     },
+    
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '' || Array.isArray(val) || typeof val === 'object') return 0;
         const num = Number(val);
@@ -28,13 +47,12 @@ export const FinancialEngine = {
         if (!allowZero && num === 0) return 1;
         return num;
     },
-       // 🛡️ التحديث 1 (الذكي): دعم المصفوفات والكائنات مع فلترة صارمة لمنع تسرب الكلمات المفتاحية
+    
+    // 🛡️ دعم المصفوفات والكائنات مع فلترة صارمة لمنع تسرب الكلمات المفتاحية
     normalizeRates: function(raw) {
         const ratesMap = {};
-        // 1. إضافة العملة الأساسية دائماً
         ratesMap[FinancialEngine.CONFIG.BASE_CURRENCY] = { code: FinancialEngine.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
         
-        // 2. إذا كانت البيانات مصفوفة (الوضع الطبيعي)
         if (Array.isArray(raw)) {
             for (const rate of raw) {
                 if (rate && rate.code && rate.code !== FinancialEngine.CONFIG.BASE_CURRENCY) {
@@ -47,9 +65,7 @@ export const FinancialEngine = {
                 }
             }
         } 
-        // 3. 🛡️ التوافق الذكي (الحل الجذري لمشكلة العملات الوهمية)
         else if (raw && typeof raw === 'object') {
-            // أ: إذا تم تمرير كائن عملة واحد بالخطأ
             if (raw.priceRate !== undefined || raw.depRate !== undefined || raw.code !== undefined) {
                 const code = String(raw.code || '').toUpperCase();
                 if (code && code !== FinancialEngine.CONFIG.BASE_CURRENCY) {
@@ -60,22 +76,17 @@ export const FinancialEngine = {
                     };
                 }
             } else {
-                // ب: حظر الكلمات المفتاحية لمنعها من الظهور كعملات في القائمة!
                 const invalidKeys = ['ISBASE', 'PRICERATE', 'DEPRATE', 'CODE', 'VALUE', 'SYMBOL', 'NAME'];
-                
                 for (const [key, value] of Object.entries(raw)) {
                     const code = String(key).toUpperCase();
-                    
                     if (code !== FinancialEngine.CONFIG.BASE_CURRENCY && !invalidKeys.includes(code)) {
                         if (typeof value === 'object' && value !== null) {
-                            // الكاش يحتوي على كائن متداخل
                             ratesMap[code] = { 
                                 code: code, 
                                 priceRate: FinancialEngine.extractNum(value.priceRate || value.value, false), 
                                 depRate: FinancialEngine.extractNum(value.depRate || value.value, false) 
                             };
                         } else {
-                            // الكاش يحتوي على رقم مسطح
                             const numVal = FinancialEngine.extractNum(value, false);
                             ratesMap[code] = { code: code, priceRate: numVal, depRate: numVal };
                         }
@@ -85,7 +96,8 @@ export const FinancialEngine = {
         }
         return ratesMap;
     },
-  convertViaUSD: function(amount, fromCode, toCode, ratesRaw, channel = 'pricing') {
+    
+    convertViaUSD: function(amount, fromCode, toCode, ratesRaw, channel = 'pricing') {
         const amt = FinancialEngine.extractNum(amount);
         const fCode = String(fromCode || FinancialEngine.CONFIG.BASE_CURRENCY).toUpperCase();
         const tCode = String(toCode || FinancialEngine.CONFIG.BASE_CURRENCY).toUpperCase();
@@ -121,10 +133,13 @@ export const FinancialEngine = {
 
         if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && optIdx !== undefined) {
             const index = Number(optIdx);
+            // 🛡️ التطابق مع السيرفر: إيقاف المحاكاة إذا كان الفهرس تم التلاعب به
             if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
                 activeOption = product.options[index];
                 cost = FinancialEngine.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
                 if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+            } else {
+                throw new Error(`🚨 [Admin Simulator Error]: Invalid option index detected.`);
             }
         }
         
@@ -159,9 +174,12 @@ export const FinancialEngine = {
 
         const tierPrice = currentPrice;
         const originalPrice = tierPrice;
+        
+        // 🛡️ درع المنتجات الثابتة
+        const allowsDiscounts = !isFixed;
 
         let offerName = null, offerDiscount = 0;
-        if (offer && typeof offer === 'object' && offer.type !== 'fake' && offer.isActive !== false) {
+        if (allowsDiscounts && offer && typeof offer === 'object' && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name;
             const val = FinancialEngine.extractNum(offer.value);
             if (offer.type === 'percentage') {
@@ -191,23 +209,20 @@ export const FinancialEngine = {
         let isFirewallViolated = false;
         let preFirewallPrice = currentPrice;
 
-        if (currentPrice < 0) {
+        // 🛑 الجدار الناري الماسي (متطابق 100% مع السيرفر لمنع التناقض المحاسبي)
+        if (currentPrice < FinancialEngine.CONFIG.MIN_SALE_PRICE) {
             isFirewallViolated = true;
             isFirewallActive = true;
-            currentPrice = 0;
-        }
-
-        if (originalPrice > 0 && currentPrice < FinancialEngine.CONFIG.MIN_SALE_PRICE) {
-            isFirewallViolated = true;
-            isFirewallActive = true;
+            // رفع السعر لأعلى قيمة بين التكلفة أو الحد الأدنى 0.01
             currentPrice = Math.max(cost, FinancialEngine.CONFIG.MIN_SALE_PRICE);
         } else if (cost > 0 && currentPrice < cost) {
             isFirewallViolated = true;
             isFirewallActive = true;
+            // حماية رأس المال: لا محاكاة لأرباح وهمية بالسالب
             currentPrice = cost;
         }
 
-        // ⚖️ التسوية المحاسبية (Clawback)
+        // ⚖️ التسوية المحاسبية (Clawback) لاسترجاع قيمة الخصومات المقتطعة بواسطة الجدار الناري
         if (currentPrice > preFirewallPrice) {
             let clawback = FinancialEngine.safeSub(currentPrice, preFirewallPrice);
             if (couponDiscount >= clawback) {
@@ -222,7 +237,6 @@ export const FinancialEngine = {
         }
 
         const finalPrice = currentPrice;
-        
         const totalDiscount = FinancialEngine.safeSub(originalPrice, finalPrice);
         const netProfitUsd = Math.max(0, FinancialEngine.safeSub(finalPrice, cost));
         
@@ -249,7 +263,7 @@ export const FinancialEngine = {
         };
     },
 
-    // 🛡️ التحديث 2: إضافة الدالة الشاملة لحساب الفواتير (للتطابق مع الباك إند)
+    // 🛡️ الدالة الشاملة لحساب الفواتير بشكل يتطابق 100% مع الباك إند
     calculateOrderTotal: function(params = {}, rawQty = 1) {
         const safeQty = Math.min(FinancialEngine.CONFIG.MAX_UI_QTY, Math.max(1, Math.floor(FinancialEngine.extractNum(rawQty) || 1)));
         const unit = FinancialEngine.calculatePrice(params);

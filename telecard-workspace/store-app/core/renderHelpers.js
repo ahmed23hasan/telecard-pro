@@ -1,8 +1,8 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Enterprise V14.7 💎
+// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Enterprise V14.8 💎
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core) + Destructuring-Safe
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث الأقصى: حماية RangeError، تحصين الـ Context (إزالة this)، وإصلاح تواريخ Safari.
+// 🌟 التحديث الأقصى: توافق تواريخ ISO المتكامل، ودعم ذكي لكائنات العملات الوهمية.
 // ============================================================================
 
 let _injectedSource = null;
@@ -115,7 +115,14 @@ export const RenderHelpers = Object.freeze({
 
         if (displayType === 'code') return code;
         
-        const curObj = Array.isArray(rates) ? rates.find(r => r.code === code) : null;
+        // 🛡️ دعم المزامنة الهيكلية: قبول المصفوفات والكائنات (Object Maps) القادمة من FinancialEngine
+        let curObj = null;
+        if (Array.isArray(rates)) {
+            curObj = rates.find(r => r.code === code);
+        } else if (rates && typeof rates === 'object') {
+            curObj = rates[code]; 
+        }
+        
         return (curObj && curObj.symbol) ? curObj.symbol : code;
     },
 
@@ -127,7 +134,11 @@ export const RenderHelpers = Object.freeze({
             'KWD': 'kw', 'BHD': 'bh', 'QAR': 'qa', 'OMR': 'om',
             'GBP': 'gb', 'DZD': 'dz', 'MAD': 'ma'
         };
-        const countryCode = currencyToCountry[code] || 'us'; 
+        const countryCode = currencyToCountry[code]; 
+        
+        // 🛡️ تأمين الأعلام الوهمية بوضع علم افتراضي عالمي لمنع الأخطاء البصرية
+        if (!countryCode) return `https://cdn-icons-png.flaticon.com/512/1198/1198696.png`;
+        
         return `https://flagcdn.com/w40/${countryCode}.png`;
     },
 
@@ -197,8 +208,12 @@ export const RenderHelpers = Object.freeze({
         if (ts._seconds !== undefined) return ts._seconds * 1000; 
         
         if (typeof ts === 'string') {
-            // 🛡️ [إصلاح سفاري]: تحصين التواريخ لأجهزة آبل لعدم ظهور NaN
-            const parsed = new Date(ts.replace(/-/g, '/')).getTime();
+            // 🛡️ [إصلاح آبل الماسي]: لا نستبدل الشرطات إذا كانت بصيغة ISO!
+            let safeString = ts;
+            if (!ts.includes('T')) {
+                safeString = ts.replace(/-/g, '/');
+            }
+            const parsed = new Date(safeString).getTime();
             return isNaN(parsed) ? 0 : parsed;
         }
         

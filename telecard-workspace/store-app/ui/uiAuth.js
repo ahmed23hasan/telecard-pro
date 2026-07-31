@@ -1,10 +1,11 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - Ultimate V15.1 💎
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة التيتانيوم V15.2 🛡️
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات:
-// 1. DOM Preservation: إزالة استنساخ العناصر واستبدالها بـ Dataset Flags.
-// 2. State Sync: حفظ الـ LocalStorage فوراً بعد تعديل الهوية لمنع الـ Desync.
-// 3. V8 Garbage Collection: تفريغ نصوص الـ Base64 العملاقة فوراً لتوفير الرام.
+// 🚀 التحديثات المعمارية:
+// 1. Arabic Numerals Normalization: توحيد أرقام الهواتف والهويات لمنع أخطاء الـ Regex.
+// 2. DOM Preservation: إزالة استنساخ العناصر واستبدالها بـ Dataset Flags.
+// 3. State Sync: حفظ الـ LocalStorage فوراً بعد تعديل الهوية لمنع الـ Desync.
+// 4. V8 Garbage Collection: تفريغ نصوص الـ Base64 العملاقة فوراً لتوفير الرام.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -52,7 +53,7 @@ export const UIAuth = {
                             const compressedFile = new File([blob], `${safeName}.webp`, { type: 'image/webp' });
                             resolve({ file: compressedFile, previewUrl: URL.createObjectURL(blob) });
                             
-                            // 🛡️ [إصلاح ماسي 3]: إخلاء الذاكرة العشوائية (RAM) فوراً
+                            // 🛡️ [إصلاح ماسي]: إخلاء الذاكرة العشوائية (RAM) فوراً
                             canvas.width = 0; canvas.height = 0; 
                             img.src = ''; 
                             img.onload = null; img.onerror = null;
@@ -183,7 +184,7 @@ export const UIAuth = {
                 deleteAvatarBtn.classList.toggle('active', !!hasCustomImage);
             }
 
-            // 🛡️ [إصلاح ماسي 1]: استخدام dataset لمنع استنساخ الـ DOM المدمر
+            // 🛡️ استخدام dataset لمنع استنساخ الـ DOM المدمر
             if(fileInput && !fileInput.dataset.eventBound) {
                 fileInput.dataset.eventBound = "true";
                 fileInput.addEventListener('change', async (e) => {
@@ -942,7 +943,10 @@ export const UIAuth = {
         const hiddenCurrency = document.getElementById('reg-currency');
         
         const country = countryEl ? countryEl.innerText.trim() : '';
-        const phone = phoneEl ? phoneEl.value.trim() : '';
+        // 🛡️ الترقيع الماسي: تحويل الأرقام العربية إلى إنجليزية قبل الفحص
+        let phone = phoneEl ? phoneEl.value.trim() : '';
+        phone = phone.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+        
         const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
         
         if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
@@ -986,7 +990,6 @@ export const UIAuth = {
                 DataManager.user.baseCurrency = finalCurr;
                 DataManager.user.isVerified = true;
                 
-                // 🛡️ [إصلاح ماسي 2]: حفظ الحالة محلياً فوراً لمنع التضارب عند التحديث السريع
                 if (typeof DataManager.saveUserLocal === 'function') DataManager.saveUserLocal();
                 
                 if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
@@ -1051,14 +1054,13 @@ export const UIAuth = {
             return;
         }
         
-        // 🛡️ توحيد الحد الأقصى مع المحول (FirebaseAdapter)
-if (file.size > 5 * 1024 * 1024) {
-    getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
-    input.value = '';
-    delete this.kycFiles[previewId];
-    return;
-}
-this._isProcessingImg = true;
+        if (file.size > 5 * 1024 * 1024) {
+            getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
+            input.value = '';
+            delete this.kycFiles[previewId];
+            return;
+        }
+        this._isProcessingImg = true;
         
         try {
             getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
@@ -1086,7 +1088,10 @@ this._isProcessingImg = true;
         if (this._isSubmittingKyc) return;
         
         const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
-        const idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
+        let idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
+        
+        // 🛡️ توحيد أرقام الهوية لتسهيل البحث الإداري ومنع التلاعب بالتشفير
+        idNumber = idNumber.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
         
         this.kycFiles = this.kycFiles || {};
         const frontFile = this.kycFiles['kyc-prev-front'];
@@ -1379,3 +1384,4 @@ this._isProcessingImg = true;
         getSys().openModal?.('tier-info');
     }
 };
+

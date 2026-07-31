@@ -1,10 +1,12 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة الماسية المطلقة V4.8 💎
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة التيتانيوم V16.2 🛡️
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديثات:
-// 1. Phantom Blob Fix: مسح جبري للذاكرة العشوائية لمنع نزيف الرام عند الرفع المكرر.
-// 2. Ghost Modal Shield: فك الارتباط الزمني لمنع تجمد الـ CSS عند الانتقال بين النوافذ.
-// 3. Event Delegation Fix: حل مشكلة تعطل أزرار الدفع عند الرجوع للخلف.
+// 🚀 التحديثات المعمارية (The Perfect Shield):
+// 1. PDF Memory Leak Fix: إيقاف تخزين الـ DataURL لملفات الـ PDF لتوفير الرام.
+// 2. Canvas Callback Hell Fix: حماية الـ Blob باستخدام _currentImageJobId لمنع تسرب الـ DOM.
+// 3. AbortController Trap Fix: إزالة مستمع الـ offline بالطريقة الكلاسيكية.
+// 4. Dead Filter UI Fix: تخطي سريع لزر الفلتر المفعل مسبقاً (Anti-Flickering).
+// 5. Ghost Catch Block Cleaned: إزالة أكواد صيد أخطاء السيرفر الميتة من الواجهة.
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -25,7 +27,18 @@ export const UIFinance = {
     pendingReceiptFile: null,
     _isProcessingTx: false, 
     _watchdogTimer: null,
-    _txAbortController: null, 
+    _offlineHandler: null,
+    _currentImageJobId: null, 
+
+    _parseSafeAmount: function(val) {
+        if (!val) return 0;
+        if (Utils && typeof Utils.parseSafeNumber === 'function') return Utils.parseSafeNumber(val);
+        const englishVal = String(val)
+            .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)) 
+            .replace(/,/g, '') 
+            .replace(/\s/g, ''); 
+        return parseFloat(englishVal) || 0;
+    },
     
     _toggleButtonLoader: function(btn, isLoading) {
         if (!btn) return;
@@ -53,20 +66,24 @@ export const UIFinance = {
     },
 
     _startTxWatchdog: function(submitBtn, shieldId) {
-        this._cleanupTxUI(null, null); 
+        if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
         
         this._watchdogTimer = setTimeout(() => {
             if (this._isProcessingTx) {
-                console.warn("[MaliMor] Watchdog: Transaction timed out, forcing unlock.");
-                getSys().showToast?.('طال وقت المعاملة، السيرفر يعاني من ضغط. يرجى مراجعة سجل طلباتك.', 'warning');
-                this._cleanupTxUI(submitBtn, shieldId);
+                console.warn("[MaliMor] Watchdog: Network is slow, notifying user but keeping UI locked.");
+                getSys().showToast?.('الشبكة بطيئة بعض الشيء، جاري معالجة طلبك بأمان... الرجاء عدم إغلاق الصفحة.', 'warning');
             }
-        }, 20000);
+        }, 15000); 
         
-        this._txAbortController = new AbortController();
-        window.addEventListener('offline', () => {
-            if (this._isProcessingTx) getSys().showToast?.('تم انقطاع الاتصال! يرجى التأكد من استقرار الشبكة.', 'warning');
-        }, { signal: this._txAbortController.signal });
+        // 🛡️ [إصلاح ماسي]: إزالة المستمع الكلاسيكية لمنع الـ Memory Leak
+        if (this._offlineHandler) window.removeEventListener('offline', this._offlineHandler);
+        
+        this._offlineHandler = () => {
+            if (this._isProcessingTx) {
+                getSys().showToast?.('انقطع الاتصال بالإنترنت! النظام يحمي معاملتك الآن.', 'error');
+            }
+        };
+        window.addEventListener('offline', this._offlineHandler);
     },
 
     _cleanupTxUI: function(submitBtn, shieldId) {
@@ -81,13 +98,16 @@ export const UIFinance = {
         
         if (this._watchdogTimer) { clearTimeout(this._watchdogTimer); this._watchdogTimer = null; }
         
-        if (this._txAbortController) {
-            this._txAbortController.abort(); 
-            this._txAbortController = null;
+        if (this._offlineHandler) {
+            window.removeEventListener('offline', this._offlineHandler);
+            this._offlineHandler = null;
         }
     },
 
     _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
+        // 🛡️ [إصلاح ماسي]: تخطي الإجراء لتفادي الفليكرينغ
+        if (element.classList.contains('active')) return;
+
         getSys().sfx?.('nav');
         const tabs = element.parentElement.querySelectorAll('.mf-tab');
         tabs.forEach(tab => tab.classList.remove('active'));
@@ -107,7 +127,6 @@ export const UIFinance = {
         getSys().sfx?.('nav');
         getSys().closeWallet?.();
         
-        // 🛡️ [إصلاح ماسي]: منع تضارب الـ CSS والـ DOM بمعالجة القفز بعد 150ms
         setTimeout(() => {
             if (type === 'purchase') getSys().openOrders?.();
             else getSys().openMyPayments?.();
@@ -123,59 +142,68 @@ export const UIFinance = {
     },    
 
     _validateKycAndSystem: function(actionType = 'purchase') {
-        const sys = LiveStoreData.system || {};
-        if (sys.freeze) { 
-            getSys().showToast?.(sys.freezeMsg || 'عذراً، العمليات المالية متوقفة مؤقتاً لتحديث النظام.', 'warning'); 
-            return false; 
+    const sys = LiveStoreData.system || {};
+    if (sys.freeze) {
+        getSys().showToast?.(sys.freezeMsg || 'عذراً، العمليات المالية متوقفة مؤقتاً لتحديث النظام.', 'warning');
+        return false;
+    }
+    
+    if (!DataManager || !DataManager.user) {
+        getSys().showToast?.('يجب تسجيل الدخول أولاً للقيام بهذا الإجراء', 'error');
+        setTimeout(() => {
+            if (DataManager && typeof DataManager.logout === 'function') DataManager.logout();
+            else window.location.href = 'login.html';
+        }, 1500);
+        return false;
+    }
+    
+    const u = DataManager.user;
+    
+    // 🛡️ توحيد معايير الواجهة (Strict Data Integrity)
+    // يجب أن يمتلك العميل بيانات حقيقية (هاتف + دولة + عملة) أو يكون موثقاً صراحة
+    const hasCurrency = (u.baseCurrency && u.baseCurrency.trim() !== '') || (u.base_currency && u.base_currency.trim() !== '');
+    const hasData = (u.phone && u.phone.trim() !== '') && (u.country && u.country !== '');
+    const isVerifiedExplicit = (u.isVerified === true || String(u.isVerified) === 'true');
+    
+    // 🚫 تم إزالة `hasFinancialLock` لمنع تسجيل عملاء "أشباح" لا يملكون أرقام هواتف.
+    const isIdentityComplete = isVerifiedExplicit || (hasData && hasCurrency);
+    
+    if (!isIdentityComplete) {
+        getSys().showToast?.('يرجى إكمال بيانات الحساب الأساسية (الدولة ورقم الهاتف) للمتابعة', 'error');
+        setTimeout(() => { getSys().openModal?.('identity'); }, 800);
+        return false;
+    }
+    
+    const settings = LiveStoreData.settings || {};
+    const kycConfig = settings.kycConfig || { mode: 'off', targetedTiers: [] };
+    
+    let needsKyc = false;
+    if (kycConfig.mode === 'all') needsKyc = true;
+    else if (kycConfig.mode === 'specific' || kycConfig.mode === 'spec') {
+        const targetedArray = (kycConfig.targetedTiers || []).map(String);
+        if (targetedArray.includes(String(DataManager.getUserTier(u).id)) || targetedArray.includes(String(u.tierId))) {
+            needsKyc = true;
         }
-
-        if (!DataManager || !DataManager.user) {
-            getSys().showToast?.('يجب تسجيل الدخول أولاً للقيام بهذا الإجراء', 'error');
-            setTimeout(() => { 
-                if (DataManager && typeof DataManager.logout === 'function') DataManager.logout();
-                else window.location.href = 'login.html'; 
-            }, 1500);
-            return false; 
-        }
-
-        const settings = LiveStoreData.settings || {};
-        const kycConfig = settings.kycConfig || { mode: 'off', targetedTiers: [] };
+    }
+    
+    if (needsKyc) {
+        const status = String(u.kycStatus || 'none').toLowerCase();
+        const isKycApproved = (status === 'approved' || status === 'verified');
         
-        if (!DataManager.user.isVerified) {
-            getSys().showToast?.('يرجى إكمال بيانات الحساب الأساسية أولاً للمتابعة', 'error');
-            setTimeout(() => { getSys().openModal?.('identity'); }, 800); 
-            return false; 
-        }
-        
-        let needsKyc = false;
-        if (kycConfig.mode === 'all') needsKyc = true; 
-        else if (kycConfig.mode === 'specific' || kycConfig.mode === 'spec') {
-            const targetedArray = (kycConfig.targetedTiers || []).map(String);
-            if (targetedArray.includes(String(DataManager.getUserTier(DataManager.user).id)) || targetedArray.includes(String(DataManager.user.tierId))) { 
-                needsKyc = true; 
+        if (!isKycApproved) {
+            const actionName = actionType === 'deposit' ? 'الإيداع' : 'الشراء';
+            if (status === 'pending') {
+                getSys().showToast?.(`هويتك قيد المراجعة، يرجى الانتظار لتتمكن من ${actionName}`, 'warning');
+                getSys().openKycStatusModal?.('pending');
+            } else {
+                getSys().showToast?.(`حسابك يتطلب التوثيق الأمني (KYC) لتتمكن من ${actionName}`, 'error');
+                setTimeout(() => { getSys().openModal?.('kyc-upload'); }, 800);
             }
+            return false;
         }
-
-        if (needsKyc) {
-            const status = DataManager.user.kycStatus;
-            const isKycApproved = (status === 'approved' || status === 'verified');
-            
-            if (!isKycApproved) {
-                const actionName = actionType === 'deposit' ? 'الإيداع' : 'الشراء';
-                if (status === 'pending') {
-                    getSys().showToast?.(`هويتك قيد المراجعة، يرجى الانتظار لتتمكن من ${actionName}`, 'warning');
-                    getSys().openKycStatusModal?.('pending');
-                } else {
-                    getSys().showToast?.(`حسابك يتطلب التوثيق الأمني (KYC) لتتمكن من ${actionName}`, 'error');
-                    setTimeout(() => { getSys().openModal?.('kyc-upload'); }, 800);
-                }
-                return false; 
-            }
-        }
-        return true;
-    },
-
-    openProdModal: function(id) {
+    }
+    return true;
+},    openProdModal: function(id) {
         if (!this._validateKycAndSystem('purchase')) return;
    
         getSys().removeCoupon?.(true);
@@ -209,13 +237,14 @@ export const UIFinance = {
             }
 
             if (nameEl) nameEl.innerText = DataManager.currentProd.name;
-                        if (favBtn) {
+            
+            if (favBtn) {
                 const isFav = DataManager.isFavorite ? DataManager.isFavorite(DataManager.currentProd.id) : false;
-                // نحافظ على التصميم الأصلي ونضيف أو نزيل حالة 'active' فقط بذكاء
                 favBtn.classList.toggle('active', isFav);
                 favBtn.innerHTML = `<i class="${isFav ? 'fa-solid' : 'fa-regular'} fa-heart"></i>`;
             }
-         if (descBox) {
+            
+            if (descBox) {
                 if (DataManager.currentProd.description) {
                     descBox.innerHTML = `<i class="fa-solid fa-circle-info"></i> ${Utils.escapeHtml(DataManager.currentProd.description)}`;
                     descBox.style.display = 'block';
@@ -322,6 +351,8 @@ export const UIFinance = {
     },
 
     closePurchaseModal: function() { 
+        if (this._isProcessingTx) return; 
+
         getSys().removeCoupon?.(true);
         getSys().closeModal?.('purchase');
 
@@ -471,7 +502,9 @@ export const UIFinance = {
 
             if (result.success) {
                 getSys().sfx?.('success');
+                this._isProcessingTx = false; 
                 this.closePurchaseModal();
+                
                 if(typeof DataManager.syncUser === 'function') DataManager.syncUser(); 
                 getSys().updateDisplayBalance?.();
 
@@ -505,21 +538,12 @@ export const UIFinance = {
                     }
                 }, 150);
             } else {
-                getSys().showToast?.(result.msg || 'عذراً، رصيدك الحالي غير كافٍ.', 'error'); 
+                getSys().showToast?.(result.msg || 'تعذر إكمال العملية، يرجى المحاولة لاحقاً.', 'error'); 
                 keepKeyboardOpen();
             }
         } catch (err) {
-            console.error("🚨 خطأ أثناء تنفيذ الشراء:", err);
-            let displayMessage = 'حدث خطأ في الاتصال بالسيرفر، يرجى المحاولة لاحقاً';
-            if (err.code) {
-                const codes = {
-                    'failed-precondition': err.message, 'already-exists': 'عذراً، هذا الطلب تمت معالجته مسبقاً.',
-                    'resource-exhausted': 'نفدت الكمية أو تم تجاوز الحد المسموح.', 'permission-denied': 'تم رفض العملية. تأكد من صلاحيات حسابك.',
-                    'deadline-exceeded': 'انتهى وقت الطلب بسبب ضعف الإنترنت.', 'unauthenticated': 'انتهت جلستك، يرجى تسجيل الدخول مجدداً.'
-                };
-                displayMessage = codes[err.code] || displayMessage;
-            } else if (err.message) displayMessage = err.message;
-            getSys().showToast?.(displayMessage, 'error');
+            console.error("🚨 Client-Side Exception:", err);
+            getSys().showToast?.('حدث خطأ داخلي في المتصفح، يرجى تحديث الصفحة.', 'error');
         } finally {
             this._cleanupTxUI(submitBtn, shieldId);
         }
@@ -618,8 +642,15 @@ export const UIFinance = {
             section.innerHTML = UIBuilders.buildDepositForm(p, copyContainer, uniqueCurrencies.length === 1, this.currentPayCurrency, uniqueCurrencies.map((c, i) => `<div class="dropdown-item ${i === 0 ? 'active' : ''}" data-curr="${c}">${c}</div>`).join(''), (DataManager.user?.baseCurrency || 'USD').toUpperCase());
 
             if (!section._boundDelegation) {
+                let typingTimer;
                 section.addEventListener('input', (e) => {
-                    if (e.target.id === 'bal-amount') { this.calcFee(); e.target.parentElement.classList.toggle('has-value', e.target.value !== ''); }
+                    if (e.target.id === 'bal-amount') {
+                        clearTimeout(typingTimer);
+                        typingTimer = setTimeout(() => {
+                            this.calcFee(); 
+                            e.target.parentElement.classList.toggle('has-value', e.target.value !== '');
+                        }, 150);
+                    }
                 });
                 section.addEventListener('click', (e) => {
                     if (e.target.closest('#bal-upload-box')) document.getElementById('bal-file')?.click();
@@ -650,8 +681,8 @@ export const UIFinance = {
         if (typeof this._toggleBalHeaderBtn === 'function') this._toggleBalHeaderBtn('close');
 
         this.currentReceiptData = null; 
+        this._currentImageJobId = null; 
         
-        // 🛡️ [إصلاح ماسي 1]: التنظيف غير المشروط للـ Blob من المتصفح لمنع نزيف الرام
         const preview = document.getElementById('bal-img-preview');
         if (preview && preview.src && preview.src.startsWith('blob:')) {
             URL.revokeObjectURL(preview.src);
@@ -663,8 +694,6 @@ export const UIFinance = {
             const section = document.getElementById('bal-method-info-section');
             if (section && !modal.classList.contains('is-step-2')) {
                 section.innerHTML = ''; 
-                // 🛡️ [إصلاح ماسي 3]: تصفير المتغير لضمان إعادة ربط الأحداث عند الدخول مرة أخرى
-                section._boundDelegation = false; 
             }
         }, 400);
 
@@ -672,6 +701,8 @@ export const UIFinance = {
     },
 
     closeBalanceModal: function() {
+        if (this._isProcessingTx) return; 
+
         const modal = document.getElementById('balance-modal');
         getSys().closeModal?.('balance');
         if (modal) {
@@ -684,7 +715,9 @@ export const UIFinance = {
     previewReceipt: function(inp) { 
         const file = inp.files && inp.files[0];
         
-        // 🛡️ [إصلاح ماسي 1]: التنظيف الفوري للـ Blob القديم قبل إنشاء واحد جديد
+        this._currentImageJobId = Date.now(); 
+        const currentJobId = this._currentImageJobId;
+        
         const preview = document.getElementById('bal-img-preview');
         if (preview && preview.src && preview.src.startsWith('blob:')) {
             URL.revokeObjectURL(preview.src);
@@ -722,21 +755,21 @@ export const UIFinance = {
 
         if(isPdf) {
             this.pendingReceiptFile = file; 
-            const reader = new FileReader();
-            reader.onload = e => { 
-                this.currentReceiptData = e.target.result; 
-                if(preview) preview.style.display = 'none'; 
-                setUploadSuccessUI('pdf'); 
-            };
-            reader.readAsDataURL(file);
+            this.currentReceiptData = null; 
+            if(preview) preview.style.display = 'none'; 
+            setUploadSuccessUI('pdf'); 
         } else {
             if(uploadBox) uploadBox.innerHTML = `<div class="bal-upload-success-row"><i class="fa-solid fa-spinner fa-spin bal-upload-success-icon"></i><span class="bal-upload-success-text">جاري المعالجة...</span></div>`;
 
             const reader = new FileReader(); 
             reader.onload = e => { 
+                if (this._currentImageJobId !== currentJobId) return; 
+
                 const img = new Image();
                 img.onload = () => {
                     requestAnimationFrame(() => {
+                        if (this._currentImageJobId !== currentJobId) return;
+
                         try {
                             const canvas = document.createElement('canvas');
                             let width = img.width, height = img.height;
@@ -753,6 +786,8 @@ export const UIFinance = {
                             ctx.drawImage(img, 0, 0, width, height);
                             
                             canvas.toBlob((blob) => {
+                                if (this._currentImageJobId !== currentJobId) return; 
+
                                 const safeName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "receipt";
                                 this.pendingReceiptFile = new File([blob], `${safeName}.webp`, { type: 'image/webp' });
                                 
@@ -764,7 +799,6 @@ export const UIFinance = {
                                 }
                                 setUploadSuccessUI('image');
                                 
-                                // 🛡️ كنس الذاكرة الإجباري لصور الموبايل العملاقة
                                 canvas.width = 0; canvas.height = 0; 
                                 img.src = '';
                             }, 'image/webp', 0.75);
@@ -785,7 +819,7 @@ export const UIFinance = {
         const input = document.getElementById('bal-amount');
         if (!input || !DataManager || !this.currentPayment) return;
         
-        const amount = parseFloat(input.value) || 0;
+        const amount = this._parseSafeAmount(input.value);
         const payCurr = (this.currentPayCurrency || '').toUpperCase();
         if (typeof DataManager.calculateDepositFee !== 'function') return;
         
@@ -832,9 +866,12 @@ export const UIFinance = {
         if (this._isProcessingTx || !this._validateKycAndSystem('deposit')) return;
         
         const input = document.getElementById('bal-amount');
-        const amount = parseFloat(input ? input.value.trim() : '') || 0;
+        const amount = this._parseSafeAmount(input ? input.value : '');
         
-        if (isNaN(amount) || amount <= 0) { getSys().showToast?.('يرجى إدخال مبلغ إيداع صحيح', 'error'); return; }
+        if (isNaN(amount) || amount <= 0) { 
+            getSys().showToast?.('يرجى إدخال مبلغ إيداع صحيح', 'error'); 
+            return; 
+        }
         
         const payCurr = currency || this.currentPayCurrency || 'USD';
 
@@ -884,18 +921,16 @@ export const UIFinance = {
             
             if (result.success) {
                 getSys().sfx?.('success');
+                this._isProcessingTx = false; 
                 this.closeBalanceModal();
                 if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
                 setTimeout(() => getSys().openModal?.('success'), 150);
-            } else { getSys().showToast?.(result.msg, 'error'); }
+            } else { 
+                getSys().showToast?.(result.msg || 'تعذر إرسال الطلب، يرجى المحاولة لاحقاً', 'error'); 
+            }
         } catch (error) {
-            console.error("🚨 خطأ أثناء إرسال الإيداع:", error);
-            const msg = error.code ? ({
-                'failed-precondition': error.message, 'already-exists': 'لديك طلب قيد المراجعة بالفعل.',
-                'resource-exhausted': 'يرجى الانتظار قبل إرسال طلب جديد.', 'permission-denied': 'حسابك مقيد.',
-                'deadline-exceeded': 'انتهى وقت الطلب بسبب ضعف الإنترنت.', 'unauthenticated': 'انتهت جلستك، يرجى تسجيل الدخول.'
-            }[error.code] || 'خطأ غير معروف في الخادم') : (error.message || 'فشل إرسال الطلب');
-            getSys().showToast?.(msg, 'error');
+            console.error("🚨 Client-Side Deposit Exception:", error);
+            getSys().showToast?.(error.message || 'حدث خطأ في النظام، أعد تحميل الصفحة.', 'error');
         } finally {            
             this._cleanupTxUI(submitBtn, shieldId);
         }
