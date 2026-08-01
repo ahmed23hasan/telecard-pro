@@ -1,12 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud & Server Version) - النسخة الماسية المطلقة V16.2 👑 (Iron Bank)
+// 💰 المحرك المالي المركزي (Cloud & Server Version) - النسخة الماسية V16.5 👑 (Iron Bank)
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، التطابق التام مع الواجهة
-// 🚀 التحديثات المعمارية النهائية:
-// 1. Math-Safe Rounding: حل ثغرة Scientific Notation (NaN) للأرقام الصغيرة جداً عبر Number.EPSILON.
-// 2. Cumulative Precision Shield: فصل دقة العمليات الداخلية (8 أصفار) عن التقريب النهائي لمنع تآكل السنتات.
-// 3. Absolute Zero-Rate Fix: منع اختراق "1:1" وإجبار السيرفر على رفض أي عملة تسعيرها صفر.
-// 4. Fail-Fast Firewall: السيرفر يرفض طلبات الشراء الخاسرة بدلاً من تعديل السعر بصمت (حماية تجربة المستخدم).
-// 5. Strict Type Casting: حماية مؤشر الخيارات (optIdx) من الـ Type Injection.
+// 🚀 التحديثات المعمارية (V16.5):
+// 1. Math-Safe Rounding: حل ثغرة Scientific Notation (NaN) للأرقام الصغيرة جداً.
+// 2. Absolute Zero-Rate Fix: منع اختراق "1:1" في العملات.
+// 3. Price Floor Sync: مطابقة إجبار الحد الأدنى للسعر (0.01) مع الواجهة الأمامية لمنع الرفض الوهمي للطلبات.
+// 4. Loss-Prevention Firewall: السيرفر يرفض صراحة أي طلب ينزل سعره عن سعر التكلفة الفعلي.
 // ============================================================================
 
 const FinancialEngineDef = {
@@ -14,39 +13,33 @@ const FinancialEngineDef = {
         BASE_CURRENCY: 'USD',
         MAX_QTY_LIMIT: 10000,
         MAX_PRICE_LIMIT: 100000,
-        PRECISION: 4,          // 👈 التقريب النهائي
-        INTERNAL_PRECISION: 8, // 👈 دقة العمليات الداخلية لمنع تآكل الكسور
-        MIN_SALE_PRICE: 0.01
+        PRECISION: 4,          
+        INTERNAL_PRECISION: 8, 
+        MIN_SALE_PRICE: 0.01   // الحد الأدنى الإجباري للسعر
     }),
 
-    // 🛡️ 1. التقريب المالي الدقيق (Mathematical Rounding)
     _preciseRound: function(num, decimals = FinancialEngineDef.CONFIG.PRECISION) {
         let n = Number(num);
         if (isNaN(n) || n === 0) return 0;
-        
-        // استخدام EPSILON آمن تماماً هنا بفضل الـ INTERNAL_PRECISION (8)
-        // هذا يمنع ثغرة الـ NaN مع الأرقام متناهية الصغر (Scientific Notation)
         const factor = Math.pow(10, decimals);
         return Math.round((n + Number.EPSILON) * factor) / factor;
     },
 
-    // 🛡️ 2. العمليات الداخلية (تحافظ على دقة عالية جداً أثناء الحساب المتسلسل)
     _internalAdd: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) + (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalSub: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) - (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalMul: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) * (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalDiv: function(a, b) {
         const numB = Number(b) || 0;
+        // السيرفر يرفض القسمة على صفر بشكل صريح (عكس الواجهة التي تتجاهله بصمت)
         if (numB === 0) throw new Error("[SECURITY - Finance Guard]: Division by zero detected! Transaction aborted.");
         return FinancialEngineDef._preciseRound((Number(a) || 0) / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
     },
 
-    // 🛡️ 3. العمليات المصدرة للخارج (للاستخدام في index.js للأرصدة النهائية)
     safeAdd: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalAdd(a, b)); },
     safeSub: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(a, b)); },
     safeMul: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(a, b)); },
     safeDiv: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalDiv(a, b)); },
     
-    // 🛡️ 4. استخراج الأرقام بأمان (بدون تحويل صامت للصفر)
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '' || Array.isArray(val) || typeof val === 'object') return 0;
         const num = Number(val);
@@ -62,7 +55,6 @@ const FinancialEngineDef = {
         const processRateObj = (code, priceR, depR) => {
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
-            // 🚨 منع التلاعب بأسعار الصرف: إذا كان السعر صفراً، ارفضه تماماً
             if (numPrice === 0 || numDep === 0) {
                 throw new Error(`[SECURITY] Invalid or Zero exchange rate detected for currency: ${code}`);
             }
@@ -180,7 +172,8 @@ const FinancialEngineDef = {
         let offerName = null, offerDiscount = 0;
         if (allowsDiscounts && offer && typeof offer === 'object' && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name || null;
-            const offerVal = FinancialEngineDef.extractNum(offer.value);
+            const offerVal = FinancialEngineDef._preciseRound(FinancialEngineDef.extractNum(offer.value), FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
+            
             if (offer.type === 'percentage') {
                 const offerValDec = FinancialEngineDef._internalDiv(offerVal, 100);
                 offerDiscount = FinancialEngineDef._internalMul(originalPrice, offerValDec);
@@ -194,7 +187,8 @@ const FinancialEngineDef = {
         const canUseCoupon = allowsDiscounts && product.disableCoupons !== true;
         if (canUseCoupon && coupon && typeof coupon === 'object' && coupon.isActive !== false) {
             couponCode = coupon.code || null;
-            const coupVal = FinancialEngineDef.extractNum(coupon.value);
+            const coupVal = FinancialEngineDef._preciseRound(FinancialEngineDef.extractNum(coupon.value), FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
+            
             if (coupon.type === 'percentage') {
                 const coupValDec = FinancialEngineDef._internalDiv(coupVal, 100);
                 couponDiscount = FinancialEngineDef._internalMul(currentPrice, coupValDec);
@@ -202,12 +196,14 @@ const FinancialEngineDef = {
                 couponDiscount = Math.min(coupVal, currentPrice);
             }
         }
-        currentPrice = FinancialEngineDef._internalSub(currentPrice, couponDiscount);
+        
+        // 🛡️ التحديث 3: مطابقة السعر مع الواجهة الأمامية ليقف عند الحد الأدنى
+        currentPrice = Math.max(
+            FinancialEngineDef.CONFIG.MIN_SALE_PRICE, 
+            FinancialEngineDef._internalSub(currentPrice, couponDiscount)
+        );
 
-        // 🛑 الجدار الناري الصارم (Strict Fail-Fast Firewall)
-        if (currentPrice < FinancialEngineDef.CONFIG.MIN_SALE_PRICE) {
-            throw new Error(`[FIREWALL_REJECT] Transaction blocked: Final selling price (${currentPrice}) is below absolute minimum (${FinancialEngineDef.CONFIG.MIN_SALE_PRICE}).`);
-        }
+        // 🛑 التحديث 4: الجدار الناري لحماية التاجر (يمنع البيع بخسارة حتى لو وصل السعر للحد الأدنى المسموح به)
         if (cost > 0 && currentPrice < cost) {
             throw new Error(`[FIREWALL_REJECT] Transaction blocked: Selling price (${currentPrice}) fell below cost price (${cost}).`);
         }
@@ -252,4 +248,5 @@ const FinancialEngineDef = {
     }
 };
 
+// التصدير الخاص ببيئة السيرفر (Node.js) 
 module.exports = Object.freeze(FinancialEngineDef);

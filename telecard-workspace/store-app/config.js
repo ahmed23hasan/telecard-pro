@@ -1,10 +1,13 @@
 // ============================================================================
-// 📁 ملف الإعدادات المركزي (config.js) - Enterprise V15.2 💎
+// 📁 ملف الإعدادات المركزي (config.js) - Enterprise V20.7 💎
 // 🎯 الوظيفة: يحتوي على جميع الثوابت، مفاتيح قواعد البيانات، وإعدادات المتجر
-// 🚀 التحديث: كسر الكاش القديم (Cache Busting) لضمان تفعيل محرك V15.2 المالي للجميع.
+// 🚀 التحديثات المعمارية (V20.7):
+// 1. Unified Versioning: توحيد رقم الإصدار مع السيرفر لسهولة التتبع.
+// 2. Hard Cache Wipe: تغيير مفاتيح الكاش لجبر هواتف العملاء على مسح البيانات القديمة 
+//    المتضاربة وتحميل البيانات المتوافقة مع المحرك المالي الجديد (FinancialEngine).
 // ============================================================================
 
-export const APP_VERSION = window.TELECARD_VERSION || 'v15.2'; // 👈 تم التحديث للنسخة الماسية
+export const APP_VERSION = window.TELECARD_VERSION || 'v20.7';
 
 const deepFreeze = (obj) => {
     Object.keys(obj).forEach(prop => {
@@ -15,7 +18,9 @@ const deepFreeze = (obj) => {
     return Object.freeze(obj);
 };
 
-// ☁️ إعدادات فايربيز (يجب أن تكون هنا ليقرأها firebaseAdapter.js)
+// ☁️ إعدادات فايربيز 
+// (ملاحظة أمنية: وجود هذه المفاتيح هنا آمن وطبيعي في تطبيقات الويب، 
+// خط الدفاع الحقيقي ضد الاستغلال هو تفعيل App Check وقواعد Firestore)
 export const firebaseConfig = deepFreeze({
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
@@ -27,7 +32,7 @@ export const firebaseConfig = deepFreeze({
 
 export const DB_KEYS = deepFreeze({
     CATS: 'telecard_cats',
-    PRODS: 'telecard_prods_public', 
+    PRODS: 'telecard_prods_public',
     SETTINGS: 'telecard_settings',
     USERS: 'telecard_users',
     BANNERS: 'telecard_banners',
@@ -49,15 +54,15 @@ export const DB_KEYS = deepFreeze({
     FEEDBACKS: 'telecard_private_feedbacks'
 });
 
+// 🛡️ التحديث الماسي: تغيير نهايات المفاتيح لنسف الكاش القديم بالكامل
 export const CACHE_KEYS = deepFreeze({
-    ACTIVE_USER: 'telecard_active_user',
-    ACTIVE_UID: 'telecard_active_user_uid',
-    // 💡 تغيير مفاتيح الكاش يجبر هواتف المستخدمين على حذف الكاش القديم المتضرر من PRICERATE
-    STORE_CACHE: 'telecard_store_cache_v15', 
-    STORE_CACHE_FALLBACK: 'telecard_store_cache_fallback_v15',
-    SMART_CATALOG: 'telecard_store_catalog_master_v4', 
-    CATALOG_VERSION: 'telecard_catalog_version_v4', 
-    TIME_SYNC: 'telecard_time_sync_ts',
+    ACTIVE_USER: 'telecard_active_user_v20',
+    ACTIVE_UID: 'telecard_active_user_uid_v20',
+    STORE_CACHE: 'telecard_store_cache_v20',
+    STORE_CACHE_FALLBACK: 'telecard_store_cache_fallback_v20',
+    SMART_CATALOG: 'telecard_store_catalog_master_v20',
+    CATALOG_VERSION: 'telecard_catalog_version_v20',
+    TIME_SYNC: 'telecard_time_sync_ts_v20',
     THEME: 'telecard_theme',
     DISPLAY_CURRENCY: 'telecard_display_currency',
     DISPLAY_STATE: 'telecard_display_state',
@@ -76,8 +81,8 @@ export const DYNAMIC_PREFIXES = deepFreeze({
 export const ACTIVE_USER_KEY = CACHE_KEYS.ACTIVE_USER;
 
 export const StoreConfig = deepFreeze({
-    baseCurrency: 'USD', // ✅ التوحيد المركزي يعمل بنجاح
-    fallbackCurrencies: ['USD', 'TRY', 'SYP'], 
+    baseCurrency: 'USD', // مربوطة ضمنياً بـ FinancialEngine.CONFIG.BASE_CURRENCY
+    fallbackCurrencies: ['USD', 'TRY', 'SYP'],
     
     orderStatusMap: {
         pending: { text: 'قيد التنفيذ', icon: 'fa-clock', class: 'pending' },

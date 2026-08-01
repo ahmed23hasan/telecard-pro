@@ -1,11 +1,10 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة التيتانيوم V15.2 🛡️
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية V15.4 🛡️
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية:
-// 1. Arabic Numerals Normalization: توحيد أرقام الهواتف والهويات لمنع أخطاء الـ Regex.
-// 2. DOM Preservation: إزالة استنساخ العناصر واستبدالها بـ Dataset Flags.
-// 3. State Sync: حفظ الـ LocalStorage فوراً بعد تعديل الهوية لمنع الـ Desync.
-// 4. V8 Garbage Collection: تفريغ نصوص الـ Base64 العملاقة فوراً لتوفير الرام.
+// 🚀 التحديثات المعمارية (V15.4):
+// 1. Stale DOM Fix: جلب العناصر حياً داخل الـ Closures لمنع تحديث عناصر ميتة في الذاكرة.
+// 2. Canvas Anti-Hang: إضافة Watchdog Timer لعمليات ضغط الصور لمنع التجميد الصامت (Safari Bug).
+// 3. Strict Script Injection: تأمين حقن مكتبة الـ QRCode بـ ID صريح لمنع التكرار عند النقر السريع.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -26,10 +25,15 @@ export const UIAuth = {
 
     kycFiles: {},
     _isSubmittingKyc: false, 
-    _isProcessingImg: false, 
+    _processingImgs: new Set(), 
 
+    // 🛡️ التحديث 2: حماية הـ Canvas من التجميد الأبدي في Safari
     _compressImage: function(file, maxWidth = 1000) {
         return new Promise((resolve, reject) => {
+            const watchdog = setTimeout(() => {
+                reject(new Error("نفد وقت معالجة الصورة، يرجى المحاولة بصورة أصغر."));
+            }, 15000); // 15 ثانية كحد أقصى
+
             const reader = new FileReader();
             reader.onload = (e) => {
                 const img = new Image();
@@ -48,22 +52,26 @@ export const UIAuth = {
                         ctx.drawImage(img, 0, 0, width, height);
                         
                         canvas.toBlob((blob) => {
-                            if (!blob) throw new Error("فشل ضغط الصورة.");
+                            clearTimeout(watchdog); // إيقاف مؤقت القتل
+                            if (!blob) return reject(new Error("فشل ضغط الصورة."));
+                            
                             const safeName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "image";
                             const compressedFile = new File([blob], `${safeName}.webp`, { type: 'image/webp' });
                             resolve({ file: compressedFile, previewUrl: URL.createObjectURL(blob) });
                             
-                            // 🛡️ [إصلاح ماسي]: إخلاء الذاكرة العشوائية (RAM) فوراً
                             canvas.width = 0; canvas.height = 0; 
                             img.src = ''; 
                             img.onload = null; img.onerror = null;
                         }, 'image/webp', 0.80);
-                    } catch (error) { reject(error); }
+                    } catch (error) { 
+                        clearTimeout(watchdog);
+                        reject(error); 
+                    }
                 };
-                img.onerror = () => reject(new Error("ملف الصورة تالف أو غير صالح."));
+                img.onerror = () => { clearTimeout(watchdog); reject(new Error("ملف الصورة تالف أو غير صالح.")); };
                 img.src = e.target.result;
             };
-            reader.onerror = () => reject(new Error("تعذر قراءة الملف."));
+            reader.onerror = () => { clearTimeout(watchdog); reject(new Error("تعذر قراءة الملف.")); };
             reader.readAsDataURL(file);
         });
     },
@@ -184,7 +192,6 @@ export const UIAuth = {
                 deleteAvatarBtn.classList.toggle('active', !!hasCustomImage);
             }
 
-            // 🛡️ استخدام dataset لمنع استنساخ الـ DOM المدمر
             if(fileInput && !fileInput.dataset.eventBound) {
                 fileInput.dataset.eventBound = "true";
                 fileInput.addEventListener('change', async (e) => {
@@ -192,13 +199,18 @@ export const UIAuth = {
                     
                     if (!originalFile || !originalFile.type.startsWith('image/')) {
                         getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
-                        fileInput.value = ''; return;
+                        e.target.value = ''; return;
                     }
                     
                     if (originalFile.size > 5 * 1024 * 1024) { 
                         getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
-                        fileInput.value = ''; return;
+                        e.target.value = ''; return;
                     }
+
+                    // 🛡️ التحديث 1: جلب العناصر الحية من الـ DOM لمنع الـ Stale Closure
+                    const liveImgEl = document.getElementById('profile-img');
+                    const liveSidebarAvatar = document.getElementById('cs-avatar');
+                    const liveDeleteBtn = document.getElementById('inline-delete-avatar-btn');
 
                     const avatarWrapper = document.querySelector('.profile-container .avatar-wrapper');
                     if (avatarWrapper) avatarWrapper.classList.add('is-loading');
@@ -213,13 +225,13 @@ export const UIAuth = {
                     try {
                         compressed = await this._compressImage(originalFile, 400); 
                         
-                        if(imgEl) {
-                            if (imgEl.src && imgEl.src.startsWith('blob:')) URL.revokeObjectURL(imgEl.src);
-                            imgEl.src = compressed.previewUrl; 
+                        if(liveImgEl) {
+                            if (liveImgEl.src && liveImgEl.src.startsWith('blob:')) URL.revokeObjectURL(liveImgEl.src);
+                            liveImgEl.src = compressed.previewUrl; 
                         }
-                        if(sidebarAvatar) {
-                            if (sidebarAvatar.src && sidebarAvatar.src.startsWith('blob:')) URL.revokeObjectURL(sidebarAvatar.src);
-                            sidebarAvatar.src = compressed.previewUrl; 
+                        if(liveSidebarAvatar) {
+                            if (liveSidebarAvatar.src && liveSidebarAvatar.src.startsWith('blob:')) URL.revokeObjectURL(liveSidebarAvatar.src);
+                            liveSidebarAvatar.src = compressed.previewUrl; 
                         }
 
                         const oldImageUrl = DataManager.user.img; 
@@ -229,13 +241,13 @@ export const UIAuth = {
                         
                         if (dbUpdateSuccess) {
                             try { localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id, downloadUrl); } 
-                            catch(e) { console.warn("Storage restricted - Incognito mode"); }
+                            catch(err) { console.warn("Storage restricted - Incognito mode"); }
 
                             if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
                                 FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(()=>{});
                             }
 
-                            if (deleteAvatarBtn) deleteAvatarBtn.classList.add('active');
+                            if (liveDeleteBtn) liveDeleteBtn.classList.add('active');
 
                             getSys().showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
                             getSys().sfx?.('success');
@@ -253,13 +265,13 @@ export const UIAuth = {
                         }
 
                         const fallbackImg = DataManager.user.img || DEFAULT_AVATAR_URL;
-                        if(imgEl) imgEl.src = fallbackImg; 
-                        if(sidebarAvatar) sidebarAvatar.src = fallbackImg; 
+                        if(liveImgEl) liveImgEl.src = fallbackImg; 
+                        if(liveSidebarAvatar) liveSidebarAvatar.src = fallbackImg; 
                     } finally {
                         if (compressed && compressed.previewUrl) URL.revokeObjectURL(compressed.previewUrl);
                         if (avatarWrapper) avatarWrapper.classList.remove('is-loading');
                         shield.remove();
-                        fileInput.value = ''; 
+                        e.target.value = ''; 
                     }
                 });
             }
@@ -482,13 +494,20 @@ export const UIAuth = {
             tierBtn.style.setProperty('--tier-color', tierColor);
             
             try {
-                let hex = tierColor.replace('#', '');
-                if (hex.length === 3) hex = hex.split('').map(x => x + x).join('');
-                const r = parseInt(hex.substring(0, 2), 16);
-                const g = parseInt(hex.substring(2, 4), 16);
-                const b = parseInt(hex.substring(4, 6), 16);
-                if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
-                    tierBtn.style.setProperty('--tier-rgb', `${r}, ${g}, ${b}`);
+                const isHex = /^#([0-9A-F]{3}){1,2}$/i.test(tierColor);
+                if (isHex) {
+                    let hex = tierColor.replace('#', '');
+                    if (hex.length === 3) hex = hex.split('').map(x => x + x).join('');
+                    const r = parseInt(hex.substring(0, 2), 16);
+                    const g = parseInt(hex.substring(2, 4), 16);
+                    const b = parseInt(hex.substring(4, 6), 16);
+                    if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+                        tierBtn.style.setProperty('--tier-rgb', `${r}, ${g}, ${b}`);
+                    } else {
+                        tierBtn.style.setProperty('--tier-rgb', '255, 215, 0');
+                    }
+                } else {
+                    tierBtn.style.setProperty('--tier-rgb', '255, 215, 0');
                 }
             } catch (e) {
                 tierBtn.style.setProperty('--tier-rgb', '255, 215, 0'); 
@@ -642,18 +661,17 @@ export const UIAuth = {
             if (qrContainer) {
                 qrContainer.innerHTML = ''; 
                 
+                // 🛡️ التحديث 3: تأمين سكربت הـ QR بـ ID لمنع تكرار الحقن
                 if (typeof window.QRCode === 'undefined') {
                     sys.toggleLoader?.(true, 'جاري تحميل نظام التشفير المرئي...');
                     await new Promise((resolve, reject) => {
-                        if (document.querySelector('script[src*="qrcode.min.js"]')) {
+                        if (document.getElementById('qrcode-lib-script')) {
                             const checkInterval = setInterval(() => {
-                                if (typeof window.QRCode !== 'undefined') {
-                                    clearInterval(checkInterval);
-                                    resolve();
-                                }
+                                if (typeof window.QRCode !== 'undefined') { clearInterval(checkInterval); resolve(); }
                             }, 100);
                         } else {
                             const script = document.createElement('script');
+                            script.id = 'qrcode-lib-script';
                             script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.5.1/qrcode.min.js';
                             script.integrity = 'sha512-1m3PjBwTXX71aQhL/r/118XnI2a1V7Yf5tEETqjGokHqGqI/J0Qe2OqTNDH+0n0BfK2Rbx8u0D0Wl4y1C/tN2A==';
                             script.crossOrigin = 'anonymous';
@@ -664,11 +682,12 @@ export const UIAuth = {
                     });
                 }
                 
-                if (typeof window.QRCode !== 'undefined') {
+                const liveContainer = document.getElementById('qrcode-container'); 
+                if (liveContainer && typeof window.QRCode !== 'undefined') {
                     const qrDataUrl = await window.QRCode.toDataURL(qrUri, { color: { dark: '#111a2b', light: '#ffffff' }, width: 200, margin: 1 });
-                    qrContainer.innerHTML = `<img src="${qrDataUrl}" style="width: 100%; height: 100%; border-radius: 8px;" alt="2FA QR Code">`;
-                } else {
-                    qrContainer.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-muted);"><i class="fa-solid fa-shield-halved fa-2x mb-10"></i><br>يرجى إدخال الكود النصي يدوياً في التطبيق.</div>`;
+                    liveContainer.innerHTML = `<img src="${qrDataUrl}" style="width: 100%; height: 100%; border-radius: 8px;" alt="2FA QR Code">`;
+                } else if (liveContainer) {
+                    liveContainer.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-muted);"><i class="fa-solid fa-shield-halved fa-2x mb-10"></i><br>يرجى إدخال الكود النصي يدوياً في التطبيق.</div>`;
                 }
             }
             
@@ -943,7 +962,6 @@ export const UIAuth = {
         const hiddenCurrency = document.getElementById('reg-currency');
         
         const country = countryEl ? countryEl.innerText.trim() : '';
-        // 🛡️ الترقيع الماسي: تحويل الأرقام العربية إلى إنجليزية قبل الفحص
         let phone = phoneEl ? phoneEl.value.trim() : '';
         phone = phone.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
         
@@ -1037,7 +1055,7 @@ export const UIAuth = {
     },
 
     handleKycImage: async function(input, previewId) {
-        if (this._isProcessingImg) return;
+        if (this._processingImgs.has(previewId)) return;
         
         const file = input.files && input.files[0];
         const parentBox = input.closest('.kyc-upload-box');
@@ -1060,7 +1078,8 @@ export const UIAuth = {
             delete this.kycFiles[previewId];
             return;
         }
-        this._isProcessingImg = true;
+        
+        this._processingImgs.add(previewId);
         
         try {
             getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
@@ -1079,8 +1098,8 @@ export const UIAuth = {
             getSys().showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
             input.value = '';
         } finally {
-            this._isProcessingImg = false;
-            getSys().toggleLoader?.(false);
+            this._processingImgs.delete(previewId);
+            if (this._processingImgs.size === 0) getSys().toggleLoader?.(false);
         }
     },
     
@@ -1090,7 +1109,6 @@ export const UIAuth = {
         const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
         let idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
         
-        // 🛡️ توحيد أرقام الهوية لتسهيل البحث الإداري ومنع التلاعب بالتشفير
         idNumber = idNumber.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
         
         this.kycFiles = this.kycFiles || {};
@@ -1384,4 +1402,3 @@ export const UIAuth = {
         getSys().openModal?.('tier-info');
     }
 };
-

@@ -1,11 +1,12 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة المطلقة V20.4 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة المطلقة V20.6 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديثات المعمارية النهائية:
-// 1. ACID Absolute Compliance: إدخال القراءات الحية (Tiers, Offers, Rates) داخل الـ Transaction لمنع الـ Read Skew.
-// 2. Operational Edge: تنقية الأكواد المكررة برمجياً (Set) لمنع الأخطاء البشرية.
-// 3. Zombie Sync Fix: تجاوز أخطاء الحذف من نظام المصادقة لضمان الـ Soft Delete.
-// 4. Audit Trail Protection: منع حذف أي صندوق يحتوي على أكواد مُباعة.
+// 🚀 التحديثات المعمارية (V20.6):
+// 1. Escrow Bypass Fix: تضمين الطلبات المعلقة (pending/processing) في التدقيق المالي لمنع إرجاع الأموال المحجوزة بالخطأ.
+// 2. Deposit Contention Fix: نقل قراءة البوابات وأسعار الصرف خارج הـ Transaction لفك اختناق الإيداعات.
+// 3. Transaction Unblocking: فصل قراءة الـ Tiers/Offers خارج الـ Transaction لفك اختناق الدفع.
+// 4. Memory Stream Fix: استخدام .stream() في دوال المزامنة لمنع انهيار السيرفر (OOM) وتقليل الفاتورة.
+// 5. Strict TTL Enforcement: الاعتماد على سياسات Firebase TTL لحذف مفاتيح عدم التكرار.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -139,6 +140,13 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
     const serverNow = Date.now();
 
     try {
+        const [offersSnap, tiersSnap] = await Promise.all([
+            db.collection('telecard_offers').where('isActive', '==', true).where('targetProds', 'array-contains', productId).get(),
+            db.collection('telecard_tiers').get()
+        ]);
+        const liveOffers = offersSnap.docs.map(d => d.data());
+        const tiersData = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
         const cleanOrderId = generateUniqueId();
         const userRef = db.collection('telecard_users').doc(uid);
         const productRef = db.collection('telecard_prods').doc(productId);
@@ -147,12 +155,9 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
         let deliveredCodeText = null, isAutoDelivered = false;
 
         await db.runTransaction(async (transaction) => {
-            // 🛡️ [ACID Fix]: قراءة العروض والمستويات داخل הـ Transaction لضمان عدم تغييرها وقت التنفيذ
-            const [userSnap, productSnap, offersSnap, tiersSnap] = await Promise.all([
+            const [userSnap, productSnap] = await Promise.all([
                 transaction.get(userRef),
-                transaction.get(productRef),
-                transaction.get(db.collection('telecard_offers').where('isActive', '==', true)),
-                transaction.get(db.collection('telecard_tiers'))
+                transaction.get(productRef)
             ]);
 
             if (!userSnap.exists) throw new HttpsError('not-found', 'المستخدم غير موجود.');
@@ -166,9 +171,7 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
                 throw new HttpsError('failed-precondition', 'عذراً، هذا المنتج غير متاح حالياً.');
             }
 
-            const liveOffers = offersSnap.docs.map(d => d.data());
-            const tiersData = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            let activeOffer = liveOffers.find(off => off.targetProds?.includes(productId) && (!off.expiryDate || off.expiryDate > serverNow));
+            let activeOffer = liveOffers.find(off => (!off.expiryDate || off.expiryDate > serverNow));
 
             let currentCouponData = null;
             let couponRef = null;
@@ -311,21 +314,21 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
     }
 
     try {
+        const [ratesSnap, paymentsSnap] = await Promise.all([
+            db.collection('telecard_rates').get(),
+            db.collection('telecard_payments').get()
+        ]);
+        
+        const liveRates = ratesSnap.docs.map(d => d.data());
+        const livePayments = paymentsSnap.docs.map(d => d.data());
+
+        const paymentMethod = livePayments.find(p => p.name === paymentMethodName);
+        if (!paymentMethod) throw new HttpsError('not-found', 'طريقة الدفع غير متوفرة.');
+
         const userRef = db.collection('telecard_users').doc(uid);
         
         return await db.runTransaction(async (transaction) => {
-            // 🛡️ [ACID Fix]: قراءة البوابات وأسعار الصرف داخل הـ Transaction
-            const [ratesSnap, paymentsSnap, userSnap] = await Promise.all([
-                transaction.get(db.collection('telecard_rates')),
-                transaction.get(db.collection('telecard_payments')),
-                transaction.get(userRef)
-            ]);
-            
-            const liveRates = ratesSnap.docs.map(d => d.data());
-            const livePayments = paymentsSnap.docs.map(d => d.data());
-
-            const paymentMethod = livePayments.find(p => p.name === paymentMethodName);
-            if (!paymentMethod) throw new HttpsError('not-found', 'طريقة الدفع غير متوفرة.');
+            const userSnap = await transaction.get(userRef);
 
             let idempotencyRef = null;
             if (idempotencyKey) {
@@ -626,8 +629,15 @@ exports.adminAuditUserWallet = onCall(async (request) => {
 
         const AggregateField = admin.firestore.AggregateField;
         const [ordersAgg, depApprovedAgg] = await Promise.all([
-            db.collection('telecard_orders').where('userId', '==', targetUserId).where('status', '==', 'completed').aggregate({ totalSpent: AggregateField.sum('price') }).get(),
-            db.collection('telecard_deposits').where('userId', '==', targetUserId).where('status', '==', 'approved').aggregate({ totalDep: AggregateField.sum('creditedAmount') }).get()
+            db.collection('telecard_orders')
+              .where('userId', '==', targetUserId)
+              .where('status', 'in', ['completed', 'pending', 'processing'])
+              .aggregate({ totalSpent: AggregateField.sum('price') }).get(),
+              
+            db.collection('telecard_deposits')
+              .where('userId', '==', targetUserId)
+              .where('status', '==', 'approved')
+              .aggregate({ totalDep: AggregateField.sum('creditedAmount') }).get()
         ]);
 
         const realTotalDeposit = depApprovedAgg.data().totalDep || 0; 
@@ -800,14 +810,13 @@ exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{produ
 exports.adminForceSyncCatalog = onCall({ timeoutSeconds: 540 }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     try {
-        const [prodsSnap, tiersSnap] = await Promise.all([
-            db.collection('telecard_prods').get(),
-            db.collection('telecard_tiers').get()
-        ]);
+        const tiersSnap = await db.collection('telecard_tiers').get();
         const tiersData = tiersSnap.docs.map(d => { return { id: d.id, ...d.data() }; });
         
+        const prodsStream = db.collection('telecard_prods').stream();
         let syncCount = 0, currentBatch = db.batch(), opCount = 0;
-        for (const doc of prodsSnap.docs) {
+        
+        for await (const doc of prodsStream) {
             const prodData = doc.data();
             const publicRef = db.collection('telecard_prods_public').doc(doc.id);
 
@@ -818,9 +827,14 @@ exports.adminForceSyncCatalog = onCall({ timeoutSeconds: 540 }, async (request) 
                 syncCount++;
             }
             opCount++;
-            if (opCount >= 400) { await currentBatch.commit(); currentBatch = db.batch(); opCount = 0; }
+            if (opCount >= 400) { 
+                await currentBatch.commit(); 
+                currentBatch = db.batch(); 
+                opCount = 0; 
+            }
         }
         if (opCount > 0) await currentBatch.commit();
+        
         await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
         return { success: true, message: `تمت مزامنة ${syncCount} منتج بنجاح!` };
     } catch (error) { throw new HttpsError('internal', `فشل المزامنة: ${error.message}`); }
@@ -835,24 +849,25 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
     const tiersSnap = await db.collection('telecard_tiers').get();
     const allTiers = tiersSnap.docs.map(d => { return { id: d.id, ...d.data() }; }); 
 
-    let hasMore = true, lastDoc = null, totalUpdated = 0;
-    while (hasMore) {
-        let query = db.collection('telecard_prods').where('isActive', '==', true).limit(400);
-        if (lastDoc) query = query.startAfter(lastDoc);
-        const prodsSnap = await query.get();
-        if (prodsSnap.empty) { hasMore = false; break; }
-
-        lastDoc = prodsSnap.docs[prodsSnap.docs.length - 1];
-        const batch = db.batch();
+    const activeProdsStream = db.collection('telecard_prods').where('isActive', '==', true).stream();
+    let currentBatch = db.batch(), opCount = 0, totalUpdated = 0;
+    
+    for await (const doc of activeProdsStream) {
+        const prodData = doc.data();
+        if (String(prodData.isFixedPrice).toLowerCase() === 'true') continue;
         
-        prodsSnap.forEach(doc => {
-            const prodData = doc.data();
-            if (String(prodData.isFixedPrice).toLowerCase() === 'true') return;
-            batch.set(db.collection('telecard_prods_public').doc(doc.id), generatePublicProductData(prodData, allTiers), { merge: true });
-            totalUpdated++;
-        });
-        await batch.commit();
+        currentBatch.set(db.collection('telecard_prods_public').doc(doc.id), generatePublicProductData(prodData, allTiers), { merge: true });
+        totalUpdated++;
+        opCount++;
+        
+        if (opCount >= 400) { 
+            await currentBatch.commit(); 
+            currentBatch = db.batch(); 
+            opCount = 0; 
+        }
     }
+    if (opCount > 0) await currentBatch.commit();
+    
     return { success: true, updatedProductsCount: totalUpdated };
 });
 

@@ -1,14 +1,11 @@
 // ============================================================================
-// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V14.6 💎
-// 🎯 الوظيفة: يحتوي على دوال الحماية (XSS)، وتنسيق النصوص، وتصفية التواريخ
-// 🚀 التحديثات:
-// 1. URL Hijacking Shield: منع ثغرة Protocol-Relative URLs والروابط الخبيثة.
-// 2. RangeError Protection: تحصين Intl.NumberFormat من انهيار الواجهة.
-// 3. NaN Cascade Fix: منع تشوه النصوص عند فشل الحسابات الزمنية.
-// 4. Zero-Crash Guarantee: تحصين محرك التسعير وجسر العملات بـ Try/Catch.
+// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V14.8 💎
+// 🎯 الوظيفة: أدوات نقية للتعامل مع النصوص، الروابط، والتواريخ فقط.
+// 🚀 التحديثات المعمارية:
+// 1. Strict Separation of Concerns: إزالة كل الدوال المالية (الجسور) نهائياً. الأموال تعالج فقط عبر FinancialEngine.
+// 2. URL Hijacking Shield: منع ثغرة Protocol-Relative URLs والروابط الخبيثة.
+// 3. Date & Text Sanitization: فلاتر آمنة لمنع XSS والـ NaN.
 // ============================================================================
-
-import { FinancialEngine } from './core/financialEngine.js';
 
 export const Utils = {
     // === 1. أدوات حماية النصوص وتنسيقها (OWASP Standard) ===
@@ -30,16 +27,13 @@ export const Utils = {
         return this.escapeHtml(val);
     },
     
-    // 🛡️ درع حماية الروابط المتقدم (Strict Protocol & Traversal Validation)
+    // 🛡️ درع حماية الروابط المتقدم (Strict Protocol Validation)
     safeUrl: function(url, fallback = '#') {
         if (!url) return fallback;
-        // إزالة الفراغات ورموز التحكم التي تخدع المتصفح
         let cleaned = String(url).replace(/[\x00-\x1F\x7F\s]/g, '').trim();
         
-        // 🚨 حظر صريح لمحاولات الحقن المباشرة
         if (/^(javascript|vbscript|data):/i.test(cleaned)) return fallback;
-
-        // 💡 [الإصلاح الماسي]: تشفير الروابط لتعمل مع HTML و CSS بأمان دون كسر روابط Firebase
+        
         const encodeUrlSafely = (u) => {
             return u.replace(/"/g, '%22').replace(/'/g, '%27').replace(/</g, '%3C').replace(/>/g, '%3E');
         };
@@ -52,18 +46,16 @@ export const Utils = {
             }
             return fallback;
         } catch (e) {
-            // 🛡️ حظر الـ Protocol-Relative URLs (//evil.com)
             if (cleaned.startsWith('//')) return fallback;
             
-            // السماح بالروابط النسبية الآمنة فقط
             if (cleaned.startsWith('/') || cleaned.startsWith('./') || cleaned.startsWith('../') || cleaned.startsWith('#') || cleaned.startsWith('?')) {
                 return encodeUrlSafely(cleaned);
             }
             return fallback;
         }
     },
-
-    // 🌟 حماية ضد RangeError لضمان الاستقرار التام للواجهة
+    
+    // 🌟 تنسيق الأرقام كنصوص للواجهة فقط
     enNum: function(val, decimals = 2) {
         const num = Number(val);
         const safeDecimals = Math.min(20, Math.max(0, Number(decimals) || 2));
@@ -76,43 +68,18 @@ export const Utils = {
             useGrouping: false
         }).format(num);
     },
-        // 🛡️ [إضافة معمارية]: دالة عامة لتوحيد الأرقام العربية وإزالة الفواصل
+    
+    // 🛡️ توحيد الأرقام العربية وإزالة الفواصل (تنظيف المدخلات)
     parseSafeNumber: function(val) {
         if (!val) return 0;
         const englishVal = String(val)
-            .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)) // تحويل الأرقام العربية
-            .replace(/,/g, '') // إزالة فواصل الآلاف
-            .replace(/\s/g, ''); // إزالة المسافات
+            .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+            .replace(/,/g, '')
+            .replace(/\s/g, '');
         return parseFloat(englishVal) || 0;
     },
-    // === 2. جسر تحويل العملات (محصن بالكامل ضد تسرب البيانات الخام) ===
-    normalizeRates: function(raw) {
-        // 🛡️ كائن الطوارئ: يضمن عمل المتجر بالدولار إذا انهار كل شيء
-        const emergencyFallback = { 
-            'USD': { code: 'USD', symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true } 
-        };
-        
-        try {
-            return (typeof FinancialEngine !== 'undefined' && typeof FinancialEngine.normalizeRates === 'function')
-                ? FinancialEngine.normalizeRates(raw)
-                : emergencyFallback; 
-        } catch (error) {
-            console.warn("[Utils] FinancialEngine missing or failed, using emergency fallback (USD).");
-            return emergencyFallback;
-        }
-    },
     
-    convertViaUSD: function(amount, fromCode, toCode, ratesArray, channel = 'pricing') {
-        try {
-            return (typeof FinancialEngine !== 'undefined' && typeof FinancialEngine.convertViaUSD === 'function')
-                ? FinancialEngine.convertViaUSD(amount, fromCode, toCode, ratesArray, channel)
-                : (Number(amount) || 0); 
-        } catch (error) {
-            return Number(amount) || 0;
-        }
-    },
-
-    // === 3. أداة تصفية التواريخ والبحث (مصححة وثابتة زمنياً) ===
+    // === 2. أداة تصفية التواريخ والبحث ===
     getSearchAndDateFilters: function(searchId, datePrefixId) {
         if (typeof document === 'undefined') return { q: '', dStart: '', dEnd: '', tStart: null, tEnd: null, error: null };
         
@@ -129,7 +96,6 @@ export const Utils = {
         const yestObj = new Date(todayObj);
         yestObj.setDate(todayObj.getDate() - 1);
         
-        // استخراج النص الآمن بناءً على التوقيت المحلي الفعلي
         const toLocalISODate = (dateObj) => {
             const year = dateObj.getFullYear();
             const month = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -162,7 +128,7 @@ export const Utils = {
         return { q, dStart, dEnd, tStart, tEnd, error };
     },
     
-    // === 4. أداة ذكية لاستخراج أكواد الخزنة ===
+    // === 3. أداة ذكية لاستخراج أكواد الخزنة كنص للعميل ===
     extractCodeText: function(dCode) {
         if (!dCode || dCode === 'null') return '';
         let extracted = '';
@@ -176,7 +142,7 @@ export const Utils = {
         return this.escapeHtml(extracted);
     },
     
-    // === 5. محرك حساب مدة الإنجاز ===
+    // === 4. محرك حساب مدة الإنجاز ===
     calculateOrderDuration: function(startTime, endTime) {
         if (!startTime || !endTime) return "---";
         
@@ -187,7 +153,6 @@ export const Utils = {
         
         const diffMs = endMs - startMs;
         
-        // 🛡️ حماية ضد الـ NaN Cascade والأوقات السالبة
         if (isNaN(diffMs) || diffMs < 0) return "---";
         if (diffMs < 2000) return "فوري ⚡";
         
@@ -202,59 +167,12 @@ export const Utils = {
         
         return `${diffSecs} ثانية`;
     },
-
-    // === 6. محرك حساب الأسعار المضمن للواجهة (محصن بالكامل) ===
-    TelecardPricingEngine: Object.freeze({
-        calculate: function(params) {
-            try {
-                return FinancialEngine.calculatePrice(params);
-            } catch (error) {
-                console.warn("[TelecardPricingEngine] Failed to calculate price, using safe fallback.");
-                // 🛡️ إرجاع كائن صفري آمن لمنع انهيار سلة المشتريات
-                return {
-                    originalPrice: 0, finalPrice: 0, totalDiscount: 0,
-                    offerName: null, couponCode: null, isFirewallViolated: true
-                };
-            }
-        },
-        
-        calculateOrderTotal: function(params, rawQty) {
-            try {
-                if (typeof FinancialEngine.calculateOrderTotal === 'function') {
-                    return FinancialEngine.calculateOrderTotal(params, rawQty);
-                }
-                
-                // كود احتياطي (Fallback) في حال كان المحرك قديماً
-                const unit = this.calculate(params); 
-                const q = Math.max(1, Math.floor(Number(rawQty) || 1));
-                
-                const safeMul = typeof FinancialEngine.safeMul === 'function' ?
-                    (a, b) => FinancialEngine.safeMul(a, b) :
-                    (a, b) => Math.round((Number(a) * Number(b)) * 10000) / 10000;
-                
-                return {
-                    ...unit,
-                    qty: q,
-                    totalOriginalPrice: safeMul(unit.originalPrice || 0, q),
-                    totalFinalPrice: safeMul(unit.finalPrice || 0, q),
-                    totalDiscount: safeMul(unit.totalDiscount || 0, q) 
-                };
-            } catch (error) {
-                console.warn("[TelecardPricingEngine] Failed to calculate total, using safe fallback.");
-                return {
-                    originalPrice: 0, finalPrice: 0, totalDiscount: 0, qty: 1,
-                    totalOriginalPrice: 0, totalFinalPrice: 0, isFirewallViolated: true
-                };
-            }
-        }
-    }), // 💎 التعديل: إضافة هذه الفاصلة مهم جداً جداً!
-
-    // === 7. محرك المشاركة الذكي (Web Share API Wrapper) ===
+    
+    // === 5. محرك المشاركة الذكي (Web Share API Wrapper) ===
     smartShareOrDownload: async function(blob, fileName, shareTitle = 'مشاركة', shareText = '') {
         const file = new File([blob], fileName, { type: blob.type });
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-        // 🛡️ دالة التنزيل المباشر المدمجة (للكمبيوتر أو عند فشل المشاركة)
+        
         const forceDownload = () => {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -267,8 +185,7 @@ export const Utils = {
                 URL.revokeObjectURL(url);
             }, 300);
         };
-
-        // إذا كان جوال ويدعم المشاركة المتقدمة للملفات
+        
         if (isMobile && navigator.canShare && navigator.canShare({ files: [file] })) {
             try {
                 await navigator.share({
@@ -276,16 +193,12 @@ export const Utils = {
                     text: shareText,
                     files: [file]
                 });
-                return true; // نجاح المشاركة
+                return true;
             } catch (error) {
-                // العميل أغلق شاشة المشاركة بدون إرسال
-                if (error.name !== 'AbortError') {
-                    forceDownload(); // تنزيل الملف بدلاً من ضياعه
-                }
+                if (error.name !== 'AbortError') forceDownload();
                 return true;
             }
         } else {
-            // أجهزة الكمبيوتر أو المتصفحات غير الداعمة: تنزيل مباشر سريع
             forceDownload();
             return true;
         }

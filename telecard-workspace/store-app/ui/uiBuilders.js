@@ -1,11 +1,11 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V15.7 💎
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V15.8 💎
 // 🎯 الوظيفة: تحويل البيانات الخام (Data) إلى نصوص HTML جاهزة للرسم
-// 🚀 التحديثات:
-// 1. [إصلاح المحاسبة]: الفواتير الـ PDF تدعم البونص (+) والعمولة (-) ديناميكياً.
-// 2. [تحديث الدفعات]: ترقية كرت سجل الدفعات لعرض الهوية، والرصيد الحي، والنافذة المنبثقة الذكية.
-// 3. [إصلاح التواريخ]: عرض التاريخ والوقت بالدقة الكاملة في أعلى كرت الدفعات.
-// 4. [الإيصالات المطبوعة]: تصميم فواتير PDF احترافية باللغة العربية (RTL) مع خط Cairo وتصميم شبكي.
+// 🚀 التحديثات المعمارية:
+// 1. CSP Compliance: إزالة الـ Inline JS (Lightbox Bomb) لضمان الأمان وتسريع الـ DOM.
+// 2. Pure Functions: منع الدوال من الاعتماد على window.DataManager لضمان نقاء المعمارية.
+// 3. Float Math Fix: تأمين جمع الخصومات لمنع ظهور الأرقام العشرية المشوهة.
+// 4. [الإيصالات المطبوعة]: تصميم فواتير PDF احترافية باللغة العربية (RTL) مع خط Cairo.
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -101,7 +101,9 @@ export const UIBuilders = {
         
         const safeCouponDisc = parseFloat(o.pricingSnapshot?.couponDiscount || o.couponDiscount) || 0;
         const safeSaleDisc = parseFloat(o.pricingSnapshot?.offerDiscount || o.saleDiscount) || 0;
-        const totalDiscLocal = safeCouponDisc + safeSaleDisc;
+        
+        // 🛡️ [إصلاح ماسي]: منع التضارب العشري
+        const totalDiscLocal = Number((safeCouponDisc + safeSaleDisc).toFixed(4));
         
         let discountBadgeHtml = '';
         if (totalDiscLocal > 0) {
@@ -133,12 +135,11 @@ export const UIBuilders = {
             </div>`;
     },
 
-    /** 3️⃣ بناء كرت عملية الدفع (Payment/Deposit Card) - Ultimate V15.7 💎 */
+    /** 3️⃣ بناء كرت عملية الدفع (Payment/Deposit Card) */
     buildPaymentCard: function(d, userDisplayName, userIdString, baseCurrency) {
         if (!d) return '';
         const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
         
-        // --- 1. تحديد حالة الدفعة والأيقونات ---
         let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
         if (['approved', 'completed'].includes(d.status)) { 
             if (isDeduction) { stClass = 'st-rejected'; stText = 'مخصوم'; icon = 'fa-arrow-up-long'; } 
@@ -146,7 +147,6 @@ export const UIBuilders = {
         } else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
         else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
 
-        // --- 2. الحسابات المالية ---
         const currency = (d.currency || 'USD').toUpperCase();
         const targetCurr = (d.targetCurrency || baseCurrency).toUpperCase();
         const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
@@ -171,61 +171,31 @@ export const UIBuilders = {
             </div>`;
         }
 
-        // --- 3. استخراج اسم العميل بذكاء ---
-        let finalUserName = userDisplayName;
-        if (!finalUserName || finalUserName.trim() === 'العميل' || finalUserName.trim() === '') {
-            const u = (typeof window !== 'undefined' && window.DataManager) ? window.DataManager.user : null;
-            if (u) {
-                const sys = typeof window !== 'undefined' && window.UIManager ? window.UIManager : null;
-                const fallbackName = (u.fullName || u.name || (u.firstName ? `${u.firstName} ${u.lastName || ''}` : 'العميل')).trim();
-                finalUserName = (sys && typeof sys._getFullName === 'function') ? sys._getFullName(u) : fallbackName;
-            } else {
-                finalUserName = 'العميل';
-            }
-        }
+        // 🛡️ [إصلاح ماسي]: دالة نقية 100%، نعتمد فقط على البيانات الممررة
+        const finalUserName = (!userDisplayName || userDisplayName.trim() === '') ? 'العميل' : userDisplayName;
 
-        // --- 4. رصيد المحفظة الحالي/بعد الإيداع ---
         let balAfter = d.balanceAfter !== undefined ? d.balanceAfter : (d.postBalance !== undefined ? d.postBalance : d.newBalance); 
         
-        if (balAfter === undefined || balAfter === null || balAfter === '') {
-            const u = (typeof window !== 'undefined' && window.DataManager) ? window.DataManager.user : null;
-            if (u && u.walletBalance !== undefined) {
-                balAfter = u.walletBalance;
-            } else {
-                balAfter = 0;
-            }
+        let balanceAfterHtml = '';
+        if (balAfter !== undefined && balAfter !== null && balAfter !== '') {
+            balanceAfterHtml = `
+                <div class="ph-item" style="background: rgba(var(--primary-rgb), 0.05); border: 1px dashed rgba(var(--primary-rgb), 0.3); border-radius: 8px; margin-top: 8px; padding: 10px;">
+                    <div class="ph-item-label" style="color: var(--primary);"><i class="fa-solid fa-piggy-bank"></i> رصيد المحفظة الحالي</div>
+                    <div class="ph-item-val num-en" style="color: var(--primary); font-weight: 900; font-size: 15px;" dir="ltr">${RenderHelpers.formatMoney(balAfter, targetCurr)}</div>
+                </div>`;
         }
 
-        let balanceAfterHtml = `
-            <div class="ph-item" style="background: rgba(var(--primary-rgb), 0.05); border: 1px dashed rgba(var(--primary-rgb), 0.3); border-radius: 8px; margin-top: 8px; padding: 10px;">
-                <div class="ph-item-label" style="color: var(--primary);"><i class="fa-solid fa-piggy-bank"></i> رصيد المحفظة الحالي</div>
-                <div class="ph-item-val num-en" style="color: var(--primary); font-weight: 900; font-size: 15px;" dir="ltr">${RenderHelpers.formatMoney(balAfter, targetCurr)}</div>
-            </div>`;
-
-        // --- 5. نظام النافذة المنبثقة للصورة المصغرة (Smart Lightbox) ---
         const safeReceiptUrl = d.receipt ? (Utils.safeUrl ? Utils.safeUrl(d.receipt) : d.receipt) : '';
         let receiptHtml = '';
         if (safeReceiptUrl) {
+            // 🛡️ [إصلاح ماسي]: إزالة الكود المدمج الخطير (CSP Violation) واستخدام target="_blank" للحماية، أو يمكن للـ UIManager اصطياد الكلاس
             receiptHtml = `
             <div class="ph-item align-center mt-10">
                 <div class="ph-item-label"><i class="fa-solid fa-file-invoice"></i> المرفقات (إشعار الدفع)</div>
                 <div class="ph-item-val">
-                    <div data-url="${safeReceiptUrl}" onclick="
-                        let box = document.getElementById('quick-receipt-modal');
-                        if(!box){
-                            box = document.createElement('div');
-                            box.id = 'quick-receipt-modal';
-                            box.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:999999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(5px); opacity:0; transition:opacity 0.3s ease; cursor:zoom-out;';
-                            box.innerHTML = '<div style=\\'position:relative; max-width:90%; max-height:85vh; padding:8px; background:#111a2b; border-radius:16px; box-shadow:0 15px 40px rgba(0,0,0,0.5); transform:scale(0.9); transition:transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); cursor:default;\\'><button onclick=\\'this.parentElement.parentElement.click()\\' style=\\'position:absolute; top:-12px; right:-12px; width:35px; height:35px; background:#ef4444; color:#fff; border:none; border-radius:50%; cursor:pointer; font-size:16px; box-shadow:0 4px 10px rgba(0,0,0,0.3); z-index:10;\\'><i class=\\'fa-solid fa-xmark\\'></i></button><img id=\\'quick-receipt-img\\' style=\\'max-width:100%; max-height:80vh; border-radius:10px; object-fit:contain; display:block;\\' src=\\'\\'></div>';
-                            document.body.appendChild(box);
-                            box.onclick = function(e){ if(e.target === this) { this.style.opacity='0'; this.firstChild.style.transform='scale(0.9)'; setTimeout(()=>this.remove(), 300); } };
-                        }
-                        document.getElementById('quick-receipt-img').src = this.dataset.url;
-                        box.style.display = 'flex';
-                        requestAnimationFrame(() => { box.style.opacity = '1'; box.firstChild.style.transform = 'scale(1)'; });
-                    " style="width: 45px; height: 45px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); cursor: zoom-in; display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.2); transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'" title="اضغط لتكبير الإشعار">
+                    <a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" style="width: 45px; height: 45px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.2); transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'" title="اضغط لعرض الإشعار">
                         <img src="${safeReceiptUrl}" style="width: 100%; height: 100%; object-fit: cover;" alt="إشعار الدفع">
-                    </div>
+                    </a>
                 </div>
             </div>`;
         }
@@ -256,7 +226,6 @@ export const UIBuilders = {
                     <div class="ph-sep-line"></div>
                     <div class="ph-data-list">
                         
-                        <!-- القسم الأول: المرجعيات الأساسية -->
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-hashtag"></i> رقم العملية</div>
                             <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${shortDepositId}">${shortDepositId}</div>
@@ -268,7 +237,6 @@ export const UIBuilders = {
 
                         <div class="ph-sep-line" style="margin: 10px 0; opacity: 0.3;"></div>
                         
-                        <!-- القسم الثاني: هوية العميل -->
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-user-tag"></i> اسم العميل</div>
                             <div class="ph-item-val" style="font-weight: 700;">${Utils.escapeHtml(finalUserName)}</div>
@@ -280,7 +248,6 @@ export const UIBuilders = {
                         
                         <div class="ph-sep-line" style="margin: 10px 0; opacity: 0.3;"></div>
                         
-                        <!-- القسم الثالث: الحسابات والمالية -->
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-tags"></i> ${feeLabel}</div>
                             <div class="ph-item-val num-en">${feeValueHtml}</div>
@@ -291,12 +258,10 @@ export const UIBuilders = {
                             <div class="ph-item-val num-en ${amountColorClass}" style="font-size: 15px;">${RenderHelpers.formatMoney(displayNetAmount, targetCurr)}</div>
                         </div>
                         
-                        <!-- القسم الرابع: النتائج والمرفقات -->
                         ${balanceAfterHtml}
                         ${receiptHtml}
                     </div>
                     
-                    <!-- رسالة الإدارة إن وجدت -->
                     ${d.adminNote ? `
                         <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'}" style="margin-top: 15px;">
                             <i class="fa-solid fa-headset"></i>
@@ -321,7 +286,7 @@ export const UIBuilders = {
             </div>`;
     },
 
-    /** 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية) - النسخة الاحترافية العربية 💎 */
+    /** 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية) */
     buildPDFReceipt: function(config, brandHTML) {
         const storeNameText = Utils.escapeHtml(config.storeName || 'المتجر');
         let contentHTML = '';
@@ -550,7 +515,8 @@ export const UIBuilders = {
             }
 
             const safeReceiptUrl = d.receipt ? (Utils.safeUrl ? Utils.safeUrl(d.receipt) : d.receipt) : '';
-            const receiptHtml = safeReceiptUrl ? `<div class="nm-universal-card nm-receipt-card" style="cursor: zoom-in;" onclick="window.open(this.dataset.url, '_blank')" data-url="${safeReceiptUrl}"><img src="${safeReceiptUrl}" class="nm-receipt-img" alt="Receipt"><div style="text-align:center; font-size:11px; margin-top:8px; color:var(--text-muted); font-weight:700;"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً</div></div>` : '';
+            // 🛡️ [إصلاح ماسي]: إزالة الـ onClick المدمج الخطير
+            const receiptHtml = safeReceiptUrl ? `<a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;"><div class="nm-universal-card nm-receipt-card" style="cursor: zoom-in;" data-url="${safeReceiptUrl}"><img src="${safeReceiptUrl}" class="nm-receipt-img" alt="Receipt"><div style="text-align:center; font-size:11px; margin-top:8px; color:var(--text-muted); font-weight:700;"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً</div></div></a>` : '';
 
             html = `
             <div class="nm-container">

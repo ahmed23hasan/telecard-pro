@@ -1,12 +1,11 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة التيتانيوم V16.2 🛡️
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة الماسية V16.5 💎
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديثات المعمارية (The Perfect Shield):
-// 1. PDF Memory Leak Fix: إيقاف تخزين الـ DataURL لملفات الـ PDF لتوفير الرام.
-// 2. Canvas Callback Hell Fix: حماية الـ Blob باستخدام _currentImageJobId لمنع تسرب الـ DOM.
-// 3. AbortController Trap Fix: إزالة مستمع الـ offline بالطريقة الكلاسيكية.
-// 4. Dead Filter UI Fix: تخطي سريع لزر الفلتر المفعل مسبقاً (Anti-Flickering).
-// 5. Ghost Catch Block Cleaned: إزالة أكواد صيد أخطاء السيرفر الميتة من الواجهة.
+// 🚀 التحديثات المعمارية (V16.5):
+// 1. Zero-Price Shield: منع فتح نوافذ الشراء للمنتجات التي سعرها 0 (حماية من أخطاء التسعير).
+// 2. Zero-Latency Pre-validation: التحقق من إشعار الدفع قبل تجميد الواجهة لتسريع الاستجابة.
+// 3. Delimiter Collision Shield: منع العميل من إدخال رمز (|) لتفادي تدمير فواتير الـ PDF.
+// 4. Anti-Spam Listeners: منع التدقيق المتكرر للكوبونات أثناء الكتابة لتخفيف الحمل على المعالج.
 // ============================================================================
 
 import { Utils } from '../utils.js';
@@ -51,7 +50,7 @@ export const UIFinance = {
                     if (!btn.dataset.originalHtml) btn.dataset.originalHtml = btn.innerHTML;
                     const btnWidth = btn.offsetWidth;
                     if (btnWidth > 0) btn.style.width = `${btnWidth}px`;
-                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> جاري المعالجة...`;
+                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin btn-spinner"></i> جاري المعالجة...`;
                 }
             } else {
                 btn.disabled = false;
@@ -75,7 +74,6 @@ export const UIFinance = {
             }
         }, 15000); 
         
-        // 🛡️ [إصلاح ماسي]: إزالة المستمع الكلاسيكية لمنع الـ Memory Leak
         if (this._offlineHandler) window.removeEventListener('offline', this._offlineHandler);
         
         this._offlineHandler = () => {
@@ -105,7 +103,6 @@ export const UIFinance = {
     },
 
     _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
-        // 🛡️ [إصلاح ماسي]: تخطي الإجراء لتفادي الفليكرينغ
         if (element.classList.contains('active')) return;
 
         getSys().sfx?.('nav');
@@ -142,68 +139,67 @@ export const UIFinance = {
     },    
 
     _validateKycAndSystem: function(actionType = 'purchase') {
-    const sys = LiveStoreData.system || {};
-    if (sys.freeze) {
-        getSys().showToast?.(sys.freezeMsg || 'عذراً، العمليات المالية متوقفة مؤقتاً لتحديث النظام.', 'warning');
-        return false;
-    }
-    
-    if (!DataManager || !DataManager.user) {
-        getSys().showToast?.('يجب تسجيل الدخول أولاً للقيام بهذا الإجراء', 'error');
-        setTimeout(() => {
-            if (DataManager && typeof DataManager.logout === 'function') DataManager.logout();
-            else window.location.href = 'login.html';
-        }, 1500);
-        return false;
-    }
-    
-    const u = DataManager.user;
-    
-    // 🛡️ توحيد معايير الواجهة (Strict Data Integrity)
-    // يجب أن يمتلك العميل بيانات حقيقية (هاتف + دولة + عملة) أو يكون موثقاً صراحة
-    const hasCurrency = (u.baseCurrency && u.baseCurrency.trim() !== '') || (u.base_currency && u.base_currency.trim() !== '');
-    const hasData = (u.phone && u.phone.trim() !== '') && (u.country && u.country !== '');
-    const isVerifiedExplicit = (u.isVerified === true || String(u.isVerified) === 'true');
-    
-    // 🚫 تم إزالة `hasFinancialLock` لمنع تسجيل عملاء "أشباح" لا يملكون أرقام هواتف.
-    const isIdentityComplete = isVerifiedExplicit || (hasData && hasCurrency);
-    
-    if (!isIdentityComplete) {
-        getSys().showToast?.('يرجى إكمال بيانات الحساب الأساسية (الدولة ورقم الهاتف) للمتابعة', 'error');
-        setTimeout(() => { getSys().openModal?.('identity'); }, 800);
-        return false;
-    }
-    
-    const settings = LiveStoreData.settings || {};
-    const kycConfig = settings.kycConfig || { mode: 'off', targetedTiers: [] };
-    
-    let needsKyc = false;
-    if (kycConfig.mode === 'all') needsKyc = true;
-    else if (kycConfig.mode === 'specific' || kycConfig.mode === 'spec') {
-        const targetedArray = (kycConfig.targetedTiers || []).map(String);
-        if (targetedArray.includes(String(DataManager.getUserTier(u).id)) || targetedArray.includes(String(u.tierId))) {
-            needsKyc = true;
-        }
-    }
-    
-    if (needsKyc) {
-        const status = String(u.kycStatus || 'none').toLowerCase();
-        const isKycApproved = (status === 'approved' || status === 'verified');
-        
-        if (!isKycApproved) {
-            const actionName = actionType === 'deposit' ? 'الإيداع' : 'الشراء';
-            if (status === 'pending') {
-                getSys().showToast?.(`هويتك قيد المراجعة، يرجى الانتظار لتتمكن من ${actionName}`, 'warning');
-                getSys().openKycStatusModal?.('pending');
-            } else {
-                getSys().showToast?.(`حسابك يتطلب التوثيق الأمني (KYC) لتتمكن من ${actionName}`, 'error');
-                setTimeout(() => { getSys().openModal?.('kyc-upload'); }, 800);
-            }
+        const sys = LiveStoreData.system || {};
+        if (sys.freeze) {
+            getSys().showToast?.(sys.freezeMsg || 'عذراً، العمليات المالية متوقفة مؤقتاً لتحديث النظام.', 'warning');
             return false;
         }
-    }
-    return true;
-},    openProdModal: function(id) {
+        
+        if (!DataManager || !DataManager.user) {
+            getSys().showToast?.('يجب تسجيل الدخول أولاً للقيام بهذا الإجراء', 'error');
+            setTimeout(() => {
+                if (DataManager && typeof DataManager.logout === 'function') DataManager.logout();
+                else window.location.href = 'login.html';
+            }, 1500);
+            return false;
+        }
+        
+        const u = DataManager.user;
+        
+        const hasCurrency = (u.baseCurrency && u.baseCurrency.trim() !== '') || (u.base_currency && u.base_currency.trim() !== '');
+        const hasData = (u.phone && u.phone.trim() !== '') && (u.country && u.country !== '');
+        const isVerifiedExplicit = (u.isVerified === true || String(u.isVerified) === 'true');
+        
+        const isIdentityComplete = isVerifiedExplicit || (hasData && hasCurrency);
+        
+        if (!isIdentityComplete) {
+            getSys().showToast?.('يرجى إكمال بيانات الحساب الأساسية (الدولة ورقم الهاتف) للمتابعة', 'error');
+            setTimeout(() => { getSys().openModal?.('identity'); }, 800);
+            return false;
+        }
+        
+        const settings = LiveStoreData.settings || {};
+        const kycConfig = settings.kycConfig || { mode: 'off', targetedTiers: [] };
+        
+        let needsKyc = false;
+        if (kycConfig.mode === 'all') needsKyc = true;
+        else if (kycConfig.mode === 'specific' || kycConfig.mode === 'spec') {
+            const targetedArray = (kycConfig.targetedTiers || []).map(String);
+            if (targetedArray.includes(String(DataManager.getUserTier(u).id)) || targetedArray.includes(String(u.tierId))) {
+                needsKyc = true;
+            }
+        }
+        
+        if (needsKyc) {
+            const status = String(u.kycStatus || 'none').toLowerCase();
+            const isKycApproved = (status === 'approved' || status === 'verified');
+            
+            if (!isKycApproved) {
+                const actionName = actionType === 'deposit' ? 'الإيداع' : 'الشراء';
+                if (status === 'pending') {
+                    getSys().showToast?.(`هويتك قيد المراجعة، يرجى الانتظار لتتمكن من ${actionName}`, 'warning');
+                    getSys().openKycStatusModal?.('pending');
+                } else {
+                    getSys().showToast?.(`حسابك يتطلب التوثيق الأمني (KYC) لتتمكن من ${actionName}`, 'error');
+                    setTimeout(() => { getSys().openModal?.('kyc-upload'); }, 800);
+                }
+                return false;
+            }
+        }
+        return true;
+    },
+
+    openProdModal: function(id) {
         if (!this._validateKycAndSystem('purchase')) return;
    
         getSys().removeCoupon?.(true);
@@ -212,6 +208,21 @@ export const UIFinance = {
         const prods = LiveStoreData.prods || [];
         const originalProd = prods.find(p => String(p.id) === String(id));
         if (!originalProd) return;
+
+        // 🛡️ التحديث 1: درع المنتجات الصفرية (Zero-Price Shield)
+        // التحقق من أن المنتج يمتلك تسعيرة حقيقية أعلى من الصفر قبل فتح النافذة
+        let hasValidPrice = false;
+        if (originalProd.type === 'select' && Array.isArray(originalProd.options)) {
+            hasValidPrice = originalProd.options.some(opt => Number(opt.price || opt.fixedPriceUsd || 0) > 0);
+        } else {
+            hasValidPrice = Number(originalProd.price || originalProd.fixedPriceUsd || 0) > 0;
+        }
+
+        if (!hasValidPrice) {
+            getSys().showToast?.('عذراً، هذا المنتج قيد التسعير ولا يمكن شرائه حالياً.', 'error');
+            getSys().sfx?.('error');
+            return; // 🛑 إيقاف فتح النافذة تماماً
+        }
 
         DataManager.currentProd = structuredClone(originalProd);
 
@@ -332,15 +343,14 @@ export const UIFinance = {
                     qInp.addEventListener('input', (e) => { 
                         e.target.value = e.target.value.replace(/[^0-9]/g, ''); 
                         getSys().updatePriceDisplay?.(); 
-                        getSys().revalidateAppliedCoupon?.(); 
                     });
                     qInp.addEventListener('blur', (e) => { 
                         let val = parseInt(e.target.value, 10); 
                         if (isNaN(val) || val < minQ) { 
                             e.target.value = minQ; 
                             getSys().updatePriceDisplay?.(); 
-                            getSys().revalidateAppliedCoupon?.(); 
                         } 
+                        getSys().revalidateAppliedCoupon?.(); 
                     });
                 }
             }
@@ -402,9 +412,16 @@ export const UIFinance = {
         window.requestAnimationFrame(() => {
             let qty = 1; let optIdx = null;
 
-            if (DataManager.currentProd.type === 'counter') qty = Math.max(1, parseInt(document.getElementById('pm-qty')?.value, 10)) || 1; 
-            else if (DataManager.currentProd.type === 'select') optIdx = Number(document.getElementById('pm-pack')?.value || 0); 
-            else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) qty = Math.max(1, parseInt(document.getElementById('simple-qty-val')?.value, 10) || 1);
+            if (DataManager.currentProd.type === 'counter') {
+                qty = Math.max(1, parseInt(document.getElementById('pm-qty')?.value, 10)) || 1; 
+            }
+            else if (DataManager.currentProd.type === 'select') {
+                const packEl = document.getElementById('pm-pack');
+                optIdx = packEl ? Number(packEl.value || 0) : 0; 
+            }
+            else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) {
+                qty = Math.max(1, parseInt(document.getElementById('simple-qty-val')?.value, 10) || 1);
+            }
 
             const result = DataManager.getPricingLocal(DataManager.currentProd, qty, optIdx, DataManager.appliedCoupon);
             if (!result || typeof result !== 'object') return;
@@ -442,7 +459,12 @@ export const UIFinance = {
         const inp2El = document.getElementById('pm-inp-2');
         const qtyEl = document.getElementById('simple-qty-val');
         
-        const keepKeyboardOpen = () => { if (inp1El && !inp1El.disabled) inp1El.focus(); else if (qtyEl && !qtyEl.disabled) qtyEl.focus(); };
+        const keepKeyboardOpen = () => { 
+            setTimeout(() => {
+                if (inp1El && !inp1El.disabled) inp1El.focus(); 
+                else if (qtyEl && !qtyEl.disabled) qtyEl.focus(); 
+            }, 50);
+        };
         
         const showInlineError = (element, message) => {
             if(!element) return;
@@ -458,8 +480,9 @@ export const UIFinance = {
         };
 
         let qty = 1; let optIdx = null; let isValid = true; let finalInputStr = '';
-        const inp1 = inp1El ? inp1El.value.trim() : ''; 
-        const inp2 = inp2El ? inp2El.value.trim() : '';
+        
+        const inp1 = inp1El ? inp1El.value.trim().replace(/\|/g, '-') : ''; 
+        const inp2 = inp2El ? inp2El.value.trim().replace(/\|/g, '-') : '';
 
         if(DataManager.currentProd.type === 'double') { 
             finalInputStr = `${DataManager.currentProd.input1Label}: ${inp1} | ${DataManager.currentProd.input2Label}: ${inp2}`; 
@@ -476,7 +499,8 @@ export const UIFinance = {
             const minQ = parseInt(DataManager.currentProd.minQty) || 1;
             qty = Math.max(minQ, parseInt(document.getElementById('pm-qty')?.value, 10)) || minQ;
         } else if (DataManager.currentProd.type === 'select') { 
-            optIdx = Number(document.getElementById('pm-pack')?.value || 0); 
+            const packEl = document.getElementById('pm-pack');
+            optIdx = packEl ? Number(packEl.value || 0) : 0; 
         } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
             const minQ = parseInt(DataManager.currentProd.minQty) || 1;
             const maxQ = parseInt(DataManager.currentProd.simpleMax) || 10;
@@ -487,6 +511,14 @@ export const UIFinance = {
 
         if(!isValid) { getSys().sfx?.('error'); return; }
         if(!DataManager || typeof DataManager.confirmPurchase !== 'function') return;
+
+        // 🛡️ التحديث 2: تأكيد أخير قبل إرسال الطلب للسيرفر لمنع ثغرة السعر الصفري
+        const pricingCheck = typeof DataManager.calculateFinalPrice === 'function' ? DataManager.calculateFinalPrice(DataManager.currentProd, DataManager.user, qty, optIdx, DataManager.appliedCoupon) : null;
+        if (pricingCheck && (pricingCheck.originalTotalUsd <= 0 || pricingCheck.unitSnapshot?.originalPrice <= 0)) {
+            getSys().showToast?.('عذراً، لا يمكن إتمام عملية شراء لمنتج سعره صفر.', 'error');
+            getSys().sfx?.('error');
+            return;
+        }
 
         const submitBtn = document.getElementById('btn-confirm-buy') || document.querySelector('.pm-btn-gold');
         const shieldId = 'invisible-tx-shield';
@@ -875,6 +907,19 @@ export const UIFinance = {
         
         const payCurr = currency || this.currentPayCurrency || 'USD';
 
+        if (this.currentPayment && this.currentPayment.reqProof !== false && !this.pendingReceiptFile) {
+            getSys().showToast?.('يرجى إرفاق إشعار الدفع أولاً', 'error');
+            const uploadBox = document.getElementById('bal-upload-box');
+            if (uploadBox) {
+                uploadBox.style.animation = 'none';
+                void uploadBox.offsetWidth; 
+                uploadBox.style.animation = 'shake-anim 0.3s ease-in-out';
+                uploadBox.style.border = '1px solid var(--danger)';
+                setTimeout(() => uploadBox.style.border = '', 1000);
+            }
+            return; 
+        }
+
         let methodMaxLimit = 0;
         if (this.currentPayment) {
             const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment;
@@ -884,8 +929,13 @@ export const UIFinance = {
         const GLOBAL_MAX_LIMIT_USD = 5000;
         let dynamicGlobalLimit = GLOBAL_MAX_LIMIT_USD;
         
-        if (payCurr !== 'USD' && typeof DataManager !== 'undefined' && typeof DataManager._safeConvert === 'function') {
-            dynamicGlobalLimit = DataManager._safeConvert(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, typeof DataManager.getRates === 'function' ? DataManager.getRates() : {}, 'deposit');
+        try {
+            if (payCurr !== 'USD' && typeof DataManager !== 'undefined' && typeof DataManager._safeConvert === 'function') {
+                const calcLimit = DataManager._safeConvert(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, typeof DataManager.getRates === 'function' ? DataManager.getRates() : {}, 'deposit');
+                if (calcLimit > 0 && !isNaN(calcLimit)) dynamicGlobalLimit = calcLimit;
+            }
+        } catch (e) {
+            console.warn("Failed to calculate global limit, falling back to USD 5000 equivalent.");
         }
 
         if (methodMaxLimit > 0 && amount > methodMaxLimit) {

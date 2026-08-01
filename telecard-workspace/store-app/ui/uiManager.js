@@ -1,11 +1,10 @@
 // ============================================================================
-// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة التيتانيوم V16.0 🛡️
+// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة الماسية V16.1 🛡️
 // 🎯 الوظيفة: تجميع وحدات الواجهة المنفصلة وتصديرها ككائن واحد للنظام
-// 🚀 التحديثات:
-// 1. Fail Fast: إيقاف النظام كلياً برمّي خطأ عند حدوث أي تصادم في الدوال.
-// 2. Pure Dictionary: استخدام Object.create(null) لسد ثغرات الـ Prototype كلياً.
-// 3. Native Binding: استخدام .bind() الأصلي للحفاظ على هوية الدوال وسرعة V8.
-// 4. Environment Agnostic: استخدام globalThis المعياري بدلاً من window.
+// 🚀 التحديثات المعمارية (V16.1):
+// 1. Global Sync: ربط الكائن بـ globalThis لضمان عمل دوال getSys() في باقي الملفات.
+// 2. DOM Safety: حماية نظام اللودر من الانهيار إذا تم استدعاؤه قبل بناء document.body.
+// 3. Advanced Binding: دعم ربط دوال الـ Getters والـ Setters بأمان لمنع الانهيار.
 // ============================================================================
 
 import { UICore } from './uiCore.js';
@@ -59,12 +58,15 @@ const createSafeFacade = (baseObject, ...modules) => {
             
             // 🚨 Fail Fast: إيقاف النظام فوراً عند التصادم
             if (key in baseObject) {
-                throw new Error(`🚨 [Fatal Architecture Error]: تصادم فادح في المتغير/الدالة [${key}]!`);
+                throw new Error(`🚨 [Fatal Architecture Error]: تصادم فادح في المتغير/الدالة [${key}] من الوحدة المدمجة!`);
             }
             
-            // 🔗 Native Binding: استخدام bind الأسرع والأكثر أماناً معمارياً
+            // 🔗 Native Binding: استخدام bind الأسرع والأكثر أماناً مع دعم Getters/Setters
             if (descriptor.value && typeof descriptor.value === 'function') {
                 descriptor.value = descriptor.value.bind(baseObject);
+            } else {
+                if (descriptor.get) descriptor.get = descriptor.get.bind(baseObject);
+                if (descriptor.set) descriptor.set = descriptor.set.bind(baseObject);
             }
             
             Object.defineProperty(baseObject, key, descriptor);
@@ -98,6 +100,10 @@ Object.defineProperties(UIManager, {
             let loader = document.getElementById('global-dynamic-loader');
             
             if (!loader) {
+                // 🛡️ التحديث 2: حماية הـ DOM من الانهيار المبكر
+                const targetNode = document.body || document.documentElement;
+                if (!targetNode) return; // حماية مطلقة
+                
                 loader = document.createElement('div');
                 loader.id = 'global-dynamic-loader';
                 loader.setAttribute('aria-live', 'assertive');
@@ -105,7 +111,7 @@ Object.defineProperties(UIManager, {
                     <i class="fa-solid fa-circle-notch fa-spin loader-spinner"></i>
                     <div id="dynamic-loader-text" class="loader-text"></div>
                 `;
-                document.body.appendChild(loader);
+                targetNode.appendChild(loader);
             }
             
             const textEl = document.getElementById('dynamic-loader-text');
@@ -135,3 +141,10 @@ Object.defineProperties(UIManager, {
         enumerable: true
     }
 });
+
+// 🛡️ التحديث 1: ربط الموزع بالبيئة العالمية لتعمل كل الواجهات معاً كجسد واحد
+if (typeof globalThis !== 'undefined') {
+    globalThis.UIManager = UIManager;
+    // دعم التوافقية الرجعية (Backward Compatibility)
+    globalThis.ClientSystem = UIManager;
+}

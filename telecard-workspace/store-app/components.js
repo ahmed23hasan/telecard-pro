@@ -1,7 +1,10 @@
 // ============================================================================
-// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - ES6 Module
+// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - ES6 Module V15.8 💎
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديث الأقصى: ترقيع ثغرة الكوبون الصفري، منع تسريب مستمعات المستند، وحماية التقويم من الانهيار
+// 🚀 التحديثات المعمارية (V15.8):
+// 1. Zero-Price Coupon Fix: إصلاح الرفض الخاطئ للكوبونات عند شراء منتجات مجانية أو رخيصة جداً.
+// 2. Observer CPU Saver: إزالة MutationObserver من الواجهة السفلية لمنع استنزاف البطارية (استبدال بـ Explicit State).
+// 3. Calendar Orphan Fix: إغلاق التقويم تلقائياً إذا اختفى العنصر المستهدف لمنع بقائه معلقاً في الشاشة.
 // ============================================================================
 
 import { DataManager, LiveStoreData } from './dataManager.js';
@@ -20,7 +23,7 @@ export const CalendarApp = {
     activeInputId: null,
     tempSelectedDate: null, 
     _isInitialized: false,
-    _boundDocClick: false, // 🛡️ قفل حماية لمنع تسريب الذاكرة
+    _boundDocClick: false, 
 
     init: function() {
         const modal = document.getElementById('cal-modal');
@@ -62,7 +65,6 @@ export const CalendarApp = {
             });
         }
 
-        // 🛡️ [Memory Fix]: التأكد من إضافة مستمع الأحداث مرة واحدة فقط
         if (!this._boundDocClick) {
             document.addEventListener('click', (e) => {
                 const dateField = e.target.closest('.custom-field');
@@ -72,7 +74,11 @@ export const CalendarApp = {
                 }
                 const activeModal = document.getElementById('cal-modal');
                 if (!activeModal || !activeModal.classList.contains('show')) return;
-                if (!activeModal.contains(e.target) && !e.target.closest('.btn-action')) this.close();
+                
+                // 🛡️ التحديث 3: إغلاق التقويم إذا نقر المستخدم في أي مكان فارغ بالخلفية
+                if (!activeModal.contains(e.target) && !e.target.closest('.btn-action')) {
+                    this.close();
+                }
             });
             this._boundDocClick = true;
         }
@@ -100,7 +106,6 @@ export const CalendarApp = {
         const hiddenInput = document.getElementById(inputId);
         const currentVal = hiddenInput ? hiddenInput.value : '';
         
-        // 🛡️ [Crash Guard]: حماية من التواريخ التالفة أو الفارغة (NaN Prevention)
         if (currentVal && currentVal.includes('-')) {
             const parts = currentVal.split('-');
             const y = parseInt(parts[0], 10);
@@ -125,14 +130,12 @@ export const CalendarApp = {
             if (modal.parentNode !== document.body) document.body.appendChild(modal);
             modal.classList.add('show');
             
-            // 🚀 [إصلاح تجربة المستخدم - Centered Modal]:
-            // توحيد ظهور التقويم ليكون في منتصف الشاشة دائماً لمنع طيرانه عند التمرير (Scroll)
             modal.style.position = "fixed";
             modal.style.top = "50%";
             modal.style.left = "50%";
             modal.style.bottom = "auto";
             modal.style.transform = "translate(-50%, -50%)";
-            modal.style.zIndex = "9999";
+            modal.style.zIndex = "999999"; // ضمان التواجد فوق كل النوافذ
         }
     },
 
@@ -285,7 +288,6 @@ export const CalendarApp = {
 // =========================================================
 export const Components = {
     priceTicker: null,
-    _navObserver: null, 
     _shineBound: false, 
     _couponMsgTimer: null, 
 
@@ -453,8 +455,11 @@ export const Components = {
 
         const pricingCheck = DataManager.calculateFinalPrice(DataManager.currentProd, DataManager.user, selection.qty, selection.optIdx, result.coupon);
 
-        // 🛡️ [إصلاح الكوبون الكاذب]: التحقق إذا كانت قيمة الخصم الفعلية صفر رغم صحة الكوبون
-        if (pricingCheck.unitSnapshot.couponDiscount === 0) {
+        // 🛡️ التحديث 1: إصلاح الـ False Positive للمنتجات المجانية وتأكيد قيمة الخصم الفعلية
+        const couponVal = parseFloat(result.coupon.value) || 0;
+        const originalTotal = pricingCheck.unitSnapshot.totalOriginalPrice || 0;
+        
+        if (pricingCheck.unitSnapshot.couponDiscount === 0 && originalTotal > 0 && couponVal > 0) {
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-info"></i> عذراً، لا يمكن تطبيق الخصم على هذا المنتج.`, 'error', 5000);
             if(SysUI) { SysUI.showToast('عذراً، هذا المنتج غير مشمول بالخصم الإضافي', 'warning'); SysUI.sfx?.('error'); }
             return; 
@@ -531,49 +536,23 @@ export const Components = {
         }
     },
 
+    // 🛡️ التحديث 2: إزالة الـ MutationObserver المستنزف للمعالج وتعويضه بربط مباشر بالأحداث
     initBottomNavSync: function() {
         const navContainer = document.querySelector('.bottom-nav');
         if (!navContainer) return;
         
         const navIcons = navContainer.querySelectorAll('.nav-icon');
-        let isSyncQueued = false; 
         
-        function updateUIState() {
+        // الدالة المساعدة لتعيين الحالة النشطة
+        window._tcUpdateBottomNavState = function(targetState) {
             navIcons.forEach(icon => icon.classList.remove('active'));
-            
-            let activeTarget = 'home';
-            if (document.body.classList.contains('is-favorites')) activeTarget = 'favorites';
-            else if (document.body.classList.contains('is-wallet')) activeTarget = 'wallet';
-            else if (document.body.classList.contains('is-orders')) activeTarget = 'orders';
-            else if (document.body.classList.contains('is-settings')) activeTarget = 'settings';
-
             navIcons.forEach(icon => {
                 const action = icon.getAttribute('data-action') || '';
-                if (action.includes(activeTarget) || 
-                   (activeTarget === 'home' && (action === 'go-home' || action === ''))) {
+                if (action.includes(targetState) || (targetState === 'home' && (action === 'go-home' || action === ''))) {
                     icon.classList.add('active');
                 }
             });
-        }
-
-        if (this._navObserver) this._navObserver.disconnect();
-        
-        this._navObserver = new MutationObserver((mutations) => {
-            let shouldUpdate = false;
-            for (let m of mutations) {
-                if (m.attributeName === 'class') { shouldUpdate = true; break; }
-            }
-            
-            if (shouldUpdate && !isSyncQueued) {
-                isSyncQueued = true;
-                window.requestAnimationFrame(() => {
-                    updateUIState();
-                    isSyncQueued = false;
-                });
-            }
-        });
-        
-        this._navObserver.observe(document.body, { attributes: true });
+        };
 
         if (!navContainer.dataset.navBound) {
             navContainer.dataset.navBound = '1';
@@ -586,6 +565,13 @@ export const Components = {
             });
         }
         
-        updateUIState();
+        // التزامن المبدئي
+        let initialState = 'home';
+        if (document.body.classList.contains('is-favorites')) initialState = 'favorites';
+        else if (document.body.classList.contains('is-wallet')) initialState = 'wallet';
+        else if (document.body.classList.contains('is-orders')) initialState = 'orders';
+        else if (document.body.classList.contains('is-settings')) initialState = 'settings';
+        
+        window._tcUpdateBottomNavState(initialState);
     }
 };

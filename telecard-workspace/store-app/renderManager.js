@@ -1,12 +1,11 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V15.2 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V15.3 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه
-// 🚀 التحديثات المعمارية الصارمة:
-// 1. Zero-Latency Rendering: إزالة لودرات الانتظار كلياً اعتماداً على معمارية الـ Cache-First.
-// 2. Smart Grid Engine: فصل تخطيط الأقسام (2) عن المنتجات (3) كافتراضي مع احترام الإدارة.
-// 3. State Pollution Fix: منع حفظ التخطيط في localStorage لتفادي تشوه الواجهات.
-// 4. WebKit Lazy Painting Fix: إجبار سفاري على رسم الإيصالات بشفافية شبه معدومة.
-// 5. Canvas Memory Sweep: الكنس الجبري للذاكرة بعد توليد الفواتير (منع الـ Crash).
+// 🚀 التحديثات المعمارية الصارمة (V15.3):
+// 1. Math Enforcement: إجبار بطاقات المنتجات على استخدام المحرك المالي المركزي لمنع تضارب الأسعار.
+// 2. Iron-Clad Canvas Cleanup: استخدام finally لضمان حذف الحاويات الوهمية للإيصالات ومنع انهيار الذاكرة.
+// 3. Scroll Lag Fix: مزامنة مؤقتات العروض (Timers) مع شاشة المستخدم عبر requestAnimationFrame لمنع التقطيع.
+// 4. Zero-Latency Rendering: إزالة لودرات الانتظار كلياً اعتماداً على معمارية الـ Cache-First.
 // ============================================================================
 
 import { DB_KEYS } from './config.js';
@@ -147,22 +146,20 @@ export const RenderManager = {
         return { html: imgHTML, wrapperClass: imgVars.wrapperClass, wrapperStyle: imgVars.wrapperStyle };
     },
 
+    // 🛡️ التحديث 1: إجبار استخدام المحرك المالي لضمان تطابق الأسعار
     _generateProductCardHTML: function(p, idx) {
-        const rates = DataManager.getRates();
-        const displayCurrency = DataManager.selectedCurr || 'USD';
-        
-        let pricing = null;
+        let pricingInfo = null;
         try { 
-            pricing = DataManager.calculateFinalPrice(p, DataManager.user, 1, null, null); 
+            // استخدام getPricingLocal الذي يعتمد على FinancialEngine ويوفر التقريب المثالي والعملة الصحيحة
+            pricingInfo = DataManager.getPricingLocal(p, 1, null, null); 
         } catch(e) {
             console.error("🚨 خطأ أثناء تسعير المنتج:", p.name, "السبب:", e.message);
         }
-        if (!pricing) return ''; 
+        if (!pricingInfo) return ''; 
         
         let priceSectionHtml = '', nameExpandedStyle = '';
         if (p.hideGridPrice !== true) {
-            const currentValLocal = Utils.convertViaUSD(pricing.unitUsd, 'USD', displayCurrency, rates, 'pricing');
-            priceSectionHtml = `<div class="product-price">${RenderHelpers.formatMoney(currentValLocal, displayCurrency)}</div>`;
+            priceSectionHtml = `<div class="product-price">${pricingInfo.unitText}</div>`;
         } else {
             nameExpandedStyle = 'white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; margin: auto 0;';
         }
@@ -377,6 +374,7 @@ export const RenderManager = {
         container.replaceChildren(this._renderHtmlToFragment(skeletonsHTML));
     },
 
+    // 🛡️ التحديث 3: مزامنة المؤقت مع الشاشة لمنع التقطيع
     initTimersEngine: function() {
         if (window.StoreRenderApp.timerInterval) {
             clearInterval(window.StoreRenderApp.timerInterval);
@@ -386,25 +384,29 @@ export const RenderManager = {
         window.StoreRenderApp.timerInterval = setInterval(() => {
             if (document.hidden) return; 
             
-            const timers = document.querySelectorAll('.live-countdown');
-            if (timers.length === 0) {
-                clearInterval(window.StoreRenderApp.timerInterval);
-                window.StoreRenderApp.timerInterval = null;
-                return;
-            }
-
-            const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
-
-            timers.forEach(item => {
-                const expireTime = Number(item.dataset.expire);
-                const diff = expireTime - now;
-                
-                if (diff <= 0 || isNaN(diff)) {
-                    item.innerText = "انتهى العرض";
-                } else {
-                    const h = Math.floor(diff / (1000 * 60 * 60)), m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)), s = Math.floor((diff % (1000 * 60)) / 1000);
-                    item.innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            // استخدام requestAnimationFrame لضمان تحديث الـ DOM بسلاسة مع تردد الشاشة
+            requestAnimationFrame(() => {
+                const timers = document.querySelectorAll('.live-countdown');
+                if (timers.length === 0) {
+                    clearInterval(window.StoreRenderApp.timerInterval);
+                    window.StoreRenderApp.timerInterval = null;
+                    return;
                 }
+
+                const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
+
+                timers.forEach(item => {
+                    const expireTime = Number(item.dataset.expire);
+                    const diff = expireTime - now;
+                    
+                    if (diff <= 0 || isNaN(diff)) {
+                        if (item.innerText !== "انتهى العرض") item.innerText = "انتهى العرض";
+                    } else {
+                        const h = Math.floor(diff / (1000 * 60 * 60)), m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)), s = Math.floor((diff % (1000 * 60)) / 1000);
+                        const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+                        if (item.innerText !== timeStr) item.innerText = timeStr; // تحديث الـ DOM فقط إذا تغير النص الفعلي
+                    }
+                });
             });
         }, 1000);
     },
@@ -652,7 +654,6 @@ export const RenderManager = {
         });
     },
 
-    // 🛡️ التحديث الماسي 3: التخلص من اللودر والتأخير لاعتماد معمارية (Cache-First)
     renderWallet: function(forceRender = false) {
         if (!forceRender) {
             if (!this._walletDebounced) this._walletDebounced = this._debounce('wallet', () => this.renderWallet(true), 250);
@@ -902,14 +903,23 @@ export const RenderManager = {
         return { showToast: () => {} };
     },
 
+    // 🛡️ التحديث 2: تأمين عملية تنظيف الذاكرة (Canvas Cleanup) 
     generateReceiptImage: async function(config) {
         return new Promise(async (resolve) => {
             const containerId = 'receipt-render-box-' + Date.now();
+            let isResolved = false;
             
-            const watchdog = setTimeout(() => {
-                console.error("🚨 انقضى وقت تحضير الإيصال (Timeout). السيرفر أو المتصفح لا يستجيب.");
+            const cleanup = () => {
                 const orphanedContainer = document.getElementById(containerId);
-                if (orphanedContainer) document.body.removeChild(orphanedContainer);
+                if (orphanedContainer) {
+                    try { document.body.removeChild(orphanedContainer); } catch(e){}
+                }
+            };
+
+            const watchdog = setTimeout(() => {
+                if(isResolved) return;
+                console.error("🚨 انقضى وقت تحضير الإيصال (Timeout). السيرفر أو المتصفح لا يستجيب.");
+                cleanup();
                 resolve(false); 
             }, 10000); 
 
@@ -954,21 +964,22 @@ export const RenderManager = {
                 canvas.width = 0; 
                 canvas.height = 0;
                 
-                if (document.getElementById(containerId)) document.body.removeChild(container);
+                cleanup(); // الحذف الآمن
                 
                 const safeFileName = config.filename || 'receipt.jpg';
                 const title = `إيصال - ${storeName}`;
                 
                 await Utils.smartShareOrDownload(blob, safeFileName, title, 'مرفق تفاصيل العملية الخاصة بك.');
                 
+                isResolved = true;
                 clearTimeout(watchdog); 
                 resolve(true);
 
             } catch (err) { 
                 console.error("🚨 Receipt Image Generation Error:", err);
+                isResolved = true;
                 clearTimeout(watchdog); 
-                const orphanedContainer = document.getElementById(containerId);
-                if (orphanedContainer) document.body.removeChild(orphanedContainer);
+                cleanup(); // ضمان عدم ترك Container في الخلفية
                 resolve(false); 
             }
         });
@@ -988,13 +999,14 @@ export const RenderManager = {
         try {
             const finalPrice = Number(o.pricingSnapshot?.finalPrice || o.price || 0);
             const originalPrice = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
+            const rawUserName = typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل');
 
             const success = await this.generateReceiptImage({
                 type: 'order', 
                 filename: `Order_${RenderHelpers.formatOrderId(o)}.jpg`,
                 data: {
                     id: o.id, displayId: RenderHelpers.formatOrderId(o),
-                    userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
+                    userName: Utils.escapeHtml(rawUserName), // حماية إضافية ضد XSS
                     userDisplayId: RenderHelpers.formatUserId(DataManager.user),
                     status: o.status, product: o.product, 
                     price: finalPrice, originalPrice: originalPrice, priceCurrency: o.priceCurrency || 'USD', 
@@ -1029,13 +1041,14 @@ export const RenderManager = {
             const credAmt = d.creditedAmount !== undefined ? Number(d.creditedAmount) : rawAmt;
             const calcFee = Math.abs(rawAmt - credAmt);
             const isBonus = credAmt > rawAmt;
+            const rawUserName = typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل');
 
             const success = await this.generateReceiptImage({
                 type: 'deposit', 
                 filename: `Deposit_${RenderHelpers.formatDepositId(d)}.jpg`,
                 data: {
                     id: d.id, displayId: RenderHelpers.formatDepositId(d),
-                    userName: typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل'),
+                    userName: Utils.escapeHtml(rawUserName), // حماية إضافية
                     userDisplayId: RenderHelpers.formatUserId(DataManager.user),
                     method: d.method || '---', amount: rawAmt, currency: d.currency || 'USD',
                     feePercent: d.feesPercent || 0, feeVal: calcFee, feeType: isBonus ? 'bonus' : 'fee', 

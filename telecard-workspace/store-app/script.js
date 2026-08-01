@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V15.2 💎
-// 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع السريع، دمج البيانات الآمن، والتوافقية
-// 🚀 التحديثات المعمارية الصارمة (Performance Edge):
-// 1. Smart Render Lock: منع إعادة رسم النوافذ المغلقة لتوفير المعالج والبطارية.
-// 2. Async Boot Sync: إجبار الإقلاع على انتظار `syncUser` لمنع تذبذب الواجهة (UI Glitch).
-// 3. Cache Minification: تنظيف السجلات قبل تخزينها محلياً لمنع طفح الذاكرة (Storage Quota).
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.2 💎
+// 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع السريع، إدارة الكاش الذكي، والتوافقية
+// 🚀 التحديثات المعمارية:
+// 1. Architecture Sync: التخلي عن الدمج اليدوي العشوائي والاعتماد الكامل على UIManager المحصن.
+// 2. Loop Firewall: حماية المتجر من حلقة التحديث اللانهائية (Refresh Loop) عبر Session Storage.
+// 3. True Offline Hydration: إجبار واجهة المحفظة والطلبات على رسم بيانات الكاش فوراً بانتظار السيرفر.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -27,8 +27,8 @@ import { UIManager } from './ui/uiManager.js';
 import { RenderManager } from './renderManager.js';
 import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
-import { UIFinance } from './ui/uiFinance.js'; 
 
+// 🛡️ المساعدة لتنسيق الوقت بشكل موحد
 const _normalizeDataTime = (dataArray) => {
     if (!Array.isArray(dataArray)) return [];
     return dataArray.map(item => ({
@@ -39,13 +39,17 @@ const _normalizeDataTime = (dataArray) => {
     }));
 };
 
-const ClientSystem = { 
+// 🛡️ التحديث 1: الاعتماد 100% على UIManager المحصن وإلغاء الدمج المكرر
+const ClientSystem = UIManager; 
+
+// إضافة خواص التشغيل فقط
+Object.assign(ClientSystem, {
     isReady: false,
     activeListeners: [], 
     userAuthListeners: [],
-    _listenersBound: false, 
+    _networkSensorsBound: false, 
     _authUnsubscribe: null,
-    _isUpdatingServer: false, 
+    _isUpdatingServer: false,
 
     clearFirebaseListeners: function() {
         [...this.activeListeners, ...this.userAuthListeners].forEach(unsub => {
@@ -118,26 +122,6 @@ const ClientSystem = {
             }
         });
     }
-};
-
-const baseKeys = Reflect.ownKeys(ClientSystem); 
-[DataManager, UIManager, RenderManager, Components, Utils, UIFinance].forEach(mod => {
-    if (!mod) return;
-    
-    Reflect.ownKeys(mod).forEach(key => {
-        if (baseKeys.includes(key) || key === 'constructor' || key === 'prototype') return;
-        
-        try {
-            const descriptor = Object.getOwnPropertyDescriptor(mod, key);
-            if (descriptor && typeof descriptor.value === 'function') {
-                ClientSystem[key] = descriptor.value.bind(mod);
-            } else if (descriptor && (descriptor.get || descriptor.set || !descriptor.writable)) {
-                Object.defineProperty(ClientSystem, key, descriptor);
-            } else {
-                Object.defineProperty(ClientSystem, key, { get: () => mod[key], set: (val) => { mod[key] = val; }, configurable: true, enumerable: true });
-            }
-        } catch(e) {}
-    });
 });
 
 ClientSystem.initFirebaseListeners = function() {
@@ -153,6 +137,14 @@ ClientSystem.initFirebaseListeners = function() {
             if (serverVersion !== '0' && serverVersion !== localServerVersion) {
                 if (this._isUpdatingServer) return; 
                 this._isUpdatingServer = true;
+                
+                // 🛡️ التحديث 2: حماية المتجر من حلقة التحديث הלانهائية
+                const reloadCount = parseInt(sessionStorage.getItem('tc_update_reloads') || '0');
+                if (reloadCount > 2) {
+                    console.error("🚨 تم إيقاف حلقة التحديث הלانهائية للحماية.");
+                    return;
+                }
+                sessionStorage.setItem('tc_update_reloads', String(reloadCount + 1));
                 
                 console.warn(`🔄 الإدارة أصدرت تحديثاً إجبارياً! (إلى الإصدار ${serverVersion})`);
                 if(this.showToast) this.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل...', 'success');
@@ -193,8 +185,7 @@ ClientSystem.initFirebaseListeners = function() {
             LiveStoreData.settings = incoming;
             RenderHelpers.init({ settings: LiveStoreData.settings, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
             
-            // 🛡️ استخدام then بدلاً من الاستدعاء المنفلت
-            if(this.syncUser) this.syncUser().then(() => {
+            if(DataManager.syncUser) DataManager.syncUser().then(() => {
                 if(this.updateDisplayCurrencyUI) this.updateDisplayCurrencyUI(DataManager.selectedCurr); 
             }); 
             
@@ -241,13 +232,13 @@ ClientSystem.initFirebaseListeners = function() {
                                 this.triggerLiveBanAlert(userData.banReason || 'نعتذر، تم حظر حسابك.');
                             } else {
                                 signOut(auth).catch(()=>{}); 
-                                if(this.logout) this.logout(); 
+                                if(DataManager.logout) DataManager.logout(); 
                             }
                             return; 
                         }
                         LiveStoreData.users = [userData];
                         requestAnimationFrame(() => { 
-                            if(this.syncUser) this.syncUser(); 
+                            if(DataManager.syncUser) DataManager.syncUser(); 
                             if(this.updateDisplayBalance) this.updateDisplayBalance(); 
                             if(this.updateNotifBadges) this.updateNotifBadges(); 
                         });
@@ -260,18 +251,16 @@ ClientSystem.initFirebaseListeners = function() {
                     const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
                     LiveStoreData.orders = normData;
                     
-                    // 🛡️ تقليم الكاش (Minification) لحماية مساحة المتصفح
                     try { 
-                        const minifiedOrders = normData.map(o => ({ id: o.id, displayId: o.displayId, product: o.product, price: o.price, priceCurrency: o.priceCurrency, status: o.status, time: o.time, createdAt: o.createdAt }));
+                        const minifiedOrders = normData.map(o => ({ id: o.id, displayId: o.displayId, product: o.product, price: o.price, priceCurrency: o.priceCurrency, status: o.status, time: o.time, createdAt: o.createdAt, pricingSnapshot: o.pricingSnapshot }));
                         localStorage.setItem(`tc_orders_cache_${uidStr}`, JSON.stringify(minifiedOrders)); 
                     } catch(e){}
                     
-                    this.cursors = this.cursors || {}; this.cursors.orders = data.length < 30 ? null : lastDoc;
+                    DataManager.cursors = DataManager.cursors || {}; DataManager.cursors.orders = data.length < 30 ? null : lastDoc;
                     
-                    // 🛡️ Smart Render Lock: منع تحديث الواجهة إذا لم تكن مفتوحة
                     requestAnimationFrame(() => { 
-                        if (this.renderOrders && document.getElementById('orders-modal')?.classList.contains('active')) {
-                            this.renderOrders(true); 
+                        if (RenderManager.renderOrders && document.getElementById('orders-modal')?.classList.contains('active')) {
+                            RenderManager.renderOrders(true); 
                         }
                     });
                 }));
@@ -280,20 +269,18 @@ ClientSystem.initFirebaseListeners = function() {
                     const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
                     LiveStoreData.deposits = normData;
                     
-                    // 🛡️ تقليم الكاش
                     try { 
                         const minifiedDeposits = normData.map(d => ({ id: d.id, displayId: d.displayId, amount: d.amount, creditedAmount: d.creditedAmount, targetCurrency: d.targetCurrency, method: d.method, status: d.status, time: d.time, createdAt: d.createdAt }));
                         localStorage.setItem(`tc_deposits_cache_${uidStr}`, JSON.stringify(minifiedDeposits)); 
                     } catch(e){}
                     
-                    this.cursors = this.cursors || {}; this.cursors.deposits = data.length < 30 ? null : lastDoc;
+                    DataManager.cursors = DataManager.cursors || {}; DataManager.cursors.deposits = data.length < 30 ? null : lastDoc;
                     
-                    // 🛡️ Smart Render Lock
                     requestAnimationFrame(() => { 
                         const isWalletOpen = document.getElementById('wallet-modal')?.classList.contains('active');
                         const isMyPayOpen = document.getElementById('mypay-modal')?.classList.contains('active');
-                        if (isWalletOpen && this.renderWallet) this.renderWallet(true); 
-                        if (isMyPayOpen && this.renderPayments) this.renderPayments(true); 
+                        if (isWalletOpen && RenderManager.renderWallet) RenderManager.renderWallet(true); 
+                        if (isMyPayOpen && RenderManager.renderPayments) RenderManager.renderPayments(true); 
                     });
                 }));
             }
@@ -301,8 +288,8 @@ ClientSystem.initFirebaseListeners = function() {
             console.log("👤 العميل زائر. تم تنظيف المستمعات.");
             localStorage.removeItem(CACHE_KEYS.ACTIVE_UID || 'telecard_active_user_uid');
             LiveStoreData.users = []; LiveStoreData.orders = []; LiveStoreData.deposits = [];
-            this.cursors = {}; 
-            if(this.syncUser) this.syncUser(); 
+            DataManager.cursors = {}; 
+            if(DataManager.syncUser) DataManager.syncUser(); 
             if(this.updateDisplayBalance) this.updateDisplayBalance();
         }
     });
@@ -310,14 +297,14 @@ ClientSystem.initFirebaseListeners = function() {
 
 ClientSystem.init = async function() {
     this.isReady = true;
-    console.log("🚀 جاري إقلاع النظام (نمط مكافحة الانهيار + الكاش الذكي O(1) Reads)...");
+    console.log(`🚀 جاري إقلاع المتجر (نسخة المحرك الماسي ${APP_VERSION})...`);
     
     if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
         RenderHelpers.init({ settings: {}, rates: [], offers: [], isStore: true });
     }
 
     try {
-        const currentVersion = window.TELECARD_VERSION || "1.0.0";
+        const currentVersion = APP_VERSION || "1.0.0";
         const savedVersion = localStorage.getItem('telecard_app_version');
 
         if (savedVersion && savedVersion !== currentVersion) {
@@ -356,14 +343,21 @@ ClientSystem.init = async function() {
         }
     } catch (e) {}
 
-    // 🛡️ الترطيب المبكر (Early Cache Hydration)
+    // 🛡️ التحديث 3: الترطيب المبكر ورسم الكاش فوراً قبل رد السيرفر
     try {
         const activeUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID || 'telecard_active_user_uid');
         if (activeUid) {
             const cachedOrders = JSON.parse(localStorage.getItem(`tc_orders_cache_${activeUid}`) || '[]');
             const cachedDeposits = JSON.parse(localStorage.getItem(`tc_deposits_cache_${activeUid}`) || '[]');
-            if (cachedOrders.length > 0) LiveStoreData.orders = cachedOrders;
-            if (cachedDeposits.length > 0) LiveStoreData.deposits = cachedDeposits;
+            
+            if (cachedOrders.length > 0) {
+                LiveStoreData.orders = cachedOrders;
+                if (document.getElementById('orders-modal')?.classList.contains('active')) RenderManager.renderOrders(true);
+            }
+            if (cachedDeposits.length > 0) {
+                LiveStoreData.deposits = cachedDeposits;
+                if (document.getElementById('wallet-modal')?.classList.contains('active')) RenderManager.renderWallet(true);
+            }
         }
     } catch (e) {
         console.warn("⚠️ [Cache Hydration] تعذر جلب السجلات المؤقتة.");
@@ -371,10 +365,7 @@ ClientSystem.init = async function() {
 
     try {
         if(DataManager.loadPrefs) DataManager.loadPrefs();
-        
-        // 🛡️ الحل الماسي: الإقلاع المتسلسل لتجنب تذبذب الواجهة
         if(DataManager.syncUser) await DataManager.syncUser().catch(()=>{});
-        
         if(this.applySavedTheme) this.applySavedTheme();
         
         DataManager.selectedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY || 'telecard_display_currency') || LiveStoreData.settings?.defaultCurrency || 'USD';
@@ -457,23 +448,17 @@ ClientSystem.init = async function() {
     } catch (e) {}
 };
 
-if (typeof window !== 'undefined') {
-    if (!window.ClientSystem) {
-        Object.defineProperty(window, 'ClientSystem', {
+// إعداد بيئة آمنة تضمن أن النظام جاهز للعمل بشكل موحد
+if (typeof globalThis !== 'undefined') {
+    if (!globalThis.ClientSystem) {
+        Object.defineProperty(globalThis, 'ClientSystem', {
             value: ClientSystem,
             writable: false, 
             configurable: false 
         });
     }
-    if (!window.UIManager) {
-        Object.defineProperty(window, 'UIManager', {
-            value: ClientSystem,
-            writable: false,
-            configurable: false
-        });
-    }
-    if (!window.CalendarApp) {
-        Object.defineProperty(window, 'CalendarApp', {
+    if (!globalThis.CalendarApp) {
+        Object.defineProperty(globalThis, 'CalendarApp', {
             value: CalendarApp,
             writable: false,
             configurable: false
@@ -482,7 +467,7 @@ if (typeof window !== 'undefined') {
 }
 
 (function() {
-    const startApp = () => { if (window.ClientSystem?.init) window.ClientSystem.init(); };
+    const startApp = () => { if (globalThis.ClientSystem?.init) globalThis.ClientSystem.init(); };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startApp);
     else startApp();
 })();

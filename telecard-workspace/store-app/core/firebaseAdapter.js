@@ -1,7 +1,10 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.8 💎
-// 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق
-// 🚀 التحديث الأقصى: معالجة ثغرة "الأشباح"، Web Crypto API، وإصلاح الـ Syntax
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.9 💎
+// 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق، والاستعلامات
+// 🚀 التحديثات المعمارية:
+// 1. Missing Functions Fix: إضافة دوال الاستعلام (query, fetchMore, getById) لحماية المتجر من الانهيار.
+// 2. Listener Architecture: إضافة دوال الاستماع الحية (listenDoc, listenQuery) للإشعارات.
+// 3. Write Protection: حماية العمليات المالية بـ Timeout ذكي.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -58,7 +61,7 @@ export const FirebaseAdapter = {
         return id ? String(id).replace(/[\/\\]/g, '_').trim() : '';
     },
 
-    // 🛡️ إصلاح ثغرة الأشباح (Phantom Writes) بحماية العمليات الحساسة من المقاطعة
+    // 🛡️ حماية العمليات من التعليق بسبب سوء الشبكة
     _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
         if (isWriteOperation) return promise; 
         
@@ -74,12 +77,49 @@ export const FirebaseAdapter = {
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
 
+    // 🛡️ [إصلاح ماسي]: دالة الجلب الفردي المفقودة (ضرورية للإعدادات)
+    async getById(collectionName, docId) {
+        const safeId = this._sanitizeDocId(docId);
+        try {
+            const docSnap = await this._withTimeout(getDoc(doc(db, collectionName, safeId)), 10000, `getById -> ${collectionName}`);
+            return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+        } catch (error) { return null; }
+    },
+
     async getAll(collectionName, maxLimit = 1000) {
         try {
             const q = query(collection(db, collectionName), limit(maxLimit));
             const snapshot = await this._withTimeout(getDocs(q), 10000, `getAll -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (error) { return []; }
+    },
+
+    // 🛡️ [إصلاح ماسي]: دالة الاستعلام الديناميكية المفقودة (ضرورية لسجل الطلبات)
+    async query(collectionName, field, op, value, maxLimit = 50) {
+        try {
+            const q = query(collection(db, collectionName), where(field, op, value), limit(maxLimit));
+            const snapshot = await this._withTimeout(getDocs(q), 10000, `query -> ${collectionName}`);
+            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        } catch (error) { return []; }
+    },
+
+    // 🛡️ [إصلاح ماسي]: دالة الـ Pagination المفقودة (ضرورية لزر "عرض المزيد")
+    async fetchMoreWithCursor(collectionName, whereCondition, orderField, cursorDoc, limitCount = 15) {
+        try {
+            let q = query(
+                collection(db, collectionName),
+                where(whereCondition[0], whereCondition[1], whereCondition[2]),
+                orderBy(orderField, "desc"),
+                startAfter(cursorDoc),
+                limit(limitCount)
+            );
+            const snapshot = await this._withTimeout(getDocs(q), 15000, `fetchMore -> ${collectionName}`);
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            return {
+                data: data,
+                newLastDoc: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null
+            };
+        } catch (error) { return { data: [], newLastDoc: null }; }
     },
 
     async getCacheFirst(collectionName, docId) {
@@ -120,10 +160,33 @@ export const FirebaseAdapter = {
         } catch (error) { return false; }
     },
 
-    // 🛡️ دالة الـ CallFunction الموحدة والمحمية
+    // 🛡️ [إصلاح ماسي]: دالة الاستماع للمستند (ضرورية لملف العميل)
+    listenDoc(collectionName, docId, callback) {
+        const safeId = this._sanitizeDocId(docId);
+        const unsubscribe = onSnapshot(doc(db, collectionName, safeId), 
+            (docSnap) => { callback(docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null); },
+            (error) => { console.warn(`Listen Error (${collectionName}):`, error); }
+        );
+        return this._registerListener(`${collectionName}_${safeId}`, unsubscribe);
+    },
+
+    // 🛡️ [إصلاح ماسي]: دالة الاستماع للاستعلام (ضرورية للإشعارات)
+    listenQuery(collectionName, filtersArray, orderField, limitCount, callback) {
+        let constraints = [];
+        filtersArray.forEach(f => constraints.push(where(f[0], f[1], f[2])));
+        if (orderField) constraints.push(orderBy(orderField, "desc"));
+        if (limitCount) constraints.push(limit(limitCount));
+
+        const q = query(collection(db, collectionName), ...constraints);
+        const unsubscribe = onSnapshot(q, 
+            (snapshot) => { callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))); },
+            (error) => { console.warn(`Listen Query Error (${collectionName}):`, error); }
+        );
+        return this._registerListener(`query_${collectionName}`, unsubscribe);
+    },
+
     async callFunction(functionName, payload = {}, retryCount = 1) { 
         try {
-            // isWriteOperation = true لحماية العمليات المالية (الشراء / الإيداع)
             const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Function -> ${functionName}`, true);
             return result.data;
         } catch (error) {
@@ -145,7 +208,7 @@ export const FirebaseAdapter = {
     async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = false) { 
         if (!file) return ''; 
         
-        const allowedTypes = isAdmin ? ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'] : ['image/jpeg', 'image/png', 'image/webp', 'image/gif']; 
+        const allowedTypes = isAdmin ? ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml', 'application/pdf'] : ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']; 
         if (!allowedTypes.includes(file.type)) throw new Error(`نوع الملف غير مدعوم.`); 
         
         const MAX_FILE_SIZE_MB = isAdmin ? 10 : 5; 
@@ -153,7 +216,7 @@ export const FirebaseAdapter = {
         
         try { 
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general'; 
-            const originalExt = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : 'jpg'; 
+            const originalExt = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : (file.type === 'application/pdf' ? 'pdf' : 'jpg'); 
             const safeFileName = file.name.replace(/[^a-zA-Z0-9\-_]/g, '').replace(/^\.+/, 'file'); 
             
             const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9); 
@@ -161,7 +224,7 @@ export const FirebaseAdapter = {
             const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`; 
             
             const snapshot = await this._withTimeout( 
-                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع الصورة", true 
+                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع المرفق", true 
             ); 
             return await getDownloadURL(snapshot.ref); 
         } catch (error) { 
@@ -227,4 +290,4 @@ export const FirebaseAdapter = {
             return { success: true };
         } catch (error) { return { success: false, msg: 'تعذر الإيقاف.' }; }
     }
-}; // 👈 إغلاق نهائي ونظيف للكائن هنا
+};

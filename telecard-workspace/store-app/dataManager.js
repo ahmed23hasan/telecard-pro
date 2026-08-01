@@ -1,14 +1,12 @@
 // ============================================================================
-// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة التيتانيوم الشاملة V2.0 🛡️
+// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة التيتانيوم الشاملة V2.1 🛡️
 // 🚀 الهندسة: Singleton State Manager + Smart Caching + Idempotency Locks
 // 🎯 الوظيفة: إدارة حالة النظام، جلب البيانات، حماية المستخدم، والمزامنة
-// 🌟 التحديث الأقصى (The Perfect Shield):
-// 1. Offline Auth Fix: منع تسجيل الخروج القسري عند انقطاع الإنترنت.
-// 2. Memory Leak Shield: التنظيف الآمن لمستمعات الأحداث (Unsubscribe Cleanup).
-// 3. Storage Thrashing Fix: تحسين الأداء عبر تقليل الكتابة المتكررة في localStorage.
-// 4. Time Drift Sync: مزامنة الوقت فوراً عند الحاجة بدون انتظار 6 ساعات.
-// 5. Supply Chain Protection: بصمة محلية خفيفة (Fallback Hash) بدلاً من استيراد CDN خارجي.
-// 6. Rate Limit Guard: تخزين الـ IP في الجلسة (Session) لمنع استنزاف طلبات الـ API للحظر.
+// 🌟 التحديث الأقصى (V2.1):
+// 1. History Sync Engine: جلب تلقائي لسجل الطلبات والإيداعات لضمان ظهورها في المحفظة.
+// 2. Deposit Math Alignment: ربط حاسبة الإيداعات بالمحرك المالي لضمان التطابق مع السيرفر.
+// 3. Payload Fix: تصحيح اسم (receiptUrl) ليتطابق مع السيرفر V20.6.
+// 4. Safe Coupon Validator: تنظيف الكوبون قبل إرجاعه للواجهة لمنع تسريب بيانات المستوى.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -155,6 +153,7 @@ export const DataManager = {
             
             if (settingsSnap) {
                 LiveStoreData.settings = settingsSnap;
+                // 🛡️ تفعيل الشعار والإعدادات في الواجهة فوراً
                 if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) RenderHelpers.init(LiveStoreData.settings);
             }
             
@@ -220,51 +219,45 @@ export const DataManager = {
     generateIdempotencyKey: function() { return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).substring(2); },
 
     saveUserLocal: function() {
-    if (!this.user) return;
-    
-    const safeUser = {
-        id: String(this.user.uid || this.user.id),
-        uid: String(this.user.uid || this.user.id),
-        displayId: this.user.displayId,
-        name: this.user.name,
-        firstName: this.user.firstName || this.user.first_name,
-        lastName: this.user.lastName || this.user.last_name,
-        fullName: this.user.fullName,
-        username: this.user.username,
-        img: this.user.img,
-        email: this.user.email,
-        phone: this.user.phone,
-        country: this.user.country,
-        walletBalance: Number(this.user.walletBalance ?? this.user.balance ?? 0),
-        baseCurrency: String(this.user.baseCurrency || 'USD').toUpperCase(),
-        tierId: String(this.user.tierId || '1'),
-        tierCycleSpent: Number(this.user.tierCycleSpent || 0),
-        // 🛡️ الترقيع الماسي: تحويل كائن التاريخ إلى رقم ثابت لمنع فساده عند تحويله لـ JSON
-        tierCycleStartDate: this._parseSafeTime(this.user.tierCycleStartDate),
-        readAlerts: Array.isArray(this.user.readAlerts) ? this.user.readAlerts.slice(0, 50) : [],
-        createdAt: this._parseSafeTime(this.user.createdAt),
-        isVerified: Boolean(this.user.isVerified || false),
-        kycStatus: String(this.user.kycStatus || 'none'),
-        biometricEnabled: Boolean(this.user.biometricEnabled || false)
-    };
-    
-    try {
-        localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser));
-    }
-    catch (e) {
-        console.warn("[DataManager] سعة التخزين ممتلئة، جاري تنظيف الكاش غير الضروري...");
-        Object.keys(localStorage).forEach(key => {
-            if (key.startsWith(DYNAMIC_PREFIXES.ALERT_VIEWS) || key === CACHE_KEYS.SMART_CATALOG) {
-                localStorage.removeItem(key);
-            }
-        });
+        if (!this.user) return;
+        
+        const safeUser = {
+            id: String(this.user.uid || this.user.id),
+            uid: String(this.user.uid || this.user.id),
+            displayId: this.user.displayId,
+            name: this.user.name,
+            firstName: this.user.firstName || this.user.first_name,
+            lastName: this.user.lastName || this.user.last_name,
+            fullName: this.user.fullName,
+            username: this.user.username,
+            img: this.user.img,
+            email: this.user.email,
+            phone: this.user.phone,
+            country: this.user.country,
+            walletBalance: Number(this.user.walletBalance ?? this.user.balance ?? 0),
+            baseCurrency: String(this.user.baseCurrency || 'USD').toUpperCase(),
+            tierId: String(this.user.tierId || '1'),
+            tierCycleSpent: Number(this.user.tierCycleSpent || 0),
+            tierCycleStartDate: this._parseSafeTime(this.user.tierCycleStartDate),
+            readAlerts: Array.isArray(this.user.readAlerts) ? this.user.readAlerts.slice(0, 50) : [],
+            createdAt: this._parseSafeTime(this.user.createdAt),
+            isVerified: Boolean(this.user.isVerified || false),
+            kycStatus: String(this.user.kycStatus || 'none'),
+            biometricEnabled: Boolean(this.user.biometricEnabled || false)
+        };
+        
         try {
             localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser));
-        } catch (err) {
-            console.error("[DataManager] فشل حفظ بيانات العميل محلياً رغم التنظيف الجبري:", err);
         }
-    }
-},
+        catch (e) {
+            console.warn("[DataManager] سعة التخزين ممتلئة، جاري التنظيف...");
+            Object.keys(localStorage).forEach(key => {
+                if (key.startsWith(DYNAMIC_PREFIXES.ALERT_VIEWS) || key === CACHE_KEYS.SMART_CATALOG) localStorage.removeItem(key);
+            });
+            try { localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser)); } catch (err) {}
+        }
+    },
+
     updateUserProfile: async function(newData) {
         const uid = this.user?.uid || this.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
         if (!uid || typeof newData !== 'object' || Array.isArray(newData) || newData === null) return false;
@@ -328,7 +321,6 @@ export const DataManager = {
         const spent = Number(this.user.tierCycleSpent || 0);
         const durationMs = Number(currentTier.durationDays || 30) * 86400000;
         
-        // 🛡️ الترقيع الماسي: استخدام _parseSafeTime لضمان استخراج الوقت بشكل صحيح سواء كان Object أو Number
         const safeStartDateMs = this._parseSafeTime(this.user.tierCycleStartDate) || this.getNow();
         const remainingDays = Math.max(0, Math.ceil((durationMs - (this.getNow() - safeStartDateMs)) / 86400000)); 
 
@@ -342,6 +334,7 @@ export const DataManager = {
             isMaxTier: !nextTier, isGoalReached: !nextTier && spent >= target, isAutoAdvanceEnabled: currentTier.autoAdvance !== false
         };
     },
+    
     getActiveOffer: function(prodId) {
         const now = this.getNow(); 
         return (LiveStoreData.offers || []).find(o => o.isActive && (!o.expiryDate || o.expiryDate > now) && o.targetProds?.includes(String(prodId)));
@@ -394,31 +387,22 @@ export const DataManager = {
         if (fromCur === toCur) return amt;
 
         let converted = null;
-        try {
-            converted = FinancialEngine.convertViaUSD(amt, fromCur, toCur, r, c);
-        } catch(e) { }
+        try { converted = FinancialEngine.convertViaUSD(amt, fromCur, toCur, r, c); } catch(e) { }
         
         if (!converted || converted === 0 || isNaN(converted)) {
             const safeRates = (r && Object.keys(r).length > 0) ? r : this.getRates();
-            
             const getSafeRateValue = (rateObj, channel) => {
-                if (typeof rateObj === 'object' && rateObj !== null) {
-                    return Number(channel === 'deposit' ? rateObj.depRate : rateObj.priceRate) || 1;
-                }
+                if (typeof rateObj === 'object' && rateObj !== null) return Number(channel === 'deposit' ? rateObj.depRate : rateObj.priceRate) || 1;
                 return Number(rateObj) || 1; 
             };
-
             const fromRate = getSafeRateValue(safeRates[fromCur], c);
             const toRate = getSafeRateValue(safeRates[toCur], c);
             
             try {
                 const amtInUsd = FinancialEngine.safeDiv(amt, fromRate);
                 converted = FinancialEngine.safeMul(amtInUsd, toRate);
-            } catch (e) {
-                converted = 0;
-            }
+            } catch (e) { converted = 0; }
         }
-        
         return converted;
     },
 
@@ -459,7 +443,10 @@ export const DataManager = {
             const p = this.calculateFinalPrice(prod, this.user, qty, optIdx, null);
             if (p.totalUsd < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى للاستخدام ${cp.minOrder}$` };
         }
-        return { valid: true, coupon: cp };
+        
+        // 🛡️ التحديث 4: تنظيف الكوبون لمنع تسريب قواعد البيانات للعميل
+        const safeCoupon = { code: cp.code, type: cp.type, value: cp.value, isActive: cp.isActive };
+        return { valid: true, coupon: safeCoupon };
     },    
 
     convertViaUSDHelper: function(amt, f, t, rnd='round', c='pricing') {
@@ -473,7 +460,6 @@ export const DataManager = {
         const activeUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
         if (!activeUid) return;
         
-        // 🛡️ التحديث 2: التنظيف الآمن للمستمعات
         if (typeof this._userUnsubscribe === 'function') {
             this._userUnsubscribe();
             this._userUnsubscribe = null;
@@ -497,6 +483,27 @@ export const DataManager = {
                 });
             }
         } catch (e) { console.warn("[DataManager] listenDoc failed:", e.message); }
+    },
+
+    // 🛡️ التحديث 1: جلب سجلات العميل تلقائياً
+    fetchUserHistory: async function() {
+        if (!this.user?.uid || !StoreDB.query) return;
+        try {
+            const [myOrders, myDeposits] = await Promise.all([
+                StoreDB.query(DB_KEYS.ORDERS, 'userId', '==', this.user.uid),
+                StoreDB.query(DB_KEYS.DEPOSITS, 'userId', '==', this.user.uid)
+            ]);
+            
+            // ترتيب من الأحدث للأقدم
+            LiveStoreData.orders = (myOrders || []).sort((a,b) => (b.createdAt?.seconds || b.time || 0) - (a.createdAt?.seconds || a.time || 0));
+            LiveStoreData.deposits = (myDeposits || []).sort((a,b) => (b.createdAt?.seconds || b.time || 0) - (a.createdAt?.seconds || a.time || 0));
+            
+            console.log("📥 تم جلب سجلات المحفظة بنجاح.");
+            // تحديث واجهة المحفظة إذا كانت مفتوحة
+            if (window.RenderManager?.renderWallet) window.RenderManager.renderWallet(true);
+        } catch (error) {
+            console.warn("⚠️ تأخر في جلب سجلات العميل.");
+        }
     },
 
     logout: async function() {
@@ -537,7 +544,6 @@ export const DataManager = {
             const lastSync = sessionStorage.getItem(CACHE_KEYS.TIME_SYNC);
             const now = Date.now();
             
-            // 🛡️ التحديث 4: استرجاع الوقت عند الحاجة الفعلية فوراً إذا كان Offset صفراً ونحن متصلون
             const needsSync = !lastSync || (now - Number(lastSync)) > (6 * 60 * 60 * 1000); 
             if (!LiveStoreData.isOfflineMode && StoreDB.callFunction && (needsSync || this.serverTimeOffset === 0)) {
                 StoreDB.callFunction('getServerTime').then(res => { 
@@ -549,11 +555,8 @@ export const DataManager = {
             }
         }
         
-        // 🛡️ التحديث 1: منع الخروج العشوائي للعميل إذا لم يكن هناك إنترنت
         if (activeUid && !me && window.ClientSystem?.isReady) { 
-            if (!LiveStoreData.isOfflineMode) {
-                this.logout(); 
-            }
+            if (!LiveStoreData.isOfflineMode) this.logout(); 
             return false; 
         }
         
@@ -572,6 +575,10 @@ export const DataManager = {
             
             this.user = me;
             this.saveUserLocal();
+            
+            // 🚀 تشغيل المزامنة للسجلات فور تأكيد بيانات العميل
+            if (!LiveStoreData.isOfflineMode) this.fetchUserHistory();
+
             this.listenToUserUpdates(() => {
                 if (window.UIManager?.updateProfileDisplay) window.UIManager.updateProfileDisplay();
                 if (window.UIManager?.updateDisplayBalance) window.UIManager.updateDisplayBalance();
@@ -593,42 +600,40 @@ export const DataManager = {
         return true;
     },
 
-    // 🛡️ التحديث 6: حفظ الـ IP في الجلسة لمنع هدر الطلبات (Rate Limit Protection)
     enforceIpBan: async function() {
-    if (LiveStoreData.isOfflineMode) return false;
-    try {
-        const banned = LiveStoreData.settings?.bannedIps || [];
-        if (!banned.length) return false;
-        
-        let ip = sessionStorage.getItem('tc_client_ip');
-        
-        // 🛡️ الترقيع الماسي: تجاوز سريع إذا كان المتصفح يحظر الخدمة (مخزنة في الجلسة)
-        if (ip === 'blocked_or_failed') return false;
-        
-        if (!ip) {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 1500); // تقليل المدة لـ 1.5 ثانية
-            try {
-                const res = await fetch('https://api.ipify.org?format=json', { signal: controller.signal });
-                if (res.ok) {
-                    ip = (await res.json()).ip;
-                    sessionStorage.setItem('tc_client_ip', ip);
+        if (LiveStoreData.isOfflineMode) return false;
+        try {
+            const banned = LiveStoreData.settings?.bannedIps || [];
+            if (!banned.length) return false;
+            
+            let ip = sessionStorage.getItem('tc_client_ip');
+            
+            if (ip === 'blocked_or_failed') return false;
+            
+            if (!ip) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 1500);
+                try {
+                    const res = await fetch('https://api.ipify.org?format=json', { signal: controller.signal });
+                    if (res.ok) {
+                        ip = (await res.json()).ip;
+                        sessionStorage.setItem('tc_client_ip', ip);
+                    }
+                } catch (e) {
+                    sessionStorage.setItem('tc_client_ip', 'blocked_or_failed');
+                } finally {
+                    clearTimeout(timeoutId);
                 }
-            } catch (e) {
-                // تسجيل الفشل لمنع إعادة المحاولة وتعطيل العميل في نفس الجلسة
-                sessionStorage.setItem('tc_client_ip', 'blocked_or_failed');
-            } finally {
-                clearTimeout(timeoutId);
             }
-        }
-        
-        if (ip && ip !== 'blocked_or_failed' && banned.includes(ip)) {
-            this.logout();
-            return true;
-        }
-    } catch (e) {}
-    return false;
-},
+            
+            if (ip && ip !== 'blocked_or_failed' && banned.includes(ip)) {
+                this.logout();
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    },
+
     submitPasswordChange: async function(cVal, nVal, confVal) {
         if (!nVal || nVal.length < 6) return { success: false, msg: 'يجب أن تكون 6 أحرف على الأقل.' };
         if (nVal !== confVal) return { success: false, msg: 'غير متطابقتين.' };
@@ -663,6 +668,9 @@ export const DataManager = {
             const req = { productId: String(prod.id), qty: Math.max(1, Math.floor(Number(qty)) || 1), optIdx: optIdx ?? null, finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null, idempotencyKey: this._currentPurchaseKey };
             const res = await StoreDB.callFunction('createOrder', req);
             
+            // تحديث السجلات بعد الشراء
+            this.fetchUserHistory();
+            
             return { success: true, msg: res.message || 'تم إتمام الطلب', isAutoDelivered: res.isAutoDelivered, deliveredCodeText: res.deliveredCode };
         } catch (err) {
             const msg = String(err.message || '').toLowerCase();
@@ -674,6 +682,7 @@ export const DataManager = {
         }
     },    
 
+    // 🛡️ التحديث 2: ربط الإيداع بـ FinancialEngine لمنع الكسور العشوائية
     calculateDepositFee: function(amt, method, payCurr) {
         if (!method || amt <= 0) return { isValid: false, msg: 'بيانات غير صالحة', netBase: 0, feePct: 0, feeType: 'fee', feeUnit: 'percent' };
         const curr = (payCurr || '').toUpperCase();
@@ -685,9 +694,11 @@ export const DataManager = {
         if (s.min > 0 && amt < s.min) return { isValid: false, msg: `أقل مبلغ: ${s.min} ${curr}`, ...s };
         if (s.max > 0 && amt > s.max) return { isValid: false, msg: `أقصى مبلغ: ${s.max} ${curr}`, ...s };
 
-        let feeAmt = ['fixed', 'amount'].includes(s.feeUnit) ? s.fee : amt * (s.fee / 100);
-        let net = Math.max(0, s.feeType === 'bonus' ? amt + feeAmt : amt - feeAmt);
+        let feeAmt = ['fixed', 'amount'].includes(s.feeUnit) ? s.fee : FinancialEngine.safeMul(amt, FinancialEngine.safeDiv(s.fee, 100));
+        
+        let net = Math.max(0, s.feeType === 'bonus' ? FinancialEngine.safeAdd(amt, feeAmt) : FinancialEngine.safeSub(amt, feeAmt));
         let netBase = this.convertViaUSDHelper(net, curr, this.user.baseCurrency || 'USD', 'floor', 'deposit');
+        
         return { isValid: true, netBase: isNaN(netBase) ? 0 : netBase, feePct: s.fee, feeType: s.feeType, feeUnit: s.feeUnit, feeAmount: feeAmt };
     },
 
@@ -704,8 +715,12 @@ export const DataManager = {
         sessionStorage.setItem(SESSION_DEPOSIT_KEY, this._currentDepositKey);
         
         try {
-            const req = { amount: Number(amt), paymentMethodName: method.name, payCurr, receiptData: receipt, idempotencyKey: this._currentDepositKey };
+            // 🛡️ التحديث 3: توافق المفتاح مع السيرفر (receiptUrl)
+            const req = { amount: Number(amt), paymentMethodName: method.name, payCurr, receiptUrl: receipt, idempotencyKey: this._currentDepositKey };
             const res = await StoreDB.callFunction('submitBalanceRequest', req);
+            
+            // تحديث السجلات بعد طلب الإيداع
+            this.fetchUserHistory();
             
             return { success: true, msg: res.message || 'تم الإرسال' };
         } catch (err) {
@@ -827,7 +842,6 @@ export const DataManager = {
         }
     },
 
-    // 🛡️ التحديث 3: تحسين الأداء عبر تقليل الكتابة المتكررة
     markAllNotificationsRead: async function() {
         const allAlerts = this.getAllUserAlerts();
         if (!allAlerts.length) return;
@@ -863,7 +877,6 @@ export const DataManager = {
     
     sendPasswordResetEmail: async function(email) { return email ? await StoreDB.sendResetEmail(email) : { success: false, msg: 'بريد مفقود.' }; },
 
-    // 🛡️ التحديث 5: بصمة محلية لتفادي أخطاء الـ CDN
     injectSilentSensor: async function() {
         if (!this.user?.uid) return;
         try {
