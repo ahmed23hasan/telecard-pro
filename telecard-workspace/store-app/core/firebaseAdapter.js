@@ -1,10 +1,10 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V16.0 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V16.1 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق، والاستعلامات
-// 🚀 التحديثات المعمارية (V16.0):
-// 1. Offline-First Resilience: تعديل `getCacheFirst` ليعرض بيانات الكاش فوراً إذا كان السيرفر بطيئاً جداً.
-// 2. UX Network Check: التحقق من الاتصال قبل مناداة الـ Cloud Functions.
-// 3. Listener Keys Fix: منع تداخل المفاتيح في الاستعلامات المتشابهة لتوفير الذاكرة.
+// 🚀 التحديثات المعمارية (V16.1):
+// 1. Sanitized Error Shield: منع انهيار الـ DevTools بسبب الكائنات الدائرية لفايربيز.
+// 2. Offline-First Resilience: تعديل `getCacheFirst` ليعرض بيانات الكاش فوراً بمهلة 8 ثوانٍ.
+// 3. UX Network Check & Clean Syntax: تنظيف الملف وتأمين الاتصالات.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -107,7 +107,7 @@ export const FirebaseAdapter = {
         } catch (error) { return []; }
     },
 
-async fetchMoreWithCursor(collectionName, whereCondition, orderField, cursorDoc, limitCount = 15) {
+    async fetchMoreWithCursor(collectionName, whereCondition, orderField, cursorDoc, limitCount = 15) {
         try {
             let q = query(
                 collection(db, collectionName),
@@ -125,64 +125,64 @@ async fetchMoreWithCursor(collectionName, whereCondition, orderField, cursorDoc,
         } catch (error) { return { data: [], newLastDoc: null }; }
     },
     
-    // 🛡️ [الإصلاح الماسي 1]: هندسة Offline-First (الكاش كشبكة أمان مع مهلة متوازنة)
+    // 🛡️ هندسة Offline-First (الكاش كشبكة أمان مع مهلة متوازنة)
     async getCacheFirst(collectionName, docId) {
-            const safeId = this._sanitizeDocId(docId);
-            const docRef = doc(db, collectionName, safeId);
-            
-            let cachedData = null;
-            try {
-                // 1. محاولة جلب البيانات من الذاكرة المحلية أولاً (بشكل صامت)
-                const cachedSnap = await getDocFromCache(docRef);
-                if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
-            } catch (e) {}
-            
-            // 2. إذا كان المتصفح غير متصل بالإنترنت فعلياً، أعد الكاش فوراً ولا تحاول
-            if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        const safeId = this._sanitizeDocId(docId);
+        const docRef = doc(db, collectionName, safeId);
+        
+        let cachedData = null;
+        try {
+            // محاولة جلب البيانات من الذاكرة المحلية أولاً
+            const cachedSnap = await getDocFromCache(docRef);
+            if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
+        } catch (e) {}
+        
+        // إذا كان المتصفح غير متصل بالإنترنت فعلياً، أعد الكاش فوراً
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            return cachedData;
+        }
+        
+        try {
+            // انتظار رد السيرفر لمدة 8 ثوانٍ (التوازن المثالي للشبكات البطيئة)
+            const serverSnap = await this._withTimeout(getDoc(docRef), 8000, `getCacheFirst -> ${collectionName}`);
+            return serverSnap.exists() ? { id: serverSnap.id, ...serverSnap.data(), fromCache: false } : null;
+        } catch (error) {
+            if (cachedData) {
+                console.warn(`⏳ تأخر السيرفر في جلب (${collectionName}). تم استخدام الكاش لحماية تجربة المستخدم.`);
                 return cachedData;
             }
-            
-            try {
-                // 3. انتظار رد السيرفر لمدة 8 ثوانٍ (التوازن المثالي للشبكات البطيئة)
-                const serverSnap = await this._withTimeout(getDoc(docRef), 8000, `getCacheFirst -> ${collectionName}`);
-                return serverSnap.exists() ? { id: serverSnap.id, ...serverSnap.data(), fromCache: false } : null;
-            } catch (error) {
-                // 4. إذا انقضت الـ 8 ثوانٍ ولم يستجب السيرفر، أنقذ الموقف واعرض الكاش بدلاً من شاشة بيضاء
-                if (cachedData) {
-                    console.warn(`⏳ تأخر السيرفر في جلب (${collectionName}). تم استخدام الكاش لحماية تجربة المستخدم.`);
-                    return cachedData;
-                }
-                return null;
-            }
-        },
+            return null;
+        }
+    },
         
-        async set(collectionName, docId, data, options = { merge: true }) {
-                try {
-                    const safeId = this._sanitizeDocId(docId);
-                    await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000, 'set', true);
-                    return true;
-                } catch (error) { return false; }
-            },
+    async set(collectionName, docId, data, options = { merge: true }) {
+        try {
+            const safeId = this._sanitizeDocId(docId);
+            await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000, 'set', true);
+            return true;
+        } catch (error) { return false; }
+    },
             
-            async add(collectionName, data) {
-                    try {
-                        const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, 'add', true);
-                        return docRef.id;
-                    } catch (error) { return null; }
-                },
+    async add(collectionName, data) {
+        try {
+            const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, 'add', true);
+            return docRef.id;
+        } catch (error) { return null; }
+    },
                 
-                async delete(collectionName, docId) {
-                    try {
-                        await this._withTimeout(deleteDoc(doc(db, collectionName, this._sanitizeDocId(docId))), 10000, 'delete', true);
-                        return true;
-                    } catch (error) { return false; }
-                },
+    async delete(collectionName, docId) {
+        try {
+            await this._withTimeout(deleteDoc(doc(db, collectionName, this._sanitizeDocId(docId))), 10000, 'delete', true);
+            return true;
+        } catch (error) { return false; }
+    },
+
     listenDoc(collectionName, docId, callback) {
         const safeId = this._sanitizeDocId(docId);
         const unsubscribe = onSnapshot(doc(db, collectionName, safeId),
             (docSnap) => { callback(docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null); },
             (error) => {
-                // 🛡️ الإصلاح: تمرير رسالة نصية فقط لمنع الانهيار الدائري في الـ DevTools
+                // 🛡️ الإصلاح الماسي: تمرير رسالة نصية فقط لمنع الانهيار الدائري في الـ DevTools
                 console.warn(`Listen Error (${collectionName}):`, error?.message || 'Network stream error');
             }
         );
@@ -199,19 +199,17 @@ async fetchMoreWithCursor(collectionName, whereCondition, orderField, cursorDoc,
         const unsubscribe = onSnapshot(q,
             (snapshot) => { callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))); },
             (error) => {
-                // 🛡️ الإصلاح: تنظيف الكائن الدائري
+                // 🛡️ الإصلاح الماسي: تنظيف الكائن الدائري
                 console.warn(`Listen Query Error (${collectionName}):`, error?.message || 'Network stream error');
             }
         );
         
-        const filterStr = filtersArray.map(f => f.join('_')).join('|') + `_ord:${orderField||'none'}_lim:${limitCount||'all'}`;
-        return this._registerListener(`query_${collectionName}_${filterStr}`, unsubscribe);
-    },        // 🛡️ [الإصلاح الماسي 3]: مفتاح استعلام فريد ومستقر لا يتداخل
+        // 🛡️ مفتاح استعلام فريد ومستقر لا يتداخل
         const filterStr = filtersArray.map(f => f.join('_')).join('|') + `_ord:${orderField||'none'}_lim:${limitCount||'all'}`;
         return this._registerListener(`query_${collectionName}_${filterStr}`, unsubscribe);
     },
 
-    // 🛡️ [الإصلاح الماسي 2]: التحقق من الاتصال قبل إرهاق السيرفر
+    // 🛡️ التحقق من الاتصال قبل إرهاق السيرفر
     async callFunction(functionName, payload = {}, retryCount = 1) { 
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             const err = new Error('لا يوجد اتصال بالإنترنت.');
