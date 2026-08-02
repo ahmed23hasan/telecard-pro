@@ -1,15 +1,15 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V15.3 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V15.5 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه
-// 🚀 التحديثات المعمارية الصارمة (V15.3):
-// 1. Math Enforcement: إجبار بطاقات المنتجات على استخدام المحرك المالي المركزي لمنع تضارب الأسعار.
-// 2. Iron-Clad Canvas Cleanup: استخدام finally لضمان حذف الحاويات الوهمية للإيصالات ومنع انهيار الذاكرة.
-// 3. Scroll Lag Fix: مزامنة مؤقتات العروض (Timers) مع شاشة المستخدم عبر requestAnimationFrame لمنع التقطيع.
-// 4. Zero-Latency Rendering: إزالة لودرات الانتظار كلياً اعتماداً على معمارية الـ Cache-First.
+// 🚀 التحديثات المعمارية الصارمة (V15.5):
+// 1. Safari Blank PDF Fix: حل مشكلة الإيصالات البيضاء على أجهزة الآيفون بإجبار الرسم خارج الشاشة.
+// 2. DOM Memory Leak Fix: استخدام try..finally لضمان مسح حاويات التصوير حتى عند فشل html2canvas.
+// 3. CSS Object Injection Shield: حماية دوال التصميم من حقن الـ [object Object].
+// 4. Safe Time Unification: توحيد قراءة التواريخ عبر Utils.parseSafeTime لضمان الدقة.
 // ============================================================================
 
-import { DB_KEYS } from './config.js';
-import { Utils } from './utils.js';
+import { DB_KEYS, CACHE_KEYS } from './config.js'; 
+import * as Utils from './utils.js'; 
 import { DataManager, LiveStoreData, StoreDB } from './dataManager.js';
 import { UIManager } from './ui/uiManager.js';
 import { Components } from './components.js';
@@ -95,13 +95,16 @@ export const RenderManager = {
         return template.content; 
     },
     
+    // 🛡️ الإصلاح 3: حماية حقن الكائنات في CSS
     _getMappedColor: function(colorStr) {
-        return String(colorStr || 'badge-blue').replace('theme-ruby', 'badge-red').replace('theme-sunset', 'badge-red').replace('theme-sapphire', 'badge-blue').replace('theme-ocean', 'badge-blue').replace('theme-emerald', 'badge-green').replace('theme-gold', 'badge-gold').replace('theme-amethyst', 'badge-purple').replace('theme-cyber', 'badge-purple').replace('theme-carbon', 'badge-black').replace('theme-obsidian', 'badge-black');
+        const safeColor = typeof colorStr === 'string' ? colorStr : 'badge-blue';
+        return safeColor.replace('theme-ruby', 'badge-red').replace('theme-sunset', 'badge-red').replace('theme-sapphire', 'badge-blue').replace('theme-ocean', 'badge-blue').replace('theme-emerald', 'badge-green').replace('theme-gold', 'badge-gold').replace('theme-amethyst', 'badge-purple').replace('theme-cyber', 'badge-purple').replace('theme-carbon', 'badge-black').replace('theme-obsidian', 'badge-black');
     },
     
     _getMappedPosition: function(posStr, defaultPos) {
+        const safePos = typeof posStr === 'string' ? posStr : defaultPos;
         const posMap = { 'pos-tl': 'top-left', 'pos-tc': 'top-center', 'pos-tr': 'top-right', 'pos-bl': 'bottom-left', 'pos-bc': 'bottom-center', 'pos-br': 'bottom-right' };
-        return posMap[posStr] || posStr || defaultPos;
+        return posMap[safePos] || safePos;
     },
     
     _applyGridLayout: function(gridElement, settings = {}, overrideCols = null, gridType = 'prods') {
@@ -146,15 +149,12 @@ export const RenderManager = {
         return { html: imgHTML, wrapperClass: imgVars.wrapperClass, wrapperStyle: imgVars.wrapperStyle };
     },
 
-    // 🛡️ التحديث 1: إجبار استخدام المحرك المالي لضمان تطابق الأسعار
     _generateProductCardHTML: function(p, idx) {
         let pricingInfo = null;
         try { 
-            // استخدام getPricingLocal الذي يعتمد على FinancialEngine ويوفر التقريب المثالي والعملة الصحيحة
             pricingInfo = DataManager.getPricingLocal(p, 1, null, null); 
-        } catch(e) {
-            console.error("🚨 خطأ أثناء تسعير المنتج:", p.name, "السبب:", e.message);
-        }
+        } catch(e) { console.error("🚨 Pricing Error:", p.name, e.message); }
+        
         if (!pricingInfo) return ''; 
         
         let priceSectionHtml = '', nameExpandedStyle = '';
@@ -217,26 +217,21 @@ export const RenderManager = {
                     btn.disabled = true;
                     
                     let isTimeout = false;
-                    
                     const watchdog = setTimeout(() => {
                         isTimeout = true;
                         btn.innerHTML = `<i class="fa-solid fa-rotate-right"></i> فشل الاتصال، حاول مجدداً`;
-                        btn.disabled = false;
-                        btn.dataset.locked = 'false';
-                        
+                        btn.disabled = false; btn.dataset.locked = 'false';
                         setTimeout(() => { if (btn.dataset.locked === 'false') btn.innerHTML = originalHtml; }, 3000);
                     }, 12000); 
                     
                     const dbKey = type === 'orders' ? DB_KEYS.ORDERS : DB_KEYS.DEPOSITS;
                     try {
                         const res = await StoreDB.fetchMoreWithCursor(dbKey, ['userId', '==', String(uid)], 'time', DataManager.cursors[type], 15);
-                        
-                        if (!btn.isConnected) return;
-                        if (isTimeout) return;
+                        if (!btn.isConnected || isTimeout) return;
                         clearTimeout(watchdog);
                         
                         if (res.data && res.data.length > 0) {
-                            const normData = res.data.map(item => ({...item, time: RenderHelpers.parseTime(item.time), createdAt: RenderHelpers.parseTime(item.createdAt)}));
+                            const normData = res.data.map(item => ({...item, time: Utils.parseSafeTime(item.time), createdAt: Utils.parseSafeTime(item.createdAt)}));
                             const mergedData = [...this._historicalData[type], ...normData];
                             this._historicalData[type] = mergedData.length > 500 ? mergedData.slice(-500) : mergedData;
                             
@@ -252,14 +247,10 @@ export const RenderManager = {
                             setTimeout(() => loadMoreBtn.remove(), 2000);
                         }
                     } catch (err) {
-                        if (!btn.isConnected) return;
-                        if (isTimeout) return;
+                        if (!btn.isConnected || isTimeout) return;
                         clearTimeout(watchdog);
-                        console.error("🚨 Load More Error:", err);
                         btn.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> حدث خطأ، أعد المحاولة`;
-                        btn.disabled = false;
-                        btn.dataset.locked = 'false';
-                        
+                        btn.disabled = false; btn.dataset.locked = 'false';
                         setTimeout(() => { if (btn.dataset.locked === 'false') btn.innerHTML = originalHtml; }, 3000);
                     }
                 }
@@ -339,7 +330,6 @@ export const RenderManager = {
             
             if (typeof UIManager !== 'undefined' && UIManager.initSlider) UIManager.initSlider();
         };
-        
         performRender();
     },
 
@@ -362,7 +352,7 @@ export const RenderManager = {
 
         let activeCols = null;
         if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId && LiveStoreData.cats) {
-            const cat = LiveStoreData.cats.find(c => Number(c.id) === Number(UIManager.currentCategoryId));
+            const cat = LiveStoreData.cats.find(c => String(c.id) === String(UIManager.currentCategoryId));
             if (cat && cat.layout) activeCols = cat.layout;
         }
         this._applyGridLayout(container, LiveStoreData.settings || {}, activeCols, 'prods');
@@ -374,7 +364,6 @@ export const RenderManager = {
         container.replaceChildren(this._renderHtmlToFragment(skeletonsHTML));
     },
 
-    // 🛡️ التحديث 3: مزامنة المؤقت مع الشاشة لمنع التقطيع
     initTimersEngine: function() {
         if (window.StoreRenderApp.timerInterval) {
             clearInterval(window.StoreRenderApp.timerInterval);
@@ -383,8 +372,6 @@ export const RenderManager = {
         
         window.StoreRenderApp.timerInterval = setInterval(() => {
             if (document.hidden) return; 
-            
-            // استخدام requestAnimationFrame لضمان تحديث الـ DOM بسلاسة مع تردد الشاشة
             requestAnimationFrame(() => {
                 const timers = document.querySelectorAll('.live-countdown');
                 if (timers.length === 0) {
@@ -392,7 +379,6 @@ export const RenderManager = {
                     window.StoreRenderApp.timerInterval = null;
                     return;
                 }
-
                 const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
 
                 timers.forEach(item => {
@@ -404,7 +390,7 @@ export const RenderManager = {
                     } else {
                         const h = Math.floor(diff / (1000 * 60 * 60)), m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)), s = Math.floor((diff % (1000 * 60)) / 1000);
                         const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-                        if (item.innerText !== timeStr) item.innerText = timeStr; // تحديث الـ DOM فقط إذا تغير النص الفعلي
+                        if (item.innerText !== timeStr) item.innerText = timeStr; 
                     }
                 });
             });
@@ -456,7 +442,6 @@ export const RenderManager = {
                     }
 
                     const imgObj = this._generateImageHTML(prod.img, Utils.escapeHtml(prod.name), 'story');
-
                     storiesHtml += `<div class="story-item clickable" data-action="open-product" data-id="${prod.id}"><div class="story-ring ${shapeClass} ${bColorClass}" style="${shapeStyle}"><div class="story-img-wrapper ${shapeClass} ${imgObj.wrapperClass}" style="${shapeStyle} ${imgObj.wrapperStyle}">${imgObj.html}</div>${badgeHtml}${timerHtml}</div><span class="story-title">${Utils.escapeHtml(prod.name)}</span></div>`;
                 });
             } catch (e) {}
@@ -556,7 +541,6 @@ export const RenderManager = {
             else isCatActive = activeCatIds.has(String(p.catId)) || activeCatIds.has(String(p.categoryId)) || activeCatIds.has(String(p.category_id));
             
             if (!isCatActive) return false;
-            
             return p.name && searchTerms.every(word => p.name.toLowerCase().replace(/[-_.:,]/g, ' ').includes(word));
         });
 
@@ -670,7 +654,7 @@ export const RenderManager = {
         const user = DataManager.user || { id: 0, balance: 0, totalSpent: 0, totalDeposit: 0, baseCurrency: 'USD' };
         const walletCurr = (user.baseCurrency || user.base_currency || 'USD').toUpperCase();
         
-        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? String(DataManager.user.id) : null);
+        const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (DataManager.user ? String(DataManager.user.id) : null);
         if (!uid || uid === '0' || uid === 'undefined') {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-wallet"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
         }
@@ -686,18 +670,22 @@ export const RenderManager = {
 
         const deposits = uniqueDeposits.filter(d => String(d.userId) === String(uid)).map(d => {
             const credited = d.creditedAmount !== undefined ? Number(d.creditedAmount) : Number(d.amount || 0);
+            // 🛡️ الإصلاح 4: توحيد قراءة الوقت
+            const safeTime = Utils.parseSafeTime(d.time || d.createdAt);
             return {
                 ...d, type: 'deposit', amountVal: Math.abs(credited), amountCurrency: d.targetCurrency || walletCurr,
                 searchKey: `شحن deposit ${credited} #${d.displayId || d.id} ${RenderHelpers.formatDepositId(d).toLowerCase()}`,
-                isDeduction: credited < 0, sortTime: RenderHelpers.parseUnifiedTime(d) 
+                isDeduction: credited < 0, sortTime: safeTime 
             };
         });
         
         const orders = uniqueOrders.filter(o => String(o.userId) === String(uid)).map(o => {
+            // 🛡️ الإصلاح 4: توحيد قراءة الوقت
+            const safeTime = Utils.parseSafeTime(o.time || o.createdAt);
             return {
                 ...o, type: 'purchase', amountVal: Number(o.price || 0), amountCurrency: o.priceCurrency || walletCurr, 
                 searchKey: `شراء purchase ${o.product} ${o.price} #${o.displayId || o.id} ${RenderHelpers.formatOrderId(o).toLowerCase()}`,
-                sortTime: RenderHelpers.parseUnifiedTime(o) 
+                sortTime: safeTime 
             };
         });
 
@@ -750,7 +738,7 @@ export const RenderManager = {
             container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-building-columns"></i><h3>لا توجد طرق دفع متاحة</h3></div>`; return;
         }
 
-        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? String(DataManager.user.id) : null);
+        const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (DataManager.user ? String(DataManager.user.id) : null);
         const pendingMethodKeys = (LiveStoreData.deposits || []).filter(d => String(d.userId) === String(uid) && d.status === 'pending').map(d => String(d.methodId || d.method).toLowerCase());
 
         let html = '';
@@ -784,7 +772,7 @@ export const RenderManager = {
         if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
 
-        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? String(DataManager.user.uid || DataManager.user.id) : null);
+        const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (DataManager.user ? String(DataManager.user.uid || DataManager.user.id) : null);
         if (!uid || uid === '0' || uid === 'undefined') {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
         }
@@ -798,7 +786,8 @@ export const RenderManager = {
         const rawDeposits = [...(LiveStoreData.deposits || []), ...(this._historicalData.deposits || [])];
         const uniqueDeposits = Array.from(new Map(rawDeposits.map(item => [String(item.id), item])).values());
         
-        let myDeposits = uniqueDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: RenderHelpers.parseUnifiedTime(d) }));
+        // 🛡️ الإصلاح 4: توحيد قراءة الوقت
+        let myDeposits = uniqueDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: Utils.parseSafeTime(d.time || d.createdAt) }));
 
         const filters = DataManager.filters || { payments: 'all' };
         if (filters.payments !== 'all') myDeposits = myDeposits.filter(d => filters.payments === 'rejected' ? ['rejected', 'refunded', 'returned'].includes(d.status) : d.status === filters.payments);
@@ -844,7 +833,7 @@ export const RenderManager = {
         const list = document.getElementById('orders-list'); 
         if (!list) return; 
         
-        const uid = localStorage.getItem('telecard_active_user_uid') || (DataManager.user ? String(DataManager.user.id) : null);
+        const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (DataManager.user ? String(DataManager.user.id) : null);
         if (!uid || uid === '0' || uid === 'undefined') {
             list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
         }
@@ -855,7 +844,8 @@ export const RenderManager = {
         const rawOrders = [...(LiveStoreData.orders || []), ...(this._historicalData.orders || [])];
         const uniqueOrders = Array.from(new Map(rawOrders.map(item => [String(item.id), item])).values());
 
-        let orders = uniqueOrders.filter(o => String(o.userId) === String(uid)).map(o => ({ ...o, sortTime: RenderHelpers.parseUnifiedTime(o) }));
+        // 🛡️ الإصلاح 4: توحيد قراءة الوقت
+        let orders = uniqueOrders.filter(o => String(o.userId) === String(uid)).map(o => ({ ...o, sortTime: Utils.parseSafeTime(o.time || o.createdAt) }));
 
         const filters = DataManager.filters || { orders: 'all' };
         if (filters.orders !== 'all') orders = orders.filter(o => o.status === filters.orders);
@@ -903,7 +893,6 @@ export const RenderManager = {
         return { showToast: () => {} };
     },
 
-    // 🛡️ التحديث 2: تأمين عملية تنظيف الذاكرة (Canvas Cleanup) 
     generateReceiptImage: async function(config) {
         return new Promise(async (resolve) => {
             const containerId = 'receipt-render-box-' + Date.now();
@@ -935,15 +924,11 @@ export const RenderManager = {
                 
                 const container = document.createElement('div');
                 container.id = containerId;
+                // 🛡️ الإصلاح 1: إجبار محركات سفاري على الرسم رغم الإخفاء عن المستخدم
                 container.style.cssText = `
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 420px;
-                    background-color: #ffffff;
-                    z-index: -9999;
-                    opacity: 0.01;
-                    pointer-events: none;
+                    position: absolute; top: -9999px; left: -9999px; width: 420px;
+                    background-color: #ffffff; z-index: -9999;
+                    opacity: 1; pointer-events: none;
                 `;
                 container.innerHTML = fullHTML;
                 document.body.appendChild(container);
@@ -955,16 +940,12 @@ export const RenderManager = {
                 const canvas = await html2canvas(container, {
                     scale: 2, 
                     useCORS: true, 
-                    allowTaint: true,
                     backgroundColor: '#ffffff'
                 });
                 
                 const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.95));
                 
-                canvas.width = 0; 
-                canvas.height = 0;
-                
-                cleanup(); // الحذف الآمن
+                canvas.width = 0; canvas.height = 0;
                 
                 const safeFileName = config.filename || 'receipt.jpg';
                 const title = `إيصال - ${storeName}`;
@@ -979,8 +960,10 @@ export const RenderManager = {
                 console.error("🚨 Receipt Image Generation Error:", err);
                 isResolved = true;
                 clearTimeout(watchdog); 
-                cleanup(); // ضمان عدم ترك Container في الخلفية
                 resolve(false); 
+            } finally {
+                // 🛡️ الإصلاح 2: ضمان مسح ذاكرة الـ DOM حتى عند الانهيار
+                cleanup(); 
             }
         });
     },
@@ -1006,13 +989,13 @@ export const RenderManager = {
                 filename: `Order_${RenderHelpers.formatOrderId(o)}.jpg`,
                 data: {
                     id: o.id, displayId: RenderHelpers.formatOrderId(o),
-                    userName: Utils.escapeHtml(rawUserName), // حماية إضافية ضد XSS
+                    userName: Utils.escapeHtml(rawUserName), 
                     userDisplayId: RenderHelpers.formatUserId(DataManager.user),
                     status: o.status, product: o.product, 
                     price: finalPrice, originalPrice: originalPrice, priceCurrency: o.priceCurrency || 'USD', 
                     qty: o.qty || 1, 
                     input: Utils.escapeHtml(o.input || '---'),
-                    dateTime: RenderHelpers.formatSafeDate(o.time || o.createdAt), code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null
+                    dateTime: RenderHelpers.formatSafeDate(Utils.parseSafeTime(o.time || o.createdAt)), code: (o.status === 'completed' && o.deliveredCode !== 'null') ? o.deliveredCode : null
                 }
             });
             
@@ -1048,12 +1031,12 @@ export const RenderManager = {
                 filename: `Deposit_${RenderHelpers.formatDepositId(d)}.jpg`,
                 data: {
                     id: d.id, displayId: RenderHelpers.formatDepositId(d),
-                    userName: Utils.escapeHtml(rawUserName), // حماية إضافية
+                    userName: Utils.escapeHtml(rawUserName), 
                     userDisplayId: RenderHelpers.formatUserId(DataManager.user),
                     method: d.method || '---', amount: rawAmt, currency: d.currency || 'USD',
                     feePercent: d.feesPercent || 0, feeVal: calcFee, feeType: isBonus ? 'bonus' : 'fee', 
                     netVal: credAmt, targetCurrency: d.targetCurrency || 'USD',
-                    dateTime: RenderHelpers.formatSafeDate(d.time || d.createdAt)
+                    dateTime: RenderHelpers.formatSafeDate(Utils.parseSafeTime(d.time || d.createdAt))
                 }
             });
             
@@ -1079,23 +1062,23 @@ export const RenderManager = {
             return;
         }
         
-        const serverLastReadTime = DataManager.user?.lastReadAlertTime ? RenderHelpers.parseUnifiedTime({ time: DataManager.user.lastReadAlertTime }) : 0;
+        const serverLastReadTime = DataManager.user?.lastReadAlertTime ? Utils.parseSafeTime(DataManager.user.lastReadAlertTime) : 0;
         let readIds = [];
         try { readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String); } catch (e) { localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, "[]"); }
         
         allAlerts.sort((a, b) => {
-            const timeDiff = RenderHelpers.parseUnifiedTime(b) - RenderHelpers.parseUnifiedTime(a);
+            const timeDiff = Utils.parseSafeTime(b.createdAt || b.time) - Utils.parseSafeTime(a.createdAt || a.time);
             return timeDiff !== 0 ? timeDiff : String(b.id || '').localeCompare(String(a.id || ''));
         });
         
-        const unreadCount = allAlerts.filter(a => !readIds.includes(String(a.id)) && !a.isRead && RenderHelpers.parseUnifiedTime(a) > serverLastReadTime).length;
+        const unreadCount = allAlerts.filter(a => !readIds.includes(String(a.id)) && !a.isRead && Utils.parseSafeTime(a.createdAt || a.time) > serverLastReadTime).length;
         if (window.UIManager?.updateNotifBadges) window.UIManager.updateNotifBadges(unreadCount);
         
         let html = unreadCount > 0 ? `<div class="nc-top-action-bar"><span class="nc-unread-count-text">لديك <span class="nc-unread-count-num">${unreadCount}</span> جديد</span><button class="btn btn-ghost nc-mark-read-btn" data-action="mark-all-read">تحديد الكل كمقروء</button></div>` : '';
         
         html += allAlerts.slice(0, 30).map(alert => {
             try {
-                const isRead = readIds.includes(String(alert.id)) || alert.isRead || RenderHelpers.parseUnifiedTime(alert) <= serverLastReadTime;
+                const isRead = readIds.includes(String(alert.id)) || alert.isRead || Utils.parseSafeTime(alert.createdAt || alert.time) <= serverLastReadTime;
                 return `<div class="nc-item ${isRead ? 'is-read' : 'unread'}" data-action="mark-single-read" data-id="${alert.id}"><div class="nc-icon"><i class="fa-solid ${(alert.jumpTarget === 'order') ? 'fa-box-open' : (alert.icon || 'fa-bullhorn')}"></i></div><div class="nc-content"><div class="nc-header"><h4 class="nc-title">${Utils.escapeHtml(alert.title || 'إشعار جديد')}</h4><span class="nc-time">${RenderHelpers.formatSafeDate(alert.createdAt || alert.time).split(' | ')[0]}</span></div><p class="nc-msg">${Utils.escapeHtml(alert.message || '')}</p></div>${!isRead ? '<div class="unread-indicator-dot"></div>' : ''}</div>`;
             } catch(e) { return ''; }
         }).join('');

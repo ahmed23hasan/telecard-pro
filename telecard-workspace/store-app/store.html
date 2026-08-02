@@ -3,21 +3,8 @@
 
 <head>
     <script>
-        // 🚀 1. تحديد الإصدار (المرجع الوحيد للنظام)
-        window.TELECARD_VERSION = "14.6.0";
-        
-        // 🚀 2. قاتل الكاش العميق (Service Worker & Cache Storage Killer)
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                for (let registration of registrations) { registration.unregister(); }
-            });
-        }
-        // 🛡️ تدمير الكاش الفعلي لمنع تحميل ملفات قديمة من الذاكرة
-        if (window.caches) {
-            caches.keys().then(function(names) {
-                for (let name of names) { caches.delete(name); }
-            });
-        }
+        // 🚀 1. تحديد الإصدار (متوافق مع محرك V20.8 الماسي الذي بنيناه)
+        window.TELECARD_VERSION = "20.8.0";
     </script>
     
     <!-- 🚀 نظام المراقبة المبكر للإقلاع -->
@@ -53,15 +40,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- 🚀 تم تنظيف الـ Versioning ليعتمد على قاتل الكاش -->
-    <link rel="stylesheet" href="style.css?v=14.6"> <!-- تم إزالة إغلاق السكريبت الخاطئ -->
+    <!-- 🚀 نظام التصميم المركزي النظيف -->
+    <link rel="stylesheet" href="style.css">
 
-    
-    <!-- 🛡️ مكتبات النظام الأساسية -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
-    
-    <!-- 🌟 مكتبة تحويل الإيصالات إلى صور (Web Share API) -->
+    <!-- 🛡️ مكتبات النظام الأساسية المحصنة (تم التخلص من الوزن الميت والمكتبات المتضاربة) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
 </head>
 
@@ -85,7 +67,6 @@
     <!-- 🚀 شاشة الإقلاع الرئيسية (Zero-Latency Spinner) -->
     <div id="global-splash-screen" class="splash-screen-overlay">
         <div class="splash-logo-container">
-            <!-- 🛡️ SVG مضمن يعمل بـ 0ms تأخير بدون انتظار خطوط FontAwesome -->
             <svg class="splash-spinner" viewBox="0 0 50 50" style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; animation: fa-spin 2s linear infinite;">
                 <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="90, 150" style="opacity: 0.2;"></circle>
                 <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="40, 150"></circle>
@@ -117,7 +98,6 @@
     <!-- ======================= 🔝 الهيدر العلوي ======================= -->
     <header class="store-header">
         <div class="header-actions-right">
-             <!-- 🛡️ تحسين A11y (دعم الكيبورد وقارئ الشاشة للأزرار المبنية عبر DIV) -->
              <div class="action-btn menu-btn" data-action="open-sidebar" role="button" tabindex="0" aria-label="القائمة الجانبية"><i class="fa-solid fa-bars"></i></div>
              
              <div class="action-btn notif-bell-btn" data-action="open-notif-center" role="button" tabindex="0" aria-label="الإشعارات">
@@ -125,12 +105,13 @@
                  <span class="notif-badge hide-element" id="header-notif-badge">0</span>
              </div>
              
+             <!-- ======================= 🔝 كبسولة العملة ======================= -->
              <div class="ct-wrapper hide-element" style="display: none;">
-                <button type="button" class="ct-toggle" id="ct-toggle" data-action="toggle-currency-menu" aria-label="تغيير العملة">
-                    <span class="ct-flag-box" id="ct-flag-box"><img class="ct-flag" alt=""></span>
-                    <span class="ct-label" id="ct-label">USD</span>
-                    <i class="fa-solid fa-caret-down"></i>
-                </button>
+                 <button type="button" class="ct-toggle" id="ct-toggle" data-action="toggle-currency-menu" aria-label="تغيير العملة">
+                     <span class="ct-flag-box" id="ct-flag-box"><img class="ct-flag" alt=""></span>
+                     <span class="ct-label num-en" id="ct-label">USD</span>
+                     <i class="fa-solid fa-caret-down"></i>
+                 </button>
                  <div class="ct-menu" id="ct-menu"></div>
                  <select id="display-currency" class="display-currency-native" data-action="change-currency" aria-label="العملة المخفية"></select>
              </div>
@@ -151,7 +132,7 @@
         </div>
         
         <div class="logo-area logo-ar" id="store-branding-target" data-action="nav-home" role="button" tabindex="0" style="cursor: pointer;"></div>
-    </header>    
+    </header>
 
     <!-- ======================= 📋 القائمة الجانبية ======================= -->
     <div class="sidebar-overlay" id="sidebarOverlay" data-action="close-sidebar"></div>
@@ -170,11 +151,11 @@
                 <p>قم بتسجيل الدخول وتمتع بتجربة شراء سهلة</p>
             </div>
             <div class="guest-actions">
-                <a href="login.html" class="btn-guest-login">تسجيل الدخول</a>
-                <a href="login.html" class="btn-guest-google">
+                <button class="btn-guest-login" data-action="go-login" style="width: 100%; border: none; cursor: pointer; text-align: center;">تسجيل الدخول</button>
+                <button class="btn-guest-google" data-action="go-login" style="width: 100%; border: none; cursor: pointer; text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <img src="https://cdn-icons-png.flaticon.com/512/2991/2991148.png" alt="Google" style="width: 18px; height: 18px; object-fit: contain;"> 
                     تسجيل بواسطة غوغل
-                </a>
+                </button>
             </div>
         </div>
         
@@ -524,7 +505,7 @@
                             <i class="fa-regular fa-calendar"></i>
                             <div class="icon-indicator start-icon"><i class="fa-solid fa-arrow-down"></i></div>
                         </div>
-                        <span class="field-value" id="disp-pay-date-start">--</span>
+                        <span class="field-value" id="disp-pay-start">--</span>
                         <input type="hidden" id="pay-date-start">
                     </div>
                 </div>
@@ -535,7 +516,7 @@
                             <i class="fa-regular fa-calendar"></i>
                             <div class="icon-indicator end-icon"><i class="fa-solid fa-arrow-up"></i></div>
                         </div>
-                        <span class="field-value" id="disp-pay-date-end">--</span>
+                        <span class="field-value" id="disp-pay-end">--</span>
                         <input type="hidden" id="pay-date-end">
                     </div>
                 </div>
@@ -797,7 +778,6 @@
                             <i class="fa-regular fa-trash-can"></i> حذف الصورة
                         </button>
                     </div>
-                    <!-- 🛡️ إصلاح الكاميرا: إجبار التقط الكاميرا لرفع صورة الحساب إذا دعت الحاجة -->
                     <input type="file" id="avatar-upload-input" hidden accept="image/*" data-action="upload-avatar">
                 </div>
 
@@ -1084,7 +1064,6 @@
 
                 <div class="kyc-upload-grid">
                     <div class="kyc-upload-box" id="kyc-box-front">
-                        <!-- 🛡️ إصلاح الكاميرا: إجبار التقط الوجه الأمامي عبر الكاميرا الخلفية -->
                         <input type="file" accept="image/*" capture="environment" data-action="kyc-upload-front">
                         <i class="fa-regular fa-id-card"></i>
                         <span class="kyc-guide-txt">الوجه الأمامي للوثيقة<br>(يجب أن تكون البيانات واضحة)</span>
@@ -1092,7 +1071,6 @@
                     </div>
                     
                     <div class="kyc-upload-box" id="kyc-box-back">
-                        <!-- 🛡️ إصلاح الكاميرا: إجبار التقط الوجه الخلفي عبر الكاميرا الخلفية -->
                         <input type="file" accept="image/*" capture="environment" data-action="kyc-upload-back">
                         <i class="fa-solid fa-barcode"></i>
                         <span class="kyc-guide-txt">الوجه الخلفي للوثيقة<br>(تأكد من وضوح الرموز)</span>
@@ -1100,7 +1078,6 @@
                     </div>
                     
                     <div class="kyc-upload-box kyc-box-full" id="kyc-box-selfie">
-                        <!-- 🛡️ إصلاح الكاميرا: إجبار التقاط السيلفي عبر الكاميرا الأمامية -->
                         <input type="file" accept="image/*" capture="user" data-action="kyc-upload-selfie">
                         <i class="fa-solid fa-camera-retro"></i>
                         <span class="kyc-guide-txt">صورة سيلفي مع الوثيقة<br>(يرجى الإمساك بها بجانب الوجه)</span>
@@ -1275,7 +1252,7 @@
         </div>
         
         <div class="pm-scroll-content">
-            <div class="settings-group-title">إعدادات المصادقة وحماية الحساب</div>
+            <div class="settings-group-title">إعادة تعيين كلمة المرور وحماية الحساب</div>
             
             <div class="modern-setting-row">
                 <div class="setting-info">
@@ -1301,9 +1278,7 @@
             
             <div class="settings-group-title">تعديل كلمة المرور</div>
 
-            <!-- 🛡️ إصلاح المتصفح: تغليف الحقول داخل form مع إجبار مدير كلمات مرور أبل (Keychain) على العمل -->
             <form class="security-pass-wrapper" onsubmit="event.preventDefault(); document.getElementById('btn-pass-submit').click();">
-                <!-- 🛡️ حقل مخفي لإجبار Keychain على اقتراح كلمات المرور في نظام iOS -->
                 <input type="text" autocomplete="username" value="telecard_user" style="display:none;" aria-hidden="true">
                 
                 <div class="input-field-lux" style="position: relative;">
@@ -1323,7 +1298,6 @@
                 </div>
                 
                 <div style="margin-top: 10px;">
-                    <!-- 🛡️ زر Submit لتفعيل الحدث بشكل طبيعي عند ضغط Enter من الكيبورد -->
                     <button type="submit" id="btn-pass-submit" class="alert-btn" data-action="submit-password-change">تحديث كلمة المرور</button>
                 </div>
             </form>            
@@ -1387,8 +1361,7 @@
         </div>
     </div>
     
-    <!-- 🚀 المحرك الرئيسي للمتجر (محصن بقاتل الكاش بدون ?v=) -->
-    <script type="module" src="script.js?v=14.6"></script>
+    <script type="module" src="script.js"></script>
 
 
 <!-- ========================================================================= -->
@@ -1397,10 +1370,10 @@
 <script>
     (function initMobileDevTools() {
         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('github.dev');
-const isDebugUrl = window.location.search.includes('debug=1');
+        const isDebugUrl = window.location.search.includes('debug=1');
 
-// 🛡️ إجبار الكونسول على الظهور في بيئة غيت هوب
-if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;        localStorage.setItem('dev_mode', '1');
+        if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;
+        localStorage.setItem('dev_mode', '1');
         
         document.body.insertAdjacentHTML('beforeend', `
             <div id="tc-dev-console" style="position:fixed; bottom:0; left:0; width:100%; height:50%; background:rgba(15, 23, 42, 0.98); color:#10b981; font-family:'Courier New', monospace; font-size:12px; z-index:9999999999; overflow-y:auto; border-top:4px solid #3b82f6; direction:ltr; text-align:left; display:none; padding-top:60px; box-shadow: 0 -10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);">
@@ -1433,24 +1406,39 @@ if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;
 
         console.log = function(...args) {
             origLog.apply(console, args);
-            logsContainer.insertAdjacentHTML('beforeend', `<div style="color:#34d399; border-bottom:1px dashed #334155; padding:8px 0;">[LOG] ${formatMsg(args)}</div>`);
+            
+            // 🛡️ التحديث الأمني: استخدام عنصر آمن مشفر النص بدلاً من HTML مباشر لحماية المطورين (XSS Protection)
+            const logDiv = document.createElement('div');
+            logDiv.style.cssText = "color:#34d399; border-bottom:1px dashed #334155; padding:8px 0;";
+            logDiv.textContent = `[LOG] ${formatMsg(args)}`;
+            logsContainer.appendChild(logDiv);
+            
             devConsole.scrollTop = devConsole.scrollHeight;
         };
         
         console.warn = function(...args) {
             origWarn.apply(console, args);
-            logsContainer.insertAdjacentHTML('beforeend', `<div style="color:#fbbf24; border-bottom:1px dashed #334155; padding:8px 0;">[WARN] ${formatMsg(args)}</div>`);
+            
+            const warnDiv = document.createElement('div');
+            warnDiv.style.cssText = "color:#fbbf24; border-bottom:1px dashed #334155; padding:8px 0;";
+            warnDiv.textContent = `[WARN] ${formatMsg(args)}`;
+            logsContainer.appendChild(warnDiv);
+            
             devConsole.scrollTop = devConsole.scrollHeight;
         };
         
         console.error = function(...args) {
             origError.apply(console, args);
-            logsContainer.insertAdjacentHTML('beforeend', `<div style="color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);">[ERROR] ${formatMsg(args)}</div>`);
+            
+            const errDiv = document.createElement('div');
+            errDiv.style.cssText = "color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);";
+            errDiv.textContent = `[ERROR] ${formatMsg(args)}`;
+            logsContainer.appendChild(errDiv);
+            
             devConsole.scrollTop = devConsole.scrollHeight;
             if (!document.hidden) devConsole.style.display = 'block'; 
         };
         
-        // 🛡️ التحديث الماسي 3.4: حماية ذكية من أخطاء السيرفر المحلي والصور
         window.addEventListener('error', function(e) {
             const target = e.target || e.srcElement;
             const tag = target?.tagName?.toUpperCase();
@@ -1463,7 +1451,6 @@ if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;
             if (tag === 'SCRIPT' || tag === 'LINK') {
                 const missingFile = target.src || target.href || 'Unknown File';
                 
-                // 🛡️ تجاهل أخطاء Spck Editor التي تمنع الـ Modules وإظهار تنبيه لطيف
                 if (isLocal && target.type === 'module') {
                     console.warn(`⚠️ السيرفر المحلي للمحرر حظر ملف (Module) بسبب قيود (MIME/CORS). المتجر سيعمل بشكل مثالي عند الرفع على Firebase.\nالملف المحظور: ${missingFile}`);
                     return;
@@ -1473,7 +1460,6 @@ if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;
                 return;
             }
             
-            // انهيار جافاسكريبت حقيقي
             if (e.message) {
                 console.error(`💥 Runtime Crash: ${e.message} \n📍 السطر: ${e.lineno || 'N/A'} \n📁 الملف: ${e.filename || 'N/A'}`);
             }
@@ -1495,12 +1481,11 @@ if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;
             console.log(`🏁 نتيجة الفحص: ${passed}/${filesToTest.length} ملفات تم الوصول إليها.`);
         };
 
-        // 🛡️ الترقيع الماسي 3.4: إصلاح قفزة الكيبورد في iOS Safari عند النسخ
         document.getElementById('tc-copy-btn').addEventListener('click', function() {
             const text = logsContainer.innerText;
             const textarea = document.createElement('textarea');
             textarea.value = text; 
-            textarea.readOnly = true; // 👈 هذا السطر يمنع الكيبورد من الظهور في الآيفون
+            textarea.readOnly = true; 
             textarea.style.position = 'fixed'; 
             textarea.style.opacity = '0';
             document.body.appendChild(textarea); 

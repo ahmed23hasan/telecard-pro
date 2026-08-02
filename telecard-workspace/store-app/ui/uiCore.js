@@ -1,16 +1,15 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - Enterprise V14.4 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - Enterprise V14.8 💎
 // 🎯 الوظيفة: النوافذ، الإشعارات، القائمة الجانبية، النسخ، الثيم، والتوجيه العام
-// 🚀 التحديثات المعمارية:
-// 1. Touch Event Safe-Guard: حماية السحب الجانبي (Swipe) من الانهيار في Safari/iOS.
-// 2. Non-Destructive Ban: تعديل نافذة الحظر لتكون Overlay آمن ولا يدمر إضافات المتصفح.
-// 3. Audio Context Firewall: عزل أخطاء الصوت تماماً لمنع تعطل الأزرار الشرائية.
-// 4. Strict Event Delegation: تحسين نظام معالجة الإجراءات المركزية (Global Actions).
+// 🚀 التحديثات المعمارية النهائية (V14.8):
+// 1. Loader Death-Trap Fix: تأمين الانتقالات بـ (Try...Finally) لمنع تجميد المتجر عند أخطاء الرسم.
+// 2. Null Routing Shield: منع انهيار الـ Modal عند النقر على إشعار لا يحتوي على Target ID.
+// 3. History Leak Fix: تصفير ذاكرة التصفح (navHistory) عند تسجيل الخروج لمنع تداخل الجلسات.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY } from '../config.js';           
-import { Utils } from '../utils.js';             
-import { DataManager, LiveStoreData, StoreDB } from '../dataManager.js'; 
+import * as Utils from '../utils.js'; 
+import { DataManager, LiveStoreData } from '../dataManager.js'; 
 import { RenderManager } from '../renderManager.js'; 
 import { Components } from '../components.js';     
 import { RenderHelpers } from '../core/renderHelpers.js'; 
@@ -30,7 +29,7 @@ export const UICore = {
     historyStateSet: false,
 
     // =========================================================
-    // 🚨 0. نافذة الطرد المباشر الآمنة (Non-Destructive)
+    // 🚨 0. نافذة الطرد المباشر الآمنة (Centralized Architecture)
     // =========================================================
     triggerLiveBanAlert: function(reasonMessage) {
         const msgText = Utils.escapeHtml(reasonMessage || 'تم تقييد حسابك.');
@@ -44,7 +43,7 @@ export const UICore = {
             document.body.appendChild(overlay);
             
             const mainApp = document.getElementById('app-container') || document.querySelector('.main-wrapper');
-            if (mainApp) mainApp.style.display = 'none'; // إخفاء التطبيق بدلاً من حذفه
+            if (mainApp) mainApp.style.display = 'none'; 
         }
 
         overlay.innerHTML = `
@@ -63,18 +62,13 @@ export const UICore = {
             window.history.replaceState(null, null, window.location.href);
         }
         
-        try {
-            if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('TeleCardStoreDB');
-            localStorage.removeItem(ACTIVE_USER_KEY); 
-            localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
-            sessionStorage.clear();
-            
-            import('../core/firebaseAdapter.js').then(module => {
-                if (module.auth) module.auth.signOut();
-            }).catch(() => {});
-        } catch (e) {}
-        
-        setTimeout(() => { window.location.replace('login.html'); }, 3000);
+        setTimeout(() => { 
+            if (DataManager && typeof DataManager.logout === 'function') {
+                DataManager.logout();
+            } else {
+                window.location.replace('login.html');
+            }
+        }, 3500);
     },
 
     openSettings: function() { getSys().resetUI?.(); getSys().renderSettingsUI?.(); getSys().openModal?.('settings'); },
@@ -250,6 +244,12 @@ export const UICore = {
         ['store-search-input', 'order-search-input', 'wallet-search-input', 'pay-search-input'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 
         if (!document.querySelector('.sidebar.active') && this.activeModals.length === 0) document.body.classList.remove('no-scroll');
+        
+        // 🛡️ الإصلاح 3: تصفير الـ History لمنع تسرب الجلسات عند تسجيل الخروج
+        if (!DataManager.user) {
+            this.navHistory = [];
+            this.currentCategoryId = null;
+        }
     },
 
     resetGridScroll: function() {
@@ -419,7 +419,6 @@ export const UICore = {
             if (e.target.closest('.slider-container')) return; 
             removeListeners();
             
-            // 🛡️ حماية ضد الأخطاء إذا كانت الـ touches فارغة لسبب ما
             if (!e.touches || e.touches.length === 0) return;
             
             startX = e.touches[0].clientX; startY = e.touches[0].clientY;
@@ -461,7 +460,6 @@ export const UICore = {
         const onTouchEnd = (e) => {
             if (!isDragging || !isSwipeConfirmed) { removeListeners(); cleanupPerformance(); return; }
             
-            // 🛡️ إصلاح مشكلة iOS Safari
             const diffX = (e.changedTouches && e.changedTouches.length > 0) ? e.changedTouches[0].clientX - startX : 0;
             
             const time = Date.now() - startTime;
@@ -518,7 +516,9 @@ export const UICore = {
             'open-add-balance': () => getSys().openAddBalance?.(),
             'open-tier-info': (e) => { e.stopPropagation(); getSys().openTierInfoModal?.(); },
             'logout': () => DataManager.logout?.(),
-            'enforce-biometric': () => getSys().enforceBiometricLock?.(),
+            'go-login': (e) => { e.preventDefault(); window.location.href = 'login.html'; },
+            'request-account-delete': () => getSys().openModal?.('account-delete'),
+            
             'close-orders': () => this.closeOrders?.(),
             'close-wallet': () => this.closeWallet?.(),
             'close-mypayments': () => this.closeMyPayments?.(),
@@ -614,7 +614,6 @@ export const UICore = {
             'toggle-biometric': () => getSys().handleBiometricToggle?.(),
             'send-reset-pass': () => getSys().sendResetPasswordEmail?.(),
             'submit-password-change': () => getSys().handlePasswordSubmit?.(),
-            'request-account-delete': () => getSys().toggleSecurityPref?.(),
             'verify-and-enable-2fa': () => getSys().verifyAndEnable2FA?.(),
             'toggle-parent-dropdown': (e, id, val, target) => target.parentElement.classList.toggle('open'),
             'select-reg-currency': (e, id, val, target, dataType, dataCurr, dataName, dataCode) => { e.preventDefault(); getSys().selectRegCurrency?.(dataName, dataCode); },
@@ -623,7 +622,8 @@ export const UICore = {
             'submit-kyc': () => getSys().submitKycData?.(),
             'select-rating': (e, id, val) => this.selectRatingStar?.(parseInt(val)),
             'submit-rating-step': () => this.submitRatingStep?.(),
-            'submit-private-feedback': () => this.submitPrivateFeedback?.(),
+            'submit-private-feedback': () => getSys().submitPrivateFeedback?.(),
+            
             'copy-text': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget, dataText) => {
                 e.preventDefault(); e.stopPropagation();
                 this.copyToClipboard?.(dataText || target.innerText, target);
@@ -651,6 +651,7 @@ export const UICore = {
                 this.markAllNotificationsRead?.();
             },
             
+            // 🛡️ الإصلاح 2: منع انهيار الـ Modal بسبب الأهداف الفارغة (Null Routing)
             'mark-single-read': (e, id) => {
                 e.stopPropagation();
                 const item = e.target.closest('.nc-item');
@@ -666,8 +667,14 @@ export const UICore = {
                         else { const topBar = document.querySelector('.nc-top-action-bar'); if (topBar) topBar.style.display = 'none'; }
                     }
                 }
-                (this.markSingleNotificationRead || DataManager.markSingleNotificationRead)?.(id);
-                if (item?.hasAttribute('data-target-id')) getSys().openDetail?.(e, item.getAttribute('data-jump-type') || 'order', item.getAttribute('data-target-id'));
+                if (DataManager && typeof DataManager.markSingleNotificationRead === 'function') {
+                    DataManager.markSingleNotificationRead(id);
+                }
+                
+                const tId = item?.getAttribute('data-target-id');
+                if (tId && tId !== 'null' && tId !== 'undefined') {
+                    getSys().openDetail?.(e, item.getAttribute('data-jump-type') || 'order', tId);
+                }
             }
         };
 
@@ -779,6 +786,7 @@ export const UICore = {
         else { backdrop.style.opacity = '0'; setTimeout(() => loader.style.display = 'none', 200); }
     },
 
+    // 🛡️ الإصلاح 1: فخ המות (Try...Finally) لمنع تجميد الشاشة
     _executePageTransition: function(renderCallback) {
         const grid = document.getElementById('store-grid');
         this._toggleNavLoader(true); 
@@ -787,11 +795,16 @@ export const UICore = {
         
         requestAnimationFrame(() => {
             setTimeout(() => {
-                renderCallback(); 
-                setTimeout(() => {
-                    this._toggleNavLoader(false); 
-                    if (grid) { grid.style.transition = 'opacity 0.25s ease-out'; grid.style.opacity = '1'; }
-                }, 250);
+                try {
+                    if (typeof renderCallback === 'function') renderCallback(); 
+                } catch (err) {
+                    console.error("🚨 Render Error during transition:", err);
+                } finally {
+                    setTimeout(() => {
+                        this._toggleNavLoader(false); 
+                        if (grid) { grid.style.transition = 'opacity 0.25s ease-out'; grid.style.opacity = '1'; }
+                    }, 250);
+                }
             }, 0);
         });
     },
@@ -1014,7 +1027,12 @@ export const UICore = {
         const html = `<div id="admin-direct-msg-popup" class="sys-dialog-wrapper"><div class="sys-dialog-overlay"></div><div class="sys-dialog-card"><div class="sys-dialog-header"><div class="sys-dialog-icon"><i class="fa-solid fa-envelope-open-text fa-bounce"></i></div><h3 class="sys-dialog-title">رسالة إدارية هامة</h3></div><div class="sys-dialog-msg-container"><p class="sys-dialog-msg">${Utils.escapeHtml(msgText)}</p></div><div class="sys-dialog-actions"><button id="ack-admin-msg-btn" class="sys-dialog-btn">قرأت ذلك، شكراً</button></div></div></div>`;
         document.body.insertAdjacentHTML('beforeend', html);
         this.sfx?.('success');
-        document.getElementById('ack-admin-msg-btn').addEventListener('click', () => { if (DataManager.ackAdminMessage) DataManager.ackAdminMessage(); document.getElementById('admin-direct-msg-popup').remove(); });
+        document.getElementById('ack-admin-msg-btn').addEventListener('click', () => { 
+            if (DataManager && typeof DataManager.ackAdminMessage === 'function') {
+                DataManager.ackAdminMessage(); 
+            }
+            document.getElementById('admin-direct-msg-popup').remove(); 
+        });
     },
 
     processAndDisplayAlerts: function() {
@@ -1151,7 +1169,7 @@ export const UICore = {
         let iconClass = 'fa-circle-info', titleText = 'معلومة';
         if (type === 'success') { iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
         if (type === 'error') { iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
-        if (type === 'warning') { iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } 
+        if (type === 'warning') { iconClass = 'triangle-exclamation'; titleText = 'تنبيه'; } 
 
         toast.innerHTML = `<i class="fa-solid ${iconClass}"></i><div class="toast-content"><span class="toast-title">${titleText}</span><span class="toast-msg">${Utils.escapeHtml(msg)}</span></div>`;
         container.appendChild(toast);
@@ -1165,14 +1183,20 @@ export const UICore = {
         }, 3000);
     },
 
-    // 🛡️ حماية الصوت من التسبب في أخطاء تجميد المتجر
     sfx: function(type) {
         if(DataManager.prefs?.sound === false) return; 
         if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
 
         try {
-            if(!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if(!this.audioCtx) {
+                try {
+                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContextClass) this.audioCtx = new AudioContextClass();
+                } catch(ctxErr) { return; } 
+            }
             
+            if(!this.audioCtx) return;
+
             const playSound = () => {
                 try {
                     const t = this.audioCtx.currentTime; 
@@ -1185,7 +1209,7 @@ export const UICore = {
                     else if (type === 'error') { osc.type='triangle'; osc.frequency.setValueAtTime(150,t); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.2); osc.start(t); osc.stop(t+0.2); }
                     
                     osc.onended = () => { osc.disconnect(); gain.disconnect(); };
-                } catch (internalErr) { /* عزل صامت */ }
+                } catch (internalErr) {}
             };
 
             if(this.audioCtx.state === 'suspended') { 
@@ -1521,10 +1545,21 @@ export const UICore = {
     updateDisplayCurrencyUI: function(curr) {
         const code = curr || 'USD';
         this.renderDynamicCurrencyMenu();
-        const label = document.getElementById('ct-label'); if(label && label.innerText !== code) label.innerText = code;
-        this.setFlagEl(document.getElementById('ct-flag-box'), code);
-        const nativeSel = document.getElementById('display-currency'); if(nativeSel && nativeSel.value !== code) nativeSel.value = code;
-        
+        const labelEl = document.getElementById('ct-label');
+        if (labelEl) {
+            if (labelEl.textContent !== code) labelEl.textContent = code;
+            labelEl.style.opacity = '1'; 
+        }
+
+        const flagBoxEl = document.getElementById('ct-flag-box');
+        if (flagBoxEl) {
+            this.setFlagEl(flagBoxEl, code);
+        }
+
+        const nativeSelEl = document.getElementById('display-currency');
+        if (nativeSelEl && nativeSelEl.value !== code) {
+            nativeSelEl.value = code;
+        }   
         document.querySelectorAll('.ct-item').forEach(item => item.classList.toggle('active', item.dataset.curr === code));
 
         const ctWrapper = document.querySelector('.ct-wrapper');
@@ -1770,31 +1805,6 @@ export const UICore = {
         document.getElementById((this._currentRating || 0) <= 3 ? 'rating-step-feedback' : 'rating-step-share').style.display = 'block';
     },
     
-    submitPrivateFeedback: async function() {
-        const rawFeedback = document.getElementById('ratingFeedbackInput')?.value.trim() || '';
-        const feedback = Utils.escapeHtml ? Utils.escapeHtml(rawFeedback) : rawFeedback.replace(/[<>]/g, '');
-        
-        if (!feedback) { getSys().showToast?.("يرجى كتابة تفاصيل مقترحك أو شكواك لمساعدتنا على خدمتك", "warning"); return; }
-        
-        const btn = document.getElementById('btnSubmitFeedback');
-        if (btn) { btn.textContent = "جاري الإرسال..."; btn.disabled = true; }
-        
-        try {
-            await StoreDB.add(DB_KEYS.FEEDBACKS, {
-                userId: DataManager.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID || 'telecard_active_user_uid') || 'guest',
-                username: DataManager.user?.username || 'ضيف',
-                rating: this._currentRating || 0,
-                feedback: feedback,
-                time: Date.now()
-            });
-            
-            getSys().toggleLoader?.(false); getSys().closeModal?.('rating'); getSys().showToast?.("نشكرك جداً! تم الإرسال للإدارة.", "success"); this.sfx?.('success');
-        } catch (error) {
-            if (btn) { btn.textContent = "إرسال للإدارة"; btn.disabled = false; }
-            getSys().showToast?.("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
-        }
-    },
-
     openAboutModal: function() {
         this.closeSidebar(); 
         const s = LiveStoreData.settings || {};

@@ -1,14 +1,14 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية V15.4 🛡️
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية V15.6 🛡️
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية (V15.4):
-// 1. Stale DOM Fix: جلب العناصر حياً داخل الـ Closures لمنع تحديث عناصر ميتة في الذاكرة.
-// 2. Canvas Anti-Hang: إضافة Watchdog Timer لعمليات ضغط الصور لمنع التجميد الصامت (Safari Bug).
-// 3. Strict Script Injection: تأمين حقن مكتبة الـ QRCode بـ ID صريح لمنع التكرار عند النقر السريع.
+// 🚀 التحديثات المعمارية (V15.6):
+// 1. Strict MVC Enforcement: إزالة الاتصال المباشر بقاعدة البيانات (StoreDB) من الواجهة.
+// 2. Bridge Utilization: توجيه عمليات الهوية والـ KYC والتقييمات عبر جسور DataManager المحصنة.
+// 3. Double-Submission Prevention: الاستفادة من أقفال الذاكرة المركزية لمنع استنزاف السيرفر.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
-import { Utils } from '../utils.js';
+import * as Utils from '../utils.js'; 
 import { DataManager, LiveStoreData, StoreDB } from '../dataManager.js';
 import { FirebaseAdapter, auth } from '../core/firebaseAdapter.js';
 import { RenderHelpers } from '../core/renderHelpers.js';
@@ -16,8 +16,10 @@ import { RenderHelpers } from '../core/renderHelpers.js';
 const DEFAULT_AVATAR_URL = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
 
 const getSys = () => {
-    if (window.ClientSystem) return window.ClientSystem;
-    if (window.UIManager) return window.UIManager;
+    if (typeof window !== 'undefined') {
+        if (window.ClientSystem) return window.ClientSystem;
+        if (window.UIManager) return window.UIManager;
+    }
     return new Proxy({}, { get: (target, prop) => () => { console.warn(`🚨 System not ready for: ${String(prop)}`); } });
 };
 
@@ -27,12 +29,11 @@ export const UIAuth = {
     _isSubmittingKyc: false, 
     _processingImgs: new Set(), 
 
-    // 🛡️ التحديث 2: حماية הـ Canvas من التجميد الأبدي في Safari
     _compressImage: function(file, maxWidth = 1000) {
         return new Promise((resolve, reject) => {
             const watchdog = setTimeout(() => {
                 reject(new Error("نفد وقت معالجة الصورة، يرجى المحاولة بصورة أصغر."));
-            }, 15000); // 15 ثانية كحد أقصى
+            }, 15000); 
 
             const reader = new FileReader();
             reader.onload = (e) => {
@@ -52,7 +53,7 @@ export const UIAuth = {
                         ctx.drawImage(img, 0, 0, width, height);
                         
                         canvas.toBlob((blob) => {
-                            clearTimeout(watchdog); // إيقاف مؤقت القتل
+                            clearTimeout(watchdog); 
                             if (!blob) return reject(new Error("فشل ضغط الصورة."));
                             
                             const safeName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "image";
@@ -207,7 +208,6 @@ export const UIAuth = {
                         e.target.value = ''; return;
                     }
 
-                    // 🛡️ التحديث 1: جلب العناصر الحية من الـ DOM لمنع الـ Stale Closure
                     const liveImgEl = document.getElementById('profile-img');
                     const liveSidebarAvatar = document.getElementById('cs-avatar');
                     const liveDeleteBtn = document.getElementById('inline-delete-avatar-btn');
@@ -241,7 +241,7 @@ export const UIAuth = {
                         
                         if (dbUpdateSuccess) {
                             try { localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id, downloadUrl); } 
-                            catch(err) { console.warn("Storage restricted - Incognito mode"); }
+                            catch(err) {}
 
                             if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
                                 FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(()=>{});
@@ -257,7 +257,6 @@ export const UIAuth = {
                         }
                         
                     } catch (err) {
-                        console.error("Avatar Upload Error:", err);
                         getSys().showToast?.('عذراً، تعذر حفظ الصورة، قد تكون تالفة أو الاتصال ضعيف.', 'error');
                         
                         if (downloadUrl && FirebaseAdapter.deleteImageByUrl) {
@@ -466,7 +465,7 @@ export const UIAuth = {
             try { localStorage.removeItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id); } catch(e) {}
             
             if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
-                FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(e => console.warn("Failed to delete old avatar:", e));
+                FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(()=>{});
             }
             
             getSys().showToast?.('تم حذف الصورة الشخصية', 'success'); 
@@ -661,7 +660,6 @@ export const UIAuth = {
             if (qrContainer) {
                 qrContainer.innerHTML = ''; 
                 
-                // 🛡️ التحديث 3: تأمين سكربت הـ QR بـ ID لمنع تكرار الحقن
                 if (typeof window.QRCode === 'undefined') {
                     sys.toggleLoader?.(true, 'جاري تحميل نظام التشفير المرئي...');
                     await new Promise((resolve, reject) => {
@@ -717,7 +715,6 @@ export const UIAuth = {
             }, 150);
 
         } catch (error) {
-            console.error('2FA Setup Error:', error);
             sys.toggleLoader?.(false);
             sys.showToast?.('حدث خطأ في الاتصال، يرجى المحاولة لاحقاً.', 'error');
             this._clear2FAState();
@@ -793,8 +790,8 @@ export const UIAuth = {
             return;
         }
         
-        if (!window.PublicKeyCredential) {
-            sys.showToast?.('عذراً، متصفحك لا يدعم البصمة أو الاتصال غير آمن (HTTPS مطلوب)', 'error');
+        if (typeof window === 'undefined' || !window.PublicKeyCredential || !navigator.credentials) {
+            sys.showToast?.('عذراً، متصفحك لا يدعم البصمة أو أن الاتصال غير آمن (HTTPS مطلوب)', 'error');
             return;
         }
         
@@ -844,8 +841,6 @@ export const UIAuth = {
                 throw new Error('server_error');
             }
         } catch (error) {
-            console.error("Biometric Error:", error);
-            
             if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
                 sys.showToast?.('تم إلغاء عملية البصمة من قبلك', 'warning');
             } else if (error.message === 'storage_full') {
@@ -945,31 +940,30 @@ export const UIAuth = {
         getSys().sfx?.('nav');
     },
 
+    // 🛡️ الإصلاح 2: تمرير عمليات الهوية بشكل سليم للجسور المعمارية النظيفة
     saveIdentityData: async function() {
         const btn = document.querySelector('[data-action="save-identity"]');
-        
         if (this._isSavingIdentity || (btn && btn.disabled)) return;
         
         if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
             getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
-            getSys().sfx?.('error');
             getSys().closeModal?.('identity');
             return;
         }
         
         const countryEl = document.getElementById('selected-country-text');
+        const hiddenCountry = document.getElementById('reg-country');
         const phoneEl = document.getElementById('reg-phone');
         const hiddenCurrency = document.getElementById('reg-currency');
         
-        const country = countryEl ? countryEl.innerText.trim() : '';
-        let phone = phoneEl ? phoneEl.value.trim() : '';
-        phone = phone.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+        const country = hiddenCountry ? hiddenCountry.value.trim() : (countryEl ? countryEl.innerText.trim() : '');
+        let phoneRaw = phoneEl ? phoneEl.value.trim() : '';
+        const phone = phoneRaw.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
         
         const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
         
         if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
             getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
-            getSys().sfx?.('error');
             return;
         }
         
@@ -986,33 +980,16 @@ export const UIAuth = {
             btn.disabled = true; 
             const btnWidth = btn.offsetWidth; 
             if (btnWidth > 0) btn.style.width = `${btnWidth}px`;
-            
             btn.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري الربط...</span>';
         }
         
         try {
-            const result = await StoreDB.callFunction('completeUserIdentity', {
-                country: country,
-                phone: phone,
-                currency: currency
-            });
+            const result = await DataManager.submitIdentityData(country, phone, currency);
             
             if (result && result.success) {
-                const finalCurr = result.lockedCurrency || currency;
-                
-                try { localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, finalCurr); } catch(e) {}
-                DataManager.selectedCurr = finalCurr;
-                
-                DataManager.user.country = country;
-                DataManager.user.phone = phone;
-                DataManager.user.baseCurrency = finalCurr;
-                DataManager.user.isVerified = true;
-                
-                if (typeof DataManager.saveUserLocal === 'function') DataManager.saveUserLocal();
-                
                 if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
-                if (getSys().updateDisplayCurrencyUI) getSys().updateDisplayCurrencyUI(finalCurr);
-                if (getSys().updateDisplayBalance) getSys().updateDisplayBalance();
+                getSys().updateDisplayCurrencyUI?.(DataManager.selectedCurr);
+                getSys().updateDisplayBalance?.();
                 
                 const inputsWrap = document.getElementById('identity-inputs-wrap');
                 const statusWrap = document.getElementById('identity-verified-status');
@@ -1021,12 +998,12 @@ export const UIAuth = {
                 
                 getSys().sfx?.('success');
                 getSys().showToast?.(result.message || 'تم ربط المحفظة وتأكيد البيانات بنجاح! يمكنك الآن إغلاق النافذة.', 'success');
+            } else {
+                throw new Error(result?.msg || 'فشلت العملية، يرجى المحاولة لاحقاً.');
             }
         } catch (error) {
-            console.error("Identity Error:", error);
             getSys().sfx?.('error');
-            getSys().showToast?.(error.message || 'فشلت العملية، يرجى المحاولة لاحقاً.', 'error');
-            if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
+            getSys().showToast?.(error.message, 'error');
         } finally {
             this._isSavingIdentity = false;
             if (btn) {
@@ -1035,7 +1012,7 @@ export const UIAuth = {
                 btn.innerHTML = originalBtnHtml; 
             }
         }
-    },    
+    },
     
     loadDynamicCurrenciesForModal: function() {
         const listTarget = document.getElementById('reg-currency-list-target');
@@ -1103,6 +1080,7 @@ export const UIAuth = {
         }
     },
     
+    // 🛡️ الإصلاح 2: تمرير بيانات הـ KYC للجسر المعماري النظيف
     submitKycData: async function() {
         if (this._isSubmittingKyc) return;
         
@@ -1112,11 +1090,13 @@ export const UIAuth = {
         idNumber = idNumber.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
         
         this.kycFiles = this.kycFiles || {};
-        const frontFile = this.kycFiles['kyc-prev-front'];
-        const backFile = this.kycFiles['kyc-prev-back'];
-        const selfieFile = this.kycFiles['kyc-prev-selfie'];
+        const files = {
+            front: this.kycFiles['kyc-prev-front'],
+            back: this.kycFiles['kyc-prev-back'],
+            selfie: this.kycFiles['kyc-prev-selfie']
+        };
         
-        if (!fullName || !idNumber || !frontFile || !backFile || !selfieFile) {
+        if (!fullName || !idNumber || !files.front || !files.back || !files.selfie) {
             getSys().showToast?.('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
             return;
         }
@@ -1124,78 +1104,26 @@ export const UIAuth = {
         this._isSubmittingKyc = true;
         getSys().toggleLoader?.(true, 'جاري تشفير ورفع الملفات...');
         
-        let uploadedUrls = []; 
-        
         try {
-            const userId = DataManager.user.id || 'unknown_user';
-            const kycTimestamp = Date.now();
-            const oldKycData = DataManager.user.kycData; 
+            const safeFullName = Utils.escapeHtml(fullName);
+            const res = await DataManager.submitKycDocuments({ fullName: safeFullName, idNumber }, files);
             
-            const uploadPromises = [
-                FirebaseAdapter.uploadImage(frontFile, 'kyc_docs', `${userId}_front_${kycTimestamp}.webp`),
-                FirebaseAdapter.uploadImage(backFile, 'kyc_docs', `${userId}_back_${kycTimestamp}.webp`),
-                FirebaseAdapter.uploadImage(selfieFile, 'kyc_docs', `${userId}_selfie_${kycTimestamp}.webp`)
-            ];
-            
-            const results = await Promise.allSettled(uploadPromises);
-            const failedUploads = results.filter(r => r.status === 'rejected');
-            
-            if (failedUploads.length > 0) {
-                const successfulUploads = results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
-                if (successfulUploads.length > 0) {
-                    successfulUploads.forEach(url => {
-                        if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
-                    });
-                }
-                throw new Error("فشل رفع إحدى الصور.");
+            if (res.success) {
+                this.closeKycModal();
+                getSys().showToast?.('تم إرسال مستندات التوثيق بنجاح! طلبك قيد المراجعة.', 'success');
+                this.renderKycUI();
+            } else {
+                throw new Error(res.msg || 'فشل إرسال المستندات');
             }
-            
-            uploadedUrls = results.map(r => r.value);
-            const [frontImgUrl, backImgUrl, selfieImgUrl] = uploadedUrls;
-            
-            const safeFullName = fullName.replace(/[<>"{}[\]\\]/g, '');
-            const newKycData = { ...(oldKycData || {}), idNumber: idNumber, frontImg: frontImgUrl, backImg: backImgUrl, selfieImg: selfieImgUrl, submittedAt: Date.now() };
-            
-            const success = await StoreDB.set(DB_KEYS.USERS, userId, {
-                kycStatus: 'pending',
-                kycData: newKycData
-            }, { merge: true });
-            
-            if (!success) throw new Error("فشل تحديث بيانات الحساب في السيرفر.");
-            
-            if (oldKycData) {
-                const oldUrls = [oldKycData.frontImg, oldKycData.backImg, oldKycData.selfieImg].filter(Boolean);
-                oldUrls.forEach(url => {
-                    if (FirebaseAdapter.deleteImageByUrl) {
-                        FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
-                    }
-                });
-            }
-            
-            uploadedUrls = [];
-            
-            if (DataManager.updateUserProfile) await DataManager.updateUserProfile({ fullName: safeFullName });
-            DataManager.user.kycStatus = 'pending';
-            DataManager.user.kycData = newKycData;
-            
-            this.closeKycModal();
-            getSys().showToast?.('تم إرسال مستندات التوثيق بنجاح! طلبك قيد المراجعة.', 'success');
-            this.renderKycUI();
             
         } catch (e) {
             console.error('KYC Upload Error:', e);
-            getSys().showToast?.('تعذر إرسال المستندات، يرجى المحاولة مجدداً', 'error');
-            
-            if (uploadedUrls.length > 0) {
-                uploadedUrls.forEach(url => {
-                    if (FirebaseAdapter.deleteImageByUrl) FirebaseAdapter.deleteImageByUrl(url).catch(() => {});
-                });
-            }
+            getSys().showToast?.(e.message || 'تعذر إرسال المستندات، يرجى المحاولة مجدداً', 'error');
         } finally {
             this._isSubmittingKyc = false;
             getSys().toggleLoader?.(false);
         }
-    },    
+    },
 
     renderKycUI: function() {
         if (!DataManager.user) return;
@@ -1400,5 +1328,31 @@ export const UIAuth = {
         html += `</div>`;
         content.innerHTML = html;
         getSys().openModal?.('tier-info');
+    },
+
+    // 🛡️ الإصلاح 2: تمرير التقييمات بأمان لـ DataManager
+    submitPrivateFeedback: async function() {
+        const rawFeedback = document.getElementById('ratingFeedbackInput')?.value.trim() || '';
+        const feedback = Utils.escapeHtml ? Utils.escapeHtml(rawFeedback) : rawFeedback.replace(/[<>]/g, '');
+        
+        if (!feedback) { getSys().showToast?.("يرجى كتابة تفاصيل مقترحك أو شكواك لمساعدتنا على خدمتك", "warning"); return; }
+        
+        const btn = document.getElementById('btnSubmitFeedback');
+        if (btn) { btn.textContent = "جاري الإرسال..."; btn.disabled = true; }
+        
+        try {
+            const res = await DataManager.submitPrivateFeedback(this._currentRating, feedback);
+            
+            if (res.success) {
+                getSys().closeModal?.('rating'); 
+                getSys().showToast?.("نشكرك جداً! تم الإرسال للإدارة.", "success"); 
+                getSys().sfx?.('success');
+            } else {
+                throw new Error("فشل الإرسال");
+            }
+        } catch (error) {
+            if (btn) { btn.textContent = "إرسال للإدارة"; btn.disabled = false; }
+            getSys().showToast?.("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
+        }
     }
 };

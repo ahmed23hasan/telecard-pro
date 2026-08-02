@@ -6,7 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <script>
-        if (localStorage.getItem('telecard_active_user_uid')) {
+        // 🛡️ الإصلاح 1: فحص الإقلاع المبكر يعتمد على مفتاح الكاش الجديد V20 لمنع الـ Loop
+        if (localStorage.getItem('telecard_active_user_uid_v20')) {
             window.location.replace('store.html');
         }
     </script>
@@ -289,10 +290,12 @@
 
         </form>
     </div>
+
 <script type="module">
     import { auth } from './core/firebaseAdapter.js';
     import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-    import { DB_KEYS } from './config.js';
+    // 🛡️ الإصلاح: استيراد CACHE_KEYS و DYNAMIC_PREFIXES لمنع استخدام المفاتيح الصلبة (Hardcoded)
+    import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from './config.js';
     import { StoreDB } from './dataManager.js';
 
     const googleProvider = new GoogleAuthProvider();
@@ -434,7 +437,7 @@
     }
 
     // =================================================================
-    // 🌐 دالة التسجيل عبر جوجل (تم إصلاح معمارية الاسم) 💎
+    // 🌐 دالة التسجيل عبر جوجل (محصنة ومعمارية) 💎
     // =================================================================
     async function handleGoogleLogin() {
         const btn = document.querySelector('.google-btn');
@@ -457,7 +460,6 @@
                 const targetCurrency = await getAdminDefaultCurrency();
                 const shortDisplayId = await generateUniqueDisplayId();
 
-                // 🛡️ المعيار الاحترافي لاستخراج الاسم
                 const rawDisplayName = firebaseUser.displayName || '';
                 let firstName = ''; let lastName = ''; let finalFullName = '';
 
@@ -467,7 +469,6 @@
                     firstName = nameParts[0];
                     lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
                 } else {
-                    // إذا لم يوجد اسم في حساب جوجل، نستخرج الاسم من الإيميل 
                     firstName = firebaseUser.email.split('@')[0];
                     lastName = '';
                     finalFullName = firstName;
@@ -481,23 +482,24 @@
 
                 activeUserObj = {
                     id: firebaseUser.uid,
+                    uid: firebaseUser.uid,
                     displayId: shortDisplayId,
-                    firstName: firstName,       // ✅ المفتاح القياسي الأول
-                    lastName: lastName,         // ✅ المفتاح القياسي الثاني
-                    fullName: finalFullName,    // 💎 هذا ما كان ينقصنا! 
-                    name: firstName,            // ✅ متوافق مع الأنظمة القديمة
+                    firstName: firstName,       
+                    lastName: lastName,         
+                    fullName: finalFullName,    
+                    name: firstName,            
                     username: finalUsername,
                     email: firebaseUser.email,
                     img: googleAvatar,
-                    baseCurrency: "",
-                    base_currency: "",
+                    baseCurrency: targetCurrency, // 🛡️ الإصلاح 3: تعيين العملة في قاعدة البيانات فوراً
+                    base_currency: targetCurrency,
                     phone: null,
                     country: null,
                     walletBalance: 0,
                     balance: 0,
                     totalSpent: 0,
                     totalDeposit: 0,
-                    tierId: "TIER_DEFAULT_INITIAL",
+                    tierId: "1", // 🛡️ الإصلاح 2: تعيين المستوى كرقم ليقبله المحرك المالي
                     createdAt: Date.now()
                 };
 
@@ -519,11 +521,12 @@
                 }
             }
 
-            localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
-            localStorage.setItem('telecard_active_user', JSON.stringify(activeUserObj));
-            localStorage.setItem('telecard_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency || 'USD');
+            // 🛡️ التحديث الجذري: استخدام CACHE_KEYS لمنع חلقه الدخول المفرغة
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
+            localStorage.setItem(CACHE_KEYS.ACTIVE_USER, JSON.stringify(activeUserObj));
+            localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, activeUserObj.baseCurrency || activeUserObj.base_currency || 'USD');
 
-            if (activeUserObj.img) localStorage.setItem('telecard_user_image_' + firebaseUser.uid, activeUserObj.img);
+            if (activeUserObj.img) localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, activeUserObj.img);
 
             const toast = document.getElementById('successToast');
             if (toast) toast.classList.add('show');
@@ -537,7 +540,7 @@
     }
 
     // =================================================================
-    // ✍️ دالة التسجيل اليدوي (تم إصلاح معمارية الاسم) 💎
+    // ✍️ دالة التسجيل اليدوي (محصنة ومعمارية) 💎
     // =================================================================
     async function validateAndRegister() {
         const fname = document.getElementById('fname');
@@ -577,7 +580,7 @@
 
             const safeFirstName = fname.value.trim();
             const safeLastName = lname.value.trim();
-            const finalFullName = `${safeFirstName} ${safeLastName}`; // 💎 المفتاح المفقود تم استرجاعه!
+            const finalFullName = `${safeFirstName} ${safeLastName}`;
 
             let baseUsername = finalFullName.toLowerCase().replace(/\s+/g, '');
             let finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
@@ -587,22 +590,23 @@
 
             const newUser = {
                 id: firebaseUser.uid,
+                uid: firebaseUser.uid,
                 displayId: shortDisplayId,
-                firstName: safeFirstName,    // ✅ 
-                lastName: safeLastName,      // ✅ 
-                fullName: finalFullName,     // 💎 هنا سيعتمد عليه المتجر لاحقاً بدلاً من طباعة "العميل"
-                name: safeFirstName,         // ✅
+                firstName: safeFirstName,    
+                lastName: safeLastName,      
+                fullName: finalFullName,     
+                name: safeFirstName,         
                 username: finalUsername,
                 email: firebaseUser.email,
-                baseCurrency: "", 
-                base_currency: "", 
+                baseCurrency: targetCurrency, // 🛡️ الإصلاح 3
+                base_currency: targetCurrency, 
                 phone: null,
                 country: null,
                 walletBalance: 0,
                 balance: 0,
                 totalSpent: 0,
                 totalDeposit: 0,
-                tierId: "TIER_DEFAULT_INITIAL",
+                tierId: "1", // 🛡️ الإصلاح 2
                 createdAt: Date.now()
             };
 
@@ -610,9 +614,10 @@
                 await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, newUser);
             }
 
-            localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
-            localStorage.setItem('telecard_active_user', JSON.stringify(newUser));
-            localStorage.setItem('telecard_display_currency', targetCurrency);
+            // 🛡️ التحديث 1: استخدام المفاتيح الديناميكية
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
+            localStorage.setItem(CACHE_KEYS.ACTIVE_USER, JSON.stringify(newUser));
+            localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, targetCurrency);
 
             document.getElementById('successToast').classList.add('show');
             setTimeout(() => { window.location.replace("store.html"); }, 1500);
@@ -631,9 +636,11 @@
         }
     }
 
+    // إتاحة الدوال للـ Window
     window.togglePass = togglePass;
     window.handleGoogleLogin = handleGoogleLogin;
     window.validateAndRegister = validateAndRegister;
 
-</script></body>
+</script>
+</body>
 </html>

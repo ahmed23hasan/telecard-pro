@@ -1,14 +1,13 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V15.8 💎
-// 🎯 الوظيفة: تحويل البيانات الخام (Data) إلى نصوص HTML جاهزة للرسم
-// 🚀 التحديثات المعمارية:
-// 1. CSP Compliance: إزالة الـ Inline JS (Lightbox Bomb) لضمان الأمان وتسريع الـ DOM.
-// 2. Pure Functions: منع الدوال من الاعتماد على window.DataManager لضمان نقاء المعمارية.
-// 3. Float Math Fix: تأمين جمع الخصومات لمنع ظهور الأرقام العشرية المشوهة.
-// 4. [الإيصالات المطبوعة]: تصميم فواتير PDF احترافية باللغة العربية (RTL) مع خط Cairo.
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V16.0 💎
+// 🎯 الوظيفة: تحويل البيانات الخام (Data) إلى نصوص HTML جاهزة للرسم بأمان تام
+// 🚀 التحديثات المعمارية (V16.0):
+// 1. Strict XSS Shield: إزالة الـ (Fallback) الكارثي للروابط الخام وإجبار التصفية.
+// 2. Context Safety: استبدال `this` بـ `UIBuilders` لمنع انهيار الواجهة عند الـ Destructuring.
+// 3. Defensive Dates: تغليف كل التواريخ بـ `parseSafeTime` لمنع ظهور [object Object] للعملاء.
 // ============================================================================
 
-import { Utils } from '../utils.js';
+import * as Utils from '../utils.js'; 
 import { RenderHelpers } from '../core/renderHelpers.js';
 
 export const UIBuilders = {
@@ -18,7 +17,10 @@ export const UIBuilders = {
         if (!tx) return '';
         const isDep = tx.type === 'deposit';
         let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
-        let formattedDate = RenderHelpers.formatSafeDate(tx.time || tx.createdAt);
+        
+        // 🛡️ الإصلاح 3: تحصين التاريخ قبل إرساله للرسم
+        const safeTimeMs = Utils.parseSafeTime(tx.time || tx.createdAt);
+        const formattedDate = RenderHelpers.formatSafeDate(safeTimeMs);
 
         if (isDep) {
             if (tx.status === 'approved') {
@@ -102,7 +104,6 @@ export const UIBuilders = {
         const safeCouponDisc = parseFloat(o.pricingSnapshot?.couponDiscount || o.couponDiscount) || 0;
         const safeSaleDisc = parseFloat(o.pricingSnapshot?.offerDiscount || o.saleDiscount) || 0;
         
-        // 🛡️ [إصلاح ماسي]: منع التضارب العشري
         const totalDiscLocal = Number((safeCouponDisc + safeSaleDisc).toFixed(4));
         
         let discountBadgeHtml = '';
@@ -118,6 +119,7 @@ export const UIBuilders = {
         }
         
         const isHighlighted = (highlightId && String(o.id) === String(highlightId)) ? 'jump-highlight' : '';
+        const safeTimeMs = Utils.parseSafeTime(o.time || o.createdAt);
         
         return `
             <div class="oh-card ${isHighlighted}" style="--anim-idx: ${idx}" data-action="open-detail" data-type="order" data-id="${Utils.escapeHtml(o.id || '')}">
@@ -125,7 +127,7 @@ export const UIBuilders = {
                     ${discountBadgeHtml} 
                     <div class="oh-title">${productName}</div> 
                     <div class="oh-inputs-stack">${inputRows.map(row => `<div class="oh-input-line num-en">${Utils.escapeHtml(row)}</div>`).join('')}</div>
-                    <div class="oh-date-time num-en">${RenderHelpers.formatSafeDate(o.time || o.createdAt)}</div>
+                    <div class="oh-date-time num-en">${RenderHelpers.formatSafeDate(safeTimeMs)}</div>
                 </div>
                 <div class="oh-left">
                     <div class="oh-status-box"><span class="oh-status ${statusClass}">${statusLabel}</span></div>
@@ -148,7 +150,8 @@ export const UIBuilders = {
         else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
 
         const currency = (d.currency || 'USD').toUpperCase();
-        const targetCurr = (d.targetCurrency || baseCurrency).toUpperCase();
+        const safeBaseCurrency = (baseCurrency || 'USD').toUpperCase();
+        const targetCurr = (d.targetCurrency || safeBaseCurrency).toUpperCase();
         const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
         const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
         const feeVal = parseFloat(d.fees || d.fee || 0); 
@@ -171,9 +174,7 @@ export const UIBuilders = {
             </div>`;
         }
 
-        // 🛡️ [إصلاح ماسي]: دالة نقية 100%، نعتمد فقط على البيانات الممررة
         const finalUserName = (!userDisplayName || userDisplayName.trim() === '') ? 'العميل' : userDisplayName;
-
         let balAfter = d.balanceAfter !== undefined ? d.balanceAfter : (d.postBalance !== undefined ? d.postBalance : d.newBalance); 
         
         let balanceAfterHtml = '';
@@ -185,22 +186,23 @@ export const UIBuilders = {
                 </div>`;
         }
 
-        const safeReceiptUrl = d.receipt ? (Utils.safeUrl ? Utils.safeUrl(d.receipt) : d.receipt) : '';
+        // 🛡️ الإصلاح 1: إغلاق ثغرة الحقن للروابط (XSS)
+        const safeReceiptUrl = d.receipt ? Utils.safeUrl(d.receipt) : '';
         let receiptHtml = '';
-        if (safeReceiptUrl) {
-            // 🛡️ [إصلاح ماسي]: إزالة الكود المدمج الخطير (CSP Violation) واستخدام target="_blank" للحماية، أو يمكن للـ UIManager اصطياد الكلاس
+        if (safeReceiptUrl && safeReceiptUrl !== '#') {
             receiptHtml = `
             <div class="ph-item align-center mt-10">
                 <div class="ph-item-label"><i class="fa-solid fa-file-invoice"></i> المرفقات (إشعار الدفع)</div>
                 <div class="ph-item-val">
-                    <a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" style="width: 45px; height: 45px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.2); transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'" title="اضغط لعرض الإشعار">
+                    <a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" class="hover-scale" style="width: 45px; height: 45px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.2); transition: transform 0.2s;" title="اضغط لعرض الإشعار">
                         <img src="${safeReceiptUrl}" style="width: 100%; height: 100%; object-fit: cover;" alt="إشعار الدفع">
                     </a>
                 </div>
             </div>`;
         }
 
-        const formattedDate = RenderHelpers.formatSafeDate(d.time || d.createdAt);
+        const safeTimeMs = Utils.parseSafeTime(d.time || d.createdAt);
+        const formattedDate = RenderHelpers.formatSafeDate(safeTimeMs);
         const shortDepositId = RenderHelpers.formatDepositId(d);
         const amountColorClass = isDeduction ? 'text-danger' : (stClass === 'st-approved' ? 'text-success' : '');
         const amountPrefix = isDeduction ? '-' : (stClass === 'st-approved' ? '+' : '');
@@ -438,6 +440,8 @@ export const UIBuilders = {
     /** 8️⃣ بناء نموذج الإيداع (Deposit Form) */
     buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrency, currItemsHtml, baseCurr) {
         if (!p) return '';
+        const safeBaseCurr = (baseCurr || 'USD').toUpperCase(); 
+        
         return `
             <div class="bal-modal-container-new">
                 <div class="bal-payment-title">${Utils.escapeHtml(p.name || 'طريقة الدفع')}</div>
@@ -461,7 +465,7 @@ export const UIBuilders = {
                 </div>
                 <span id="bal-amount-error" class="bal-error-text-new d-none"></span>
                     <div class="bal-input-field-new" id="bal-net-wrap">
-                        <span class="bal-input-currency-new" id="bal-net-curr">${Utils.escapeHtml(baseCurr)}</span>
+                        <span class="bal-input-currency-new" id="bal-net-curr">${Utils.escapeHtml(safeBaseCurr)}</span>
                         <div class="bal-input-new bal-result-field-new num-en" id="calc-net" dir="ltr">0.00</div>
                         <label class="bal-floating-label">سيضاف لمحفظتك</label>
                     </div>
@@ -514,9 +518,12 @@ export const UIBuilders = {
                 creditedRow = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</span><div class="nm-val">${RenderHelpers.formatMoney(d.creditedAmount, d.targetCurrency || 'USD')}</div></div>`;
             }
 
-            const safeReceiptUrl = d.receipt ? (Utils.safeUrl ? Utils.safeUrl(d.receipt) : d.receipt) : '';
-            // 🛡️ [إصلاح ماسي]: إزالة الـ onClick المدمج الخطير
-            const receiptHtml = safeReceiptUrl ? `<a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;"><div class="nm-universal-card nm-receipt-card" style="cursor: zoom-in;" data-url="${safeReceiptUrl}"><img src="${safeReceiptUrl}" class="nm-receipt-img" alt="Receipt"><div style="text-align:center; font-size:11px; margin-top:8px; color:var(--text-muted); font-weight:700;"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً</div></div></a>` : '';
+            // 🛡️ الإصلاح 1: إغلاق ثغرة XSS
+            const safeReceiptUrl = d.receipt ? Utils.safeUrl(d.receipt) : '';
+            const receiptHtml = (safeReceiptUrl && safeReceiptUrl !== '#') ? `<a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;"><div class="nm-universal-card nm-receipt-card" style="cursor: zoom-in;" data-url="${safeReceiptUrl}"><img src="${safeReceiptUrl}" class="nm-receipt-img hover-scale" alt="Receipt"><div style="text-align:center; font-size:11px; margin-top:8px; color:var(--text-muted); font-weight:700;"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً</div></div></a>` : '';
+
+            // 🛡️ الإصلاح 3: تحصين التاريخ
+            const safeTimeMs = Utils.parseSafeTime(d.time || d.createdAt);
 
             html = `
             <div class="nm-container">
@@ -531,7 +538,7 @@ export const UIBuilders = {
                             <span class="nm-label" style="pointer-events: none;"><i class="fa-solid fa-hashtag"></i> رقم العملية</span>
                             <div class="uid-capsule" style="pointer-events: none;"><i class="fa-solid fa-id-card"></i><span class="num-en">${shortDepositId}</span></div>
                         </div>
-                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-calendar"></i> التاريخ</span><span class="nm-val num-en">${RenderHelpers.formatSafeDate(d.time)}</span></div>
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-calendar"></i> التاريخ</span><span class="nm-val num-en">${RenderHelpers.formatSafeDate(safeTimeMs)}</span></div>
                     </div>
                 </div>
                 ${replyHtml} ${receiptHtml}
@@ -564,7 +571,8 @@ export const UIBuilders = {
                 replyHtml += `<div class="nm-reply-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-headset"></i> رد المتجر</span><div class="nm-reply-body admin-reply-text">${safeResponse}</div></div></div>`;
             }
             if (o.status === 'completed' && o.deliveredCode && o.deliveredCode !== 'null') {
-                replyHtml += `<div class="nm-reply-box auto-delivery-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم فوري</span><div class="nm-reply-body" style="max-height: 200px; overflow-y: auto;">${this.buildCodesList(o.deliveredCode)}</div></div></div>`;
+                // 🛡️ الإصلاح 2: استدعاء آمن يحفظ الـ Context
+                replyHtml += `<div class="nm-reply-box auto-delivery-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم فوري</span><div class="nm-reply-body" style="max-height: 200px; overflow-y: auto;">${UIBuilders.buildCodesList(o.deliveredCode)}</div></div></div>`;
             }
 
             const cDiscountLocal = Number(o.pricingSnapshot?.couponDiscount || o.couponDiscount || 0);
@@ -585,6 +593,9 @@ export const UIBuilders = {
                 priceSectionHtml = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-coins"></i> السعر الاجمالي</span><div class="nm-val" dir="ltr">${formatFn(finalLocal)}</div></div>`;
             }
 
+            // 🛡️ الإصلاح 3: تحصين التاريخ
+            const safeTimeMs = Utils.parseSafeTime(o.time || o.createdAt);
+
             html = `
             <div class="nm-container">
                 ${durationHtml}
@@ -598,7 +609,7 @@ export const UIBuilders = {
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-circle-info"></i> الحالة</span><div class="nm-status-badge-lux ${stClass}"><i class="fa-solid ${stIcon}"></i> ${stTxt}</div></div>
                         ${priceSectionHtml} 
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-layer-group"></i> الكمية</span><div class="nm-val" dir="ltr"><span class="num-en">${o.qty || 1}</span></div></div>
-                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-clock"></i> التاريخ</span><div class="nm-val" dir="ltr"><span class="num-en">${RenderHelpers.formatSafeDate(o.time)}</span></div></div>
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-clock"></i> التاريخ</span><div class="nm-val" dir="ltr"><span class="num-en">${RenderHelpers.formatSafeDate(safeTimeMs)}</span></div></div>
                         <div class="nm-row-compact align-start"><span class="nm-label"><i class="fa-solid fa-bullseye"></i> الحساب</span><div class="nm-val" dir="ltr">${formatInputData(o.input)}</div></div>
                     </div>
                 </div>

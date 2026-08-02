@@ -1,15 +1,15 @@
 // ============================================================================
-// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - ES6 Module V15.8 💎
+// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - ES6 Module V15.9 💎
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديثات المعمارية (V15.8):
-// 1. Zero-Price Coupon Fix: إصلاح الرفض الخاطئ للكوبونات عند شراء منتجات مجانية أو رخيصة جداً.
-// 2. Observer CPU Saver: إزالة MutationObserver من الواجهة السفلية لمنع استنزاف البطارية (استبدال بـ Explicit State).
-// 3. Calendar Orphan Fix: إغلاق التقويم تلقائياً إذا اختفى العنصر المستهدف لمنع بقائه معلقاً في الشاشة.
+// 🚀 التحديثات المعمارية (V15.9):
+// 1. Architecture Sync: ربط حسابات الكوبونات بالجسور المعمارية الجديدة لـ FinancialEngine.
+// 2. Import Fix: إصلاح استيراد Utils ليطابق معايير (Named Exports).
+// 3. Discount Safety: التأكد من تمرير الخصومات النشطة لمنع تلاعب الأسعار.
 // ============================================================================
 
 import { DataManager, LiveStoreData } from './dataManager.js';
 import { UIManager } from './ui/uiManager.js'; 
-import { Utils } from './utils.js';
+import * as Utils from './utils.js'; // 🛡️ الإصلاح: توافق الاستيراد مع Named Exports
 import { RenderHelpers } from './core/renderHelpers.js'; 
 
 // =========================================================
@@ -75,7 +75,6 @@ export const CalendarApp = {
                 const activeModal = document.getElementById('cal-modal');
                 if (!activeModal || !activeModal.classList.contains('show')) return;
                 
-                // 🛡️ التحديث 3: إغلاق التقويم إذا نقر المستخدم في أي مكان فارغ بالخلفية
                 if (!activeModal.contains(e.target) && !e.target.closest('.btn-action')) {
                     this.close();
                 }
@@ -135,7 +134,7 @@ export const CalendarApp = {
             modal.style.left = "50%";
             modal.style.bottom = "auto";
             modal.style.transform = "translate(-50%, -50%)";
-            modal.style.zIndex = "999999"; // ضمان التواجد فوق كل النوافذ
+            modal.style.zIndex = "999999"; 
         }
     },
 
@@ -445,6 +444,8 @@ export const Components = {
         }
 
         const selection = this._getCurrentSelection();
+        
+        // 🛡️ الإصلاح المعماري 1: استدعاء الجسر الآمن من DataManager
         const result = DataManager.validateCoupon(code, DataManager.currentProd, selection.qty, selection.optIdx);
 
         if (!result.valid) {
@@ -453,13 +454,16 @@ export const Components = {
             return;
         }
 
-        const pricingCheck = DataManager.calculateFinalPrice(DataManager.currentProd, DataManager.user, selection.qty, selection.optIdx, result.coupon);
-
-        // 🛡️ التحديث 1: إصلاح الـ False Positive للمنتجات المجانية وتأكيد قيمة الخصم الفعلية
-        const couponVal = parseFloat(result.coupon.value) || 0;
-        const originalTotal = pricingCheck.unitSnapshot.totalOriginalPrice || 0;
+        // 🛡️ الإصلاح المعماري 2: استدعاء دالة الأسعار المُحدثة من الجسر (getPricingLocal)
+        const pricingCheck = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, result.coupon);
         
-        if (pricingCheck.unitSnapshot.couponDiscount === 0 && originalTotal > 0 && couponVal > 0) {
+        if (!pricingCheck || !pricingCheck.pricingSnapshot) return;
+
+        const couponVal = parseFloat(result.coupon.value) || 0;
+        const originalTotal = pricingCheck.pricingSnapshot.totalOriginalPrice || 0;
+        const couponDiscount = pricingCheck.pricingSnapshot.couponDiscount || 0;
+        
+        if (couponDiscount === 0 && originalTotal > 0 && couponVal > 0) {
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-info"></i> عذراً، لا يمكن تطبيق الخصم على هذا المنتج.`, 'error', 5000);
             if(SysUI) { SysUI.showToast('عذراً، هذا المنتج غير مشمول بالخصم الإضافي', 'warning'); SysUI.sfx?.('error'); }
             return; 
@@ -524,6 +528,7 @@ export const Components = {
         if (!DataManager.appliedCoupon || !DataManager.currentProd) return;
         
         const selection = this._getCurrentSelection();
+        // 🛡️ الإصلاح المعماري 3: استدعاء الجسر الآمن
         const result = DataManager.validateCoupon(DataManager.appliedCoupon.code, DataManager.currentProd, selection.qty, selection.optIdx);
         
         if (!result.valid) {
@@ -536,14 +541,12 @@ export const Components = {
         }
     },
 
-    // 🛡️ التحديث 2: إزالة الـ MutationObserver المستنزف للمعالج وتعويضه بربط مباشر بالأحداث
     initBottomNavSync: function() {
         const navContainer = document.querySelector('.bottom-nav');
         if (!navContainer) return;
         
         const navIcons = navContainer.querySelectorAll('.nav-icon');
         
-        // الدالة المساعدة لتعيين الحالة النشطة
         window._tcUpdateBottomNavState = function(targetState) {
             navIcons.forEach(icon => icon.classList.remove('active'));
             navIcons.forEach(icon => {
@@ -565,7 +568,6 @@ export const Components = {
             });
         }
         
-        // التزامن المبدئي
         let initialState = 'home';
         if (document.body.classList.contains('is-favorites')) initialState = 'favorites';
         else if (document.body.classList.contains('is-wallet')) initialState = 'wallet';

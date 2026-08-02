@@ -1,10 +1,10 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V14.9 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V16.0 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق، والاستعلامات
-// 🚀 التحديثات المعمارية:
-// 1. Missing Functions Fix: إضافة دوال الاستعلام (query, fetchMore, getById) لحماية المتجر من الانهيار.
-// 2. Listener Architecture: إضافة دوال الاستماع الحية (listenDoc, listenQuery) للإشعارات.
-// 3. Write Protection: حماية العمليات المالية بـ Timeout ذكي.
+// 🚀 التحديثات المعمارية (V16.0):
+// 1. Offline-First Resilience: تعديل `getCacheFirst` ليعرض بيانات الكاش فوراً إذا كان السيرفر بطيئاً جداً.
+// 2. UX Network Check: التحقق من الاتصال قبل مناداة الـ Cloud Functions.
+// 3. Listener Keys Fix: منع تداخل المفاتيح في الاستعلامات المتشابهة لتوفير الذاكرة.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -24,6 +24,8 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
 import { firebaseConfig } from '../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
+// Placeholder for future AppCheck implementation
 let appCheck = null; 
 
 const db = initializeFirestore(app, {
@@ -41,13 +43,17 @@ export const FirebaseAdapter = {
     functions: functions,
     _activeListeners: new Map(),
 
-    _registerListener: function(baseKey, unsubscribeFn) {
-        const uniqueListenerId = `${baseKey}_${Math.random().toString(36).substr(2, 9)}`;
-        this._activeListeners.set(uniqueListenerId, unsubscribeFn);
+    // 🛡️ حماية صارمة ضد الـ Ghost Listeners
+    _registerListener: function(uniqueKey, unsubscribeFn) {
+        if (this._activeListeners.has(uniqueKey)) {
+            this._activeListeners.get(uniqueKey)(); 
+        }
+        
+        this._activeListeners.set(uniqueKey, unsubscribeFn);
         return () => {
-            if (this._activeListeners.has(uniqueListenerId)) {
-                this._activeListeners.get(uniqueListenerId)();
-                this._activeListeners.delete(uniqueListenerId);
+            if (this._activeListeners.has(uniqueKey)) {
+                this._activeListeners.get(uniqueKey)();
+                this._activeListeners.delete(uniqueKey);
             }
         };
     },
@@ -68,7 +74,7 @@ export const FirebaseAdapter = {
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
-                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب (Read): ${context}`);
+                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context}`);
                 err.code = 'deadline-exceeded'; 
                 reject(err);
             }, ms);
@@ -77,7 +83,6 @@ export const FirebaseAdapter = {
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
 
-    // 🛡️ [إصلاح ماسي]: دالة الجلب الفردي المفقودة (ضرورية للإعدادات)
     async getById(collectionName, docId) {
         const safeId = this._sanitizeDocId(docId);
         try {
@@ -94,7 +99,6 @@ export const FirebaseAdapter = {
         } catch (error) { return []; }
     },
 
-    // 🛡️ [إصلاح ماسي]: دالة الاستعلام الديناميكية المفقودة (ضرورية لسجل الطلبات)
     async query(collectionName, field, op, value, maxLimit = 50) {
         try {
             const q = query(collection(db, collectionName), where(field, op, value), limit(maxLimit));
@@ -103,8 +107,7 @@ export const FirebaseAdapter = {
         } catch (error) { return []; }
     },
 
-    // 🛡️ [إصلاح ماسي]: دالة الـ Pagination المفقودة (ضرورية لزر "عرض المزيد")
-    async fetchMoreWithCursor(collectionName, whereCondition, orderField, cursorDoc, limitCount = 15) {
+async fetchMoreWithCursor(collectionName, whereCondition, orderField, cursorDoc, limitCount = 15) {
         try {
             let q = query(
                 collection(db, collectionName),
@@ -121,71 +124,101 @@ export const FirebaseAdapter = {
             };
         } catch (error) { return { data: [], newLastDoc: null }; }
     },
-
+    
+    // 🛡️ [الإصلاح الماسي 1]: هندسة Offline-First (الكاش كشبكة أمان مع مهلة متوازنة)
     async getCacheFirst(collectionName, docId) {
-        const safeId = this._sanitizeDocId(docId);
-        const docRef = doc(db, collectionName, safeId);
-        try {
-            const cachedSnap = await getDocFromCache(docRef);
-            if (cachedSnap.exists()) return { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
-        } catch (e) { }
-        
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
-
-        try {
-            const serverSnap = await this._withTimeout(getDoc(docRef), 10000);
-            return serverSnap.exists() ? { id: serverSnap.id, ...serverSnap.data(), fromCache: false } : null;
-        } catch (error) { return null; }
-    },
-
-    async set(collectionName, docId, data, options = { merge: true }) {
-        try {
             const safeId = this._sanitizeDocId(docId);
-            await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000, 'set', true);
-            return true;
-        } catch (error) { return false; }
-    },
-
-    async add(collectionName, data) {
-        try {
-            const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, 'add', true);
-            return docRef.id;
-        } catch (error) { return null; }
-    },
-
-    async delete(collectionName, docId) {
-        try {
-            await this._withTimeout(deleteDoc(doc(db, collectionName, this._sanitizeDocId(docId))), 10000, 'delete', true);
-            return true;
-        } catch (error) { return false; }
-    },
-
-    // 🛡️ [إصلاح ماسي]: دالة الاستماع للمستند (ضرورية لملف العميل)
+            const docRef = doc(db, collectionName, safeId);
+            
+            let cachedData = null;
+            try {
+                // 1. محاولة جلب البيانات من الذاكرة المحلية أولاً (بشكل صامت)
+                const cachedSnap = await getDocFromCache(docRef);
+                if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
+            } catch (e) {}
+            
+            // 2. إذا كان المتصفح غير متصل بالإنترنت فعلياً، أعد الكاش فوراً ولا تحاول
+            if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+                return cachedData;
+            }
+            
+            try {
+                // 3. انتظار رد السيرفر لمدة 8 ثوانٍ (التوازن المثالي للشبكات البطيئة)
+                const serverSnap = await this._withTimeout(getDoc(docRef), 8000, `getCacheFirst -> ${collectionName}`);
+                return serverSnap.exists() ? { id: serverSnap.id, ...serverSnap.data(), fromCache: false } : null;
+            } catch (error) {
+                // 4. إذا انقضت الـ 8 ثوانٍ ولم يستجب السيرفر، أنقذ الموقف واعرض الكاش بدلاً من شاشة بيضاء
+                if (cachedData) {
+                    console.warn(`⏳ تأخر السيرفر في جلب (${collectionName}). تم استخدام الكاش لحماية تجربة المستخدم.`);
+                    return cachedData;
+                }
+                return null;
+            }
+        },
+        
+        async set(collectionName, docId, data, options = { merge: true }) {
+                try {
+                    const safeId = this._sanitizeDocId(docId);
+                    await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000, 'set', true);
+                    return true;
+                } catch (error) { return false; }
+            },
+            
+            async add(collectionName, data) {
+                    try {
+                        const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, 'add', true);
+                        return docRef.id;
+                    } catch (error) { return null; }
+                },
+                
+                async delete(collectionName, docId) {
+                    try {
+                        await this._withTimeout(deleteDoc(doc(db, collectionName, this._sanitizeDocId(docId))), 10000, 'delete', true);
+                        return true;
+                    } catch (error) { return false; }
+                },
     listenDoc(collectionName, docId, callback) {
         const safeId = this._sanitizeDocId(docId);
-        const unsubscribe = onSnapshot(doc(db, collectionName, safeId), 
+        const unsubscribe = onSnapshot(doc(db, collectionName, safeId),
             (docSnap) => { callback(docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null); },
-            (error) => { console.warn(`Listen Error (${collectionName}):`, error); }
+            (error) => {
+                // 🛡️ الإصلاح: تمرير رسالة نصية فقط لمنع الانهيار الدائري في الـ DevTools
+                console.warn(`Listen Error (${collectionName}):`, error?.message || 'Network stream error');
+            }
         );
-        return this._registerListener(`${collectionName}_${safeId}`, unsubscribe);
+        return this._registerListener(`doc_${collectionName}_${safeId}`, unsubscribe);
     },
-
-    // 🛡️ [إصلاح ماسي]: دالة الاستماع للاستعلام (ضرورية للإشعارات)
+    
     listenQuery(collectionName, filtersArray, orderField, limitCount, callback) {
         let constraints = [];
         filtersArray.forEach(f => constraints.push(where(f[0], f[1], f[2])));
         if (orderField) constraints.push(orderBy(orderField, "desc"));
         if (limitCount) constraints.push(limit(limitCount));
-
+        
         const q = query(collection(db, collectionName), ...constraints);
-        const unsubscribe = onSnapshot(q, 
+        const unsubscribe = onSnapshot(q,
             (snapshot) => { callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))); },
-            (error) => { console.warn(`Listen Query Error (${collectionName}):`, error); }
+            (error) => {
+                // 🛡️ الإصلاح: تنظيف الكائن الدائري
+                console.warn(`Listen Query Error (${collectionName}):`, error?.message || 'Network stream error');
+            }
         );
-        return this._registerListener(`query_${collectionName}`, unsubscribe);
+        
+        const filterStr = filtersArray.map(f => f.join('_')).join('|') + `_ord:${orderField||'none'}_lim:${limitCount||'all'}`;
+        return this._registerListener(`query_${collectionName}_${filterStr}`, unsubscribe);
+    },        // 🛡️ [الإصلاح الماسي 3]: مفتاح استعلام فريد ومستقر لا يتداخل
+        const filterStr = filtersArray.map(f => f.join('_')).join('|') + `_ord:${orderField||'none'}_lim:${limitCount||'all'}`;
+        return this._registerListener(`query_${collectionName}_${filterStr}`, unsubscribe);
     },
 
+    // 🛡️ [الإصلاح الماسي 2]: التحقق من الاتصال قبل إرهاق السيرفر
     async callFunction(functionName, payload = {}, retryCount = 1) { 
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            const err = new Error('لا يوجد اتصال بالإنترنت.');
+            err.code = 'network-offline';
+            throw err;
+        }
+
         try {
             const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Function -> ${functionName}`, true);
             return result.data;
@@ -194,7 +227,7 @@ export const FirebaseAdapter = {
             const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
             
             if (isTransientError && retryCount > 0 && !isSensitiveFunction) {
-                console.warn(`⏳ خطأ شبكة. إعادة محاولة [${functionName}]...`);
+                console.warn(`⏳ تأخير في الشبكة. إعادة محاولة [${functionName}]...`);
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 return this.callFunction(functionName, payload, retryCount - 1); 
             }
@@ -217,10 +250,13 @@ export const FirebaseAdapter = {
         try { 
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general'; 
             const originalExt = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : (file.type === 'application/pdf' ? 'pdf' : 'jpg'); 
-            const safeFileName = file.name.replace(/[^a-zA-Z0-9\-_]/g, '').replace(/^\.+/, 'file'); 
+            
+            // دعم الأسماء العربية والرموز بأمان
+            const safeFileName = file.name.replace(/[^\w\s\u0600-\u06FF\-_]/g, '').trim().replace(/\s+/g, '_') || 'file';
             
             const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9); 
             const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null; 
+            
             const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`; 
             
             const snapshot = await this._withTimeout( 
@@ -256,7 +292,7 @@ export const FirebaseAdapter = {
 
             const hasPasswordProvider = user.providerData.some(p => p.providerId === 'password');
             if (!hasPasswordProvider) {
-                return { success: false, msg: 'لا يمكن تغيير كلمة المرور للحسابات المسجلة عبر جوجل أو مزودات الطرف الثالث.' };
+                return { success: false, msg: 'لا يمكن تغيير كلمة المرور للحسابات المسجلة عبر جوجل.' };
             }
 
             await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));

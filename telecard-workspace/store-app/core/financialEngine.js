@@ -1,14 +1,15 @@
 // ============================================================================
-// 💰 المحرك المالي للواجهة الأمامية (Store Frontend Version) - V16.5 🛒
+// 💰 المحرك المالي للواجهة الأمامية (Store Frontend Version) - V17.2 🛒
 // 🎯 الوظيفة: محاكاة فورية ودقيقة 100% لأسعار السيرفر وتخفيضات الكوبونات للعميل
-// 🚀 التحديثات المعمارية النهائية:
-// 1. ES6 Pure Export: التصدير الحديث والمتوافق مع استيرادات المتجر.
-// 2. Clean Architecture: إزالة التجميد المعقد المكرر والاعتماد على ذكاء الهيكلة الأصلية.
-// 3. UX Price Floor: إجبار الواجهة على احترام الحد الأدنى (0.01).
+// 🚀 التحديثات المعمارية النهائية (V17.2):
+// 1. Business Logic Fix: سد ثغرة (Discount Stacking) عند دمج العروض مع الكوبونات.
+// 2. Self-Defense: تحصين الدوال النقية ضد الـ NaN داخلياً (لا ثقة بالملفات الخارجية).
+// 3. Timestamp Fix & Precision: دقة متناهية في الحسابات المالية (0.01 Floor).
 // ============================================================================
 
+import { parseSafeTime } from '../utils.js';
+
 const FinancialEngineDef = {
-    // 🛡️ التجميد الداخلي المسبق (بصمتك المعمارية الممتازة)
     CONFIG: Object.freeze({
         BASE_CURRENCY: 'USD',
         MAX_QTY_LIMIT: 10000,
@@ -18,6 +19,10 @@ const FinancialEngineDef = {
         MIN_SALE_PRICE: 0.01   
     }),
 
+    // ========================================================================
+    // 🧮 القسم الأول: الدوال الرياضية الأساسية (Core Math)
+    // ========================================================================
+    
     _preciseRound: function(num, decimals = FinancialEngineDef.CONFIG.PRECISION) {
         let n = Number(num);
         if (isNaN(n) || n === 0) return 0;
@@ -30,8 +35,7 @@ const FinancialEngineDef = {
     _internalMul: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) * (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalDiv: function(a, b) {
         const numB = Number(b) || 0;
-        if (numB === 0) return 0; 
-        return FinancialEngineDef._preciseRound((Number(a) || 0) / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
+        return numB === 0 ? 0 : FinancialEngineDef._preciseRound((Number(a) || 0) / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
     },
 
     safeAdd: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalAdd(a, b)); },
@@ -51,17 +55,14 @@ const FinancialEngineDef = {
         const ratesMap = {};
         ratesMap[FinancialEngineDef.CONFIG.BASE_CURRENCY] = { code: FinancialEngineDef.CONFIG.BASE_CURRENCY, priceRate: 1, depRate: 1, isBase: true };
         
-        const processRateObj = (code, priceR, depR) => {
-            const numPrice = FinancialEngineDef.extractNum(priceR);
-            const numDep = FinancialEngineDef.extractNum(depR);
-            if (numPrice === 0 || numDep === 0) return; 
-            ratesMap[code] = { code: code, priceRate: numPrice, depRate: numDep };
-        };
-
         if (Array.isArray(raw)) {
             for (const rate of raw) {
                 if (rate && rate.code && rate.code !== FinancialEngineDef.CONFIG.BASE_CURRENCY) {
-                    processRateObj(String(rate.code).toUpperCase(), rate.priceRate || rate.value, rate.depRate || rate.value);
+                    const numPrice = FinancialEngineDef.extractNum(rate.priceRate || rate.value);
+                    const numDep = FinancialEngineDef.extractNum(rate.depRate || rate.value);
+                    if (numPrice > 0 && numDep > 0) {
+                        ratesMap[String(rate.code).toUpperCase()] = { code: String(rate.code).toUpperCase(), priceRate: numPrice, depRate: numDep };
+                    }
                 }
             }
         }
@@ -77,121 +78,182 @@ const FinancialEngineDef = {
         const ratesMap = FinancialEngineDef.normalizeRates(ratesArray);
         if (!ratesMap[fCode] || !ratesMap[tCode]) return amt; 
         
-        const from = ratesMap[fCode];
-        const to = ratesMap[tCode];
-        const fRate = channel === 'deposit' ? from.depRate : from.priceRate;
-        const tRate = channel === 'deposit' ? to.depRate : to.priceRate;
+        const fRate = channel === 'deposit' ? ratesMap[fCode].depRate : ratesMap[fCode].priceRate;
+        const tRate = channel === 'deposit' ? ratesMap[tCode].depRate : ratesMap[tCode].priceRate;
 
         if (fRate === 0 || tRate === 0) return amt;
+        return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
+    },
 
-        const usdAmount = FinancialEngineDef._internalDiv(amt, fRate);
-        const finalAmount = FinancialEngineDef._internalMul(usdAmount, tRate);
+    convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
+        let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c);
+        if(rnd === 'floor') return Math.floor(v * 10000) / 10000;
+        if(rnd === 'ceil')  return Math.ceil(v * 10000) / 10000;
+        return Number(v.toFixed(4));
+    },
+
+    // ========================================================================
+    // 💼 القسم الثاني: منطق أعمال المتجر (Business Logic & Pricing) 
+    // ========================================================================
+
+    getUserTier: function(user, tiers = []) {
+        if (!tiers || !tiers.length) return { profit_percent: 0, min_profit_usd: 0 }; 
+        const code = String(user?.tierId ?? user?.tier ?? '1');
+        return tiers.find(t => String(t.id) === code) || tiers.find(t => t.isDefault) || tiers[0];
+    },
+
+    getTierProgress: function(user, tiers = [], now = Date.now()) {
+        if (!user) return null;
+        const currentTier = FinancialEngineDef.getUserTier(user, tiers);
+        if (!currentTier || !tiers.length) return null;
+
+        const sorted = [...tiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
+        const spent = Number(user.tierCycleSpent || 0);
+        const durationMs = Number(currentTier.durationDays || 30) * 86400000;
         
-        return FinancialEngineDef._preciseRound(finalAmount);
+        const safeStartDateMs = parseSafeTime(user.tierCycleStartDate) || now;
+        const remainingDays = Math.max(0, Math.ceil((durationMs - (now - safeStartDateMs)) / 86400000)); 
+
+        const nextTier = sorted.find(t => Number(t.threshold || 0) > Number(currentTier.threshold || 0));
+        let target = nextTier ? Number(nextTier.threshold) : (Number(currentTier.threshold || 0) > 0 ? Number(currentTier.threshold) : 500);
+        
+        return {
+            currentTier, nextTier, targetNameDisplay: nextTier ? nextTier.name : "للحفاظ على المميزات", 
+            targetThreshold: target, spent, remainingAmt: Math.max(0, target - spent), 
+            percent: Math.min(100, Math.max(0, (spent / target) * 100)), remainingDays, 
+            isMaxTier: !nextTier, isGoalReached: !nextTier && spent >= target, isAutoAdvanceEnabled: currentTier.autoAdvance !== false
+        };
     },
     
-    calculatePrice: function(rawParams) {
-        const params = rawParams || {};
-        const { product, tier, offer, coupon, optIdx } = params;
+    calculatePrice: function(params) {
+        const { product, tier, offer, coupon, optIdx } = params || {};
         if (!product || typeof product !== 'object') return null;
 
         let isFixed = (String(product.isFixedPrice).toLowerCase() === 'true');
         let activeOption = null;
 
-        if (product.type === 'select' && Array.isArray(product.options)) {
-            if (typeof optIdx === 'number' && Number.isInteger(optIdx) && optIdx >= 0 && optIdx < product.options.length) {
-                activeOption = product.options[optIdx];
-                if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
-            }
+        if (product.type === 'select' && Array.isArray(product.options) && Number.isInteger(optIdx) && optIdx >= 0 && optIdx < product.options.length) {
+            activeOption = product.options[optIdx];
+            if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
         }
         
-        let baseSellingPrice = 0;
-        let standardPrice = FinancialEngineDef.extractNum(activeOption?.price || product.price);
-
-        if (isFixed) {
-            baseSellingPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.fixedPriceUsd || activeOption.price) : FinancialEngineDef.extractNum(product.fixedPriceUsd || product.fixed_price_usd);
-        } else if (tier && typeof tier === 'object') {
-            const tierPriceField = activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id];
-            if (tierPriceField !== undefined && tierPriceField !== null) {
-                baseSellingPrice = FinancialEngineDef.extractNum(tierPriceField);
-            } else {
-                baseSellingPrice = standardPrice;
-            }
-        } else {
-            baseSellingPrice = standardPrice;
-        }
+        let baseSellingPrice = isFixed 
+            ? FinancialEngineDef.extractNum(activeOption ? (activeOption.fixedPriceUsd || activeOption.price) : (product.fixedPriceUsd || product.fixed_price_usd))
+            : FinancialEngineDef.extractNum(tier ? (activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id]) : null) || FinancialEngineDef.extractNum(activeOption?.price || product.price);
 
         const originalPrice = baseSellingPrice;
         let currentPrice = originalPrice;
         const allowsDiscounts = !isFixed; 
 
         let offerName = null, offerDiscount = 0;
-        if (allowsDiscounts && offer && typeof offer === 'object' && offer.type !== 'fake' && offer.isActive !== false) {
+        if (allowsDiscounts && offer && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name || null;
             const offerVal = FinancialEngineDef._preciseRound(FinancialEngineDef.extractNum(offer.value), FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
-            
-            if (offer.type === 'percentage') {
-                const offerValDec = FinancialEngineDef._internalDiv(offerVal, 100);
-                offerDiscount = FinancialEngineDef._internalMul(originalPrice, offerValDec);
-            } else {
-                offerDiscount = Math.min(offerVal, currentPrice);
-            }
+            offerDiscount = offer.type === 'percentage' ? FinancialEngineDef._internalMul(originalPrice, FinancialEngineDef._internalDiv(offerVal, 100)) : Math.min(offerVal, currentPrice);
         }
         currentPrice = FinancialEngineDef._internalSub(currentPrice, offerDiscount);
 
         let couponCode = null, couponDiscount = 0;
-        const canUseCoupon = allowsDiscounts && product.disableCoupons !== true;
-        if (canUseCoupon && coupon && typeof coupon === 'object' && coupon.isActive !== false) {
+        if (allowsDiscounts && product.disableCoupons !== true && coupon && coupon.isActive !== false) {
             couponCode = coupon.code || null;
             const coupVal = FinancialEngineDef._preciseRound(FinancialEngineDef.extractNum(coupon.value), FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
-            
-            if (coupon.type === 'percentage') {
-                const coupValDec = FinancialEngineDef._internalDiv(coupVal, 100);
-                couponDiscount = FinancialEngineDef._internalMul(currentPrice, coupValDec);
-            } else {
-                couponDiscount = Math.min(coupVal, currentPrice);
-            }
+            couponDiscount = coupon.type === 'percentage' ? FinancialEngineDef._internalMul(currentPrice, FinancialEngineDef._internalDiv(coupVal, 100)) : Math.min(coupVal, currentPrice);
         }
         
-        currentPrice = Math.max(
-            FinancialEngineDef.CONFIG.MIN_SALE_PRICE, 
-            FinancialEngineDef._internalSub(currentPrice, couponDiscount)
-        );
-
         return {
             originalPrice: FinancialEngineDef._preciseRound(originalPrice),
-            finalPrice: FinancialEngineDef._preciseRound(currentPrice),
-            offerName: offerName || null,
-            offerDiscount: FinancialEngineDef._preciseRound(offerDiscount),
-            couponCode: couponCode || null,
-            couponDiscount: FinancialEngineDef._preciseRound(couponDiscount),
+            finalPrice: FinancialEngineDef._preciseRound(Math.max(FinancialEngineDef.CONFIG.MIN_SALE_PRICE, FinancialEngineDef._internalSub(currentPrice, couponDiscount))),
+            offerName: offerName, offerDiscount: FinancialEngineDef._preciseRound(offerDiscount),
+            couponCode: couponCode, couponDiscount: FinancialEngineDef._preciseRound(couponDiscount),
             totalDiscount: FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(originalPrice, currentPrice)),
             tierName: tier?.name || (isFixed ? 'سعر ثابت' : 'أساسي')
         };
     },
     
     calculateOrderTotal: function(params, rawQty) {
-        let qty = Math.floor(FinancialEngineDef.extractNum(rawQty));
-        if (qty <= 0) qty = 1;
-        if (qty > FinancialEngineDef.CONFIG.MAX_QTY_LIMIT) qty = FinancialEngineDef.CONFIG.MAX_QTY_LIMIT;
-        
+        let qty = Math.max(1, Math.min(Math.floor(FinancialEngineDef.extractNum(rawQty)), FinancialEngineDef.CONFIG.MAX_QTY_LIMIT));
         const unit = FinancialEngineDef.calculatePrice(params);
         if (!unit) return null;
 
         return {
-            ...unit,
-            qty,
+            ...unit, qty,
             totalOriginalPrice: FinancialEngineDef.safeMul(unit.originalPrice, qty),
             totalFinalPrice: FinancialEngineDef.safeMul(unit.finalPrice, qty),
             totalDiscount: FinancialEngineDef.safeMul(unit.totalDiscount, qty)
         };
+    },
+
+    getPricingLocal: function(prod, user, qty, optIdx, appliedCoupon, activeOffer, userTier, rates, baseCur, dispCur) {
+        if (!prod) return null;
+        let q = Math.max(1, Math.floor(Number(qty)) || 1);
+        if (prod.type === 'select') q = 1; 
+
+        const orderSnap = FinancialEngineDef.calculateOrderTotal({ product: prod, tier: userTier, offer: activeOffer, coupon: appliedCoupon, optIdx }, q);
+        
+        const oldPriceUsd = (activeOffer?.type === 'fake') ? Number(activeOffer.value || 0) : null;
+        const displayOldTotalUsd = oldPriceUsd ? FinancialEngineDef.safeMul(oldPriceUsd, q) : orderSnap.totalOriginalPrice;
+
+        return {
+            totalUsd: orderSnap.totalFinalPrice, 
+            totalLocalBase: FinancialEngineDef.convertViaUSD(orderSnap.totalFinalPrice, 'USD', baseCur, rates, 'pricing'), 
+            displayCurrency: dispCur,
+            unitText: FinancialEngineDef.convertViaUSD(orderSnap.finalPrice, 'USD', dispCur, rates, 'pricing').toFixed(2) + (dispCur === 'USD' ? ' $' : ' ' + dispCur),
+            totalText: FinancialEngineDef.convertViaUSD(orderSnap.totalFinalPrice, 'USD', dispCur, rates, 'pricing').toFixed(2) + (dispCur === 'USD' ? ' $' : ' ' + dispCur),
+            hasDiscount: Boolean(oldPriceUsd || orderSnap.couponDiscount > 0 || orderSnap.offerDiscount > 0),
+            oldTotalLocalBase: displayOldTotalUsd ? FinancialEngineDef.convertViaUSD(displayOldTotalUsd, 'USD', dispCur, rates, 'pricing') : 0, 
+            pricingSnapshot: { ...orderSnap, saleDiscountUsd: FinancialEngineDef.safeMul(orderSnap.offerDiscount, q), couponDiscountUsd: FinancialEngineDef.safeMul(orderSnap.couponDiscount, q), oldPriceUsd, displayOldTotalUsd }
+        };
+    },
+
+    // 🛡️ تمت إضافة `offer` إلى المتغيرات لسد ثغرة (Discount Stacking)
+    validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
+        if (!code) return { valid: false, msg: 'يرجى إدخال الكود' };
+        const cp = coupons.find(c => c.code.toUpperCase() === code.toUpperCase());
+        if (!cp) return { valid: false, msg: 'الكود غير صحيح' };
+        if (cp.isActive === false) return { valid: false, msg: 'هذا الكوبون غير فعال' };
+        
+        const expiryMs = parseSafeTime(cp.expiryDate);
+        if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
+        
+        if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'نفذت كمية الاستخدام' };
+        
+        if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'غير متاح لمستوى عضويتك' };
+        if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'غير مخصص لهذا المنتج' };
+        if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.map(String).includes(String(user?.uid || user?.id))) return { valid: false, msg: 'مخصص لعملاء محددين' };
+        
+        if (Number(cp.minOrder) > 0) {
+            // 🛡️ الإصلاح: تمرير العرض (offer) لمعرفة السعر الحقيقي وليس الوهمي!
+            const p = FinancialEngineDef.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer }, qty);
+            if (p.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى للاستخدام ${cp.minOrder}$` };
+        }
+        
+        return { valid: true, coupon: { code: cp.code, type: cp.type, value: cp.value, isActive: cp.isActive } };
+    },
+
+    calculateDepositFee: function(amt, method, payCurr, baseCur = 'USD', rates = []) {
+        // 🛡️ مبدأ الدفاع الذاتي: المحرك يتأكد من الأرقام بنفسه!
+        const cleanAmt = Number(amt);
+        if (!method || isNaN(cleanAmt) || cleanAmt <= 0) return { isValid: false, msg: 'بيانات غير صالحة', netBase: 0, feePct: 0, feeType: 'fee', feeUnit: 'percent' };
+        
+        const curr = String(payCurr || 'USD').toUpperCase();
+        
+        let s = method.currencySettings?.[curr] 
+            ? { fee: parseFloat(method.currencySettings[curr].fee)||0, min: parseFloat(method.currencySettings[curr].min)||0, max: parseFloat(method.currencySettings[curr].max)||0, feeType: method.currencySettings[curr].feeType||'fee', feeUnit: method.currencySettings[curr].feeUnit||method.currencySettings[curr].unit||'percent' }
+            : { fee: parseFloat(method.fee)||0, min: parseFloat(method.min)||0, max: parseFloat(method.max)||0, feeType: method.feeType||'fee', feeUnit: method.feeUnit||method.unit||'percent' };
+        
+        if (s.min > 0 && cleanAmt < s.min) return { isValid: false, msg: `أقل مبلغ: ${s.min} ${curr}`, ...s };
+        if (s.max > 0 && cleanAmt > s.max) return { isValid: false, msg: `أقصى مبلغ: ${s.max} ${curr}`, ...s };
+
+        let feeAmt = ['fixed', 'amount'].includes(s.feeUnit) ? s.fee : FinancialEngineDef.safeMul(cleanAmt, FinancialEngineDef.safeDiv(s.fee, 100));
+        let net = Math.max(0, s.feeType === 'bonus' ? FinancialEngineDef.safeAdd(cleanAmt, feeAmt) : FinancialEngineDef.safeSub(cleanAmt, feeAmt));
+        let netBase = FinancialEngineDef.convertViaUSDHelper(net, curr, baseCur, rates, 'floor', 'deposit');
+        
+        return { isValid: true, netBase: isNaN(netBase) ? 0 : netBase, feePct: s.fee, feeType: s.feeType, feeUnit: s.feeUnit, feeAmount: feeAmt };
     }
 };
 
-// 🛡️ التجميد السطحي للأب (الداخلي مجمد مسبقاً) - الطريقة الأسرع والأكثر احترافية
 export const FinancialEngine = Object.freeze(FinancialEngineDef);
 
-// توافقية عامة (Global scope fallback) لمنع أي انهيار في ملفات لا تستخدم الاستيراد المباشر
 if (typeof window !== 'undefined') {
     window.FinancialEngine = FinancialEngine;
 }

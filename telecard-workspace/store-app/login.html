@@ -6,7 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
     <script>
-        if (localStorage.getItem('telecard_active_user_uid')) {
+        // 🛡️ الإصلاح 1: التحقق المبكر يعتمد على المفتاح الجديد المحمي V20
+        if (localStorage.getItem('telecard_active_user_uid_v20')) {
             window.location.replace('store.html');
         }
     </script>
@@ -322,15 +323,14 @@
     </div>
 
 <script type="module">
-    // 🚀 استيراد أدوات فايربيز وقاعدة البيانات من المحول المركزي
-    import { auth, db } from './core/firebaseAdapter.js';
+    // 🛡️ الإصلاح 2: استيراد المفاتيح الديناميكية (CACHE_KEYS) لنسف حلقة تسجيل الدخول اللانهائية
+    import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from './config.js';
+    import { auth } from './core/firebaseAdapter.js';
     import { 
         signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail,
         getMultiFactorResolver, TotpMultiFactorGenerator, signOut
     } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-    import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-    
-    import { DB_KEYS } from './config.js';
+    // 🛡️ الإصلاح 4: إزالة استدعاءات فايربيس المباشرة المتضاربة والاعتماد الكلي على StoreDB
     import { StoreDB } from './dataManager.js';
 
     const googleProvider = new GoogleAuthProvider();
@@ -423,134 +423,130 @@
         return 'USD';
     }
 
-    // === 4. تسجيل الدخول الفعلي عبر جوجل (مع الدرع الأمني) ===
- // === 4. تسجيل الدخول الفعلي عبر جوجل (مع الدرع الأمني وتصحيح المستوى) ===
-async function handleGoogleLogin() {
-    const btn = document.querySelector('.google-btn');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = 'جاري الاتصال بجوجل...';
-    btn.style.opacity = '0.7';
-    btn.disabled = true;
-    
-    try {
-        const result = await signInWithPopup(auth, googleProvider);
-        const firebaseUser = result.user;
+    // === 4. تسجيل الدخول الفعلي عبر جوجل (مع الدرع الأمني وتصحيح المستوى) ===
+    async function handleGoogleLogin() {
+        const btn = document.querySelector('.google-btn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = 'جاري الاتصال بجوجل...';
+        btn.style.opacity = '0.7';
+        btn.disabled = true;
         
-        const userDocRef = doc(db, DB_KEYS.USERS, firebaseUser.uid);
-        const userDocSnap = await getDoc(userDocRef);
-        
-        let activeUserObj = null;
-        
-        if (!userDocSnap.exists()) {
-            // عميل جديد يسجل الدخول لأول مرة عبر جوجل
-            btn.innerHTML = 'جاري تهيئة الحساب...';
+        try {
+            const result = await signInWithPopup(auth, googleProvider);
+            const firebaseUser = result.user;
             
-            const targetCurrency = await getAdminDefaultCurrency();
-            const shortDisplayId = await generateUniqueDisplayId();
-            
-            const fullName = firebaseUser.displayName || 'عميل جديد';
-            const nameParts = fullName.split(' ');
-            const firstName = nameParts[0];
-            const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
-            const baseUsername = fullName.toLowerCase().replace(/\s+/g, '');
-            const finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
-            
-            let googleAvatar = null;
-            if (firebaseUser.photoURL) {
-                googleAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
+            // 🛡️ استخدام المحول المركزي (StoreDB) بدلاً من تجاوز الهندسة
+            let activeUserObj = null;
+            if (StoreDB && typeof StoreDB.getById === 'function') {
+                activeUserObj = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid);
             }
             
-            activeUserObj = {
-                id: firebaseUser.uid,
-                displayId: shortDisplayId,
-                name: firstName,
-                lastName: lastName,
-                username: finalUsername,
-                email: firebaseUser.email,
-                img: googleAvatar,
-                baseCurrency: "",
-    base_currency: "",
-                phone: null,
-                country: null,
-                walletBalance: 0,
-                balance: 0,
-                totalSpent: 0,
-                totalDeposit: 0,
-                // ✅ تم الحل: إعطاء المستوى الافتراضي فوراً بدلاً من تركه فارغاً
-                tierId: "TIER_DEFAULT_INITIAL",
-                createdAt: Date.now()
-            };
-            
-            if (StoreDB && typeof StoreDB.set === 'function') {
-                await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
-            } else {
-                await setDoc(userDocRef, activeUserObj);
-            }
-            
-            localStorage.setItem('telecard_display_currency', targetCurrency);
-        } else {
-            activeUserObj = userDocSnap.data();
-            
-            // 🛑 [الدرع الأمني البنكي]: منع العميل المحظور من الدخول عبر جوجل وتدمير الجلسة
-            if (activeUserObj.isBanned === true || activeUserObj.isIpBanned === true) {
-                await signOut(auth);
-                localStorage.clear();
-                btn.innerHTML = originalText;
-                btn.style.opacity = '1';
-                btn.disabled = false;
-                showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة لمخالفة الشروط.", false);
-                return;
-            }
-            
-            if (!activeUserObj.img && firebaseUser.photoURL) {
-                const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
-                activeUserObj.img = freshAvatar;
+            if (!activeUserObj) {
+                // عميل جديد يسجل الدخول لأول مرة عبر جوجل
+                btn.innerHTML = 'جاري تهيئة الحساب...';
+                
+                const targetCurrency = await getAdminDefaultCurrency();
+                const shortDisplayId = await generateUniqueDisplayId();
+                
+                const fullName = firebaseUser.displayName || 'عميل جديد';
+                const nameParts = fullName.split(' ');
+                const firstName = nameParts[0];
+                const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+                const baseUsername = fullName.toLowerCase().replace(/\s+/g, '');
+                const finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
+                
+                let googleAvatar = null;
+                if (firebaseUser.photoURL) {
+                    googleAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
+                }
+                
+                activeUserObj = {
+                    id: firebaseUser.uid,
+                    uid: firebaseUser.uid,
+                    displayId: shortDisplayId,
+                    name: firstName,
+                    lastName: lastName,
+                    username: finalUsername,
+                    email: firebaseUser.email,
+                    img: googleAvatar,
+                    baseCurrency: "",
+                    base_currency: "",
+                    phone: null,
+                    country: null,
+                    walletBalance: 0,
+                    balance: 0,
+                    totalSpent: 0,
+                    totalDeposit: 0,
+                    tierId: "1", // 🛡️ الإصلاح 3: استخدام "1" لتفادي تضارب المحرك المالي
+                    createdAt: Date.now()
+                };
+                
                 if (StoreDB && typeof StoreDB.set === 'function') {
-                    await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { img: freshAvatar });
-                } else {
-                    await setDoc(userDocRef, { img: freshAvatar }, { merge: true });
+                    await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
+                }
+                
+                localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, targetCurrency);
+            } else {
+                
+                // 🛑 [الدرع الأمني البنكي]: منع العميل المحظور من الدخول
+                if (activeUserObj.isBanned === true || activeUserObj.isIpBanned === true) {
+                    await signOut(auth);
+                    localStorage.clear();
+                    btn.innerHTML = originalText;
+                    btn.style.opacity = '1';
+                    btn.disabled = false;
+                    showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة لمخالفة الشروط.", false);
+                    return;
+                }
+                
+                if (!activeUserObj.img && firebaseUser.photoURL) {
+                    const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
+                    activeUserObj.img = freshAvatar;
+                    if (StoreDB && typeof StoreDB.set === 'function') {
+                        await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { img: freshAvatar });
+                    }
+                }
+                
+                if (activeUserObj.baseCurrency || activeUserObj.base_currency) {
+                    localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, activeUserObj.baseCurrency || activeUserObj.base_currency);
                 }
             }
             
-            if (activeUserObj.baseCurrency || activeUserObj.base_currency) {
-                localStorage.setItem('telecard_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency);
+            // 🛡️ التحديث 1: استخدام المفاتيح الديناميكية من Cache Keys لمنع الانقطاع
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
+            localStorage.setItem(CACHE_KEYS.ACTIVE_USER, JSON.stringify(activeUserObj));
+            
+            if (activeUserObj.img) {
+                localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, activeUserObj.img);
+            }
+            
+            btn.style.background = "var(--success-green, #10b981)";
+            btn.style.color = "#fff";
+            btn.style.border = "none";
+            btn.innerHTML = "تم تسجيل الدخول بنجاح ✔";
+            
+            setTimeout(() => { window.location.replace("store.html"); }, 1000);
+            
+        } catch (error) {
+            console.error("Google Auth Error:", error);
+            btn.innerHTML = originalText;
+            btn.style.opacity = '1';
+            btn.disabled = false;
+            
+            if (error.code === 'auth/multi-factor-auth-required') {
+                const resolver = getMultiFactorResolver(auth, error);
+                show2FAModal(resolver);
+                return;
+            }
+            
+            if (error.code === 'auth/popup-closed-by-user') {
+                showError('identifier', 'identifierError', "تم إغلاق نافذة الدخول قبل إتمام العملية.");
+            } else {
+                showCustomAlert("تعذر الدخول بواسطة جوجل", "السبب: " + error.message, false);
             }
         }
-        
-        localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
-        localStorage.setItem('telecard_active_user', JSON.stringify(activeUserObj));
-        
-        if (activeUserObj.img) {
-            localStorage.setItem('telecard_user_image_' + firebaseUser.uid, activeUserObj.img);
-        }
-        
-        btn.style.background = "var(--success-green, #10b981)";
-        btn.style.color = "#fff";
-        btn.style.border = "none";
-        btn.innerHTML = "تم تسجيل الدخول بنجاح ✔";
-        
-        setTimeout(() => { window.location.replace("store.html"); }, 1000);
-        
-    } catch (error) {
-        console.error("Google Auth Error:", error);
-        btn.innerHTML = originalText;
-        btn.style.opacity = '1';
-        btn.disabled = false;
-        
-        if (error.code === 'auth/multi-factor-auth-required') {
-            const resolver = getMultiFactorResolver(auth, error);
-            show2FAModal(resolver);
-            return;
-        }
-        
-        if (error.code === 'auth/popup-closed-by-user') {
-            showError('identifier', 'identifierError', "تم إغلاق نافذة الدخول قبل إتمام العملية.");
-        } else {
-            // ✅ إظهار رسالة الخطأ الحقيقية للعميل
-            showCustomAlert("تعذر الدخول بواسطة جوجل", "السبب: " + error.message, false);
-        }
     }
-}
+
     // === 5. التحقق النهائي وإرسال النموذج (تسجيل الدخول اليدوي المصفح) ===
     async function validateLogin() {
         const identifier = document.getElementById('identifier');
@@ -589,7 +585,6 @@ async function handleGoogleLogin() {
                 } catch(e) { console.warn("تعذر جلب تفضيلات العميل"); }
             }
 
-            // 🛑 [الدرع الأمني البنكي]: طرد فوري وتدمير جلسة العميل المحظور
             if (userDoc && (userDoc.isBanned === true || userDoc.isIpBanned === true)) {
                 await signOut(auth);
                 localStorage.clear();
@@ -600,14 +595,15 @@ async function handleGoogleLogin() {
                 return;
             }
 
-            localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
+            // 🛡️ التحديث 1: استخدام المفاتيح الديناميكية
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
 
             if (userDoc) {
-                localStorage.setItem('telecard_active_user', JSON.stringify(userDoc));
+                localStorage.setItem(CACHE_KEYS.ACTIVE_USER, JSON.stringify(userDoc));
             }
             
             if(userDoc && (userDoc.baseCurrency || userDoc.base_currency)) {
-                localStorage.setItem('telecard_display_currency', userDoc.baseCurrency || userDoc.base_currency);
+                localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, userDoc.baseCurrency || userDoc.base_currency);
             }
 
             btn.style.background = "var(--success-green, #10b981)";
@@ -673,7 +669,6 @@ async function handleGoogleLogin() {
                 try { userDoc = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid); } catch(e) {}
             }
 
-            // 🛑 [الدرع الأمني البنكي]: طرد المستخدم المحظور حتى لو تجاوز الـ 2FA
             if (userDoc && (userDoc.isBanned === true || userDoc.isIpBanned === true)) {
                 await signOut(auth);
                 localStorage.clear();
@@ -684,11 +679,12 @@ async function handleGoogleLogin() {
                 return;
             }
 
-            localStorage.setItem('telecard_active_user_uid', firebaseUser.uid);
+            // 🛡️ التحديث 1: استخدام المفاتيح الديناميكية
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
             if (userDoc) {
-                localStorage.setItem('telecard_active_user', JSON.stringify(userDoc));
+                localStorage.setItem(CACHE_KEYS.ACTIVE_USER, JSON.stringify(userDoc));
                 if(userDoc.baseCurrency || userDoc.base_currency) {
-                    localStorage.setItem('telecard_display_currency', userDoc.baseCurrency || userDoc.base_currency);
+                    localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, userDoc.baseCurrency || userDoc.base_currency);
                 }
             }
 
@@ -805,16 +801,7 @@ async function handleGoogleLogin() {
         }
     }
 
-    window.togglePass = togglePass;
-    window.handleGoogleLogin = handleGoogleLogin;
-    window.validateLogin = validateLogin;
-    window.handleForgotPassword = handleForgotPassword;
-    window.closeForgotPasswordModal = closeForgotPasswordModal;
-    window.submitForgotPasswordModal = submitForgotPasswordModal;
-    window.closeCustomAlert = closeCustomAlert;
-    window.close2FAModal = close2FAModal;
-    window.submit2FALogin = submit2FALogin;
-// إتاحة الدوال للنطاق العام (Global Scope) لتشغيلها من أزرار الـ HTML
+    // 🛡️ إزالة التكرار: إتاحة الدوال للنطاق العام (Global Scope) لمرة واحدة فقط
     window.togglePass = togglePass;
     window.handleGoogleLogin = handleGoogleLogin;
     window.validateLogin = validateLogin;
@@ -834,13 +821,10 @@ async function handleGoogleLogin() {
             const emailInput = document.getElementById('identifier');
             if (emailInput) {
                 emailInput.value = prefilledEmail;
-                
-                // إظهار رسالة ترحيبية تشرح له لماذا تم تحويله
                 setTimeout(() => {
                     showCustomAlert("أهلاً بعودتك!", "لقد اكتشفنا أن بريدك مسجل لدينا بالفعل. يرجى إدخال كلمة المرور للمتابعة.", true);
                 }, 500);
             }
-            // تنظيف الذاكرة لكي لا يظهر الإيميل مرة أخرى إذا حدث الصفحة
             sessionStorage.removeItem('prefilled_email'); 
         }
     });

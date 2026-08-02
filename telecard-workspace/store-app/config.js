@@ -1,13 +1,13 @@
 // ============================================================================
-// 📁 ملف الإعدادات المركزي (config.js) - Enterprise V20.7 💎
+// 📁 ملف الإعدادات المركزي (config.js) - Enterprise V20.8 💎
 // 🎯 الوظيفة: يحتوي على جميع الثوابت، مفاتيح قواعد البيانات، وإعدادات المتجر
-// 🚀 التحديثات المعمارية (V20.7):
-// 1. Unified Versioning: توحيد رقم الإصدار مع السيرفر لسهولة التتبع.
-// 2. Hard Cache Wipe: تغيير مفاتيح الكاش لجبر هواتف العملاء على مسح البيانات القديمة 
-//    المتضاربة وتحميل البيانات المتوافقة مع المحرك المالي الجديد (FinancialEngine).
+// 🚀 التحديثات المعمارية (V20.8):
+// 1. SSR & Worker Safe: تحصين استدعاء window لمنع انهيار الـ Service Workers.
+// 2. Hard Cache Wipe: تغيير مفاتيح الكاش لجبر هواتف العملاء على مسح البيانات القديمة.
 // ============================================================================
 
-export const APP_VERSION = window.TELECARD_VERSION || 'v20.7';
+// 🛡️ الإصلاح المعماري: حماية المتغيرات من الانهيار في بيئات الـ Workers والسيرفرات
+export const APP_VERSION = (typeof window !== 'undefined' && window.TELECARD_VERSION) ? window.TELECARD_VERSION : 'v20.8';
 
 const deepFreeze = (obj) => {
     Object.keys(obj).forEach(prop => {
@@ -19,8 +19,6 @@ const deepFreeze = (obj) => {
 };
 
 // ☁️ إعدادات فايربيز 
-// (ملاحظة أمنية: وجود هذه المفاتيح هنا آمن وطبيعي في تطبيقات الويب، 
-// خط الدفاع الحقيقي ضد الاستغلال هو تفعيل App Check وقواعد Firestore)
 export const firebaseConfig = deepFreeze({
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
@@ -81,7 +79,7 @@ export const DYNAMIC_PREFIXES = deepFreeze({
 export const ACTIVE_USER_KEY = CACHE_KEYS.ACTIVE_USER;
 
 export const StoreConfig = deepFreeze({
-    baseCurrency: 'USD', // مربوطة ضمنياً بـ FinancialEngine.CONFIG.BASE_CURRENCY
+    baseCurrency: 'USD',
     fallbackCurrencies: ['USD', 'TRY', 'SYP'],
     
     orderStatusMap: {

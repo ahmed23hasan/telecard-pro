@@ -1,12 +1,10 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة المطلقة V20.6 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة المطلقة V20.6.1 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديثات المعمارية (V20.6):
-// 1. Escrow Bypass Fix: تضمين الطلبات المعلقة (pending/processing) في التدقيق المالي لمنع إرجاع الأموال المحجوزة بالخطأ.
-// 2. Deposit Contention Fix: نقل قراءة البوابات وأسعار الصرف خارج הـ Transaction لفك اختناق الإيداعات.
-// 3. Transaction Unblocking: فصل قراءة الـ Tiers/Offers خارج الـ Transaction لفك اختناق الدفع.
-// 4. Memory Stream Fix: استخدام .stream() في دوال المزامنة لمنع انهيار السيرفر (OOM) وتقليل الفاتورة.
-// 5. Strict TTL Enforcement: الاعتماد على سياسات Firebase TTL لحذف مفاتيح عدم التكرار.
+// 🚀 التحديثات المعمارية (V20.6.1):
+// 1. Options Firewall: حماية المعاملات من تلاعب فهارس الخيارات (optIdx).
+// 2. Exact Clock Sync: استخدام وقت Firestore الحقيقي لمنع تلاعب الثواني في العروض.
+// 3. Strict TTL Enforcement: الاعتماد على سياسات Firebase TTL لحذف مفاتيح عدم التكرار.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -137,7 +135,9 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
     const idempotencyKey = data.idempotencyKey ? String(data.idempotencyKey).replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 50) : null;
     
     if (!productId) throw new HttpsError('invalid-argument', 'رقم المنتج مفقود.');
-    const serverNow = Date.now();
+    
+    // استخدام وقت قاعدة البيانات لضمان دقة المعاملات والعروض
+    const serverNow = admin.firestore.Timestamp.now().toMillis();
 
     try {
         const [offersSnap, tiersSnap] = await Promise.all([
@@ -169,6 +169,13 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
             if (userData.isBanned === true) throw new HttpsError('permission-denied', 'العملية مرفوضة.');
             if (product.isActive === false || String(product.isAvailable) === 'false') {
                 throw new HttpsError('failed-precondition', 'عذراً، هذا المنتج غير متاح حالياً.');
+            }
+
+            // 🛡️ حماية ضد التلاعب بخيارات المنتج (Options Firewall)
+            if (optIdx !== null) {
+                if (!product.options || !Array.isArray(product.options) || optIdx < 0 || optIdx >= product.options.length) {
+                    throw new HttpsError('invalid-argument', 'الخيار المحدد غير صالح أو غير موجود في هذا المنتج.');
+                }
             }
 
             let activeOffer = liveOffers.find(off => (!off.expiryDate || off.expiryDate > serverNow));
@@ -281,7 +288,7 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
             });
             
             if (idempotencyRef) {
-                transaction.set(idempotencyRef, { createdAt: admin.firestore.FieldValue.serverTimestamp(), expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000)), orderId: cleanOrderId });
+                transaction.set(idempotencyRef, { createdAt: admin.firestore.FieldValue.serverTimestamp(), expiresAt: admin.firestore.Timestamp.fromDate(new Date(serverNow + 48 * 60 * 60 * 1000)), orderId: cleanOrderId });
             }
         });
 
@@ -357,7 +364,8 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
             
             const cleanId = generateUniqueId(); 
             
-            transaction.update(userRef, { lastDepositReqTime: Date.now() });
+            const serverNow = admin.firestore.Timestamp.now().toMillis();
+            transaction.update(userRef, { lastDepositReqTime: serverNow });
             
             transaction.set(db.collection('telecard_deposits').doc(cleanId), {
                 id: cleanId, displayId: cleanId, userId: uid, method: paymentMethodName, amount, currency: payCurr, 
@@ -366,7 +374,7 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
             });
 
             if (idempotencyRef) {
-                transaction.set(idempotencyRef, { createdAt: admin.firestore.FieldValue.serverTimestamp(), expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 48 * 60 * 60 * 1000)), depositId: cleanId });
+                transaction.set(idempotencyRef, { createdAt: admin.firestore.FieldValue.serverTimestamp(), expiresAt: admin.firestore.Timestamp.fromDate(new Date(serverNow + 48 * 60 * 60 * 1000)), depositId: cleanId });
             }
 
             return { success: true, message: 'تم استلام طلب الإيداع.' };
@@ -787,7 +795,7 @@ exports.calculateStoreStatsCloud = onCall({ timeoutSeconds: 540 }, async (reques
     return { success: true };
 });
 
-exports.getServerTime = onCall(() => { return { success: true, serverTime: Date.now() }; });
+exports.getServerTime = onCall(() => { return { success: true, serverTime: admin.firestore.Timestamp.now().toMillis() }; });
 
 exports.onSettingsUpdate = onDocumentUpdated({ document: 'telecard_settings/singleton' }, async () => { await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); });
 exports.onOfferUpdate = onDocumentWritten({ document: 'telecard_offers/{offerId}' }, async () => { await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); });

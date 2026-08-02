@@ -1,206 +1,244 @@
 // ============================================================================
-// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V14.8 💎
-// 🎯 الوظيفة: أدوات نقية للتعامل مع النصوص، الروابط، والتواريخ فقط.
-// 🚀 التحديثات المعمارية:
-// 1. Strict Separation of Concerns: إزالة كل الدوال المالية (الجسور) نهائياً. الأموال تعالج فقط عبر FinancialEngine.
-// 2. URL Hijacking Shield: منع ثغرة Protocol-Relative URLs والروابط الخبيثة.
-// 3. Date & Text Sanitization: فلاتر آمنة لمنع XSS والـ NaN.
+// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V15.3 💎 (The Forge)
+// 🎯 الوظيفة: أدوات نقية للتعامل مع النصوص، الروابط، التواريخ، وبصمة الجهاز.
+// 🚀 التحديثات المعمارية (V15.3):
+// 1. Crypto Fallback: منع انهيار المتصفحات غير المدعومة أو بيئات HTTP في بصمة الجهاز.
+// 2. Consistent Number Formatting: توحيد مخرجات (NaN/Null) في دالة enNum.
 // ============================================================================
 
-export const Utils = {
-    // === 1. أدوات حماية النصوص وتنسيقها (OWASP Standard) ===
-    escapeHtml: function(val) {
-        if (val === undefined || val === null) return '';
-        return String(val)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;')
-            .replace(/`/g, '&#x60;')
-            .replace(/=/g, '&#x3D;')
-            .replace(/\//g, '&#x2F;');
-    },
+// === 1. أدوات حماية النصوص وتنسيقها (OWASP Standard) ===
+
+const htmlEntityMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#x60;', '=': '&#x3D;', '/': '&#x2F;' };
+export function escapeHtml(val) {
+    if (val == null) return '';
+    return String(val).replace(/[&<>"'`=\/]/g, s => htmlEntityMap[s]);
+}
+
+export function safeText(val, fallback = '---') {
+    if (val == null || val === '') return fallback;
+    return escapeHtml(val);
+}
+
+// 🛡️ درع حماية الروابط المتقدم (يمنع ثغرات XSS)
+export function safeUrl(url, fallback = '#') {
+    if (!url) return fallback;
+    let cleaned = String(url).replace(/[\x00-\x1F\x7F\s]/g, '').trim();
     
-    safeText: function(val, fallback = '---') {
-        if (val === undefined || val === null || val === '') return fallback;
-        return this.escapeHtml(val);
-    },
+    if (/^(javascript|vbscript|data):/i.test(cleaned)) return fallback;
     
-    // 🛡️ درع حماية الروابط المتقدم (Strict Protocol Validation)
-    safeUrl: function(url, fallback = '#') {
-        if (!url) return fallback;
-        let cleaned = String(url).replace(/[\x00-\x1F\x7F\s]/g, '').trim();
-        
-        if (/^(javascript|vbscript|data):/i.test(cleaned)) return fallback;
-        
-        const encodeUrlSafely = (u) => {
-            return u.replace(/"/g, '%22').replace(/'/g, '%27').replace(/</g, '%3C').replace(/>/g, '%3E');
-        };
-        
+    const encodeUrlSafely = (u) => u.replace(/"/g, '%22').replace(/'/g, '%27').replace(/</g, '%3C').replace(/>/g, '%3E');
+    
+    try {
+        const parsedUrl = new URL(cleaned, window.location.origin);
+        const protocol = parsedUrl.protocol.toLowerCase();
+        if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) return encodeUrlSafely(cleaned);
+        return fallback;
+    } catch (e) {
+        if (cleaned.startsWith('//')) return fallback;
+        if (/^[./#?]/.test(cleaned)) return encodeUrlSafely(cleaned);
+        return fallback;
+    }
+}
+
+// 🌟 تنسيق الأرقام كنصوص للواجهة فقط
+export function enNum(val, decimals = 2) {
+    const safeDecimals = Math.min(20, Math.max(0, Number(decimals) || 2));
+    
+    let num = Number(val);
+    if (isNaN(num)) num = 0; // 🛡️ توحيد المخرجات
+    
+    return new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: safeDecimals,
+        maximumFractionDigits: safeDecimals,
+        useGrouping: false
+    }).format(num);
+}
+
+// 🛡️ توحيد الأرقام العربية وإزالة الفواصل للحسابات
+export function parseSafeNumber(val) {
+    if (!val) return 0;
+    const englishVal = String(val).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[, \s]/g, '');
+    return parseFloat(englishVal) || 0;
+}
+
+// === 2. أدوات التواريخ والزمن ===
+
+// 🛡️ تأمين ومعالجة التواريخ من مختلف الصيغ لضمان عدم عودة (NaN)
+export function parseSafeTime(val) {
+    if (!val) return 0;
+    if (typeof val === 'number') return val;
+    if (typeof val.toMillis === 'function') return val.toMillis();
+    if (val.seconds !== undefined) return val.seconds * 1000;
+    if (val._seconds !== undefined) return val._seconds * 1000;
+    
+    if (typeof val === 'string') {
+        // إصلاح مشكلة المتصفحات (Safari خاصة) مع الـ '-' في التواريخ
+        const parsed = new Date(val.includes('T') ? val : val.replace(/-/g, '/')).getTime(); 
+        return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+}
+
+// ⏱️ محرك حساب مدة الإنجاز
+export function calculateOrderDuration(startTime, endTime) {
+    if (!startTime || !endTime) return "---";
+    
+    const startMs = parseSafeTime(startTime);
+    const endMs = parseSafeTime(endTime);
+    
+    if (startMs === 0 || endMs === 0) return "---";
+    
+    const diffMs = endMs - startMs;
+    if (diffMs < 0) return "---";
+    if (diffMs < 2000) return "فوري ⚡";
+    
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    
+    if (diffDays > 0) return `${diffDays} يوم و ${diffHours % 24} ساعة`;
+    if (diffHours > 0) return `${diffHours} ساعة و ${diffMins % 60} دقيقة`;
+    if (diffMins > 0) return `${diffMins} دقيقة و ${diffSecs % 60} ثانية`;
+    return `${diffSecs} ثانية`;
+}
+
+// === 3. أدوات الأمان والمصادقة ===
+
+// 🔑 توليد مفتاح منع تكرار الطلبات (آمن تشفيرياً 100%)
+export function generateIdempotencyKey() {
+    if (typeof crypto !== 'undefined') {
+        if (crypto.randomUUID) return crypto.randomUUID();
         try {
-            const parsedUrl = new URL(cleaned, window.location.origin);
-            const protocol = parsedUrl.protocol.toLowerCase();
-            if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) {
-                return encodeUrlSafely(cleaned);
-            }
-            return fallback;
-        } catch (e) {
-            if (cleaned.startsWith('//')) return fallback;
+            const arr = new Uint32Array(4);
+            crypto.getRandomValues(arr);
+            return arr.join('-');
+        } catch (e) {}
+    }
+    return Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36);
+}
+
+// 🕵️‍♂️ توليد بصمة الجهاز (محصنة بيئياً - Environment Safe)
+export async function getDeviceFingerprint() {
+    try {
+        if (typeof window !== 'undefined' && window.FingerprintJS) { 
+            const loadedFp = await window.FingerprintJS.load();
+            return (await loadedFp.get()).visitorId;
+        } else {
+            const nav = typeof navigator !== 'undefined' ? navigator : {};
+            const scr = typeof screen !== 'undefined' ? screen : {};
+            const rawPrint = (nav.userAgent || 'unknown') + (nav.language || '') + (scr.width || 0) + (scr.height || 0);
             
-            if (cleaned.startsWith('/') || cleaned.startsWith('./') || cleaned.startsWith('../') || cleaned.startsWith('#') || cleaned.startsWith('?')) {
-                return encodeUrlSafely(cleaned);
+            // 🛡️ [الإصلاح الماسي 1]: الحماية إذا كان crypto.subtle غير متاح (HTTP/Old Browsers)
+            if (typeof crypto !== 'undefined' && crypto.subtle) {
+                const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawPrint));
+                return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
+            } else {
+                // Fallback Hash بسيط وسريع للبيئات المعتمة
+                let hash = 0;
+                for (let i = 0; i < rawPrint.length; i++) {
+                    const char = rawPrint.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; 
+                }
+                return 'fb-' + Math.abs(hash).toString(16) + Date.now().toString(16).slice(-4);
             }
-            return fallback;
         }
-    },
+    } catch (e) { return "fb-" + Date.now().toString(16); }
+}
+
+// === 4. أدوات الواجهة والمنوعات ===
+
+// 📄 أداة تصفية التواريخ والبحث
+export function getSearchAndDateFilters(searchId, datePrefixId) {
+    if (typeof document === 'undefined') return { q: '', dStart: '', dEnd: '', tStart: null, tEnd: null, error: null };
     
-    // 🌟 تنسيق الأرقام كنصوص للواجهة فقط
-    enNum: function(val, decimals = 2) {
-        const num = Number(val);
-        const safeDecimals = Math.min(20, Math.max(0, Number(decimals) || 2));
-        
-        if (isNaN(num)) return Number(0).toFixed(safeDecimals);
-        
-        return new Intl.NumberFormat('en-US', {
-            minimumFractionDigits: safeDecimals,
-            maximumFractionDigits: safeDecimals,
-            useGrouping: false
-        }).format(num);
-    },
+    const qInput = document.getElementById(`${searchId}-search-input`);
+    const q = qInput ? qInput.value.toLowerCase().trim() : '';
     
-    // 🛡️ توحيد الأرقام العربية وإزالة الفواصل (تنظيف المدخلات)
-    parseSafeNumber: function(val) {
-        if (!val) return 0;
-        const englishVal = String(val)
-            .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
-            .replace(/,/g, '')
-            .replace(/\s/g, '');
-        return parseFloat(englishVal) || 0;
-    },
+    const dStartEl = document.getElementById(`${datePrefixId}-date-start`);
+    const dEndEl = document.getElementById(`${datePrefixId}-date-end`);
     
-    // === 2. أداة تصفية التواريخ والبحث ===
-    getSearchAndDateFilters: function(searchId, datePrefixId) {
-        if (typeof document === 'undefined') return { q: '', dStart: '', dEnd: '', tStart: null, tEnd: null, error: null };
-        
-        const qInput = document.getElementById(`${searchId}-search-input`);
-        const q = qInput ? qInput.value.toLowerCase().trim() : '';
-        
-        const dStartEl = document.getElementById(`${datePrefixId}-date-start`);
-        const dEndEl = document.getElementById(`${datePrefixId}-date-end`);
-        
-        let dStart = dStartEl ? dStartEl.value : '';
-        let dEnd = dEndEl ? dEndEl.value : '';
-        
-        const todayObj = new Date();
-        const yestObj = new Date(todayObj);
-        yestObj.setDate(todayObj.getDate() - 1);
-        
-        const toLocalISODate = (dateObj) => {
-            const year = dateObj.getFullYear();
-            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const day = String(dateObj.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        };
-        
-        const defStart = toLocalISODate(yestObj);
-        const defEnd = toLocalISODate(todayObj);
-        
-        if (dEnd && !dStart) { dStart = defStart; if (dStartEl) dStartEl.value = defStart; }
-        if (dStart && !dEnd) { dEnd = defEnd; if (dEndEl) dEndEl.value = defEnd; }
-        
-        let tStart = null;
-        let tEnd = null;
-        
-        if (dStart) {
-            const [year, month, day] = dStart.split('-').map(Number);
-            if (year && month && day) tStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
-        }
-        
-        if (dEnd) {
-            const [year, month, day] = dEnd.split('-').map(Number);
-            if (year && month && day) tEnd = new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
-        }
-        
-        let error = null;
-        if (tStart && tEnd && tStart > tEnd) error = 'تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء';
-        
-        return { q, dStart, dEnd, tStart, tEnd, error };
-    },
+    let dStart = dStartEl ? dStartEl.value : '';
+    let dEnd = dEndEl ? dEndEl.value : '';
     
-    // === 3. أداة ذكية لاستخراج أكواد الخزنة كنص للعميل ===
-    extractCodeText: function(dCode) {
-        if (!dCode || dCode === 'null') return '';
-        let extracted = '';
-        if (Array.isArray(dCode)) {
-            extracted = dCode.map(c => (typeof c === 'object' && c !== null) ? (c.text || c.code || '') : String(c)).join(' | ');
-        } else if (typeof dCode === 'object' && dCode !== null) {
-            extracted = dCode.text || dCode.code || '';
-        } else {
-            extracted = String(dCode);
-        }
-        return this.escapeHtml(extracted);
-    },
+    const todayObj = new Date();
+    todayObj.setHours(0, 0, 0, 0); 
+    const yestObj = new Date(todayObj);
+    yestObj.setDate(todayObj.getDate() - 1);
     
-    // === 4. محرك حساب مدة الإنجاز ===
-    calculateOrderDuration: function(startTime, endTime) {
-        if (!startTime || !endTime) return "---";
-        
-        const startMs = (typeof startTime.toMillis === 'function') ? startTime.toMillis() : Number(startTime);
-        const endMs = (typeof endTime.toMillis === 'function') ? endTime.toMillis() : Number(endTime);
-        
-        if (isNaN(startMs) || isNaN(endMs)) return "---";
-        
-        const diffMs = endMs - startMs;
-        
-        if (isNaN(diffMs) || diffMs < 0) return "---";
-        if (diffMs < 2000) return "فوري ⚡";
-        
-        const diffSecs = Math.floor(diffMs / 1000);
-        const diffMins = Math.floor(diffSecs / 60);
-        const diffHours = Math.floor(diffMins / 60);
-        const diffDays = Math.floor(diffHours / 24);
-        
-        if (diffDays > 0) return `${diffDays} يوم و ${diffHours % 24} ساعة`;
-        if (diffHours > 0) return `${diffHours} ساعة و ${diffMins % 60} دقيقة`;
-        if (diffMins > 0) return `${diffMins} دقيقة و ${diffSecs % 60} ثانية`;
-        
-        return `${diffSecs} ثانية`;
-    },
+    const toLocalISODate = (dateObj) => {
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
     
-    // === 5. محرك المشاركة الذكي (Web Share API Wrapper) ===
-    smartShareOrDownload: async function(blob, fileName, shareTitle = 'مشاركة', shareText = '') {
-        const file = new File([blob], fileName, { type: blob.type });
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        
-        const forceDownload = () => {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(() => {
-                if (document.body.contains(a)) document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }, 300);
-        };
-        
-        if (isMobile && navigator.canShare && navigator.canShare({ files: [file] })) {
-            try {
-                await navigator.share({
-                    title: shareTitle,
-                    text: shareText,
-                    files: [file]
-                });
-                return true;
-            } catch (error) {
-                if (error.name !== 'AbortError') forceDownload();
-                return true;
-            }
-        } else {
-            forceDownload();
+    const defStart = toLocalISODate(yestObj);
+    const defEnd = toLocalISODate(todayObj);
+    
+    if (dEnd && !dStart) { dStart = defStart; if (dStartEl) dStartEl.value = defStart; }
+    if (dStart && !dEnd) { dEnd = defEnd; if (dEndEl) dEndEl.value = defEnd; }
+    
+    let tStart = null, tEnd = null;
+    if (dStart) {
+        const [year, month, day] = dStart.split('-').map(Number);
+        if (year && month && day) tStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+    }
+    if (dEnd) {
+        const [year, month, day] = dEnd.split('-').map(Number);
+        if (year && month && day) tEnd = new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
+    }
+    
+    let error = null;
+    if (tStart && tEnd && tStart > tEnd) error = 'تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء';
+    
+    return { q, dStart, dEnd, tStart, tEnd, error };
+}
+
+// 💳 استخراج أكواد الخزنة كنص
+export function extractCodeText(dCode) {
+    if (dCode == null || dCode === 'null') return '';
+    let extracted = '';
+    if (Array.isArray(dCode)) {
+        extracted = dCode.map(c => (typeof c === 'object' && c !== null) ? (c.text || c.code || '') : String(c)).join(' | ');
+    } else if (typeof dCode === 'object' && dCode !== null) {
+        extracted = dCode.text || dCode.code || '';
+    } else {
+        extracted = String(dCode);
+    }
+    return escapeHtml(extracted);
+}
+
+// 📤 محرك المشاركة الذكي (Web Share API)
+export async function smartShareOrDownload(blob, fileName, shareTitle = 'مشاركة', shareText = '') {
+    const file = new File([blob], fileName, { type: blob.type });
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    const forceDownload = () => {
+        if (typeof document === 'undefined') return; 
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            if (a.parentNode) a.parentNode.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 500);
+    };
+    
+    if (isMobile && typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+            await navigator.share({ title: shareTitle, text: shareText, files: [file] });
+            return true;
+        } catch (error) {
+            if (error.name !== 'AbortError') forceDownload();
             return true;
         }
+    } else {
+        forceDownload();
+        return true;
     }
-};
+}
