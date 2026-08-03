@@ -84,7 +84,8 @@ export const StoreConfig = deepFreeze({
     
     orderStatusMap: {
         pending: { text: 'قيد التنفيذ', icon: 'fa-clock', class: 'pending' },
-        processing: { text: 'جاري التنفيذ', icon: 'fa-spinner fa-spin', class: 'processing' },
+        processing: { text: 'جاري تجهيز الطلب', icon: 'fa-gears', class: 'processing' },
+
         completed: { text: 'مكتمل', icon: 'fa-circle-check', class: 'completed' },
         refunded: { text: 'مسترجع', icon: 'fa-rotate-left', class: 'refunded' },
         returned: { text: 'مرتجع', icon: 'fa-rotate-left', class: 'returned' },

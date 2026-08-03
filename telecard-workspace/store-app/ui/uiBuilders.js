@@ -97,7 +97,7 @@ export const UIBuilders = {
         
         let statusLabel = '<i class="fa-regular fa-clock"></i> قيد التنفيذ';
         if (status === 'completed') statusLabel = '<i class="fa-solid fa-circle-check"></i> مكتمل';
-        else if (status === 'processing') statusLabel = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ';
+        else if (status === 'processing') statusLabel = '<i class="fa-solid fa-gears"></i> جاري التنفيذ';
         else if (status === 'rejected') statusLabel = '<i class="fa-solid fa-circle-xmark"></i> مرفوض';
         else if (['returned', 'refunded'].includes(status)) statusLabel = '<i class="fa-solid fa-rotate-left"></i> مسترجع';
         

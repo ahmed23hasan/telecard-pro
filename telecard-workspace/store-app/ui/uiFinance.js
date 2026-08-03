@@ -1,11 +1,10 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة المطلقة V17.0 👑
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة المطلقة V17.1 👑
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديثات المعمارية (V17.0):
-// 1. Crash-Free KYC: حماية صارمة لمنطق تحقق الهوية من أنواع البيانات غير المتوقعة.
-// 2. Event Delegation: نظام استماع عالمي للأحداث يحمي الواجهات من التوقف عند إعادة البناء.
-// 3. Smart Qty Correction: التصحيح التلقائي الذكي للكميات عند فقدان التركيز (Blur Event).
-// 4. Dynamic Max Limits: سحب السقف المالي الأعلى من لوحة التحكم مع وجود قيمة أمان افتراضية.
+// 🚀 التحديثات المعمارية (V17.1):
+// 1. Solid Physical Shield: قفل الشاشة إجبارياً بدرع زجاجي لمنع هروب المستخدم أو النقر المزدوج.
+// 2. Safe Button Restoration: حل مشكلة اللودر العالق عبر استخدام Object Properties بدلاً من DOM Attributes.
+// 3. CSS Conflict Resolution: إزالة كلاس is-loading لمنع ظهور اللودر الأبيض المزدوج.
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -35,30 +34,68 @@ export const UIFinance = {
         return Utils.parseSafeNumber(val);
     },
     
-    _toggleButtonLoader: function(btn, isLoading) {
-        if (!btn) return;
-        window.requestAnimationFrame(() => {
-            if (isLoading) {
-                btn.disabled = true;
-                btn.classList.add('is-loading');
-                if (!btn.querySelector('.btn-spinner')) {
-                    if (!btn.dataset.originalHtml) btn.dataset.originalHtml = btn.innerHTML;
-                    const btnWidth = btn.offsetWidth;
-                    if (btnWidth > 0) btn.style.width = `${btnWidth}px`;
-                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin btn-spinner"></i> جاري المعالجة...`;
-                }
-            } else {
-                btn.disabled = false;
-                btn.classList.remove('is-loading');
-                if (btn.dataset.originalHtml) {
-                    btn.innerHTML = btn.dataset.originalHtml;
-                    btn.style.width = ''; 
-                    delete btn.dataset.originalHtml;
-                }
+    // 🛡️ الحل الجذري 1: منع تداخل الـ CSS واستعادة الزر بأمان تام
+    // 🛡️ الحل الجذري النهائي: دالة اللودر الفورية والمحصنة
+_toggleButtonLoader: function(btn, isLoading) {
+    if (!btn) return;
+    
+    try {
+        if (isLoading) {
+            // 1. حماية الذاكرة: لا تحفظ شكل الزر إذا كان يحتوي أصلاً على لودر!
+            if (btn._originalHtml === undefined && !btn.innerHTML.includes('fa-spinner')) {
+                btn._originalHtml = btn.innerHTML;
             }
-        });
-    },
-
+            
+            // 2. إيقاف الزر فوراً وإزالة الكلاس المتعارض
+            btn.disabled = true;
+            btn.classList.remove('is-loading');
+            
+            // 3. تحديد نوع الزر وتوحيد العبارة
+            const contentSpan = btn.querySelector('.btn-content');
+            const spinnerSpan = btn.querySelector('.btn-spinner');
+            
+            if (contentSpan && spinnerSpan) {
+                btn._isComplex = true;
+                contentSpan.style.display = 'none';
+                spinnerSpan.style.display = 'inline-block';
+            } else {
+                const currentWidth = btn.offsetWidth;
+                if (currentWidth > 0) btn.style.width = `${currentWidth}px`;
+                // 💡 توحيد العبارة هنا لراحة عين المستخدم
+                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="margin-inline-end: 6px;"></i> جاري المعالجة...`;
+            }
+            
+            btn.classList.add('tx-processing-safe');
+            
+        } else {
+            // 4. استعادة الزر فوراً (Synchronous Restore)
+            btn.disabled = false;
+            btn.classList.remove('tx-processing-safe', 'is-loading');
+            
+            if (btn._isComplex) {
+                const contentSpan = btn.querySelector('.btn-content');
+                const spinnerSpan = btn.querySelector('.btn-spinner');
+                if (contentSpan) contentSpan.style.display = '';
+                if (spinnerSpan) spinnerSpan.style.display = 'none';
+            } else if (btn._originalHtml !== undefined) {
+                // استعادة النص الأصلي
+                btn.innerHTML = btn._originalHtml;
+                btn.style.width = '';
+                // مسح الذاكرة ليكون الزر نظيفاً للعملية القادمة
+                btn._originalHtml = undefined;
+            } else {
+                // حالة طوارئ (Fallback) إذا مسحت الذاكرة
+                btn.innerHTML = 'تأكيد';
+                btn.style.width = '';
+            }
+        }
+    } catch (e) {
+        console.error("🚨 Button Restore Error:", e);
+        // تحرير الزر إجبارياً في حال حدوث أي خطأ برمجي نادر
+        btn.disabled = false;
+        btn.classList.remove('tx-processing-safe', 'is-loading');
+    }
+},
     _startTxWatchdog: function(submitBtn, shieldId) {
         if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
         this._watchdogTimer = setTimeout(() => {
@@ -121,8 +158,6 @@ export const UIFinance = {
         }
         
         const u = DataManager.user;
-        
-        // 🛡️ معالجة الثغرة: تحويل الحقول إلى نصوص بأمان لمنع الانهيار
         const isIdentityComplete = (String(u.isVerified) === 'true' || u.isVerified === true) || 
             ((u.phone && String(u.phone).trim() !== '') && 
              (u.country && String(u.country).trim() !== '') && 
@@ -211,7 +246,6 @@ export const UIFinance = {
                 const sQty = document.getElementById('simple-qty-val'); 
                 if(sQty) {
                     sQty.value = 1;
-                    // 🛡️ معالجة الثغرة: تصحيح ذكي عند فقدان التركيز (Blur) لحقل الكمية البسيط
                     sQty.oninput = (e) => { 
                         e.target.value = e.target.value.replace(/[^0-9٠-٩]/g, ''); 
                         getSys().updatePriceDisplay?.(); 
@@ -372,8 +406,16 @@ export const UIFinance = {
         const submitBtn = document.getElementById('btn-confirm-buy') || document.querySelector('.pm-btn-gold');
         const shieldId = 'invisible-tx-shield';
         
-        this._isProcessingTx = true; this._toggleButtonLoader(submitBtn, true); 
-        if (!document.getElementById(shieldId)) document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}"></div>`);
+        this._isProcessingTx = true; 
+        this._toggleButtonLoader(submitBtn, true); 
+        
+        // 🛡️ الحل الجذري 2: القفل الفيزيائي الصارم للشاشة بالكامل
+        if (!document.getElementById(shieldId)) {
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="${shieldId}" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255, 255, 255, 0.01); z-index: 9999999; cursor: wait; touch-action: none;"></div>
+            `);
+        }
+        
         this._startTxWatchdog(submitBtn, shieldId);
 
         try {
@@ -463,8 +505,6 @@ export const UIFinance = {
             const selectedTxt = document.getElementById('bal-selected-currency');
             const items = document.querySelectorAll('#bal-currency-list .dropdown-item');
             
-            // 🛡️ التعديل البصري (Layout Safety):
-            // تغيير النص فقط مع الحفاظ على الأيقونة المجاورة له في حالة الهيكلة السليمة للـ HTML
             if (selectedTxt) selectedTxt.innerText = curr; 
             
             if (dropdown) dropdown.classList.remove('open');
@@ -638,7 +678,6 @@ export const UIFinance = {
             const errorBox = document.getElementById('bal-amount-error'), submitBtn = document.getElementById('btn-submit-deposit'), netDisplay = document.getElementById('calc-net'), netWrap = document.getElementById('bal-net-wrap'), limitsBar = document.getElementById('bal-limits-bar');
             const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment;
 
-            // 🛡️ معالجة الثغرة: سحب الحد الأقصى من لوحة التحكم مع توفر 5000 كقيمة احتياطية (Fallback)
             const sysSettings = LiveStoreData.settings || {};
             const GLOBAL_MAX_LIMIT_USD = parseFloat(sysSettings.globalMaxDepositUsd) || 5000;
             let dynamicGlobalLimit = GLOBAL_MAX_LIMIT_USD;
@@ -680,7 +719,7 @@ export const UIFinance = {
         });
     },
 
-    handleBalanceSubmit: async function(currency) {
+        handleBalanceSubmit: async function(currency) {
         if (this._isProcessingTx || !this._validateKycAndSystem('deposit')) return;
         
         const input = document.getElementById('bal-amount');
@@ -692,27 +731,72 @@ export const UIFinance = {
         if (this.currentPayment && this.currentPayment.reqProof !== false && !this.pendingReceiptFile) {
             getSys().showToast?.('أرفق إشعار الدفع أولاً', 'error');
             const uploadBox = document.getElementById('bal-upload-box');
-            if (uploadBox) { uploadBox.style.animation = 'none'; void uploadBox.offsetWidth; uploadBox.style.animation = 'shake-anim 0.3s ease-in-out'; uploadBox.style.border = '1px solid var(--danger)'; setTimeout(() => uploadBox.style.border = '', 1000); }
+            if (uploadBox) { 
+                uploadBox.style.animation = 'none'; void uploadBox.offsetWidth; 
+                uploadBox.style.animation = 'shake-anim 0.3s ease-in-out'; 
+                uploadBox.style.border = '1px solid var(--danger)'; 
+                setTimeout(() => uploadBox.style.border = '', 1000); 
+            }
             return; 
         }
 
         let methodMaxLimit = 0;
-        if (this.currentPayment) { const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment; methodMaxLimit = parseFloat(s.max) || 0; }
+        if (this.currentPayment) { 
+            const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment; 
+            methodMaxLimit = parseFloat(s.max) || 0; 
+        }
         
         const sysSettings = LiveStoreData.settings || {};
         const GLOBAL_MAX_LIMIT_USD = parseFloat(sysSettings.globalMaxDepositUsd) || 5000;
         let dynamicGlobalLimit = GLOBAL_MAX_LIMIT_USD;
         
-        try { if (payCurr !== 'USD' && typeof FinancialEngine !== 'undefined') { const rates = DataManager.getRates ? DataManager.getRates() : {}; dynamicGlobalLimit = FinancialEngine.convertViaUSD(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, rates, 'deposit'); } } catch (e) {}
+        try { 
+            if (payCurr !== 'USD' && typeof FinancialEngine !== 'undefined') { 
+                const rates = DataManager.getRates ? DataManager.getRates() : {}; 
+                dynamicGlobalLimit = FinancialEngine.convertViaUSD(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, rates, 'deposit'); 
+            } 
+        } catch (e) {}
 
+        // 🛡️ 1. التحقق الصارم من الحد الأقصى
         const finalLimit = methodMaxLimit > 0 ? Math.min(methodMaxLimit, dynamicGlobalLimit) : dynamicGlobalLimit;
-        if (amount > finalLimit) { const symbol = RenderHelpers?.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText(payCurr) : payCurr; getSys().showToast?.(`الحد الأقصى هو ${Number(finalLimit).toLocaleString('en-US')} ${symbol}`, 'error'); return; }
+        if (amount > finalLimit) { 
+            const symbol = RenderHelpers?.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText(payCurr) : payCurr; 
+            getSys().showToast?.(`الحد الأقصى هو ${Number(finalLimit).toLocaleString('en-US')} ${symbol}`, 'error'); 
+            return; 
+        }
 
-        if (input && input.classList.contains('input-invalid')) { getSys().showToast?.('المبلغ خارج الحدود', 'error'); return; }
+        // 🛡️ 2. التحقق الصارم والبرمجي من الحد الأدنى (إصلاح ثغرة الـ CSS Bypass)
+        let methodMinLimit = 0;
+        if (this.currentPayment) { 
+            const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment; 
+            methodMinLimit = parseFloat(s.min) || 0; 
+        }
         
-        const submitBtn = document.querySelector('[data-action="submit-balance"]'); const shieldId = 'invisible-tx-shield';
-        this._isProcessingTx = true; this._toggleButtonLoader(submitBtn, true); 
-        if (!document.getElementById(shieldId)) document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}"></div>`);
+        if (methodMinLimit > 0 && amount < methodMinLimit) {
+            getSys().showToast?.(`الحد الأدنى المسموح به هو ${methodMinLimit}`, 'error');
+            // إبراز الخطأ بصرياً لمنع المستخدم من الاستمرار
+            if (input) {
+                input.style.animation = 'none'; void input.offsetWidth; 
+                input.style.animation = 'shake-anim 0.3s ease-in-out';
+                input.style.borderColor = 'var(--danger)';
+                setTimeout(() => input.style.borderColor = '', 1500);
+            }
+            return;
+        }
+        
+        const submitBtn = document.querySelector('[data-action="submit-balance"]'); 
+        const shieldId = 'invisible-tx-shield';
+        
+        this._isProcessingTx = true; 
+        this._toggleButtonLoader(submitBtn, true); 
+        
+        // 🛡️ الدرع الفيزيائي للشاشة
+        if (!document.getElementById(shieldId)) {
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="${shieldId}" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255, 255, 255, 0.01); z-index: 9999999; cursor: wait; touch-action: none;"></div>
+            `);
+        }
+        
         this._startTxWatchdog(submitBtn, shieldId);
         
         let uploadedReceiptUrl = null;
@@ -727,7 +811,9 @@ export const UIFinance = {
             const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
             
             if (result.success) {
-                getSys().sfx?.('success'); this._isProcessingTx = false; this.closeBalanceModal();
+                getSys().sfx?.('success'); 
+                this._isProcessingTx = false; 
+                this.closeBalanceModal();
                 if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
                 setTimeout(() => getSys().openModal?.('success'), 150);
             } else { 
@@ -740,7 +826,9 @@ export const UIFinance = {
             console.error("🚨 Client-Side Deposit Exception:", error);
             getSys().showToast?.('حدث خطأ أثناء الاتصال بالخادم.', 'error'); 
         } 
-        finally { this._cleanupTxUI(submitBtn, shieldId); }
+        finally { 
+            this._cleanupTxUI(submitBtn, shieldId); 
+        }
     },
 
     togglePayDetail: function(headerElement) {
