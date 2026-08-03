@@ -1,8 +1,11 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Enterprise V14.8 💎
+// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Enterprise V15.0 💎
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core) + Destructuring-Safe
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث الأقصى: توافق تواريخ ISO المتكامل، ودعم ذكي لكائنات العملات الوهمية.
+// 🌟 التحديث الأقصى (V15.0): 
+// 1. Stripe-Like IDs: تقنيع بصري احترافي لأرقام الطلبات والإيداعات مع الحفاظ على بادئات (ORD/DEP).
+// 2. Crypto Flags Support: إضافة دعم أيقونات العملات الرقمية كـ USDT.
+// 3. Strict Sanitization: حماية المعرفات والنصوص المقتطعة من ثغرات الحقن.
 // ============================================================================
 
 let _injectedSource = null;
@@ -46,9 +49,10 @@ export const RenderHelpers = Object.freeze({
      * 🔢 دالة تنسيق الأرقام (البنكية) - [محصنة ضد RangeError]
      */
     _enNum: function(num, decimals = 2) {
-        const parsedNum = Number(num) || 0;
-        // 🛡️ حماية المتصفح: دوال JS تقبل الخانات العشرية من 0 إلى 20 فقط
         const safeDecimals = Math.min(20, Math.max(0, Number(decimals) || 2));
+        
+        let parsedNum = Number(num);
+        if (isNaN(parsedNum)) parsedNum = 0; // 🛡️ توحيد المخرجات
         
         return parsedNum.toLocaleString('en-US', {
             minimumFractionDigits: safeDecimals,
@@ -58,7 +62,7 @@ export const RenderHelpers = Object.freeze({
     },
     
     // ============================================================================
-    // 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (مدرع ضد XSS و المعرفات الفارغة)
+    // 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (Stripe-Like Masking)
     // ============================================================================
     
     formatUserId: function(userObj, withPrefix = false) {
@@ -76,24 +80,55 @@ export const RenderHelpers = Object.freeze({
         if (!finalId || finalId.trim() === '') finalId = 'UKNWN';
         const formatted = withPrefix ? `USR-${finalId}` : finalId;
         
-        // 🛡️ استخدام RenderHelpers بدلاً من this لمنع ضياع السياق عند التفكيك (Destructuring)
         return RenderHelpers._esc(formatted);
     },
     
+    // 🛡️ التحديث الماسي: تقنيع بصري مع الحفاظ على الهوية للطلبات
     formatOrderId: function(orderObj, withPrefix = true) {
         if (!orderObj) return '---';
-        const rawId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
         
-        if (!rawId || String(rawId).trim() === '') return '---';
-        return RenderHelpers._esc(withPrefix ? `ORD-${String(rawId).toUpperCase()}` : String(rawId).toUpperCase());
+        let fullId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
+        // إزالة أي بادئة قديمة لتنظيف الرقم (لضمان عدم التكرار ORD-ORD-...)
+        fullId = String(fullId).replace(/^ORD-/i, '').trim();
+        
+        if (!fullId) return '---';
+
+        const parts = fullId.split('-');
+        let shortId = '';
+
+        // استخراج الجزء الأخير من الرقم المعقد (إذا كان بالصيغة الهندسية)
+        if (parts.length >= 2) {
+            shortId = parts[parts.length - 1]; 
+        } else {
+            // إذا كان رقماً قديماً أو عادياً، نعرض آخر 7 رموز
+            shortId = fullId.length > 7 ? fullId.slice(-7) : fullId;
+        }
+        
+        const finalFormatted = withPrefix ? `ORD-${shortId.toUpperCase()}` : shortId.toUpperCase();
+        return RenderHelpers._esc(finalFormatted);
     },
     
+    // 🛡️ التحديث الماسي: تقنيع بصري مع الحفاظ على الهوية للإيداعات
     formatDepositId: function(depObj, withPrefix = true) {
         if (!depObj) return '---';
-        const rawId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
         
-        if (!rawId || String(rawId).trim() === '') return '---';
-        return RenderHelpers._esc(withPrefix ? `DEP-${String(rawId).toUpperCase()}` : String(rawId).toUpperCase());
+        let fullId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
+        // إزالة أي بادئة قديمة لتنظيف الرقم
+        fullId = String(fullId).replace(/^DEP-/i, '').trim();
+        
+        if (!fullId) return '---';
+
+        const parts = fullId.split('-');
+        let shortId = '';
+
+        if (parts.length >= 2) {
+            shortId = parts[parts.length - 1]; 
+        } else {
+            shortId = fullId.length > 7 ? fullId.slice(-7) : fullId;
+        }
+        
+        const finalFormatted = withPrefix ? `DEP-${shortId.toUpperCase()}` : shortId.toUpperCase();
+        return RenderHelpers._esc(finalFormatted);
     },    
 
     // ============================================================================
@@ -115,7 +150,6 @@ export const RenderHelpers = Object.freeze({
 
         if (displayType === 'code') return code;
         
-        // 🛡️ دعم المزامنة الهيكلية: قبول المصفوفات والكائنات (Object Maps) القادمة من FinancialEngine
         let curObj = null;
         if (Array.isArray(rates)) {
             curObj = rates.find(r => r.code === code);
@@ -134,9 +168,17 @@ export const RenderHelpers = Object.freeze({
             'KWD': 'kw', 'BHD': 'bh', 'QAR': 'qa', 'OMR': 'om',
             'GBP': 'gb', 'DZD': 'dz', 'MAD': 'ma'
         };
+        
+        // دعم أيقونات العملات الرقمية
+        const cryptoIcons = {
+            'USDT': 'https://cdn-icons-png.flaticon.com/512/825/825508.png',
+            'BTC': 'https://cdn-icons-png.flaticon.com/512/5968/5968260.png'
+        };
+
+        if (cryptoIcons[code]) return cryptoIcons[code];
+
         const countryCode = currencyToCountry[code]; 
         
-        // 🛡️ تأمين الأعلام الوهمية بوضع علم افتراضي عالمي لمنع الأخطاء البصرية
         if (!countryCode) return `https://cdn-icons-png.flaticon.com/512/1198/1198696.png`;
         
         return `https://flagcdn.com/w40/${countryCode}.png`;
@@ -159,16 +201,16 @@ export const RenderHelpers = Object.freeze({
 
     _getTxName: function(u) {
         if (!u) return 'مستخدم جديد';
-        const f = u.firstName || u.first_name || u.name || '';
-        const l = u.lastName || u.last_name || '';
+        const f = String(u.firstName || u.first_name || u.name || '').trim();
+        const l = String(u.lastName || u.last_name || '').trim();
         let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
         return RenderHelpers._esc(fullName ? fullName : 'مستخدم جديد');
     },
 
     _getExplicitName: function(u) {
         if (!u) return 'مستخدم غير معروف';
-        const f = u.firstName || u.first_name || u.name || '';
-        const l = u.lastName || u.last_name || '';
+        const f = String(u.firstName || u.first_name || u.name || '').trim();
+        const l = String(u.lastName || u.last_name || '').trim();
         const fullName = (f + ' ' + l).trim();
         return RenderHelpers._esc(fullName || u.username || 'مستخدم غير معروف');
     },
@@ -208,7 +250,6 @@ export const RenderHelpers = Object.freeze({
         if (ts._seconds !== undefined) return ts._seconds * 1000; 
         
         if (typeof ts === 'string') {
-            // 🛡️ [إصلاح آبل الماسي]: لا نستبدل الشرطات إذا كانت بصيغة ISO!
             let safeString = ts;
             if (!ts.includes('T')) {
                 safeString = ts.replace(/-/g, '/');

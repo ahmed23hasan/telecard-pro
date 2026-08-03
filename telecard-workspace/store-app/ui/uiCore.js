@@ -1,10 +1,12 @@
+
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - Enterprise V14.8 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - Enterprise V15.0 💎
 // 🎯 الوظيفة: النوافذ، الإشعارات، القائمة الجانبية، النسخ، الثيم، والتوجيه العام
-// 🚀 التحديثات المعمارية النهائية (V14.8):
-// 1. Loader Death-Trap Fix: تأمين الانتقالات بـ (Try...Finally) لمنع تجميد المتجر عند أخطاء الرسم.
-// 2. Null Routing Shield: منع انهيار الـ Modal عند النقر على إشعار لا يحتوي على Target ID.
-// 3. History Leak Fix: تصفير ذاكرة التصفح (navHistory) عند تسجيل الخروج لمنع تداخل الجلسات.
+// 🚀 التحديثات المعمارية (V15.0):
+// 1. Single Source of Truth: دمج جميع أحداث النظام المالي (Finance Events) لتصبح تابعة للمحرك المركزي.
+// 2. Memory Leak Prevention: إغلاق تسرب الذاكرة في مراقبات الـ DOM (MutationObservers) كـ _syncWalletBlur.
+// 3. Smart Modal Router: تحسين دالة الإغلاق لتغلق النافذة النشطة حالياً تلقائياً إذا لم يتم تحديد ID.
+// 4. UX Accessibility: السماح للعملاء بالنقر بزر الماوس الأيمن لفتح المنتجات في تبويبات جديدة وتقييد ذلك للصور فقط.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY } from '../config.js';           
@@ -29,7 +31,7 @@ export const UICore = {
     historyStateSet: false,
 
     // =========================================================
-    // 🚨 0. نافذة الطرد المباشر الآمنة (Centralized Architecture)
+    // 🚨 0. نافذة الطرد المباشر الآمنة
     // =========================================================
     triggerLiveBanAlert: function(reasonMessage) {
         const msgText = Utils.escapeHtml(reasonMessage || 'تم تقييد حسابك.');
@@ -66,7 +68,8 @@ export const UICore = {
             if (DataManager && typeof DataManager.logout === 'function') {
                 DataManager.logout();
             } else {
-                window.location.replace('login.html');
+                // 🛡️ [الإصلاح المعماري 5]: التوجيه المرن لتجنب الأخطاء عند تغير مسار ملف تسجيل الدخول
+                window.location.replace(window.LOGIN_URL || 'login.html');
             }
         }, 3500);
     },
@@ -116,7 +119,7 @@ export const UICore = {
     initTheme: function() { getSys().setThemePref((DataManager.prefs && DataManager.prefs.theme) ? DataManager.prefs.theme : (localStorage.getItem(CACHE_KEYS.THEME || 'telecard_theme') || 'dark')); },
     
     // =========================================================
-    // 🔊 دوال الأصوات (Audio Firewall)
+    // 🔊 دوال الأصوات
     // =========================================================
     toggleSoundPref: function() {
         if (!DataManager.prefs) return;
@@ -191,7 +194,14 @@ export const UICore = {
     },
 
     closeModal: function(modalId) {
-        if (!modalId) { getSys().closePurchaseModal?.(); return; }
+        // 🛡️ [الإصلاح المعماري 3]: إغلاق النافذة النشطة الأخيرة إذا لم يتم تمرير ID
+        if (!modalId) { 
+            if (this.activeModals && this.activeModals.length > 0) {
+                modalId = this.activeModals[this.activeModals.length - 1];
+            } else {
+                getSys().closePurchaseModal?.(); return; 
+            }
+        }
         
         if (modalId === 'purchase' || modalId === 'purchase-success') {
             if (typeof getSys().removeCoupon === 'function') getSys().removeCoupon(true);
@@ -245,7 +255,6 @@ export const UICore = {
 
         if (!document.querySelector('.sidebar.active') && this.activeModals.length === 0) document.body.classList.remove('no-scroll');
         
-        // 🛡️ الإصلاح 3: تصفير الـ History لمنع تسرب الجلسات عند تسجيل الخروج
         if (!DataManager.user) {
             this.navHistory = [];
             this.currentCategoryId = null;
@@ -296,7 +305,7 @@ export const UICore = {
     },
 
     // =========================================================
-    // 🚀 3. التوجيه والقائمة الجانبية (محصن ضد أخطاء iOS)
+    // 🚀 3. التوجيه والقائمة الجانبية 
     // =========================================================
     openSidebar: function() { 
         this.resetUI();
@@ -490,7 +499,7 @@ export const UICore = {
     },
 
     // =========================================================
-    // 🎛️ إدارة الأحداث المركزية (Global Event Delegator)
+    // 🎛️ إدارة الأحداث المركزية (Global Event Delegator) - المصدر الواحد للحقيقة
     // =========================================================
     initGlobalListeners: function() {
         if (this._listenersBound) return;
@@ -558,6 +567,7 @@ export const UICore = {
             'remove-coupon': () => getSys().removeCoupon?.(),
             'paste-coupon': () => this.pasteText?.(),
             
+            // 🛡️ [توجيه المهام المالية المركزية]
             'confirm-purchase': async (e, id, val, target) => { 
                 if (target.disabled || target.dataset.processing === 'true') return;
                 target.disabled = true; target.dataset.processing = 'true';
@@ -586,9 +596,11 @@ export const UICore = {
             'toggle-accordion': (e, id, val, target) => { e.preventDefault(); getSys().togglePayDetail?.(target); },
             'jump-transaction': (e, id, val, target, dataType) => getSys().jumpToTransaction?.(id, dataType),
             'open-detail': (e, id, val, target, dataType) => getSys().openDetail?.(e, dataType, id),
-            'render-orders': () => getSys().renderOrders?.(),
-            'render-wallet': () => getSys().renderWallet?.(),
-            'render-payments': () => getSys().renderPayments?.(),
+            
+            'render-orders': () => RenderManager.renderOrders?.(true),
+            'render-wallet': () => RenderManager.renderWallet?.(true),
+            'render-payments': () => RenderManager.renderPayments?.(true),
+            
             'filter-order': (e, id, val, target) => getSys().setOrderFilter?.(val, target),
             'filter-wallet': (e, id, val, target) => getSys().setWalletFilter?.(val, target),
             'filter-pay': (e, id, val, target) => getSys().setPaymentFilter?.(val, target),
@@ -651,7 +663,6 @@ export const UICore = {
                 this.markAllNotificationsRead?.();
             },
             
-            // 🛡️ الإصلاح 2: منع انهيار الـ Modal بسبب الأهداف الفارغة (Null Routing)
             'mark-single-read': (e, id) => {
                 e.stopPropagation();
                 const item = e.target.closest('.nc-item');
@@ -681,15 +692,31 @@ export const UICore = {
         if (this.initNetworkSensors) this.initNetworkSensors(); 
 
         document.body.addEventListener('touchstart', () => {}, { passive: true });
-        window.addEventListener('contextmenu', (e) => { if (e.target.closest('[data-action], .cat-card, .product-card')) e.preventDefault(); });
+        
+        // 🛡️ [الإصلاح المعماري 4]: السماح بـ ContextMenu باستثناء الصور لحمايتها من السرقة وتسهيل فتح المنتجات بصفحات جديدة.
+        window.addEventListener('contextmenu', (e) => { 
+            if (e.target.tagName === 'IMG' || e.target.closest('.prevent-context')) e.preventDefault(); 
+        });
 
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter') return;
             const action = e.target.getAttribute('data-action');
             if (action === 'store-search-enter') { this.sfx?.('nav'); this.applyStoreSearch?.(); }
-            if (action === 'order-search-enter') { this.sfx?.('nav'); getSys().renderOrders?.(); }
-            if (action === 'wallet-search-enter') { this.sfx?.('nav'); getSys().renderWallet?.(); }
-            if (action === 'pay-search-enter') { this.sfx?.('nav'); getSys().renderPayments?.(); }
+            
+            if (action === 'order-search-enter') { this.sfx?.('nav'); RenderManager.renderOrders?.(true); }
+            if (action === 'wallet-search-enter') { this.sfx?.('nav'); RenderManager.renderWallet?.(true); }
+            if (action === 'pay-search-enter') { this.sfx?.('nav'); RenderManager.renderPayments?.(true); }
+        });
+
+        // 🛡️ [توحيد مصدر الأحداث: المدخلات والتغييرات]
+        document.addEventListener('input', (e) => {
+            if (e.target.id === 'bal-amount') {
+                if (this._amountTypingTimer) clearTimeout(this._amountTypingTimer);
+                this._amountTypingTimer = setTimeout(() => { 
+                    getSys().calcFee?.(); 
+                    if (e.target.parentElement) e.target.parentElement.classList.toggle('has-value', e.target.value !== ''); 
+                }, 150);
+            }
         });
 
         document.addEventListener('change', (e) => {
@@ -699,23 +726,67 @@ export const UICore = {
             if (action === 'kyc-upload-back') getSys().handleKycImage?.(e.target, 'kyc-prev-back');
             if (action === 'kyc-upload-selfie') getSys().handleKycImage?.(e.target, 'kyc-prev-selfie');
             if (action === 'upload-avatar') getSys().handleAvatarChange?.(e);
+            
+            if (e.target.id === 'bal-file') getSys().previewReceipt?.(e.target); 
         });
 
         document.addEventListener('click', (e) => {
+            // 🛡️ [توحيد أحداث النقرات المعقدة والنوافذ المنسدلة]
+            const pkgItem = e.target.closest('#pkg-custom-menu .dropdown-item');
+            if (pkgItem) {
+                const pkgSel = document.getElementById('pm-pack'), pkgTxt = document.getElementById('pkg-selected-text'), dropCont = document.getElementById('pkg-custom-dropdown');
+                if (pkgSel) pkgSel.value = pkgItem.dataset.idx; 
+                if (pkgTxt) pkgTxt.textContent = pkgItem.dataset.name; 
+                if (dropCont) dropCont.classList.remove('open');
+                pkgItem.parentNode.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active')); 
+                pkgItem.classList.add('active');
+                getSys().updatePriceDisplay?.(); getSys().revalidateAppliedCoupon?.(); this.sfx?.('nav');
+            }
+
+            if (e.target.closest('#bal-upload-box')) { document.getElementById('bal-file')?.click(); }
+            
+            const currTrigger = e.target.closest('.micro-currency-trigger');
+            if (currTrigger) { 
+                const list = currTrigger.parentElement.querySelector('.dropdown-menu'); 
+                if (list && list.style.display !== 'none') currTrigger.parentElement.classList.toggle('open'); 
+            }
+            
+            const currItem = e.target.closest('.split-dropdown .dropdown-item');
+            if (currItem) { 
+                getSys().changeDepositCurrency?.(currItem.dataset.curr); 
+                e.target.closest('.split-dropdown')?.classList.remove('open'); 
+            }
+
             const packageWrapper = document.getElementById('pkg-custom-dropdown');
             if (packageWrapper?.classList.contains('open') && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
                 packageWrapper.classList.remove('open');
             }
+            
             const walletDrawer = document.getElementById('walletStatsDrawer');
             if (walletDrawer?.classList.contains('active')) {
                 if (!walletDrawer.contains(e.target) && !e.target.closest('.detail-arrow') && !e.target.closest('.wallet-toggle-btn') && !e.target.closest('[data-action="toggle-wallet-stats"]')) {
                     getSys().closeWalletStats?.(); 
                 }
             }
+            
+            const avatarMenu = document.getElementById('avatar-action-menu');
+            if (avatarMenu?.classList.contains('open') && !avatarMenu.contains(e.target) && !e.target.closest('#avatar-menu-trigger') && !e.target.closest('#profile-img')) {
+                avatarMenu.classList.remove('open');
+            }
         }, true); 
 
+        // 🛡️ [تنفيذ الأوامر الديناميكي]
         document.body.addEventListener('click', (e) => {
             const target = e.target;
+            
+            const avatarTrigger = target.closest('#avatar-menu-trigger, #profile-img');
+            if (avatarTrigger) {
+                e.preventDefault(); e.stopPropagation();
+                this.sfx?.('nav');
+                const menu = document.getElementById('avatar-action-menu');
+                if (menu) menu.classList.toggle('open');
+                return;
+            }
             
             if (target.classList.contains('pm-overlay') || target.classList.contains('modal-overlay')) {
                 e.preventDefault();
@@ -767,8 +838,8 @@ export const UICore = {
                 if (res instanceof Promise && this.logCloudError) res.catch(err => this.logCloudError(action, err));
             } catch (err) { if (this.logCloudError) this.logCloudError(action, err); }
         });
-    },
-
+    },    
+    
     // =========================================================
     // 🌟 محرك الانتقالات الفاخر
     // =========================================================
@@ -786,7 +857,6 @@ export const UICore = {
         else { backdrop.style.opacity = '0'; setTimeout(() => loader.style.display = 'none', 200); }
     },
 
-    // 🛡️ الإصلاح 1: فخ המות (Try...Finally) لمنع تجميد الشاشة
     _executePageTransition: function(renderCallback) {
         const grid = document.getElementById('store-grid');
         this._toggleNavLoader(true); 
@@ -895,11 +965,17 @@ export const UICore = {
         setTimeout(() => { this.openModal('wallet'); }, 10);
     },
     
+    // 🛡️ [الإصلاح المعماري 2]: تفريغ المراقب وحفظ المرجع لتجنب تسرب الذاكرة
     _syncWalletBlur: function() {
         const drawer = document.getElementById('walletStatsDrawer');
         const walletModal = document.getElementById('wallet-modal');
-        if (!drawer || !walletModal || drawer._hasBlurObserver) return;
-        const observer = new MutationObserver((mutations) => {
+        if (!drawer || !walletModal) return;
+
+        if (this._walletBlurObserver) {
+            this._walletBlurObserver.disconnect();
+        }
+        
+        this._walletBlurObserver = new MutationObserver((mutations) => {
             mutations.forEach((m) => {
                 if (m.attributeName === 'class' && !drawer.classList.contains('active')) {
                     walletModal.classList.remove('drawer-blur-active');
@@ -907,8 +983,8 @@ export const UICore = {
                 }
             });
         });
-        observer.observe(drawer, { attributes: true, attributeFilter: ['class'] });
-        drawer._hasBlurObserver = true;
+        
+        this._walletBlurObserver.observe(drawer, { attributes: true, attributeFilter: ['class'] });
     },
     
     openMyPayments: function() {
@@ -1844,4 +1920,3 @@ export const UICore = {
         }
     }
 };
-

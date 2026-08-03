@@ -196,7 +196,18 @@ export const DataManager = {
         const sanitized = {};
         for (const key in newData) {
             if (!FORBIDDEN_KEYS.has(key) && Object.prototype.hasOwnProperty.call(newData, key)) {
-                sanitized[key] = typeof newData[key] === 'object' && newData[key] !== null ? JSON.parse(JSON.stringify(newData[key])) : newData[key];
+                // استخدام structuredClone للاستنساخ العميق الآمن والسريع، مع Fallback احتياطي للبيئات القديمة جداً
+if (typeof newData[key] === 'object' && newData[key] !== null) {
+    try {
+        sanitized[key] = structuredClone(newData[key]);
+    } catch (e) {
+        // Fallback في حال فشل الاستنساخ (مثلاً كائنات DOM غير مدعومة)
+        sanitized[key] = { ...newData[key] };
+    }
+} else {
+    sanitized[key] = newData[key];
+}
+
             }
         }
         

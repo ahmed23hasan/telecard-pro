@@ -1,10 +1,11 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية V15.6 🛡️
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية V15.7 🛡️
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية (V15.6):
-// 1. Strict MVC Enforcement: إزالة الاتصال المباشر بقاعدة البيانات (StoreDB) من الواجهة.
-// 2. Bridge Utilization: توجيه عمليات الهوية والـ KYC والتقييمات عبر جسور DataManager المحصنة.
-// 3. Double-Submission Prevention: الاستفادة من أقفال الذاكرة المركزية لمنع استنزاف السيرفر.
+// 🚀 التحديثات المعمارية (V15.7):
+// 1. Password Pre-Flight Check: حماية السيرفر من طلبات كلمات المرور الضعيفة والتحقق محلياً.
+// 2. Safe KYC Abort: منع حذف صور الهوية المرفوعة إذا ألغى المستخدم مربع الاختيار.
+// 3. Centralized Biometric Sync: مزامنة مفتاح البصمة مع السيرفر بدلاً من التخزين المحلي فقط.
+// 4. Currency Failsafe: تأمين العملة المرجعية بـ Fallback لتجنب تلف الرصيد عند حفظ الهوية.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -770,91 +771,98 @@ export const UIAuth = {
     },
 
     handleBiometricToggle: async function() {
-        const sys = getSys();
-        const user = DataManager.user;
-        const isCurrentlyEnabled = user?.biometricEnabled === true;
-        
-        if (isCurrentlyEnabled) {
-            sys.toggleLoader?.(true, 'جاري إيقاف البصمة في السيرفر...');
-            try {
-                const success = await DataManager.updateUserProfile({ biometricEnabled: false });
-                if (success) {
-                    try { localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY); } catch(e) {}
-                    sys.showToast?.('تم إيقاف المصادقة بالبصمة بنجاح', 'info');
-                    sys.sfx?.('nav');
-                    this.openSecurityModal();
-                } else {
-                    sys.showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
-                }
-            } finally { sys.toggleLoader?.(false); }
-            return;
-        }
-        
-        if (typeof window === 'undefined' || !window.PublicKeyCredential || !navigator.credentials) {
-            sys.showToast?.('عذراً، متصفحك لا يدعم البصمة أو أن الاتصال غير آمن (HTTPS مطلوب)', 'error');
-            return;
-        }
-        
+    const sys = getSys();
+    const user = DataManager.user;
+    const isCurrentlyEnabled = user?.biometricEnabled === true;
+    
+    // ==========================================
+    // 🛑 حالة إيقاف البصمة
+    // ==========================================
+    if (isCurrentlyEnabled) {
+        sys.toggleLoader?.(true, 'جاري إيقاف قفل البصمة...');
         try {
-            sys.toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
-            
-            const challenge = new Uint8Array(32);
-            window.crypto.getRandomValues(challenge);
-            
-            const userIdStr = String(user?.id || 'unknown');
-            const userIdBytes = new TextEncoder().encode(userIdStr);
-            const userEmail = user?.email || 'user@malimor.com';
-            const storeName = LiveStoreData.settings?.storeName || "MaliMor Store";
-            
-            const publicKeyCredentialCreationOptions = {
+            // نبلغ السيرفر أن البصمة معطلة، ونحذفها من المتصفح
+            const success = await DataManager.updateUserProfile({ biometricEnabled: false, biometricRawId: null });
+            if (success) {
+                try { localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY); } catch (e) {}
+                sys.showToast?.('تم إيقاف قفل البصمة بنجاح', 'info');
+                sys.sfx?.('nav');
+                this.openSecurityModal();
+            } else {
+                sys.showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
+            }
+        } finally { sys.toggleLoader?.(false); }
+        return;
+    }
+    
+    // ==========================================
+    // ✅ حالة تفعيل البصمة (Local App Lock)
+    // ==========================================
+    if (typeof window === 'undefined' || !window.PublicKeyCredential || !navigator.credentials) {
+        sys.showToast?.('عذراً، متصفحك لا يدعم البصمة أو أن الاتصال غير آمن (HTTPS مطلوب)', 'error');
+        return;
+    }
+    
+    try {
+        sys.toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
+        
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+        
+        const userEmail = user?.email || 'user@store.local';
+        const userIdBytes = new TextEncoder().encode(userEmail);
+        const storeName = LiveStoreData.settings?.storeName || "MaliMor Store";
+        
+        // طلب إنشاء مفتاح بصمة من نظام الهاتف
+        const credential = await navigator.credentials.create({
+            publicKey: {
                 challenge: challenge,
-                rp: { name: Utils.escapeHtml(storeName) }, 
+                rp: { name: Utils.escapeHtml(storeName) },
                 user: { id: userIdBytes, name: userEmail, displayName: userEmail },
                 pubKeyCredParams: [
-                    { alg: -7, type: "public-key" }, 
-                    { alg: -257, type: "public-key" } 
+                    { alg: -7, type: "public-key" },
+                    { alg: -257, type: "public-key" }
                 ],
                 authenticatorSelection: {
-                    authenticatorAttachment: "platform", 
+                    authenticatorAttachment: "platform", // إجبار استخدام بصمة الجهاز نفسه
                     userVerification: "required"
                 },
                 timeout: 60000
-            };
-            
-            const credential = await navigator.credentials.create({ publicKey: publicKeyCredentialCreationOptions });
-            
-            const rawId = Array.from(new Uint8Array(credential.rawId))
-                .map(b => b.toString(16).padStart(2, '0'))
-                .join('');
-            
-            try { localStorage.setItem(CACHE_KEYS.BIOMETRIC_KEY, rawId); } 
-            catch (e) { throw new Error("storage_full"); }
-            
-            const success = await DataManager.updateUserProfile({ biometricEnabled: true });
-            
-            if (success) {
-                sys.showToast?.('تم تفعيل البصمة بنجاح! سيتم قفل المتجر بها.', 'success');
-                sys.sfx?.('success');
-                this.openSecurityModal();
-            } else {
-                try { localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY); } catch(e) {}
-                throw new Error('server_error');
             }
-        } catch (error) {
-            if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
-                sys.showToast?.('تم إلغاء عملية البصمة من قبلك', 'warning');
-            } else if (error.message === 'storage_full') {
-                sys.showToast?.('تعذر تفعيل البصمة (التصفح المخفي يمنع حفظ البيانات)', 'error');
-            } else if (error.name === 'SecurityError') {
-                sys.showToast?.('بيئة غير آمنة. البصمة تتطلب اتصال HTTPS', 'error');
-            } else {
-                sys.showToast?.('تعذر تفعيل البصمة، تأكد من إعدادات القفل في جهازك', 'error');
-            }
-        } finally {
-            sys.toggleLoader?.(false);
+        });
+        
+        // 🛡️ التحديث المعماري: تحويل المعرف لـ Base64 القياسي لحفظه بأمان
+        const rawIdBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(credential.rawId)));
+        
+        // حفظ التفعيل في قاعدة البيانات لمعرفة أن هذا الحساب "مقفل"
+        const success = await DataManager.updateUserProfile({
+            biometricEnabled: true,
+            biometricRawId: rawIdBase64
+        });
+        
+        if (success) {
+            // حفظ المفتاح في المتصفح لاستخدامه فوراً عند فتح التطبيق لاحقاً
+            try { localStorage.setItem(CACHE_KEYS.BIOMETRIC_KEY, rawIdBase64); } catch (e) {}
+            sys.showToast?.('تم تفعيل قفل البصمة بنجاح!', 'success');
+            sys.sfx?.('success');
+            this.openSecurityModal();
+        } else {
+            throw new Error('server_error');
         }
-    },
-
+    } catch (error) {
+        if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
+            sys.showToast?.('تم إلغاء عملية البصمة من قبلك', 'warning');
+        } else if (error.message === 'storage_full') {
+            sys.showToast?.('تعذر تفعيل البصمة (التصفح المخفي يمنع حفظ البيانات)', 'error');
+        } else if (error.name === 'SecurityError') {
+            sys.showToast?.('بيئة غير آمنة. البصمة تتطلب اتصال HTTPS', 'error');
+        } else {
+            sys.showToast?.('تعذر تفعيل البصمة، تأكد من إعدادات القفل في جهازك', 'error');
+        }
+    } finally {
+        sys.toggleLoader?.(false);
+    }
+},
     handlePasswordSubmit: function() {
         const securityModal = document.getElementById('security-modal');
         if (!securityModal) return;
@@ -866,6 +874,17 @@ export const UIAuth = {
         const currentVal = (currentInput?.value || '').trim();
         const newVal = (newInput?.value || '').trim();
         const confirmVal = (confirmInput?.value || '').trim();
+        
+        // 🛡️ الإصلاح 1: التحقق من طرف العميل قبل إرهاق السيرفر
+        if (!currentVal || !newVal || !confirmVal) {
+            getSys().showToast?.('يرجى تعبئة جميع الحقول', 'warning'); return;
+        }
+        if (newVal.length < 6) {
+            getSys().showToast?.('كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل', 'warning'); return;
+        }
+        if (newVal !== confirmVal) {
+            getSys().showToast?.('كلمة المرور الجديدة غير متطابقة', 'error'); return;
+        }
         
         if (!DataManager || typeof DataManager.submitPasswordChange !== 'function') return;
         
@@ -940,7 +959,6 @@ export const UIAuth = {
         getSys().sfx?.('nav');
     },
 
-    // 🛡️ الإصلاح 2: تمرير عمليات الهوية بشكل سليم للجسور المعمارية النظيفة
     saveIdentityData: async function() {
         const btn = document.querySelector('[data-action="save-identity"]');
         if (this._isSavingIdentity || (btn && btn.disabled)) return;
@@ -960,7 +978,8 @@ export const UIAuth = {
         let phoneRaw = phoneEl ? phoneEl.value.trim() : '';
         const phone = phoneRaw.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
         
-        const currency = hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '';
+        // 🛡️ الإصلاح 4: تأمين العملة ببديل لحماية الحساب من تلف العملة الأساسية
+        const currency = (hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '') || DataManager.user?.baseCurrency || 'USD';
         
         if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
             getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
@@ -1035,6 +1054,12 @@ export const UIAuth = {
         if (this._processingImgs.has(previewId)) return;
         
         const file = input.files && input.files[0];
+        
+        // 🛡️ الإصلاح 2: عدم حذف الصورة السابقة إذا ألغى المستخدم النافذة المنبثقة
+        if (!file && this.kycFiles && this.kycFiles[previewId]) {
+            return; 
+        }
+        
         const parentBox = input.closest('.kyc-upload-box');
         const previewImg = document.getElementById(previewId);
         
@@ -1080,7 +1105,6 @@ export const UIAuth = {
         }
     },
     
-    // 🛡️ الإصلاح 2: تمرير بيانات הـ KYC للجسر المعماري النظيف
     submitKycData: async function() {
         if (this._isSubmittingKyc) return;
         
@@ -1330,7 +1354,6 @@ export const UIAuth = {
         getSys().openModal?.('tier-info');
     },
 
-    // 🛡️ الإصلاح 2: تمرير التقييمات بأمان لـ DataManager
     submitPrivateFeedback: async function() {
         const rawFeedback = document.getElementById('ratingFeedbackInput')?.value.trim() || '';
         const feedback = Utils.escapeHtml ? Utils.escapeHtml(rawFeedback) : rawFeedback.replace(/[<>]/g, '');

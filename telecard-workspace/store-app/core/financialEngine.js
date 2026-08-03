@@ -125,7 +125,7 @@ const FinancialEngineDef = {
         };
     },
     
-    calculatePrice: function(params) {
+        calculatePrice: function(params) {
         const { product, tier, offer, coupon, optIdx } = params || {};
         if (!product || typeof product !== 'object') return null;
 
@@ -160,15 +160,24 @@ const FinancialEngineDef = {
             couponDiscount = coupon.type === 'percentage' ? FinancialEngineDef._internalMul(currentPrice, FinancialEngineDef._internalDiv(coupVal, 100)) : Math.min(coupVal, currentPrice);
         }
         
+        // 🛠️ الإصلاح الجوهري: تحديث السعر الحالي بعد خصم الكوبون وتطبيق الحد الأدنى (تماماً مثل السيرفر)
+        currentPrice = Math.max(
+            FinancialEngineDef.CONFIG.MIN_SALE_PRICE, 
+            FinancialEngineDef._internalSub(currentPrice, couponDiscount)
+        );
+        
         return {
             originalPrice: FinancialEngineDef._preciseRound(originalPrice),
-            finalPrice: FinancialEngineDef._preciseRound(Math.max(FinancialEngineDef.CONFIG.MIN_SALE_PRICE, FinancialEngineDef._internalSub(currentPrice, couponDiscount))),
-            offerName: offerName, offerDiscount: FinancialEngineDef._preciseRound(offerDiscount),
-            couponCode: couponCode, couponDiscount: FinancialEngineDef._preciseRound(couponDiscount),
-            totalDiscount: FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(originalPrice, currentPrice)),
+            finalPrice: FinancialEngineDef._preciseRound(currentPrice), // استخدام السعر المحدث
+            offerName: offerName, 
+            offerDiscount: FinancialEngineDef._preciseRound(offerDiscount),
+            couponCode: couponCode, 
+            couponDiscount: FinancialEngineDef._preciseRound(couponDiscount),
+            totalDiscount: FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(originalPrice, currentPrice)), // حساب الإجمالي أصبح دقيقاً
             tierName: tier?.name || (isFixed ? 'سعر ثابت' : 'أساسي')
         };
     },
+
     
     calculateOrderTotal: function(params, rawQty) {
         let qty = Math.max(1, Math.min(Math.floor(FinancialEngineDef.extractNum(rawQty)), FinancialEngineDef.CONFIG.MAX_QTY_LIMIT));

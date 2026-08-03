@@ -64,40 +64,61 @@ Object.assign(ClientSystem, {
     },
 
     enforceBiometricLock: async function() {
-        const lockScreen = document.getElementById('biometric-lock-screen');
-        if (!lockScreen) return false;
+    const lockScreen = document.getElementById('biometric-lock-screen');
+    const isBiometricRequired = DataManager.user?.biometricEnabled === true;
+    const savedRawId = localStorage.getItem(CACHE_KEYS.BIOMETRIC_KEY);
+    
+    if (!isBiometricRequired) return true; // إذا لم تكن مفعلة، نتجاوز القفل
+    
+    if (lockScreen) lockScreen.classList.add('active'); // إظهار شاشة القفل
+    
+    if (!window.PublicKeyCredential || !savedRawId) {
+        if (lockScreen) lockScreen.classList.remove('active');
+        this.showToast?.('مفتاح البصمة مفقود. يرجى تسجيل الدخول.', 'error');
+        if (DataManager.logout) DataManager.logout();
+        return false;
+    }
+    
+    try {
+        const retryBtn = document.getElementById('btn-biometric-retry');
+        if (retryBtn) {
+            retryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحقق...';
+            retryBtn.disabled = true;
+        }
         
-        const isBiometricRequired = DataManager.user?.biometricEnabled === true;
-        const savedRawId = localStorage.getItem(CACHE_KEYS.BIOMETRIC_KEY);
-
-        if (!window.PublicKeyCredential || !savedRawId) {
-            if (isBiometricRequired) {
-                lockScreen.classList.remove('active');
-                this.showToast?.('مفتاح البصمة مفقود. يرجى تسجيل الدخول.', 'error');
-                if(DataManager.logout) DataManager.logout();
-                return false;
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+        
+        // 🛡️ فك تشفير Base64 الصحيح
+        const binaryString = atob(savedRawId);
+        const rawIdBytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            rawIdBytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        // طلب البصمة
+        await navigator.credentials.get({
+            publicKey: {
+                challenge,
+                timeout: 60000,
+                userVerification: "required",
+                allowCredentials: [{ type: "public-key", id: rawIdBytes }]
             }
-            lockScreen.classList.remove('active');
-            return true;
-        }
+        });
         
-        try {
-            const retryBtn = document.getElementById('btn-biometric-retry');
-            if (retryBtn) { retryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحقق...'; retryBtn.disabled = true; }
-            
-            const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge);
-            const rawIdBytes = new Uint8Array(savedRawId.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-            
-            await navigator.credentials.get({ publicKey: { challenge, timeout: 60000, userVerification: "required", allowCredentials: [{ type: "public-key", id: rawIdBytes }] } });
-            
-            lockScreen.classList.remove('active'); return true;
-        } catch (error) {
-            const retryBtn = document.getElementById('btn-biometric-retry');
-            if (retryBtn) { retryBtn.innerHTML = '<i class="fa-solid fa-fingerprint"></i> المحاولة مجدداً'; retryBtn.disabled = false; }
-            return false;
+        if (lockScreen) lockScreen.classList.remove('active');
+        return true;
+    } catch (error) {
+        const retryBtn = document.getElementById('btn-biometric-retry');
+        if (retryBtn) {
+            retryBtn.innerHTML = '<i class="fa-solid fa-fingerprint"></i> المحاولة مجدداً';
+            retryBtn.disabled = false;
+            // ربط زر إعادة المحاولة
+            retryBtn.onclick = () => this.enforceBiometricLock();
         }
-    },  
-
+        return false;
+    }
+},
     initNetworkSensors: function() {
         if (this._networkSensorsBound) return;
         this._networkSensorsBound = true;
@@ -376,11 +397,22 @@ ClientSystem.init = async function() {
         console.warn("⚠️ [Cache Hydration] تعذر جلب السجلات المؤقتة.");
     }
 
-    try {
-        if(DataManager.loadPrefs) DataManager.loadPrefs();
-        if(DataManager.syncUser) await DataManager.syncUser().catch(()=>{});
-        if(this.applySavedTheme) this.applySavedTheme();
-        
+try {
+    if (DataManager.loadPrefs) DataManager.loadPrefs();
+    if (DataManager.syncUser) await DataManager.syncUser().catch(() => {});
+    
+    // 🔒 [تفعيل قفل المتجر بالبصمة قبل إكمال التحميل]
+    if (DataManager.user && DataManager.user.biometricEnabled) {
+        const isUnlocked = await this.enforceBiometricLock();
+        if (!isUnlocked) {
+            // إذا فشل القفل، نزيل شاشة الانتظار لكي يرى العميل شاشة القفل السوداء
+            const splash = document.getElementById('global-splash-screen');
+            if (splash) splash.remove();
+            return; // ⛔ نوقف تشغيل باقي النظام حتى يضع بصمته!
+        }
+    }
+    
+    if (this.applySavedTheme) this.applySavedTheme();
         DataManager.selectedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || LiveStoreData.settings?.defaultCurrency || 'USD';
         if(this.updateDisplayCurrencyUI) this.updateDisplayCurrencyUI(DataManager.selectedCurr);
         if(this.toggleHeroSection) this.toggleHeroSection(true);

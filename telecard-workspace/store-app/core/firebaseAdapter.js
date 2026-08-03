@@ -1,10 +1,11 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V16.1 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V16.3 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق، والاستعلامات
-// 🚀 التحديثات المعمارية (V16.1):
-// 1. Sanitized Error Shield: منع انهيار الـ DevTools بسبب الكائنات الدائرية لفايربيز.
-// 2. Offline-First Resilience: تعديل `getCacheFirst` ليعرض بيانات الكاش فوراً بمهلة 8 ثوانٍ.
-// 3. UX Network Check & Clean Syntax: تنظيف الملف وتأمين الاتصالات.
+// 🚀 التحديثات المعمارية (V16.3):
+// 1. Hash Collision Fix: استبدال خوارزمية التشفير بنصوص فريدة مطلقة لمنع تداخل الـ Listeners.
+// 2. Safe Pagination: دعم التمرير (Pagination) الذكي حتى في غياب شروط (where).
+// 3. Error Visibility: إلغاء الفشل الصامت (Silent Failures) لتسهيل تتبع صلاحيات الحماية.
+// 4. Strict ID Validation: منع الأخطاء الناتجة عن مسارات المستندات الفارغة.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -24,8 +25,6 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
 import { firebaseConfig } from '../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-
-// Placeholder for future AppCheck implementation
 let appCheck = null; 
 
 const db = initializeFirestore(app, {
@@ -43,12 +42,10 @@ export const FirebaseAdapter = {
     functions: functions,
     _activeListeners: new Map(),
 
-    // 🛡️ حماية صارمة ضد الـ Ghost Listeners
     _registerListener: function(uniqueKey, unsubscribeFn) {
         if (this._activeListeners.has(uniqueKey)) {
             this._activeListeners.get(uniqueKey)(); 
         }
-        
         this._activeListeners.set(uniqueKey, unsubscribeFn);
         return () => {
             if (this._activeListeners.has(uniqueKey)) {
@@ -64,10 +61,11 @@ export const FirebaseAdapter = {
     },
 
     _sanitizeDocId: function(id) {
-        return id ? String(id).replace(/[\/\\]/g, '_').trim() : '';
+        const cleanId = id ? String(id).replace(/[\/\\]/g, '_').trim() : '';
+        if (!cleanId) throw new Error("Document ID cannot be empty or null.");
+        return cleanId;
     },
 
-    // 🛡️ حماية العمليات من التعليق بسبب سوء الشبكة
     _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
         if (isWriteOperation) return promise; 
         
@@ -84,11 +82,14 @@ export const FirebaseAdapter = {
     },
 
     async getById(collectionName, docId) {
-        const safeId = this._sanitizeDocId(docId);
         try {
+            const safeId = this._sanitizeDocId(docId);
             const docSnap = await this._withTimeout(getDoc(doc(db, collectionName, safeId)), 10000, `getById -> ${collectionName}`);
             return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
-        } catch (error) { return null; }
+        } catch (error) { 
+            console.error(`[DB Error] getById (${collectionName}):`, error.message);
+            return null; 
+        }
     },
 
     async getAll(collectionName, maxLimit = 1000) {
@@ -96,7 +97,10 @@ export const FirebaseAdapter = {
             const q = query(collection(db, collectionName), limit(maxLimit));
             const snapshot = await this._withTimeout(getDocs(q), 10000, `getAll -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (error) { return []; }
+        } catch (error) { 
+            console.error(`[DB Error] getAll (${collectionName}):`, error.message);
+            return []; 
+        }
     },
 
     async query(collectionName, field, op, value, maxLimit = 50) {
@@ -104,53 +108,76 @@ export const FirebaseAdapter = {
             const q = query(collection(db, collectionName), where(field, op, value), limit(maxLimit));
             const snapshot = await this._withTimeout(getDocs(q), 10000, `query -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (error) { return []; }
+        } catch (error) { 
+            console.error(`[DB Error] query (${collectionName}):`, error.message);
+            return []; 
+        }
     },
 
+    // 🛠️ تم الإصلاح: التعامل الآمن مع الاستعلامات بدون where
     async fetchMoreWithCursor(collectionName, whereCondition, orderField, cursorDoc, limitCount = 15) {
         try {
-            let q = query(
-                collection(db, collectionName),
-                where(whereCondition[0], whereCondition[1], whereCondition[2]),
-                orderBy(orderField, "desc"),
-                startAfter(cursorDoc),
-                limit(limitCount)
-            );
+            let constraints = [];
+            let primaryOrderField = orderField;
+
+            // التحقق مما إذا كان whereCondition موجوداً وصالحاً
+            if (whereCondition && Array.isArray(whereCondition) && whereCondition.length === 3) {
+                const isInequalityFilter = ['<', '<=', '>', '>=', '!='].includes(whereCondition[1]);
+                primaryOrderField = isInequalityFilter ? whereCondition[0] : orderField;
+                
+                constraints.push(where(whereCondition[0], whereCondition[1], whereCondition[2]));
+                constraints.push(orderBy(primaryOrderField, "desc"));
+
+                if (isInequalityFilter && orderField !== primaryOrderField) {
+                    constraints.push(orderBy(orderField, "desc"));
+                }
+            } else {
+                // إذا لم يوجد شرط، رتب مباشرة
+                constraints.push(orderBy(primaryOrderField, "desc"));
+            }
+
+            constraints.push(startAfter(cursorDoc), limit(limitCount));
+            const q = query(collection(db, collectionName), ...constraints);
+            
             const snapshot = await this._withTimeout(getDocs(q), 15000, `fetchMore -> ${collectionName}`);
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             return {
                 data: data,
                 newLastDoc: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null
             };
-        } catch (error) { return { data: [], newLastDoc: null }; }
+        } catch (error) { 
+            console.error(`[DB Error] fetchMoreWithCursor (${collectionName}):`, error.message);
+            return { data: [], newLastDoc: null }; 
+        }
     },
     
-    // 🛡️ هندسة Offline-First (الكاش كشبكة أمان مع مهلة متوازنة)
     async getCacheFirst(collectionName, docId) {
-        const safeId = this._sanitizeDocId(docId);
-        const docRef = doc(db, collectionName, safeId);
-        
-        let cachedData = null;
         try {
-            // محاولة جلب البيانات من الذاكرة المحلية أولاً
-            const cachedSnap = await getDocFromCache(docRef);
-            if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
-        } catch (e) {}
-        
-        // إذا كان المتصفح غير متصل بالإنترنت فعلياً، أعد الكاش فوراً
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-            return cachedData;
-        }
-        
-        try {
-            // انتظار رد السيرفر لمدة 8 ثوانٍ (التوازن المثالي للشبكات البطيئة)
-            const serverSnap = await this._withTimeout(getDoc(docRef), 8000, `getCacheFirst -> ${collectionName}`);
-            return serverSnap.exists() ? { id: serverSnap.id, ...serverSnap.data(), fromCache: false } : null;
-        } catch (error) {
-            if (cachedData) {
-                console.warn(`⏳ تأخر السيرفر في جلب (${collectionName}). تم استخدام الكاش لحماية تجربة المستخدم.`);
+            const safeId = this._sanitizeDocId(docId);
+            const docRef = doc(db, collectionName, safeId);
+            
+            let cachedData = null;
+            try {
+                const cachedSnap = await getDocFromCache(docRef);
+                if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
+            } catch (e) {}
+            
+            if (typeof navigator !== 'undefined' && navigator.onLine === false) {
                 return cachedData;
             }
+            
+            try {
+                const serverSnap = await this._withTimeout(getDoc(docRef), 8000, `getCacheFirst -> ${collectionName}`);
+                return serverSnap.exists() ? { id: serverSnap.id, ...serverSnap.data(), fromCache: false } : null;
+            } catch (error) {
+                if (cachedData) {
+                    console.warn(`⏳ تأخر السيرفر في جلب (${collectionName}). تم استخدام الكاش.`);
+                    return cachedData;
+                }
+                throw error;
+            }
+        } catch (error) {
+            console.error(`[DB Error] getCacheFirst (${collectionName}):`, error.message);
             return null;
         }
     },
@@ -160,33 +187,47 @@ export const FirebaseAdapter = {
             const safeId = this._sanitizeDocId(docId);
             await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000, 'set', true);
             return true;
-        } catch (error) { return false; }
+        } catch (error) { 
+            console.error(`[DB Error] set (${collectionName}):`, error.message);
+            return false; 
+        }
     },
             
     async add(collectionName, data) {
         try {
             const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, 'add', true);
             return docRef.id;
-        } catch (error) { return null; }
+        } catch (error) { 
+            console.error(`[DB Error] add (${collectionName}):`, error.message);
+            return null; 
+        }
     },
                 
     async delete(collectionName, docId) {
         try {
             await this._withTimeout(deleteDoc(doc(db, collectionName, this._sanitizeDocId(docId))), 10000, 'delete', true);
             return true;
-        } catch (error) { return false; }
+        } catch (error) { 
+            console.error(`[DB Error] delete (${collectionName}):`, error.message);
+            return false; 
+        }
     },
 
     listenDoc(collectionName, docId, callback) {
-        const safeId = this._sanitizeDocId(docId);
-        const unsubscribe = onSnapshot(doc(db, collectionName, safeId),
-            (docSnap) => { callback(docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null); },
-            (error) => {
-                // 🛡️ الإصلاح الماسي: تمرير رسالة نصية فقط لمنع الانهيار الدائري في الـ DevTools
-                console.warn(`Listen Error (${collectionName}):`, error?.message || 'Network stream error');
-            }
-        );
-        return this._registerListener(`doc_${collectionName}_${safeId}`, unsubscribe);
+        try {
+            const safeId = this._sanitizeDocId(docId);
+            const unsubscribe = onSnapshot(doc(db, collectionName, safeId),
+                (docSnap) => { 
+                    try { callback(docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null); }
+                    catch (cbErr) { console.error(`[UI Error] Callback failed for ${collectionName}:`, cbErr); }
+                },
+                (error) => { console.warn(`Listen Error (${collectionName}):`, error?.message); }
+            );
+            return this._registerListener(`doc_${collectionName}_${safeId}`, unsubscribe);
+        } catch (error) {
+            console.error(`[DB Error] listenDoc failed setup:`, error.message);
+            return () => {};
+        }
     },
     
     listenQuery(collectionName, filtersArray, orderField, limitCount, callback) {
@@ -197,19 +238,20 @@ export const FirebaseAdapter = {
         
         const q = query(collection(db, collectionName), ...constraints);
         const unsubscribe = onSnapshot(q,
-            (snapshot) => { callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))); },
-            (error) => {
-                // 🛡️ الإصلاح الماسي: تنظيف الكائن الدائري
-                console.warn(`Listen Query Error (${collectionName}):`, error?.message || 'Network stream error');
-            }
+            (snapshot) => { 
+                try { callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))); }
+                catch (cbErr) { console.error(`[UI Error] Query Callback failed for ${collectionName}:`, cbErr); }
+            },
+            (error) => { console.warn(`Listen Query Error (${collectionName}):`, error?.message); }
         );
         
-        // 🛡️ مفتاح استعلام فريد ومستقر لا يتداخل
-        const filterStr = filtersArray.map(f => f.join('_')).join('|') + `_ord:${orderField||'none'}_lim:${limitCount||'all'}`;
-        return this._registerListener(`query_${collectionName}_${filterStr}`, unsubscribe);
+        // 🛠️ تم الإصلاح: استخدام نص JSON لضمان التفرد ومنع اختناق وتصادم الـ Map Keys
+        const filterStr = JSON.stringify(filtersArray);
+        const safeKey = `query_${collectionName}_${filterStr}_${orderField||'none'}_${limitCount||'all'}`;
+        
+        return this._registerListener(safeKey, unsubscribe);
     },
 
-    // 🛡️ التحقق من الاتصال قبل إرهاق السيرفر
     async callFunction(functionName, payload = {}, retryCount = 1) { 
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             const err = new Error('لا يوجد اتصال بالإنترنت.');
@@ -218,10 +260,10 @@ export const FirebaseAdapter = {
         }
 
         try {
-            const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Function -> ${functionName}`, true);
+            const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Function -> ${functionName}`, false);
             return result.data;
         } catch (error) {
-            const isSensitiveFunction = ['createOrder', 'submitBalanceRequest'].includes(functionName);
+            const isSensitiveFunction = ['createOrder', 'submitBalanceRequest', 'adminAdjustBalance'].includes(functionName);
             const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
             
             if (isTransientError && retryCount > 0 && !isSensitiveFunction) {
@@ -247,10 +289,9 @@ export const FirebaseAdapter = {
         
         try { 
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general'; 
-            const originalExt = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : (file.type === 'application/pdf' ? 'pdf' : 'jpg'); 
+            const originalExt = (file.name || '').includes('.') ? file.name.split('.').pop().toLowerCase() : (file.type === 'application/pdf' ? 'pdf' : 'jpg'); 
             
-            // دعم الأسماء العربية والرموز بأمان
-            const safeFileName = file.name.replace(/[^\w\s\u0600-\u06FF\-_]/g, '').trim().replace(/\s+/g, '_') || 'file';
+            const safeFileName = (file.name || 'file').replace(/[^\w\s\u0600-\u06FF\-_]/g, '').trim().replace(/\s+/g, '_') || 'file';
             
             const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9); 
             const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null; 
@@ -268,7 +309,11 @@ export const FirebaseAdapter = {
 
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
-        try { await deleteObject(ref(storage, url)); } catch (e) {}
+        try { 
+            await deleteObject(ref(storage, url)); 
+        } catch (e) {
+            console.error('[Storage Error] Failed to delete image:', e.message);
+        }
     },
 
     async sendResetEmail(email) {

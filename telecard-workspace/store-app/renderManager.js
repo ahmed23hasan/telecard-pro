@@ -792,8 +792,13 @@ export const RenderManager = {
         const filters = DataManager.filters || { payments: 'all' };
         if (filters.payments !== 'all') myDeposits = myDeposits.filter(d => filters.payments === 'rejected' ? ['rejected', 'refunded', 'returned'].includes(d.status) : d.status === filters.payments);
 
-        if (q) myDeposits = myDeposits.filter(d => RenderHelpers.formatDepositId(d).toLowerCase().includes(q) || (d.method && d.method.toLowerCase().includes(q)));
-        if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
+        if (q) myDeposits = myDeposits.filter(d =>
+    String(d.id).toLowerCase().includes(q) ||
+    (d.displayId && String(d.displayId).toLowerCase().includes(q)) ||
+    RenderHelpers.formatDepositId(d).toLowerCase().includes(q) ||
+    (d.method && d.method.toLowerCase().includes(q))
+);
+if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
 
         myDeposits.sort((a, b) => {
@@ -850,7 +855,12 @@ export const RenderManager = {
         const filters = DataManager.filters || { orders: 'all' };
         if (filters.orders !== 'all') orders = orders.filter(o => o.status === filters.orders);
         
-        if (q) orders = orders.filter(o => o.id.toString().includes(q) || (o.displayId && o.displayId.toLowerCase().includes(q)) || RenderHelpers.formatOrderId(o).toLowerCase().includes(q) || o.product?.toLowerCase().includes(q));
+        if (q) orders = orders.filter(o =>
+    String(o.id).toLowerCase().includes(q) ||
+    (o.displayId && String(o.displayId).toLowerCase().includes(q)) ||
+    RenderHelpers.formatOrderId(o).toLowerCase().includes(q) ||
+    (o.product && o.product.toLowerCase().includes(q))
+);
         if (tStart) orders = orders.filter(o => o.sortTime >= tStart);
         if (tEnd) orders = orders.filter(o => o.sortTime <= tEnd);
 

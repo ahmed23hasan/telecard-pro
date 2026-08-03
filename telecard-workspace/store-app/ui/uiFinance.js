@@ -1,10 +1,11 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة الماسية V16.8 💎
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة المطلقة V17.0 👑
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديثات المعمارية (V16.8):
-// 1. Upload Orchestration: معالجة الرفع محلياً قبل إرسال الرابط لمحرك البيانات لمنع انهيار الـ API.
-// 2. Arabic Inputs Fix: دعم الأرقام العربية في حقول الإدخال لتجنب مسح كتابة العميل.
-// 3. Dynamic Floor Calculation: حساب سقف الإيداع الديناميكي للعملات المختلفة في الواجهة لمنع انتظار رفض السيرفر.
+// 🚀 التحديثات المعمارية (V17.0):
+// 1. Crash-Free KYC: حماية صارمة لمنطق تحقق الهوية من أنواع البيانات غير المتوقعة.
+// 2. Event Delegation: نظام استماع عالمي للأحداث يحمي الواجهات من التوقف عند إعادة البناء.
+// 3. Smart Qty Correction: التصحيح التلقائي الذكي للكميات عند فقدان التركيز (Blur Event).
+// 4. Dynamic Max Limits: سحب السقف المالي الأعلى من لوحة التحكم مع وجود قيمة أمان افتراضية.
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -27,6 +28,7 @@ export const UIFinance = {
     _watchdogTimer: null,
     _offlineHandler: null,
     _currentImageJobId: null, 
+    _amountTypingTimer: null,
 
     _parseSafeAmount: function(val) {
         if (!val) return 0;
@@ -35,7 +37,6 @@ export const UIFinance = {
     
     _toggleButtonLoader: function(btn, isLoading) {
         if (!btn) return;
-        
         window.requestAnimationFrame(() => {
             if (isLoading) {
                 btn.disabled = true;
@@ -60,45 +61,29 @@ export const UIFinance = {
 
     _startTxWatchdog: function(submitBtn, shieldId) {
         if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
-        
         this._watchdogTimer = setTimeout(() => {
             if (this._isProcessingTx) {
-                console.warn("[MaliMor] Watchdog: Network is slow, notifying user but keeping UI locked.");
                 getSys().showToast?.('الشبكة بطيئة بعض الشيء، جاري معالجة طلبك بأمان... الرجاء عدم إغلاق الصفحة.', 'warning');
             }
         }, 15000); 
         
         if (this._offlineHandler) window.removeEventListener('offline', this._offlineHandler);
-        
         this._offlineHandler = () => {
-            if (this._isProcessingTx) {
-                getSys().showToast?.('انقطع الاتصال بالإنترنت! النظام يحمي معاملتك الآن.', 'error');
-            }
+            if (this._isProcessingTx) getSys().showToast?.('انقطع الاتصال بالإنترنت! النظام يحمي معاملتك الآن.', 'error');
         };
         window.addEventListener('offline', this._offlineHandler);
     },
 
     _cleanupTxUI: function(submitBtn, shieldId) {
         this._isProcessingTx = false;
-        
-        if (shieldId) {
-            const shield = document.getElementById(shieldId);
-            if (shield) shield.remove();
-        }
-        
+        if (shieldId) { const shield = document.getElementById(shieldId); if (shield) shield.remove(); }
         if (submitBtn) this._toggleButtonLoader(submitBtn, false);
-        
         if (this._watchdogTimer) { clearTimeout(this._watchdogTimer); this._watchdogTimer = null; }
-        
-        if (this._offlineHandler) {
-            window.removeEventListener('offline', this._offlineHandler);
-            this._offlineHandler = null;
-        }
+        if (this._offlineHandler) { window.removeEventListener('offline', this._offlineHandler); this._offlineHandler = null; }
     },
 
     _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
         if (element.classList.contains('active')) return;
-
         getSys().sfx?.('nav');
         const tabs = element.parentElement.querySelectorAll('.mf-tab');
         tabs.forEach(tab => tab.classList.remove('active'));
@@ -117,16 +102,11 @@ export const UIFinance = {
     jumpToTransaction: function(id, type) {
         getSys().sfx?.('nav');
         getSys().closeWallet?.();
-        
         setTimeout(() => {
-            if (type === 'purchase') getSys().openOrders?.();
-            else getSys().openMyPayments?.();
-            
+            if (type === 'purchase') getSys().openOrders?.(); else getSys().openMyPayments?.();
             const searchInput = document.getElementById((type === 'purchase') ? 'order-search-input' : 'pay-search-input');
             if (searchInput) searchInput.value = id;
-
             if (RenderManager) RenderManager.highlightId = id;
-
             if (type === 'purchase') { if(RenderManager.renderOrders) RenderManager.renderOrders(); } 
             else { if(RenderManager.renderPayments) RenderManager.renderPayments(); }
         }, 150);
@@ -134,58 +114,38 @@ export const UIFinance = {
 
     _validateKycAndSystem: function(actionType = 'purchase') {
         const sys = LiveStoreData.system || {};
-        if (sys.freeze) {
-            getSys().showToast?.(sys.freezeMsg || 'عذراً، العمليات المالية متوقفة مؤقتاً لتحديث النظام.', 'warning');
-            return false;
-        }
-        
+        if (sys.freeze) { getSys().showToast?.(sys.freezeMsg || 'عذراً، العمليات المالية متوقفة مؤقتاً.', 'warning'); return false; }
         if (!DataManager || !DataManager.user) {
-            getSys().showToast?.('يجب تسجيل الدخول أولاً للقيام بهذا الإجراء', 'error');
-            setTimeout(() => {
-                if (DataManager && typeof DataManager.logout === 'function') DataManager.logout();
-                else window.location.href = 'login.html';
-            }, 1500);
-            return false;
+            getSys().showToast?.('يجب تسجيل الدخول أولاً', 'error');
+            setTimeout(() => { if (DataManager.logout) DataManager.logout(); else window.location.href = 'login.html'; }, 1500); return false;
         }
         
         const u = DataManager.user;
         
-        const hasCurrency = (u.baseCurrency && u.baseCurrency.trim() !== '') || (u.base_currency && u.base_currency.trim() !== '');
-        const hasData = (u.phone && u.phone.trim() !== '') && (u.country && u.country !== '');
-        const isVerifiedExplicit = (u.isVerified === true || String(u.isVerified) === 'true');
-        
-        const isIdentityComplete = isVerifiedExplicit || (hasData && hasCurrency);
+        // 🛡️ معالجة الثغرة: تحويل الحقول إلى نصوص بأمان لمنع الانهيار
+        const isIdentityComplete = (String(u.isVerified) === 'true' || u.isVerified === true) || 
+            ((u.phone && String(u.phone).trim() !== '') && 
+             (u.country && String(u.country).trim() !== '') && 
+             (u.baseCurrency && String(u.baseCurrency).trim() !== ''));
         
         if (!isIdentityComplete) {
-            getSys().showToast?.('يرجى إكمال بيانات الحساب الأساسية للمتابعة', 'error');
-            setTimeout(() => { getSys().openModal?.('identity'); }, 800);
-            return false;
+            getSys().showToast?.('يرجى إكمال بيانات الحساب', 'error');
+            setTimeout(() => { getSys().openModal?.('identity'); }, 800); return false;
         }
         
-        const settings = LiveStoreData.settings || {};
-        const kycConfig = settings.kycConfig || { mode: 'off', targetedTiers: [] };
-        
+        const kycConfig = (LiveStoreData.settings || {}).kycConfig || { mode: 'off', targetedTiers: [] };
         let needsKyc = false;
         if (kycConfig.mode === 'all') needsKyc = true;
-        else if (kycConfig.mode === 'specific' || kycConfig.mode === 'spec') {
-            const targetedArray = (kycConfig.targetedTiers || []).map(String);
-            if (targetedArray.includes(String(u.tierId || '1'))) {
-                needsKyc = true;
-            }
-        }
+        else if ((kycConfig.mode === 'specific' || kycConfig.mode === 'spec') && (kycConfig.targetedTiers || []).map(String).includes(String(u.tierId || '1'))) needsKyc = true;
         
         if (needsKyc) {
             const status = String(u.kycStatus || 'none').toLowerCase();
-            const isKycApproved = (status === 'approved' || status === 'verified');
-            
-            if (!isKycApproved) {
+            if (status !== 'approved' && status !== 'verified') {
                 const actionName = actionType === 'deposit' ? 'الإيداع' : 'الشراء';
                 if (status === 'pending') {
-                    getSys().showToast?.(`هويتك قيد المراجعة، يرجى الانتظار لتتمكن من ${actionName}`, 'warning');
-                    getSys().openKycStatusModal?.('pending');
+                    getSys().showToast?.(`هويتك قيد المراجعة لتتمكن من ${actionName}`, 'warning'); getSys().openKycStatusModal?.('pending');
                 } else {
-                    getSys().showToast?.(`حسابك يتطلب التوثيق الأمني (KYC) لتتمكن من ${actionName}`, 'error');
-                    setTimeout(() => { getSys().openModal?.('kyc-upload'); }, 800);
+                    getSys().showToast?.(`حسابك يتطلب التوثيق لتتمكن من ${actionName}`, 'error'); setTimeout(() => { getSys().openModal?.('kyc-upload'); }, 800);
                 }
                 return false;
             }
@@ -195,26 +155,13 @@ export const UIFinance = {
 
     openProdModal: function(id) {
         if (!this._validateKycAndSystem('purchase')) return;
-   
-        getSys().removeCoupon?.(true);
-        getSys().resetUI?.();
+        getSys().removeCoupon?.(true); getSys().resetUI?.();
 
-        const prods = LiveStoreData.prods || [];
-        const originalProd = prods.find(p => String(p.id) === String(id));
+        const originalProd = (LiveStoreData.prods || []).find(p => String(p.id) === String(id));
         if (!originalProd) return;
 
-        let hasValidPrice = false;
-        if (originalProd.type === 'select' && Array.isArray(originalProd.options)) {
-            hasValidPrice = originalProd.options.some(opt => Number(opt.price || opt.fixedPriceUsd || 0) > 0);
-        } else {
-            hasValidPrice = Number(originalProd.price || originalProd.fixedPriceUsd || 0) > 0;
-        }
-
-        if (!hasValidPrice) {
-            getSys().showToast?.('عذراً، هذا المنتج قيد التسعير ولا يمكن شرائه حالياً.', 'error');
-            getSys().sfx?.('error');
-            return;
-        }
+        let hasValidPrice = (originalProd.type === 'select' && Array.isArray(originalProd.options)) ? originalProd.options.some(opt => Number(opt.price || opt.fixedPriceUsd || 0) > 0) : Number(originalProd.price || originalProd.fixedPriceUsd || 0) > 0;
+        if (!hasValidPrice) { getSys().showToast?.('عذراً، هذا المنتج قيد التسعير.', 'error'); getSys().sfx?.('error'); return; }
 
         DataManager.currentProd = structuredClone(originalProd);
 
@@ -232,26 +179,21 @@ export const UIFinance = {
                 const activeOffer = DataManager.getActiveOffer(DataManager.currentProd.id);
                 if (activeOffer?.visualConfig?.grid && activeOffer.visualConfig.badgeStyle !== 'none') {
                     const v = activeOffer.visualConfig.grid;
-                    const colorClass = RenderManager._getMappedColor(v.badgeColor);
-                    badgeContainer.innerHTML = `<div class="offer-badge-base ${v.badgeStyle} ${colorClass}" style="position: relative; top: 0; right: 0; width: fit-content; margin-bottom: 5px;">${Utils.escapeHtml(v.badgeText)}</div>`;
+                    badgeContainer.innerHTML = `<div class="offer-badge-base ${v.badgeStyle} ${RenderManager._getMappedColor(v.badgeColor)}" style="position:relative; top:0; right:0; width:fit-content; margin-bottom:5px;">${Utils.escapeHtml(v.badgeText)}</div>`;
                 } else if (DataManager.currentProd.badgeText) {
-                    badgeContainer.innerHTML = `<div class="offer-badge-base prod-badge badge-${DataManager.currentProd.badgeColor || 'red'}" style="position: relative; top: 0; right: 0; width: fit-content; margin-bottom: 5px;">${Utils.safeText(DataManager.currentProd.badgeText)}</div>`;
+                    badgeContainer.innerHTML = `<div class="offer-badge-base prod-badge badge-${DataManager.currentProd.badgeColor || 'red'}" style="position:relative; top:0; right:0; width:fit-content; margin-bottom:5px;">${Utils.safeText(DataManager.currentProd.badgeText)}</div>`;
                 } else { badgeContainer.innerHTML = ''; }
             }
 
             if (nameEl) nameEl.innerText = DataManager.currentProd.name;
-            
             if (favBtn) {
                 const isFav = DataManager.isFavorite ? DataManager.isFavorite(DataManager.currentProd.id) : false;
-                favBtn.classList.toggle('active', isFav);
-                favBtn.innerHTML = `<i class="${isFav ? 'fa-solid' : 'fa-regular'} fa-heart"></i>`;
+                favBtn.classList.toggle('active', isFav); favBtn.innerHTML = `<i class="${isFav ? 'fa-solid' : 'fa-regular'} fa-heart"></i>`;
             }
             
             if (descBox) {
-                if (DataManager.currentProd.description) {
-                    descBox.innerHTML = `<i class="fa-solid fa-circle-info"></i> ${Utils.escapeHtml(DataManager.currentProd.description)}`;
-                    descBox.style.display = 'block';
-                } else descBox.style.display = 'none';
+                if (DataManager.currentProd.description) { descBox.innerHTML = `<i class="fa-solid fa-circle-info"></i> ${Utils.escapeHtml(DataManager.currentProd.description)}`; descBox.style.display = 'block'; } 
+                else descBox.style.display = 'none';
             }
 
             if (dynOps) { dynOps.style.display = 'none'; dynOps.innerHTML = ''; dynOps.classList.remove('pm-ops-visible'); }
@@ -262,63 +204,44 @@ export const UIFinance = {
             const createInput = (inpId, lbl) => `<div class="floating-group"><input type="text" id="${inpId}" class="floating-input" placeholder=" " autocomplete="off"><label class="floating-label">${Utils.escapeHtml(lbl || '')}</label></div>`;
             let inputHtml = '';
 
-            if (DataManager.currentProd.type === 'double') {
-                inputHtml += createInput('pm-inp-1', DataManager.currentProd.input1Label);
-                inputHtml += createInput('pm-inp-2', DataManager.currentProd.input2Label);
-            } else if (['single', 'counter'].includes(DataManager.currentProd.type)) { 
-                inputHtml += createInput('pm-inp-1', DataManager.currentProd.input1Label);
-            } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) {
+            if (DataManager.currentProd.type === 'double') { inputHtml += createInput('pm-inp-1', DataManager.currentProd.input1Label) + createInput('pm-inp-2', DataManager.currentProd.input2Label); } 
+            else if (['single', 'counter'].includes(DataManager.currentProd.type)) { inputHtml += createInput('pm-inp-1', DataManager.currentProd.input1Label); } 
+            else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) {
                 if(simpleQtyBox) simpleQtyBox.style.display = 'block';
-                const sQty = document.getElementById('simple-qty-val');
-                if(sQty) sQty.value = 1;
+                const sQty = document.getElementById('simple-qty-val'); 
+                if(sQty) {
+                    sQty.value = 1;
+                    // 🛡️ معالجة الثغرة: تصحيح ذكي عند فقدان التركيز (Blur) لحقل الكمية البسيط
+                    sQty.oninput = (e) => { 
+                        e.target.value = e.target.value.replace(/[^0-9٠-٩]/g, ''); 
+                        getSys().updatePriceDisplay?.(); 
+                    };
+                    sQty.onblur = (e) => {
+                        let minQ = parseInt(DataManager.currentProd.minQty) || 1;
+                        let maxQ = parseInt(DataManager.currentProd.simpleMax) || 10;
+                        let val = Utils.parseSafeNumber(e.target.value);
+                        if (isNaN(val) || val < minQ) e.target.value = minQ;
+                        else if (val > maxQ) e.target.value = maxQ;
+                        getSys().updatePriceDisplay?.();
+                        getSys().revalidateAppliedCoupon?.();
+                    };
+                }
             } else if (DataManager.currentProd.type === 'select') {
                 inputHtml += createInput('pm-inp-1', DataManager.currentProd.input1Label);
                 if(staOps) staOps.style.display = 'block';
                 
-                const sel = document.getElementById('pm-pack');
-                const menu = document.getElementById('pkg-custom-menu');
-                const triggerText = document.getElementById('pkg-selected-text');
-
+                const sel = document.getElementById('pm-pack'), menu = document.getElementById('pkg-custom-menu'), triggerText = document.getElementById('pkg-selected-text');
                 if (sel && menu) {
-                    let selHtml = '';
-                    let menuHtml = '';
+                    let selHtml = '', menuHtml = '';
                     const options = DataManager.currentProd.options || [];
-
                     options.forEach((pkg, idx) => {
                         selHtml += `<option value="${idx}">${Utils.escapeHtml(pkg.name)}</option>`;
                         menuHtml += `<div class="dropdown-item" data-idx="${idx}" data-name="${Utils.escapeHtml(pkg.name)}"><span>${Utils.escapeHtml(pkg.name)}</span></div>`;
                     });
+                    sel.innerHTML = selHtml; menu.innerHTML = menuHtml;
 
-                    sel.innerHTML = selHtml;
-                    menu.innerHTML = menuHtml;
-
-                    if (!this._selectDropdownBound) {
-                        document.addEventListener('click', (e) => {
-                            const item = e.target.closest('#pkg-custom-menu .dropdown-item');
-                            if (!item) return;
-                            
-                            const pkgSel = document.getElementById('pm-pack');
-                            const pkgTxt = document.getElementById('pkg-selected-text');
-                            const dropCont = document.getElementById('pkg-custom-dropdown');
-                            
-                            if (pkgSel) pkgSel.value = item.dataset.idx;
-                            if (pkgTxt) pkgTxt.textContent = item.dataset.name;
-                            if (dropCont) dropCont.classList.remove('open');
-                            
-                            item.parentNode.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
-                            item.classList.add('active');
-                            
-                            getSys().updatePriceDisplay?.();
-                            getSys().revalidateAppliedCoupon?.();
-                            getSys().sfx?.('nav');
-                        });
-                        this._selectDropdownBound = true;
-                    }
-
-                    if (options.length > 0) {
-                        sel.value = 0; if(triggerText) triggerText.textContent = options[0].name;
-                        if(menu.firstChild) menu.firstChild.classList.add('active');
-                    } else { if(triggerText) triggerText.textContent = "لا توجد باقات"; }
+                    if (options.length > 0) { sel.value = 0; if(triggerText) triggerText.textContent = options[0].name; if(menu.firstChild) menu.firstChild.classList.add('active'); } 
+                    else { if(triggerText) triggerText.textContent = "لا توجد باقات"; }
                 }
             }
             
@@ -330,48 +253,31 @@ export const UIFinance = {
 
                 const qInp = document.getElementById('pm-qty');
                 if (qInp) {
-                    let minQ = parseInt(DataManager.currentProd.minQty) || 1;
-                    qInp.value = minQ; 
-                    qInp.addEventListener('input', (e) => { 
-                        // 🛡️ الإصلاح 2: السماح بالأرقام العربية والإنجليزية معاً
-                        e.target.value = e.target.value.replace(/[^0-9٠-٩]/g, ''); 
-                        getSys().updatePriceDisplay?.(); 
-                    });
-                    qInp.addEventListener('blur', (e) => { 
+                    let minQ = parseInt(DataManager.currentProd.minQty) || 1; qInp.value = minQ; 
+                    qInp.oninput = (e) => { e.target.value = e.target.value.replace(/[^0-9٠-٩]/g, ''); getSys().updatePriceDisplay?.(); };
+                    qInp.onblur = (e) => { 
                         let val = Utils.parseSafeNumber(e.target.value); 
-                        if (isNaN(val) || val < minQ) { 
-                            e.target.value = minQ; 
-                            getSys().updatePriceDisplay?.(); 
-                        } 
+                        if (isNaN(val) || val < minQ) { e.target.value = minQ; getSys().updatePriceDisplay?.(); } 
                         getSys().revalidateAppliedCoupon?.(); 
-                    });
+                    };
                 }
             }
 
-            getSys().updatePriceDisplay?.();
-            getSys().openModal?.('purchase');
+            getSys().updatePriceDisplay?.(); getSys().openModal?.('purchase');
         });
     },
 
     closePurchaseModal: function() { 
         if (this._isProcessingTx) return; 
-
-        getSys().removeCoupon?.(true);
-        getSys().closeModal?.('purchase');
+        getSys().removeCoupon?.(true); getSys().closeModal?.('purchase');
 
         if (DataManager.currentProd) {
             const targetProdName = DataManager.currentProd.name; 
             setTimeout(() => {
-                const cards = document.querySelectorAll('.product-card');
-                cards.forEach(card => {
+                document.querySelectorAll('.product-card').forEach(card => {
                     if (card.querySelector('.product-name')?.innerText.trim() === targetProdName) {
                         const infoEl = card.querySelector('.card-info');
-                        if (infoEl) {
-                            window.requestAnimationFrame(() => {
-                                infoEl.classList.add('shine-strong');
-                                setTimeout(() => infoEl.classList.remove('shine-strong'), 2000);
-                            });
-                        }
+                        if (infoEl) { requestAnimationFrame(() => { infoEl.classList.add('shine-strong'); setTimeout(() => infoEl.classList.remove('shine-strong'), 2000); }); }
                     }
                 });
             }, 300);
@@ -383,20 +289,11 @@ export const UIFinance = {
     closeGeneralSuccess: function() { getSys().closeModal?.('success'); },
     
     updateSimpleQty: function(change) {
-        let el = document.getElementById('simple-qty-val');
-        if (!el || !DataManager.currentProd) return;
-        let val = Utils.parseSafeNumber(el.value);
-        let max = DataManager.currentProd.simpleMax || 10;
-        let min = DataManager.currentProd.minQty || 1; 
-        let newVal = val + change;
-
+        let el = document.getElementById('simple-qty-val'); if (!el || !DataManager.currentProd) return;
+        let val = Utils.parseSafeNumber(el.value), max = DataManager.currentProd.simpleMax || 10, min = DataManager.currentProd.minQty || 1, newVal = val + change;
         if (newVal > max) { getSys().sfx?.('error'); getSys().showQtyError?.(`تجاوزت الحد (${max})`); return; }
         if (newVal < min) return; 
-
-        el.value = newVal;
-        getSys().hideQtyError?.();
-        getSys().updatePriceDisplay?.(); 
-        getSys().revalidateAppliedCoupon?.();
+        el.value = newVal; getSys().hideQtyError?.(); getSys().updatePriceDisplay?.(); getSys().revalidateAppliedCoupon?.();
     },
 
     updatePriceDisplay: function() {
@@ -405,34 +302,20 @@ export const UIFinance = {
         window.requestAnimationFrame(() => {
             let qty = 1; let optIdx = null;
 
-            if (DataManager.currentProd.type === 'counter') {
-                qty = Math.max(1, Utils.parseSafeNumber(document.getElementById('pm-qty')?.value)) || 1; 
-            }
-            else if (DataManager.currentProd.type === 'select') {
-                const packEl = document.getElementById('pm-pack');
-                optIdx = packEl ? Number(packEl.value || 0) : 0; 
-            }
-            else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) {
-                qty = Math.max(1, Utils.parseSafeNumber(document.getElementById('simple-qty-val')?.value) || 1);
-            }
+            if (DataManager.currentProd.type === 'counter') qty = Math.max(1, Utils.parseSafeNumber(document.getElementById('pm-qty')?.value)) || 1; 
+            else if (DataManager.currentProd.type === 'select') optIdx = Number(document.getElementById('pm-pack')?.value || 0); 
+            else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) qty = Math.max(1, Utils.parseSafeNumber(document.getElementById('simple-qty-val')?.value) || 1);
 
             const result = DataManager.getPricingLocal(DataManager.currentProd, qty, optIdx, DataManager.appliedCoupon);
             if (!result || typeof result !== 'object') return;
 
-            const unitInput = document.getElementById('pm-price-unit');
-            if (unitInput) unitInput.value = result.unitText || '';
-
+            const unitInput = document.getElementById('pm-price-unit'); if (unitInput) unitInput.value = result.unitText || '';
             const beautifulTotalHtml = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(result.totalLocalBase, result.displayCurrency) : (result.totalText || '0.00');
 
             const totalInput = document.getElementById('pm-total');
-            if (totalInput) {
-                if (totalInput.tagName === 'INPUT') totalInput.value = result.totalText || '';
-                else totalInput.innerHTML = beautifulTotalHtml; 
-            }
+            if (totalInput) { if (totalInput.tagName === 'INPUT') totalInput.value = result.totalText || ''; else totalInput.innerHTML = beautifulTotalHtml; }
 
-            const currPriceEl = document.getElementById('pm-price');
-            const oldPriceEl = document.getElementById('oldPriceDisplay');
-            const priceBox = document.getElementById('priceBox');
+            const currPriceEl = document.getElementById('pm-price'), oldPriceEl = document.getElementById('oldPriceDisplay'), priceBox = document.getElementById('priceBox');
             
             if (result.hasDiscount) {
                 if (priceBox) priceBox.classList.add('active');
@@ -448,128 +331,114 @@ export const UIFinance = {
     handlePurchaseSubmit: async function() { 
         if (this._isProcessingTx || !DataManager.currentProd || !this._validateKycAndSystem('purchase')) return;
         
-        const inp1El = document.getElementById('pm-inp-1');
-        const inp2El = document.getElementById('pm-inp-2');
-        const qtyEl = document.getElementById('simple-qty-val');
-        
-        const keepKeyboardOpen = () => { 
-            setTimeout(() => {
-                if (inp1El && !inp1El.disabled) inp1El.focus(); 
-                else if (qtyEl && !qtyEl.disabled) qtyEl.focus(); 
-            }, 50);
-        };
+        const inp1El = document.getElementById('pm-inp-1'), inp2El = document.getElementById('pm-inp-2'), qtyEl = document.getElementById('simple-qty-val');
+        const keepKeyboardOpen = () => { setTimeout(() => { if (inp1El && !inp1El.disabled) inp1El.focus(); else if (qtyEl && !qtyEl.disabled) qtyEl.focus(); }, 50); };
         
         const showInlineError = (element, message) => {
             if(!element) return;
-            element.classList.add('input-error'); 
-            const parent = element.parentNode;
-            const oldMsg = parent.querySelector('.input-error-text');
-            if(oldMsg) oldMsg.remove();
-            const errorMsg = document.createElement('div'); 
-            errorMsg.className = 'input-error-text'; 
-            errorMsg.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${message}`;
+            element.classList.add('input-error'); const parent = element.parentNode;
+            const oldMsg = parent.querySelector('.input-error-text'); if(oldMsg) oldMsg.remove();
+            const errorMsg = document.createElement('div'); errorMsg.className = 'input-error-text'; errorMsg.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${message}`;
             if (element.nextSibling) parent.insertBefore(errorMsg, element.nextSibling); else parent.appendChild(errorMsg);
             element.addEventListener('input', function() { element.classList.remove('input-error'); parent.querySelector('.input-error-text')?.remove(); }, {once: true});
         };
 
         let qty = 1; let optIdx = null; let isValid = true; let finalInputStr = '';
-        
-        const inp1 = inp1El ? inp1El.value.trim().replace(/\|/g, '-') : ''; 
-        const inp2 = inp2El ? inp2El.value.trim().replace(/\|/g, '-') : '';
+        const inp1 = inp1El ? inp1El.value.trim().replace(/\|/g, '-') : '', inp2 = inp2El ? inp2El.value.trim().replace(/\|/g, '-') : '';
 
         if(DataManager.currentProd.type === 'double') { 
             finalInputStr = `${DataManager.currentProd.input1Label}: ${inp1} | ${DataManager.currentProd.input2Label}: ${inp2}`; 
             if(!inp1) { showInlineError(inp1El, 'يرجى ملء الحقل الأول'); isValid = false; inp1El.focus(); }
             if(!inp2) { if(inp2El) { showInlineError(inp2El, 'يرجى ملء الحقل الثاني'); if(isValid) inp2El.focus(); isValid = false; } }
-        } else if (DataManager.currentProd.type === 'simple') { 
-            finalInputStr = ""; 
-        } else { 
-            finalInputStr = inp1; 
-            if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); } 
-        }
+        } else if (DataManager.currentProd.type === 'simple') { finalInputStr = ""; } 
+        else { finalInputStr = inp1; if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); } }
 
         if (DataManager.currentProd.type === 'counter') { 
-            const minQ = parseInt(DataManager.currentProd.minQty) || 1;
-            qty = Math.max(minQ, Utils.parseSafeNumber(document.getElementById('pm-qty')?.value)) || minQ;
-        } else if (DataManager.currentProd.type === 'select') { 
-            const packEl = document.getElementById('pm-pack');
-            optIdx = packEl ? Number(packEl.value || 0) : 0; 
-        } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
-            const minQ = parseInt(DataManager.currentProd.minQty) || 1;
-            const maxQ = parseInt(DataManager.currentProd.simpleMax) || 10;
-            qty = Utils.parseSafeNumber(qtyEl?.value);
-            if(isNaN(qty) || qty < minQ) qty = minQ;
-            if(qty > maxQ) { showInlineError(qtyEl.parentNode, `أقصى كمية مسموحة هي ${maxQ}`); isValid = false; qtyEl.focus(); }
+            const minQ = parseInt(DataManager.currentProd.minQty) || 1; qty = Math.max(minQ, Utils.parseSafeNumber(document.getElementById('pm-qty')?.value)) || minQ;
+        } else if (DataManager.currentProd.type === 'select') { optIdx = Number(document.getElementById('pm-pack')?.value || 0); } 
+        else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
+            const minQ = parseInt(DataManager.currentProd.minQty) || 1, maxQ = parseInt(DataManager.currentProd.simpleMax) || 10;
+            qty = Utils.parseSafeNumber(qtyEl?.value); if(isNaN(qty) || qty < minQ) qty = minQ;
+            if(qty > maxQ) { showInlineError(qtyEl.parentNode, `أقصى كمية ${maxQ}`); isValid = false; qtyEl.focus(); }
         }
 
         if(!isValid) { getSys().sfx?.('error'); return; }
-        if(!DataManager || typeof DataManager.confirmPurchase !== 'function') return;
 
         const pricingCheck = DataManager.getPricingLocal(DataManager.currentProd, qty, optIdx, DataManager.appliedCoupon);
         if (pricingCheck && pricingCheck.pricingSnapshot && pricingCheck.pricingSnapshot.totalOriginalPrice <= 0) {
-            getSys().showToast?.('عذراً، لا يمكن إتمام عملية شراء لمنتج سعره صفر.', 'error');
-            getSys().sfx?.('error');
-            return;
+            getSys().showToast?.('عذراً، لا يمكن الشراء بسعر صفر.', 'error'); getSys().sfx?.('error'); return;
         }
 
         const submitBtn = document.getElementById('btn-confirm-buy') || document.querySelector('.pm-btn-gold');
         const shieldId = 'invisible-tx-shield';
         
-        this._isProcessingTx = true;
-        this._toggleButtonLoader(submitBtn, true); 
+        this._isProcessingTx = true; this._toggleButtonLoader(submitBtn, true); 
         if (!document.getElementById(shieldId)) document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}"></div>`);
-
         this._startTxWatchdog(submitBtn, shieldId);
 
         try {
             const result = await DataManager.confirmPurchase(DataManager.currentProd, qty, optIdx, finalInputStr, DataManager.appliedCoupon);
-
             if (result.success) {
-                getSys().sfx?.('success');
-                this._isProcessingTx = false; 
-                this.closePurchaseModal();
-                
-                if(typeof DataManager.syncUser === 'function') DataManager.syncUser(); 
-                getSys().updateDisplayBalance?.();
+                getSys().sfx?.('success'); this._isProcessingTx = false; this.closePurchaseModal();
+                if(typeof DataManager.syncUser === 'function') DataManager.syncUser(); getSys().updateDisplayBalance?.();
 
                 setTimeout(() => {
                     getSys().openModal?.('purchase-success');
-                    const titleEl = document.getElementById('purchase-success-title');
-                    const descEl = document.getElementById('purchase-success-desc');
-                    const codeDisplayContainer = document.getElementById('purchase-code-display');
+                    const titleEl = document.getElementById('purchase-success-title'), descEl = document.getElementById('purchase-success-desc'), codeDisplayContainer = document.getElementById('purchase-code-display');
 
                     if (result.isAutoDelivered && result.deliveredCodeText) {
                         if (titleEl) titleEl.innerText = 'تم تنفيذ الطلب بنجاح!';
-                        if (descEl) descEl.innerHTML = 'تم إصدار الكود بنجاح. تم حفظه بأمان في <span class="smart-link" data-action="navigate-orders-success">سجل طلباتك</span> للرجوع إليه في أي وقت.';
+                        if (descEl) descEl.innerHTML = 'تم إصدار الكود بنجاح، ومحفوظ في <span class="smart-link" data-action="navigate-orders-success">سجل طلباتك</span>.';
                         if (codeDisplayContainer) {
-                            codeDisplayContainer.innerHTML = `<div class="dc-title"><i class="fa-solid fa-key"></i> الأكواد الخاصة بك:</div><div style="max-height: 200px; overflow-y: auto; padding-right: 5px;">${UIBuilders.buildCodesList(result.deliveredCodeText)}</div>`;
+                            codeDisplayContainer.innerHTML = `<div class="dc-title"><i class="fa-solid fa-key"></i> الأكواد المستلمة:</div><div style="max-height: 200px; overflow-y: auto;">${UIBuilders.buildCodesList(result.deliveredCodeText)}</div>`;
                             codeDisplayContainer.classList.remove('d-none');
                         }
                     } else {
                         if (titleEl) titleEl.innerText = 'تم استلام طلبك!';
-                        if (descEl) descEl.innerHTML = 'طلبك الآن قيد المعالجة. يمكنك متابعة حالة التنفيذ عبر <span class="smart-link" data-action="navigate-orders-success">سجل الطلبات</span>.';
+                        if (descEl) descEl.innerHTML = 'طلبك قيد التنفيذ، تابعه عبر <span class="smart-link" data-action="navigate-orders-success">سجل الطلبات</span>.';
                         if (codeDisplayContainer) { codeDisplayContainer.innerHTML = ''; codeDisplayContainer.classList.add('d-none'); }
                     }
-                    
-                    const modalEl = document.getElementById('purchase-success-modal');
-                    if (modalEl && !this._successLinksBound) {
-                        modalEl.addEventListener('click', (e) => {
-                            if (e.target.closest('[data-action="navigate-orders-success"]')) {
-                                getSys().closeModal?.('purchase-success'); getSys().openOrders?.();
-                            }
-                        });
-                        this._successLinksBound = true;
-                    }
                 }, 150);
-            } else {
-                getSys().showToast?.(result.msg || 'تعذر إكمال العملية، يرجى المحاولة لاحقاً.', 'error'); 
-                keepKeyboardOpen();
+            } else { getSys().showToast?.(result.msg || 'فشلت العملية', 'error'); keepKeyboardOpen(); }
+        } catch (err) { getSys().showToast?.('حدث خطأ في النظام', 'error'); } finally { this._cleanupTxUI(submitBtn, shieldId); }
+    },
+
+    _manageDepositModalState: function(isStep2) {
+        const modal = document.getElementById('balance-modal');
+        if (!modal) return;
+
+        const titleEl = modal.querySelector('.title-badge.pm-title-badge, .pm-title-badge, .title-badge');
+        const headerBtn = modal.querySelector('#bal-action-btn, .pm-close-std');
+
+        if (isStep2) {
+            modal.classList.add('is-step-2');
+            if (titleEl) {
+                const icon = titleEl.querySelector('i');
+                titleEl.innerHTML = (icon ? icon.outerHTML + ' ' : '') + 'إتمام الإيداع';
             }
-        } catch (err) {
-            console.error("🚨 Client-Side Exception:", err);
-            getSys().showToast?.('حدث خطأ داخلي في المتصفح، يرجى تحديث الصفحة.', 'error');
-        } finally {
-            this._cleanupTxUI(submitBtn, shieldId);
+            if (headerBtn) {
+                headerBtn.innerHTML = '<i class="fa-solid fa-arrow-right"></i>';
+                headerBtn.setAttribute('data-action', 'back-pay-step');
+                if (!headerBtn._backBound) {
+                    headerBtn.addEventListener('click', (e) => {
+                        if (headerBtn.getAttribute('data-action') === 'back-pay-step') {
+                            e.preventDefault(); e.stopPropagation();
+                            this.backToPayMethods();
+                        }
+                    });
+                    headerBtn._backBound = true;
+                }
+            }
+        } else {
+            modal.classList.remove('is-step-2');
+            if (titleEl) {
+                const icon = titleEl.querySelector('i');
+                titleEl.innerHTML = (icon ? icon.outerHTML + ' ' : '') + 'إيداع رصيد';
+            }
+            if (headerBtn) {
+                headerBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                headerBtn.setAttribute('data-action', 'close-balance');
+            }
         }
     },
 
@@ -577,11 +446,9 @@ export const UIFinance = {
         if (!this._validateKycAndSystem('deposit')) return;
         getSys().resetUI?.();
         
-        const modal = document.getElementById('balance-modal');
-        if(modal) modal.classList.remove('is-step-2');
+        this._manageDepositModalState(false);
 
-        const blockedView = document.getElementById('bal-blocked-view');
-        const normalView = document.getElementById('bal-normal-view');
+        const blockedView = document.getElementById('bal-blocked-view'), normalView = document.getElementById('bal-normal-view');
         if(blockedView) blockedView.style.display = 'none'; 
         if(normalView) normalView.style.display = ''; 
         
@@ -596,12 +463,13 @@ export const UIFinance = {
             const selectedTxt = document.getElementById('bal-selected-currency');
             const items = document.querySelectorAll('#bal-currency-list .dropdown-item');
             
-            if (selectedTxt) selectedTxt.innerText = curr;
-            if (dropdown) dropdown.classList.remove('open');
+            // 🛡️ التعديل البصري (Layout Safety):
+            // تغيير النص فقط مع الحفاظ على الأيقونة المجاورة له في حالة الهيكلة السليمة للـ HTML
+            if (selectedTxt) selectedTxt.innerText = curr; 
             
+            if (dropdown) dropdown.classList.remove('open');
             items.forEach(item => item.classList.toggle('active', item.dataset.curr === curr));
-            const amtCurr = document.getElementById('bal-amount-curr');
-            if (amtCurr) amtCurr.innerText = curr;
+            const amtCurr = document.getElementById('bal-amount-curr'); if (amtCurr) amtCurr.innerText = curr;
             this.calcFee();
         });
     },
@@ -610,28 +478,22 @@ export const UIFinance = {
         const payments = LiveStoreData.payments || [];
         const modal = document.getElementById('balance-modal');
         this.currentPayment = payments.find(p => String(p.id) === String(id));
-        
         if (!this.currentPayment || !modal) return;
         
-        modal.classList.add('is-step-2');
+        this._manageDepositModalState(true);
         modal.scrollTop = 0;
-        if (typeof this._toggleBalHeaderBtn === 'function') this._toggleBalHeaderBtn('back'); 
         
         const section = document.getElementById('bal-method-info-section');
         if (!section) return;
         
         const p = this.currentPayment;
-        let copyLinesHtml = '';
-        let hasFields = false;
+        let copyLinesHtml = '', hasFields = false;
         const fieldsArray = p.detailFields || p.details || p.fields || [];
         
         const createSmartLine = (text, canCopy) => {
             const safeText = Utils.escapeHtml(String(text));
-            if (canCopy) {
-                return `<div class="smart-copy-line is-copyable" data-action="copy-text" data-text="${safeText}"><div style="display: flex; flex-direction: column; justify-content: center; text-align: right; width: 100%;"><span class="scl-text num-en" style="font-size: 14.5px; font-weight: 800;">${safeText}</span></div><i class="fa-regular fa-copy scl-icon"></i></div>`;
-            } else {
-                return `<div class="smart-copy-line not-copyable"><div style="display: flex; flex-direction: column; justify-content: center; text-align: right; width: 100%;"><span class="scl-text" style="font-size: 13.5px; font-weight: 700; color: var(--text-main); line-height: 1.6;">${safeText.replace(/\n/g, '<br>')}</span></div></div>`;
-            }
+            if (canCopy) return `<div class="smart-copy-line is-copyable" data-action="copy-text" data-text="${safeText}"><div style="display: flex; flex-direction: column; justify-content: center; text-align: right; width: 100%;"><span class="scl-text num-en" style="font-size: 14.5px; font-weight: 800;">${safeText}</span></div><i class="fa-regular fa-copy scl-icon"></i></div>`;
+            return `<div class="smart-copy-line not-copyable"><div style="display: flex; flex-direction: column; justify-content: center; text-align: right; width: 100%;"><span class="scl-text" style="font-size: 13.5px; font-weight: 700; color: var(--text-main); line-height: 1.6;">${safeText.replace(/\n/g, '<br>')}</span></div></div>`;
         };
 
         if (Array.isArray(fieldsArray) && fieldsArray.length > 0) {
@@ -642,14 +504,12 @@ export const UIFinance = {
                 if (val && String(val).trim() !== '') copyLinesHtml += createSmartLine(val, canCopy);
             });
         }
-        
         if (!hasFields && p.number) copyLinesHtml += createSmartLine(p.number, true);
         
         const infoData = p.info || p.note || p.instructions;
         if (infoData && String(infoData).trim() !== '') {
             copyLinesHtml += `<div class="smart-copy-line not-copyable" style="background: rgba(var(--primary-rgb), 0.05); border: 1px dashed rgba(var(--primary-rgb), 0.3);"><div style="display: flex; flex-direction: column; gap: 4px; text-align: right; width: 100%;"><span style="font-size: 11px; color: var(--primary); font-weight: 900; opacity: 0.9;"><i class="fa-solid fa-circle-info"></i> تعليمات هامة</span><span class="scl-text" style="font-size: 12.5px; line-height: 1.6; color: var(--text-main);">${Utils.escapeHtml(String(infoData)).replace(/\n/g, '<br>')}</span></div></div>`;
         }
-        
         let copyContainer = copyLinesHtml ? `<div class="clean-list-container">${copyLinesHtml}</div>` : '';
 
         let availableCurrencies = [];
@@ -659,111 +519,56 @@ export const UIFinance = {
 
         let uniqueCurrencies = [...new Set(availableCurrencies)];
         if (uniqueCurrencies.length === 0) uniqueCurrencies = [(DataManager.user?.baseCurrency || 'USD').toUpperCase()];
-        
         this.currentPayCurrency = uniqueCurrencies[0];
         
         window.requestAnimationFrame(() => {
             section.innerHTML = UIBuilders.buildDepositForm(p, copyContainer, uniqueCurrencies.length === 1, this.currentPayCurrency, uniqueCurrencies.map((c, i) => `<div class="dropdown-item ${i === 0 ? 'active' : ''}" data-curr="${c}">${c}</div>`).join(''), (DataManager.user?.baseCurrency || 'USD').toUpperCase());
-
-            if (!section._boundDelegation) {
-                let typingTimer;
-                section.addEventListener('input', (e) => {
-                    if (e.target.id === 'bal-amount') {
-                        clearTimeout(typingTimer);
-                        typingTimer = setTimeout(() => {
-                            this.calcFee(); 
-                            e.target.parentElement.classList.toggle('has-value', e.target.value !== '');
-                        }, 150);
-                    }
-                });
-                section.addEventListener('click', (e) => {
-                    if (e.target.closest('#bal-upload-box')) document.getElementById('bal-file')?.click();
-                    const currTrigger = e.target.closest('.micro-currency-trigger');
-                    if (currTrigger) {
-                        const list = currTrigger.parentElement.querySelector('.dropdown-menu');
-                        if (list && list.style.display !== 'none') currTrigger.parentElement.classList.toggle('open');
-                    }
-                    const currItem = e.target.closest('.dropdown-item');
-                    if (currItem) { this.changeDepositCurrency(currItem.dataset.curr); e.target.closest('.split-dropdown')?.classList.remove('open'); }
-                });
-                section.addEventListener('change', (e) => { if (e.target.id === 'bal-file') this.previewReceipt(e.target); });
-                section._boundDelegation = true;
-            }
-            this.calcFee();
-            getSys().sfx?.('nav');
+            this.calcFee(); getSys().sfx?.('nav');
         });
     },
 
-    backToPayMethods: function() {
+    backToPayMethods: function(playSound = true) {
         const modal = document.getElementById('balance-modal');
         if (!modal) return;
 
-        modal.classList.remove('is-step-2'); 
+        this._manageDepositModalState(false);
         modal.scrollTop = 0;
         modal.querySelectorAll('.pm-scroll-content, .scrollable, .modal-content').forEach(s => s.scrollTop = 0);
 
-        if (typeof this._toggleBalHeaderBtn === 'function') this._toggleBalHeaderBtn('close');
-
-        this.currentReceiptData = null; 
-        this._currentImageJobId = null; 
-        
+        this.currentReceiptData = null; this._currentImageJobId = null; 
         const preview = document.getElementById('bal-img-preview');
-        if (preview && preview.src && preview.src.startsWith('blob:')) {
-            URL.revokeObjectURL(preview.src);
-            preview.src = '';
-        }
+        if (preview && preview.src && preview.src.startsWith('blob:')) { URL.revokeObjectURL(preview.src); preview.src = ''; }
         this.pendingReceiptFile = null;
 
         setTimeout(() => {
             const section = document.getElementById('bal-method-info-section');
-            if (section && !modal.classList.contains('is-step-2')) {
-                section.innerHTML = ''; 
-            }
+            if (section && !modal.classList.contains('is-step-2')) section.innerHTML = ''; 
         }, 400);
 
-        getSys().sfx?.('nav');
+        if (playSound) getSys().sfx?.('nav');
     },
 
     closeBalanceModal: function() {
         if (this._isProcessingTx) return; 
-
         const modal = document.getElementById('balance-modal');
         getSys().closeModal?.('balance');
         if (modal) {
-            modal.addEventListener('transitionend', () => {
-                this.backToPayMethods(); 
-            }, { once: true });
+            modal.addEventListener('transitionend', () => { this.backToPayMethods(false); }, { once: true });
         }
-    },
-
+    },    
+    
     previewReceipt: function(inp) { 
         const file = inp.files && inp.files[0];
-        
-        this._currentImageJobId = Date.now(); 
-        const currentJobId = this._currentImageJobId;
+        this._currentImageJobId = Date.now(); const currentJobId = this._currentImageJobId;
         
         const preview = document.getElementById('bal-img-preview');
-        if (preview && preview.src && preview.src.startsWith('blob:')) {
-            URL.revokeObjectURL(preview.src);
-            preview.src = '';
-        }
+        if (preview && preview.src && preview.src.startsWith('blob:')) { URL.revokeObjectURL(preview.src); preview.src = ''; }
         
-        if(!file) {
-            this.pendingReceiptFile = null;
-            this.currentReceiptData = null;
-            return;
-        }
-
-        if (file.size > 10 * 1024 * 1024) {
-            getSys().showToast?.('حجم الملف كبير جداً. الحد الأقصى 10MB.', 'error');
-            inp.value = ''; return;
-        }
+        if(!file) { this.pendingReceiptFile = null; this.currentReceiptData = null; return; }
+        if (file.size > 10 * 1024 * 1024) { getSys().showToast?.('حجم الملف كبير جداً. الحد 10MB.', 'error'); inp.value = ''; return; }
 
         const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
-        if (!allowedTypes.includes(file.type)) {
-            getSys().showToast?.('نوع الملف غير مدعوم. يرجى رفع صورة أو PDF.', 'error');
-            inp.value = ''; this.pendingReceiptFile = null; this.currentReceiptData = null; return;
-        }
+        if (!allowedTypes.includes(file.type)) { getSys().showToast?.('نوع الملف غير مدعوم.', 'error'); inp.value = ''; this.pendingReceiptFile = null; return; }
 
         const isPdf = file.type === 'application/pdf';
         const uploadBox = document.getElementById('bal-upload-box'); 
@@ -772,64 +577,44 @@ export const UIFinance = {
             if(uploadBox) {
                 uploadBox.classList.add('has-file');
                 const iconClass = type === 'pdf' ? 'fa-file-pdf' : 'fa-check-circle';
-                const text = type === 'pdf' ? 'تم إرفاق ملف PDF' : 'تم إرفاق الصورة بنجاح';
-                uploadBox.innerHTML = `<div class="bal-upload-success-row"><i class="fa-solid ${iconClass} bal-upload-success-icon"></i><span class="bal-upload-success-text">${text}</span></div>`;
+                uploadBox.innerHTML = `<div class="bal-upload-success-row"><i class="fa-solid ${iconClass} bal-upload-success-icon"></i><span class="bal-upload-success-text">${type === 'pdf' ? 'تم الإرفاق (PDF)' : 'تمت معالجة الصورة'}</span></div>`;
             }
         };
 
         if(isPdf) {
-            this.pendingReceiptFile = file; 
-            this.currentReceiptData = null; 
-            if(preview) preview.style.display = 'none'; 
-            setUploadSuccessUI('pdf'); 
+            this.pendingReceiptFile = file; this.currentReceiptData = null; 
+            if(preview) preview.style.display = 'none'; setUploadSuccessUI('pdf'); 
         } else {
             if(uploadBox) uploadBox.innerHTML = `<div class="bal-upload-success-row"><i class="fa-solid fa-spinner fa-spin bal-upload-success-icon"></i><span class="bal-upload-success-text">جاري المعالجة...</span></div>`;
 
             const reader = new FileReader(); 
             reader.onload = e => { 
                 if (this._currentImageJobId !== currentJobId) return; 
-
                 const img = new Image();
                 img.onload = () => {
                     requestAnimationFrame(() => {
                         if (this._currentImageJobId !== currentJobId) return;
-
                         try {
                             const canvas = document.createElement('canvas');
-                            let width = img.width, height = img.height;
-                            const MAX_SIZE = 1200; 
-                            
+                            let width = img.width, height = img.height; const MAX_SIZE = 1200; 
                             if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } 
                             else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
                             
-                            canvas.width = width; canvas.height = height;
-                            const ctx = canvas.getContext('2d'); 
-                            
-                            ctx.fillStyle = '#ffffff'; 
-                            ctx.fillRect(0, 0, width, height); 
-                            ctx.drawImage(img, 0, 0, width, height);
+                            canvas.width = width; canvas.height = height; const ctx = canvas.getContext('2d'); 
+                            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height); ctx.drawImage(img, 0, 0, width, height);
                             
                             canvas.toBlob((blob) => {
                                 if (this._currentImageJobId !== currentJobId) return; 
-
                                 const safeName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "receipt";
                                 this.pendingReceiptFile = new File([blob], `${safeName}.webp`, { type: 'image/webp' });
                                 
-                                const previewUrl = URL.createObjectURL(blob); 
-                                if(preview) { 
-                                    preview.src = previewUrl; 
-                                    preview.style.display = 'block'; 
-                                    preview.className = 'bal-receipt-preview-new'; 
-                                }
+                                if(preview) { preview.src = URL.createObjectURL(blob); preview.style.display = 'block'; preview.className = 'bal-receipt-preview-new'; }
                                 setUploadSuccessUI('image');
-                                
-                                canvas.width = 0; canvas.height = 0; 
-                                img.src = '';
+                                canvas.width = 0; canvas.height = 0; img.src = '';
                             }, 'image/webp', 0.75);
                         } catch (err) {
-                            getSys().showToast?.('تعذر معالجة الصورة، قد تكون تالفة أو كبيرة', 'error');
-                            if (uploadBox) uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>';
-                            inp.value = '';
+                            getSys().showToast?.('تعذر معالجة الصورة', 'error');
+                            if (uploadBox) uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>'; inp.value = '';
                         }
                     });
                 };
@@ -850,23 +635,32 @@ export const UIFinance = {
         const result = DataManager.calculateDepositFee(amount, this.currentPayment, payCurr);
         
         window.requestAnimationFrame(() => {
-            const errorBox = document.getElementById('bal-amount-error');
-            const submitBtn = document.getElementById('btn-submit-deposit');
-            const netDisplay = document.getElementById('calc-net');
-            const netWrap = document.getElementById('bal-net-wrap');
-            const limitsBar = document.getElementById('bal-limits-bar');
-
+            const errorBox = document.getElementById('bal-amount-error'), submitBtn = document.getElementById('btn-submit-deposit'), netDisplay = document.getElementById('calc-net'), netWrap = document.getElementById('bal-net-wrap'), limitsBar = document.getElementById('bal-limits-bar');
             const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment;
 
+            // 🛡️ معالجة الثغرة: سحب الحد الأقصى من لوحة التحكم مع توفر 5000 كقيمة احتياطية (Fallback)
+            const sysSettings = LiveStoreData.settings || {};
+            const GLOBAL_MAX_LIMIT_USD = parseFloat(sysSettings.globalMaxDepositUsd) || 5000;
+            let dynamicGlobalLimit = GLOBAL_MAX_LIMIT_USD;
+
+            try {
+                if (payCurr !== 'USD' && typeof FinancialEngine !== 'undefined') {
+                    const rates = DataManager.getRates ? DataManager.getRates() : {};
+                    dynamicGlobalLimit = FinancialEngine.convertViaUSD(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, rates, 'deposit');
+                }
+            } catch (e) {}
+            
+            const methodMaxLimit = parseFloat(s.max) || 0;
+            const finalMaxLimit = methodMaxLimit > 0 ? Math.min(methodMaxLimit, dynamicGlobalLimit) : dynamicGlobalLimit;
+
             if (amount > 0) {
-                if (parseFloat(s.min) > 0 && amount < parseFloat(s.min)) { result.isValid = false; result.msg = `الحد الأدنى للإيداع هو ${s.min}`; } 
-                else if (parseFloat(s.max) > 0 && amount > parseFloat(s.max)) { result.isValid = false; result.msg = `الحد الأعلى للإيداع هو ${s.max}`; }
+                if (parseFloat(s.min) > 0 && amount < parseFloat(s.min)) { result.isValid = false; result.msg = `الحد الأدنى هو ${s.min}`; } 
+                else if (amount > finalMaxLimit) { result.isValid = false; result.msg = `الحد الأعلى هو ${Number(finalMaxLimit).toLocaleString('en-US')}`; }
             }
             
             if (limitsBar) {
                 const itemsHtml = UIBuilders.buildLimitsBar(parseFloat(s.fee)||0, payCurr, s.feeUnit||s.unit||'percent', s.feeType||'fee', parseFloat(s.min)||0, parseFloat(s.max)||0);
-                if (itemsHtml.length === 0) limitsBar.style.display = 'none';
-                else { limitsBar.style.display = 'flex'; limitsBar.className = `compact-limits-bar count-${itemsHtml.length}`; limitsBar.innerHTML = itemsHtml.join(''); }
+                if (itemsHtml.length === 0) limitsBar.style.display = 'none'; else { limitsBar.style.display = 'flex'; limitsBar.className = `compact-limits-bar count-${itemsHtml.length}`; limitsBar.innerHTML = itemsHtml.join(''); }
             }
 
             if (!result.isValid) {
@@ -891,149 +685,89 @@ export const UIFinance = {
         
         const input = document.getElementById('bal-amount');
         const amount = this._parseSafeAmount(input ? input.value : '');
-        
-        if (isNaN(amount) || amount <= 0) { 
-            getSys().showToast?.('يرجى إدخال مبلغ إيداع صحيح', 'error'); 
-            return; 
-        }
+        if (isNaN(amount) || amount <= 0) { getSys().showToast?.('أدخل مبلغ إيداع صحيح', 'error'); return; }
         
         const payCurr = currency || this.currentPayCurrency || 'USD';
 
         if (this.currentPayment && this.currentPayment.reqProof !== false && !this.pendingReceiptFile) {
-            getSys().showToast?.('يرجى إرفاق إشعار الدفع أولاً', 'error');
+            getSys().showToast?.('أرفق إشعار الدفع أولاً', 'error');
             const uploadBox = document.getElementById('bal-upload-box');
-            if (uploadBox) {
-                uploadBox.style.animation = 'none';
-                void uploadBox.offsetWidth; 
-                uploadBox.style.animation = 'shake-anim 0.3s ease-in-out';
-                uploadBox.style.border = '1px solid var(--danger)';
-                setTimeout(() => uploadBox.style.border = '', 1000);
-            }
+            if (uploadBox) { uploadBox.style.animation = 'none'; void uploadBox.offsetWidth; uploadBox.style.animation = 'shake-anim 0.3s ease-in-out'; uploadBox.style.border = '1px solid var(--danger)'; setTimeout(() => uploadBox.style.border = '', 1000); }
             return; 
         }
 
         let methodMaxLimit = 0;
-        if (this.currentPayment) {
-            const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment;
-            methodMaxLimit = parseFloat(s.max) || 0;
-        }
+        if (this.currentPayment) { const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment; methodMaxLimit = parseFloat(s.max) || 0; }
         
-        // 🛡️ الإصلاح 3: حساب سقف الإيداع الديناميكي للعملات المحلية (5000 دولار)
-        const GLOBAL_MAX_LIMIT_USD = 5000;
+        const sysSettings = LiveStoreData.settings || {};
+        const GLOBAL_MAX_LIMIT_USD = parseFloat(sysSettings.globalMaxDepositUsd) || 5000;
         let dynamicGlobalLimit = GLOBAL_MAX_LIMIT_USD;
         
-        try {
-            if (payCurr !== 'USD' && typeof FinancialEngine !== 'undefined') {
-                const rates = DataManager.getRates ? DataManager.getRates() : {};
-                dynamicGlobalLimit = FinancialEngine.convertViaUSD(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, rates, 'deposit');
-            }
-        } catch (e) {}
+        try { if (payCurr !== 'USD' && typeof FinancialEngine !== 'undefined') { const rates = DataManager.getRates ? DataManager.getRates() : {}; dynamicGlobalLimit = FinancialEngine.convertViaUSD(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, rates, 'deposit'); } } catch (e) {}
 
         const finalLimit = methodMaxLimit > 0 ? Math.min(methodMaxLimit, dynamicGlobalLimit) : dynamicGlobalLimit;
+        if (amount > finalLimit) { const symbol = RenderHelpers?.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText(payCurr) : payCurr; getSys().showToast?.(`الحد الأقصى هو ${Number(finalLimit).toLocaleString('en-US')} ${symbol}`, 'error'); return; }
 
-        if (amount > finalLimit) {
-            const symbol = RenderHelpers?.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText(payCurr) : payCurr;
-            getSys().showToast?.(`الحد الأقصى المطلق للإيداع هو ${Number(finalLimit).toLocaleString('en-US')} ${symbol}`, 'error'); return;
-        }
-
-        if (input && input.classList.contains('input-invalid')) { getSys().showToast?.('المبلغ خارج الحدود المسموحة', 'error'); return; }
+        if (input && input.classList.contains('input-invalid')) { getSys().showToast?.('المبلغ خارج الحدود', 'error'); return; }
         
-        const submitBtn = document.querySelector('[data-action="submit-balance"]');
-        const shieldId = 'invisible-tx-shield';
-        
-        this._isProcessingTx = true;
-        this._toggleButtonLoader(submitBtn, true); 
+        const submitBtn = document.querySelector('[data-action="submit-balance"]'); const shieldId = 'invisible-tx-shield';
+        this._isProcessingTx = true; this._toggleButtonLoader(submitBtn, true); 
         if (!document.getElementById(shieldId)) document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}"></div>`);
-        
         this._startTxWatchdog(submitBtn, shieldId);
         
+        let uploadedReceiptUrl = null;
         try {
-            // 🛡️ الإصلاح 1: معالجة رفع الملفات بشكل آمن محلياً قبل مناداة DataManager
-            let uploadedReceiptUrl = null;
             if (this.pendingReceiptFile) {
-                if (!StoreDB || typeof StoreDB.uploadImage !== 'function') throw new Error("نظام رفع الملفات غير متوفر.");
-                const safeFileName = `deposit_${DataManager.activeUid}_${Date.now()}.webp`;
+                if (!StoreDB || typeof StoreDB.uploadImage !== 'function') throw new Error("نظام الرفع غير متوفر.");
+                const userId = DataManager.user?.uid || DataManager.user?.id || 'unknown';
+                const safeFileName = `deposit_${userId}_${Date.now()}.webp`;
                 uploadedReceiptUrl = await StoreDB.uploadImage(this.pendingReceiptFile, 'receipts', safeFileName, false);
             }
 
             const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
             
             if (result.success) {
-                getSys().sfx?.('success');
-                this._isProcessingTx = false; 
-                this.closeBalanceModal();
+                getSys().sfx?.('success'); this._isProcessingTx = false; this.closeBalanceModal();
                 if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
                 setTimeout(() => getSys().openModal?.('success'), 150);
             } else { 
-                // في حال فشل الإيداع، يجب حذف الصورة التي تم رفعها للتو لتوفير المساحة
                 if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
-                getSys().showToast?.(result.msg || 'تعذر إرسال الطلب، يرجى المحاولة لاحقاً', 'error'); 
+                getSys().showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
             }
-        } catch (error) {
+        } catch (error) { 
+            // الإلغاء الآمن للصورة دون الاعتماد على منع الـ Offline المزيف
+            if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
             console.error("🚨 Client-Side Deposit Exception:", error);
-            getSys().showToast?.(error.message || 'حدث خطأ أثناء الرفع أو الاتصال بالخادم.', 'error');
-        } finally {            
-            this._cleanupTxUI(submitBtn, shieldId);
-        }
+            getSys().showToast?.('حدث خطأ أثناء الاتصال بالخادم.', 'error'); 
+        } 
+        finally { this._cleanupTxUI(submitBtn, shieldId); }
     },
 
     togglePayDetail: function(headerElement) {
-        if (!headerElement) return;
-        const card = headerElement.closest('.pay-history-card');
-        if (!card) return;
-        
+        if (!headerElement) return; const card = headerElement.closest('.pay-history-card'); if (!card) return;
         window.requestAnimationFrame(() => {
-            const det = card.querySelector('.ph-details-body');
-            const arrow = headerElement.querySelector('.fa-chevron-down, .fa-angle-down, .fa-chevron-left, .ph-arrow-btn, .ph-arrow');
+            const det = card.querySelector('.ph-details-body'), arrow = headerElement.querySelector('.fa-chevron-down, .fa-angle-down, .fa-chevron-left, .ph-arrow-btn, .ph-arrow');
             if (det) { const isOpen = det.classList.toggle('is-open'); if(arrow) arrow.classList.toggle('is-open', isOpen); }
-        });
-        getSys().sfx?.('nav');
+        }); getSys().sfx?.('nav');
     },
 
-    toggleWalletStats: function(btn) {
-        const drawer = document.getElementById('walletStatsDrawer');
-        if (drawer) drawer.classList.contains('active') ? this.closeWalletStats() : this.openWalletStats(btn);
-    },
-
-    openWalletStats: function(btn) {
-        window.requestAnimationFrame(() => {
-            document.getElementById('walletStatsDrawer')?.classList.add('active');
-            if (btn) btn.classList.add('open');
-            document.getElementById('wallet-modal')?.classList.add('drawer-blur-active');
-        });
-        getSys().sfx?.('nav');
-    },
-
-    closeWalletStats: function() {
-        window.requestAnimationFrame(() => {
-            document.getElementById('walletStatsDrawer')?.classList.remove('active');
-            const wModal = document.getElementById('wallet-modal');
-            if (wModal) { wModal.classList.remove('drawer-blur-active'); wModal.querySelector('.detail-arrow')?.classList.remove('open'); }
-        });
-    },
+    toggleWalletStats: function(btn) { const drawer = document.getElementById('walletStatsDrawer'); if (drawer) drawer.classList.contains('active') ? this.closeWalletStats() : this.openWalletStats(btn); },
+    openWalletStats: function(btn) { window.requestAnimationFrame(() => { document.getElementById('walletStatsDrawer')?.classList.add('active'); if (btn) btn.classList.add('open'); document.getElementById('wallet-modal')?.classList.add('drawer-blur-active'); }); getSys().sfx?.('nav'); },
+    closeWalletStats: function() { window.requestAnimationFrame(() => { document.getElementById('walletStatsDrawer')?.classList.remove('active'); const wModal = document.getElementById('wallet-modal'); if (wModal) { wModal.classList.remove('drawer-blur-active'); wModal.querySelector('.detail-arrow')?.classList.remove('open'); } }); },
     
     openDetail: function(e, type, id) {
-        getSys().resetUI?.();
-        const content = document.getElementById('tx-detail-content');
-        if (!content) return;
-
+        getSys().resetUI?.(); const content = document.getElementById('tx-detail-content'); if (!content) return;
         const html = UIBuilders.buildTransactionDetail(type, id, LiveStoreData, DataManager);
-        
-        if (html) {
-            window.requestAnimationFrame(() => {
-                content.innerHTML = html;
-                getSys().openModal?.('tx-detail');
-            });
-        }
+        if (html) { window.requestAnimationFrame(() => { content.innerHTML = html; getSys().openModal?.('tx-detail'); }); }
     },
 
     closePayReceipt: function() {
-        window.requestAnimationFrame(() => {
-            const lightbox = document.getElementById('pay-receipt-lightbox');
-            if (lightbox) {
-                lightbox.classList.remove('active');
-                setTimeout(() => { const img = document.getElementById('pay-receipt-img'); if (img) img.src = ''; }, 300);
-            }
-        });
-    }
-};
+    window.requestAnimationFrame(() => {
+        const lightbox = document.getElementById('pay-receipt-lightbox');
+        if (lightbox) {
+            lightbox.classList.remove('active');
+            setTimeout(() => { const img = document.getElementById('pay-receipt-img'); if (img) img.src = ''; }, 300);
+        }
+    });
+}
+}; // <--- نهاية الملف يجب أن تكون هنا فقط
