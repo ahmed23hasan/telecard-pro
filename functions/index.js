@@ -404,14 +404,15 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
             if (idempotencyRef) {
                 transaction.set(idempotencyRef, { createdAt: admin.firestore.FieldValue.serverTimestamp(), expiresAt: admin.firestore.Timestamp.fromDate(new Date(serverNow + 48 * 60 * 60 * 1000)), depositId: cleanId });
             }
+            
+            // 🛡️ الإصلاح هنا: إرجاع رسالة نجاح واضحة للمتصفح بعد اكتمال ה- transaction
+            return { success: true, message: 'تم إرسال طلب الإيداع بنجاح' };
         });
     } catch (error) { 
         if (error instanceof HttpsError) throw error; 
         throw new HttpsError('internal', 'تعذر إرسال الطلب.'); 
     }
-});
-
-// ==========================================
+});// ==========================================
 // 👑 3. دوال الإدارة والعمليات المالية
 // ==========================================
 exports.adminToggleUserBan = onCall(async (request) => {

@@ -561,25 +561,31 @@ if (typeof newData[key] === 'object' && newData[key] !== null) {
     },    
 
     submitBalanceRequest: async function(amt, method, payCurr, receipt) {
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
+    
+    const cleanAmt = Number(amt);
+    if (!method || isNaN(cleanAmt) || cleanAmt <= 0) return { success: false, msg: 'بيانات غير صالحة' };
+    if (method.reqProof !== false && !receipt) return { success: false, msg: 'أرفق الإشعار', errType: 'receipt' };
+    
+    const lockKey = `deposit_${method.id}`;
+    if (this._actionLocks.has(lockKey)) return { success: false, msg: 'الطلب قيد التنفيذ...' };
+    
+    this._actionLocks.add(lockKey);
+    try {
+        const req = { amount: cleanAmt, paymentMethodName: method.name, payCurr, receiptUrl: receipt, idempotencyKey: generateIdempotencyKey() };
+        const res = await StoreDB.callFunction('submitBalanceRequest', req);
+        this.fetchUserHistory();
         
-        const cleanAmt = Number(amt);
-        if (!method || isNaN(cleanAmt) || cleanAmt <= 0) return { success: false, msg: 'بيانات غير صالحة' };
-        if (method.reqProof !== false && !receipt) return { success: false, msg: 'أرفق الإشعار', errType: 'receipt' };
+        // 🛡️ الإصلاح 3: استخدام الـ Optional Chaining (?.) لمنع ה- Crash
+        return { success: true, msg: res?.message || 'تم الإرسال بنجاح' };
         
-        const lockKey = `deposit_${method.id}`;
-        if (this._actionLocks.has(lockKey)) return { success: false, msg: 'الطلب قيد التنفيذ...' };
-
-        this._actionLocks.add(lockKey);
-        try {
-            const req = { amount: cleanAmt, paymentMethodName: method.name, payCurr, receiptUrl: receipt, idempotencyKey: generateIdempotencyKey() };
-            const res = await StoreDB.callFunction('submitBalanceRequest', req);
-            this.fetchUserHistory();
-            return { success: true, msg: res.message || 'تم الإرسال' };
-        } catch (err) { return { success: false, msg: 'تعذر الإرسال، جرب لاحقاً.' }; } 
-        finally { this._actionLocks.delete(lockKey); }
-    },
-
+    } catch (err) {
+        // طباعة الخطأ المخفي في الكونسول لتسهيل تتبعه مستقبلاً
+        console.error("Deposit Submission Error:", err);
+        return { success: false, msg: 'تعذر الإرسال، جرب لاحقاً.' };
+    }
+    finally { this._actionLocks.delete(lockKey); }
+},
     isFavorite: function(id) { return this.favs?.has(String(id)); },
     toggleFavorite: function(id) {
         if (!id) return;
