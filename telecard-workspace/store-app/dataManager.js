@@ -541,26 +541,43 @@ if (typeof newData[key] === 'object' && newData[key] !== null) {
     },
 
     // 🛡️ [الإصلاح الماسي 2]: السماح بالشراء إذا عاد الإنترنت فوراً (Recovery)
-    confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
-        if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
+    // 🛡️ [الإصلاح الماسي]: السماح بالشراء إذا عاد الإنترنت فوراً + إظهار رسائل السيرفر الحقيقية
+confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
+    if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
+    
+    const lockKey = `order_${prod.id}`;
+    if (this._actionLocks.has(lockKey)) return { success: false, msg: 'الطلب قيد التنفيذ، يرجى الانتظار...' };
+    
+    this._actionLocks.add(lockKey);
+    try {
+        const req = { productId: String(prod.id), qty: Math.max(1, Math.floor(Number(qty)) || 1), optIdx: optIdx ?? null, finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null, idempotencyKey: generateIdempotencyKey() };
+        const res = await StoreDB.callFunction('createOrder', req);
+        this.fetchUserHistory();
+        return { success: true, msg: res.message || 'تم إتمام الطلب', isAutoDelivered: res.isAutoDelivered, deliveredCodeText: res.deliveredCode };
+    } catch (err) {
+        // 🛡️ الإصلاح الجذري: إيقاف طمس الأخطاء والسماح لرسائل السيرفر الدقيقة بالظهور
+        const msg = String(err.message || '');
+        const isArabicMessage = /[\u0600-\u06FF]/.test(msg); // نتحقق إذا كان السيرفر أرسل رسالة مخصصة بالعربية
         
-        const lockKey = `order_${prod.id}`;
-        if (this._actionLocks.has(lockKey)) return { success: false, msg: 'الطلب قيد التنفيذ، يرجى الانتظار...' };
-
-        this._actionLocks.add(lockKey);
-        try {
-            const req = { productId: String(prod.id), qty: Math.max(1, Math.floor(Number(qty)) || 1), optIdx: optIdx ?? null, finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null, idempotencyKey: generateIdempotencyKey() };
-            const res = await StoreDB.callFunction('createOrder', req);
-            this.fetchUserHistory();
-            return { success: true, msg: res.message || 'تم إتمام الطلب', isAutoDelivered: res.isAutoDelivered, deliveredCodeText: res.deliveredCode };
-        } catch (err) {
-            const msg = String(err.message || '').toLowerCase();
-            return { success: false, msg: msg.includes('رصيد') ? 'رصيدك غير كافٍ.' : (msg.includes('مسبقاً') ? 'تم استلام طلبك مسبقاً.' : 'خطأ بالشبكة أو نفد المخزون.') };
-        } finally { this._actionLocks.delete(lockKey); }
-    },    
-
-    submitBalanceRequest: async function(amt, method, payCurr, receipt) {
+        let finalMsg = 'خطأ بالشبكة أو نفد المخزون.';
+        
+        if (isArabicMessage) {
+            finalMsg = msg; // إظهار سبب الرفض الحقيقي (أكواد ناقصة، سعر صفر، جدار ناري... الخ)
+        } else if (msg.toLowerCase().includes('balance')) {
+            finalMsg = 'رصيدك غير كافٍ.';
+        } else if (msg.toLowerCase().includes('already')) {
+            finalMsg = 'تم استلام طلبك مسبقاً.';
+        } else if (err.code === 'network-offline' || msg.toLowerCase().includes('fetch')) {
+            finalMsg = 'تأكد من اتصالك بالإنترنت.';
+        }
+        
+        console.error("🚨 Order Rejected by Server:", msg); // مفيد لك كـ Admin في الـ DevTools
+        return { success: false, msg: finalMsg };
+    } finally {
+        this._actionLocks.delete(lockKey);
+    }
+},    submitBalanceRequest: async function(amt, method, payCurr, receipt) {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
     
     const cleanAmt = Number(amt);

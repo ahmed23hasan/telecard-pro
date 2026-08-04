@@ -323,9 +323,10 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
 
         return { success: true, isAutoDelivered, deliveredCode: deliveredCodeText };
     } catch (error) {
-        if (error instanceof HttpsError) throw error; 
-        throw new HttpsError('internal', error.message);
-    }
+    if (error instanceof HttpsError) throw error;
+    // 🚨 السماح للخطأ بالمرور للمتصفح للتشخيص
+    throw new HttpsError('aborted', `[SERVER_DEBUG]: ${error.message}`);
+}
 });
 
 // ==========================================
