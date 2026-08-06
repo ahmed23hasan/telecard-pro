@@ -333,7 +333,7 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
 // 💰 2. إرسال طلبات الإيداع
 // ==========================================
 exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
+    if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول أولاً.');
     checkBanStatus(request);
 
     const uid = request.auth.uid;

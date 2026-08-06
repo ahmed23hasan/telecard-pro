@@ -540,8 +540,7 @@ if (typeof newData[key] === 'object' && newData[key] !== null) {
         } catch (e) { return { success: false, msg: 'خطأ اتصال.' }; }
     },
 
-    // 🛡️ [الإصلاح الماسي 2]: السماح بالشراء إذا عاد الإنترنت فوراً (Recovery)
-    // 🛡️ [الإصلاح الماسي]: السماح بالشراء إذا عاد الإنترنت فوراً + إظهار رسائل السيرفر الحقيقية
+// 🛡️ [الإصلاح الماسي]: السماح بالشراء إذا عاد الإنترنت فوراً + الفحص العميق للخطأ اللحظي
 confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
     if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
@@ -556,23 +555,29 @@ confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon)
         this.fetchUserHistory();
         return { success: true, msg: res.message || 'تم إتمام الطلب', isAutoDelivered: res.isAutoDelivered, deliveredCodeText: res.deliveredCode };
     } catch (err) {
-        // 🛡️ الإصلاح الجذري: إيقاف طمس الأخطاء والسماح لرسائل السيرفر الدقيقة بالظهور
+        // 🚨 أوامر التشخيص الاحترافي (لاكتشاف سبب الرفض اللحظي بدقة)
+        console.error("🚨 [CRASH DUMP] فشل لحظي قبل أو أثناء الإرسال:");
+        console.error("1. رسالة الخطأ:", err.message);
+        console.error("2. كود الخطأ:", err.code);
+        console.log("📦 البيانات المُرسلة:", { prodId: prod.id, qty, optIdx, finalInputStr, coupon: appliedCoupon?.code });
+        
         const msg = String(err.message || '');
-        const isArabicMessage = /[\u0600-\u06FF]/.test(msg); // نتحقق إذا كان السيرفر أرسل رسالة مخصصة بالعربية
+        const isArabicMessage = /[\u0600-\u06FF]/.test(msg);
         
         let finalMsg = 'خطأ بالشبكة أو نفد المخزون.';
         
         if (isArabicMessage) {
-            finalMsg = msg; // إظهار سبب الرفض الحقيقي (أكواد ناقصة، سعر صفر، جدار ناري... الخ)
+            finalMsg = msg;
         } else if (msg.toLowerCase().includes('balance')) {
             finalMsg = 'رصيدك غير كافٍ.';
         } else if (msg.toLowerCase().includes('already')) {
             finalMsg = 'تم استلام طلبك مسبقاً.';
-        } else if (err.code === 'network-offline' || msg.toLowerCase().includes('fetch')) {
+        } else if (err.code === 'network-offline' || msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network')) {
             finalMsg = 'تأكد من اتصالك بالإنترنت.';
+        } else if (msg.toLowerCase().includes('internal')) {
+            finalMsg = 'رفض السيرفر الطلب (خطأ داخلي).';
         }
         
-        console.error("🚨 Order Rejected by Server:", msg); // مفيد لك كـ Admin في الـ DevTools
         return { success: false, msg: finalMsg };
     } finally {
         this._actionLocks.delete(lockKey);

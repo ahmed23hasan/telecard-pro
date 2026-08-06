@@ -1402,8 +1402,18 @@
         const origWarn = console.warn;
         const origError = console.error;
         
-        const formatMsg = (args) => Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-
+        // 🛡️ التحديث الآمن: منع انهيار المتصفح عند طباعة كائنات فايربيز المعقدة
+const formatMsg = (args) => Array.from(args).map(a => {
+    if (a instanceof Error) return `${a.name}: ${a.message}`;
+    if (typeof a === 'object' && a !== null) {
+        try {
+            return JSON.stringify(a);
+        } catch (e) {
+            return '[كائن معقد لا يمكن طباعته - Object]';
+        }
+    }
+    return String(a);
+}).join(' ');
         console.log = function(...args) {
             origLog.apply(console, args);
             
