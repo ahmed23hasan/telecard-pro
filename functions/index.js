@@ -17,9 +17,9 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 setGlobalOptions({
     region: 'us-central1',
     maxInstances: 10, // 🛡️ يحل مشكلة الـ Quota نهائياً (يحد من حجز معالجات زائدة لا حاجة لها)
-    concurrency: 80, // 🚀 يضمن الأداء الخارق (يسمح لكل خادم بمعالجة 80 مستخدم في نفس اللحظة من نفس المعالج)
-    cpu: "1" // 💰 يضبط استهلاك الـ CPU ليكون 1 vCPU لكل نسخة لخفض الفواتير واستقرار السيرفر
+    concurrency: 80 // 🚀 يضمن الأداء الخارق (يسمح لكل خادم بمعالجة 80 مستخدم في نفس اللحظة)
 });
+
 const admin = require('firebase-admin');
 // يجب إبقاء استدعاء الجيل الأول لكي تعمل دالة التسجيل (onCreate)
 const functions = require('firebase-functions/v1');
@@ -37,10 +37,8 @@ const SYSTEM_LIMITS = {
     MAX_VAULT_QTY_PER_ORDER: 200,
     MAX_SAFE_AMOUNT: 100000000,
     MAX_URL_LENGTH: 1000,
-    MAX_NOTE_LENGTH: 500 
-};
-
-// ==========================================
+    MAX_NOTE_LENGTH: 500
+};// ==========================================
 // 🛡️ مصنع المزامنة النظيف بالاعتماد على القائمة البيضاء (Allowlist)
 // ==========================================
 const generatePublicProductData = (prodData, tiersData) => {
