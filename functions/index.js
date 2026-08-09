@@ -16,7 +16,7 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 // 🌐 [السيادة الجغرافية والتحكم الذكي في الموارد - Infrastructure Shield]
 setGlobalOptions({
     region: 'us-central1',
-    maxInstances: 10, // 🛡️ يحل مشكلة الـ Quota نهائياً (يحد من حجز معالجات زائدة لا حاجة لها)
+    maxInstances: 3, // 🛡️ يحل مشكلة الـ Quota نهائياً (يحد من حجز معالجات زائدة لا حاجة لها)
     concurrency: 80 // 🚀 يضمن الأداء الخارق (يسمح لكل خادم بمعالجة 80 مستخدم في نفس اللحظة)
 });
 
