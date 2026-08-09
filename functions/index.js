@@ -37,7 +37,9 @@ const SYSTEM_LIMITS = {
     MAX_SAFE_AMOUNT: 100000000,
     MAX_URL_LENGTH: 1000,
     MAX_NOTE_LENGTH: 500
-};// ==========================================
+};
+
+// ==========================================
 // 🛡️ مصنع المزامنة النظيف بالاعتماد على القائمة البيضاء (Allowlist)
 // ==========================================
 const generatePublicProductData = (prodData, tiersData) => {
@@ -100,7 +102,7 @@ const logAdminAction = async (adminUid, action, details) => {
 const isMasterAdmin = (request) => request.auth?.token?.admin === true;
 
 const checkBanStatus = (request) => {
-    if (request.auth?.token?.banned === true) throw new HttpsError('permission-denied', 'عذراً، هذاا الحساب محظور من قبل الإدارة.');
+    if (request.auth?.token?.banned === true) throw new HttpsError('permission-denied', 'عذراً، هذا الحساب محظور من قبل الإدارة.');
 };
 
 const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
@@ -849,8 +851,21 @@ exports.calculateStoreStatsCloud = onCall({ timeoutSeconds: 540 }, async (reques
 
 exports.getServerTime = onCall(() => { return { success: true, serverTime: admin.firestore.Timestamp.now().toMillis() }; });
 
-exports.onSettingsUpdate = onDocumentUpdated({ document: 'telecard_settings/singleton' }, async () => { await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); });
-exports.onOfferUpdate = onDocumentWritten({ document: 'telecard_offers/{offerId}' }, async () => { await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); });
+// 🛡️ الاستثناء الأول: تحديث الإعدادات (لا يحتاج لقوة معالجة عالية)
+exports.onSettingsUpdate = onDocumentUpdated({ 
+    document: 'telecard_settings/singleton',
+    concurrency: 1 
+}, async () => { 
+    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); 
+});
+
+// 🛡️ الاستثناء الثاني: تحديث العروض
+exports.onOfferUpdate = onDocumentWritten({ 
+    document: 'telecard_offers/{offerId}',
+    concurrency: 1 
+}, async () => { 
+    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); 
+});
 
 // ==========================================
 // 🛡️ 6. المزامنة الآمنة للمنتجات والمستويات (مع حماية Timeouts)
@@ -970,11 +985,13 @@ exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposi
 // 📈 8. المعالجات المجدولة للإحصائيات (Anti-Hotspotting Cron)
 // ⚠️ تم إيقاف המزامنة اللحظية بالكامل واستبدالها بهذه المهمة لخفض فاتورة الكتابات والقراءات
 // ==========================================
+// 🛡️ الاستثناء الثالث: الإحصائيات (تُعفى من الحجز الضخم للمعالجات)
 exports.autoUpdateGlobalStats = onSchedule({
     schedule: "every 15 minutes",
     timeZone: "UTC",
     timeoutSeconds: 540,
-    memory: "512MiB"
+    memory: "256MiB",
+    concurrency: 1 
 }, async (event) => {
     const AggregateField = admin.firestore.AggregateField;
     
@@ -1115,11 +1132,13 @@ Object.defineProperty(exports, "secureSaveSupplier", {
 });
 
 // 🧹 مهمة مجدولة لتنظيف التخزين من الصور اليتيمة (تعمل كل يوم أحد الساعة 3 فجراً)
+// 🛡️ الاستثناء الرابع: دالة التنظيف (لا تحتاج لحجز المعالجات الضخم)
 exports.cleanupOrphanedKycDocs = onSchedule({
     schedule: "0 3 * * 0", 
     timeZone: "UTC",
     timeoutSeconds: 540,
-    memory: "512MiB"
+    memory: "256MiB",
+    concurrency: 1 
 }, async (event) => {
     const bucket = admin.storage().bucket();
     const prefix = 'kyc_docs/';
