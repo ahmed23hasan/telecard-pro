@@ -47,9 +47,9 @@ jobs:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
-      # استراحة 60 ثانية لتفريغ معالجات جوجل (Cooling down CPU)
-      - name: ⏱️ Cooldown (Sleep for 60s)
-        run: sleep 60
+      # استراحة 120 ثانية لتفريغ معالجات جوجل بالكامل (Cooling down CPU)
+      - name: ⏱️ Cooldown (Sleep for 120s)
+        run: sleep 120
 
       # ==========================================
       # 3️⃣ الدفعة الثانية: دوال الإدارة والمالية
@@ -62,9 +62,9 @@ jobs:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
-      # استراحة 60 ثانية لتفريغ معالجات جوجل
-      - name: ⏱️ Cooldown (Sleep for 60s)
-        run: sleep 60
+      # استراحة 120 ثانية لتفريغ معالجات جوجل بالكامل
+      - name: ⏱️ Cooldown (Sleep for 120s)
+        run: sleep 120
 
       # ==========================================
       # 4️⃣ الدفعة الثالثة: المشغلات (Triggers) والمهام المجدولة (Cron)
@@ -77,9 +77,9 @@ jobs:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
-      # استراحة 60 ثانية لتفريغ معالجات جوجل
-      - name: ⏱️ Cooldown (Sleep for 60s)
-        run: sleep 60
+      # استراحة 120 ثانية لتفريغ معالجات جوجل بالكامل
+      - name: ⏱️ Cooldown (Sleep for 120s)
+        run: sleep 120
 
       # ==========================================
       # 5️⃣ الدفعة الرابعة: دوال الموردين الخارجية (Lazy Loading API)
