@@ -1,4 +1,4 @@
-name: Deploy Full Telecard System (Batched Deployment)
+name: Deploy Full Telecard System (Batched with Cooldown)
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
         run: npm install
 
       # ==========================================
-      # 1️⃣ رفع الاستضافة وقواعد الحماية (خطوة سريعة ولا تستهلك CPU)
+      # 1️⃣ رفع الاستضافة وقواعد الحماية (سريعة ولا تستهلك CPU)
       # ==========================================
       - name: 1️⃣ Deploy Hosting & Firestore Rules
         uses: w9jds/firebase-action@master
@@ -31,6 +31,10 @@ jobs:
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
+
+      # استراحة قصيرة جداً لفصل الطلبات
+      - name: ⏱️ Cooldown (Sleep for 10s)
+        run: sleep 10
 
       # ==========================================
       # 2️⃣ الدفعة الأولى: دوال المستخدمين الأساسية
@@ -43,6 +47,10 @@ jobs:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
+      # استراحة 60 ثانية لتفريغ معالجات جوجل (Cooling down CPU)
+      - name: ⏱️ Cooldown (Sleep for 60s)
+        run: sleep 60
+
       # ==========================================
       # 3️⃣ الدفعة الثانية: دوال الإدارة والمالية
       # ==========================================
@@ -54,6 +62,10 @@ jobs:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
+      # استراحة 60 ثانية لتفريغ معالجات جوجل
+      - name: ⏱️ Cooldown (Sleep for 60s)
+        run: sleep 60
+
       # ==========================================
       # 4️⃣ الدفعة الثالثة: المشغلات (Triggers) والمهام المجدولة (Cron)
       # ==========================================
@@ -64,6 +76,10 @@ jobs:
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
+
+      # استراحة 60 ثانية لتفريغ معالجات جوجل
+      - name: ⏱️ Cooldown (Sleep for 60s)
+        run: sleep 60
 
       # ==========================================
       # 5️⃣ الدفعة الرابعة: دوال الموردين الخارجية (Lazy Loading API)
