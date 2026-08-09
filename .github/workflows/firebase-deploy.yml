@@ -1,4 +1,4 @@
-name: Deploy Full Telecard System (Hosting, Functions, Rules)
+name: Deploy Full Telecard System (Batched Deployment)
 
 on:
   push:
@@ -15,16 +15,63 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20' # تم التحديث إلى 20 ليتوافق مع بيئة فايربيز الجديدة
+          node-version: '20'
 
       - name: Install Functions Dependencies
         working-directory: ./functions
         run: npm install
 
-      - name: Deploy to Firebase (Hosting, Functions, Firestore Rules)
+      # ==========================================
+      # 1️⃣ رفع الاستضافة وقواعد الحماية (خطوة سريعة ولا تستهلك CPU)
+      # ==========================================
+      - name: 1️⃣ Deploy Hosting & Firestore Rules
         uses: w9jds/firebase-action@master
         with:
-          args: deploy --force # 🌟 تمت إضافة أمر الإجبار هنا لحل مشكلة سياسة التنظيف
+          args: deploy --only hosting,firestore --force
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
+          PROJECT_ID: telecard-1
+
+      # ==========================================
+      # 2️⃣ الدفعة الأولى: دوال المستخدمين الأساسية
+      # ==========================================
+      - name: 2️⃣ Deploy Functions - Batch 1 (Core & Client)
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only "functions:onUserAuthCreated,functions:createOrder,functions:submitBalanceRequest,functions:completeUserIdentity,functions:getServerTime,functions:calculateStoreStatsCloud,functions:adminToggleUserBan,functions:adminProcessOrder" --force
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
+          PROJECT_ID: telecard-1
+
+      # ==========================================
+      # 3️⃣ الدفعة الثانية: دوال الإدارة والمالية
+      # ==========================================
+      - name: 3️⃣ Deploy Functions - Batch 2 (Admin & Financials)
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only "functions:adminProcessDeposit,functions:adminAdjustBalance,functions:adminAuditUserWallet,functions:grantAdminRole,functions:adminDeleteUserData,functions:adminForceSyncCatalog,functions:adminSaveVaultCodes,functions:adminDeleteVaultPool" --force
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
+          PROJECT_ID: telecard-1
+
+      # ==========================================
+      # 4️⃣ الدفعة الثالثة: المشغلات (Triggers) والمهام المجدولة (Cron)
+      # ==========================================
+      - name: 4️⃣ Deploy Functions - Batch 3 (Triggers & Cron Jobs)
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only "functions:onSettingsUpdate,functions:onOfferUpdate,functions:secureProductSync,functions:onTierUpdate,functions:autoNotifyOrderStatus,functions:autoNotifyDepositStatus,functions:autoUpdateGlobalStats,functions:cleanupOrphanedKycDocs" --force
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
+          PROJECT_ID: telecard-1
+
+      # ==========================================
+      # 5️⃣ الدفعة الرابعة: دوال الموردين الخارجية (Lazy Loading API)
+      # ==========================================
+      - name: 5️⃣ Deploy Functions - Batch 4 (Webhooks & External Suppliers)
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only "functions:orderStatusWebhook,functions:cronRetryWebhooks,functions:externalCreateOrder,functions:syncSupplierData,functions:scheduledSupplierSync,functions:secureSaveSupplier" --force
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
