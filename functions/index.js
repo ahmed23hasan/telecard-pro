@@ -16,10 +16,9 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 // 🌐 [السيادة الجغرافية والتحكم الذكي في الموارد - Infrastructure Shield]
 setGlobalOptions({
     region: 'us-central1',
-    maxInstances: 3, // 🛡️ يحل مشكلة الـ Quota نهائياً (يحد من حجز معالجات زائدة لا حاجة لها)
-    concurrency: 80 // 🚀 يضمن الأداء الخارق (يسمح لكل خادم بمعالجة 80 مستخدم في نفس اللحظة)
+    maxInstances: 1, // تم التخفيض إلى 1 لتسريع الرفع التلقائي في فترة التطوير
+    concurrency: 80
 });
-
 const admin = require('firebase-admin');
 // يجب إبقاء استدعاء الجيل الأول لكي تعمل دالة التسجيل (onCreate)
 const functions = require('firebase-functions/v1');
