@@ -1,4 +1,4 @@
-name: Deploy Full Telecard System (Batched with Cooldown)
+name: Deploy Full Telecard System (Micro-Batched)
 
 on:
   push:
@@ -22,9 +22,9 @@ jobs:
         run: npm install
 
       # ==========================================
-      # 1️⃣ رفع الاستضافة وقواعد الحماية (سريعة ولا تستهلك CPU)
+      # 1️⃣ الاستضافة وقواعد الحماية
       # ==========================================
-      - name: 1️⃣ Deploy Hosting & Firestore Rules
+      - name: Deploy Hosting & Rules
         uses: w9jds/firebase-action@master
         with:
           args: deploy --only hosting,firestore --force
@@ -32,59 +32,90 @@ jobs:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
-      # استراحة قصيرة جداً لفصل الطلبات
-      - name: ⏱️ Cooldown (Sleep for 10s)
-        run: sleep 10
+      - run: sleep 10
 
       # ==========================================
-      # 2️⃣ الدفعة الأولى: دوال المستخدمين الأساسية
+      # 2️⃣ دوال المستخدمين الأساسية (الجزء الأول) - 4 دوال
       # ==========================================
-      - name: 2️⃣ Deploy Functions - Batch 1 (Core & Client)
+      - name: Deploy Batch 1 (Core A)
         uses: w9jds/firebase-action@master
         with:
-          args: deploy --only "functions:onUserAuthCreated,functions:createOrder,functions:submitBalanceRequest,functions:completeUserIdentity,functions:getServerTime,functions:calculateStoreStatsCloud,functions:adminToggleUserBan,functions:adminProcessOrder" --force
+          args: deploy --only "functions:onUserAuthCreated,functions:createOrder,functions:submitBalanceRequest,functions:completeUserIdentity" --force
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
-      # استراحة 120 ثانية لتفريغ معالجات جوجل بالكامل (Cooling down CPU)
-      - name: ⏱️ Cooldown (Sleep for 120s)
-        run: sleep 120
+      - run: sleep 60
 
       # ==========================================
-      # 3️⃣ الدفعة الثانية: دوال الإدارة والمالية
+      # 3️⃣ دوال المستخدمين الأساسية (الجزء الثاني) - 4 دوال
       # ==========================================
-      - name: 3️⃣ Deploy Functions - Batch 2 (Admin & Financials)
+      - name: Deploy Batch 2 (Core B)
         uses: w9jds/firebase-action@master
         with:
-          args: deploy --only "functions:adminProcessDeposit,functions:adminAdjustBalance,functions:adminAuditUserWallet,functions:grantAdminRole,functions:adminDeleteUserData,functions:adminForceSyncCatalog,functions:adminSaveVaultCodes,functions:adminDeleteVaultPool" --force
+          args: deploy --only "functions:getServerTime,functions:calculateStoreStatsCloud,functions:adminToggleUserBan,functions:adminProcessOrder" --force
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
-      # استراحة 120 ثانية لتفريغ معالجات جوجل بالكامل
-      - name: ⏱️ Cooldown (Sleep for 120s)
-        run: sleep 120
+      - run: sleep 60
 
       # ==========================================
-      # 4️⃣ الدفعة الثالثة: المشغلات (Triggers) والمهام المجدولة (Cron)
+      # 4️⃣ دوال الإدارة والمالية (الجزء الأول) - 4 دوال
       # ==========================================
-      - name: 4️⃣ Deploy Functions - Batch 3 (Triggers & Cron Jobs)
+      - name: Deploy Batch 3 (Admin A)
         uses: w9jds/firebase-action@master
         with:
-          args: deploy --only "functions:onSettingsUpdate,functions:onOfferUpdate,functions:secureProductSync,functions:onTierUpdate,functions:autoNotifyOrderStatus,functions:autoNotifyDepositStatus,functions:autoUpdateGlobalStats,functions:cleanupOrphanedKycDocs" --force
+          args: deploy --only "functions:adminProcessDeposit,functions:adminAdjustBalance,functions:adminAuditUserWallet,functions:grantAdminRole" --force
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
-      # استراحة 120 ثانية لتفريغ معالجات جوجل بالكامل
-      - name: ⏱️ Cooldown (Sleep for 120s)
-        run: sleep 120
+      - run: sleep 60
 
       # ==========================================
-      # 5️⃣ الدفعة الرابعة: دوال الموردين الخارجية (Lazy Loading API)
+      # 5️⃣ دوال الإدارة والمالية (الجزء الثاني) - 4 دوال
       # ==========================================
-      - name: 5️⃣ Deploy Functions - Batch 4 (Webhooks & External Suppliers)
+      - name: Deploy Batch 4 (Admin B)
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only "functions:adminDeleteUserData,functions:adminForceSyncCatalog,functions:adminSaveVaultCodes,functions:adminDeleteVaultPool" --force
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
+          PROJECT_ID: telecard-1
+
+      - run: sleep 60
+
+      # ==========================================
+      # 6️⃣ المشغلات (Triggers) - 4 دوال
+      # ==========================================
+      - name: Deploy Batch 5 (Triggers A)
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only "functions:onSettingsUpdate,functions:onOfferUpdate,functions:secureProductSync,functions:onTierUpdate" --force
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
+          PROJECT_ID: telecard-1
+
+      - run: sleep 60
+
+      # ==========================================
+      # 7️⃣ الإشعارات والمهام المجدولة - 4 دوال
+      # ==========================================
+      - name: Deploy Batch 6 (Triggers B & Cron)
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only "functions:autoNotifyOrderStatus,functions:autoNotifyDepositStatus,functions:autoUpdateGlobalStats,functions:cleanupOrphanedKycDocs" --force
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
+          PROJECT_ID: telecard-1
+
+      - run: sleep 60
+
+      # ==========================================
+      # 8️⃣ دوال الموردين الخارجية (الربط الخارجي) - 6 دوال
+      # ==========================================
+      - name: Deploy Batch 7 (Suppliers)
         uses: w9jds/firebase-action@master
         with:
           args: deploy --only "functions:orderStatusWebhook,functions:cronRetryWebhooks,functions:externalCreateOrder,functions:syncSupplierData,functions:scheduledSupplierSync,functions:secureSaveSupplier" --force
