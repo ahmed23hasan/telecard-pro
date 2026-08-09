@@ -101,7 +101,7 @@ const logAdminAction = async (adminUid, action, details) => {
 const isMasterAdmin = (request) => request.auth?.token?.admin === true;
 
 const checkBanStatus = (request) => {
-    if (request.auth?.token?.banned === true) throw new HttpsError('permission-denied', 'عذراً، هذا الحساب محظور من قبل الإدارة.');
+    if (request.auth?.token?.banned === true) throw new HttpsError('permission-denied', 'عذراً، هذاا الحساب محظور من قبل الإدارة.');
 };
 
 const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
