@@ -13,13 +13,17 @@ const { onDocumentWritten, onDocumentUpdated } = require("firebase-functions/v2/
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { setGlobalOptions } = require("firebase-functions/v2");
 
-// 🌐 [السيادة الجغرافية - Sovereign Shield]
-setGlobalOptions({ region: 'us-central1' });
-
+// 🌐 [السيادة الجغرافية والتحكم الذكي في الموارد - Infrastructure Shield]
+setGlobalOptions({
+    region: 'us-central1',
+    maxInstances: 10, // 🛡️ يحل مشكلة الـ Quota نهائياً (يحد من حجز معالجات زائدة لا حاجة لها)
+    concurrency: 80, // 🚀 يضمن الأداء الخارق (يسمح لكل خادم بمعالجة 80 مستخدم في نفس اللحظة من نفس المعالج)
+    cpu: "1" // 💰 يضبط استهلاك الـ CPU ليكون 1 vCPU لكل نسخة لخفض الفواتير واستقرار السيرفر
+});
 const admin = require('firebase-admin');
-const functions = require('firebase-functions/v1'); 
+// يجب إبقاء استدعاء الجيل الأول لكي تعمل دالة التسجيل (onCreate)
+const functions = require('firebase-functions/v1');
 const crypto = require('crypto');
-
 const FinancialEngine = require('./financialEngine.js');
 
 if (!admin.apps.length) {
