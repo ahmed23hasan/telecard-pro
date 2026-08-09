@@ -852,21 +852,21 @@ exports.calculateStoreStatsCloud = onCall({ timeoutSeconds: 540 }, async (reques
 exports.getServerTime = onCall(() => { return { success: true, serverTime: admin.firestore.Timestamp.now().toMillis() }; });
 
 // 🛡️ الاستثناء الأول: تحديث الإعدادات (لا يحتاج لقوة معالجة عالية)
-exports.onSettingsUpdate = onDocumentUpdated({ 
+exports.onSettingsUpdate = onDocumentUpdated({
     document: 'telecard_settings/singleton',
-    concurrency: 1 
-}, async () => { 
-    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); 
+    memory: "256MiB", // 👈 أضف هذا السطر هنا
+    concurrency: 1
+}, async () => {
+    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
 });
-
 // 🛡️ الاستثناء الثاني: تحديث العروض
-exports.onOfferUpdate = onDocumentWritten({ 
+exports.onOfferUpdate = onDocumentWritten({
     document: 'telecard_offers/{offerId}',
-    concurrency: 1 
-}, async () => { 
-    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); 
+    memory: "256MiB", // 👈 أضف هذا السطر هنا
+    concurrency: 1
+}, async () => {
+    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
 });
-
 // ==========================================
 // 🛡️ 6. المزامنة الآمنة للمنتجات والمستويات (مع حماية Timeouts)
 // ==========================================
