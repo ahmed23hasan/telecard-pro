@@ -1111,7 +1111,7 @@ exports.adminDeleteVaultPool = onCall({ timeoutSeconds: 540 }, async (request) =
 });
 
 // ==========================================
-// 🔗 10. تصدير دوال الموردين بنظام الاستيراد المتأخر (Dynamic Lazy Loading)
+// 🔗 10. تصدير دوال المورردين بنظام الاستيراد المتأخر (Dynamic Lazy Loading)
 // (يتم تعريف التصدير كـ Getters لتجنب استهلاك الذاكرة وإبطاء التشغيل البارد للمحرك العام)
 // ==========================================
 Object.defineProperty(exports, "orderStatusWebhook", {
