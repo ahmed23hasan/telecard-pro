@@ -1189,7 +1189,7 @@ exports.cleanupOrphanedKycDocs = onSchedule({
                     const isSelfieMatch = kycData.selfieImg && String(kycData.selfieImg).includes(safePath);
                     
                     if (isFrontMatch || isBackMatch || isSelfieMatch) {
-                        isOrphan = false; // الملف مستخدم برابط يحتوي على توكن، اتركه بأمان
+                        isOrphan = false; // الملف مستخدم بر ابط يحتوي على توكن، اتركه بأمان
                     }
                 }
 
