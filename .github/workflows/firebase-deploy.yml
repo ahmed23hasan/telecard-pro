@@ -1,4 +1,4 @@
-name: Deploy Full Telecard System (Micro-Batched)
+name: Deploy Telecard System (Smart Commit)
 
 on:
   push:
@@ -22,7 +22,31 @@ jobs:
         run: npm install
 
       # ==========================================
-      # 1️⃣ الاستضافة وقواعد الحماية
+      # 🔍 تحليل رسالة الكوميت القادمة من Spck Editor
+      # ==========================================
+      - name: Parse Commit Message
+        id: parse_msg
+        run: |
+          MSG=$(cat << 'EOF'
+          ${{ github.event.head_commit.message }}
+          EOF
+          )
+          echo "Commit message: $MSG"
+          
+          # استخراج الكلمة التي تأتي بعد كلمة deploy:
+          TARGET=$(echo "$MSG" | grep -oP 'deploy:\K[a-zA-Z0-9_,]+' | head -n 1)
+          
+          if [ ! -z "$TARGET" ]; then
+            echo "🎯 Found function(s) to deploy: $TARGET"
+            echo "DEPLOY_TARGET=functions:$TARGET" >> $GITHUB_ENV
+            echo "RUN_DEPLOY=true" >> $GITHUB_ENV
+          else
+            echo "⏸️ No 'deploy:' tag found. Will only deploy hosting/rules."
+            echo "RUN_DEPLOY=false" >> $GITHUB_ENV
+          fi
+
+      # ==========================================
+      # 1️⃣ الرفع التلقائي (الاستضافة وقواعد البيانات فقط)
       # ==========================================
       - name: Deploy Hosting & Rules
         uses: w9jds/firebase-action@master
@@ -32,93 +56,14 @@ jobs:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
-      - run: sleep 10
-
       # ==========================================
-      # 2️⃣ دوال المستخدمين الأساسية (الجزء الأول) - 4 دوال
+      # 2️⃣ الرفع الانتقائي (الدالة التي كتبتها أنت فقط)
       # ==========================================
-      - name: Deploy Batch 1 (Core A)
+      - name: Deploy Specific Function
+        if: env.RUN_DEPLOY == 'true'
         uses: w9jds/firebase-action@master
         with:
-          args: deploy --only "functions:onUserAuthCreated,functions:createOrder,functions:submitBalanceRequest,functions:completeUserIdentity" --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
-          PROJECT_ID: telecard-1
-
-      - run: sleep 60
-
-      # ==========================================
-      # 3️⃣ دوال المستخدمين الأساسية (الجزء الثاني) - 4 دوال
-      # ==========================================
-      - name: Deploy Batch 2 (Core B)
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only "functions:getServerTime,functions:calculateStoreStatsCloud,functions:adminToggleUserBan,functions:adminProcessOrder" --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
-          PROJECT_ID: telecard-1
-
-      - run: sleep 60
-
-      # ==========================================
-      # 4️⃣ دوال الإدارة والمالية (الجزء الأول) - 4 دوال
-      # ==========================================
-      - name: Deploy Batch 3 (Admin A)
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only "functions:adminProcessDeposit,functions:adminAdjustBalance,functions:adminAuditUserWallet,functions:grantAdminRole" --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
-          PROJECT_ID: telecard-1
-
-      - run: sleep 60
-
-      # ==========================================
-      # 5️⃣ دوال الإدارة والمالية (الجزء الثاني) - 4 دوال
-      # ==========================================
-      - name: Deploy Batch 4 (Admin B)
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only "functions:adminDeleteUserData,functions:adminForceSyncCatalog,functions:adminSaveVaultCodes,functions:adminDeleteVaultPool" --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
-          PROJECT_ID: telecard-1
-
-      - run: sleep 60
-
-      # ==========================================
-      # 6️⃣ المشغلات (Triggers) - 4 دوال
-      # ==========================================
-      - name: Deploy Batch 5 (Triggers A)
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only "functions:onSettingsUpdate,functions:onOfferUpdate,functions:secureProductSync,functions:onTierUpdate" --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
-          PROJECT_ID: telecard-1
-
-      - run: sleep 60
-
-      # ==========================================
-      # 7️⃣ الإشعارات والمهام المجدولة - 4 دوال
-      # ==========================================
-      - name: Deploy Batch 6 (Triggers B & Cron)
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only "functions:autoNotifyOrderStatus,functions:autoNotifyDepositStatus,functions:autoUpdateGlobalStats,functions:cleanupOrphanedKycDocs" --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
-          PROJECT_ID: telecard-1
-
-      - run: sleep 60
-
-      # ==========================================
-      # 8️⃣ دوال الموردين الخارجية (الربط الخارجي) - 6 دوال
-      # ==========================================
-      - name: Deploy Batch 7 (Suppliers)
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only "functions:orderStatusWebhook,functions:cronRetryWebhooks,functions:externalCreateOrder,functions:syncSupplierData,functions:scheduledSupplierSync,functions:secureSaveSupplier" --force
+          args: deploy --only ${{ env.DEPLOY_TARGET }} --force
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
