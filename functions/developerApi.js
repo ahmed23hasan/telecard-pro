@@ -77,7 +77,13 @@ exports.orderStatusWebhook = onDocumentWritten({ document: 'telecard_orders/{ord
 });
 
 // 🛡️ التحديث: إزالة تحديد المنطقة (مع الإبقاء على المنطقة الزمنية لجدولة الكرون)
-exports.cronRetryWebhooks = onSchedule({ schedule: 'every 1 hours', timeZone: 'Asia/Riyadh' }, async (event) => {
+// 🛡️ التحديث: إزالة تحديد المنطقة (مع الإبقاء على المنطقة الزمنية لجدولة الكرون)
+exports.cronRetryWebhooks = onSchedule({ 
+    schedule: 'every 1 hours', 
+    timeZone: 'Asia/Riyadh',
+    maxInstances: 1, // 👈 الدرع الذي يمنع رفض جوجل لهذه المهمة
+    concurrency: 1   // 👈 لضمان عدم تداخل العمليات
+}, async (event) => {
     const failedSnaps = await db.collection('telecard_failed_webhooks').where('status', '==', 'failed').where('attempts', '<', 5).limit(50).get();
     if (failedSnaps.empty) return null;
     const promises = failedSnaps.docs.map(async (doc) => {
@@ -96,7 +102,6 @@ exports.cronRetryWebhooks = onSchedule({ schedule: 'every 1 hours', timeZone: 'A
     await Promise.allSettled(promises);
     return true;
 });
-
 // 🛡️ التحديث: إزالة تحديد المنطقة
 exports.externalCreateOrder = onRequest(async (req, res) => {
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed. Use POST.' });
