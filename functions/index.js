@@ -19,7 +19,7 @@ setGlobalOptions({
     concurrency: 80
 });
 const admin = require('firebase-admin');
-// يجب إبقاء استدعاء  الجيل الأول لكي تعمل دالة التسجيل (onCreate)
+// يجب إبقاء استدعاء الجيل الأول لكي تعمل دالة التسجيل (onCreate)
 const functions = require('firebase-functions/v1');
 const crypto = require('crypto');
 const FinancialEngine = require('./financialEngine.js');
