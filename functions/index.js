@@ -1,11 +1,10 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الآمنة V20.8.0 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الآمنة V20.8.1 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديثات المعمارية الجديدة (V20.8.0):
-// 1. Cron-based Analytics: إيقاف المزامنة اللحظية للإحصائيات واستبدالها بمهام مجدولة لخفض الفاتورة.
-// 2. Strict Quantity Shield: حماية صارمة ضد الـ NaN والأرقام السالبة في الطلبات.
-// 3. KYC Data Saver: إصلاح ثغرة حذف صور الهويات من التخزين عبر اعتماد فحص المسار المشفر.
-// 4. Safe Batching: تخفيض حد المزامنة إلى 250 لضمان استقرار السيرفر ومنع الـ Timeouts.
+// 🚀 التحديثات المعمارية (V20.8.1):
+// 1. رفع maxInstances إلى 50 لتحمل ضغط الإنتاج بعد حل مشكلة الرفع.
+// 2. تطبيق الحماية الدفاعية (.limit) داخل الـ Transactions لمنع استنزاف الذاكرة.
+// 3. إبقاء App Check معطلاً (مؤقتاً) حتى اكتمال مرحلة التطوير.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -16,7 +15,7 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 // 🌐 [السيادة الجغرافية والتحكم الذكي في الموارد - Infrastructure Shield]
 setGlobalOptions({
     region: 'us-central1',
-    maxInstances: 1, // تم التخفيض إلى 1 لتسريع الرفع التلقائي في فترة التطوير
+    maxInstances: 50, // 👈 تم الرفع لتحمل طلبات متزامنة في الإنتاج بدون عنق زجاجة
     concurrency: 80
 });
 const admin = require('firebase-admin');
@@ -409,14 +408,15 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
                 transaction.set(idempotencyRef, { createdAt: admin.firestore.FieldValue.serverTimestamp(), expiresAt: admin.firestore.Timestamp.fromDate(new Date(serverNow + 48 * 60 * 60 * 1000)), depositId: cleanId });
             }
             
-            // 🛡️ الإصلاح هنا: إرجاع رسالة نجاح واضحة للمتصفح بعد اكتمال ה- transaction
             return { success: true, message: 'تم إرسال طلب الإيداع بنجاح' };
         });
     } catch (error) { 
         if (error instanceof HttpsError) throw error; 
         throw new HttpsError('internal', 'تعذر إرسال الطلب.'); 
     }
-});// ==========================================
+});
+
+// ==========================================
 // 👑 3. دوال الإدارة والعمليات المالية
 // ==========================================
 exports.adminToggleUserBan = onCall(async (request) => {
@@ -481,7 +481,9 @@ exports.adminProcessOrder = onCall(async (request) => {
 
             if (poolId) {
                 const vaultRef = db.collection('telecard_vault').doc(String(poolId));
-                const keysQuerySnap = await transaction.get(vaultRef.collection('keys').where('orderId', '==', String(orderId)));
+                // 🛡️ التحديث الدفاعي: إضافة limit للحد من الاستعلام المفتوح داخل Transaction
+                const queryLimit = orderData.qty ? Number(orderData.qty) : 200;
+                const keysQuerySnap = await transaction.get(vaultRef.collection('keys').where('orderId', '==', String(orderId)).limit(queryLimit));
                 
                 keysQuerySnap.forEach(keyDoc => {
                     const keyData = keyDoc.data();
@@ -854,7 +856,7 @@ exports.getServerTime = onCall(() => { return { success: true, serverTime: admin
 // 🛡️ الاستثناء الأول: تحديث الإعدادات (لا يحتاج لقوة معالجة عالية)
 exports.onSettingsUpdate = onDocumentUpdated({
     document: 'telecard_settings/singleton',
-    memory: "256MiB", // 👈 أضف هذا السطر هنا
+    memory: "256MiB", 
     concurrency: 1
 }, async () => {
     await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
@@ -862,7 +864,7 @@ exports.onSettingsUpdate = onDocumentUpdated({
 // 🛡️ الاستثناء الثاني: تحديث العروض
 exports.onOfferUpdate = onDocumentWritten({
     document: 'telecard_offers/{offerId}',
-    memory: "256MiB", // 👈 أضف هذا السطر هنا
+    memory: "256MiB", 
     concurrency: 1
 }, async () => {
     await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
@@ -883,7 +885,7 @@ exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{produ
 });
 
 exports.adminForceSyncCatalog = onCall({ timeoutSeconds: 540 }, async (request) => {
-    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غيرر مصرح.');
+    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     try {
         const tiersSnap = await db.collection('telecard_tiers').get();
         const tiersData = tiersSnap.docs.map(d => { return { id: d.id, ...d.data() }; });
@@ -983,7 +985,7 @@ exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposi
 
 // ==========================================
 // 📈 8. المعالجات المجدولة للإحصائيات (Anti-Hotspotting Cron)
-// ⚠️ تم إيقاف המزامنة اللحظية بالكامل واستبدالها بهذه المهمة لخفض فاتورة الكتابات والقراءات
+// ⚠️ تم إيقاف المزامنة اللحظية بالكامل واستبدالها بهذه المهمة لخفض فاتورة الكتابات والقراءات
 // ==========================================
 // 🛡️ الاستثناء الثالث: الإحصائيات (تُعفى من الحجز الضخم للمعالجات)
 exports.autoUpdateGlobalStats = onSchedule({
@@ -1172,7 +1174,7 @@ exports.cleanupOrphanedKycDocs = onSchedule({
                     const userData = userDoc.data();
                     const kycData = userData.kycData || {};
                     
-                    // 🛡️ الإصلاح الجذري: التحقق من وجود مسار الملف داخل الرابط المحفوظ بدلاً من التطابق الحرفي
+                    // 🛡️ التحقق من وجود مسار الملف داخل الرابط المحفوظ
                     const safePath = encodeURIComponent(file.name);
                     
                     const isFrontMatch = kycData.frontImg && String(kycData.frontImg).includes(safePath);
