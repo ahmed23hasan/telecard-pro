@@ -993,7 +993,8 @@ exports.autoUpdateGlobalStats = onSchedule({
     timeZone: "UTC",
     timeoutSeconds: 540,
     memory: "256MiB",
-    concurrency: 1 
+    concurrency: 1,
+    maxInstances: 1 // 👈 هذا هو السطر السحري الذي سيحل المشكلة
 }, async (event) => {
     const AggregateField = admin.firestore.AggregateField;
     
@@ -1036,7 +1037,6 @@ exports.autoUpdateGlobalStats = onSchedule({
         console.error("[Stats Cron Error]:", error);
     }
 });
-
 // ==========================================
 // 📦 9. إدارة صناديق الأكواد (Vault Batching)
 // ==========================================
@@ -1135,12 +1135,15 @@ Object.defineProperty(exports, "secureSaveSupplier", {
 
 // 🧹 مهمة مجدولة لتنظيف التخزين من الصور اليتيمة (تعمل كل يوم أحد الساعة 3 فجراً)
 // 🛡️ الاستثناء الرابع: دالة التنظيف (لا تحتاج لحجز المعالجات الضخم)
+// 🧹 مهمة مجدولة لتنظيف التخزين من الصور اليتيمة (تعمل كل يوم أحد الساعة 3 فجراً)
+// 🛡️ الاستثناء الرابع: دالة التنظيف (لا تحتاج لحجز المعالجات الضخم)
 exports.cleanupOrphanedKycDocs = onSchedule({
     schedule: "0 3 * * 0", 
     timeZone: "UTC",
     timeoutSeconds: 540,
     memory: "256MiB",
-    concurrency: 1 
+    concurrency: 1,
+    maxInstances: 1 // 👈 السطر السحري لحل مشكلة الرفض
 }, async (event) => {
     const bucket = admin.storage().bucket();
     const prefix = 'kyc_docs/';
@@ -1197,4 +1200,3 @@ exports.cleanupOrphanedKycDocs = onSchedule({
         console.error("[Storage Cleanup Error]:", error);
     }
 });
-
