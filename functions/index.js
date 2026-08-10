@@ -883,7 +883,7 @@ exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{produ
 });
 
 exports.adminForceSyncCatalog = onCall({ timeoutSeconds: 540 }, async (request) => {
-    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غيرر مصرح.');
+    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     try {
         const tiersSnap = await db.collection('telecard_tiers').get();
         const tiersData = tiersSnap.docs.map(d => { return { id: d.id, ...d.data() }; });
