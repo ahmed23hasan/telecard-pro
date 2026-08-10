@@ -15,7 +15,7 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 // 🌐 [السيادة الجغرافية والتحكم الذكي في الموارد - Infrastructure Shield]
 setGlobalOptions({
     region: 'us-central1',
-    maxInstances:20, // 👈 تم الرفع لتحمل طلبات متزامنة في الإنتاج بدون عنق زجاجة
+    maxInstances:20, // 👈 تم الرفع لتحمل طلبات متزامنة في الإنتاج بدون عننق زجاجة
     concurrency: 80
 });
 const admin = require('firebase-admin');
