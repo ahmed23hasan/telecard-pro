@@ -12,7 +12,7 @@ const { onDocumentWritten, onDocumentUpdated } = require("firebase-functions/v2/
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { setGlobalOptions } = require("firebase-functions/v2");
 
-// 🌐 [السيادة الجغرافية  والتحكم الذكي في الموارد - Infrastructure Shield]
+// 🌐 [السيادة الجغرافية والتحكم الذكي في الموارد - Infrastructure Shield]
 setGlobalOptions({
     region: 'us-central1',
     maxInstances:20, // 👈 تم الرفع لتحمل طلبات متزامنة في الإنتاج بدون عننق زجاجة
