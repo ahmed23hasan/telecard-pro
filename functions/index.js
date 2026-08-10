@@ -1111,30 +1111,34 @@ exports.adminDeleteVaultPool = onCall({ timeoutSeconds: 540 }, async (request) =
 });
 
 // ==========================================
-// 🔗 10. تصدير دوال المورردين بنظام الاستيراد المتأخر (Dynamic Lazy Loading)
+// 🔗 10. تصدير دوال الموردين بنظام الاستيراد المتأخر (Dynamic Lazy Loading)
 // (يتم تعريف التصدير كـ Getters لتجنب استهلاك الذاكرة وإبطاء التشغيل البارد للمحرك العام)
 // ==========================================
 Object.defineProperty(exports, "orderStatusWebhook", {
+    enumerable: true, // 👈 السطر السحري لكشف الدالة
     get: () => require('./developerApi.js').orderStatusWebhook
 });
 Object.defineProperty(exports, "cronRetryWebhooks", {
+    enumerable: true,
     get: () => require('./developerApi.js').cronRetryWebhooks
 });
 Object.defineProperty(exports, "externalCreateOrder", {
+    enumerable: true,
     get: () => require('./developerApi.js').externalCreateOrder
 });
 Object.defineProperty(exports, "syncSupplierData", {
+    enumerable: true,
     get: () => require('./supplierEngine.js').syncSupplierData
 });
 Object.defineProperty(exports, "scheduledSupplierSync", {
+    enumerable: true,
     get: () => require('./supplierEngine.js').scheduledSupplierSync
 });
 Object.defineProperty(exports, "secureSaveSupplier", {
+    enumerable: true,
     get: () => require('./supplierEngine.js').secureSaveSupplier
 });
 
-// 🧹 مهمة مجدولة لتنظيف التخزين من الصور اليتيمة (تعمل كل يوم أحد الساعة 3 فجراً)
-// 🛡️ الاستثناء الرابع: دالة التنظيف (لا تحتاج لحجز المعالجات الضخم)
 // 🧹 مهمة مجدولة لتنظيف التخزين من الصور اليتيمة (تعمل كل يوم أحد الساعة 3 فجراً)
 // 🛡️ الاستثناء الرابع: دالة التنظيف (لا تحتاج لحجز المعالجات الضخم)
 exports.cleanupOrphanedKycDocs = onSchedule({
