@@ -1,4 +1,4 @@
-name: Deploy Telecard System (Smart Commit)
+name: Deploy Telecard System (Architecture Aligned)
 
 on:
   push:
@@ -21,9 +21,6 @@ jobs:
         working-directory: ./functions
         run: npm install
 
-      # ==========================================
-      # 🔍 تحليل رسالة الكوميت القادمة من Spck Editor
-      # ==========================================
       - name: Parse Commit Message
         id: parse_msg
         run: |
@@ -31,35 +28,41 @@ jobs:
           ${{ github.event.head_commit.message }}
           EOF
           )
-          echo "Commit message: $MSG"
-          
-          # استخراج الكلمة التي تأتي بعد كلمة deploy:
           TARGET=$(echo "$MSG" | grep -oP 'deploy:\K[a-zA-Z0-9_,]+' | head -n 1)
           
           if [ ! -z "$TARGET" ]; then
-            echo "🎯 Found function(s) to deploy: $TARGET"
-            echo "DEPLOY_TARGET=functions:$TARGET" >> $GITHUB_ENV
+            case $TARGET in
+              "finance")
+                DEPLOY_TARGET="functions:createOrder,functions:submitBalanceRequest,functions:adminProcessOrder,functions:adminAdjustBalance"
+                ;;
+              "suppliers")
+                DEPLOY_TARGET="functions:syncSupplierData,functions:scheduledSupplierSync,functions:externalCreateOrder"
+                ;;
+              "users")
+                DEPLOY_TARGET="functions:onUserAuthCreated,functions:completeUserIdentity,functions:adminToggleUserBan"
+                ;;
+              "system")
+                DEPLOY_TARGET="functions:getServerTime,functions:autoUpdateGlobalStats,functions:cleanupOrphanedKycDocs"
+                ;;
+              *)
+                DEPLOY_TARGET="functions:$TARGET"
+                ;;
+            esac
+            echo "DEPLOY_TARGET=$DEPLOY_TARGET" >> $GITHUB_ENV
             echo "RUN_DEPLOY=true" >> $GITHUB_ENV
           else
-            echo "⏸️ No 'deploy:' tag found. Will only deploy hosting/rules."
             echo "RUN_DEPLOY=false" >> $GITHUB_ENV
           fi
 
-      # ==========================================
-      # 1️⃣ الرفع التلقائي (الاستضافة وقواعد البيانات فقط)
-      # ==========================================
       - name: Deploy Hosting & Rules
         uses: w9jds/firebase-action@master
         with:
-          args: deploy --only hosting,firestore --force
+          args: deploy --only hosting,firestore,storage --force
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TELECARD_1 }}
           PROJECT_ID: telecard-1
 
-      # ==========================================
-      # 2️⃣ الرفع الانتقائي (الدالة التي كتبتها أنت فقط)
-      # ==========================================
-      - name: Deploy Specific Function
+      - name: Deploy Selected Group
         if: env.RUN_DEPLOY == 'true'
         uses: w9jds/firebase-action@master
         with:
