@@ -1334,12 +1334,13 @@ export const UICore = {
 
         const finalStoreName = storeName || 'المتجر';
 
-        const currentConfigHash = `${finalStoreName}_${logoDark}_${logoLight}_${logoSize}_${type}_${c1}_${c2}_${weight}`;
+        const currentConfigHash = `${finalStoreName}_${logoDark}_${logoLight}_${logoSize}_${type}_${c1}_${c2}_${weight}_${favicon}`;
         if (this._lastIdentityHash === currentConfigHash) return; 
         this._lastIdentityHash = currentConfigHash;
 
         const isEnglish = /^[A-Za-z0-9]/.test(storeName);
 
+        // 1. تحديث العنوان وأيقونة المتصفح
         document.title = `${finalStoreName} | المتجر`;
         if (favicon) {
             let link = document.querySelector("link[rel~='icon']");
@@ -1347,6 +1348,7 @@ export const UICore = {
             link.href = favicon;
         }
 
+        // 2. تحديث متغيرات الـ CSS للألوان الأساسية
         const root = document.documentElement;
         root.style.setProperty('--brand-c1', c1);
         root.style.setProperty('--brand-c2', c2);
@@ -1365,6 +1367,7 @@ export const UICore = {
 
         const strictLogoStyle = `opacity: 1; max-height: ${logoSize}px !important; max-width: 150px !important; width: auto !important; object-fit: contain !important; display: inline-block;`;
 
+        // 3. بناء لوجو المتجر بناءً على الوضع (ليلي/نهاري)
         let logoHtml = '';
         if (logoDark) {
             if (!logoLight || logoDark === logoLight) {
@@ -1388,8 +1391,56 @@ export const UICore = {
                 el.classList.toggle('logo-ar', !isEnglish);
             }
         });
-    },
-      saveDisplayState: function() {
+
+        // ====================================================================
+        // 🚀 4. الحقن الديناميكي لتطبيق الجوال (Dynamic PWA Manifest Injection)
+        // ====================================================================
+        try {
+            // بناء هيكل بيانات التطبيق
+            const manifestData = {
+                name: finalStoreName,
+                short_name: finalStoreName.substring(0, 12),
+                start_url: "./",
+                display: "standalone",
+                background_color: c1 || "#111a2b", 
+                theme_color: c2 || "#FFD700",
+                icons: [
+                    {
+                        src: favicon || logoDark || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
+                        sizes: "192x192",
+                        type: "image/png"
+                    },
+                    {
+                        src: favicon || logoDark || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
+                        sizes: "512x512",
+                        type: "image/png"
+                    }
+                ]
+            };
+
+            // تحويل البيانات إلى كائن برمجي (Blob) في ذاكرة الهاتف
+            const manifestString = JSON.stringify(manifestData);
+            const blob = new Blob([manifestString], { type: 'application/json' });
+            const manifestUrl = URL.createObjectURL(blob);
+
+            // جلب الرابط القديم (إن وجد) لمسحه من الذاكرة وتجنب تسرب الذاكرة (Memory Leak)
+            let manifestLink = document.querySelector('link[rel="manifest"]');
+            if (manifestLink && manifestLink.href.startsWith('blob:')) {
+                URL.revokeObjectURL(manifestLink.href);
+            }
+
+            // حقن الملف الجديد في المتصفح
+            if (!manifestLink) {
+                manifestLink = document.createElement('link');
+                manifestLink.rel = 'manifest';
+                document.head.appendChild(manifestLink);
+            }
+            manifestLink.href = manifestUrl;
+            
+        } catch (e) {
+            console.warn("⚠️ تعذر بناء ملف التطبيق الديناميكي PWA:", e);
+        }
+    },      saveDisplayState: function() {
         const displayState = { sidebarOpen: document.querySelector('.sidebar.active') !== null, userImage: DataManager.user?.img || null, theme: DataManager.prefs?.theme || 'dark', sound: DataManager.prefs?.sound !== false, lastVisit: Date.now() };
         try { localStorage.setItem('telecard_display_state', JSON.stringify(displayState)); } catch (e) {}
     },

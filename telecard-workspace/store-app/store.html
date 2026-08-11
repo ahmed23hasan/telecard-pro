@@ -1507,5 +1507,28 @@ const formatMsg = (args) => Array.from(args).map(a => {
         console.log("🚀 TeleCard DevTools V3.4 Initialized!");
     })();
 </script>
+
+<!-- ========================================================================= -->
+<!-- ⚡ محرك تطبيق الجوال (PWA Service Worker Registration) -->
+<!-- ========================================================================= -->
+<script>
+    // 1. فحص الأمان: نتأكد أولاً أن متصفح العميل يدعم هذه التقنية
+    if ('serviceWorker' in navigator) {
+        // 2. إدارة الأداء: لا نوقظ العامل إلا بعد أن تكتمل الصفحة تماماً (load)
+        window.addEventListener('load', () => {
+            // 3. الإيقاظ والتسجيل: نوجه المتصفح لمكان ملف sw.js
+            navigator.serviceWorker.register('./sw.js')
+                .then((registration) => {
+                    console.log('✅ [PWA Engine] تم تشغيل محرك تطبيق الجوال بنجاح! النطاق:', registration.scope);
+                })
+                .catch((error) => {
+                    console.error('❌ [PWA Engine] فشل في تشغيل المحرك:', error);
+                });
+        });
+    } else {
+        console.warn('⚠️ [PWA Engine] متصفح العميل قديم ولا يدعم تطبيقات الويب التقدمية.');
+    }
+</script>
+
 </body>
 </html>
