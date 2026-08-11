@@ -75,6 +75,9 @@ const ProviderAdapters = {
 // ==========================================
 // 🧠 النواة المركزية للمزامنة (Core Sync Engine) 
 // ==========================================
+// ==========================================
+// 🧠 النواة المركزية للمزامنة (Core Sync Engine - High Performance) 
+// ==========================================
 const coreSyncLogic = async (supplierId) => {
     const suppRef = db.collection('telecard_suppliers').doc(String(supplierId));
     
@@ -103,25 +106,30 @@ const coreSyncLogic = async (supplierId) => {
         const normalizedProducts = await fetchAdapter(supplier.baseUrl, token);
         if (!normalizedProducts || normalizedProducts.length === 0) throw new Error('API المورد أرجع قائمة فارغة.');
 
-        // 🛡️ استرجاع المنتجات الحالية (آمن جداً على الذاكرة) لحماية التسعير اليدوي
         const existingProdsSnap = await db.collection('telecard_prods').where('supplierId', '==', supplierId).get();
         const existingProdsMap = new Map();
         existingProdsSnap.forEach(doc => existingProdsMap.set(doc.id, doc.data()));
 
-        // 1. إنشاء الختم الزمني للمزامنة الحالية (Sync Session ID)
         const syncSessionId = Date.now();
         const defaultMargin = FinancialEngine.extractNum(supplier.defaultMargin || 0);
         
+        // 🚀🚀🚀 التحديث الاحترافي: هندسة الـ Batches المتوازية (Concurrent Batching)
+        let batchPromises = []; // مصفوفة لتخزين الدفعات الجاهزة للإرسال
         let currentBatch = db.batch();
         let operationCount = 0;
         let importedCount = 0;
         let revokedCount = 0;
         
-        const commitAndReset = async () => {
-            if (operationCount > 0) { await currentBatch.commit(); currentBatch = db.batch(); operationCount = 0; }
+        // دالة تقوم بتخزين الباتش الحالي للعمل في الخلفية وفتح باتش جديد فوراً
+        const commitAndReset = () => {
+            if (operationCount > 0) { 
+                const batchToCommit = currentBatch;
+                batchPromises.push(() => batchToCommit.commit()); // إضافة دالة تنفيذ للحفاظ على الذاكرة
+                currentBatch = db.batch(); 
+                operationCount = 0; 
+            }
         };
 
-        // 2. تحديث المنتجات والأكواد مع الختم
         for (const prod of normalizedProducts) {
             const safeId = `ext_${supplierId}_${prod.externalId}`;
             const vaultId = `vault_${safeId}`;
@@ -130,7 +138,6 @@ const coreSyncLogic = async (supplierId) => {
             const profitAdded = FinancialEngine.safeMul(rawCost, FinancialEngine.safeDiv(defaultMargin, 100));
             let calculatedFinalPrice = Math.min(FinancialEngine.safeAdd(rawCost, profitAdded), FinancialEngine.CONFIG.MAX_PRICE_LIMIT);
             
-            // 🛡️ حماية تسعيرة الإدارة اليدوية
             const existingData = existingProdsMap.get(safeId);
             const isFixed = existingData ? (String(existingData.isFixedPrice).toLowerCase() === 'true') : false;
             let finalPrice = isFixed ? existingData.price : calculatedFinalPrice;
@@ -146,9 +153,8 @@ const coreSyncLogic = async (supplierId) => {
             }, { merge: true });
             
             operationCount++;
-            if (operationCount >= 400) await commitAndReset();
+            if (operationCount >= 400) commitAndReset(); // بدون await
 
-            // معالجة الصناديق والأكواد
             if (safeCodesArray.length > 0) {
                 const vaultRef = db.collection('telecard_vault').doc(vaultId);
                 const cleanCodes = safeCodesArray.map(c => (typeof c === 'object' ? (c.text || c.code || '') : String(c)).replace(/\s+/g, '')).filter(c => c !== '');
@@ -158,7 +164,6 @@ const coreSyncLogic = async (supplierId) => {
                 const vaultSnap = await vaultRef.get();
                 const existingVaultData = vaultSnap.exists ? vaultSnap.data() : null;
 
-                // 🛡️ معالجة الأكواد (فقط إذا تغير الهاش)
                 if (!existingVaultData || existingVaultData.lastCodesHash !== masterHash) {
                     const keysCollectionRef = vaultRef.collection('keys');
                     
@@ -171,53 +176,51 @@ const coreSyncLogic = async (supplierId) => {
                         }, { merge: true }); 
                         
                         operationCount++;
-                        if (operationCount >= 400) await commitAndReset();
+                        if (operationCount >= 400) commitAndReset(); // بدون await
                     }
 
-                    // 🗑️ التنظيف المحلي (Local GC): سحب الأكواد التي حذفها المورد من هذا الصندوق تحديداً
-                    const staleKeysSnap = await keysCollectionRef
-                        .where('isSold', '==', false)
-                        .where('syncSessionId', '<', syncSessionId).get();
+                    const staleKeysSnap = await keysCollectionRef.where('isSold', '==', false).where('syncSessionId', '<', syncSessionId).get();
                     
                     for (const doc of staleKeysSnap.docs) {
                         currentBatch.update(doc.ref, { isSold: true, isRevoked: true, syncNote: 'تم سحبه من المورد' });
                         operationCount++; revokedCount++;
-                        if (operationCount >= 400) await commitAndReset();
+                        if (operationCount >= 400) commitAndReset(); // بدون await
                     }
 
-                    // حفظ الـ Hash الجديد للصندوق
                     currentBatch.set(vaultRef, {
                         id: vaultId, supplierId: supplierId, name: `أكواد: ${prod.name}`,
                         lastCodesHash: masterHash, lastSync: admin.firestore.FieldValue.serverTimestamp()
                     }, { merge: true });
                     
                     operationCount++;
-                    if (operationCount >= 400) await commitAndReset();
+                    if (operationCount >= 400) commitAndReset(); // بدون await
                 }
             }
             importedCount++;
         }
-        await commitAndReset();
         
-        // ==========================================
-        // 🗑️ مرحلة التنظيف العالمي للمنتجات فقط (Global GC for Products)
-        // ==========================================
+        // 🗑️ مرحلة التنظيف العالمي للمنتجات 
         let deletedCount = 0;
-        const staleProdsSnap = await db.collection('telecard_prods')
-            .where('supplierId', '==', supplierId)
-            .where('isAvailable', '==', true)
-            .where('syncSessionId', '<', syncSessionId).get();
+        const staleProdsSnap = await db.collection('telecard_prods').where('supplierId', '==', supplierId).where('isAvailable', '==', true).where('syncSessionId', '<', syncSessionId).get();
 
         for (const doc of staleProdsSnap.docs) {
             currentBatch.update(doc.ref, { isAvailable: false, syncNote: 'محذوف من المورد' });
             operationCount++; deletedCount++;
-            if (operationCount >= 400) await commitAndReset();
+            if (operationCount >= 400) commitAndReset();
         }
-        await commitAndReset();
+        
+        commitAndReset(); // إغلاق آخر باتش متبقي
 
-        // ==========================================
-        // 📊 حساب المخزون الحي باستخدام (Aggregation) 
-        // ==========================================
+        // 🚀 تنفيذ الدفعات المتوازية (5 دفعات في نفس الوقت) لمنع الخنق السحابي
+        if (batchPromises.length > 0) {
+            const CONCURRENCY_LIMIT = 5; 
+            for (let i = 0; i < batchPromises.length; i += CONCURRENCY_LIMIT) {
+                const chunk = batchPromises.slice(i, i + CONCURRENCY_LIMIT);
+                await Promise.all(chunk.map(fn => fn())); // تنفيذ الشريحة كاملة
+            }
+        }
+
+        // 📊 حساب المخزون الحي 
         for (const prod of normalizedProducts) {
             const vaultId = `vault_ext_${supplierId}_${prod.externalId}`;
             const vaultRef = db.collection('telecard_vault').doc(vaultId);
@@ -235,7 +238,6 @@ const coreSyncLogic = async (supplierId) => {
         await suppRef.update({ isSyncing: false }).catch(() => {});
     }
 };
-
 // ==========================================
 // 🚀 1. المزامنة اليدوية (من لوحة تحكم الإدارة)
 // ==========================================

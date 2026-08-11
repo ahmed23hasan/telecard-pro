@@ -45,7 +45,9 @@ jobs:
                 DEPLOY_TARGET="functions:getServerTime,functions:autoUpdateGlobalStats,functions:cleanupOrphanedKycDocs"
                 ;;
               *)
-                DEPLOY_TARGET="functions:$TARGET"
+                # 🎯 هنا يكمن السحر الجديد: استبدال الفاصلة وإضافة الكلمة المطلوبة ليفهمها فايربيز
+                FORMATTED_TARGET=$(echo "$TARGET" | sed 's/,/,functions:/g')
+                DEPLOY_TARGET="functions:$FORMATTED_TARGET"
                 ;;
             esac
             echo "DEPLOY_TARGET=$DEPLOY_TARGET" >> $GITHUB_ENV

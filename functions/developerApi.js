@@ -103,6 +103,7 @@ exports.cronRetryWebhooks = onSchedule({
     return true;
 });
 // 🛡️ التحديث: إزالة تحديد المنطقة
+// 🛡️ التحديث: إزالة تحديد المنطقة، وتسريع جلب الأكواد عبر getAll
 exports.externalCreateOrder = onRequest(async (req, res) => {
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed. Use POST.' });
 
@@ -179,10 +180,11 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                     const userData = latestUserSnap.data();
                     if (userData.isBanned || userData.isIpBanned) throw new Error('Unauthorized: Account Banned');
 
-                    // فحص الأكواد المحددة حصراً (Verify Claim)
+                    // 🚀🚀🚀 التحديث الاحترافي: جلب الأكواد بطلب واحد (getAll) لتسريع المعاملة ومنع الخنق
                     let verifiedKeyDocs = [];
                     if (vaultRef && candidateKeyDocs.length > 0) {
-                        const keySnaps = await Promise.all(candidateKeyDocs.map(doc => transaction.get(doc.ref)));
+                        const keyRefs = candidateKeyDocs.map(doc => doc.ref);
+                        const keySnaps = await transaction.getAll(...keyRefs); 
                         
                         // إذا تم بيع أي كود منها لجلسة أخرى، نلغي هذه المعاملة ونعيد المحاولة
                         const hasCollision = keySnaps.some(k => !k.exists || k.data().isSold === true);
