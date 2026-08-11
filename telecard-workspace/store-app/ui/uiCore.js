@@ -29,7 +29,7 @@ export const UICore = {
     navHistory: [],
     currentCategoryId: null,
     historyStateSet: false,
-
+_deferredInstallPrompt: null,
     // =========================================================
     // 🚨 0. نافذة الطرد المباشر الآمنة
     // =========================================================
@@ -527,7 +527,7 @@ export const UICore = {
             'logout': () => DataManager.logout?.(),
             'go-login': (e) => { e.preventDefault(); window.location.href = 'login.html'; },
             'request-account-delete': () => getSys().openModal?.('account-delete'),
-            
+    'install-pwa': () => this.triggerPWAInstall(),
             'close-orders': () => this.closeOrders?.(),
             'close-wallet': () => this.closeWallet?.(),
             'close-mypayments': () => this.closeMyPayments?.(),
@@ -690,7 +690,19 @@ export const UICore = {
         };
 
         if (this.initNetworkSensors) this.initNetworkSensors(); 
+// 📱 اصطياد حدث تثبيت تطبيق الجوال (PWA)
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    this._deferredInstallPrompt = e;
+    const installContainer = document.getElementById('pwa-install-container');
+    if (installContainer) installContainer.style.display = 'block';
+});
 
+window.addEventListener('appinstalled', () => {
+    const installContainer = document.getElementById('pwa-install-container');
+    if (installContainer) installContainer.style.display = 'none';
+    this._deferredInstallPrompt = null;
+});
         document.body.addEventListener('touchstart', () => {}, { passive: true });
         
         // 🛡️ [الإصلاح المعماري 4]: السماح بـ ContextMenu باستثناء الصور لحمايتها من السرقة وتسهيل فتح المنتجات بصفحات جديدة.
@@ -839,7 +851,20 @@ export const UICore = {
             } catch (err) { if (this.logCloudError) this.logCloudError(action, err); }
         });
     },    
+    triggerPWAInstall: async function() {
+    if (!this._deferredInstallPrompt) return;
     
+    getSys().sfx?.('nav');
+    this._deferredInstallPrompt.prompt();
+    
+    const { outcome } = await this._deferredInstallPrompt.userChoice;
+    if (outcome === 'accepted') {
+        console.log('✅ [PWA] تم قبول التثبيت من العميل');
+        const installContainer = document.getElementById('pwa-install-container');
+        if (installContainer) installContainer.style.display = 'none';
+    }
+    this._deferredInstallPrompt = null;
+},
     // =========================================================
     // 🌟 محرك الانتقالات الفاخر
     // =========================================================
