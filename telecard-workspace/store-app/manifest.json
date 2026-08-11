@@ -1,0 +1,20 @@
+{
+  "name": "المتجر",
+  "short_name": "المتجر",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111a2b",
+  "theme_color": "#FFD700",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
