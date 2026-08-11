@@ -376,8 +376,7 @@ _toggleButtonLoader: function(btn, isLoading) {
             }
         });
     },
-
-    handlePurchaseSubmit: async function() { 
+handlePurchaseSubmit: async function() { 
         if (this._isProcessingTx || !DataManager.currentProd || !this._validateKycAndSystem('purchase')) return;
         
         const inp1El = document.getElementById('pm-inp-1'), inp2El = document.getElementById('pm-inp-2'), qtyEl = document.getElementById('simple-qty-val');
@@ -393,19 +392,47 @@ _toggleButtonLoader: function(btn, isLoading) {
         };
 
         let qty = 1; let optIdx = null; let isValid = true; let finalInputStr = '';
-        const inp1 = inp1El ? inp1El.value.trim().replace(/\|/g, '-') : '', inp2 = inp2El ? inp2El.value.trim().replace(/\|/g, '-') : '';
+        const inp1 = inp1El ? inp1El.value.trim().replace(/\|/g, '-') : '';
+        const inp2 = inp2El ? inp2El.value.trim().replace(/\|/g, '-') : '';
 
-        if(DataManager.currentProd.type === 'double') { 
-            finalInputStr = `${DataManager.currentProd.input1Label}: ${inp1} | ${DataManager.currentProd.input2Label}: ${inp2}`; 
+        // 🛡️ التحديث المعماري: دالة استخلاص التسميات بذكاء (Admin First, Fallback Second)
+        const getSafeLabel = (adminVal, defaultVal) => {
+            if (adminVal && typeof adminVal === 'string' && adminVal.trim() !== '') return adminVal.trim();
+            return defaultVal;
+        };
+
+        if (DataManager.currentProd.type === 'double') { 
+            // 1. منتجات الحقلين: تأخذ تسمية الأدمن أو البديل وتدمجهما بأناقة
+            const lbl1 = getSafeLabel(DataManager.currentProd.input1Label, 'معرف الحساب');
+            const lbl2 = getSafeLabel(DataManager.currentProd.input2Label, 'تفاصيل إضافية');
+            
+            finalInputStr = `${lbl1}: ${inp1} | ${lbl2}: ${inp2}`; 
+            
             if(!inp1) { showInlineError(inp1El, 'يرجى ملء الحقل الأول'); isValid = false; inp1El.focus(); }
             if(!inp2) { if(inp2El) { showInlineError(inp2El, 'يرجى ملء الحقل الثاني'); if(isValid) inp2El.focus(); isValid = false; } }
-        } else if (DataManager.currentProd.type === 'simple') { finalInputStr = ""; } 
-        else { finalInputStr = inp1; if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); } }
+            
+        } else if (DataManager.currentProd.type === 'single' || DataManager.currentProd.type === 'counter' || DataManager.currentProd.type === 'select') { 
+            // 2. المنتجات ذات الحقل الواحد: تدمج التسمية مع القيمة بدلاً من القيمة عارية
+            const lbl1 = getSafeLabel(DataManager.currentProd.input1Label, 'معرف الحساب');
+            finalInputStr = `${lbl1}: ${inp1}`; 
+            
+            if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); } 
+            
+        } else if (DataManager.currentProd.type === 'simple') { 
+            // 3. المنتجات البسيطة لا تحتاج مدخلات
+            finalInputStr = ""; 
+        } else {
+            // حالة أمان احتياطية للحالات غير المعروفة
+            finalInputStr = inp1;
+            if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); }
+        }
 
+        // حساب الكميات (Qty) والفهارس (Options)
         if (DataManager.currentProd.type === 'counter') { 
             const minQ = parseInt(DataManager.currentProd.minQty) || 1; qty = Math.max(minQ, Utils.parseSafeNumber(document.getElementById('pm-qty')?.value)) || minQ;
-        } else if (DataManager.currentProd.type === 'select') { optIdx = Number(document.getElementById('pm-pack')?.value || 0); } 
-        else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
+        } else if (DataManager.currentProd.type === 'select') { 
+            optIdx = Number(document.getElementById('pm-pack')?.value || 0); 
+        } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
             const minQ = parseInt(DataManager.currentProd.minQty) || 1, maxQ = parseInt(DataManager.currentProd.simpleMax) || 10;
             qty = Utils.parseSafeNumber(qtyEl?.value); if(isNaN(qty) || qty < minQ) qty = minQ;
             if(qty > maxQ) { showInlineError(qtyEl.parentNode, `أقصى كمية ${maxQ}`); isValid = false; qtyEl.focus(); }
@@ -459,7 +486,7 @@ _toggleButtonLoader: function(btn, isLoading) {
             } else { getSys().showToast?.(result.msg || 'فشلت العملية', 'error'); keepKeyboardOpen(); }
         } catch (err) { getSys().showToast?.('حدث خطأ في النظام', 'error'); } finally { this._cleanupTxUI(submitBtn, shieldId); }
     },
-
+    
     _manageDepositModalState: function(isStep2) {
         const modal = document.getElementById('balance-modal');
         if (!modal) return;
