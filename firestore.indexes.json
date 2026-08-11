@@ -109,6 +109,39 @@
         { "fieldPath": "isActive", "order": "ASCENDING" },
         { "fieldPath": "autoSync", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "telecard_offers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isActive", "order": "ASCENDING" },
+        { "fieldPath": "targetProds", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_failed_webhooks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "attempts", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "keys",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isSold", "order": "ASCENDING" },
+        { "fieldPath": "syncSessionId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_prods",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "supplierId", "order": "ASCENDING" },
+        { "fieldPath": "isAvailable", "order": "ASCENDING" },
+        { "fieldPath": "syncSessionId", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -132,11 +165,11 @@
       "fieldPath": "apiResponse",
       "indexes": []
     },
-{
-  "collectionGroup": "telecard_idempotency_keys",
-  "fieldPath": "expiresAt",
-  "indexes": [],
-  "ttl": true
-}
+    {
+      "collectionGroup": "telecard_idempotency_keys",
+      "fieldPath": "expiresAt",
+      "indexes": [],
+      "ttl": true
+    }
   ]
 }
