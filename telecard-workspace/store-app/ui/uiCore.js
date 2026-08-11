@@ -1047,16 +1047,14 @@ export const UICore = {
         getSys().sfx?.('nav'); 
         
         const successVisuals = () => {
-            // 1. تفاعل فيزيائي فوري مع العنصر (Micro-Interaction)
-            // هذا يعطي إحساساً رائعاً باستجابة الزر حتى لو نقر العميل 100 مرة في الثانية
+            // 1. تفاعل فيزيائي سريع جداً مع العنصر
             if (element) { 
                 element.style.transition = 'transform 0.1s ease';
-                element.style.transform = 'scale(0.92)'; // تقلص سريع
-                setTimeout(() => { if(element) element.style.transform = 'scale(1)'; }, 100); // ارتداد فوري
+                element.style.transform = 'scale(0.92)'; 
+                setTimeout(() => { if(element) element.style.transform = 'scale(1)'; }, 100); 
 
                 let icon = type === 'smartline' ? element.querySelector('.scl-icon') : (element.querySelector('i') || (element.tagName === 'I' ? element : null));
                 
-                // إضافة علامة الصح إذا كانت هذه أول نقرة
                 if (!element.classList.contains('is-copied') && !element.classList.contains('copy-success')) {
                     element.classList.add(type === 'smartline' ? 'copy-success' : 'is-copied');
                     if (icon) {
@@ -1065,23 +1063,20 @@ export const UICore = {
                     }
                 }
                 
-                // تجديد المؤقت مع كل نقرة، لتبقى علامة الصح ظاهرة طالما العميل مستمر بالنقر
                 if (element.copyTimer) clearTimeout(element.copyTimer);
                 element.copyTimer = setTimeout(() => { 
                     element.classList.remove(type === 'smartline' ? 'copy-success' : 'is-copied');
                     if (icon && icon.dataset.origClass) icon.className = icon.dataset.origClass; 
-                }, 1500); // زِدنا الوقت لثانية ونصف لراحة العين
+                }, 1000); // إرجاع الأيقونة لحالتها الطبيعية بعد ثانية واحدة
             }
 
-            // 2. خنق إشعارات الشاشة (Toast Throttling) لمنع الاختناق البصري
-            const now = Date.now();
-            if (!this._lastCopyToastTime || (now - this._lastCopyToastTime > 2000)) {
-                this.showToast('تم النسخ', 'success');
-                this._lastCopyToastTime = now;
-            }
+            // 2. إشعار صاروخي وديناميكي (بدون أي تأخير)
+            // نقتطع جزءاً من النص المنسوخ ليكون الإشعار مخصصاً لكل طلب
+            const shortText = text.length > 15 ? text.substring(0, 15) + '...' : text;
+            this.showToast(`تم نسخ: ${shortText}`, 'success');
         };
 
-        // التنفيذ الفعلي للنسخ
+        // تنفيذ النسخ
         if (navigator.clipboard && window.isSecureContext) { 
             navigator.clipboard.writeText(text).then(successVisuals).catch(() => this.showToast('فشل النسخ', 'error')); 
         } else {
@@ -1095,8 +1090,7 @@ export const UICore = {
             try { document.execCommand('copy'); successVisuals(); } catch (e) { this.showToast('فشل النسخ', 'error'); }
             document.body.removeChild(textarea);
         }
-    },
-    copyOrderInput: function(text, element) { this.copyToClipboard(text, element, 'default'); },
+    },    copyOrderInput: function(text, element) { this.copyToClipboard(text, element, 'default'); },
     copySmartLine: function(element, text) { this.copyToClipboard(text, element, 'smartline'); },
 
     pasteText: async function() {
