@@ -141,15 +141,30 @@ _toggleButtonLoader: function(btn, isLoading) {
         getSys().closeWallet?.();
         setTimeout(() => {
             if (type === 'purchase') getSys().openOrders?.(); else getSys().openMyPayments?.();
+            
             const searchInput = document.getElementById((type === 'purchase') ? 'order-search-input' : 'pay-search-input');
-            if (searchInput) searchInput.value = id;
-            if (RenderManager) RenderManager.highlightId = id;
+            
+            // 🛡️ الإصلاح البصري: تحويل الـ ID الخام إلى الصيغة الجميلة التي ألفها العميل
+            let displaySearchId = id;
+            try {
+                if (type === 'purchase') {
+                    const orderObj = (LiveStoreData.orders || []).find(o => String(o.id) === String(id)) || { id: id };
+                    displaySearchId = RenderHelpers.formatOrderId(orderObj);
+                } else {
+                    const depObj = (LiveStoreData.deposits || []).find(d => String(d.id) === String(id)) || { id: id };
+                    displaySearchId = RenderHelpers.formatDepositId(depObj);
+                }
+            } catch (e) {
+                displaySearchId = id; // في حال حدوث خطأ، استخدم الرقم القديم
+            }
+
+            if (searchInput) searchInput.value = displaySearchId;
+            if (RenderManager) RenderManager.highlightId = id; // التظليل يحتاج الرقم الخام الأصلي لضمان الدقة
+            
             if (type === 'purchase') { if(RenderManager.renderOrders) RenderManager.renderOrders(); } 
             else { if(RenderManager.renderPayments) RenderManager.renderPayments(); }
         }, 150);
-    },    
-
-    _validateKycAndSystem: function(actionType = 'purchase') {
+    },    _validateKycAndSystem: function(actionType = 'purchase') {
         const sys = LiveStoreData.system || {};
         if (sys.freeze) { getSys().showToast?.(sys.freezeMsg || 'عذراً، العمليات المالية متوقفة مؤقتاً.', 'warning'); return false; }
         if (!DataManager || !DataManager.user) {

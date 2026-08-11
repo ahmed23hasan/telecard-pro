@@ -1045,27 +1045,43 @@ export const UICore = {
 
     copyToClipboard: function(text, element, type = 'default') {
         getSys().sfx?.('nav'); 
+        
         const successVisuals = () => {
-            this.showToast('تم النسخ', 'success');
+            // 1. تفاعل فيزيائي فوري مع العنصر (Micro-Interaction)
+            // هذا يعطي إحساساً رائعاً باستجابة الزر حتى لو نقر العميل 100 مرة في الثانية
             if (element) { 
-                if (element.classList.contains('is-copied') || element.classList.contains('copy-success')) return;
-                
+                element.style.transition = 'transform 0.1s ease';
+                element.style.transform = 'scale(0.92)'; // تقلص سريع
+                setTimeout(() => { if(element) element.style.transform = 'scale(1)'; }, 100); // ارتداد فوري
+
                 let icon = type === 'smartline' ? element.querySelector('.scl-icon') : (element.querySelector('i') || (element.tagName === 'I' ? element : null));
-                if (type === 'smartline') element.classList.add('copy-success'); else element.classList.add('is-copied');
                 
-                if (icon) {
-                    if (!icon.dataset.origClass) icon.dataset.origClass = icon.className;
-                    icon.className = 'fa-solid fa-check-double' + (type === 'smartline' ? ' scl-icon' : '');
+                // إضافة علامة الصح إذا كانت هذه أول نقرة
+                if (!element.classList.contains('is-copied') && !element.classList.contains('copy-success')) {
+                    element.classList.add(type === 'smartline' ? 'copy-success' : 'is-copied');
+                    if (icon) {
+                        if (!icon.dataset.origClass) icon.dataset.origClass = icon.className;
+                        icon.className = 'fa-solid fa-check-double' + (type === 'smartline' ? ' scl-icon' : '');
+                    }
                 }
                 
+                // تجديد المؤقت مع كل نقرة، لتبقى علامة الصح ظاهرة طالما العميل مستمر بالنقر
                 if (element.copyTimer) clearTimeout(element.copyTimer);
                 element.copyTimer = setTimeout(() => { 
                     element.classList.remove(type === 'smartline' ? 'copy-success' : 'is-copied');
                     if (icon && icon.dataset.origClass) icon.className = icon.dataset.origClass; 
-                }, 800); 
+                }, 1500); // زِدنا الوقت لثانية ونصف لراحة العين
+            }
+
+            // 2. خنق إشعارات الشاشة (Toast Throttling) لمنع الاختناق البصري
+            const now = Date.now();
+            if (!this._lastCopyToastTime || (now - this._lastCopyToastTime > 2000)) {
+                this.showToast('تم النسخ', 'success');
+                this._lastCopyToastTime = now;
             }
         };
 
+        // التنفيذ الفعلي للنسخ
         if (navigator.clipboard && window.isSecureContext) { 
             navigator.clipboard.writeText(text).then(successVisuals).catch(() => this.showToast('فشل النسخ', 'error')); 
         } else {
@@ -1080,7 +1096,6 @@ export const UICore = {
             document.body.removeChild(textarea);
         }
     },
-
     copyOrderInput: function(text, element) { this.copyToClipboard(text, element, 'default'); },
     copySmartLine: function(element, text) { this.copyToClipboard(text, element, 'smartline'); },
 
