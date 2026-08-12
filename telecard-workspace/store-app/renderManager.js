@@ -933,26 +933,29 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
                 const fullHTML = UIBuilders.buildPDFReceipt(config, brandHTML.html);
                 
                 const container = document.createElement('div');
-                container.id = containerId;
-                // 🛡️ الإصلاح 1: إجبار محركات سفاري على الرسم رغم الإخفاء عن المستخدم
-                container.style.cssText = `
-                    position: absolute; top: -9999px; left: -9999px; width: 420px;
-                    background-color: #ffffff; z-index: -9999;
-                    opacity: 1; pointer-events: none;
+container.id = containerId;
+// 🛡️ الإصلاح الجذري لسفاري (iOS): إبقاء العنصر داخل الشاشة بشفافية 0.01 لكي لا يحذفه محرك WebKit
+container.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 420px;
+                    background-color: #ffffff; z-index: -99999;
+                    opacity: 0.01; pointer-events: none; overflow: hidden;
                 `;
-                container.innerHTML = fullHTML;
-                document.body.appendChild(container);
-                
-                await new Promise(r => setTimeout(r, 400));
-                
-                if (typeof html2canvas === 'undefined') throw new Error("مكتبة html2canvas مفقودة!");
-                
-                const canvas = await html2canvas(container, {
-                    scale: 2, 
-                    useCORS: true, 
-                    backgroundColor: '#ffffff'
-                });
-                
+container.innerHTML = fullHTML;
+document.body.appendChild(container);
+
+// إجبار المتصفح على معالجة الصور قبل التصوير
+await new Promise(r => setTimeout(r, 600));
+
+if (typeof html2canvas === 'undefined') throw new Error("مكتبة html2canvas مفقودة!");
+
+const canvas = await html2canvas(container, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: '#ffffff',
+    logging: false, // لمنع امتلاء الكونسول
+    allowTaint: true,
+    windowWidth: 420 // إجبار أبعاد النافذة لمنع تشوه التصميم
+});
                 const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.95));
                 
                 canvas.width = 0; canvas.height = 0;

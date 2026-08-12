@@ -542,38 +542,40 @@ export const Components = {
     },
 
     initBottomNavSync: function() {
-        const navContainer = document.querySelector('.bottom-nav');
-        if (!navContainer) return;
-        
-        const navIcons = navContainer.querySelectorAll('.nav-icon');
-        
-        window._tcUpdateBottomNavState = function(targetState) {
-            navIcons.forEach(icon => icon.classList.remove('active'));
-            navIcons.forEach(icon => {
-                const action = icon.getAttribute('data-action') || '';
-                if (action.includes(targetState) || (targetState === 'home' && (action === 'go-home' || action === ''))) {
-                    icon.classList.add('active');
-                }
-            });
-        };
-
-        if (!navContainer.dataset.navBound) {
-            navContainer.dataset.navBound = '1';
-            navContainer.addEventListener('click', (e) => {
-                const clickedIcon = e.target.closest('.nav-icon');
-                if (!clickedIcon) return;
-                
-                navIcons.forEach(i => i.classList.remove('active'));
-                clickedIcon.classList.add('active');
-            });
-        }
-        
-        let initialState = 'home';
-        if (document.body.classList.contains('is-favorites')) initialState = 'favorites';
-        else if (document.body.classList.contains('is-wallet')) initialState = 'wallet';
-        else if (document.body.classList.contains('is-orders')) initialState = 'orders';
-        else if (document.body.classList.contains('is-settings')) initialState = 'settings';
-        
-        window._tcUpdateBottomNavState(initialState);
+    const navContainer = document.querySelector('.bottom-nav');
+    if (!navContainer) return;
+    
+    const navIcons = navContainer.querySelectorAll('.nav-icon');
+    
+    // 🛡️ التعديل: توحيد الاسم ليطابق ما يتم استدعاؤه في renderManager.js
+    window.updateBottomNavState = function(targetState) {
+        navIcons.forEach(icon => icon.classList.remove('active'));
+        navIcons.forEach(icon => {
+            const action = icon.getAttribute('data-action') || '';
+            if (action.includes(targetState) || (targetState === 'home' && (action === 'go-home' || action === ''))) {
+                icon.classList.add('active');
+            }
+        });
+    };
+    
+    if (!navContainer.dataset.navBound) {
+        navContainer.dataset.navBound = '1';
+        navContainer.addEventListener('click', (e) => {
+            const clickedIcon = e.target.closest('.nav-icon');
+            if (!clickedIcon) return;
+            
+            navIcons.forEach(i => i.classList.remove('active'));
+            clickedIcon.classList.add('active');
+        });
     }
+    
+    let initialState = 'home';
+    if (document.body.classList.contains('is-favorites')) initialState = 'favorites';
+    else if (document.body.classList.contains('is-wallet')) initialState = 'wallet';
+    else if (document.body.classList.contains('is-orders')) initialState = 'orders';
+    else if (document.body.classList.contains('is-settings')) initialState = 'settings';
+    
+    // 🛡️ التعديل: استدعاء الاسم الصحيح
+    window.updateBottomNavState(initialState);
+}
 };

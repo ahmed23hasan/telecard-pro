@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9.1 💎
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع السريع، إدارة الكاش الذكي، والتوافقية
-// 🚀 التحديثات المعمارية (V16.9):
-// 1. Service Worker Safe-Catch: منع انهيار مسح الكاش في المتصفحات غير الداعمة (HTTP).
-// 2. LocalStorage Currency Sync: منع حلقة إعادة الرسم إذا كان الـ HTML غير مكتمل.
-// 3. Flexible Selective Lock: قفل الدوال لمنع الحقن مع السماح للواجهة بإنشاء متغيرات حالة ديناميكية (مثل _clickState).
+// 🚀 التحديثات المعمارية (V16.9.1):
+// 1. Firebase Native Cache Sync: إزالة مدمرات الكاش اليدوي (TeleCardStoreDB) لتفادي التضارب مع Firestore.
+// 2. Pagination Rescue: إصلاح تناغم الكرسور (Cursor) مع المستمعات الحية لضمان عمل زر "عرض المزيد".
+// 3. Flexible Selective Lock: قفل الدوال لمنع الحقن مع السماح للواجهة بإنشاء متغيرات ديناميكية.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -22,7 +22,7 @@ import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/
 
 import { DB_KEYS, CACHE_KEYS, APP_VERSION, ACTIVE_USER_KEY } from './config.js'; 
 import * as Utils from './utils.js'; 
-import { DataManager, LiveStoreData, StoreDB, SmartCacheManager } from './dataManager.js';
+import { DataManager, LiveStoreData, StoreDB } from './dataManager.js';
 import { UIManager } from './ui/uiManager.js'; 
 import { RenderManager } from './renderManager.js';
 import { Components, CalendarApp } from './components.js';
@@ -64,61 +64,62 @@ Object.assign(ClientSystem, {
     },
 
     enforceBiometricLock: async function() {
-    const lockScreen = document.getElementById('biometric-lock-screen');
-    const isBiometricRequired = DataManager.user?.biometricEnabled === true;
-    const savedRawId = localStorage.getItem(CACHE_KEYS.BIOMETRIC_KEY);
-    
-    if (!isBiometricRequired) return true; // إذا لم تكن مفعلة، نتجاوز القفل
-    
-    if (lockScreen) lockScreen.classList.add('active'); // إظهار شاشة القفل
-    
-    if (!window.PublicKeyCredential || !savedRawId) {
-        if (lockScreen) lockScreen.classList.remove('active');
-        this.showToast?.('مفتاح البصمة مفقود. يرجى تسجيل الدخول.', 'error');
-        if (DataManager.logout) DataManager.logout();
-        return false;
-    }
-    
-    try {
-        const retryBtn = document.getElementById('btn-biometric-retry');
-        if (retryBtn) {
-            retryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحقق...';
-            retryBtn.disabled = true;
+        const lockScreen = document.getElementById('biometric-lock-screen');
+        const isBiometricRequired = DataManager.user?.biometricEnabled === true;
+        const savedRawId = localStorage.getItem(CACHE_KEYS.BIOMETRIC_KEY);
+        
+        if (!isBiometricRequired) return true; // إذا لم تكن مفعلة، نتجاوز القفل
+        
+        if (lockScreen) lockScreen.classList.add('active'); // إظهار شاشة القفل
+        
+        if (!window.PublicKeyCredential || !savedRawId) {
+            if (lockScreen) lockScreen.classList.remove('active');
+            this.showToast?.('مفتاح البصمة مفقود. يرجى تسجيل الدخول.', 'error');
+            if (DataManager.logout) DataManager.logout();
+            return false;
         }
         
-        const challenge = new Uint8Array(32);
-        window.crypto.getRandomValues(challenge);
-        
-        // 🛡️ فك تشفير Base64 الصحيح
-        const binaryString = atob(savedRawId);
-        const rawIdBytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            rawIdBytes[i] = binaryString.charCodeAt(i);
-        }
-        
-        // طلب البصمة
-        await navigator.credentials.get({
-            publicKey: {
-                challenge,
-                timeout: 60000,
-                userVerification: "required",
-                allowCredentials: [{ type: "public-key", id: rawIdBytes }]
+        try {
+            const retryBtn = document.getElementById('btn-biometric-retry');
+            if (retryBtn) {
+                retryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحقق...';
+                retryBtn.disabled = true;
             }
-        });
-        
-        if (lockScreen) lockScreen.classList.remove('active');
-        return true;
-    } catch (error) {
-        const retryBtn = document.getElementById('btn-biometric-retry');
-        if (retryBtn) {
-            retryBtn.innerHTML = '<i class="fa-solid fa-fingerprint"></i> المحاولة مجدداً';
-            retryBtn.disabled = false;
-            // ربط زر إعادة المحاولة
-            retryBtn.onclick = () => this.enforceBiometricLock();
+            
+            const challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+            
+            // 🛡️ فك تشفير Base64 الصحيح
+            const binaryString = atob(savedRawId);
+            const rawIdBytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                rawIdBytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            // طلب البصمة
+            await navigator.credentials.get({
+                publicKey: {
+                    challenge,
+                    timeout: 60000,
+                    userVerification: "required",
+                    allowCredentials: [{ type: "public-key", id: rawIdBytes }]
+                }
+            });
+            
+            if (lockScreen) lockScreen.classList.remove('active');
+            return true;
+        } catch (error) {
+            const retryBtn = document.getElementById('btn-biometric-retry');
+            if (retryBtn) {
+                retryBtn.innerHTML = '<i class="fa-solid fa-fingerprint"></i> المحاولة مجدداً';
+                retryBtn.disabled = false;
+                // ربط زر إعادة المحاولة
+                retryBtn.onclick = () => this.enforceBiometricLock();
+            }
+            return false;
         }
-        return false;
-    }
-},
+    },
+
     initNetworkSensors: function() {
         if (this._networkSensorsBound) return;
         this._networkSensorsBound = true;
@@ -173,12 +174,7 @@ ClientSystem.initFirebaseListeners = function() {
                     localStorage.setItem('telecard_server_version', serverVersion);
                     const clearPromises = [];
                     
-                    if (typeof indexedDB !== 'undefined') {
-                        clearPromises.push(new Promise(res => {
-                            const req = indexedDB.deleteDatabase('TeleCardStoreDB');
-                            req.onsuccess = res; req.onerror = res; req.onblocked = res;
-                        }));
-                    }
+                    // 🛡️ التعديل 1: تمت إزالة حذف (TeleCardStoreDB) لتفادي تدمير كاش فايربيز الأصلي
                     
                     const keysToRemove = [];
                     for (let i = 0; i < localStorage.length; i++) {
@@ -232,17 +228,19 @@ ClientSystem.initFirebaseListeners = function() {
         this.userAuthListeners = [];
 
         if (firebaseUser) {
-            const uidStr = firebaseUser.uid;
-            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr); 
-            
-            if (this.listenToUserNotifications) {
-                const notifUnsub = this.listenToUserNotifications(() => requestAnimationFrame(() => { 
-                    if(this.processAndDisplayAlerts) this.processAndDisplayAlerts(); 
-                    if(this.updateNotifBadges) this.updateNotifBadges(); 
-                }));
-                if (notifUnsub) this.userAuthListeners.push(notifUnsub);
-            }
-
+    const uidStr = firebaseUser.uid;
+    localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
+    
+    // 🛡️ الإصلاح الجذري 1: توجيه الاستدعاء لـ DataManager ليتم فتح قناة الاتصال بالسيرفر
+    if (DataManager && typeof DataManager.listenToUserNotifications === 'function') {
+        const notifUnsub = DataManager.listenToUserNotifications(() => requestAnimationFrame(() => {
+            if (this.processAndDisplayAlerts) this.processAndDisplayAlerts();
+            if (this.updateNotifBadges) this.updateNotifBadges();
+            // 🛡️ تحديث القائمة المنسدلة للإشعارات فوراً عند وصول إشعار جديد
+            if (RenderManager && RenderManager.renderNotifCenterList) RenderManager.renderNotifCenterList();
+        }));
+        if (notifUnsub) this.userAuthListeners.push(notifUnsub);
+    }
             if (StoreDB.listenDoc) {
                 this.userAuthListeners.push(StoreDB.listenDoc(DB_KEYS.USERS, uidStr, (userData) => {
                     if (userData) {
@@ -283,7 +281,8 @@ ClientSystem.initFirebaseListeners = function() {
             }
             
             if (StoreDB.listenQuery) {
-                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', uidStr], 'time', 30, (data, lastDoc) => {
+                // 🛡️ التعديل 2: إصلاح الكرسور المتوافق مع Pagination
+                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', uidStr], 'time', 30, (data) => {
                     const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
                     _updateLiveArray(LiveStoreData.orders, normData); 
                     
@@ -292,7 +291,7 @@ ClientSystem.initFirebaseListeners = function() {
                         localStorage.setItem(`tc_orders_cache_${uidStr}`, JSON.stringify(minifiedOrders)); 
                     } catch(e){}
                     
-                    DataManager.cursors = DataManager.cursors || {}; DataManager.cursors.orders = data.length < 30 ? null : lastDoc;
+                    if (DataManager.cursors && DataManager.cursors.orders === undefined) DataManager.cursors.orders = null;
                     
                     requestAnimationFrame(() => { 
                         if (RenderManager.renderOrders && document.getElementById('orders-modal')?.classList.contains('active')) {
@@ -301,7 +300,7 @@ ClientSystem.initFirebaseListeners = function() {
                     });
                 }));
                 
-                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', uidStr], 'time', 30, (data, lastDoc) => {
+                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', uidStr], 'time', 30, (data) => {
                     const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
                     _updateLiveArray(LiveStoreData.deposits, normData); 
                     
@@ -310,7 +309,7 @@ ClientSystem.initFirebaseListeners = function() {
                         localStorage.setItem(`tc_deposits_cache_${uidStr}`, JSON.stringify(minifiedDeposits)); 
                     } catch(e){}
                     
-                    DataManager.cursors = DataManager.cursors || {}; DataManager.cursors.deposits = data.length < 30 ? null : lastDoc;
+                    if (DataManager.cursors && DataManager.cursors.deposits === undefined) DataManager.cursors.deposits = null;
                     
                     requestAnimationFrame(() => { 
                         const isWalletOpen = document.getElementById('wallet-modal')?.classList.contains('active');
@@ -346,12 +345,8 @@ ClientSystem.init = async function() {
             console.warn(`🔄 تم اكتشاف تحديث محلي للمتجر! جاري التحديث من ${savedVersion} إلى ${currentVersion}...`);
             
             const clearPromises = [];
-            if (typeof indexedDB !== 'undefined') {
-                clearPromises.push(new Promise(res => {
-                    const req = indexedDB.deleteDatabase('TeleCardStoreDB');
-                    req.onsuccess = res; req.onerror = res; req.onblocked = res;
-                }));
-            }
+            // 🛡️ التعديل 1 (مكرر): إزالة حذف (TeleCardStoreDB) في بداية الإقلاع
+            
             if ('serviceWorker' in navigator) { 
                 clearPromises.push(navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).catch(()=>[])); 
             }
@@ -397,22 +392,22 @@ ClientSystem.init = async function() {
         console.warn("⚠️ [Cache Hydration] تعذر جلب السجلات المؤقتة.");
     }
 
-try {
-    if (DataManager.loadPrefs) DataManager.loadPrefs();
-    if (DataManager.syncUser) await DataManager.syncUser().catch(() => {});
-    
-    // 🔒 [تفعيل قفل المتجر بالبصمة قبل إكمال التحميل]
-    if (DataManager.user && DataManager.user.biometricEnabled) {
-        const isUnlocked = await this.enforceBiometricLock();
-        if (!isUnlocked) {
-            // إذا فشل القفل، نزيل شاشة الانتظار لكي يرى العميل شاشة القفل السوداء
-            const splash = document.getElementById('global-splash-screen');
-            if (splash) splash.remove();
-            return; // ⛔ نوقف تشغيل باقي النظام حتى يضع بصمته!
+    try {
+        if (DataManager.loadPrefs) DataManager.loadPrefs();
+        if (DataManager.syncUser) await DataManager.syncUser().catch(() => {});
+        
+        // 🔒 [تفعيل قفل المتجر بالبصمة قبل إكمال التحميل]
+        if (DataManager.user && DataManager.user.biometricEnabled) {
+            const isUnlocked = await this.enforceBiometricLock();
+            if (!isUnlocked) {
+                // إذا فشل القفل، نزيل شاشة الانتظار لكي يرى العميل شاشة القفل السوداء
+                const splash = document.getElementById('global-splash-screen');
+                if (splash) splash.remove();
+                return; // ⛔ نوقف تشغيل باقي النظام حتى يضع بصمته!
+            }
         }
-    }
-    
-    if (this.applySavedTheme) this.applySavedTheme();
+        
+        if (this.applySavedTheme) this.applySavedTheme();
         DataManager.selectedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || LiveStoreData.settings?.defaultCurrency || 'USD';
         if(this.updateDisplayCurrencyUI) this.updateDisplayCurrencyUI(DataManager.selectedCurr);
         if(this.toggleHeroSection) this.toggleHeroSection(true);
@@ -489,18 +484,15 @@ try {
             if(Components.initBottomNavSync) Components.initBottomNavSync();
             if(this.checkKycCelebration) this.checkKycCelebration();
             
-            // 🛡️ الإصلاح الجذري (V16.9): تجميد ذكي مرن (Flexible Selective Lock)
-            // نقوم بقفل الدوال (Methods) لمنع الهاكر من استبدالها أو اختطافها،
-            // ونسمح للواجهة بإنشاء متغيرات حالة جديدة (مثل _clickState) بحرية تامة.
+            // 🛡️ الإصلاح الجذري (V16.9.1): تجميد ذكي مرن (Flexible Selective Lock)
             Object.keys(this).forEach(key => {
                 if (typeof this[key] === 'function') {
                     Object.defineProperty(this, key, {
-                        writable: false,      // يمنع استبدال الدالة (تأمين ضد الاختراق)
-                        configurable: false   // يمنع حذف الدالة
+                        writable: false,      
+                        configurable: false   
                     });
                 }
             });
-            // تم الاستغناء عن Object.preventExtensions(this) للسماح للمتغيرات الديناميكية
             
             console.log("🔒 تم الإغلاق الذكي المرن للنظام. الدوال محصنة، وواجهة المستخدم تعمل بكامل حريتها.");
         }, { timeout: 2000 });

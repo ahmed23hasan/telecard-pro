@@ -1,17 +1,17 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V17.3 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V18.1 💎 (The Oracle)
 // 🎯 الوظيفة: محاكاة أسعار السيرفر بدقة 100%، كشف الأرباح، وتشخيص الأخطاء بشفافية.
-// 🚀 التحديثات المعمارية (V17.3):
-// 1. Unified Math Engine: دمج خوارزمية (EPSILON + 8 Precision) لتتطابق أرباح الإدارة مع السيرفر تماماً.
-// 2. Honest Firewall: إلغاء (التسوية التلقائية). المحرك الآن يظهر الخسارة بالسالب ويحذر المدير بأن السيرفر سيرفض العملية.
-// 3. Fail-Fast Division: الحفاظ على جدار حماية القسمة على صفر لمنع الحسابات الوهمية.
+// 🚀 التحديثات (V18.1):
+// 1. Unified Math Engine: دمج خوارزمية السيرفر للتقريب لتتطابق الأرباح تماماً.
+// 2. Coupon Simulator: دمج دالة validateCoupon لتمكين الإدارة من فحص الكوبونات بدقة السيرفر.
+// 3. Honest Firewall: الحفاظ على ميزة كشف الخسارة (بالسالب) لتحذير المدير.
 // ============================================================================
 
 export const FinancialEngine = {
     CONFIG: Object.freeze({
         BASE_CURRENCY: 'USD',
-        PRECISION: 4,          // دقة العرض النهائية
-        INTERNAL_PRECISION: 8, // دقة الحسابات المعقدة الداخلية (نفس السيرفر)
+        PRECISION: 4,          
+        INTERNAL_PRECISION: 8, 
         MAX_UI_QTY: 10000,
         MIN_SALE_PRICE: 0.01 
     }),
@@ -102,16 +102,40 @@ export const FinancialEngine = {
         return this._preciseRound(this._internalMul(this._internalDiv(amt, fRate), tRate));
     },
 
+    // 🛠️ تم الإصلاح: توحيد دقة التقريب لـ 4 أصفار لتتطابق مع السيرفر والمتجر
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = this.convertViaUSD(amt, f, t, rates, c);
-        if(rnd === 'floor') return Math.floor(v * 100) / 100;
-        if(rnd === 'ceil')  return Math.ceil(v * 100) / 100;
-        return Number(v.toFixed(2));
+        if(rnd === 'floor') return Math.floor(v * 10000) / 10000;
+        if(rnd === 'ceil')  return Math.ceil(v * 10000) / 10000;
+        return Number(v.toFixed(4));
     },
 
     // ========================================================================
     // 💼 القسم الثاني: محاكاة التسعير والجدار الناري الصريح (Honest Simulator)
     // ========================================================================
+
+    // 🛡️ تم الإضافة: محاكي الكوبونات للإدارة
+    validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
+        if (!code) return { valid: false, msg: 'لم يتم إدخال كود' };
+        const cp = coupons.find(c => c.code.toUpperCase() === code.toUpperCase());
+        if (!cp) return { valid: false, msg: 'كوبون غير صحيح' };
+        if (cp.isActive === false) return { valid: false, msg: 'الكوبون غير مفعل' };
+        
+        const expiryMs = cp.expiryDate ? new Date(cp.expiryDate).getTime() : 0;
+        if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
+        
+        if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'استنفد الحد الأقصى للاستخدام' };
+        if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'غير متاح لهذا المستوى' };
+        if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'غير مخصص لهذا المنتج' };
+        if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.map(String).includes(String(user?.uid || user?.id))) return { valid: false, msg: 'غير مسموح لهذا المستخدم' };
+        
+        if (Number(cp.minOrder) > 0) {
+            const tempPrice = this.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer }, qty);
+            if (tempPrice.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى للطلب لم يتحقق` };
+        }
+        
+        return { valid: true, coupon: { code: cp.code, type: cp.type, value: cp.value, isActive: cp.isActive } };
+    },
 
     calculatePrice: function(params = {}) {
         const { product = {}, costPrice = 0, fixedPrice = 0, tier = null, offer = null, coupon = null, optIdx = null } = params;
@@ -179,13 +203,12 @@ export const FinancialEngine = {
             couponDiscount = coupon.type === 'percentage' ? this._internalMul(currentPrice, this._internalDiv(val, 100)) : Math.min(val, currentPrice);
         }
         
-        // تطبيق الحد الأدنى للسعر
         currentPrice = Math.max(this.CONFIG.MIN_SALE_PRICE, this._internalSub(currentPrice, couponDiscount));
 
         let isFirewallViolated = false;
         let rejectionReason = null;
 
-        // 🛑 الشفافية المطلقة: إذا نزل السعر عن التكلفة، لا تخفيها. أظهرها وافضحها ليتدخل المدير!
+        // 🛑 الشفافية المطلقة مستمرة: كشف كسر الجدار الناري للمدير
         if (cost > 0 && currentPrice < cost) {
             isFirewallViolated = true;
             rejectionReason = `السعر النهائي (${currentPrice}$) أقل من التكلفة (${cost}$). السيرفر سيرفض هذه العملية حمايةً للأرباح!`;
@@ -194,7 +217,6 @@ export const FinancialEngine = {
         const finalPrice = currentPrice;
         const totalDiscount = this._internalSub(originalPrice, finalPrice);
         
-        // الأرباح قد تظهر بالسالب إذا تم كسر الجدار الناري (لكي يعلم المدير مدى الكارثة)
         const netProfitUsd = this._internalSub(finalPrice, cost); 
         let marginPct = 0;
         if (finalPrice > 0) {

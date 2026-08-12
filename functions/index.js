@@ -211,20 +211,33 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
             let activeOffer = liveOffers.find(off => (!off.expiryDate || off.expiryDate > serverNow));
 
             let currentCouponData = null;
-            let couponRef = null;
-            if (couponCode) {
-                const couponQuerySnap = await transaction.get(db.collection('telecard_coupons').where('code', '==', couponCode).limit(1));
-                if (!couponQuerySnap.empty) {
-                    couponRef = couponQuerySnap.docs[0].ref;
-                    currentCouponData = couponQuerySnap.docs[0].data();
-                    if (currentCouponData.isActive === false) throw new HttpsError('failed-precondition', 'الكوبون غير فعال.');
-                    if (currentCouponData.maxUses && (currentCouponData.usedCount || 0) >= currentCouponData.maxUses) {
-                        throw new HttpsError('failed-precondition', 'تجاوز الكوبون الحد الأقصى للاستخدام.');
-                    }
-                }
-            }
-
-            let finalQty = Math.max(1, Math.min(SYSTEM_LIMITS.MAX_QTY_PER_ORDER, requestedQty));
+let couponRef = null;
+if (couponCode) {
+    const couponQuerySnap = await transaction.get(db.collection('telecard_coupons').where('code', '==', couponCode).limit(1));
+    if (couponQuerySnap.empty) {
+        throw new HttpsError('not-found', 'الكود الذي أدخلته غير صحيح.');
+    }
+    
+    couponRef = couponQuerySnap.docs[0].ref;
+    currentCouponData = couponQuerySnap.docs[0].data();
+    
+    // 🛡️ تفعيل الجدار الناري المركزي الذي بنيناه في V18.1 (لا مجال لاختراق الكوبونات)
+    const validationResult = FinancialEngine.validateCoupon(
+        couponCode,
+        product,
+        finalQty, // الكمية المطلوبة
+        optIdx,
+        userData,
+        activeTierObj,
+        [currentCouponData], // نمرر الكوبون كمصفوفة ليتوافق مع الدالة
+        serverNow,
+        activeOffer
+    );
+    
+    if (!validationResult.valid) {
+        throw new HttpsError('failed-precondition', validationResult.msg); // سيتم رفض الكوبون برسالة توضيحية للعميل
+    }
+}            let finalQty = Math.max(1, Math.min(SYSTEM_LIMITS.MAX_QTY_PER_ORDER, requestedQty));
             if (product.vaultPoolId) {
                 finalQty = Math.min(finalQty, SYSTEM_LIMITS.MAX_VAULT_QTY_PER_ORDER);
             }

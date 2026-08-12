@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud & Server Version) - النسخة الماسية V16.5 👑 (Iron Bank)
-// 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، التطابق التام مع الواجهة
-// 🚀 التحديثات المعمارية (V16.5):
-// 1. Math-Safe Rounding: حل ثغرة Scientific Notation (NaN) للأرقام الصغيرة جداً.
-// 2. Absolute Zero-Rate Fix: منع اختراق "1:1" في العملات.
-// 3. Price Floor Sync: مطابقة إجبار الحد الأدنى للسعر (0.01) مع الواجهة الأمامية لمنع الرفض الوهمي للطلبات.
-// 4. Loss-Prevention Firewall: السيرفر يرفض صراحة أي طلب ينزل سعره عن سعر التكلفة الفعلي.
+// 💰 المحرك المالي المركزي (Cloud & Server Version) - النسخة الماسية V18.1 👑 (Iron Bank)
+// 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، تحويل العملات، وتوثيق الكوبونات
+// 🚀 التحديثات (V18.1):
+// 1. الإبقاء على نظام تحويل العملات المعقد (normalizeRates & convertViaUSD).
+// 2. Math-Safe Rounding متطابق تماماً مع الواجهات الأمامية.
+// 3. إضافة جدار حماية (validateCoupon) لمنع اختراق الكوبونات من المتجر.
+// 4. Loss-Prevention Firewall الصارم لمنع البيع بخسارة.
 // ============================================================================
 
 const FinancialEngineDef = {
@@ -15,7 +15,7 @@ const FinancialEngineDef = {
         MAX_PRICE_LIMIT: 100000,
         PRECISION: 4,          
         INTERNAL_PRECISION: 8, 
-        MIN_SALE_PRICE: 0.01   // الحد الأدنى الإجباري للسعر
+        MIN_SALE_PRICE: 0.01   
     }),
 
     _preciseRound: function(num, decimals = FinancialEngineDef.CONFIG.PRECISION) {
@@ -30,7 +30,6 @@ const FinancialEngineDef = {
     _internalMul: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) * (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalDiv: function(a, b) {
         const numB = Number(b) || 0;
-        // السيرفر يرفض القسمة على صفر بشكل صريح (عكس الواجهة التي تتجاهله بصمت)
         if (numB === 0) throw new Error("[SECURITY - Finance Guard]: Division by zero detected! Transaction aborted.");
         return FinancialEngineDef._preciseRound((Number(a) || 0) / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
     },
@@ -111,6 +110,29 @@ const FinancialEngineDef = {
         const finalAmount = FinancialEngineDef._internalMul(usdAmount, tRate);
         
         return FinancialEngineDef._preciseRound(finalAmount);
+    },
+
+    // 🛡️ الجدار الناري الجديد (لمنع تلاعب الواجهة بالكوبونات)
+    validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
+        if (!code) return { valid: false, msg: 'No code provided' };
+        const cp = coupons.find(c => c.code.toUpperCase() === code.toUpperCase());
+        if (!cp) return { valid: false, msg: 'Invalid coupon code' };
+        if (cp.isActive === false) return { valid: false, msg: 'Coupon is inactive' };
+        
+        const expiryMs = cp.expiryDate ? new Date(cp.expiryDate).getTime() : 0;
+        if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'Coupon expired' };
+        
+        if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'Coupon usage limit reached' };
+        if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'Invalid tier for coupon' };
+        if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'Coupon not for this product' };
+        if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.map(String).includes(String(user?.uid || user?.id))) return { valid: false, msg: 'Not allowed for this user' };
+        
+        if (Number(cp.minOrder) > 0) {
+            const tempPrice = FinancialEngineDef.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer }, qty);
+            if (tempPrice.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `Minimum order amount not met` };
+        }
+        
+        return { valid: true, coupon: { code: cp.code, type: cp.type, value: cp.value, isActive: cp.isActive } };
     },
     
     calculatePrice: function(rawParams) {
@@ -197,13 +219,11 @@ const FinancialEngineDef = {
             }
         }
         
-        // 🛡️ التحديث 3: مطابقة السعر مع الواجهة الأمامية ليقف عند الحد الأدنى
         currentPrice = Math.max(
             FinancialEngineDef.CONFIG.MIN_SALE_PRICE, 
             FinancialEngineDef._internalSub(currentPrice, couponDiscount)
         );
 
-        // 🛑 التحديث 4: الجدار الناري لحماية التاجر (يمنع البيع بخسارة حتى لو وصل السعر للحد الأدنى المسموح به)
         if (cost > 0 && currentPrice < cost) {
             throw new Error(`[FIREWALL_REJECT] Transaction blocked: Selling price (${currentPrice}) fell below cost price (${cost}).`);
         }
@@ -248,5 +268,4 @@ const FinancialEngineDef = {
     }
 };
 
-// التصدير الخاص ببيئة السيرفر (Node.js) 
 module.exports = Object.freeze(FinancialEngineDef);

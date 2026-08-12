@@ -624,7 +624,7 @@ export const UIAuth = {
         }
     },
 
-    start2FASetup: async function() {
+start2FASetup: async function() {
         const sys = getSys();
         this._clear2FAState();
 
@@ -665,8 +665,15 @@ export const UIAuth = {
                     sys.toggleLoader?.(true, 'جاري تحميل نظام التشفير المرئي...');
                     await new Promise((resolve, reject) => {
                         if (document.getElementById('qrcode-lib-script')) {
+                            // 🛡️ الإصلاح: إضافة عداد لإيقاف الدوران اللانهائي بعد 5 ثواني
+                            let attempts = 0; 
                             const checkInterval = setInterval(() => {
-                                if (typeof window.QRCode !== 'undefined') { clearInterval(checkInterval); resolve(); }
+                                attempts++;
+                                if (typeof window.QRCode !== 'undefined') { 
+                                    clearInterval(checkInterval); resolve(); 
+                                } else if (attempts > 50) { 
+                                    clearInterval(checkInterval); reject(new Error("Timeout loading QR library")); 
+                                }
                             }, 100);
                         } else {
                             const script = document.createElement('script');
@@ -721,7 +728,6 @@ export const UIAuth = {
             this._clear2FAState();
         }
     },
-
     verifyAndEnable2FA: async function() {
         if (!this._pendingTfaSecret) return;
 
@@ -1051,61 +1057,57 @@ export const UIAuth = {
     },
 
     handleKycImage: async function(input, previewId) {
-        if (this._processingImgs.has(previewId)) return;
-        
-        const file = input.files && input.files[0];
-        
-        // 🛡️ الإصلاح 2: عدم حذف الصورة السابقة إذا ألغى المستخدم النافذة المنبثقة
-        if (!file && this.kycFiles && this.kycFiles[previewId]) {
-            return; 
-        }
-        
-        const parentBox = input.closest('.kyc-upload-box');
-        const previewImg = document.getElementById(previewId);
-        
-        this.kycFiles = this.kycFiles || {};
-        
-        if (!file || !file.type.startsWith('image/')) {
-            getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
-            input.value = '';
+    if (this._processingImgs.has(previewId)) return;
+    
+    const file = input.files && input.files[0];
+    this.kycFiles = this.kycFiles || {};
+    const hasExisting = !!this.kycFiles[previewId];
+    
+    if (!file) return; // العميل تراجع عن اختيار ملف، نترك الصورة القديمة كما هي
+    
+    const parentBox = input.closest('.kyc-upload-box');
+    const previewImg = document.getElementById(previewId);
+    
+    if (!file.type.startsWith('image/')) {
+        getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
+        input.value = '';
+        // 🛡️ الإصلاح: لا نحذف الصورة القديمة إذا كانت موجودة
+        if (!hasExisting) {
             if (previewImg) previewImg.src = '';
             if (parentBox) parentBox.classList.remove('has-img');
-            delete this.kycFiles[previewId];
-            return;
         }
-        
-        if (file.size > 5 * 1024 * 1024) {
-            getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
-            input.value = '';
-            delete this.kycFiles[previewId];
-            return;
-        }
-        
-        this._processingImgs.add(previewId);
-        
-        try {
-            getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
-            const compressed = await this._compressImage(file, 1200);
-            
-            this.kycFiles[previewId] = compressed.file;
-            
-            if (previewImg) {
-                if (previewImg.src && previewImg.src.startsWith('blob:')) {
-                    URL.revokeObjectURL(previewImg.src);
-                }
-                previewImg.src = compressed.previewUrl;
-            }
-            if (parentBox) parentBox.classList.add('has-img');
-        } catch (e) {
-            getSys().showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
-            input.value = '';
-        } finally {
-            this._processingImgs.delete(previewId);
-            if (this._processingImgs.size === 0) getSys().toggleLoader?.(false);
-        }
-    },
+        return;
+    }
     
-    submitKycData: async function() {
+    if (file.size > 5 * 1024 * 1024) {
+        getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
+        input.value = '';
+        return; // 🛡️ الإصلاح: نحتفظ بالصورة القديمة ولا نحذفها
+    }
+    
+    this._processingImgs.add(previewId);
+    
+    try {
+        getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
+        const compressed = await this._compressImage(file, 1200);
+        
+        this.kycFiles[previewId] = compressed.file;
+        
+        if (previewImg) {
+            if (previewImg.src && previewImg.src.startsWith('blob:')) {
+                URL.revokeObjectURL(previewImg.src);
+            }
+            previewImg.src = compressed.previewUrl;
+        }
+        if (parentBox) parentBox.classList.add('has-img');
+    } catch (e) {
+        getSys().showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
+        input.value = '';
+    } finally {
+        this._processingImgs.delete(previewId);
+        if (this._processingImgs.size === 0) getSys().toggleLoader?.(false);
+    }
+},    submitKycData: async function() {
         if (this._isSubmittingKyc) return;
         
         const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';

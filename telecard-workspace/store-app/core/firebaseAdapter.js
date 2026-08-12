@@ -11,7 +11,7 @@
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
     initializeFirestore, persistentLocalCache, persistentMultipleTabManager, 
-    collection, doc, getDoc, getDocs, getDocFromCache, 
+    collection, doc, getDoc, getDocs, getDocFromCache, getDocsFromCache, 
     setDoc, addDoc, deleteDoc, onSnapshot, 
     query, where, orderBy, limit, startAfter 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -181,7 +181,56 @@ export const FirebaseAdapter = {
             return null;
         }
     },
+     // ========================================================================
+// ⚡ دوال التوفير العالي (Cost Optimization & Smart Caching)
+// ========================================================================
+
+// 1. جلب القوائم من الكاش أولاً (ممتاز للكتالوج والمنتجات التي لا تتغير كل ثانية)
+async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limitCount = 50) {
+        try {
+            let constraints = [];
+            filtersArray.forEach(f => constraints.push(where(f[0], f[1], f[2])));
+            if (orderField) constraints.push(orderBy(orderField, "desc"));
+            if (limitCount) constraints.push(limit(limitCount));
+            
+            const q = query(collection(db, collectionName), ...constraints);
+            
+            // محاولة الجلب من الذاكرة المحلية (بدون أي تكلفة مادية 0$)
+            try {
+                // استيراد getDocsFromCache يجب أن يُضاف في أعلى الملف
+                const { getDocsFromCache } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+                const cachedSnapshot = await getDocsFromCache(q);
+                
+                if (!cachedSnapshot.empty) {
+                    console.log(`⚡ [Cache Hit] تم جلب بيانات (${collectionName}) من الذاكرة المحلية (مجانًا).`);
+                    return cachedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: true }));
+                }
+            } catch (cacheError) {
+                // الكاش فارغ أو انتهت صلاحيته، لا مشكلة، سنكمل للسيرفر
+            }
+            
+            // إذا كان الكاش فارغاً، نجلب من السيرفر
+            const serverSnapshot = await this._withTimeout(getDocs(q), 10000, `queryCacheFirst -> ${collectionName}`);
+            return serverSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: false }));
+            
+        } catch (error) {
+            console.error(`[DB Error] queryCacheFirst (${collectionName}):`, error.message);
+            return [];
+        }
+    },
+    
+    // 2. تحديث قائمة الكاش بالخلفية بصمت (Stale-While-Revalidate)
+    // هذه الدالة تعطي العميل سرعة الكاش فوراً، ثم تحدث البيانات في الخلفية بدون تجميد الشاشة
+    listenQueryWithCache(collectionName, filtersArray, orderField, limitCount, callback) {
+        // أولاً: نرسل للعميل ما هو موجود في الكاش فوراً لكي لا يرى شاشة تحميل
+        this.queryCacheFirst(collectionName, filtersArray, orderField, limitCount)
+            .then(cachedData => {
+                if (cachedData && cachedData.length > 0) callback(cachedData);
+            });
         
+        // ثانياً: نفتح Listener صامت يجلب التحديثات الجديدة من السيرفر
+        return this.listenQuery(collectionName, filtersArray, orderField, limitCount, callback);
+    },   
     async set(collectionName, docId, data, options = { merge: true }) {
         try {
             const safeId = this._sanitizeDocId(docId);

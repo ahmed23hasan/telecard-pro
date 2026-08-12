@@ -1,15 +1,17 @@
 // ============================================================================
-// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة الماسية V16.2 🛡️
+// 🎨 الموزع المركزي للواجهات (uiManager.js) - النسخة الماسية V16.3 🛡️
 // 🎯 الوظيفة: تجميع وحدات الواجهة المنفصلة وتصديرها ككائن واحد للنظام
-// 🚀 التحديثات المعمارية (V16.2):
-// 1. Lifecycle Sync: إضافة `isReady` ليتناغم مع DataManager ويمنع تعليق النظام.
-// 2. Strict DOM Safety: منع تشويه الـ HTML بتأجيل رسم اللودر حتى بناء الـ document.body.
-// 3. Object Sealing: إغلاق كائن الواجهة (Object.seal) لمنع الاختراق أو العبث الخارجي.
+// 🚀 التحديثات المعمارية (V16.3):
+// 1. Full Facade Integration: دمج Components لتوحيد السياق وإصلاح أحداث الكوبونات.
+// 2. Lifecycle Sync: إضافة `isReady` ليتناغم مع DataManager ويمنع تعليق النظام.
+// 3. Strict DOM Safety: منع تشويه الـ HTML بتأجيل رسم اللودر حتى بناء الـ document.body.
+// 4. Object Sealing: إغلاق كائن الواجهة لمنع الاختراق أو العبث الخارجي.
 // ============================================================================
 
 import { UICore } from './uiCore.js';
 import { UIFinance } from './uiFinance.js';
 import { UIAuth } from './uiAuth.js';
+import { Components } from '../components.js'; // 👈 استيراد المكونات التفاعلية بنجاح
 
 let _loaderActiveRequests = 0;
 
@@ -45,6 +47,7 @@ const verifyModule = (name, mod) => {
 verifyModule('UICore', UICore);
 verifyModule('UIFinance', UIFinance);
 verifyModule('UIAuth', UIAuth);
+verifyModule('Components', Components); // 👈 التحقق من سلامة المكونات التفاعلية
 
 // 🛡️ المحرك الماسي لدمج الوحدات
 const createSafeFacade = (baseObject, ...modules) => {
@@ -79,7 +82,8 @@ const FacadeInstance = createSafeFacade(
     Object.create(null), // 👈 الدرع المطلق ضد الـ Prototype Pollution
     UICore,
     UIFinance,
-    UIAuth
+    UIAuth,
+    Components // 👈 دمج المكونات لتصبح جزءاً من الكيان الموحد (Single Source of Truth)
 );
 
 // ⚙️ تعريف دوال اللودر وحالة النظام بأمان

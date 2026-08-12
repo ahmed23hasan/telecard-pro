@@ -1125,19 +1125,7 @@ export const UICore = {
     },    copyOrderInput: function(text, element) { this.copyToClipboard(text, element, 'default'); },
     copySmartLine: function(element, text) { this.copyToClipboard(text, element, 'smartline'); },
 
-    pasteText: async function() {
-        const couponInput = document.getElementById('couponCode');
-        if (!couponInput) return;
-        if (!navigator.clipboard) { this.showToast('المتصفح يحظر اللصق التلقائي.', 'warning'); return; }
-        try {
-            const text = await navigator.clipboard.readText();
-            if (text && text.trim() !== '') {
-                couponInput.value = text.trim().toUpperCase();
-                if (typeof this.checkInputState === 'function') this.checkInputState(); else if (typeof getSys().checkInputState === 'function') getSys().checkInputState();
-                this.showToast('تم لصق الكوبون بنجاح', 'success'); getSys().sfx?.('success');
-            } else this.showToast('الحافظة فارغة!', 'warning');
-        } catch (err) { this.showToast('يرجى السماح باللصق التلقائي من إعدادات المتصفح', 'warning'); }
-    },    
+    
     
     showAdminDirectMessage: function(msgText) {
         if (document.getElementById('admin-direct-msg-popup')) return;
@@ -1153,33 +1141,41 @@ export const UICore = {
     },
 
     processAndDisplayAlerts: function() {
-        if (!DataManager.getUnreadAlerts) return;
-        const unreadAlerts = DataManager.getUnreadAlerts();
-        if (!unreadAlerts || unreadAlerts.length === 0) return;
+    if (!DataManager.getUnreadAlerts) return;
+    const unreadAlerts = DataManager.getUnreadAlerts();
+    if (!unreadAlerts || unreadAlerts.length === 0) return;
+    
+    let shownToasts = [];
+    try { shownToasts = JSON.parse(localStorage.getItem('telecard_shown_toasts') || "[]"); } catch (e) {}
+    
+    const popups = unreadAlerts.filter(m => (m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
+    const toasts = unreadAlerts.filter(m => !(m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
+    
+    toasts.forEach(msg => {
+        // 🛡️ الإصلاح الجذري 2: تحليل ذكي لمحتوى إشعار السيرفر لتحديد لونه (نجاح/خطأ/تنبيه)
+        let msgType = 'info';
+        const fullText = `${msg.title || ''} ${msg.message || ''}`.toLowerCase();
+        if (/نجاح|مكتمل|مقبول|جاهز/.test(fullText)) msgType = 'success';
+        else if (/مرفوض|خطأ|فشل|مسترجع/.test(fullText)) msgType = 'error';
+        else if (/مراجعة|قيد|تنبيه/.test(fullText)) msgType = 'warning';
         
-        let shownToasts = [];
-        try { shownToasts = JSON.parse(localStorage.getItem('telecard_shown_toasts') || "[]"); } catch (e) {}
+        // دمج العنوان مع الرسالة ليكون الإشعار واضحاً
+        const displayText = msg.title ? `${msg.title} - ${msg.message}` : msg.message;
+        this.showToast(displayText, msgType);
         
-        const popups = unreadAlerts.filter(m => (m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
-        const toasts = unreadAlerts.filter(m => !(m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
-
-        toasts.forEach(msg => {
-            this.showToast(msg.message, 'info');
-            shownToasts.push(String(msg.id));
-        });
-
-        if (popups.length > 0) {
-            popups.forEach(p => shownToasts.push(String(p.id)));
-            this.showAdvancedPopup(popups[0], popups.slice(1));
-        }
-
-        if (shownToasts.length > 50) shownToasts = shownToasts.slice(-50);
-        localStorage.setItem('telecard_shown_toasts', JSON.stringify(shownToasts));
-        
-        this.updateNotifBadges(); 
-    },
-
-    showAdvancedPopup: function(alertObj, remainingQueue) {
+        shownToasts.push(String(msg.id));
+    });
+    
+    if (popups.length > 0) {
+        popups.forEach(p => shownToasts.push(String(p.id)));
+        this.showAdvancedPopup(popups[0], popups.slice(1));
+    }
+    
+    if (shownToasts.length > 50) shownToasts = shownToasts.slice(-50);
+    localStorage.setItem('telecard_shown_toasts', JSON.stringify(shownToasts));
+    
+    this.updateNotifBadges();
+},    showAdvancedPopup: function(alertObj, remainingQueue) {
         const existingModal = document.getElementById('advanced-alert-modal');
         if (existingModal) existingModal.remove();
         
@@ -1263,15 +1259,29 @@ export const UICore = {
 
     showToast: function(msg, type = 'info') {
         if (type === 'info') {
-            if (/فشل|خطأ|عذراً|كاف|نفد/.test(msg)) type = 'error';
-            else if (/مراجعة|انتظار|قيد/.test(msg)) type = 'warning'; 
+            if (/فشل|خطأ|عذراً|كاف|نفد|غير صالح/.test(msg)) type = 'error';
+            else if (/مراجعة|انتظار|قيد|يرجى/.test(msg)) type = 'warning'; 
             else if (/إزالة|حذف|إلغاء/.test(msg)) type = 'info'; 
             else if (/تم|نجاح|شكراً/.test(msg)) type = 'success';
         }
 
+        // 🛡️ الإصلاح الجذري 2: حقن أنيميشن قسري لضمان ظهور الإشعار مهما كانت حالة الـ CSS
+        if (!document.getElementById('telecard-toast-styles')) {
+            const style = document.createElement('style');
+            style.id = 'telecard-toast-styles';
+            style.innerHTML = `
+                @keyframes slideInDownDynamic { 0% { transform: translateY(-100%) scale(0.9); opacity: 0; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+                @keyframes toastOutTopDynamic { 0% { transform: translateY(0) scale(1); opacity: 1; } 100% { transform: translateY(-100%) scale(0.9); opacity: 0; } }
+            `;
+            document.head.appendChild(style);
+        }
+
         let container = document.querySelector('.custom-toast-container');
         if (!container) {
-            container = document.createElement('div'); container.className = 'custom-toast-container'; document.body.appendChild(container);
+            container = document.createElement('div'); 
+            container.className = 'custom-toast-container'; 
+            container.style.cssText = 'position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 999999999; display: flex; flex-direction: column; gap: 12px; pointer-events: none; width: 90%; max-width: 420px; align-items: center;';
+            document.body.appendChild(container);
         } else {
             const lastToast = container.lastElementChild;
             if (lastToast && lastToast.querySelector('.toast-msg')?.innerText === Utils.escapeHtml(msg)) {
@@ -1283,24 +1293,27 @@ export const UICore = {
         const toast = document.createElement('div');
         toast.className = `custom-toast toast-${type}`;
         
-        let iconClass = 'fa-circle-info', titleText = 'معلومة';
-        if (type === 'success') { iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
-        if (type === 'error') { iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
-        if (type === 'warning') { iconClass = 'triangle-exclamation'; titleText = 'تنبيه'; } 
+        // 🛡️ تصميم فولاذي مدمج 
+        let bgColor = '#1e293b', borderColor = '#3b82f6', iconClass = 'fa-circle-info', titleText = 'معلومة';
+        if (type === 'success') { bgColor = '#064e3b'; borderColor = '#10b981'; iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
+        if (type === 'error') { bgColor = '#7f1d1d'; borderColor = '#ef4444'; iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
+        if (type === 'warning') { bgColor = '#78350f'; borderColor = '#f59e0b'; iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } 
 
-        toast.innerHTML = `<i class="fa-solid ${iconClass}"></i><div class="toast-content"><span class="toast-title">${titleText}</span><span class="toast-msg">${Utils.escapeHtml(msg)}</span></div>`;
+        toast.style.cssText = `
+            background: ${bgColor}; color: #fff; padding: 14px 18px; border-radius: 12px; display: flex; align-items: center; gap: 14px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-right: 4px solid ${borderColor}; animation: slideInDownDynamic 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; pointer-events: auto; direction: rtl; font-family: inherit;
+        `;
+
+        toast.innerHTML = `<i class="fa-solid ${iconClass}" style="font-size: 24px; color: ${borderColor};"></i><div class="toast-content" style="display:flex; flex-direction:column; gap:4px;"><span class="toast-title" style="font-weight:900; font-size:14px; color:${borderColor};">${titleText}</span><span class="toast-msg" style="font-size:13px; font-weight:600; line-height:1.5;">${Utils.escapeHtml(msg)}</span></div>`;
         container.appendChild(toast);
         this.sfx?.(type === 'error' ? 'error' : 'success');
         
         setTimeout(() => {
             if(toast.isConnected) {
-                toast.style.animation = 'toastOutTop 0.4s forwards';
+                toast.style.animation = 'toastOutTopDynamic 0.4s forwards';
                 setTimeout(() => { if(toast.isConnected) toast.remove(); }, 400);
             }
-        }, 3000);
-    },
-
-    sfx: function(type) {
+        }, 4000);
+    },    sfx: function(type) {
         if(DataManager.prefs?.sound === false) return; 
         if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
 
@@ -1792,38 +1805,40 @@ export const UICore = {
     },
 
     checkSystemStatus: function() {
-        const sys = LiveStoreData.system || {};
-        
-        if (sys.maint === true || sys.maintenance === true) {
-            const msg = sys.msg || sys.maintenanceMsg || 'نحن نجري بعض التحسينات حالياً.';
-            let dateHtml = '';
-            if(sys.date) {
-                const d = new Date(Number(sys.date)).toLocaleString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const sys = LiveStoreData.system || {};
+    
+    if (sys.maint === true || sys.maintenance === true) {
+        const msg = sys.msg || sys.maintenanceMsg || 'نحن نجري بعض التحسينات حالياً.';
+        let dateHtml = '';
+        if (sys.date) {
+            // 🛡️ الإصلاح الجذري: استخدام parseSafeTime الموحدة لمنع ظهور (Invalid Date) أو (NaN)
+            const safeTimeMs = Utils.parseSafeTime(sys.date);
+            if (safeTimeMs > 0) {
+                const d = new Date(safeTimeMs).toLocaleString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                 dateHtml = `<div class="m-date"><i class="fa-regular fa-clock"></i> وقت العودة المتوقع: <span dir="ltr">${d}</span></div>`;
             }
-            
-            document.body.innerHTML = `<div class="maintenance-screen"><div class="m-glass-box"><i class="fa-solid fa-person-digging m-icon"></i><h1 class="m-title">المتجر في وضع الصيانة</h1><p class="m-desc">${Utils.escapeHtml(msg)}</p>${dateHtml}<button id="maint-refresh-btn" class="btn btn-primary mt-20">تحديث الصفحة</button></div></div>`;
-            document.getElementById('maint-refresh-btn').addEventListener('click', () => location.reload());
-            return true;
         }
-
-        if (sys.freeze === true) {
-            let freezeBanner = document.getElementById('system-freeze-banner');
-            if (!freezeBanner) {
-                freezeBanner = document.createElement('div');
-                freezeBanner.id = 'system-freeze-banner';
-                freezeBanner.className = 'freeze-notice-bar'; 
-                freezeBanner.innerHTML = `<i class="fa-solid fa-snowflake fa-spin-slow"></i> <span>${Utils.escapeHtml(sys.freezeMsg || 'العمليات المالية متوقفة مؤقتاً للتحديث.')}</span>`;
-                document.body.prepend(freezeBanner);
-            }
-        } else {
-            document.getElementById('system-freeze-banner')?.remove();
+        
+        document.body.innerHTML = `<div class="maintenance-screen"><div class="m-glass-box"><i class="fa-solid fa-person-digging m-icon"></i><h1 class="m-title">المتجر في وضع الصيانة</h1><p class="m-desc">${Utils.escapeHtml(msg)}</p>${dateHtml}<button id="maint-refresh-btn" class="btn btn-primary mt-20">تحديث الصفحة</button></div></div>`;
+        document.getElementById('maint-refresh-btn').addEventListener('click', () => location.reload());
+        return true;
+    }
+    
+    if (sys.freeze === true) {
+        let freezeBanner = document.getElementById('system-freeze-banner');
+        if (!freezeBanner) {
+            freezeBanner = document.createElement('div');
+            freezeBanner.id = 'system-freeze-banner';
+            freezeBanner.className = 'freeze-notice-bar';
+            freezeBanner.innerHTML = `<i class="fa-solid fa-snowflake fa-spin-slow"></i> <span>${Utils.escapeHtml(sys.freezeMsg || 'العمليات المالية متوقفة مؤقتاً للتحديث.')}</span>`;
+            document.body.prepend(freezeBanner);
         }
-
-        return false;
-    },
-
-    checkBrowserCompatibility: function() {
+    } else {
+        document.getElementById('system-freeze-banner')?.remove();
+    }
+    
+    return false;
+},    checkBrowserCompatibility: function() {
         const features = { 'localStorage': typeof(Storage) !== "undefined", 'CSS Grid': CSS.supports('display', 'grid'), 'CSS Flexbox': CSS.supports('display', 'flex') };
         let compatibleFeatures = 0, totalFeatures = 0;
         for (const [feature, supported] of Object.entries(features)) { totalFeatures++; if (supported) compatibleFeatures++; }

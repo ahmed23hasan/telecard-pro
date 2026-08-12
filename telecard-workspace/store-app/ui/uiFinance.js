@@ -349,6 +349,9 @@ _toggleButtonLoader: function(btn, isLoading) {
         if (!DataManager.currentProd || typeof DataManager.getPricingLocal !== 'function') return;
         
         window.requestAnimationFrame(() => {
+            // 🛡️ الإصلاح: إعادة التحقق هنا لمنع الانهيار إذا أغلقت النافذة بسرعة وتفرغت الذاكرة
+            if (!DataManager.currentProd) return; 
+            
             let qty = 1; let optIdx = null;
 
             if (DataManager.currentProd.type === 'counter') qty = Math.max(1, Utils.parseSafeNumber(document.getElementById('pm-qty')?.value)) || 1; 
@@ -375,8 +378,7 @@ _toggleButtonLoader: function(btn, isLoading) {
                 if (currPriceEl) currPriceEl.innerHTML = beautifulTotalHtml; 
             }
         });
-    },
-handlePurchaseSubmit: async function() { 
+    },handlePurchaseSubmit: async function() { 
         if (this._isProcessingTx || !DataManager.currentProd || !this._validateKycAndSystem('purchase')) return;
         
         const inp1El = document.getElementById('pm-inp-1'), inp2El = document.getElementById('pm-inp-2'), qtyEl = document.getElementById('simple-qty-val');
