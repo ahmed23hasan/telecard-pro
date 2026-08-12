@@ -1,10 +1,10 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة المطلقة V17.1 👑
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة المطلقة V17.2 👑
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديثات المعمارية (V17.1):
-// 1. Solid Physical Shield: قفل الشاشة إجبارياً بدرع زجاجي لمنع هروب المستخدم أو النقر المزدوج.
-// 2. Safe Button Restoration: حل مشكلة اللودر العالق عبر استخدام Object Properties بدلاً من DOM Attributes.
-// 3. CSS Conflict Resolution: إزالة كلاس is-loading لمنع ظهور اللودر الأبيض المزدوج.
+// 🚀 التحديثات المعمارية (V17.2):
+// 1. Unified UI Lock (DRY): دمج حقن الدرع الشفاف وإزالته في دوال مركزية للتحكم بالواجهة.
+// 2. Kill Switch Timer: نظام طوارئ لفك قفل الشاشة إجبارياً بعد 60 ثانية لتجنب التجميد الأبدي.
+// 3. Clean Receipt Preview: مسح المعاينة البصرية السابقة عند اختيار ملف غير مدعوم.
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -25,6 +25,7 @@ export const UIFinance = {
     pendingReceiptFile: null,
     _isProcessingTx: false, 
     _watchdogTimer: null,
+    _killSwitchTimer: null,
     _offlineHandler: null,
     _currentImageJobId: null, 
     _amountTypingTimer: null,
@@ -34,75 +35,86 @@ export const UIFinance = {
         return Utils.parseSafeNumber(val);
     },
     
-    // 🛡️ الحل الجذري 1: منع تداخل الـ CSS واستعادة الزر بأمان تام
-    // 🛡️ الحل الجذري النهائي: دالة اللودر الفورية والمحصنة
-_toggleButtonLoader: function(btn, isLoading) {
-    if (!btn) return;
-    
-    try {
-        if (isLoading) {
-            // 1. حماية الذاكرة: لا تحفظ شكل الزر إذا كان يحتوي أصلاً على لودر!
-            if (btn._originalHtml === undefined && !btn.innerHTML.includes('fa-spinner')) {
-                btn._originalHtml = btn.innerHTML;
-            }
-            
-            // 2. إيقاف الزر فوراً وإزالة الكلاس المتعارض
-            btn.disabled = true;
-            btn.classList.remove('is-loading');
-            
-            // 3. تحديد نوع الزر وتوحيد العبارة
-            const contentSpan = btn.querySelector('.btn-content');
-            const spinnerSpan = btn.querySelector('.btn-spinner');
-            
-            if (contentSpan && spinnerSpan) {
-                btn._isComplex = true;
-                contentSpan.style.display = 'none';
-                spinnerSpan.style.display = 'inline-block';
-            } else {
-                const currentWidth = btn.offsetWidth;
-                if (currentWidth > 0) btn.style.width = `${currentWidth}px`;
-                // 💡 توحيد العبارة هنا لراحة عين المستخدم
-                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="margin-inline-end: 6px;"></i> جاري المعالجة...`;
-            }
-            
-            btn.classList.add('tx-processing-safe');
-            
-        } else {
-            // 4. استعادة الزر فوراً (Synchronous Restore)
-            btn.disabled = false;
-            btn.classList.remove('tx-processing-safe', 'is-loading');
-            
-            if (btn._isComplex) {
+    _toggleButtonLoader: function(btn, isLoading) {
+        if (!btn) return;
+        
+        try {
+            if (isLoading) {
+                if (btn._originalHtml === undefined && !btn.innerHTML.includes('fa-spinner')) {
+                    btn._originalHtml = btn.innerHTML;
+                }
+                
+                btn.disabled = true;
+                btn.classList.remove('is-loading');
+                
                 const contentSpan = btn.querySelector('.btn-content');
                 const spinnerSpan = btn.querySelector('.btn-spinner');
-                if (contentSpan) contentSpan.style.display = '';
-                if (spinnerSpan) spinnerSpan.style.display = 'none';
-            } else if (btn._originalHtml !== undefined) {
-                // استعادة النص الأصلي
-                btn.innerHTML = btn._originalHtml;
-                btn.style.width = '';
-                // مسح الذاكرة ليكون الزر نظيفاً للعملية القادمة
-                btn._originalHtml = undefined;
+                
+                if (contentSpan && spinnerSpan) {
+                    btn._isComplex = true;
+                    contentSpan.style.display = 'none';
+                    spinnerSpan.style.display = 'inline-block';
+                } else {
+                    const currentWidth = btn.offsetWidth;
+                    if (currentWidth > 0) btn.style.width = `${currentWidth}px`;
+                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="margin-inline-end: 6px;"></i> جاري المعالجة...`;
+                }
+                
+                btn.classList.add('tx-processing-safe');
+                
             } else {
-                // حالة طوارئ (Fallback) إذا مسحت الذاكرة
-                btn.innerHTML = 'تأكيد';
-                btn.style.width = '';
+                btn.disabled = false;
+                btn.classList.remove('tx-processing-safe', 'is-loading');
+                
+                if (btn._isComplex) {
+                    const contentSpan = btn.querySelector('.btn-content');
+                    const spinnerSpan = btn.querySelector('.btn-spinner');
+                    if (contentSpan) contentSpan.style.display = '';
+                    if (spinnerSpan) spinnerSpan.style.display = 'none';
+                } else if (btn._originalHtml !== undefined) {
+                    btn.innerHTML = btn._originalHtml;
+                    btn.style.width = '';
+                    btn._originalHtml = undefined;
+                } else {
+                    btn.innerHTML = 'تأكيد';
+                    btn.style.width = '';
+                }
             }
+        } catch (e) {
+            console.error("🚨 Button Restore Error:", e);
+            btn.disabled = false;
+            btn.classList.remove('tx-processing-safe', 'is-loading');
         }
-    } catch (e) {
-        console.error("🚨 Button Restore Error:", e);
-        // تحرير الزر إجبارياً في حال حدوث أي خطأ برمجي نادر
-        btn.disabled = false;
-        btn.classList.remove('tx-processing-safe', 'is-loading');
-    }
-},
-    _startTxWatchdog: function(submitBtn, shieldId) {
+    },
+
+    // 🛡️ التحديث 1 و 2: دالة مركزية لغلق الشاشة وحمايتها من التجميد الأبدي
+    _lockUI: function(btn) {
+        this._isProcessingTx = true;
+        this._toggleButtonLoader(btn, true);
+
+        const shieldId = 'invisible-tx-shield';
+        if (!document.getElementById(shieldId)) {
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="${shieldId}" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255, 255, 255, 0.01); z-index: 9999999; cursor: wait; touch-action: none;"></div>
+            `);
+        }
+
         if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
+        if (this._killSwitchTimer) clearTimeout(this._killSwitchTimer);
+
         this._watchdogTimer = setTimeout(() => {
             if (this._isProcessingTx) {
                 getSys().showToast?.('الشبكة بطيئة بعض الشيء، جاري معالجة طلبك بأمان... الرجاء عدم إغلاق الصفحة.', 'warning');
             }
         }, 15000); 
+
+        // 🛡️ مفتاح الطوارئ (Kill Switch): بعد 60 ثانية إجبارياً يتم فك القفل
+        this._killSwitchTimer = setTimeout(() => {
+            if (this._isProcessingTx) {
+                getSys().showToast?.('انتهى وقت المعالجة وتأخر الخادم بالرد، تم تحرير الشاشة.', 'error');
+                this._unlockUI(btn);
+            }
+        }, 60000);
         
         if (this._offlineHandler) window.removeEventListener('offline', this._offlineHandler);
         this._offlineHandler = () => {
@@ -111,11 +123,16 @@ _toggleButtonLoader: function(btn, isLoading) {
         window.addEventListener('offline', this._offlineHandler);
     },
 
-    _cleanupTxUI: function(submitBtn, shieldId) {
+    _unlockUI: function(btn) {
         this._isProcessingTx = false;
-        if (shieldId) { const shield = document.getElementById(shieldId); if (shield) shield.remove(); }
-        if (submitBtn) this._toggleButtonLoader(submitBtn, false);
+        
+        const shield = document.getElementById('invisible-tx-shield');
+        if (shield) shield.remove();
+        
+        if (btn) this._toggleButtonLoader(btn, false);
+        
         if (this._watchdogTimer) { clearTimeout(this._watchdogTimer); this._watchdogTimer = null; }
+        if (this._killSwitchTimer) { clearTimeout(this._killSwitchTimer); this._killSwitchTimer = null; }
         if (this._offlineHandler) { window.removeEventListener('offline', this._offlineHandler); this._offlineHandler = null; }
     },
 
@@ -144,7 +161,6 @@ _toggleButtonLoader: function(btn, isLoading) {
             
             const searchInput = document.getElementById((type === 'purchase') ? 'order-search-input' : 'pay-search-input');
             
-            // 🛡️ الإصلاح البصري: تحويل الـ ID الخام إلى الصيغة الجميلة التي ألفها العميل
             let displaySearchId = id;
             try {
                 if (type === 'purchase') {
@@ -155,16 +171,18 @@ _toggleButtonLoader: function(btn, isLoading) {
                     displaySearchId = RenderHelpers.formatDepositId(depObj);
                 }
             } catch (e) {
-                displaySearchId = id; // في حال حدوث خطأ، استخدم الرقم القديم
+                displaySearchId = id; 
             }
 
             if (searchInput) searchInput.value = displaySearchId;
-            if (RenderManager) RenderManager.highlightId = id; // التظليل يحتاج الرقم الخام الأصلي لضمان الدقة
+            if (RenderManager) RenderManager.highlightId = id; 
             
             if (type === 'purchase') { if(RenderManager.renderOrders) RenderManager.renderOrders(); } 
             else { if(RenderManager.renderPayments) RenderManager.renderPayments(); }
         }, 150);
-    },    _validateKycAndSystem: function(actionType = 'purchase') {
+    },    
+
+    _validateKycAndSystem: function(actionType = 'purchase') {
         const sys = LiveStoreData.system || {};
         if (sys.freeze) { getSys().showToast?.(sys.freezeMsg || 'عذراً، العمليات المالية متوقفة مؤقتاً.', 'warning'); return false; }
         if (!DataManager || !DataManager.user) {
@@ -349,7 +367,6 @@ _toggleButtonLoader: function(btn, isLoading) {
         if (!DataManager.currentProd || typeof DataManager.getPricingLocal !== 'function') return;
         
         window.requestAnimationFrame(() => {
-            // 🛡️ الإصلاح: إعادة التحقق هنا لمنع الانهيار إذا أغلقت النافذة بسرعة وتفرغت الذاكرة
             if (!DataManager.currentProd) return; 
             
             let qty = 1; let optIdx = null;
@@ -378,7 +395,9 @@ _toggleButtonLoader: function(btn, isLoading) {
                 if (currPriceEl) currPriceEl.innerHTML = beautifulTotalHtml; 
             }
         });
-    },handlePurchaseSubmit: async function() { 
+    },
+
+    handlePurchaseSubmit: async function() { 
         if (this._isProcessingTx || !DataManager.currentProd || !this._validateKycAndSystem('purchase')) return;
         
         const inp1El = document.getElementById('pm-inp-1'), inp2El = document.getElementById('pm-inp-2'), qtyEl = document.getElementById('simple-qty-val');
@@ -397,14 +416,12 @@ _toggleButtonLoader: function(btn, isLoading) {
         const inp1 = inp1El ? inp1El.value.trim().replace(/\|/g, '-') : '';
         const inp2 = inp2El ? inp2El.value.trim().replace(/\|/g, '-') : '';
 
-        // 🛡️ التحديث المعماري: دالة استخلاص التسميات بذكاء (Admin First, Fallback Second)
         const getSafeLabel = (adminVal, defaultVal) => {
             if (adminVal && typeof adminVal === 'string' && adminVal.trim() !== '') return adminVal.trim();
             return defaultVal;
         };
 
         if (DataManager.currentProd.type === 'double') { 
-            // 1. منتجات الحقلين: تأخذ تسمية الأدمن أو البديل وتدمجهما بأناقة
             const lbl1 = getSafeLabel(DataManager.currentProd.input1Label, 'معرف الحساب');
             const lbl2 = getSafeLabel(DataManager.currentProd.input2Label, 'تفاصيل إضافية');
             
@@ -414,22 +431,18 @@ _toggleButtonLoader: function(btn, isLoading) {
             if(!inp2) { if(inp2El) { showInlineError(inp2El, 'يرجى ملء الحقل الثاني'); if(isValid) inp2El.focus(); isValid = false; } }
             
         } else if (DataManager.currentProd.type === 'single' || DataManager.currentProd.type === 'counter' || DataManager.currentProd.type === 'select') { 
-            // 2. المنتجات ذات الحقل الواحد: تدمج التسمية مع القيمة بدلاً من القيمة عارية
             const lbl1 = getSafeLabel(DataManager.currentProd.input1Label, 'معرف الحساب');
             finalInputStr = `${lbl1}: ${inp1}`; 
             
             if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); } 
             
         } else if (DataManager.currentProd.type === 'simple') { 
-            // 3. المنتجات البسيطة لا تحتاج مدخلات
             finalInputStr = ""; 
         } else {
-            // حالة أمان احتياطية للحالات غير المعروفة
             finalInputStr = inp1;
             if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); }
         }
 
-        // حساب الكميات (Qty) والفهارس (Options)
         if (DataManager.currentProd.type === 'counter') { 
             const minQ = parseInt(DataManager.currentProd.minQty) || 1; qty = Math.max(minQ, Utils.parseSafeNumber(document.getElementById('pm-qty')?.value)) || minQ;
         } else if (DataManager.currentProd.type === 'select') { 
@@ -448,25 +461,15 @@ _toggleButtonLoader: function(btn, isLoading) {
         }
 
         const submitBtn = document.getElementById('btn-confirm-buy') || document.querySelector('.pm-btn-gold');
-        const shieldId = 'invisible-tx-shield';
         
-        this._isProcessingTx = true; 
-        this._toggleButtonLoader(submitBtn, true); 
-        
-        // 🛡️ الحل الجذري 2: القفل الفيزيائي الصارم للشاشة بالكامل
-        if (!document.getElementById(shieldId)) {
-            document.body.insertAdjacentHTML('beforeend', `
-                <div id="${shieldId}" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255, 255, 255, 0.01); z-index: 9999999; cursor: wait; touch-action: none;"></div>
-            `);
-        }
-        
-        this._startTxWatchdog(submitBtn, shieldId);
+        this._lockUI(submitBtn);
 
         try {
             const result = await DataManager.confirmPurchase(DataManager.currentProd, qty, optIdx, finalInputStr, DataManager.appliedCoupon);
             if (result.success) {
-                getSys().sfx?.('success'); this._isProcessingTx = false; this.closePurchaseModal();
-                if(typeof DataManager.syncUser === 'function') DataManager.syncUser(); getSys().updateDisplayBalance?.();
+    getSys().showToast?.(result.msg || 'تم تنفيذ الطلب بنجاح', 'success'); // 👈 السطر المفقود
+    getSys().sfx?.('success'); this.closePurchaseModal();
+    if(typeof DataManager.syncUser === 'function') DataManager.syncUser(); getSys().updateDisplayBalance?.();
 
                 setTimeout(() => {
                     getSys().openModal?.('purchase-success');
@@ -486,7 +489,11 @@ _toggleButtonLoader: function(btn, isLoading) {
                     }
                 }, 150);
             } else { getSys().showToast?.(result.msg || 'فشلت العملية', 'error'); keepKeyboardOpen(); }
-        } catch (err) { getSys().showToast?.('حدث خطأ في النظام', 'error'); } finally { this._cleanupTxUI(submitBtn, shieldId); }
+        } catch (err) { 
+            getSys().showToast?.('حدث خطأ في النظام', 'error'); 
+        } finally { 
+            this._unlockUI(submitBtn); 
+        }
     },
     
     _manageDepositModalState: function(isStep2) {
@@ -648,11 +655,29 @@ _toggleButtonLoader: function(btn, isLoading) {
         const preview = document.getElementById('bal-img-preview');
         if (preview && preview.src && preview.src.startsWith('blob:')) { URL.revokeObjectURL(preview.src); preview.src = ''; }
         
-        if(!file) { this.pendingReceiptFile = null; this.currentReceiptData = null; return; }
-        if (file.size > 10 * 1024 * 1024) { getSys().showToast?.('حجم الملف كبير جداً. الحد 10MB.', 'error'); inp.value = ''; return; }
+        if(!file) { 
+            this.pendingReceiptFile = null; 
+            this.currentReceiptData = null; 
+            if(preview) { preview.style.display = 'none'; preview.src = ''; }
+            return; 
+        }
+
+        if (file.size > 10 * 1024 * 1024) { 
+            getSys().showToast?.('حجم الملف كبير جداً. الحد 10MB.', 'error'); 
+            inp.value = ''; 
+            this.pendingReceiptFile = null;
+            if(preview) { preview.style.display = 'none'; preview.src = ''; }
+            return; 
+        }
 
         const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
-        if (!allowedTypes.includes(file.type)) { getSys().showToast?.('نوع الملف غير مدعوم.', 'error'); inp.value = ''; this.pendingReceiptFile = null; return; }
+        if (!allowedTypes.includes(file.type)) { 
+            getSys().showToast?.('نوع الملف غير مدعوم.', 'error'); 
+            inp.value = ''; 
+            this.pendingReceiptFile = null; 
+            if(preview) { preview.style.display = 'none'; preview.src = ''; }
+            return; 
+        }
 
         const isPdf = file.type === 'application/pdf';
         const uploadBox = document.getElementById('bal-upload-box'); 
@@ -763,7 +788,7 @@ _toggleButtonLoader: function(btn, isLoading) {
         });
     },
 
-        handleBalanceSubmit: async function(currency) {
+    handleBalanceSubmit: async function(currency) {
         if (this._isProcessingTx || !this._validateKycAndSystem('deposit')) return;
         
         const input = document.getElementById('bal-amount');
@@ -801,7 +826,6 @@ _toggleButtonLoader: function(btn, isLoading) {
             } 
         } catch (e) {}
 
-        // 🛡️ 1. التحقق الصارم من الحد الأقصى
         const finalLimit = methodMaxLimit > 0 ? Math.min(methodMaxLimit, dynamicGlobalLimit) : dynamicGlobalLimit;
         if (amount > finalLimit) { 
             const symbol = RenderHelpers?.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText(payCurr) : payCurr; 
@@ -809,7 +833,6 @@ _toggleButtonLoader: function(btn, isLoading) {
             return; 
         }
 
-        // 🛡️ 2. التحقق الصارم والبرمجي من الحد الأدنى (إصلاح ثغرة الـ CSS Bypass)
         let methodMinLimit = 0;
         if (this.currentPayment) { 
             const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment; 
@@ -818,7 +841,6 @@ _toggleButtonLoader: function(btn, isLoading) {
         
         if (methodMinLimit > 0 && amount < methodMinLimit) {
             getSys().showToast?.(`الحد الأدنى المسموح به هو ${methodMinLimit}`, 'error');
-            // إبراز الخطأ بصرياً لمنع المستخدم من الاستمرار
             if (input) {
                 input.style.animation = 'none'; void input.offsetWidth; 
                 input.style.animation = 'shake-anim 0.3s ease-in-out';
@@ -829,19 +851,7 @@ _toggleButtonLoader: function(btn, isLoading) {
         }
         
         const submitBtn = document.querySelector('[data-action="submit-balance"]'); 
-        const shieldId = 'invisible-tx-shield';
-        
-        this._isProcessingTx = true; 
-        this._toggleButtonLoader(submitBtn, true); 
-        
-        // 🛡️ الدرع الفيزيائي للشاشة
-        if (!document.getElementById(shieldId)) {
-            document.body.insertAdjacentHTML('beforeend', `
-                <div id="${shieldId}" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255, 255, 255, 0.01); z-index: 9999999; cursor: wait; touch-action: none;"></div>
-            `);
-        }
-        
-        this._startTxWatchdog(submitBtn, shieldId);
+        this._lockUI(submitBtn);
         
         let uploadedReceiptUrl = null;
         try {
@@ -854,27 +864,27 @@ _toggleButtonLoader: function(btn, isLoading) {
 
             const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
             
-            if (result.success) {
-                getSys().sfx?.('success'); 
-                this._isProcessingTx = false; 
-                this.closeBalanceModal();
-                if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
-                setTimeout(() => getSys().openModal?.('success'), 150);
-            } else { 
-                if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
-                getSys().showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
-            }
-        } catch (error) { 
-            // الإلغاء الآمن للصورة دون الاعتماد على منع الـ Offline المزيف
+                    if (result.success) {
+            // إظهار إشعار التوست بنجاح العملية
+            getSys().showToast?.(result.msg || 'تم إرسال طلب الإيداع بنجاح', 'success'); 
+            
+            getSys().sfx?.('success'); 
+            this.closeBalanceModal();
+            if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
+            setTimeout(() => getSys().openModal?.('success'), 150);
+        } else { 
             if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
-            console.error("🚨 Client-Side Deposit Exception:", error);
-            getSys().showToast?.('حدث خطأ أثناء الاتصال بالخادم.', 'error'); 
-        } 
-        finally { 
-            this._cleanupTxUI(submitBtn, shieldId); 
+            getSys().showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
         }
-    },
-
+    } catch (error) { 
+        if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
+        console.error("🚨 Client-Side Deposit Exception:", error);
+        getSys().showToast?.('حدث خطأ أثناء الاتصال بالخادم.', 'error'); 
+    } 
+    finally { 
+        this._unlockUI(submitBtn); 
+    }
+},
     togglePayDetail: function(headerElement) {
         if (!headerElement) return; const card = headerElement.closest('.pay-history-card'); if (!card) return;
         window.requestAnimationFrame(() => {
@@ -894,12 +904,12 @@ _toggleButtonLoader: function(btn, isLoading) {
     },
 
     closePayReceipt: function() {
-    window.requestAnimationFrame(() => {
-        const lightbox = document.getElementById('pay-receipt-lightbox');
-        if (lightbox) {
-            lightbox.classList.remove('active');
-            setTimeout(() => { const img = document.getElementById('pay-receipt-img'); if (img) img.src = ''; }, 300);
-        }
-    });
-}
-}; // <--- نهاية الملف يجب أن تكون هنا فقط
+        window.requestAnimationFrame(() => {
+            const lightbox = document.getElementById('pay-receipt-lightbox');
+            if (lightbox) {
+                lightbox.classList.remove('active');
+                setTimeout(() => { const img = document.getElementById('pay-receipt-img'); if (img) img.src = ''; }, 300);
+            }
+        });
+    }
+};

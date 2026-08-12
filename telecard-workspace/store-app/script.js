@@ -1,10 +1,9 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9.1 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9.2 💎
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع السريع، إدارة الكاش الذكي، والتوافقية
-// 🚀 التحديثات المعمارية (V16.9.1):
-// 1. Firebase Native Cache Sync: إزالة مدمرات الكاش اليدوي (TeleCardStoreDB) لتفادي التضارب مع Firestore.
-// 2. Pagination Rescue: إصلاح تناغم الكرسور (Cursor) مع المستمعات الحية لضمان عمل زر "عرض المزيد".
-// 3. Flexible Selective Lock: قفل الدوال لمنع الحقن مع السماح للواجهة بإنشاء متغيرات ديناميكية.
+// 🚀 التحديثات المعمارية (V16.9.2):
+// 1. نقل التجميد الذكي (Selective Lock) للحماية الفورية (Zero-Delay Lock).
+// 2. تعزيز قفل البصمة بحيث لا يكشف واجهة النظام عند الرفض.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -68,9 +67,9 @@ Object.assign(ClientSystem, {
         const isBiometricRequired = DataManager.user?.biometricEnabled === true;
         const savedRawId = localStorage.getItem(CACHE_KEYS.BIOMETRIC_KEY);
         
-        if (!isBiometricRequired) return true; // إذا لم تكن مفعلة، نتجاوز القفل
+        if (!isBiometricRequired) return true; 
         
-        if (lockScreen) lockScreen.classList.add('active'); // إظهار شاشة القفل
+        if (lockScreen) lockScreen.classList.add('active'); 
         
         if (!window.PublicKeyCredential || !savedRawId) {
             if (lockScreen) lockScreen.classList.remove('active');
@@ -113,7 +112,6 @@ Object.assign(ClientSystem, {
             if (retryBtn) {
                 retryBtn.innerHTML = '<i class="fa-solid fa-fingerprint"></i> المحاولة مجدداً';
                 retryBtn.disabled = false;
-                // ربط زر إعادة المحاولة
                 retryBtn.onclick = () => this.enforceBiometricLock();
             }
             return false;
@@ -174,8 +172,6 @@ ClientSystem.initFirebaseListeners = function() {
                     localStorage.setItem('telecard_server_version', serverVersion);
                     const clearPromises = [];
                     
-                    // 🛡️ التعديل 1: تمت إزالة حذف (TeleCardStoreDB) لتفادي تدمير كاش فايربيز الأصلي
-                    
                     const keysToRemove = [];
                     for (let i = 0; i < localStorage.length; i++) {
                         const k = localStorage.key(i);
@@ -228,19 +224,17 @@ ClientSystem.initFirebaseListeners = function() {
         this.userAuthListeners = [];
 
         if (firebaseUser) {
-    const uidStr = firebaseUser.uid;
-    localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
-    
-    // 🛡️ الإصلاح الجذري 1: توجيه الاستدعاء لـ DataManager ليتم فتح قناة الاتصال بالسيرفر
-    if (DataManager && typeof DataManager.listenToUserNotifications === 'function') {
-        const notifUnsub = DataManager.listenToUserNotifications(() => requestAnimationFrame(() => {
-            if (this.processAndDisplayAlerts) this.processAndDisplayAlerts();
-            if (this.updateNotifBadges) this.updateNotifBadges();
-            // 🛡️ تحديث القائمة المنسدلة للإشعارات فوراً عند وصول إشعار جديد
-            if (RenderManager && RenderManager.renderNotifCenterList) RenderManager.renderNotifCenterList();
-        }));
-        if (notifUnsub) this.userAuthListeners.push(notifUnsub);
-    }
+            const uidStr = firebaseUser.uid;
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
+            
+            if (DataManager && typeof DataManager.listenToUserNotifications === 'function') {
+                const notifUnsub = DataManager.listenToUserNotifications(() => requestAnimationFrame(() => {
+                    if (this.processAndDisplayAlerts) this.processAndDisplayAlerts();
+                    if (this.updateNotifBadges) this.updateNotifBadges();
+                    if (RenderManager && RenderManager.renderNotifCenterList) RenderManager.renderNotifCenterList();
+                }));
+                if (notifUnsub) this.userAuthListeners.push(notifUnsub);
+            }
             if (StoreDB.listenDoc) {
                 this.userAuthListeners.push(StoreDB.listenDoc(DB_KEYS.USERS, uidStr, (userData) => {
                     if (userData) {
@@ -281,7 +275,6 @@ ClientSystem.initFirebaseListeners = function() {
             }
             
             if (StoreDB.listenQuery) {
-                // 🛡️ التعديل 2: إصلاح الكرسور المتوافق مع Pagination
                 this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', uidStr], 'time', 30, (data) => {
                     const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
                     _updateLiveArray(LiveStoreData.orders, normData); 
@@ -345,7 +338,6 @@ ClientSystem.init = async function() {
             console.warn(`🔄 تم اكتشاف تحديث محلي للمتجر! جاري التحديث من ${savedVersion} إلى ${currentVersion}...`);
             
             const clearPromises = [];
-            // 🛡️ التعديل 1 (مكرر): إزالة حذف (TeleCardStoreDB) في بداية الإقلاع
             
             if ('serviceWorker' in navigator) { 
                 clearPromises.push(navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).catch(()=>[])); 
@@ -400,10 +392,8 @@ ClientSystem.init = async function() {
         if (DataManager.user && DataManager.user.biometricEnabled) {
             const isUnlocked = await this.enforceBiometricLock();
             if (!isUnlocked) {
-                // إذا فشل القفل، نزيل شاشة الانتظار لكي يرى العميل شاشة القفل السوداء
-                const splash = document.getElementById('global-splash-screen');
-                if (splash) splash.remove();
-                return; // ⛔ نوقف تشغيل باقي النظام حتى يضع بصمته!
+                // 🛡️ التعديل 2: إيقاف الإقلاع تماماً وإبقاء شاشة سبلاش لحماية الواجهة الخلفية
+                return; 
             }
         }
         
@@ -483,19 +473,18 @@ ClientSystem.init = async function() {
             
             if(Components.initBottomNavSync) Components.initBottomNavSync();
             if(this.checkKycCelebration) this.checkKycCelebration();
-            
-            // 🛡️ الإصلاح الجذري (V16.9.1): تجميد ذكي مرن (Flexible Selective Lock)
-            Object.keys(this).forEach(key => {
-                if (typeof this[key] === 'function') {
-                    Object.defineProperty(this, key, {
-                        writable: false,      
-                        configurable: false   
-                    });
-                }
-            });
-            
-            console.log("🔒 تم الإغلاق الذكي المرن للنظام. الدوال محصنة، وواجهة المستخدم تعمل بكامل حريتها.");
         }, { timeout: 2000 });
+        
+        // 🛡️ التعديل 1: نقل التجميد الذكي المرن (Flexible Selective Lock) خارج دالة المهام الخاملة
+        Object.keys(this).forEach(key => {
+            if (typeof this[key] === 'function') {
+                Object.defineProperty(this, key, {
+                    writable: false,      
+                    configurable: false   
+                });
+            }
+        });
+        console.log("🔒 تم الإغلاق الذكي المرن للنظام بشكل فوري. الدوال محصنة بالكامل.");
         
     } catch (e) {}
 };

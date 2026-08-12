@@ -340,7 +340,11 @@ export const DataManager = {
                 }
             });
             
-            LiveStoreData.isInitialSyncDone = false; LiveStoreData.isOfflineMode = false; LiveStoreData.popup = null;
+            LiveStoreData.isInitialSyncDone = false; 
+// فحص حالة الاتصال الحقيقية بدلاً من فرضها
+LiveStoreData.isOfflineMode = typeof navigator !== 'undefined' ? !navigator.onLine : false; 
+LiveStoreData.popup = null;
+
             this._ratesCache = null; this.user = null; 
             
             if (this.favs) this.favs.clear(); 

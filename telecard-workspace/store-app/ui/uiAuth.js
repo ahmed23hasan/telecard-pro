@@ -1,9 +1,9 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية V15.7 🛡️
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية V15.8 🛡️
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية (V15.7):
-// 1. Password Pre-Flight Check: حماية السيرفر من طلبات كلمات المرور الضعيفة والتحقق محلياً.
-// 2. Safe KYC Abort: منع حذف صور الهوية المرفوعة إذا ألغى المستخدم مربع الاختيار.
+// 🚀 التحديثات المعمارية (V15.8):
+// 1. Phone Sanitization: تنظيف رقم الهاتف (إزالة المسافات والأقواس) ليتطابق مع قيود السيرفر.
+// 2. Flexible KYC: السماح بتفريغ حقول الصور وحذفها من الذاكرة إذا ألغى العميل اختياره.
 // 3. Centralized Biometric Sync: مزامنة مفتاح البصمة مع السيرفر بدلاً من التخزين المحلي فقط.
 // 4. Currency Failsafe: تأمين العملة المرجعية بـ Fallback لتجنب تلف الرصيد عند حفظ الهوية.
 // ============================================================================
@@ -624,7 +624,7 @@ export const UIAuth = {
         }
     },
 
-start2FASetup: async function() {
+    start2FASetup: async function() {
         const sys = getSys();
         this._clear2FAState();
 
@@ -665,7 +665,6 @@ start2FASetup: async function() {
                     sys.toggleLoader?.(true, 'جاري تحميل نظام التشفير المرئي...');
                     await new Promise((resolve, reject) => {
                         if (document.getElementById('qrcode-lib-script')) {
-                            // 🛡️ الإصلاح: إضافة عداد لإيقاف الدوران اللانهائي بعد 5 ثواني
                             let attempts = 0; 
                             const checkInterval = setInterval(() => {
                                 attempts++;
@@ -728,6 +727,7 @@ start2FASetup: async function() {
             this._clear2FAState();
         }
     },
+    
     verifyAndEnable2FA: async function() {
         if (!this._pendingTfaSecret) return;
 
@@ -777,98 +777,88 @@ start2FASetup: async function() {
     },
 
     handleBiometricToggle: async function() {
-    const sys = getSys();
-    const user = DataManager.user;
-    const isCurrentlyEnabled = user?.biometricEnabled === true;
-    
-    // ==========================================
-    // 🛑 حالة إيقاف البصمة
-    // ==========================================
-    if (isCurrentlyEnabled) {
-        sys.toggleLoader?.(true, 'جاري إيقاف قفل البصمة...');
+        const sys = getSys();
+        const user = DataManager.user;
+        const isCurrentlyEnabled = user?.biometricEnabled === true;
+        
+        if (isCurrentlyEnabled) {
+            sys.toggleLoader?.(true, 'جاري إيقاف قفل البصمة...');
+            try {
+                const success = await DataManager.updateUserProfile({ biometricEnabled: false, biometricRawId: null });
+                if (success) {
+                    try { localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY); } catch (e) {}
+                    sys.showToast?.('تم إيقاف قفل البصمة بنجاح', 'info');
+                    sys.sfx?.('nav');
+                    this.openSecurityModal();
+                } else {
+                    sys.showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
+                }
+            } finally { sys.toggleLoader?.(false); }
+            return;
+        }
+        
+        if (typeof window === 'undefined' || !window.PublicKeyCredential || !navigator.credentials) {
+            sys.showToast?.('عذراً، متصفحك لا يدعم البصمة أو أن الاتصال غير آمن (HTTPS مطلوب)', 'error');
+            return;
+        }
+        
         try {
-            // نبلغ السيرفر أن البصمة معطلة، ونحذفها من المتصفح
-            const success = await DataManager.updateUserProfile({ biometricEnabled: false, biometricRawId: null });
+            sys.toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
+            
+            const challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+            
+            const userEmail = user?.email || 'user@store.local';
+            const userIdBytes = new TextEncoder().encode(userEmail);
+            const storeName = LiveStoreData.settings?.storeName || "MaliMor Store";
+            
+            const credential = await navigator.credentials.create({
+                publicKey: {
+                    challenge: challenge,
+                    rp: { name: Utils.escapeHtml(storeName) },
+                    user: { id: userIdBytes, name: userEmail, displayName: userEmail },
+                    pubKeyCredParams: [
+                        { alg: -7, type: "public-key" },
+                        { alg: -257, type: "public-key" }
+                    ],
+                    authenticatorSelection: {
+                        authenticatorAttachment: "platform",
+                        userVerification: "required"
+                    },
+                    timeout: 60000
+                }
+            });
+            
+            const rawIdBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(credential.rawId)));
+            
+            const success = await DataManager.updateUserProfile({
+                biometricEnabled: true,
+                biometricRawId: rawIdBase64
+            });
+            
             if (success) {
-                try { localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY); } catch (e) {}
-                sys.showToast?.('تم إيقاف قفل البصمة بنجاح', 'info');
-                sys.sfx?.('nav');
+                try { localStorage.setItem(CACHE_KEYS.BIOMETRIC_KEY, rawIdBase64); } catch (e) {}
+                sys.showToast?.('تم تفعيل قفل البصمة بنجاح!', 'success');
+                sys.sfx?.('success');
                 this.openSecurityModal();
             } else {
-                sys.showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
+                throw new Error('server_error');
             }
-        } finally { sys.toggleLoader?.(false); }
-        return;
-    }
-    
-    // ==========================================
-    // ✅ حالة تفعيل البصمة (Local App Lock)
-    // ==========================================
-    if (typeof window === 'undefined' || !window.PublicKeyCredential || !navigator.credentials) {
-        sys.showToast?.('عذراً، متصفحك لا يدعم البصمة أو أن الاتصال غير آمن (HTTPS مطلوب)', 'error');
-        return;
-    }
-    
-    try {
-        sys.toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
-        
-        const challenge = new Uint8Array(32);
-        window.crypto.getRandomValues(challenge);
-        
-        const userEmail = user?.email || 'user@store.local';
-        const userIdBytes = new TextEncoder().encode(userEmail);
-        const storeName = LiveStoreData.settings?.storeName || "MaliMor Store";
-        
-        // طلب إنشاء مفتاح بصمة من نظام الهاتف
-        const credential = await navigator.credentials.create({
-            publicKey: {
-                challenge: challenge,
-                rp: { name: Utils.escapeHtml(storeName) },
-                user: { id: userIdBytes, name: userEmail, displayName: userEmail },
-                pubKeyCredParams: [
-                    { alg: -7, type: "public-key" },
-                    { alg: -257, type: "public-key" }
-                ],
-                authenticatorSelection: {
-                    authenticatorAttachment: "platform", // إجبار استخدام بصمة الجهاز نفسه
-                    userVerification: "required"
-                },
-                timeout: 60000
+        } catch (error) {
+            if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
+                sys.showToast?.('تم إلغاء عملية البصمة من قبلك', 'warning');
+            } else if (error.message === 'storage_full') {
+                sys.showToast?.('تعذر تفعيل البصمة (التصفح المخفي يمنع حفظ البيانات)', 'error');
+            } else if (error.name === 'SecurityError') {
+                sys.showToast?.('بيئة غير آمنة. البصمة تتطلب اتصال HTTPS', 'error');
+            } else {
+                sys.showToast?.('تعذر تفعيل البصمة، تأكد من إعدادات القفل في جهازك', 'error');
             }
-        });
-        
-        // 🛡️ التحديث المعماري: تحويل المعرف لـ Base64 القياسي لحفظه بأمان
-        const rawIdBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(credential.rawId)));
-        
-        // حفظ التفعيل في قاعدة البيانات لمعرفة أن هذا الحساب "مقفل"
-        const success = await DataManager.updateUserProfile({
-            biometricEnabled: true,
-            biometricRawId: rawIdBase64
-        });
-        
-        if (success) {
-            // حفظ المفتاح في المتصفح لاستخدامه فوراً عند فتح التطبيق لاحقاً
-            try { localStorage.setItem(CACHE_KEYS.BIOMETRIC_KEY, rawIdBase64); } catch (e) {}
-            sys.showToast?.('تم تفعيل قفل البصمة بنجاح!', 'success');
-            sys.sfx?.('success');
-            this.openSecurityModal();
-        } else {
-            throw new Error('server_error');
+        } finally {
+            sys.toggleLoader?.(false);
         }
-    } catch (error) {
-        if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
-            sys.showToast?.('تم إلغاء عملية البصمة من قبلك', 'warning');
-        } else if (error.message === 'storage_full') {
-            sys.showToast?.('تعذر تفعيل البصمة (التصفح المخفي يمنع حفظ البيانات)', 'error');
-        } else if (error.name === 'SecurityError') {
-            sys.showToast?.('بيئة غير آمنة. البصمة تتطلب اتصال HTTPS', 'error');
-        } else {
-            sys.showToast?.('تعذر تفعيل البصمة، تأكد من إعدادات القفل في جهازك', 'error');
-        }
-    } finally {
-        sys.toggleLoader?.(false);
-    }
-},
+    },
+    
     handlePasswordSubmit: function() {
         const securityModal = document.getElementById('security-modal');
         if (!securityModal) return;
@@ -881,7 +871,6 @@ start2FASetup: async function() {
         const newVal = (newInput?.value || '').trim();
         const confirmVal = (confirmInput?.value || '').trim();
         
-        // 🛡️ الإصلاح 1: التحقق من طرف العميل قبل إرهاق السيرفر
         if (!currentVal || !newVal || !confirmVal) {
             getSys().showToast?.('يرجى تعبئة جميع الحقول', 'warning'); return;
         }
@@ -982,18 +971,20 @@ start2FASetup: async function() {
         
         const country = hiddenCountry ? hiddenCountry.value.trim() : (countryEl ? countryEl.innerText.trim() : '');
         let phoneRaw = phoneEl ? phoneEl.value.trim() : '';
-        const phone = phoneRaw.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+        let phone = phoneRaw.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
         
-        // 🛡️ الإصلاح 4: تأمين العملة ببديل لحماية الحساب من تلف العملة الأساسية
+        // 🛡️ التحديث المعماري 1: تنظيف الرقم بالكامل من المسافات والأقواس ليتطابق مع السيرفر
+        const cleanPhone = phone.replace(/[\s\-\(\)]/g, '');
+        
         const currency = (hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '') || DataManager.user?.baseCurrency || 'USD';
         
-        if (!country || country === 'اختر الدولة...' || !phone || phone === '' || !currency) {
+        if (!country || country === 'اختر الدولة...' || !cleanPhone || cleanPhone === '' || !currency) {
             getSys().showToast?.('يرجى تعبئة جميع الحقول بدقة', 'warning');
             return;
         }
         
-        if (!/^[\d\s\+\-\(\)]+$/.test(phone)) {
-            getSys().showToast?.('رقم الهاتف غير صالح، يرجى استخدام الأرقام فقط.', 'error');
+        if (!/^\+?[0-9]{7,15}$/.test(cleanPhone)) {
+            getSys().showToast?.('رقم الهاتف غير صالح، يرجى كتابة أرقام صحيحة.', 'error');
             return;
         }
         
@@ -1009,7 +1000,7 @@ start2FASetup: async function() {
         }
         
         try {
-            const result = await DataManager.submitIdentityData(country, phone, currency);
+            const result = await DataManager.submitIdentityData(country, cleanPhone, currency);
             
             if (result && result.success) {
                 if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
@@ -1057,57 +1048,64 @@ start2FASetup: async function() {
     },
 
     handleKycImage: async function(input, previewId) {
-    if (this._processingImgs.has(previewId)) return;
-    
-    const file = input.files && input.files[0];
-    this.kycFiles = this.kycFiles || {};
-    const hasExisting = !!this.kycFiles[previewId];
-    
-    if (!file) return; // العميل تراجع عن اختيار ملف، نترك الصورة القديمة كما هي
-    
-    const parentBox = input.closest('.kyc-upload-box');
-    const previewImg = document.getElementById(previewId);
-    
-    if (!file.type.startsWith('image/')) {
-        getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
-        input.value = '';
-        // 🛡️ الإصلاح: لا نحذف الصورة القديمة إذا كانت موجودة
-        if (!hasExisting) {
-            if (previewImg) previewImg.src = '';
-            if (parentBox) parentBox.classList.remove('has-img');
-        }
-        return;
-    }
-    
-    if (file.size > 5 * 1024 * 1024) {
-        getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
-        input.value = '';
-        return; // 🛡️ الإصلاح: نحتفظ بالصورة القديمة ولا نحذفها
-    }
-    
-    this._processingImgs.add(previewId);
-    
-    try {
-        getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
-        const compressed = await this._compressImage(file, 1200);
+        if (this._processingImgs.has(previewId)) return;
         
-        this.kycFiles[previewId] = compressed.file;
+        const file = input.files && input.files[0];
+        this.kycFiles = this.kycFiles || {};
         
-        if (previewImg) {
-            if (previewImg.src && previewImg.src.startsWith('blob:')) {
-                URL.revokeObjectURL(previewImg.src);
+        const parentBox = input.closest('.kyc-upload-box');
+        const previewImg = document.getElementById(previewId);
+        
+        if (!file) {
+            // 🛡️ التحديث المعماري 2: السماح بتفريغ الحقل ومسح الصورة من الذاكرة إذا ألغى المستخدم اختياره
+            delete this.kycFiles[previewId];
+            if (previewImg) {
+                if (previewImg.src && previewImg.src.startsWith('blob:')) {
+                    URL.revokeObjectURL(previewImg.src);
+                }
+                previewImg.src = '';
             }
-            previewImg.src = compressed.previewUrl;
+            if (parentBox) parentBox.classList.remove('has-img');
+            return;
         }
-        if (parentBox) parentBox.classList.add('has-img');
-    } catch (e) {
-        getSys().showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
-        input.value = '';
-    } finally {
-        this._processingImgs.delete(previewId);
-        if (this._processingImgs.size === 0) getSys().toggleLoader?.(false);
-    }
-},    submitKycData: async function() {
+        
+        if (!file.type.startsWith('image/')) {
+            getSys().showToast?.('عذراً، يجب إرفاق ملف صورة صالح', 'error');
+            input.value = '';
+            return;
+        }
+        
+        if (file.size > 5 * 1024 * 1024) {
+            getSys().showToast?.('حجم الصورة كبير جداً! اختر صورة أقل من 5MB', 'warning');
+            input.value = '';
+            return;
+        }
+        
+        this._processingImgs.add(previewId);
+        
+        try {
+            getSys().toggleLoader?.(true, 'جاري معالجة الصورة...');
+            const compressed = await this._compressImage(file, 1200);
+            
+            this.kycFiles[previewId] = compressed.file;
+            
+            if (previewImg) {
+                if (previewImg.src && previewImg.src.startsWith('blob:')) {
+                    URL.revokeObjectURL(previewImg.src);
+                }
+                previewImg.src = compressed.previewUrl;
+            }
+            if (parentBox) parentBox.classList.add('has-img');
+        } catch (e) {
+            getSys().showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
+            input.value = '';
+        } finally {
+            this._processingImgs.delete(previewId);
+            if (this._processingImgs.size === 0) getSys().toggleLoader?.(false);
+        }
+    },
+
+    submitKycData: async function() {
         if (this._isSubmittingKyc) return;
         
         const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';

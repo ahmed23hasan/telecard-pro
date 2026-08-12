@@ -33,7 +33,7 @@ export const UICore = {
     historyStateSet: false,
 
     // =========================================================
-    // 🚨 0. نافذة الطرد المباشر الآمنة
+    // 🚨 0. نافذة الطرد المباشر الآمنة (محدثة V15.1)
     // =========================================================
     triggerLiveBanAlert: function(reasonMessage) {
         const msgText = Utils.escapeHtml(reasonMessage || 'تم تقييد حسابك.');
@@ -68,14 +68,22 @@ export const UICore = {
         
         setTimeout(() => { 
             if (DataManager && typeof DataManager.logout === 'function') {
-                DataManager.logout();
+                DataManager.logout(); // الاعتماد على المدير الرئيسي إذا كان يعمل
             } else {
-                // 🛡️ [الإصلاح المعماري 5]: التوجيه المرن لتجنب الأخطاء عند تغير مسار ملف تسجيل الدخول
+                // 🛡️ التحديث الأمني: تدمير الجلسة محلياً بالقوة كخط دفاع أخير
+                try {
+                    localStorage.clear();
+                    sessionStorage.clear();
+                    if (window.indexedDB) {
+                        indexedDB.databases().then(dbs => {
+                            dbs.forEach(db => indexedDB.deleteDatabase(db.name));
+                        });
+                    }
+                } catch(e) {}
                 window.location.replace(window.LOGIN_URL || 'login.html');
             }
         }, 3500);
     },
-
     openSettings: function() { getSys().resetUI?.(); getSys().renderSettingsUI?.(); getSys().openModal?.('settings'); },
     closeSettings: function() { getSys().closeModal?.('settings'); },
 

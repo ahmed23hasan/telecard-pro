@@ -1,9 +1,9 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V15.5 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V15.6 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه
-// 🚀 التحديثات المعمارية الصارمة (V15.5):
-// 1. Safari Blank PDF Fix: حل مشكلة الإيصالات البيضاء على أجهزة الآيفون بإجبار الرسم خارج الشاشة.
-// 2. DOM Memory Leak Fix: استخدام try..finally لضمان مسح حاويات التصوير حتى عند فشل html2canvas.
+// 🚀 التحديثات المعمارية الصارمة (V15.6):
+// 1. Safe DOM Removal: استخدام remove() لتنظيف حاويات التصوير بأمان مطلق.
+// 2. Battery Saver Timers: إيقاف وتشغيل المؤقتات بذكاء فقط عند وجود عناصر في الشاشة.
 // 3. CSS Object Injection Shield: حماية دوال التصميم من حقن الـ [object Object].
 // 4. Safe Time Unification: توحيد قراءة التواريخ عبر Utils.parseSafeTime لضمان الدقة.
 // ============================================================================
@@ -95,7 +95,6 @@ export const RenderManager = {
         return template.content; 
     },
     
-    // 🛡️ الإصلاح 3: حماية حقن الكائنات في CSS
     _getMappedColor: function(colorStr) {
         const safeColor = typeof colorStr === 'string' ? colorStr : 'badge-blue';
         return safeColor.replace('theme-ruby', 'badge-red').replace('theme-sunset', 'badge-red').replace('theme-sapphire', 'badge-blue').replace('theme-ocean', 'badge-blue').replace('theme-emerald', 'badge-green').replace('theme-gold', 'badge-gold').replace('theme-amethyst', 'badge-purple').replace('theme-cyber', 'badge-purple').replace('theme-carbon', 'badge-black').replace('theme-obsidian', 'badge-black');
@@ -365,10 +364,17 @@ export const RenderManager = {
     },
 
     initTimersEngine: function() {
-        if (window.StoreRenderApp.timerInterval) {
-            clearInterval(window.StoreRenderApp.timerInterval);
-            window.StoreRenderApp.timerInterval = null;
+        // 🛡️ التعديل 2: الفحص المبكر - لا يتم إطلاق المؤقت إلا إذا كان هناك عنصر يحتاجه
+        if (document.querySelectorAll('.live-countdown').length === 0) {
+            if (window.StoreRenderApp.timerInterval) {
+                clearInterval(window.StoreRenderApp.timerInterval);
+                window.StoreRenderApp.timerInterval = null;
+            }
+            return; 
         }
+
+        // إذا كان يعمل مسبقاً فلا داعي لإعادة التعيين لتوفير موارد المتصفح
+        if (window.StoreRenderApp.timerInterval) return;
         
         window.StoreRenderApp.timerInterval = setInterval(() => {
             if (document.hidden) return; 
@@ -512,6 +518,7 @@ export const RenderManager = {
                 if (combinedHtml) {
                     grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
                     if(items.length > 0 && Components?.initProductShine) Components.initProductShine();
+                    this.initTimersEngine(); // استدعاء ذكي
                 } else {
                     grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد منتجات</h3></div>`;
                 }
@@ -589,6 +596,7 @@ export const RenderManager = {
             grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
             UIManager.setGridMode(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
             if(Components?.initProductShine) Components.initProductShine();
+            this.initTimersEngine(); // استدعاء ذكي
         });
     },
 
@@ -635,6 +643,7 @@ export const RenderManager = {
             }
             this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols, 'prods');
             if (Components?.initProductShine) Components.initProductShine();
+            this.initTimersEngine(); // استدعاء ذكي
         });
     },
 
@@ -670,7 +679,6 @@ export const RenderManager = {
 
         const deposits = uniqueDeposits.filter(d => String(d.userId) === String(uid)).map(d => {
             const credited = d.creditedAmount !== undefined ? Number(d.creditedAmount) : Number(d.amount || 0);
-            // 🛡️ الإصلاح 4: توحيد قراءة الوقت
             const safeTime = Utils.parseSafeTime(d.time || d.createdAt);
             return {
                 ...d, type: 'deposit', amountVal: Math.abs(credited), amountCurrency: d.targetCurrency || walletCurr,
@@ -680,7 +688,6 @@ export const RenderManager = {
         });
         
         const orders = uniqueOrders.filter(o => String(o.userId) === String(uid)).map(o => {
-            // 🛡️ الإصلاح 4: توحيد قراءة الوقت
             const safeTime = Utils.parseSafeTime(o.time || o.createdAt);
             return {
                 ...o, type: 'purchase', amountVal: Number(o.price || 0), amountCurrency: o.priceCurrency || walletCurr, 
@@ -786,7 +793,6 @@ export const RenderManager = {
         const rawDeposits = [...(LiveStoreData.deposits || []), ...(this._historicalData.deposits || [])];
         const uniqueDeposits = Array.from(new Map(rawDeposits.map(item => [String(item.id), item])).values());
         
-        // 🛡️ الإصلاح 4: توحيد قراءة الوقت
         let myDeposits = uniqueDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: Utils.parseSafeTime(d.time || d.createdAt) }));
 
         const filters = DataManager.filters || { payments: 'all' };
@@ -849,7 +855,6 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         const rawOrders = [...(LiveStoreData.orders || []), ...(this._historicalData.orders || [])];
         const uniqueOrders = Array.from(new Map(rawOrders.map(item => [String(item.id), item])).values());
 
-        // 🛡️ الإصلاح 4: توحيد قراءة الوقت
         let orders = uniqueOrders.filter(o => String(o.userId) === String(uid)).map(o => ({ ...o, sortTime: Utils.parseSafeTime(o.time || o.createdAt) }));
 
         const filters = DataManager.filters || { orders: 'all' };
@@ -910,8 +915,9 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
             
             const cleanup = () => {
                 const orphanedContainer = document.getElementById(containerId);
+                // 🛡️ التعديل 1: استخدام remove للحذف بأمان وموثوقية
                 if (orphanedContainer) {
-                    try { document.body.removeChild(orphanedContainer); } catch(e){}
+                    try { orphanedContainer.remove(); } catch(e){}
                 }
             };
 
@@ -933,29 +939,27 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
                 const fullHTML = UIBuilders.buildPDFReceipt(config, brandHTML.html);
                 
                 const container = document.createElement('div');
-container.id = containerId;
-// 🛡️ الإصلاح الجذري لسفاري (iOS): إبقاء العنصر داخل الشاشة بشفافية 0.01 لكي لا يحذفه محرك WebKit
-container.style.cssText = `
+                container.id = containerId;
+                container.style.cssText = `
                     position: fixed; top: 0; left: 0; width: 420px;
                     background-color: #ffffff; z-index: -99999;
                     opacity: 0.01; pointer-events: none; overflow: hidden;
                 `;
-container.innerHTML = fullHTML;
-document.body.appendChild(container);
+                container.innerHTML = fullHTML;
+                document.body.appendChild(container);
 
-// إجبار المتصفح على معالجة الصور قبل التصوير
-await new Promise(r => setTimeout(r, 600));
+                await new Promise(r => setTimeout(r, 600));
 
-if (typeof html2canvas === 'undefined') throw new Error("مكتبة html2canvas مفقودة!");
+                if (typeof html2canvas === 'undefined') throw new Error("مكتبة html2canvas مفقودة!");
 
-const canvas = await html2canvas(container, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: '#ffffff',
-    logging: false, // لمنع امتلاء الكونسول
-    allowTaint: true,
-    windowWidth: 420 // إجبار أبعاد النافذة لمنع تشوه التصميم
-});
+                const canvas = await html2canvas(container, {
+                    scale: 2,
+                    useCORS: true,
+                    backgroundColor: '#ffffff',
+                    logging: false, 
+                    allowTaint: true,
+                    windowWidth: 420 
+                });
                 const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.95));
                 
                 canvas.width = 0; canvas.height = 0;
@@ -975,7 +979,6 @@ const canvas = await html2canvas(container, {
                 clearTimeout(watchdog); 
                 resolve(false); 
             } finally {
-                // 🛡️ الإصلاح 2: ضمان مسح ذاكرة الـ DOM حتى عند الانهيار
                 cleanup(); 
             }
         });
@@ -1047,7 +1050,7 @@ const canvas = await html2canvas(container, {
                     userName: Utils.escapeHtml(rawUserName), 
                     userDisplayId: RenderHelpers.formatUserId(DataManager.user),
                     method: d.method || '---', amount: rawAmt, currency: d.currency || 'USD',
-                    feePercent: d.feesPercent || 0, feeVal: calcFee, feeType: isBonus ? 'bonus' : 'fee', 
+                    feePercent: d.feesPercent || 0, feeVal: calcFee, feeType: isBonus ? 'fee', 
                     netVal: credAmt, targetCurrency: d.targetCurrency || 'USD',
                     dateTime: RenderHelpers.formatSafeDate(Utils.parseSafeTime(d.time || d.createdAt))
                 }

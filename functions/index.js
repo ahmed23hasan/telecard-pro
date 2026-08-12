@@ -336,14 +336,21 @@ if (couponCode) {
             }
         });
 
+                // ... (باقي كود دالة createOrder) ...
+        
         return { success: true, isAutoDelivered, deliveredCode: deliveredCodeText };
-    } catch (error) {
-    if (error instanceof HttpsError) throw error;
-    // 🚨 السماح للخطأ بالمرور للمتصفح للتشخيص
-    throw new HttpsError('aborted', `[SERVER_DEBUG]: ${error.message}`);
-}
-});
-
+        }
+        catch (error) {
+            // 1. الأخطاء المتوقعة والمعروفة (مثل نقص الرصيد، الكود خاطئ) تمر للعميل لأنها آمنة
+            if (error instanceof HttpsError) throw error;
+            
+            // 2. تسجيل الخطأ الحقيقي في سجلات السيرفر (Firebase Console Logs) للتشخيص من قبلك كمدير
+            console.error("🚨 [CRITICAL_ORDER_ERROR]:", error);
+            
+            // 3. إرسال رسالة عامة وآمنة للعميل (منع تسريب تفاصيل السيرفر)
+            throw new HttpsError('internal', 'حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.');
+        }
+        });
 // ==========================================
 // 💰 2. إرسال طلبات الإيداع
 // ==========================================
@@ -968,19 +975,36 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
 // ==========================================
 // 🔔 7. الإشعارات الآلية
 // ==========================================
-exports.autoNotifyOrderStatus = onDocumentUpdated({ document: 'telecard_orders/{orderId}', retry: true }, async (event) => {
-    const after = event.data.after.data();
-    if (event.data.before.data().status === after.status) return null;
+// تغيير من onDocumentUpdated إلى onDocumentWritten
+exports.autoNotifyOrderStatus = onDocumentWritten({ document: 'telecard_orders/{orderId}', retry: true }, async (event) => {
+    // 1. التحقق من وجود البيانات بعد العملية (تجاهل الحذف)
+    if (!event.data.after.exists) return null;
     
+    const after = event.data.after.data();
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    
+    // 2. إذا كان تحديثاً ولم تتغير الحالة، تجاهل الأمر
+    if (before && before.status === after.status) return null;
+    
+    // 3. تجاهل إرسال إشعار للطلبات الجديدة التي لا تزال "قيد المعالجة" 
+    // (لكيلا نزعج العميل بإشعارين: واحد للطلب وآخر عند الاكتمال)
+    if (!before && (after.status === 'pending' || after.status === 'processing')) return null;
+
     let title = "تحديث طلب", message = `تم تغيير حالة الطلب إلى ${after.status}`;
     if (after.status === 'completed') { title = "🎉 طلبك جاهز!"; message = `تم تسليم ( ${after.product} ).`; } 
     else if (after.status === 'rejected') { title = "❌ طلب مرفوض"; message = `رفض الطلب: ${after.adminNote || 'راجع الدعم'}`; } 
     else if (after.status === 'refunded') { title = "↩️ استرجاع قيمة"; message = `تم استرجاع الرصيد بنجاح.`; }
 
     const notifId = `notif_${event.params.orderId}_${after.status}`;
-    return db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ id: notifId, title, message, type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp() });
+    return db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ 
+        id: notifId, 
+        title, 
+        message, 
+        type: 'notification', 
+        jumpTarget: 'order', 
+        createdAt: admin.firestore.FieldValue.serverTimestamp() 
+    });
 });
-
 exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposits/{depositId}', retry: true }, async (event) => {
     const after = event.data.after.data();
     if (event.data.before.data().status === after.status) return null;
