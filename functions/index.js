@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الآمنة V20.8.1 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الآمنة V20.9.0 👑
 // 🎯 الوظيفة: المعاملات المالية الآمنة، حماية الثغرات، المزامنة الذكية، والربط
-// 🚀 التحديثات المعمارية (V20.8.1):
-// 1. رفع maxInstances إلى 50 لتحمل ضغط الإنتاج بعد حل مشكلة الرفع.
-// 2. تطبيق الحماية الدفاعية (.limit) داخل الـ Transactions لمنع استنزاف الذاكرة.
-// 3. إبقاء App Check معطلاً (مؤقتاً) حتى اكتمال مرحلة التطوير.
+// 🚀 التحديثات المعمارية (V20.9.0):
+// 1. اكتمال منظومة الإشعارات: إضافة إشعارات الإيداع الإداري، توثيق الهوية (KYC)، وترقيات الـ VIP.
+// 2. تطبيق الخروج المبكر (Early Exit) في الإشعارات لخفض التكلفة إلى الصفر تقريباً.
+// 3. تأمين رسائل الأخطاء (Error Leaks) لمنع تسريب بنية قاعدة البيانات.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -15,11 +15,10 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 // 🌐 [السيادة الجغرافية والتحكم الذكي في الموارد - Infrastructure Shield]
 setGlobalOptions({
     region: 'us-central1',
-    maxInstances:20, // 👈 تم الرفع لتحمل طلبات متزامنة في الإنتاج بدون عننق زجاجة
+    maxInstances: 20, 
     concurrency: 80
 });
 const admin = require('firebase-admin');
-// يجب إبقاء استدعاء الجيل الأول لكي تعمل دالة التسجيل (onCreate)
 const functions = require('firebase-functions/v1');
 const crypto = require('crypto');
 const FinancialEngine = require('./financialEngine.js');
@@ -44,7 +43,6 @@ const SYSTEM_LIMITS = {
 const generatePublicProductData = (prodData, tiersData) => {
     const publicData = {};
     
-    // القائمة البيضاء: الحقول العامة المصرح بعرضها للمستخدمين فقط
     const ALLOWED_PRODUCT_KEYS = [
         'id', 'name', 'description', 'image', 'options', 'isActive', 'isAvailable',
         'category', 'sortOrder', 'type', 'isFixedPrice', 'minQty', 'maxQty', 'badge'
@@ -148,14 +146,12 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
     const data = request.data || {};
     const productId = String(data.productId || '');
     
-    // 🛡️ الحماية الصارمة ضد اختراق الكميات السالبة والـ NaN
     let rawQty = Number(data.qty);
     if (isNaN(rawQty) || rawQty <= 0) {
         throw new HttpsError('invalid-argument', 'الكمية المدخلة غير صالحة.');
     }
     let requestedQty = Math.floor(rawQty);
     
-    // تأمين فهارس الخيارات ضد قيم NaN والتجاوزات الأمنية
     let optIdx = null;
     if (data.optIdx !== null && data.optIdx !== undefined) {
         const parsedOptIdx = Number(data.optIdx);
@@ -211,47 +207,17 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
             let activeOffer = liveOffers.find(off => (!off.expiryDate || off.expiryDate > serverNow));
 
             let currentCouponData = null;
-let couponRef = null;
-if (couponCode) {
-    const couponQuerySnap = await transaction.get(db.collection('telecard_coupons').where('code', '==', couponCode).limit(1));
-    if (couponQuerySnap.empty) {
-        throw new HttpsError('not-found', 'الكود الذي أدخلته غير صحيح.');
-    }
-    
-    couponRef = couponQuerySnap.docs[0].ref;
-    currentCouponData = couponQuerySnap.docs[0].data();
-    
-    // 🛡️ تفعيل الجدار الناري المركزي الذي بنيناه في V18.1 (لا مجال لاختراق الكوبونات)
-    const validationResult = FinancialEngine.validateCoupon(
-        couponCode,
-        product,
-        finalQty, // الكمية المطلوبة
-        optIdx,
-        userData,
-        activeTierObj,
-        [currentCouponData], // نمرر الكوبون كمصفوفة ليتوافق مع الدالة
-        serverNow,
-        activeOffer
-    );
-    
-    if (!validationResult.valid) {
-        throw new HttpsError('failed-precondition', validationResult.msg); // سيتم رفض الكوبون برسالة توضيحية للعميل
-    }
-}            let finalQty = Math.max(1, Math.min(SYSTEM_LIMITS.MAX_QTY_PER_ORDER, requestedQty));
+            let couponRef = null;
+            let finalQty = Math.max(1, Math.min(SYSTEM_LIMITS.MAX_QTY_PER_ORDER, requestedQty));
+
             if (product.vaultPoolId) {
                 finalQty = Math.min(finalQty, SYSTEM_LIMITS.MAX_VAULT_QTY_PER_ORDER);
-            }
-
-            let idempotencyRef = null;
-            if (idempotencyKey) {
-                idempotencyRef = db.collection('telecard_idempotency_keys').doc(`${uid}_${idempotencyKey}`);
-                if ((await transaction.get(idempotencyRef)).exists) throw new HttpsError('already-exists', 'تم معالجة الطلب مسبقاً.');
             }
 
             const assignedTierId = String(userData.tierId || userData.tier || '1');
             let currentTierObj = tiersData.find(t => t.id === assignedTierId);
             if (!currentTierObj) throw new HttpsError('failed-precondition', 'مستوى الحساب غير موجود.');
-            
+
             let currentCycleSpent = Number(userData.tierCycleSpent || 0);
             const cycleStartTs = userData.tierCycleStartDate?.toMillis ? userData.tierCycleStartDate.toMillis() : (Number(userData.tierCycleStartDate) || serverNow);
             const durationDays = Number(currentTierObj?.durationDays || 30);
@@ -264,6 +230,38 @@ if (couponCode) {
                     const defaultTier = tiersData.find(t => t.isDefault) || tiersData[0];
                     activeTierObj = defaultTier || currentTierObj;
                 }
+            }
+
+            if (couponCode) {
+                const couponQuerySnap = await transaction.get(db.collection('telecard_coupons').where('code', '==', couponCode).limit(1));
+                if (couponQuerySnap.empty) {
+                    throw new HttpsError('not-found', 'الكود الذي أدخلته غير صحيح.');
+                }
+                
+                couponRef = couponQuerySnap.docs[0].ref;
+                currentCouponData = couponQuerySnap.docs[0].data();
+                
+                const validationResult = FinancialEngine.validateCoupon(
+                    couponCode,
+                    product,
+                    finalQty,
+                    optIdx,
+                    userData,
+                    activeTierObj,
+                    [currentCouponData],
+                    serverNow,
+                    activeOffer
+                );
+                
+                if (!validationResult.valid) {
+                    throw new HttpsError('failed-precondition', validationResult.msg); 
+                }
+            }            
+
+            let idempotencyRef = null;
+            if (idempotencyKey) {
+                idempotencyRef = db.collection('telecard_idempotency_keys').doc(`${uid}_${idempotencyKey}`);
+                if ((await transaction.get(idempotencyRef)).exists) throw new HttpsError('already-exists', 'تم معالجة الطلب مسبقاً.');
             }
             
             const pricingSnapshot = FinancialEngine.calculateOrderTotal({ product, tier: activeTierObj, offer: activeOffer, coupon: currentCouponData, optIdx }, finalQty); 
@@ -336,21 +334,14 @@ if (couponCode) {
             }
         });
 
-                // ... (باقي كود دالة createOrder) ...
-        
         return { success: true, isAutoDelivered, deliveredCode: deliveredCodeText };
-        }
-        catch (error) {
-            // 1. الأخطاء المتوقعة والمعروفة (مثل نقص الرصيد، الكود خاطئ) تمر للعميل لأنها آمنة
-            if (error instanceof HttpsError) throw error;
-            
-            // 2. تسجيل الخطأ الحقيقي في سجلات السيرفر (Firebase Console Logs) للتشخيص من قبلك كمدير
-            console.error("🚨 [CRITICAL_ORDER_ERROR]:", error);
-            
-            // 3. إرسال رسالة عامة وآمنة للعميل (منع تسريب تفاصيل السيرفر)
-            throw new HttpsError('internal', 'حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.');
-        }
-        });
+    } catch (error) {
+        if (error instanceof HttpsError) throw error;
+        console.error("🚨 [CRITICAL_ORDER_ERROR]:", error);
+        throw new HttpsError('internal', 'حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.');
+    }
+});
+
 // ==========================================
 // 💰 2. إرسال طلبات الإيداع
 // ==========================================
@@ -501,7 +492,6 @@ exports.adminProcessOrder = onCall(async (request) => {
 
             if (poolId) {
                 const vaultRef = db.collection('telecard_vault').doc(String(poolId));
-                // 🛡️ التحديث الدفاعي: إضافة limit للحد من الاستعلام المفتوح داخل Transaction
                 const queryLimit = orderData.qty ? Number(orderData.qty) : 200;
                 const keysQuerySnap = await transaction.get(vaultRef.collection('keys').where('orderId', '==', String(orderId)).limit(queryLimit));
                 
@@ -889,8 +879,9 @@ exports.onOfferUpdate = onDocumentWritten({
 }, async () => {
     await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
 });
+
 // ==========================================
-// 🛡️ 6. المزامنة الآمنة للمنتجات والمستويات (مع حماية Timeouts)
+// 🛡️ 6. المزامنة الآمنة للمنتجات والمستويات
 // ==========================================
 exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{productId}', retry: true }, async (event) => {
     const publicProdRef = db.collection('telecard_prods_public').doc(event.params.productId);
@@ -925,7 +916,6 @@ exports.adminForceSyncCatalog = onCall({ timeoutSeconds: 540 }, async (request) 
             }
             opCount++;
             
-            // 🛡️ تم التخفيض إلى 250 لضمان استقرار السيرفر
             if (opCount >= 250) { 
                 await currentBatch.commit(); 
                 currentBatch = db.batch(); 
@@ -939,7 +929,6 @@ exports.adminForceSyncCatalog = onCall({ timeoutSeconds: 540 }, async (request) 
     } catch (error) { throw new HttpsError('internal', `فشل المزامنة: ${error.message}`); }
 });
 
-// إبطال تفعيل retry لتفادي حلقة لانهائية من تكلفة الاستعلامات ومضاعفة الكتابة عند الاستدعاءات الضخمة
 exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', timeoutSeconds: 540 }, async (event) => {
     await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
     
@@ -960,7 +949,6 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
         totalUpdated++;
         opCount++;
         
-        // 🛡️ تم التخفيض إلى 250 لضمان استقرار السيرفر
         if (opCount >= 250) { 
             await currentBatch.commit(); 
             currentBatch = db.batch(); 
@@ -973,21 +961,15 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
 });
 
 // ==========================================
-// 🔔 7. الإشعارات الآلية
+// 🔔 7. الإشعارات الآلية الشاملة (مع الخروج المبكر)
 // ==========================================
-// تغيير من onDocumentUpdated إلى onDocumentWritten
 exports.autoNotifyOrderStatus = onDocumentWritten({ document: 'telecard_orders/{orderId}', retry: true }, async (event) => {
-    // 1. التحقق من وجود البيانات بعد العملية (تجاهل الحذف)
     if (!event.data.after.exists) return null;
     
     const after = event.data.after.data();
     const before = event.data.before.exists ? event.data.before.data() : null;
     
-    // 2. إذا كان تحديثاً ولم تتغير الحالة، تجاهل الأمر
     if (before && before.status === after.status) return null;
-    
-    // 3. تجاهل إرسال إشعار للطلبات الجديدة التي لا تزال "قيد المعالجة" 
-    // (لكيلا نزعج العميل بإشعارين: واحد للطلب وآخر عند الاكتمال)
     if (!before && (after.status === 'pending' || after.status === 'processing')) return null;
 
     let title = "تحديث طلب", message = `تم تغيير حالة الطلب إلى ${after.status}`;
@@ -997,44 +979,84 @@ exports.autoNotifyOrderStatus = onDocumentWritten({ document: 'telecard_orders/{
 
     const notifId = `notif_${event.params.orderId}_${after.status}`;
     return db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ 
-        id: notifId, 
-        title, 
-        message, 
-        type: 'notification', 
-        jumpTarget: 'order', 
-        createdAt: admin.firestore.FieldValue.serverTimestamp() 
+        id: notifId, title, message, type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp() 
     });
 });
-exports.autoNotifyDepositStatus = onDocumentUpdated({ document: 'telecard_deposits/{depositId}', retry: true }, async (event) => {
+
+exports.autoNotifyDepositStatus = onDocumentWritten({ document: 'telecard_deposits/{depositId}', retry: true }, async (event) => {
+    if (!event.data.after.exists) return null;
+    
     const after = event.data.after.data();
-    if (event.data.before.data().status === after.status) return null;
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    
+    if (before && before.status === after.status) return null;
+    if (!before && after.status === 'pending') return null;
 
     let title = "تحديث الإيداع", message = `الحالة: ${after.status}`;
     const displayAmt = after.creditedAmount !== undefined ? after.creditedAmount : after.amount;
     
-    if (after.status === 'approved') { title = "💰 إيداع مقبول"; message = `تم إضافة ${displayAmt} لمحفظتك.`; } 
+    if (after.status === 'approved') { title = "💰 رصيد جديد"; message = `تم إضافة ${displayAmt} لمحفظتك.`; } 
     else if (after.status === 'rejected') { title = "❌ إيداع مرفوض"; message = `السبب: ${after.adminNote || 'تواصل معنا'}`; } 
     else if (after.status === 'refunded') { title = "↩️ إيداع مسترجع"; message = `تم سحب ${displayAmt} من محفظتك.`; }
 
     const notifId = `notif_${event.params.depositId}_${after.status}`;
-    return db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ id: notifId, title, message, type: 'notification', jumpTarget: 'wallet', createdAt: admin.firestore.FieldValue.serverTimestamp() });
+    return db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ 
+        id: notifId, title, message, type: 'notification', jumpTarget: 'wallet', createdAt: admin.firestore.FieldValue.serverTimestamp() 
+    });
+});
+
+exports.autoNotifyUserUpdates = onDocumentUpdated({ document: 'telecard_users/{userId}', retry: true }, async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    
+    let promises = [];
+    
+    if (before.kycStatus !== after.kycStatus) {
+        let title = "", message = "";
+        if (after.kycStatus === 'approved' || after.kycStatus === 'verified') {
+            title = "✅ توثيق ناجح"; message = "تم التحقق من هويتك بنجاح، حسابك الآن موثق بالكامل.";
+        } else if (after.kycStatus === 'rejected') {
+            title = "⚠️ فشل التوثيق"; message = `تم رفض مستندات التوثيق: ${after.kycNote || 'يرجى مراجعة البيانات وإعادة الرفع'}.`;
+        }
+        
+        if (title) {
+            const notifId = `notif_kyc_${after.kycStatus}_${Date.now()}`;
+            promises.push(
+                db.collection('telecard_users').doc(event.params.userId).collection('notifications').doc(notifId).set({
+                    id: notifId, title, message, type: 'notification', icon: 'fa-shield-halved', jumpTarget: 'profile', createdAt: admin.firestore.FieldValue.serverTimestamp()
+                })
+            );
+        }
+    }
+    
+    if (before.tierId !== after.tierId && before.tierId) {
+        const notifId = `notif_tier_${after.tierId}_${Date.now()}`;
+        promises.push(
+            db.collection('telecard_users').doc(event.params.userId).collection('notifications').doc(notifId).set({
+                id: notifId, title: "🌟 تحديث مستوى الحساب", message: "تم تحديث مستواك في نظام الـ VIP. استمتع بمميزاتك الجديدة!", type: 'notification', icon: 'fa-medal', jumpTarget: 'tier', createdAt: admin.firestore.FieldValue.serverTimestamp()
+            })
+        );
+    }
+    
+    if (promises.length > 0) {
+        await Promise.all(promises);
+    }
+    
+    return null;
 });
 
 // ==========================================
 // 📈 8. المعالجات المجدولة للإحصائيات (Anti-Hotspotting Cron)
-// ⚠️ تم إيقاف المزامنة اللحظية بالكامل واستبدالها بهذه المهمة لخفض فاتورة الكتابات والقراءات
 // ==========================================
-// 🛡️ الاستثناء الثالث: الإحصائيات (تُعفى من الحجز الضخم للمعالجات)
 exports.autoUpdateGlobalStats = onSchedule({
     schedule: "every 15 minutes",
     timeZone: "UTC",
     timeoutSeconds: 540,
     memory: "256MiB",
     concurrency: 1,
-    maxInstances: 1 // 👈 هذا هو السطر السحري الذي سيحل المشكلة
+    maxInstances: 1 
 }, async (event) => {
     const AggregateField = admin.firestore.AggregateField;
-    
     try {
         const [ordersTotal, ordersCompleted, ordersRejected, ordersRefunded, financials, depTotal, depApproved, depRejected, depRefunded] = await Promise.all([
             db.collection('telecard_orders').count().get(),
@@ -1068,12 +1090,9 @@ exports.autoUpdateGlobalStats = onSchedule({
             }, 
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
-        
-        console.log("[Stats Cron] Successfully updated global statistics without hotspotting.");
-    } catch (error) {
-        console.error("[Stats Cron Error]:", error);
-    }
+    } catch (error) { console.error("[Stats Cron Error]:", error); }
 });
+
 // ==========================================
 // 📦 9. إدارة صناديق الأكواد (Vault Batching)
 // ==========================================
@@ -1086,7 +1105,6 @@ exports.adminSaveVaultCodes = onCall(async (request) => {
 
     try {
         const vaultRef = db.collection('telecard_vault').doc(String(poolId));
-        
         const rawCodes = codesList.map(c => String(c).trim()).filter(c => c.length > 0);
         const cleanCodes = [...new Set(rawCodes)];
         
@@ -1149,42 +1167,34 @@ exports.adminDeleteVaultPool = onCall({ timeoutSeconds: 540 }, async (request) =
 
 // ==========================================
 // 🔗 10. تصدير دوال الموردين بنظام الاستيراد المتأخر (Dynamic Lazy Loading)
-// (يتم تعريف التصدير كـ Getters لتجنب استهلاك الذاكرة وإبطاء التشغيل البارد للمحرك العام)
 // ==========================================
 Object.defineProperty(exports, "orderStatusWebhook", {
-    enumerable: true, // 👈 السطر السحري لكشف الدالة
-    get: () => require('./developerApi.js').orderStatusWebhook
+    enumerable: true, get: () => require('./developerApi.js').orderStatusWebhook
 });
 Object.defineProperty(exports, "cronRetryWebhooks", {
-    enumerable: true,
-    get: () => require('./developerApi.js').cronRetryWebhooks
+    enumerable: true, get: () => require('./developerApi.js').cronRetryWebhooks
 });
 Object.defineProperty(exports, "externalCreateOrder", {
-    enumerable: true,
-    get: () => require('./developerApi.js').externalCreateOrder
+    enumerable: true, get: () => require('./developerApi.js').externalCreateOrder
 });
 Object.defineProperty(exports, "syncSupplierData", {
-    enumerable: true,
-    get: () => require('./supplierEngine.js').syncSupplierData
+    enumerable: true, get: () => require('./supplierEngine.js').syncSupplierData
 });
 Object.defineProperty(exports, "scheduledSupplierSync", {
-    enumerable: true,
-    get: () => require('./supplierEngine.js').scheduledSupplierSync
+    enumerable: true, get: () => require('./supplierEngine.js').scheduledSupplierSync
 });
 Object.defineProperty(exports, "secureSaveSupplier", {
-    enumerable: true,
-    get: () => require('./supplierEngine.js').secureSaveSupplier
+    enumerable: true, get: () => require('./supplierEngine.js').secureSaveSupplier
 });
 
 // 🧹 مهمة مجدولة لتنظيف التخزين من الصور اليتيمة (تعمل كل يوم أحد الساعة 3 فجراً)
-// 🛡️ الاستثناء الرابع: دالة التنظيف (لا تحتاج لحجز المعالجات الضخم)
 exports.cleanupOrphanedKycDocs = onSchedule({
     schedule: "0 3 * * 0", 
     timeZone: "UTC",
     timeoutSeconds: 540,
     memory: "256MiB",
     concurrency: 1,
-    maxInstances: 1 // 👈 السطر السحري لحل مشكلة الرفض
+    maxInstances: 1 
 }, async (event) => {
     const bucket = admin.storage().bucket();
     const prefix = 'kyc_docs/';
@@ -1218,15 +1228,13 @@ exports.cleanupOrphanedKycDocs = onSchedule({
                     const userData = userDoc.data();
                     const kycData = userData.kycData || {};
                     
-                    // 🛡️ التحقق من وجود مسار الملف داخل الرابط المحفوظ
                     const safePath = encodeURIComponent(file.name);
-                    
                     const isFrontMatch = kycData.frontImg && String(kycData.frontImg).includes(safePath);
                     const isBackMatch = kycData.backImg && String(kycData.backImg).includes(safePath);
                     const isSelfieMatch = kycData.selfieImg && String(kycData.selfieImg).includes(safePath);
                     
                     if (isFrontMatch || isBackMatch || isSelfieMatch) {
-                        isOrphan = false; // الملف مستخدم برابط يحتوي على توكن، اتركه بأمان
+                        isOrphan = false; 
                     }
                 }
 
@@ -1237,7 +1245,5 @@ exports.cleanupOrphanedKycDocs = onSchedule({
             }
         }
         console.log(`[Storage Cleanup] Successfully deleted ${deletedCount} orphaned KYC files.`);
-    } catch (error) {
-        console.error("[Storage Cleanup Error]:", error);
-    }
+    } catch (error) { console.error("[Storage Cleanup Error]:", error); }
 });
