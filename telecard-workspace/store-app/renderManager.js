@@ -1050,7 +1050,7 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
                     userName: Utils.escapeHtml(rawUserName), 
                     userDisplayId: RenderHelpers.formatUserId(DataManager.user),
                     method: d.method || '---', amount: rawAmt, currency: d.currency || 'USD',
-                    feePercent: d.feesPercent || 0, feeVal: calcFee, feeType: isBonus ? 'fee', 
+                    feePercent: d.feesPercent || 0, feeVal: calcFee, feeType: isBonus ? 'bonus' : 'fee', 
                     netVal: credAmt, targetCurrency: d.targetCurrency || 'USD',
                     dateTime: RenderHelpers.formatSafeDate(Utils.parseSafeTime(d.time || d.createdAt))
                 }

@@ -206,15 +206,15 @@ ClientSystem.initFirebaseListeners = function() {
     }
     
     if (DB_KEYS.ALERTS) {
-        this.activeListeners.push(StoreDB.listenCollection(DB_KEYS.ALERTS, (data) => {
-            _updateLiveArray(LiveStoreData.alerts, _normalizeDataTime(Array.isArray(data) ? data : []));
-            requestAnimationFrame(() => { 
-                if(this.processAndDisplayAlerts) this.processAndDisplayAlerts(); 
-                if(this.updateNotifBadges) this.updateNotifBadges(); 
-            });
-        }));
-    }
-    
+    // تم استخدام listenQuery الصحيحة مع مصفوفة فلاتر فارغة لجلب كل الإشعارات الإدارية
+    this.activeListeners.push(StoreDB.listenQuery(DB_KEYS.ALERTS, [], 'createdAt', 50, (data) => {
+        _updateLiveArray(LiveStoreData.alerts, _normalizeDataTime(Array.isArray(data) ? data : []));
+        requestAnimationFrame(() => {
+            if (this.processAndDisplayAlerts) this.processAndDisplayAlerts();
+            if (this.updateNotifBadges) this.updateNotifBadges();
+        });
+    }));
+}    
     if (!auth) return; 
     
     if (this._authUnsubscribe) this._authUnsubscribe();

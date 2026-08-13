@@ -1797,10 +1797,18 @@ export const UICore = {
     },
 
     applyStoreSearch: function() {
-        const inp = document.getElementById('store-search-input');
-        if(RenderManager.searchStoreTerm) RenderManager.searchStoreTerm(inp ? inp.value : '');
-    },
-
+    const inp = document.getElementById('store-search-input');
+    
+    // 1. تنفيذ عملية البحث
+    if (RenderManager.searchStoreTerm) {
+        RenderManager.searchStoreTerm(inp ? inp.value : '');
+    }
+    
+    // 2. إغلاق لوحة المفاتيح (الكيبورد) في أجهزة الجوال لإظهار النتائج
+    if (inp) {
+        inp.blur();
+    }
+},
     setFilterDefaults: function(prefix) {
         const datePrefix = prefix === 'payments' ? 'pay' : prefix;
         const startEl = document.getElementById(`${datePrefix}-date-start`), endEl = document.getElementById(`${datePrefix}-date-end`);

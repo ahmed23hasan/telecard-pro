@@ -1,10 +1,10 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة المطلقة V17.2 👑
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة المطلقة V17.3 👑
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديثات المعمارية (V17.2):
-// 1. Unified UI Lock (DRY): دمج حقن الدرع الشفاف وإزالته في دوال مركزية للتحكم بالواجهة.
-// 2. Kill Switch Timer: نظام طوارئ لفك قفل الشاشة إجبارياً بعد 60 ثانية لتجنب التجميد الأبدي.
-// 3. Clean Receipt Preview: مسح المعاينة البصرية السابقة عند اختيار ملف غير مدعوم.
+// 🚀 التحديثات المعمارية (V17.3):
+// 1. Clean UX: إزالة إشعارات التوست (Toast) المزدوجة عند الإرسال والاكتفاء بالنوافذ (Modals).
+// 2. Unified UI Lock (DRY): دمج حقن الدرع الشفاف وإزالته في دوال مركزية للتحكم بالواجهة.
+// 3. Kill Switch Timer: نظام طوارئ لفك قفل الشاشة إجبارياً بعد 60 ثانية لتجنب التجميد الأبدي.
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -87,7 +87,7 @@ export const UIFinance = {
         }
     },
 
-    // 🛡️ التحديث 1 و 2: دالة مركزية لغلق الشاشة وحمايتها من التجميد الأبدي
+    // 🛡️ حماية الواجهة من التجميد الأبدي
     _lockUI: function(btn) {
         this._isProcessingTx = true;
         this._toggleButtonLoader(btn, true);
@@ -108,7 +108,7 @@ export const UIFinance = {
             }
         }, 15000); 
 
-        // 🛡️ مفتاح الطوارئ (Kill Switch): بعد 60 ثانية إجبارياً يتم فك القفل
+        // 🛡️ مفتاح الطوارئ (Kill Switch)
         this._killSwitchTimer = setTimeout(() => {
             if (this._isProcessingTx) {
                 getSys().showToast?.('انتهى وقت المعالجة وتأخر الخادم بالرد، تم تحرير الشاشة.', 'error');
@@ -467,10 +467,22 @@ export const UIFinance = {
         try {
             const result = await DataManager.confirmPurchase(DataManager.currentProd, qty, optIdx, finalInputStr, DataManager.appliedCoupon);
             if (result.success) {
-    getSys().showToast?.(result.msg || 'تم تنفيذ الطلب بنجاح', 'success'); // 👈 السطر المفقود
-    getSys().sfx?.('success'); this.closePurchaseModal();
-    if(typeof DataManager.syncUser === 'function') DataManager.syncUser(); getSys().updateDisplayBalance?.();
+                // 1. صوت النجاح
+                getSys().sfx?.('success'); 
+                
+                // 2. 🚀 رفع عداد الجرس فوراً كخدعة بصرية سريعة قبل السيرفر (للطلبات الفورية فقط)
+                if (result.isAutoDelivered && typeof getSys().updateNotifBadges === 'function') {
+                    const currentBadge = document.getElementById('header-notif-badge');
+                    const currentCount = currentBadge ? (parseInt(currentBadge.innerText) || 0) : 0;
+                    getSys().updateNotifBadges(currentCount + 1);
+                }
 
+                // 3. إغلاق وتحديث
+                this.closePurchaseModal();
+                if(typeof DataManager.syncUser === 'function') DataManager.syncUser(); 
+                getSys().updateDisplayBalance?.();
+
+                // 4. فتح النافذة (مودال) بدون أي توست مزعج
                 setTimeout(() => {
                     getSys().openModal?.('purchase-success');
                     const titleEl = document.getElementById('purchase-success-title'), descEl = document.getElementById('purchase-success-desc'), codeDisplayContainer = document.getElementById('purchase-code-display');
@@ -488,15 +500,17 @@ export const UIFinance = {
                         if (codeDisplayContainer) { codeDisplayContainer.innerHTML = ''; codeDisplayContainer.classList.add('d-none'); }
                     }
                 }, 150);
-            } else { getSys().showToast?.(result.msg || 'فشلت العملية', 'error'); keepKeyboardOpen(); }
+            } else { 
+                // ✔️ التوست يُعرض فقط في حالة الخطأ
+                getSys().showToast?.(result.msg || 'فشلت العملية', 'error'); 
+                keepKeyboardOpen(); 
+            }
         } catch (err) { 
             getSys().showToast?.('حدث خطأ في النظام', 'error'); 
         } finally { 
             this._unlockUI(submitBtn); 
         }
-    },
-    
-    _manageDepositModalState: function(isStep2) {
+    },    _manageDepositModalState: function(isStep2) {
         const modal = document.getElementById('balance-modal');
         if (!modal) return;
 
@@ -864,27 +878,27 @@ export const UIFinance = {
 
             const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
             
-                    if (result.success) {
-            // إظهار إشعار التوست بنجاح العملية
-            getSys().showToast?.(result.msg || 'تم إرسال طلب الإيداع بنجاح', 'success'); 
-            
-            getSys().sfx?.('success'); 
-            this.closeBalanceModal();
-            if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
-            setTimeout(() => getSys().openModal?.('success'), 150);
-        } else { 
+            if (result.success) {
+                // ❌ تم الإزالة هنا لعدم تكرار الإشعار والاكتفاء بالنافذة (Modal)
+                getSys().sfx?.('success'); 
+                this.closeBalanceModal();
+                if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
+                setTimeout(() => getSys().openModal?.('success'), 150);
+            } else { 
+                // ✔️ التوست يُعرض فقط في حالة الخطأ
+                if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
+                getSys().showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
+            }
+        } catch (error) { 
             if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
-            getSys().showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
+            console.error("🚨 Client-Side Deposit Exception:", error);
+            getSys().showToast?.('حدث خطأ أثناء الاتصال بالخادم.', 'error'); 
+        } 
+        finally { 
+            this._unlockUI(submitBtn); 
         }
-    } catch (error) { 
-        if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
-        console.error("🚨 Client-Side Deposit Exception:", error);
-        getSys().showToast?.('حدث خطأ أثناء الاتصال بالخادم.', 'error'); 
-    } 
-    finally { 
-        this._unlockUI(submitBtn); 
-    }
-},
+    },
+
     togglePayDetail: function(headerElement) {
         if (!headerElement) return; const card = headerElement.closest('.pay-history-card'); if (!card) return;
         window.requestAnimationFrame(() => {

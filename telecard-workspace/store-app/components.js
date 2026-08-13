@@ -337,31 +337,44 @@ export const Components = {
     },
 
     animatePriceChange: function(startVal, endVal, currency) {
-        const el = document.getElementById('pm-price');
-        if (!el) return;
-        if (this.priceTicker) cancelAnimationFrame(this.priceTicker);
-
-        const duration = 800;
-        let startTimestamp = null;
-
-        const step = (timestamp) => {
-            if (!startTimestamp) startTimestamp = timestamp;
-            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-            const easeProgress = 1 - Math.pow(1 - progress, 3);
-            const currentVal = startVal + (endVal - startVal) * easeProgress;
-            
-            el.innerHTML = RenderHelpers.formatMoney(currentVal, currency);
-            
-            if (progress < 1) { 
-                this.priceTicker = requestAnimationFrame(step); 
-            } else { 
-                this.priceTicker = null; 
-                el.innerHTML = RenderHelpers.formatMoney(endVal, currency); 
-            }
-        };
-        this.priceTicker = requestAnimationFrame(step);
-    },
-
+    const el = document.getElementById('pm-price');
+    if (!el) return;
+    if (this.priceTicker) cancelAnimationFrame(this.priceTicker);
+    
+    // 1. بناء الهيكل (HTML) مرة واحدة فقط قبل بدء الحركة
+    el.innerHTML = RenderHelpers.formatMoney(startVal, currency);
+    
+    // 2. التقاط العنصر الذي يحتوي على الرقم "فقط" من داخل الهيكل الذي صنعناه
+    const numElement = el.querySelector('.num-en.money-val');
+    
+    // في حال حدوث خطأ ولم نجد العنصر، نحدث السعر بالطريقة العادية ونخرج
+    if (!numElement) {
+        el.innerHTML = RenderHelpers.formatMoney(endVal, currency);
+        return;
+    }
+    
+    const duration = 800;
+    let startTimestamp = null;
+    
+    const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+        const easeProgress = 1 - Math.pow(1 - progress, 3);
+        const currentVal = startVal + (endVal - startVal) * easeProgress;
+        
+        // 3. التحديث الخفيف جداً: نغير "النص" للرقم فقط دون لمس الـ HTML والعملة
+        numElement.textContent = RenderHelpers._enNum(currentVal, 2);
+        
+        if (progress < 1) {
+            this.priceTicker = requestAnimationFrame(step);
+        } else {
+            this.priceTicker = null;
+            // 4. في النهاية نضع القيمة النهائية لضمان الدقة المطلقة
+            el.innerHTML = RenderHelpers.formatMoney(endVal, currency);
+        }
+    };
+    this.priceTicker = requestAnimationFrame(step);
+},
     toggleCoupon: function(btn) {
         const section = btn.closest('.coupon-section');
         if(section) section.classList.toggle('open');

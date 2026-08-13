@@ -1,11 +1,12 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Enterprise V15.0 💎
+// 🛠️ مساعدات محرك الرسم العالمي (Universal Render Helpers) - Enterprise V15.1 💎
 // 🚀 الهندسة: Provider Pattern (Pure Agnostic Core) + Destructuring-Safe
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام أو ملفات خارجية
-// 🌟 التحديث الأقصى (V15.0): 
-// 1. Stripe-Like IDs: تقنيع بصري احترافي لأرقام الطلبات والإيداعات مع الحفاظ على بادئات (ORD/DEP).
-// 2. Crypto Flags Support: إضافة دعم أيقونات العملات الرقمية كـ USDT.
-// 3. Strict Sanitization: حماية المعرفات والنصوص المقتطعة من ثغرات الحقن.
+// 🌟 التحديث الأقصى (V15.1): 
+// 1. Pending-Write Time Fix: حل جذري لمشكلة اختفاء الإشعارات عبر تحويل الـ Null إلى Date.now().
+// 2. Stripe-Like IDs: تقنيع بصري احترافي لأرقام الطلبات والإيداعات مع الحفاظ على بادئات (ORD/DEP).
+// 3. Crypto Flags Support: إضافة دعم أيقونات العملات الرقمية كـ USDT.
+// 4. Strict Sanitization: حماية المعرفات والنصوص المقتطعة من ثغرات الحقن.
 // ============================================================================
 
 let _injectedSource = null;
@@ -231,7 +232,7 @@ export const RenderHelpers = Object.freeze({
     },
 
     // ============================================================================
-    // ⏱️ المحرك الزمني المركزي
+    // ⏱️ المحرك الزمني المركزي (تم تحديثه للإصلاح الجذري V15.1)
     // ============================================================================
 
     parseUnifiedTime: function(item) {
@@ -241,7 +242,8 @@ export const RenderHelpers = Object.freeze({
     },
 
     parseTime: function(ts) {
-        if (ts === null || ts === undefined) return 0;
+        // 🛡️ الإصلاح المعماري 1: إذا كان الوقت مجهولاً (Pending Write من فايربيز)، فهو يحدث "الآن"
+        if (ts === null || ts === undefined || ts === '') return Date.now();
         if (typeof ts === 'number') return ts;
         if (ts instanceof Date) return ts.getTime();
         
@@ -255,15 +257,14 @@ export const RenderHelpers = Object.freeze({
                 safeString = ts.replace(/-/g, '/');
             }
             const parsed = new Date(safeString).getTime();
-            return isNaN(parsed) ? 0 : parsed;
+            return isNaN(parsed) ? Date.now() : parsed;
         }
         
-        return 0; 
+        return Date.now(); 
     },
 
     formatSafeDate: function(ts) {
         const timeMs = RenderHelpers.parseTime(ts);
-        if (!timeMs) return '---';
         const dateObj = new Date(timeMs);
         if (isNaN(dateObj.getTime())) return '---';
         
