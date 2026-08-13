@@ -501,7 +501,7 @@ export const UIFinance = {
                     }
                 }, 150);
             } else { 
-                // ✔️ التوست  يُعرض فقط في حالة الخطأ
+                // ✔️ التوست يُعرض فقط في حالة الخطأ
                 getSys().showToast?.(result.msg || 'فشلت العملية', 'error'); 
                 keepKeyboardOpen(); 
             }
