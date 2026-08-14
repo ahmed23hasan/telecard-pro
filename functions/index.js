@@ -136,7 +136,7 @@ exports.onUserAuthCreated = functions.auth.user().onCreate(async (user) => {
 });
 
 // ==========================================
-// 🛒 1. إنشاء الطلبات للعملاء
+// 🛒 1. إنشاء الطلبات للعملاء،
 // ==========================================
 exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
