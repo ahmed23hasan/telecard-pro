@@ -1166,7 +1166,7 @@ exports.adminDeleteVaultPool = onCall({ timeoutSeconds: 540 }, async (request) =
 });
 
 // ==========================================
-// 🔗 10. تصدير دوال الموردين      بنظام الاستيراد المتأخر (Dynamic Lazy Loading)
+// 🔗 10. تصدير دوال الموردين       بنظام الاستيراد المتأخر (Dynamic Lazy Loading)
 // ==========================================
 Object.defineProperty(exports, "orderStatusWebhook", {
     enumerable: true, get: () => require('./developerApi.js').orderStatusWebhook
