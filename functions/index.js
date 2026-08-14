@@ -1094,7 +1094,7 @@ exports.autoUpdateGlobalStats = onSchedule({
 });
 
 // ==========================================
-// 📦 9. إدا  ة صناديق الأكواد (Vault Batching)
+// 📦 9. إدار ة صناديق الأكواد (Vault Batching)
 // ==========================================
 exports.adminSaveVaultCodes = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
