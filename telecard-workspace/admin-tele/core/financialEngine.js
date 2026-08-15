@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V18.4 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V18.5 💎 (The Oracle)
 // 🎯 الوظيفة: محاكاة أسعار السيرفر بدقة 100%، كشف الأرباح، وتشخيص الأخطاء بشفافية.
-// 🚀 التحديثات (V18.4): 
-// 1. Surgical Coupon Caps (محاكاة الحد الأعلى للخصم لكل كوبون).
-// 2. Anti-Stacking Shield (تنبيه الإدارة عند محاولة دمج الكوبون مع التخفيض).
-// 3. Advanced Oracle Firewall (كشف كسر حاجز الربح الآمن 5% بشفافية دون انهيار).
-// 4. تطابق صرامة `disableCoupons` بين دوال الفحص والحساب.
+// 🚀 التحديثات (V18.5): 
+// 1. Global Failsafe Cap: محاكاة شبكة الأمان (95%) ليتطابق حساب الإدارة مع السيرفر.
+// 2. Surgical Coupon Caps: محاكاة الحد الأعلى للخصم لكل كوبون (maxDiscount).
+// 3. Anti-Stacking Shield: تنبيه الإدارة عند محاولة دمج الكوبون مع التخفيض.
+// 4. Advanced Oracle Firewall: كشف كسر حاجز الربح الآمن 5% بشفافية دون انهيار.
 // ============================================================================
 
 export const FinancialEngine = {
@@ -15,8 +15,9 @@ export const FinancialEngine = {
         INTERNAL_PRECISION: 8, 
         MAX_UI_QTY: 10000,
         MIN_SALE_PRICE: 0.01,
-        // 🛡️ درع حماية الأرباح المتطابق مع السيرفر
-        MIN_MARGIN_PERCENT: 5 
+        // 🛡️ دروع الحماية المتطابقة مع السيرفر
+        MIN_MARGIN_PERCENT: 5,        // يجب بقاء 5% ربح كحد أدنى فوق التكلفة
+        MAX_GLOBAL_DISCOUNT_PCT: 95   // شبكة أمان تمنع أي خصم من تجاوز 95%
     }),
 
     // ========================================================================
@@ -206,9 +207,20 @@ export const FinancialEngine = {
         if (allowsDiscounts && offer && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name;
             const val = this._preciseRound(this.extractNum(offer.value), this.CONFIG.INTERNAL_PRECISION);
-            offerDiscount = offer.type === 'percentage' ? this._internalMul(originalPrice, this._internalDiv(val, 100)) : Math.min(val, currentPrice);
+            
+            let calculatedOfferDiscount = 0;
+            if (offer.type === 'percentage') {
+                calculatedOfferDiscount = this._internalMul(originalPrice, this._internalDiv(val, 100));
+            } else {
+                calculatedOfferDiscount = val;
+            }
+
+            // 🛡️ تطبيق شبكة الأمان العالمية على العروض
+            const maxGlobalOfferCap = this._internalMul(originalPrice, this._internalDiv(this.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
+            offerDiscount = Math.min(calculatedOfferDiscount, currentPrice, maxGlobalOfferCap);
+            
+            currentPrice = this._internalSub(currentPrice, offerDiscount);
         }
-        currentPrice = this._internalSub(currentPrice, offerDiscount);
 
         // 2. تطبيق الكوبون (مع حماية الحد الأعلى ومنع الازدواجية)
         let couponCode = null, couponDiscount = 0;
@@ -223,16 +235,18 @@ export const FinancialEngine = {
             if (coupon.type === 'percentage') {
                 calculatedDiscount = this._internalMul(currentPrice, this._internalDiv(coupVal, 100));
             } else {
-                calculatedDiscount = Math.min(coupVal, currentPrice);
+                calculatedDiscount = coupVal;
             }
 
-            // 🛡️ تطبيق الحد الأعلى للخصم (Max Discount Cap)
+            // 🛡️ تطبيق الحد الأعلى للخصم (Max Discount Cap) الخاص بالكوبون
             const maxCap = this.extractNum(coupon.maxDiscount);
             if (maxCap > 0) {
                 calculatedDiscount = Math.min(calculatedDiscount, maxCap);
             }
 
-            couponDiscount = calculatedDiscount;
+            // 🛡️ تطبيق شبكة الأمان العالمية على الكوبون
+            const maxGlobalCouponCap = this._internalMul(currentPrice, this._internalDiv(this.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
+            couponDiscount = Math.min(calculatedDiscount, currentPrice, maxGlobalCouponCap);
         }
         
         currentPrice = Math.max(this.CONFIG.MIN_SALE_PRICE, this._internalSub(currentPrice, couponDiscount));

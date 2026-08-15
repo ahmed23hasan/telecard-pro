@@ -379,7 +379,10 @@ export const UIFinance = {
             if (!result || typeof result !== 'object') return;
 
             const unitInput = document.getElementById('pm-price-unit'); if (unitInput) unitInput.value = result.unitText || '';
-            const beautifulTotalHtml = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(result.totalLocalBase, result.displayCurrency) : (result.totalText || '0.00');
+            
+            // 🛡️ التعديل الجذري: استخدام الرقم الخاص بعملة العرض (display) بدلاً من العملة الأساسية (base)
+            const targetTotalValue = result.totalDisplayNum !== undefined ? result.totalDisplayNum : result.totalLocalBase;
+            const beautifulTotalHtml = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(targetTotalValue, result.displayCurrency) : (result.totalText || '0.00');
 
             const totalInput = document.getElementById('pm-total');
             if (totalInput) { if (totalInput.tagName === 'INPUT') totalInput.value = result.totalText || ''; else totalInput.innerHTML = beautifulTotalHtml; }
@@ -388,7 +391,11 @@ export const UIFinance = {
             
             if (result.hasDiscount) {
                 if (priceBox) priceBox.classList.add('active');
-                if (oldPriceEl) oldPriceEl.innerHTML = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(result.oldTotalLocalBase, result.displayCurrency) : ''; 
+                
+                // 🛡️ التعديل الجذري للسعر القديم
+                const targetOldValue = result.oldTotalDisplayNum !== undefined ? result.oldTotalDisplayNum : (result.oldTotalLocalBase || 0);
+                if (oldPriceEl) oldPriceEl.innerHTML = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(targetOldValue, result.displayCurrency) : ''; 
+                
                 if (currPriceEl) currPriceEl.innerHTML = beautifulTotalHtml; 
             } else {
                 if (priceBox) priceBox.classList.remove('active');
@@ -396,7 +403,6 @@ export const UIFinance = {
             }
         });
     },
-
     handlePurchaseSubmit: async function() { 
         if (this._isProcessingTx || !DataManager.currentProd || !this._validateKycAndSystem('purchase')) return;
         

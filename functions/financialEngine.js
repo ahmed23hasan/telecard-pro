@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud & Server Edition) - النسخة الاستراتيجية V18.4 👑
+// 💰 المحرك المالي المركزي (Cloud & Server Edition) - النسخة الاستراتيجية V18.5 👑
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، وتطبيق سياسات التسويق بذكاء.
-// 🚀 التحديثات (V18.4): 
-// 1. Surgical Coupon Caps (تطبيق حد أدنى للطلب وحد أعلى للخصم لكل كوبون على حدة).
-// 2. Anti-Stacking Shield (المنع القطعي لدمج عروض التخفيض مع الكوبونات).
-// 3. Graceful Firewall (استبدال الانهيار بالإبلاغ الصامت عن كسر حواجز الربح).
-// 4. Safe Margin Lock (حماية سعر التكلفة + 5% لضمان تغطية رسوم بوابات الدفع).
+// 🚀 التحديثات (V18.5): 
+// 1. Global Failsafe Cap: إضافة شبكة أمان تمنع وصول الخصم لـ 100% في حال أخطأت الإدارة.
+// 2. Surgical Coupon Caps: تطبيق حد أعلى للخصم لكل كوبون على حدة.
+// 3. Anti-Stacking Shield: المنع القطعي لدمج عروض التخفيض مع الكوبونات.
+// 4. Safe Margin Lock: حماية سعر التكلفة + 5% لضمان تغطية رسوم بوابات الدفع.
 // ============================================================================
 
 const FinancialEngineDef = {
@@ -16,8 +16,10 @@ const FinancialEngineDef = {
         PRECISION: 4,          
         INTERNAL_PRECISION: 8, 
         MIN_SALE_PRICE: 0.01,
-        // 🛡️ درع حماية رأس المال النهائي
-        MIN_MARGIN_PERCENT: 5 // يجب بقاء 5% ربح كحد أدنى فوق التكلفة لمنع بيع القروش
+        
+        // 🛡️ دروع حماية رأس المال والأخطاء البشرية
+        MIN_MARGIN_PERCENT: 5,        // يجب بقاء 5% ربح كحد أدنى فوق التكلفة
+        MAX_GLOBAL_DISCOUNT_PCT: 95   // شبكة أمان: يمنع أي خصم من تجاوز 95% حتى لو نسي الإداري وضع سقف
     }),
 
     // ========================================================================
@@ -208,12 +210,21 @@ const FinancialEngineDef = {
         if (allowsDiscounts && offer && typeof offer === 'object' && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name || null;
             const offerVal = FinancialEngineDef._preciseRound(FinancialEngineDef.extractNum(offer.value), FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
+            
+            let calculatedOfferDiscount = 0;
             if (offer.type === 'percentage') {
                 const offerValDec = FinancialEngineDef._internalDiv(offerVal, 100);
-                offerDiscount = FinancialEngineDef._internalMul(originalPrice, offerValDec);
-            } else offerDiscount = Math.min(offerVal, currentPrice);
+                calculatedOfferDiscount = FinancialEngineDef._internalMul(originalPrice, offerValDec);
+            } else {
+                calculatedOfferDiscount = offerVal;
+            }
+
+            // 🛡️ Failsafe: لا تسمح للعرض بتجاوز نسبة الأمان العالمية
+            const maxGlobalOfferCap = FinancialEngineDef._internalMul(originalPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
+            offerDiscount = Math.min(calculatedOfferDiscount, currentPrice, maxGlobalOfferCap);
+            
+            currentPrice = FinancialEngineDef._internalSub(currentPrice, offerDiscount);
         }
-        currentPrice = FinancialEngineDef._internalSub(currentPrice, offerDiscount);
 
         // 2. تطبيق الكوبون بذكاء تجاري (Max Discount Cap)
         let couponCode = null, couponDiscount = 0;
@@ -231,7 +242,7 @@ const FinancialEngineDef = {
                 const coupValDec = FinancialEngineDef._internalDiv(coupVal, 100);
                 calculatedDiscount = FinancialEngineDef._internalMul(currentPrice, coupValDec);
             } else {
-                calculatedDiscount = Math.min(coupVal, currentPrice);
+                calculatedDiscount = coupVal;
             }
             
             // 🛡️ تطبيق الحد الأعلى للخصم الخاص بالكوبون (Surgical Cap)
@@ -239,8 +250,10 @@ const FinancialEngineDef = {
             if (maxCap > 0) {
                 calculatedDiscount = Math.min(calculatedDiscount, maxCap);
             }
-            
-            couponDiscount = calculatedDiscount;
+
+            // 🛡️ Failsafe: شبكة الأمان العالمية تحسباً لأخطاء الإدارة البشرية
+            const maxGlobalCouponCap = FinancialEngineDef._internalMul(currentPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
+            couponDiscount = Math.min(calculatedDiscount, currentPrice, maxGlobalCouponCap);
         }
         
         currentPrice = Math.max(FinancialEngineDef.CONFIG.MIN_SALE_PRICE, FinancialEngineDef._internalSub(currentPrice, couponDiscount));

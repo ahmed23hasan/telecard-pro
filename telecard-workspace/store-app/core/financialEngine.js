@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي للواجهة الأمامية (Store Frontend Version) - V18.4 🛒
+// 💰 المحرك المالي للواجهة الأمامية (Store Frontend Version) - V18.5 🛒
 // 🎯 الوظيفة: محاكاة أرقام السيرفر، معالجة الـ Strings من الـ DOM، وحماية الـ UX
-// 🚀 التحديثات (V18.4):
-// 1. انعكاس سقف الكوبون (Max Discount Cap) لكي يراه العميل.
-// 2. تطبيق منع الازدواجية (Anti-Stacking Policy) بوضوح للمستخدم.
-// 3. تجاهل الجدار الناري صمتاً (لأن السيرفر هو من سيوقفه لحماية أسرار التكلفة).
-// 4. تطابق التقريب الرياضي (EPSILON) مع الإدارة والسيرفر.
+// 🚀 التحديثات (V18.5):
+// 1. Global Failsafe Cap: محاكاة شبكة الأمان (95%) ليتطابق السعر المعروض مع السيرفر.
+// 2. انعكاس سقف الكوبون (Max Discount Cap) لكي يراه العميل.
+// 3. تطبيق منع الازدواجية (Anti-Stacking Policy) بوضوح للمستخدم.
+// 4. تجاهل الجدار الناري صمتاً (لأن السيرفر هو من سيوقفه لحماية أسرار التكلفة).
 // ============================================================================
 
 import { parseSafeTime } from '../utils.js';
@@ -17,7 +17,9 @@ const FinancialEngineDef = {
         MAX_PRICE_LIMIT: 100000,
         PRECISION: 4,          
         INTERNAL_PRECISION: 8, 
-        MIN_SALE_PRICE: 0.01   
+        MIN_SALE_PRICE: 0.01,
+        // 🛡️ التحديث الجديد: شبكة الأمان ليتطابق الحساب مع السيرفر تماماً
+        MAX_GLOBAL_DISCOUNT_PCT: 95 
     }),
 
     // ========================================================================
@@ -145,7 +147,6 @@ const FinancialEngineDef = {
     validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
         if (!code) return { valid: false, msg: 'يرجى إدخال الكود' };
         
-        // 🛡️ درع منع الازدواجية (تنبيه للعميل بلطف)
         if (offer && typeof offer === 'object' && offer.isActive !== false && offer.type !== 'fake') {
             return { valid: false, msg: 'لا يمكن استخدام الكود مع المنتجات المخفضة' };
         }
@@ -154,7 +155,6 @@ const FinancialEngineDef = {
         if (!cp) return { valid: false, msg: 'الكود غير صحيح' };
         if (cp.isActive === false) return { valid: false, msg: 'هذا الكوبون غير فعال' };
         
-        // حماية المنتج
         const isCouponDisabled = (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true');
         if (isCouponDisabled) { 
             return { valid: false, msg: 'هذا المنتج لا يدعم استخدام الكوبونات' }; 
@@ -206,14 +206,23 @@ const FinancialEngineDef = {
         if (allowsDiscounts && offer && typeof offer === 'object' && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name || null;
             const offerVal = FinancialEngineDef._preciseRound(FinancialEngineDef.extractNum(offer.value), FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
+            
+            let calculatedOfferDiscount = 0;
             if (offer.type === 'percentage') {
                 const offerValDec = FinancialEngineDef._internalDiv(offerVal, 100);
-                offerDiscount = FinancialEngineDef._internalMul(originalPrice, offerValDec);
-            } else offerDiscount = Math.min(offerVal, currentPrice);
-        }
-        currentPrice = FinancialEngineDef._internalSub(currentPrice, offerDiscount);
+                calculatedOfferDiscount = FinancialEngineDef._internalMul(originalPrice, offerValDec);
+            } else {
+                calculatedOfferDiscount = offerVal;
+            }
 
-        // 2. تطبيق الكوبون (مع انعكاس سقف الخصم للعميل)
+            // 🛡️ تطبيق شبكة الأمان العالمية على الواجهة ليتطابق السعر المعروض مع السيرفر
+            const maxGlobalOfferCap = FinancialEngineDef._internalMul(originalPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
+            offerDiscount = Math.min(calculatedOfferDiscount, currentPrice, maxGlobalOfferCap);
+            
+            currentPrice = FinancialEngineDef._internalSub(currentPrice, offerDiscount);
+        }
+
+        // 2. تطبيق الكوبون 
         let couponCode = null, couponDiscount = 0;
         const isCouponDisabled = (product.disableCoupons === true || String(product.disableCoupons).toLowerCase() === 'true');
         const canUseCoupon = allowsDiscounts && !isCouponDisabled && offerDiscount === 0;
@@ -227,23 +236,20 @@ const FinancialEngineDef = {
                 const coupValDec = FinancialEngineDef._internalDiv(coupVal, 100);
                 calculatedDiscount = FinancialEngineDef._internalMul(currentPrice, coupValDec);
             } else {
-                calculatedDiscount = Math.min(coupVal, currentPrice);
+                calculatedDiscount = coupVal;
             }
             
-            // 🛡️ تطبيق الحد الأعلى للخصم لكي يرى العميل الخصم الفعلي
             const maxCap = FinancialEngineDef.extractNum(coupon.maxDiscount);
             if (maxCap > 0) {
                 calculatedDiscount = Math.min(calculatedDiscount, maxCap);
             }
             
-            couponDiscount = calculatedDiscount;
+            // 🛡️ تطبيق شبكة الأمان العالمية على الكوبون في الواجهة
+            const maxGlobalCouponCap = FinancialEngineDef._internalMul(currentPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
+            couponDiscount = Math.min(calculatedDiscount, currentPrice, maxGlobalCouponCap);
         }
         
         currentPrice = Math.max(FinancialEngineDef.CONFIG.MIN_SALE_PRICE, FinancialEngineDef._internalSub(currentPrice, couponDiscount));
-        
-        // تنويه: الجدار الناري (Firewall / Cost check) تم حذفه من هذه البيئة عمداً! 
-        // لا نريد للواجهة الأمامية معرفة "سعر التكلفة" أو إخبار العميل بأسرار الأرباح. 
-        // السيرفر هو من سيقوم بحمايتك في حال كسر السعر للحاجز.
 
         return {
             originalPrice: FinancialEngineDef._preciseRound(originalPrice),
@@ -271,24 +277,31 @@ const FinancialEngineDef = {
     getPricingLocal: function(prod, user, qty, optIdx, appliedCoupon, activeOffer, userTier, rates, baseCur, dispCur) {
         if (!prod) return null;
         let q = Math.max(1, Math.floor(Number(qty)) || 1);
-        if (prod.type === 'select') q = 1; 
-
+        if (prod.type === 'select') q = 1;
+        
         const orderSnap = FinancialEngineDef.calculateOrderTotal({ product: prod, tier: userTier, offer: activeOffer, coupon: appliedCoupon, optIdx }, q);
         const oldPriceUsd = (activeOffer?.type === 'fake') ? Number(activeOffer.value || 0) : null;
         const displayOldTotalUsd = oldPriceUsd ? FinancialEngineDef.safeMul(oldPriceUsd, q) : orderSnap.totalOriginalPrice;
-
+        
+        const finalDisplayNum = FinancialEngineDef.convertViaUSD(orderSnap.totalFinalPrice, 'USD', dispCur, rates, 'pricing');
+        
         return {
-            totalUsd: orderSnap.totalFinalPrice, 
-            totalLocalBase: FinancialEngineDef.convertViaUSD(orderSnap.totalFinalPrice, 'USD', baseCur, rates, 'pricing'), 
+            totalUsd: orderSnap.totalFinalPrice,
+            totalLocalBase: FinancialEngineDef.convertViaUSD(orderSnap.totalFinalPrice, 'USD', baseCur, rates, 'pricing'),
+            
+            totalDisplayNum: finalDisplayNum,
+            
             displayCurrency: dispCur,
             unitText: FinancialEngineDef.convertViaUSD(orderSnap.finalPrice, 'USD', dispCur, rates, 'pricing').toFixed(2) + (dispCur === 'USD' ? ' $' : ' ' + dispCur),
-            totalText: FinancialEngineDef.convertViaUSD(orderSnap.totalFinalPrice, 'USD', dispCur, rates, 'pricing').toFixed(2) + (dispCur === 'USD' ? ' $' : ' ' + dispCur),
+            totalText: finalDisplayNum.toFixed(2) + (dispCur === 'USD' ? ' $' : ' ' + dispCur),
             hasDiscount: Boolean(oldPriceUsd || orderSnap.couponDiscount > 0 || orderSnap.offerDiscount > 0),
-            oldTotalLocalBase: displayOldTotalUsd ? FinancialEngineDef.convertViaUSD(displayOldTotalUsd, 'USD', dispCur, rates, 'pricing') : 0, 
+            
+            oldTotalDisplayNum: displayOldTotalUsd ? FinancialEngineDef.convertViaUSD(displayOldTotalUsd, 'USD', dispCur, rates, 'pricing') : 0,
+            
             pricingSnapshot: { ...orderSnap, saleDiscountUsd: FinancialEngineDef.safeMul(orderSnap.offerDiscount, q), couponDiscountUsd: FinancialEngineDef.safeMul(orderSnap.couponDiscount, q), oldPriceUsd, displayOldTotalUsd }
         };
     },
-
+    
     calculateDepositFee: function(amt, method, payCurr, baseCur = 'USD', rates = []) {
         const cleanAmt = Number(amt);
         if (!method || isNaN(cleanAmt) || cleanAmt <= 0) return { isValid: false, msg: 'بيانات غير صالحة', netBase: 0, feePct: 0, feeType: 'fee', feeUnit: 'percent' };
