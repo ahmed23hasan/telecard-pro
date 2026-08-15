@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud & Server Version) - النسخة الماسية V18.1 👑 (Iron Bank)
-// 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، تحويل العملات، وتوثيق الكوبونات
-// 🚀 التحديثات (V18.1):
-// 1. الإبقاء على نظام تحويل العملات المعقد (normalizeRates & convertViaUSD).
-// 2. Math-Safe Rounding متطابق تماماً مع الواجهات الأمامية.
-// 3. إضافة جدار حماية (validateCoupon) لمنع اختراق الكوبونات من المتجر.
-// 4. Loss-Prevention Firewall الصارم لمنع البيع بخسارة.
+// 💰 المحرك المالي المركزي (Cloud & Server Edition) - النسخة الاستراتيجية V18.4 👑
+// 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، وتطبيق سياسات التسويق بذكاء.
+// 🚀 التحديثات (V18.4): 
+// 1. Surgical Coupon Caps (تطبيق حد أدنى للطلب وحد أعلى للخصم لكل كوبون على حدة).
+// 2. Anti-Stacking Shield (المنع القطعي لدمج عروض التخفيض مع الكوبونات).
+// 3. Graceful Firewall (استبدال الانهيار بالإبلاغ الصامت عن كسر حواجز الربح).
+// 4. Safe Margin Lock (حماية سعر التكلفة + 5% لضمان تغطية رسوم بوابات الدفع).
 // ============================================================================
 
 const FinancialEngineDef = {
@@ -15,8 +15,14 @@ const FinancialEngineDef = {
         MAX_PRICE_LIMIT: 100000,
         PRECISION: 4,          
         INTERNAL_PRECISION: 8, 
-        MIN_SALE_PRICE: 0.01   
+        MIN_SALE_PRICE: 0.01,
+        // 🛡️ درع حماية رأس المال النهائي
+        MIN_MARGIN_PERCENT: 5 // يجب بقاء 5% ربح كحد أدنى فوق التكلفة لمنع بيع القروش
     }),
+
+    // ========================================================================
+    // 🧮 القسم الأول: محرك الرياضيات الدقيق (Precision Math Core)
+    // ========================================================================
 
     _preciseRound: function(num, decimals = FinancialEngineDef.CONFIG.PRECISION) {
         let n = Number(num);
@@ -30,7 +36,7 @@ const FinancialEngineDef = {
     _internalMul: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) * (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalDiv: function(a, b) {
         const numB = Number(b) || 0;
-        if (numB === 0) throw new Error("[SECURITY - Finance Guard]: Division by zero detected! Transaction aborted.");
+        if (numB === 0) throw new Error("[SECURITY - Math Core]: Division by zero detected!");
         return FinancialEngineDef._preciseRound((Number(a) || 0) / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
     },
 
@@ -54,9 +60,7 @@ const FinancialEngineDef = {
         const processRateObj = (code, priceR, depR) => {
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
-            if (numPrice === 0 || numDep === 0) {
-                throw new Error(`[SECURITY] Invalid or Zero exchange rate detected for currency: ${code}`);
-            }
+            if (numPrice === 0 || numDep === 0) throw new Error(`[SECURITY] Invalid exchange rate for currency: ${code}`);
             ratesMap[code] = { code: code, priceRate: numPrice, depRate: numDep };
         };
 
@@ -69,19 +73,14 @@ const FinancialEngineDef = {
         } else if (raw && typeof raw === 'object') {
             if (raw.priceRate !== undefined || raw.depRate !== undefined || raw.code !== undefined) {
                 const code = String(raw.code || '').toUpperCase();
-                if (code && code !== FinancialEngineDef.CONFIG.BASE_CURRENCY) {
-                    processRateObj(code, raw.priceRate || raw.value, raw.depRate || raw.value);
-                }
+                if (code && code !== FinancialEngineDef.CONFIG.BASE_CURRENCY) processRateObj(code, raw.priceRate || raw.value, raw.depRate || raw.value);
             } else {
                 const invalidKeys = ['ISBASE', 'PRICERATE', 'DEPRATE', 'CODE', 'VALUE', 'SYMBOL', 'NAME'];
                 for (const [key, value] of Object.entries(raw)) {
                     const code = String(key).toUpperCase();
                     if (code !== FinancialEngineDef.CONFIG.BASE_CURRENCY && !invalidKeys.includes(code)) {
-                        if (typeof value === 'object' && value !== null) {
-                            processRateObj(code, value.priceRate || value.value, value.depRate || value.value);
-                        } else {
-                            processRateObj(code, value, value);
-                        }
+                        if (typeof value === 'object' && value !== null) processRateObj(code, value.priceRate || value.value, value.depRate || value.value);
+                        else processRateObj(code, value, value);
                     }
                 }
             }
@@ -96,75 +95,88 @@ const FinancialEngineDef = {
         if (amt === 0 || fCode === tCode) return amt;
         
         const ratesMap = FinancialEngineDef.normalizeRates(ratesArray);
-        if (!ratesMap[fCode]) throw new Error(`[SECURITY] Missing exchange rate for currency: ${fCode}`);
-        if (!ratesMap[tCode]) throw new Error(`[SECURITY] Missing exchange rate for currency: ${tCode}`);
+        if (!ratesMap[fCode] || !ratesMap[tCode]) throw new Error(`[SECURITY] Missing exchange rate for conversion.`);
         
-        const from = ratesMap[fCode];
-        const to = ratesMap[tCode];
-        const fRate = channel === 'deposit' ? from.depRate : from.priceRate;
-        const tRate = channel === 'deposit' ? to.depRate : to.priceRate;
-
+        const fRate = channel === 'deposit' ? ratesMap[fCode].depRate : ratesMap[fCode].priceRate;
+        const tRate = channel === 'deposit' ? ratesMap[tCode].depRate : ratesMap[tCode].priceRate;
         if (fRate === 0 || tRate === 0) throw new Error(`[SECURITY] Invalid exchange rate (Zero) detected.`);
 
-        const usdAmount = FinancialEngineDef._internalDiv(amt, fRate);
-        const finalAmount = FinancialEngineDef._internalMul(usdAmount, tRate);
-        
-        return FinancialEngineDef._preciseRound(finalAmount);
+        return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
     },
 
-    // 🛡️ الجدار الناري الجديد (لمنع تلاعب الواجهة بالكوبونات)
+    convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
+        let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c);
+        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * 10000) / 10000;
+        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * 10000) / 10000;
+        return Number(v.toFixed(4));
+    },
+
+    // ========================================================================
+    // 💼 القسم الثاني: محاكاة التسعير والجدار الناري (Business Logic & Firewall)
+    // ========================================================================
+
     validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
-        if (!code) return { valid: false, msg: 'No code provided' };
+        if (!code) return { valid: false, msg: 'لم يتم تقديم كود خصم' };
+        
+        // 🛡️ درع منع الازدواجية (Anti-Stacking Policy)
+        if (offer && typeof offer === 'object' && offer.isActive !== false && offer.type !== 'fake') {
+            return { valid: false, msg: 'عذراً، لا يمكن استخدام الكوبونات على المنتجات الخاضعة لعروض التخفيض' };
+        }
+
         const cp = coupons.find(c => c.code.toUpperCase() === code.toUpperCase());
-        if (!cp) return { valid: false, msg: 'Invalid coupon code' };
-        if (cp.isActive === false) return { valid: false, msg: 'Coupon is inactive' };
+        if (!cp) return { valid: false, msg: 'كوبون غير صحيح' };
+        if (cp.isActive === false) return { valid: false, msg: 'الكوبون غير مفعل' };
         
+        // 🛡️ حماية المنتجات المستثناة
+        const isCouponDisabled = (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true');
+        if (isCouponDisabled) { 
+            return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم استخدام الكوبونات' }; 
+        }
+
         const expiryMs = cp.expiryDate ? new Date(cp.expiryDate).getTime() : 0;
-        if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'Coupon expired' };
+        if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
+        if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'استنفد الكوبون الحد الأقصى للاستخدام' };
+        if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'الكوبون غير متاح لمستوى حسابك' };
+        if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'الكوبون غير مخصص لهذا المنتج' };
         
-        if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'Coupon usage limit reached' };
-        if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'Invalid tier for coupon' };
-        if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'Coupon not for this product' };
-        if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.map(String).includes(String(user?.uid || user?.id))) return { valid: false, msg: 'Not allowed for this user' };
-        
-        if (Number(cp.minOrder) > 0) {
-            const tempPrice = FinancialEngineDef.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer }, qty);
-            if (tempPrice.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `Minimum order amount not met` };
+        if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.some(u => String(u) === String(user?.uid || user?.id))) {
+            return { valid: false, msg: 'غير مسموح لك باستخدام هذا الكوبون' };
         }
         
-        return { valid: true, coupon: { code: cp.code, type: cp.type, value: cp.value, isActive: cp.isActive } };
+        // 🛡️ الحد الأدنى للطلب (Minimum Order Value)
+        if (Number(cp.minOrder) > 0) {
+            const tempPrice = FinancialEngineDef.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer: null }, qty);
+            if (tempPrice.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى لاستخدام الكوبون هو ${cp.minOrder}$` };
+        }
+        
+        return { valid: true, coupon: { code: cp.code, type: cp.type, value: cp.value, maxDiscount: cp.maxDiscount, isActive: cp.isActive } };
     },
-    
+
     calculatePrice: function(rawParams) {
         const params = rawParams || {};
         const { product, tier, offer, coupon, optIdx } = params;
-        if (!product || typeof product !== 'object') throw new Error("FinancialEngine: Missing Product Data");
+        if (!product || typeof product !== 'object') throw new Error("[SECURITY] Missing Product Data");
 
         let cost = FinancialEngineDef.extractNum(product.costPrice || product.cost_price || 0);
         let isFixed = (String(product.isFixedPrice).toLowerCase() === 'true');
         let activeOption = null;
 
         if (product.type === 'select' && Array.isArray(product.options)) {
-            if (typeof optIdx === 'number' && Number.isInteger(optIdx)) {
-                if (optIdx >= 0 && optIdx < product.options.length) {
-                    activeOption = product.options[optIdx];
-                    cost = FinancialEngineDef.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
-                    if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
-                } else {
-                    throw new Error(`[SECURITY] Out of bounds option index detected.`);
-                }
-            } else if (optIdx !== null && optIdx !== undefined) {
-                throw new Error(`[SECURITY] Invalid option index type detected.`);
+            const index = Number(optIdx);
+            if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
+                activeOption = product.options[index];
+                cost = FinancialEngineDef.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
+                if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
             }
         }
         
-        if (cost > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new Error(`[SECURITY] Cost exceeds limits.`);
+        if (cost > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new Error(`[SECURITY] Cost exceeds maximum limit.`);
 
         let baseSellingPrice = 0;
-        let standardPrice = FinancialEngineDef.extractNum(activeOption?.price || product.price);
+        let standardPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.price || product.price) : FinancialEngineDef.extractNum(product.price);
 
         if (isFixed) {
-            baseSellingPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.fixedPriceUsd || activeOption.price) : FinancialEngineDef.extractNum(product.fixedPriceUsd || product.fixed_price_usd);
+            baseSellingPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.fixedPriceUsd || activeOption.price || product.fixedPriceUsd || product.price) : FinancialEngineDef.extractNum(product.fixedPriceUsd || product.fixed_price_usd || product.price);
         } else if (tier && typeof tier === 'object') {
             const tierPriceField = activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id];
             if (tierPriceField !== undefined && tierPriceField !== null) {
@@ -185,68 +197,81 @@ const FinancialEngineDef = {
             baseSellingPrice = standardPrice;
         }
 
-        if (baseSellingPrice > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new Error(`[SECURITY] Selling price exceeds limits.`);
+        if (baseSellingPrice > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new Error(`[SECURITY] Selling price exceeds limit.`);
 
         const originalPrice = baseSellingPrice;
         let currentPrice = originalPrice;
         const allowsDiscounts = !isFixed; 
 
+        // 1. تطبيق الخصم الترويجي (Offer)
         let offerName = null, offerDiscount = 0;
         if (allowsDiscounts && offer && typeof offer === 'object' && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name || null;
             const offerVal = FinancialEngineDef._preciseRound(FinancialEngineDef.extractNum(offer.value), FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
-            
             if (offer.type === 'percentage') {
                 const offerValDec = FinancialEngineDef._internalDiv(offerVal, 100);
                 offerDiscount = FinancialEngineDef._internalMul(originalPrice, offerValDec);
-            } else {
-                offerDiscount = Math.min(offerVal, currentPrice);
-            }
+            } else offerDiscount = Math.min(offerVal, currentPrice);
         }
         currentPrice = FinancialEngineDef._internalSub(currentPrice, offerDiscount);
 
+        // 2. تطبيق الكوبون بذكاء تجاري (Max Discount Cap)
         let couponCode = null, couponDiscount = 0;
-        const canUseCoupon = allowsDiscounts && product.disableCoupons !== true;
+        const isCouponDisabled = (product.disableCoupons === true || String(product.disableCoupons).toLowerCase() === 'true');
+        
+        // 🛡️ درع الـ Anti-Stacking: لن يتم فحص الكوبون إذا كان هناك تخفيض فعال
+        const canUseCoupon = allowsDiscounts && !isCouponDisabled && offerDiscount === 0; 
+        
         if (canUseCoupon && coupon && typeof coupon === 'object' && coupon.isActive !== false) {
             couponCode = coupon.code || null;
             const coupVal = FinancialEngineDef._preciseRound(FinancialEngineDef.extractNum(coupon.value), FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
-            
+            let calculatedDiscount = 0;
+
             if (coupon.type === 'percentage') {
                 const coupValDec = FinancialEngineDef._internalDiv(coupVal, 100);
-                couponDiscount = FinancialEngineDef._internalMul(currentPrice, coupValDec);
+                calculatedDiscount = FinancialEngineDef._internalMul(currentPrice, coupValDec);
             } else {
-                couponDiscount = Math.min(coupVal, currentPrice);
+                calculatedDiscount = Math.min(coupVal, currentPrice);
             }
+            
+            // 🛡️ تطبيق الحد الأعلى للخصم الخاص بالكوبون (Surgical Cap)
+            const maxCap = FinancialEngineDef.extractNum(coupon.maxDiscount);
+            if (maxCap > 0) {
+                calculatedDiscount = Math.min(calculatedDiscount, maxCap);
+            }
+            
+            couponDiscount = calculatedDiscount;
         }
         
-        currentPrice = Math.max(
-            FinancialEngineDef.CONFIG.MIN_SALE_PRICE, 
-            FinancialEngineDef._internalSub(currentPrice, couponDiscount)
-        );
+        currentPrice = Math.max(FinancialEngineDef.CONFIG.MIN_SALE_PRICE, FinancialEngineDef._internalSub(currentPrice, couponDiscount));
+        
+        // 🛑 الجدار الناري المتقدم (Graceful Firewall)
+        let isFirewallViolated = false;
+        let rejectionReason = null;
 
-        if (cost > 0 && currentPrice < cost) {
-            throw new Error(`[FIREWALL_REJECT] Transaction blocked: Selling price (${currentPrice}) fell below cost price (${cost}).`);
+        if (cost > 0) {
+            // الحد الأدنى الآمن = سعر التكلفة + 5% (لحماية رأس المال وعمولات الدفع)
+            const minRequiredProfit = FinancialEngineDef._internalMul(cost, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MIN_MARGIN_PERCENT, 100));
+            const safeMarginPrice = FinancialEngineDef._internalAdd(cost, minRequiredProfit);
+            
+            if (currentPrice < safeMarginPrice) {
+                isFirewallViolated = true;
+                rejectionReason = `السعر النهائي (${currentPrice}$) يكسر حاجز الربح الآمن (${safeMarginPrice}$). العملية مرفوضة لحماية رأس المال!`;
+                // الدالة لا تنهار هنا (No throw Error)، بل تعيد الراية الحمراء للسيرفر ليتعامل معها بأناقة.
+            }
         }
 
         const profit = Math.max(0, FinancialEngineDef._internalSub(currentPrice, cost));
-        let marginPct = 0;
-        if (currentPrice > 0) {
-            marginPct = FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(profit, currentPrice), 100);
-        }
+        let marginPct = currentPrice > 0 ? FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(profit, currentPrice), 100) : 0;
 
         return {
-            costUsd: FinancialEngineDef._preciseRound(cost),
-            originalPrice: FinancialEngineDef._preciseRound(originalPrice),
-            finalPrice: FinancialEngineDef._preciseRound(currentPrice),
-            offerName: offerName || null,
-            offerDiscount: FinancialEngineDef._preciseRound(offerDiscount),
-            couponCode: couponCode || null,
+            costUsd: FinancialEngineDef._preciseRound(cost), originalPrice: FinancialEngineDef._preciseRound(originalPrice),
+            finalPrice: FinancialEngineDef._preciseRound(currentPrice), offerName: offerName || null,
+            offerDiscount: FinancialEngineDef._preciseRound(offerDiscount), couponCode: couponCode || null,
             couponDiscount: FinancialEngineDef._preciseRound(couponDiscount),
             totalDiscount: FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(originalPrice, currentPrice)),
-            netProfitUsd: FinancialEngineDef._preciseRound(profit),
-            marginPct: Number(marginPct.toFixed(2)),
-            isFirewallViolated: false, 
-            tierName: tier?.name || (isFixed ? 'Fixed Price' : 'Standard')
+            netProfitUsd: FinancialEngineDef._preciseRound(profit), marginPct: Number(marginPct.toFixed(2)),
+            isFirewallViolated, rejectionReason, tierName: tier?.name || (isFixed ? 'Fixed Price' : 'Standard')
         };
     },
     
@@ -257,9 +282,7 @@ const FinancialEngineDef = {
         
         const unit = FinancialEngineDef.calculatePrice(params);
         return {
-            ...unit,
-            qty,
-            totalCostUsd: FinancialEngineDef.safeMul(unit.costUsd, qty),
+            ...unit, qty, totalCostUsd: FinancialEngineDef.safeMul(unit.costUsd, qty),
             totalOriginalPrice: FinancialEngineDef.safeMul(unit.originalPrice, qty),
             totalFinalPrice: FinancialEngineDef.safeMul(unit.finalPrice, qty),
             totalNetProfitUsd: FinancialEngineDef.safeMul(unit.netProfitUsd, qty),

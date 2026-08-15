@@ -889,17 +889,31 @@ export const UIFinance = {
                 if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
                 getSys().showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
             }
-        } catch (error) { 
-            if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
-            console.error("🚨 Client-Side Deposit Exception:", error);
-            getSys().showToast?.('حدث خطأ أثناء الاتصال بالخادم.', 'error'); 
-        } 
-        finally { 
-            this._unlockUI(submitBtn); 
-        }
-    },
-
-    togglePayDetail: function(headerElement) {
+    } catch (error) {
+    // 1. التراجع الآمن: حذف الصورة المعلقة إذا فشلت العملية
+    if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) {
+        StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(() => {});
+    }
+    
+    console.error("🚨 Client-Side Deposit Exception:", error);
+    
+    // 2. 🛡️ استخلاص رسالة الخطأ الذكية للعميل
+    let errMsg = 'حدث خطأ أثناء الاتصال بالخادم.';
+    const rawMsg = String(error.message || '');
+    
+    // إذا كانت الرسالة القادمة تحتوي على حروف عربية (رسالة موجهة للعميل)، نعرضها كما هي
+    if (/[\u0600-\u06FF]/.test(rawMsg)) {
+        errMsg = rawMsg;
+    }
+    
+    getSys().showToast?.(errMsg, 'error');
+}
+finally {
+    // 3. تحرير الشاشة دائماً مهما حدث
+    this._unlockUI(submitBtn);
+}
+},
+togglePayDetail: function(headerElement) {
         if (!headerElement) return; const card = headerElement.closest('.pay-history-card'); if (!card) return;
         window.requestAnimationFrame(() => {
             const det = card.querySelector('.ph-details-body'), arrow = headerElement.querySelector('.fa-chevron-down, .fa-angle-down, .fa-chevron-left, .ph-arrow-btn, .ph-arrow');

@@ -1,11 +1,10 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V16.3 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V16.4 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق، والاستعلامات
-// 🚀 التحديثات المعمارية (V16.3):
-// 1. Hash Collision Fix: استبدال خوارزمية التشفير بنصوص فريدة مطلقة لمنع تداخل الـ Listeners.
-// 2. Safe Pagination: دعم التمرير (Pagination) الذكي حتى في غياب شروط (where).
-// 3. Error Visibility: إلغاء الفشل الصامت (Silent Failures) لتسهيل تتبع صلاحيات الحماية.
-// 4. Strict ID Validation: منع الأخطاء الناتجة عن مسارات المستندات الفارغة.
+// 🚀 التحديثات المعمارية (V16.4):
+// 1. إزالة الاستيراد الديناميكي المكرر لزيادة سرعة الـ Cache Hit.
+// 2. تفعيل التوافق المالي: حماية الـ Retries للدوال المالية.
+// 3. التطبيق الفعلي لـ (Error Visibility): رمي الأخطاء بدلاً من إرجاع false لتمكين الواجهة من عرض السبب.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -62,17 +61,18 @@ export const FirebaseAdapter = {
 
     _sanitizeDocId: function(id) {
         const cleanId = id ? String(id).replace(/[\/\\]/g, '_').trim() : '';
-        if (!cleanId) throw new Error("Document ID cannot be empty or null.");
+        if (!cleanId) throw new Error("معرف المستند (ID) غير صالح.");
         return cleanId;
     },
 
     _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
+        // عمليات الكتابة نتركها لفايربيز ليديرها في الخلفية (Offline Persistence)
         if (isWriteOperation) return promise; 
         
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
-                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context}`);
+                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context}. يرجى التحقق من اتصالك.`);
                 err.code = 'deadline-exceeded'; 
                 reject(err);
             }, ms);
@@ -88,7 +88,7 @@ export const FirebaseAdapter = {
             return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
         } catch (error) { 
             console.error(`[DB Error] getById (${collectionName}):`, error.message);
-            return null; 
+            throw error; // 🛡️ التطبيق الفعلي لـ Error Visibility
         }
     },
 
@@ -99,7 +99,7 @@ export const FirebaseAdapter = {
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (error) { 
             console.error(`[DB Error] getAll (${collectionName}):`, error.message);
-            return []; 
+            throw error;
         }
     },
 
@@ -110,17 +110,15 @@ export const FirebaseAdapter = {
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (error) { 
             console.error(`[DB Error] query (${collectionName}):`, error.message);
-            return []; 
+            throw error; 
         }
     },
 
-    // 🛠️ تم الإصلاح: التعامل الآمن مع الاستعلامات بدون where
     async fetchMoreWithCursor(collectionName, whereCondition, orderField, cursorDoc, limitCount = 15) {
         try {
             let constraints = [];
             let primaryOrderField = orderField;
 
-            // التحقق مما إذا كان whereCondition موجوداً وصالحاً
             if (whereCondition && Array.isArray(whereCondition) && whereCondition.length === 3) {
                 const isInequalityFilter = ['<', '<=', '>', '>=', '!='].includes(whereCondition[1]);
                 primaryOrderField = isInequalityFilter ? whereCondition[0] : orderField;
@@ -132,7 +130,6 @@ export const FirebaseAdapter = {
                     constraints.push(orderBy(orderField, "desc"));
                 }
             } else {
-                // إذا لم يوجد شرط، رتب مباشرة
                 constraints.push(orderBy(primaryOrderField, "desc"));
             }
 
@@ -147,7 +144,7 @@ export const FirebaseAdapter = {
             };
         } catch (error) { 
             console.error(`[DB Error] fetchMoreWithCursor (${collectionName}):`, error.message);
-            return { data: [], newLastDoc: null }; 
+            throw error; 
         }
     },
     
@@ -178,15 +175,15 @@ export const FirebaseAdapter = {
             }
         } catch (error) {
             console.error(`[DB Error] getCacheFirst (${collectionName}):`, error.message);
-            return null;
+            throw error;
         }
     },
-     // ========================================================================
-// ⚡ دوال التوفير العالي (Cost Optimization & Smart Caching)
-// ========================================================================
 
-// 1. جلب القوائم من الكاش أولاً (ممتاز للكتالوج والمنتجات التي لا تتغير كل ثانية)
-async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limitCount = 50) {
+    // ========================================================================
+    // ⚡ دوال التوفير العالي (Cost Optimization & Smart Caching)
+    // ========================================================================
+
+    async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limitCount = 50) {
         try {
             let constraints = [];
             filtersArray.forEach(f => constraints.push(where(f[0], f[1], f[2])));
@@ -195,18 +192,17 @@ async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limi
             
             const q = query(collection(db, collectionName), ...constraints);
             
-            // محاولة الجلب من الذاكرة المحلية (بدون أي تكلفة مادية 0$)
+            // محاولة الجلب من الذاكرة المحلية (بدون تكلفة)
             try {
-                // استيراد getDocsFromCache يجب أن يُضاف في أعلى الملف
-                const { getDocsFromCache } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+                // 🛠️ تم الإصلاح: استخدام getDocsFromCache المستورد مسبقاً بدلاً من الـ Dynamic Import
                 const cachedSnapshot = await getDocsFromCache(q);
                 
                 if (!cachedSnapshot.empty) {
-                    console.log(`⚡ [Cache Hit] تم جلب بيانات (${collectionName}) من الذاكرة المحلية (مجانًا).`);
+                    console.log(`⚡ [Cache Hit] تم جلب بيانات (${collectionName}) من الذاكرة المحلية.`);
                     return cachedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: true }));
                 }
             } catch (cacheError) {
-                // الكاش فارغ أو انتهت صلاحيته، لا مشكلة، سنكمل للسيرفر
+                // الكاش فارغ، نكمل للسيرفر
             }
             
             // إذا كان الكاش فارغاً، نجلب من السيرفر
@@ -215,22 +211,19 @@ async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limi
             
         } catch (error) {
             console.error(`[DB Error] queryCacheFirst (${collectionName}):`, error.message);
-            return [];
+            throw error;
         }
     },
     
-    // 2. تحديث قائمة الكاش بالخلفية بصمت (Stale-While-Revalidate)
-    // هذه الدالة تعطي العميل سرعة الكاش فوراً، ثم تحدث البيانات في الخلفية بدون تجميد الشاشة
     listenQueryWithCache(collectionName, filtersArray, orderField, limitCount, callback) {
-        // أولاً: نرسل للعميل ما هو موجود في الكاش فوراً لكي لا يرى شاشة تحميل
         this.queryCacheFirst(collectionName, filtersArray, orderField, limitCount)
             .then(cachedData => {
                 if (cachedData && cachedData.length > 0) callback(cachedData);
-            });
+            }).catch(e => console.warn("Cache fail before listen", e));
         
-        // ثانياً: نفتح Listener صامت يجلب التحديثات الجديدة من السيرفر
         return this.listenQuery(collectionName, filtersArray, orderField, limitCount, callback);
     },   
+
     async set(collectionName, docId, data, options = { merge: true }) {
         try {
             const safeId = this._sanitizeDocId(docId);
@@ -238,7 +231,7 @@ async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limi
             return true;
         } catch (error) { 
             console.error(`[DB Error] set (${collectionName}):`, error.message);
-            return false; 
+            throw error; 
         }
     },
             
@@ -248,7 +241,7 @@ async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limi
             return docRef.id;
         } catch (error) { 
             console.error(`[DB Error] add (${collectionName}):`, error.message);
-            return null; 
+            throw error; 
         }
     },
                 
@@ -258,7 +251,7 @@ async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limi
             return true;
         } catch (error) { 
             console.error(`[DB Error] delete (${collectionName}):`, error.message);
-            return false; 
+            throw error; 
         }
     },
 
@@ -294,7 +287,6 @@ async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limi
             (error) => { console.warn(`Listen Query Error (${collectionName}):`, error?.message); }
         );
         
-        // 🛠️ تم الإصلاح: استخدام نص JSON لضمان التفرد ومنع اختناق وتصادم الـ Map Keys
         const filterStr = JSON.stringify(filtersArray);
         const safeKey = `query_${collectionName}_${filterStr}_${orderField||'none'}_${limitCount||'all'}`;
         
@@ -312,6 +304,7 @@ async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limi
             const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Function -> ${functionName}`, false);
             return result.data;
         } catch (error) {
+            // 🛡️ الحماية المالية: منع إعادة المحاولة للوظائف الحساسة لمنع تكرار الخصم أو تكرار الإيداع
             const isSensitiveFunction = ['createOrder', 'submitBalanceRequest', 'adminAdjustBalance'].includes(functionName);
             const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
             
@@ -384,7 +377,7 @@ async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limi
 
             const hasPasswordProvider = user.providerData.some(p => p.providerId === 'password');
             if (!hasPasswordProvider) {
-                return { success: false, msg: 'لا يمكن تغيير كلمة المرور للحسابات المسجلة عبر جوجل.' };
+                return { success: false, msg: 'لا يمكن تغيير كلمة المرور للحسابات المسجلة عبر منصات أخرى.' };
             }
 
             await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));

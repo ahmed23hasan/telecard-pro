@@ -1,10 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V18.1 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V18.4 💎 (The Oracle)
 // 🎯 الوظيفة: محاكاة أسعار السيرفر بدقة 100%، كشف الأرباح، وتشخيص الأخطاء بشفافية.
-// 🚀 التحديثات (V18.1):
-// 1. Unified Math Engine: دمج خوارزمية السيرفر للتقريب لتتطابق الأرباح تماماً.
-// 2. Coupon Simulator: دمج دالة validateCoupon لتمكين الإدارة من فحص الكوبونات بدقة السيرفر.
-// 3. Honest Firewall: الحفاظ على ميزة كشف الخسارة (بالسالب) لتحذير المدير.
+// 🚀 التحديثات (V18.4): 
+// 1. Surgical Coupon Caps (محاكاة الحد الأعلى للخصم لكل كوبون).
+// 2. Anti-Stacking Shield (تنبيه الإدارة عند محاولة دمج الكوبون مع التخفيض).
+// 3. Advanced Oracle Firewall (كشف كسر حاجز الربح الآمن 5% بشفافية دون انهيار).
+// 4. تطابق صرامة `disableCoupons` بين دوال الفحص والحساب.
 // ============================================================================
 
 export const FinancialEngine = {
@@ -13,7 +14,9 @@ export const FinancialEngine = {
         PRECISION: 4,          
         INTERNAL_PRECISION: 8, 
         MAX_UI_QTY: 10000,
-        MIN_SALE_PRICE: 0.01 
+        MIN_SALE_PRICE: 0.01,
+        // 🛡️ درع حماية الأرباح المتطابق مع السيرفر
+        MIN_MARGIN_PERCENT: 5 
     }),
 
     // ========================================================================
@@ -102,11 +105,10 @@ export const FinancialEngine = {
         return this._preciseRound(this._internalMul(this._internalDiv(amt, fRate), tRate));
     },
 
-    // 🛠️ تم الإصلاح: توحيد دقة التقريب لـ 4 أصفار لتتطابق مع السيرفر والمتجر
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
-        let v = this.convertViaUSD(amt, f, t, rates, c);
-        if(rnd === 'floor') return Math.floor(v * 10000) / 10000;
-        if(rnd === 'ceil')  return Math.ceil(v * 10000) / 10000;
+        let v = this.convertViaUSD(amt, f, t, rates, c); 
+        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * 10000) / 10000;
+        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * 10000) / 10000;
         return Number(v.toFixed(4));
     },
 
@@ -114,12 +116,22 @@ export const FinancialEngine = {
     // 💼 القسم الثاني: محاكاة التسعير والجدار الناري الصريح (Honest Simulator)
     // ========================================================================
 
-    // 🛡️ تم الإضافة: محاكي الكوبونات للإدارة
     validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
         if (!code) return { valid: false, msg: 'لم يتم إدخال كود' };
+        
+        // 🛡️ درع منع الازدواجية (محاكاة دقيقة للسيرفر)
+        if (offer && typeof offer === 'object' && offer.isActive !== false && offer.type !== 'fake') {
+            return { valid: false, msg: 'عذراً، لا يمكن استخدام الكوبونات على المنتجات الخاضعة لعروض التخفيض' };
+        }
+
         const cp = coupons.find(c => c.code.toUpperCase() === code.toUpperCase());
         if (!cp) return { valid: false, msg: 'كوبون غير صحيح' };
         if (cp.isActive === false) return { valid: false, msg: 'الكوبون غير مفعل' };
+        
+        // حماية المنتج المستثنى
+        if (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true') { 
+            return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم استخدام الكوبونات' }; 
+        }
         
         const expiryMs = cp.expiryDate ? new Date(cp.expiryDate).getTime() : 0;
         if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
@@ -127,14 +139,17 @@ export const FinancialEngine = {
         if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'استنفد الحد الأقصى للاستخدام' };
         if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'غير متاح لهذا المستوى' };
         if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'غير مخصص لهذا المنتج' };
-        if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.map(String).includes(String(user?.uid || user?.id))) return { valid: false, msg: 'غير مسموح لهذا المستخدم' };
         
-        if (Number(cp.minOrder) > 0) {
-            const tempPrice = this.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer }, qty);
-            if (tempPrice.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى للطلب لم يتحقق` };
+        if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.some(u => String(u) === String(user?.uid || user?.id))) {
+            return { valid: false, msg: 'غير مسموح لهذا المستخدم' }; 
         }
         
-        return { valid: true, coupon: { code: cp.code, type: cp.type, value: cp.value, isActive: cp.isActive } };
+        if (Number(cp.minOrder) > 0) {
+            const tempPrice = this.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer: null }, qty);
+            if (tempPrice.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى لاستخدام الكوبون هو ${cp.minOrder}$` };
+        }
+        
+        return { valid: true, coupon: { code: cp.code, type: cp.type, value: cp.value, maxDiscount: cp.maxDiscount, isActive: cp.isActive } };
     },
 
     calculatePrice: function(params = {}) {
@@ -148,23 +163,21 @@ export const FinancialEngine = {
         let isFixed = (fixedPrice > 0) || (String(product.isFixedPrice).toLowerCase() === 'true' || product.is_fixed_price === true);
         let activeOption = null;
 
-        if (product.type === 'select' && Array.isArray(product.options) && optIdx !== null && optIdx !== undefined) {
+        if (product.type === 'select' && Array.isArray(product.options)) {
             const index = Number(optIdx);
             if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
                 activeOption = product.options[index];
                 cost = this.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
                 if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
-            } else {
-                throw new Error(`🚨 [Admin Simulator Error]: Invalid option index detected.`);
             }
         }
         
-        let standardPrice = activeOption ? this.extractNum(activeOption.price) : this.extractNum(product.price);
+        let standardPrice = activeOption ? this.extractNum(activeOption.price || product.price) : this.extractNum(product.price);
         let currentPrice = standardPrice;
         let tierName = null;
 
         if (isFixed) {
-            currentPrice = activeOption ? this.extractNum(activeOption.fixedPriceUsd || activeOption.price) : this.extractNum(fixedPrice || product.fixedPriceUsd || product.price);
+            currentPrice = activeOption ? this.extractNum(activeOption.fixedPriceUsd || activeOption.price || product.price) : this.extractNum(fixedPrice || product.fixedPriceUsd || product.price);
             tierName = "سعر ثابت";
         } else if (tier && typeof tier === 'object') {
             tierName = tier.nameAr || tier.name || tier.id || 'عضو';
@@ -188,6 +201,7 @@ export const FinancialEngine = {
         const originalPrice = tierPrice;
         const allowsDiscounts = !isFixed;
 
+        // 1. تطبيق الخصم الترويجي (Offer)
         let offerName = null, offerDiscount = 0;
         if (allowsDiscounts && offer && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name;
@@ -196,22 +210,45 @@ export const FinancialEngine = {
         }
         currentPrice = this._internalSub(currentPrice, offerDiscount);
 
+        // 2. تطبيق الكوبون (مع حماية الحد الأعلى ومنع الازدواجية)
         let couponCode = null, couponDiscount = 0;
-        if (allowsDiscounts && product.disableCoupons !== true && coupon && coupon.isActive !== false) {
+        const isCouponDisabled = (product.disableCoupons === true || String(product.disableCoupons).toLowerCase() === 'true');
+        const canUseCoupon = allowsDiscounts && !isCouponDisabled && offerDiscount === 0;
+
+        if (canUseCoupon && coupon && coupon.isActive !== false) {
             couponCode = coupon.code;
-            const val = this._preciseRound(this.extractNum(coupon.value), this.CONFIG.INTERNAL_PRECISION);
-            couponDiscount = coupon.type === 'percentage' ? this._internalMul(currentPrice, this._internalDiv(val, 100)) : Math.min(val, currentPrice);
+            const coupVal = this._preciseRound(this.extractNum(coupon.value), this.CONFIG.INTERNAL_PRECISION);
+            let calculatedDiscount = 0;
+
+            if (coupon.type === 'percentage') {
+                calculatedDiscount = this._internalMul(currentPrice, this._internalDiv(coupVal, 100));
+            } else {
+                calculatedDiscount = Math.min(coupVal, currentPrice);
+            }
+
+            // 🛡️ تطبيق الحد الأعلى للخصم (Max Discount Cap)
+            const maxCap = this.extractNum(coupon.maxDiscount);
+            if (maxCap > 0) {
+                calculatedDiscount = Math.min(calculatedDiscount, maxCap);
+            }
+
+            couponDiscount = calculatedDiscount;
         }
         
         currentPrice = Math.max(this.CONFIG.MIN_SALE_PRICE, this._internalSub(currentPrice, couponDiscount));
 
+        // 🛑 الشفافية المطلقة (The Oracle Vision): كشف كسر الجدار الناري للإدارة
         let isFirewallViolated = false;
         let rejectionReason = null;
 
-        // 🛑 الشفافية المطلقة مستمرة: كشف كسر الجدار الناري للمدير
-        if (cost > 0 && currentPrice < cost) {
-            isFirewallViolated = true;
-            rejectionReason = `السعر النهائي (${currentPrice}$) أقل من التكلفة (${cost}$). السيرفر سيرفض هذه العملية حمايةً للأرباح!`;
+        if (cost > 0) {
+            const minRequiredProfit = this._internalMul(cost, this._internalDiv(this.CONFIG.MIN_MARGIN_PERCENT, 100));
+            const safeMarginPrice = this._internalAdd(cost, minRequiredProfit);
+            
+            if (currentPrice < safeMarginPrice) {
+                isFirewallViolated = true;
+                rejectionReason = `السعر النهائي (${currentPrice}$) يكسر حاجز الربح الآمن (${safeMarginPrice}$). السيرفر سيرفض هذه العملية حمايةً للأرباح!`;
+            }
         }
 
         const finalPrice = currentPrice;
