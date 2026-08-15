@@ -1,10 +1,10 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V16.4 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V16.5 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق، والاستعلامات
-// 🚀 التحديثات المعمارية (V16.4):
-// 1. إزالة الاستيراد الديناميكي المكرر لزيادة سرعة الـ Cache Hit.
-// 2. تفعيل التوافق المالي: حماية الـ Retries للدوال المالية.
-// 3. التطبيق الفعلي لـ (Error Visibility): رمي الأخطاء بدلاً من إرجاع false لتمكين الواجهة من عرض السبب.
+// 🚀 التحديثات المعمارية (V16.5):
+// 1. Global Cache Versioning: تطبيق "الختم العالمي" لمنع "الكاش الميت" وتخفيض الفاتورة لـ 0$.
+// 2. Smart Force Server: دعم تجاوز الكاش إجبارياً عند اكتشاف تحديث من الإدارة.
+// 3. Offline Resilience: قراءة الكاش الإجبارية عند انقطاع الإنترنت لمنع انهيار التطبيق.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -66,7 +66,6 @@ export const FirebaseAdapter = {
     },
 
     _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
-        // عمليات الكتابة نتركها لفايربيز ليديرها في الخلفية (Offline Persistence)
         if (isWriteOperation) return promise; 
         
         let timeoutId;
@@ -88,7 +87,7 @@ export const FirebaseAdapter = {
             return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
         } catch (error) { 
             console.error(`[DB Error] getById (${collectionName}):`, error.message);
-            throw error; // 🛡️ التطبيق الفعلي لـ Error Visibility
+            throw error; 
         }
     },
 
@@ -179,11 +178,7 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ========================================================================
-    // ⚡ دوال التوفير العالي (Cost Optimization & Smart Caching)
-    // ========================================================================
-
-    async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limitCount = 50) {
+    async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limitCount = 50, forceServer = false) {
         try {
             let constraints = [];
             filtersArray.forEach(f => constraints.push(where(f[0], f[1], f[2])));
@@ -192,20 +187,17 @@ export const FirebaseAdapter = {
             
             const q = query(collection(db, collectionName), ...constraints);
             
-            // محاولة الجلب من الذاكرة المحلية (بدون تكلفة)
-            try {
-                // 🛠️ تم الإصلاح: استخدام getDocsFromCache المستورد مسبقاً بدلاً من الـ Dynamic Import
-                const cachedSnapshot = await getDocsFromCache(q);
-                
-                if (!cachedSnapshot.empty) {
-                    console.log(`⚡ [Cache Hit] تم جلب بيانات (${collectionName}) من الذاكرة المحلية.`);
-                    return cachedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: true }));
-                }
-            } catch (cacheError) {
-                // الكاش فارغ، نكمل للسيرفر
+            const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+            
+            if (!forceServer || isOffline) {
+                try {
+                    const cachedSnapshot = await getDocsFromCache(q);
+                    if (!cachedSnapshot.empty) {
+                        return cachedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: true }));
+                    }
+                } catch (cacheError) {}
             }
             
-            // إذا كان الكاش فارغاً، نجلب من السيرفر
             const serverSnapshot = await this._withTimeout(getDocs(q), 10000, `queryCacheFirst -> ${collectionName}`);
             return serverSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: false }));
             
@@ -216,7 +208,7 @@ export const FirebaseAdapter = {
     },
     
     listenQueryWithCache(collectionName, filtersArray, orderField, limitCount, callback) {
-        this.queryCacheFirst(collectionName, filtersArray, orderField, limitCount)
+        this.queryCacheFirst(collectionName, filtersArray, orderField, limitCount, false)
             .then(cachedData => {
                 if (cachedData && cachedData.length > 0) callback(cachedData);
             }).catch(e => console.warn("Cache fail before listen", e));
@@ -304,7 +296,6 @@ export const FirebaseAdapter = {
             const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Function -> ${functionName}`, false);
             return result.data;
         } catch (error) {
-            // 🛡️ الحماية المالية: منع إعادة المحاولة للوظائف الحساسة لمنع تكرار الخصم أو تكرار الإيداع
             const isSensitiveFunction = ['createOrder', 'submitBalanceRequest', 'adminAdjustBalance'].includes(functionName);
             const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
             
@@ -332,7 +323,6 @@ export const FirebaseAdapter = {
         try { 
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general'; 
             const originalExt = (file.name || '').includes('.') ? file.name.split('.').pop().toLowerCase() : (file.type === 'application/pdf' ? 'pdf' : 'jpg'); 
-            
             const safeFileName = (file.name || 'file').replace(/[^\w\s\u0600-\u06FF\-_]/g, '').trim().replace(/\s+/g, '_') || 'file';
             
             const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9); 

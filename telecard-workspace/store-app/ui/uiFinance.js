@@ -1,10 +1,10 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة المطلقة V17.3 👑
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة المطلقة V17.4 💎
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديثات المعمارية (V17.3):
-// 1. Clean UX: إزالة إشعارات التوست (Toast) المزدوجة عند الإرسال والاكتفاء بالنوافذ (Modals).
-// 2. Unified UI Lock (DRY): دمج حقن الدرع الشفاف وإزالته في دوال مركزية للتحكم بالواجهة.
-// 3. Kill Switch Timer: نظام طوارئ لفك قفل الشاشة إجبارياً بعد 60 ثانية لتجنب التجميد الأبدي.
+// 🚀 التحديثات المعمارية (V17.4):
+// 1. CSS Decoupling: تطهير الملف بالكامل من الـ Inline CSS ونقل التنسيقات لملفات الستايل.
+// 2. Animation Refactoring: استخدام الكلاسات لإدارة الأنيميشن (Shake) بدلاً من حقن الـ Style.
+// 3. DOM Cleansing: تنظيف أكواد كروت النسخ (Smart Copy Lines) والدرع الأمني.
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -87,16 +87,14 @@ export const UIFinance = {
         }
     },
 
-    // 🛡️ حماية الواجهة من التجميد الأبدي
+    // 🛡️ CSS Decoupling: تم استبدال الستايل المدمج بالكلاس tx-shield-overlay
     _lockUI: function(btn) {
         this._isProcessingTx = true;
         this._toggleButtonLoader(btn, true);
 
         const shieldId = 'invisible-tx-shield';
         if (!document.getElementById(shieldId)) {
-            document.body.insertAdjacentHTML('beforeend', `
-                <div id="${shieldId}" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255, 255, 255, 0.01); z-index: 9999999; cursor: wait; touch-action: none;"></div>
-            `);
+            document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}" class="tx-shield-overlay"></div>`);
         }
 
         if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
@@ -108,7 +106,6 @@ export const UIFinance = {
             }
         }, 15000); 
 
-        // 🛡️ مفتاح الطوارئ (Kill Switch)
         this._killSwitchTimer = setTimeout(() => {
             if (this._isProcessingTx) {
                 getSys().showToast?.('انتهى وقت المعالجة وتأخر الخادم بالرد، تم تحرير الشاشة.', 'error');
@@ -243,13 +240,14 @@ export const UIFinance = {
             const inputContainer = document.getElementById('pm-input-container');
             const simpleQtyBox = document.getElementById('simple-qty-wrapper');
 
+            // 🛡️ CSS Decoupling: استبدال الستايل المدمج بالكلاس pm-badge-wrapper
             if (badgeContainer) {
                 const activeOffer = DataManager.getActiveOffer(DataManager.currentProd.id);
                 if (activeOffer?.visualConfig?.grid && activeOffer.visualConfig.badgeStyle !== 'none') {
                     const v = activeOffer.visualConfig.grid;
-                    badgeContainer.innerHTML = `<div class="offer-badge-base ${v.badgeStyle} ${RenderManager._getMappedColor(v.badgeColor)}" style="position:relative; top:0; right:0; width:fit-content; margin-bottom:5px;">${Utils.escapeHtml(v.badgeText)}</div>`;
+                    badgeContainer.innerHTML = `<div class="offer-badge-base ${v.badgeStyle} ${RenderManager._getMappedColor(v.badgeColor)} pm-badge-wrapper">${Utils.escapeHtml(v.badgeText)}</div>`;
                 } else if (DataManager.currentProd.badgeText) {
-                    badgeContainer.innerHTML = `<div class="offer-badge-base prod-badge badge-${DataManager.currentProd.badgeColor || 'red'}" style="position:relative; top:0; right:0; width:fit-content; margin-bottom:5px;">${Utils.safeText(DataManager.currentProd.badgeText)}</div>`;
+                    badgeContainer.innerHTML = `<div class="offer-badge-base prod-badge badge-${DataManager.currentProd.badgeColor || 'red'} pm-badge-wrapper">${Utils.safeText(DataManager.currentProd.badgeText)}</div>`;
                 } else { badgeContainer.innerHTML = ''; }
             }
 
@@ -378,9 +376,14 @@ export const UIFinance = {
             const result = DataManager.getPricingLocal(DataManager.currentProd, qty, optIdx, DataManager.appliedCoupon);
             if (!result || typeof result !== 'object') return;
 
-            const unitInput = document.getElementById('pm-price-unit'); if (unitInput) unitInput.value = result.unitText || '';
+            // 🛡️ CSS Decoupling: استبدال setProperty بالكلاس text-center-force
+            const unitInput = document.getElementById('pm-price-unit');
+            if (unitInput) {
+                unitInput.value = result.unitText || '';
+                unitInput.setAttribute('dir', 'ltr');
+                unitInput.classList.add('text-center-force');
+            }            
             
-            // 🛡️ التعديل الجذري: استخدام الرقم الخاص بعملة العرض (display) بدلاً من العملة الأساسية (base)
             const targetTotalValue = result.totalDisplayNum !== undefined ? result.totalDisplayNum : result.totalLocalBase;
             const beautifulTotalHtml = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(targetTotalValue, result.displayCurrency) : (result.totalText || '0.00');
 
@@ -392,7 +395,6 @@ export const UIFinance = {
             if (result.hasDiscount) {
                 if (priceBox) priceBox.classList.add('active');
                 
-                // 🛡️ التعديل الجذري للسعر القديم
                 const targetOldValue = result.oldTotalDisplayNum !== undefined ? result.oldTotalDisplayNum : (result.oldTotalLocalBase || 0);
                 if (oldPriceEl) oldPriceEl.innerHTML = (typeof RenderHelpers !== 'undefined') ? RenderHelpers.formatMoney(targetOldValue, result.displayCurrency) : ''; 
                 
@@ -403,6 +405,7 @@ export const UIFinance = {
             }
         });
     },
+
     handlePurchaseSubmit: async function() { 
         if (this._isProcessingTx || !DataManager.currentProd || !this._validateKycAndSystem('purchase')) return;
         
@@ -473,22 +476,18 @@ export const UIFinance = {
         try {
             const result = await DataManager.confirmPurchase(DataManager.currentProd, qty, optIdx, finalInputStr, DataManager.appliedCoupon);
             if (result.success) {
-                // 1. صوت النجاح
                 getSys().sfx?.('success'); 
                 
-                // 2. 🚀 رفع عداد الجرس فوراً كخدعة بصرية سريعة قبل السيرفر (للطلبات الفورية فقط)
                 if (result.isAutoDelivered && typeof getSys().updateNotifBadges === 'function') {
                     const currentBadge = document.getElementById('header-notif-badge');
                     const currentCount = currentBadge ? (parseInt(currentBadge.innerText) || 0) : 0;
                     getSys().updateNotifBadges(currentCount + 1);
                 }
 
-                // 3. إغلاق وتحديث
                 this.closePurchaseModal();
                 if(typeof DataManager.syncUser === 'function') DataManager.syncUser(); 
                 getSys().updateDisplayBalance?.();
 
-                // 4. فتح النافذة (مودال) بدون أي توست مزعج
                 setTimeout(() => {
                     getSys().openModal?.('purchase-success');
                     const titleEl = document.getElementById('purchase-success-title'), descEl = document.getElementById('purchase-success-desc'), codeDisplayContainer = document.getElementById('purchase-code-display');
@@ -496,8 +495,9 @@ export const UIFinance = {
                     if (result.isAutoDelivered && result.deliveredCodeText) {
                         if (titleEl) titleEl.innerText = 'تم تنفيذ الطلب بنجاح!';
                         if (descEl) descEl.innerHTML = 'تم إصدار الكود بنجاح، ومحفوظ في <span class="smart-link" data-action="navigate-orders-success">سجل طلباتك</span>.';
+                        // 🛡️ CSS Decoupling: استبدال الستايل المدمج بـ auto-delivery-scroll
                         if (codeDisplayContainer) {
-                            codeDisplayContainer.innerHTML = `<div class="dc-title"><i class="fa-solid fa-key"></i> الأكواد المستلمة:</div><div style="max-height: 200px; overflow-y: auto;">${UIBuilders.buildCodesList(result.deliveredCodeText)}</div>`;
+                            codeDisplayContainer.innerHTML = `<div class="dc-title"><i class="fa-solid fa-key"></i> الأكواد المستلمة:</div><div class="auto-delivery-scroll">${UIBuilders.buildCodesList(result.deliveredCodeText)}</div>`;
                             codeDisplayContainer.classList.remove('d-none');
                         }
                     } else {
@@ -507,7 +507,6 @@ export const UIFinance = {
                     }
                 }, 150);
             } else { 
-                // ✔️ التوست يُعرض فقط في حالة الخطأ
                 getSys().showToast?.(result.msg || 'فشلت العملية', 'error'); 
                 keepKeyboardOpen(); 
             }
@@ -516,7 +515,9 @@ export const UIFinance = {
         } finally { 
             this._unlockUI(submitBtn); 
         }
-    },    _manageDepositModalState: function(isStep2) {
+    },    
+
+    _manageDepositModalState: function(isStep2) {
         const modal = document.getElementById('balance-modal');
         if (!modal) return;
 
@@ -585,6 +586,7 @@ export const UIFinance = {
         });
     },
 
+    // 🛡️ CSS Decoupling: استبدال كروت النسخ بكلاسات احترافية
     selectPay: function(id) {
         const payments = LiveStoreData.payments || [];
         const modal = document.getElementById('balance-modal');
@@ -603,8 +605,8 @@ export const UIFinance = {
         
         const createSmartLine = (text, canCopy) => {
             const safeText = Utils.escapeHtml(String(text));
-            if (canCopy) return `<div class="smart-copy-line is-copyable" data-action="copy-text" data-text="${safeText}"><div style="display: flex; flex-direction: column; justify-content: center; text-align: right; width: 100%;"><span class="scl-text num-en" style="font-size: 14.5px; font-weight: 800;">${safeText}</span></div><i class="fa-regular fa-copy scl-icon"></i></div>`;
-            return `<div class="smart-copy-line not-copyable"><div style="display: flex; flex-direction: column; justify-content: center; text-align: right; width: 100%;"><span class="scl-text" style="font-size: 13.5px; font-weight: 700; color: var(--text-main); line-height: 1.6;">${safeText.replace(/\n/g, '<br>')}</span></div></div>`;
+            if (canCopy) return `<div class="smart-copy-line is-copyable" data-action="copy-text" data-text="${safeText}"><div class="scl-col-layout"><span class="scl-text num-en scl-text-primary">${safeText}</span></div><i class="fa-regular fa-copy scl-icon"></i></div>`;
+            return `<div class="smart-copy-line not-copyable"><div class="scl-col-layout"><span class="scl-text scl-text-secondary">${safeText.replace(/\n/g, '<br>')}</span></div></div>`;
         };
 
         if (Array.isArray(fieldsArray) && fieldsArray.length > 0) {
@@ -619,7 +621,7 @@ export const UIFinance = {
         
         const infoData = p.info || p.note || p.instructions;
         if (infoData && String(infoData).trim() !== '') {
-            copyLinesHtml += `<div class="smart-copy-line not-copyable" style="background: rgba(var(--primary-rgb), 0.05); border: 1px dashed rgba(var(--primary-rgb), 0.3);"><div style="display: flex; flex-direction: column; gap: 4px; text-align: right; width: 100%;"><span style="font-size: 11px; color: var(--primary); font-weight: 900; opacity: 0.9;"><i class="fa-solid fa-circle-info"></i> تعليمات هامة</span><span class="scl-text" style="font-size: 12.5px; line-height: 1.6; color: var(--text-main);">${Utils.escapeHtml(String(infoData)).replace(/\n/g, '<br>')}</span></div></div>`;
+            copyLinesHtml += `<div class="smart-copy-line not-copyable scl-info-box"><div class="scl-col-layout" style="gap:4px;"><span class="scl-info-header"><i class="fa-solid fa-circle-info"></i> تعليمات هامة</span><span class="scl-text scl-info-text">${Utils.escapeHtml(String(infoData)).replace(/\n/g, '<br>')}</span></div></div>`;
         }
         let copyContainer = copyLinesHtml ? `<div class="clean-list-container">${copyLinesHtml}</div>` : '';
 
@@ -808,6 +810,7 @@ export const UIFinance = {
         });
     },
 
+    // 🛡️ Animation Refactoring: استبدال الأنيميشن العشوائي بالكلاسات (Shake)
     handleBalanceSubmit: async function(currency) {
         if (this._isProcessingTx || !this._validateKycAndSystem('deposit')) return;
         
@@ -820,11 +823,11 @@ export const UIFinance = {
         if (this.currentPayment && this.currentPayment.reqProof !== false && !this.pendingReceiptFile) {
             getSys().showToast?.('أرفق إشعار الدفع أولاً', 'error');
             const uploadBox = document.getElementById('bal-upload-box');
-            if (uploadBox) { 
-                uploadBox.style.animation = 'none'; void uploadBox.offsetWidth; 
-                uploadBox.style.animation = 'shake-anim 0.3s ease-in-out'; 
-                uploadBox.style.border = '1px solid var(--danger)'; 
-                setTimeout(() => uploadBox.style.border = '', 1000); 
+            if (uploadBox) {
+                uploadBox.classList.remove('shake-error-input');
+                void uploadBox.offsetWidth;
+                uploadBox.classList.add('shake-error-input');
+                setTimeout(() => uploadBox.classList.remove('shake-error-input'), 1000);
             }
             return; 
         }
@@ -862,10 +865,10 @@ export const UIFinance = {
         if (methodMinLimit > 0 && amount < methodMinLimit) {
             getSys().showToast?.(`الحد الأدنى المسموح به هو ${methodMinLimit}`, 'error');
             if (input) {
-                input.style.animation = 'none'; void input.offsetWidth; 
-                input.style.animation = 'shake-anim 0.3s ease-in-out';
-                input.style.borderColor = 'var(--danger)';
-                setTimeout(() => input.style.borderColor = '', 1500);
+                input.classList.remove('shake-error-input');
+                void input.offsetWidth;
+                input.classList.add('shake-error-input');
+                setTimeout(() => input.classList.remove('shake-error-input'), 1500);
             }
             return;
         }
@@ -885,41 +888,35 @@ export const UIFinance = {
             const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
             
             if (result.success) {
-                // ❌ تم الإزالة هنا لعدم تكرار الإشعار والاكتفاء بالنافذة (Modal)
                 getSys().sfx?.('success'); 
                 this.closeBalanceModal();
                 if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
                 setTimeout(() => getSys().openModal?.('success'), 150);
             } else { 
-                // ✔️ التوست يُعرض فقط في حالة الخطأ
                 if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
                 getSys().showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
             }
-    } catch (error) {
-    // 1. التراجع الآمن: حذف الصورة المعلقة إذا فشلت العملية
-    if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) {
-        StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(() => {});
-    }
+        } catch (error) {
+            if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) {
+                StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(() => {});
+            }
+            
+            console.error("🚨 Client-Side Deposit Exception:", error);
+            
+            let errMsg = 'حدث خطأ أثناء الاتصال بالخادم.';
+            const rawMsg = String(error.message || '');
+            
+            if (/[\u0600-\u06FF]/.test(rawMsg)) {
+                errMsg = rawMsg;
+            }
+            
+            getSys().showToast?.(errMsg, 'error');
+        } finally {
+            this._unlockUI(submitBtn);
+        }
+    },
     
-    console.error("🚨 Client-Side Deposit Exception:", error);
-    
-    // 2. 🛡️ استخلاص رسالة الخطأ الذكية للعميل
-    let errMsg = 'حدث خطأ أثناء الاتصال بالخادم.';
-    const rawMsg = String(error.message || '');
-    
-    // إذا كانت الرسالة القادمة تحتوي على حروف عربية (رسالة موجهة للعميل)، نعرضها كما هي
-    if (/[\u0600-\u06FF]/.test(rawMsg)) {
-        errMsg = rawMsg;
-    }
-    
-    getSys().showToast?.(errMsg, 'error');
-}
-finally {
-    // 3. تحرير الشاشة دائماً مهما حدث
-    this._unlockUI(submitBtn);
-}
-},
-togglePayDetail: function(headerElement) {
+    togglePayDetail: function(headerElement) {
         if (!headerElement) return; const card = headerElement.closest('.pay-history-card'); if (!card) return;
         window.requestAnimationFrame(() => {
             const det = card.querySelector('.ph-details-body'), arrow = headerElement.querySelector('.fa-chevron-down, .fa-angle-down, .fa-chevron-left, .ph-arrow-btn, .ph-arrow');

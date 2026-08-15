@@ -1,11 +1,10 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - Enterprise V15.0 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - Enterprise V15.1 💎
 // 🎯 الوظيفة: النوافذ، الإشعارات، القائمة الجانبية، النسخ، الثيم، والتوجيه العام
-// 🚀 التحديثات المعمارية (V15.0):
-// 1. Single Source of Truth: دمج جميع أحداث النظام المالي (Finance Events) لتصبح تابعة للمحرك المركزي.
-// 2. Memory Leak Prevention: إغلاق تسرب الذاكرة في مراقبات الـ DOM (MutationObservers) كـ _syncWalletBlur.
-// 3. Smart Modal Router: تحسين دالة الإغلاق لتغلق النافذة النشطة حالياً تلقائياً إذا لم يتم تحديد ID.
-// 4. UX Accessibility: السماح للعملاء بالنقر بزر الماوس الأيمن لفتح المنتجات في تبويبات جديدة وتقييد ذلك للصور فقط.
+// 🚀 التحديثات المعمارية (V15.1):
+// 1. CSS Decoupling: تطهير الملف من الـ Inline CSS و Injection Styles (كالـ Toasts والـ NavLoader).
+// 2. XSS Bulletproof: استخدام Utils.safeUrl في روابط الصور في الـ About Modal.
+// 3. State Sync Fix: توحيد متغير التقييم (Rating) بين uiCore و uiAuth لضمان وصوله للسيرفر.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY } from '../config.js';           
@@ -15,7 +14,6 @@ import { RenderManager } from '../renderManager.js';
 import { Components } from '../components.js';     
 import { RenderHelpers } from '../core/renderHelpers.js'; 
 
-// 🚀 الحارس الشخصي لإشارة تثبيت تطبيق الجوال (نطاق ملف آمن ومستقر يتجنب ضياع الـ this)
 let deferredInstallPrompt = null; 
 
 const getSys = () => {
@@ -43,20 +41,20 @@ export const UICore = {
             overlay = document.createElement('div');
             overlay.id = 'global-security-alert';
             overlay.className = 'sys-dialog-wrapper active';
-            overlay.style.cssText = 'z-index: 999999999; background: #000; display:flex; align-items:center; justify-content:center; position:fixed; inset:0; flex-direction:column;';
             document.body.appendChild(overlay);
             
             const mainApp = document.getElementById('app-container') || document.querySelector('.main-wrapper');
             if (mainApp) mainApp.style.display = 'none'; 
         }
 
+        // 🛡️ CSS Decoupling
         overlay.innerHTML = `
-            <div class="sys-dialog-card" style="border-color: #ef4444; width: 90%; max-width: 400px; text-align:center;">
+            <div class="sys-dialog-card danger-border">
                 <div class="sys-dialog-header">
-                    <div class="sys-dialog-icon" style="color: #ef4444; background: rgba(239, 68, 68, 0.1); margin:0 auto 15px;"><i class="fa-solid fa-ban"></i></div>
-                    <h3 class="sys-dialog-title text-danger">تنبيه أمني</h3>
+                    <div class="sys-dialog-icon danger"><i class="fa-solid fa-ban"></i></div>
+                    <h3 class="sys-dialog-title danger">تنبيه أمني</h3>
                 </div>
-                <div class="sys-dialog-msg-container"><p class="sys-dialog-msg" style="color:#fff;">${msgText}</p></div>
+                <div class="sys-dialog-msg-container"><p class="sys-dialog-msg">${msgText}</p></div>
             </div>
         `;
         
@@ -68,9 +66,8 @@ export const UICore = {
         
         setTimeout(() => { 
             if (DataManager && typeof DataManager.logout === 'function') {
-                DataManager.logout(); // الاعتماد على المدير الرئيسي إذا كان يعمل
+                DataManager.logout();
             } else {
-                // 🛡️ التحديث الأمني: تدمير الجلسة محلياً بالقوة كخط دفاع أخير
                 try {
                     localStorage.clear();
                     sessionStorage.clear();
@@ -204,7 +201,6 @@ export const UICore = {
     },
 
     closeModal: function(modalId) {
-        // 🛡️ [الإصلاح المعماري 3]: إغلاق النافذة النشطة الأخيرة إذا لم يتم تمرير ID
         if (!modalId) { 
             if (this.activeModals && this.activeModals.length > 0) {
                 modalId = this.activeModals[this.activeModals.length - 1];
@@ -509,7 +505,7 @@ export const UICore = {
     },
 
     // =========================================================
-    // 🎛️ إدارة الأحداث المركزية (Global Event Delegator) - المصدر الواحد للحقيقة
+    // 🎛️ إدارة الأحداث المركزية (Global Event Delegator)
     // =========================================================
     initGlobalListeners: function() {
         if (this._listenersBound) return;
@@ -643,6 +639,8 @@ export const UICore = {
             'select-country': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen) => { e.preventDefault(); getSys().selectCountry?.(dataName, dataCode, dataLen); },
             'save-identity': () => getSys().saveIdentityData?.(),
             'submit-kyc': () => getSys().submitKycData?.(),
+            
+            // 🛡️ [إصلاح مزامنة التقييم (State Sync)]
             'select-rating': (e, id, val) => this.selectRatingStar?.(parseInt(val)),
             'submit-rating-step': () => this.submitRatingStep?.(),
             'submit-private-feedback': () => getSys().submitPrivateFeedback?.(),
@@ -702,7 +700,6 @@ export const UICore = {
 
         if (this.initNetworkSensors) this.initNetworkSensors(); 
 
-        // 📱 اصطياد حدث تثبيت تطبيق الجوال (PWA) وحفظه في المتغير المحلي الآمن
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             deferredInstallPrompt = e; 
@@ -718,7 +715,6 @@ export const UICore = {
 
         document.body.addEventListener('touchstart', () => {}, { passive: true });
         
-        // 🛡️ [الإصلاح المعماري 4]: السماح بـ ContextMenu باستثناء الصور لحمايتها من السرقة وتسهيل فتح المنتجات بصفحات جديدة.
         window.addEventListener('contextmenu', (e) => { 
             if (e.target.tagName === 'IMG' || e.target.closest('.prevent-context')) e.preventDefault(); 
         });
@@ -733,7 +729,6 @@ export const UICore = {
             if (action === 'pay-search-enter') { this.sfx?.('nav'); RenderManager.renderPayments?.(true); }
         });
 
-        // 🛡️ [توحيد مصدر الأحداث: المدخلات والتغييرات]
         document.addEventListener('input', (e) => {
             if (e.target.id === 'bal-amount') {
                 if (this._amountTypingTimer) clearTimeout(this._amountTypingTimer);
@@ -756,7 +751,6 @@ export const UICore = {
         });
 
         document.addEventListener('click', (e) => {
-            // 🛡️ [توحيد أحداث النقرات المعقدة والنوافذ المنسدلة]
             const pkgItem = e.target.closest('#pkg-custom-menu .dropdown-item');
             if (pkgItem) {
                 const pkgSel = document.getElementById('pm-pack'), pkgTxt = document.getElementById('pkg-selected-text'), dropCont = document.getElementById('pkg-custom-dropdown');
@@ -800,7 +794,6 @@ export const UICore = {
             }
         }, true); 
 
-        // 🛡️ [تنفيذ الأوامر الديناميكي]
         document.body.addEventListener('click', (e) => {
             const target = e.target;
             
@@ -883,18 +876,26 @@ export const UICore = {
     // =========================================================
     // 🌟 محرك الانتقالات الفاخر
     // =========================================================
+    // 🛡️ CSS Decoupling
     _toggleNavLoader: function(show) {
         let loader = document.getElementById('premium-nav-loader');
         if (!loader) {
             const s = LiveStoreData.settings || {};
             loader = document.createElement('div');
             loader.id = 'premium-nav-loader';
-            loader.innerHTML = `<div class="pnl-backdrop" style="position:fixed; inset:0; background:var(--bg-main, #111a2b); opacity:0.85; backdrop-filter:blur(8px); z-index:99999; display:flex; align-items:center; justify-content:center; transition:opacity 0.2s ease;"><div style="display:flex; flex-direction:column; align-items:center; gap:15px; transform:scale(0.9); animation:pnlPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;"><div style="position:relative; width:60px; height:60px; display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-circle-notch fa-spin" style="position:absolute; font-size:60px; color:var(--gold-main, #FFD700); opacity:0.3;"></i><i class="fa-solid fa-store" style="font-size:24px; color:var(--gold-main, #FFD700);"></i></div><div style="color:#fff; font-weight:900; font-size:16px; letter-spacing:1px; font-family:'Cairo', sans-serif;">${Utils.escapeHtml(s.storeName || s.name || 'المتجر')}</div></div></div><style>@keyframes pnlPop { to { transform:scale(1); } }</style>`;
+            loader.className = 'pnl-backdrop';
+            loader.innerHTML = `
+                <div class="pnl-content">
+                    <div class="pnl-spinner-box">
+                        <i class="fa-solid fa-circle-notch fa-spin pnl-spinner-icon"></i>
+                        <i class="fa-solid fa-store pnl-store-icon"></i>
+                    </div>
+                    <div class="pnl-store-name">${Utils.escapeHtml(s.storeName || s.name || 'المتجر')}</div>
+                </div>`;
             document.body.appendChild(loader);
         }
-        const backdrop = loader.querySelector('.pnl-backdrop');
-        if (show) { loader.style.display = 'block'; void loader.offsetWidth; backdrop.style.opacity = '1'; } 
-        else { backdrop.style.opacity = '0'; setTimeout(() => loader.style.display = 'none', 200); }
+        if (show) { loader.classList.add('active'); } 
+        else { loader.classList.remove('active'); setTimeout(() => { if(!loader.classList.contains('active')) loader.style.display = 'none'; }, 200); }
     },
 
     _executePageTransition: function(renderCallback) {
@@ -1005,7 +1006,6 @@ export const UICore = {
         setTimeout(() => { this.openModal('wallet'); }, 10);
     },
     
-    // 🛡️ [الإصلاح المعماري 2]: تفريغ المراقب وحفظ المرجع لتجنب تسرب الذاكرة
     _syncWalletBlur: function() {
         const drawer = document.getElementById('walletStatsDrawer');
         const walletModal = document.getElementById('wallet-modal');
@@ -1087,7 +1087,6 @@ export const UICore = {
         getSys().sfx?.('nav'); 
         
         const successVisuals = () => {
-            // 1. تفاعل فيزيائي سريع جداً مع العنصر
             if (element) { 
                 element.style.transition = 'transform 0.1s ease';
                 element.style.transform = 'scale(0.92)'; 
@@ -1107,16 +1106,13 @@ export const UICore = {
                 element.copyTimer = setTimeout(() => { 
                     element.classList.remove(type === 'smartline' ? 'copy-success' : 'is-copied');
                     if (icon && icon.dataset.origClass) icon.className = icon.dataset.origClass; 
-                }, 1000); // إرجاع الأيقونة لحالتها الطبيعية بعد ثانية واحدة
+                }, 1000); 
             }
 
-            // 2. إشعار صاروخي وديناميكي (بدون أي تأخير)
-            // نقتطع جزءاً من النص المنسوخ ليكون الإشعار مخصصاً لكل طلب
             const shortText = text.length > 15 ? text.substring(0, 15) + '...' : text;
             this.showToast(`تم نسخ: ${shortText}`, 'success');
         };
 
-        // تنفيذ النسخ
         if (navigator.clipboard && window.isSecureContext) { 
             navigator.clipboard.writeText(text).then(successVisuals).catch(() => this.showToast('فشل النسخ', 'error')); 
         } else {
@@ -1137,7 +1133,7 @@ export const UICore = {
     
     showAdminDirectMessage: function(msgText) {
         if (document.getElementById('admin-direct-msg-popup')) return;
-        const html = `<div id="admin-direct-msg-popup" class="sys-dialog-wrapper"><div class="sys-dialog-overlay"></div><div class="sys-dialog-card"><div class="sys-dialog-header"><div class="sys-dialog-icon"><i class="fa-solid fa-envelope-open-text fa-bounce"></i></div><h3 class="sys-dialog-title">رسالة إدارية هامة</h3></div><div class="sys-dialog-msg-container"><p class="sys-dialog-msg">${Utils.escapeHtml(msgText)}</p></div><div class="sys-dialog-actions"><button id="ack-admin-msg-btn" class="sys-dialog-btn">قرأت ذلك، شكراً</button></div></div></div>`;
+        const html = `<div id="admin-direct-msg-popup" class="sys-dialog-wrapper active"><div class="sys-dialog-overlay"></div><div class="sys-dialog-card"><div class="sys-dialog-header"><div class="sys-dialog-icon warning"><i class="fa-solid fa-envelope-open-text fa-bounce"></i></div><h3 class="sys-dialog-title warning">رسالة إدارية هامة</h3></div><div class="sys-dialog-msg-container"><p class="sys-dialog-msg">${Utils.escapeHtml(msgText)}</p></div><div class="sys-dialog-actions" style="margin-top:20px;"><button id="ack-admin-msg-btn" class="adv-close-btn" style="background:#111a2b;">قرأت ذلك، شكراً</button></div></div></div>`;
         document.body.insertAdjacentHTML('beforeend', html);
         this.sfx?.('success');
         document.getElementById('ack-admin-msg-btn').addEventListener('click', () => { 
@@ -1149,66 +1145,94 @@ export const UICore = {
     },
 
     processAndDisplayAlerts: function() {
-    if (!DataManager.getUnreadAlerts) return;
-    const unreadAlerts = DataManager.getUnreadAlerts();
-    if (!unreadAlerts || unreadAlerts.length === 0) return;
-    
-    let shownToasts = [];
-    try { shownToasts = JSON.parse(localStorage.getItem('telecard_shown_toasts') || "[]"); } catch (e) {}
-    
-    const popups = unreadAlerts.filter(m => (m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
-    const toasts = unreadAlerts.filter(m => !(m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
-    
-    toasts.forEach(msg => {
-        // 🛡️ الإصلاح الجذري 2: تحليل ذكي لمحتوى إشعار السيرفر لتحديد لونه (نجاح/خطأ/تنبيه)
-        let msgType = 'info';
-        const fullText = `${msg.title || ''} ${msg.message || ''}`.toLowerCase();
-        if (/نجاح|مكتمل|مقبول|جاهز/.test(fullText)) msgType = 'success';
-        else if (/مرفوض|خطأ|فشل|مسترجع/.test(fullText)) msgType = 'error';
-        else if (/مراجعة|قيد|تنبيه/.test(fullText)) msgType = 'warning';
+        if (!DataManager.getUnreadAlerts) return;
+        const unreadAlerts = DataManager.getUnreadAlerts();
+        if (!unreadAlerts || unreadAlerts.length === 0) return;
         
-        // دمج العنوان مع الرسالة ليكون الإشعار واضحاً
-        const displayText = msg.title ? `${msg.title} - ${msg.message}` : msg.message;
-        this.showToast(displayText, msgType);
+        let shownToasts = [];
+        try { shownToasts = JSON.parse(localStorage.getItem('telecard_shown_toasts') || "[]"); } catch (e) {}
         
-        shownToasts.push(String(msg.id));
-    });
-    
-    if (popups.length > 0) {
-        popups.forEach(p => shownToasts.push(String(p.id)));
-        this.showAdvancedPopup(popups[0], popups.slice(1));
-    }
-    
-    if (shownToasts.length > 50) shownToasts = shownToasts.slice(-50);
-    localStorage.setItem('telecard_shown_toasts', JSON.stringify(shownToasts));
-    
-    this.updateNotifBadges();
-},    showAdvancedPopup: function(alertObj, remainingQueue) {
+        const popups = unreadAlerts.filter(m => (m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
+        const toasts = unreadAlerts.filter(m => !(m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
+        
+        toasts.forEach(msg => {
+            let msgType = 'info';
+            const fullText = `${msg.title || ''} ${msg.message || ''}`.toLowerCase();
+            if (/نجاح|مكتمل|مقبول|جاهز/.test(fullText)) msgType = 'success';
+            else if (/مرفوض|خطأ|فشل|مسترجع/.test(fullText)) msgType = 'error';
+            else if (/مراجعة|قيد|تنبيه/.test(fullText)) msgType = 'warning';
+            
+            const displayText = msg.title ? `${msg.title} - ${msg.message}` : msg.message;
+            this.showToast(displayText, msgType);
+            
+            shownToasts.push(String(msg.id));
+        });
+        
+        if (popups.length > 0) {
+            popups.forEach(p => shownToasts.push(String(p.id)));
+            this.showAdvancedPopup(popups[0], popups.slice(1));
+        }
+        
+        if (shownToasts.length > 50) shownToasts = shownToasts.slice(-50);
+        localStorage.setItem('telecard_shown_toasts', JSON.stringify(shownToasts));
+        
+        this.updateNotifBadges();
+    },    
+
+    // 🛡️ CSS Decoupling
+    showAdvancedPopup: function(alertObj, remainingQueue) {
         const existingModal = document.getElementById('advanced-alert-modal');
         if (existingModal) existingModal.remove();
-        
+
         let extraHtml = '';
         if (alertObj.couponCode) {
-            extraHtml += `<div class="mt-15" style="background: rgba(168, 85, 247, 0.1); border: 1px dashed #a855f7; padding: 12px; border-radius: 12px; text-align: center;"><div style="font-size: 11px; color: #a855f7; margin-bottom: 6px; font-weight: bold;">🎁 كود خصم حصري لك:</div><div style="display: flex; gap: 8px; justify-content: center; align-items: center;"><span class="num-en" style="font-size: 18px; font-weight: 900; color: #fff; letter-spacing: 2px;">${Utils.escapeHtml(alertObj.couponCode)}</span><button id="adv-alert-copy-btn" data-code="${Utils.escapeHtml(alertObj.couponCode)}" style="background: #a855f7; border: none; color: #fff; border-radius: 8px; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s;"><i class="fa-solid fa-copy"></i></button></div></div>`;
+            extraHtml += `
+                <div class="adv-coupon-box">
+                    <div class="adv-coupon-title">🎁 كود خصم حصري لك:</div>
+                    <div class="adv-coupon-flex">
+                        <span class="adv-coupon-code num-en">${Utils.escapeHtml(alertObj.couponCode)}</span>
+                        <button id="adv-alert-copy-btn" data-code="${Utils.escapeHtml(alertObj.couponCode)}" class="adv-coupon-btn">
+                            <i class="fa-solid fa-copy"></i>
+                        </button>
+                    </div>
+                </div>`;
         }
         if (alertObj.actionLink) {
-            extraHtml += `<a href="${Utils.safeUrl(alertObj.actionLink)}" target="_blank" rel="noopener noreferrer" style="display: block; width: 100%; background: linear-gradient(135deg, #FFD700, #C5A028); color: #000; text-align: center; padding: 12px; border-radius: 10px; font-weight: 900; margin-top: 15px; text-decoration: none; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2); transition: 0.3s;">عرض التفاصيل الآن <i class="fa-solid fa-arrow-left" style="margin-right: 5px;"></i></a>`;
+            extraHtml += `<a href="${Utils.safeUrl(alertObj.actionLink)}" target="_blank" rel="noopener noreferrer" class="adv-action-link">عرض التفاصيل الآن <i class="fa-solid fa-arrow-left" style="margin-inline-start: 5px;"></i></a>`;
         }
+
+        const modalHtml = `
+            <div id="advanced-alert-modal" class="sys-dialog-wrapper active">
+                <div class="sys-dialog-card">
+                    <div class="sys-dialog-header">
+                        <div class="sys-dialog-icon warning"><i class="fa-solid fa-bell"></i></div>
+                        <h3 class="sys-dialog-title warning">${Utils.escapeHtml(alertObj.title || 'إشعار هام')}</h3>
+                    </div>
+                    <div class="sys-dialog-msg">${Utils.escapeHtml(alertObj.message || '')}</div>
+                    ${extraHtml}
+                    <button id="close-advanced-alert" class="adv-close-btn">إغلاق النافذة</button>
+                </div>
+            </div>`;
         
-        const modalHtml = `<div id="advanced-alert-modal" class="modal-overlay active" style="z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);"><div class="sys-dialog-card" style="animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1); position: relative; max-width: 400px; width: 90%; background: #111a2b; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 25px;"><div class="sys-dialog-header" style="text-align: center; margin-bottom: 15px;"><div class="sys-dialog-icon" style="width: 50px; height: 50px; margin: 0 auto 15px; background: rgba(255, 215, 0, 0.15); color: #FFD700; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 1px solid #FFD700;"><i class="fa-solid fa-bell"></i></div><h3 class="sys-dialog-title" style="color: #FFD700; font-size: 18px; font-weight: 900; margin: 0;">${Utils.escapeHtml(alertObj.title || 'إشعار هام')}</h3></div><div class="sys-dialog-msg" style="color: #f1f5f9; font-size: 14px; line-height: 1.6; text-align: center; white-space: pre-wrap;">${Utils.escapeHtml(alertObj.message || '')}</div>${extraHtml}<button id="close-advanced-alert" class="btn btn-ghost" style="width: 100%; margin-top: 20px; border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 10px; color: #94a3b8; font-weight: 800; cursor: pointer; background: transparent;">إغلاق النافذة</button></div></div>`;
         document.body.insertAdjacentHTML('beforeend', modalHtml);
         this.sfx?.('success');
-        
+
         const copyBtn = document.getElementById('adv-alert-copy-btn');
-        if (copyBtn) copyBtn.onclick = function() { if (navigator.clipboard) { navigator.clipboard.writeText(this.dataset.code); this.innerHTML = '<i class="fa-solid fa-check"></i>'; setTimeout(() => { if (this.isConnected) this.innerHTML = '<i class="fa-solid fa-copy"></i>'; }, 2000); } };
-        
+        if (copyBtn) copyBtn.onclick = function() {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(this.dataset.code);
+                this.innerHTML = '<i class="fa-solid fa-check"></i>';
+                setTimeout(() => { if (this.isConnected) this.innerHTML = '<i class="fa-solid fa-copy"></i>'; }, 2000);
+            }
+        };
+
         document.getElementById('close-advanced-alert')?.addEventListener('click', () => {
             const modal = document.getElementById('advanced-alert-modal');
-            if (modal) { modal.style.transition = '0.3s ease'; modal.style.opacity = '0'; modal.style.transform = 'scale(0.9)'; }
+            if (modal) { modal.classList.remove('active'); modal.style.opacity = '0'; }
             if (DataManager.markSingleNotificationRead) DataManager.markSingleNotificationRead(alertObj.id, true, alertObj.maxViews);
             this.updateNotifBadges();
             setTimeout(() => { if (modal) modal.remove(); if (remainingQueue?.length > 0) setTimeout(() => this.showAdvancedPopup(remainingQueue[0], remainingQueue.slice(1)), 500); }, 300);
-        }, { once: true }); 
+        }, { once: true });
     }, 
 
     openNotifCenter: function() {     
@@ -1265,6 +1289,7 @@ export const UICore = {
         }, 50);
     },
 
+    // 🛡️ CSS Decoupling
     showToast: function(msg, type = 'info') {
         if (type === 'info') {
             if (/فشل|خطأ|عذراً|كاف|نفد|غير صالح/.test(msg)) type = 'error';
@@ -1273,22 +1298,10 @@ export const UICore = {
             else if (/تم|نجاح|شكراً/.test(msg)) type = 'success';
         }
 
-        // 🛡️ الإصلاح الجذري 2: حقن أنيميشن قسري لضمان ظهور الإشعار مهما كانت حالة الـ CSS
-        if (!document.getElementById('telecard-toast-styles')) {
-            const style = document.createElement('style');
-            style.id = 'telecard-toast-styles';
-            style.innerHTML = `
-                @keyframes slideInDownDynamic { 0% { transform: translateY(-100%) scale(0.9); opacity: 0; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
-                @keyframes toastOutTopDynamic { 0% { transform: translateY(0) scale(1); opacity: 1; } 100% { transform: translateY(-100%) scale(0.9); opacity: 0; } }
-            `;
-            document.head.appendChild(style);
-        }
-
         let container = document.querySelector('.custom-toast-container');
         if (!container) {
             container = document.createElement('div'); 
             container.className = 'custom-toast-container'; 
-            container.style.cssText = 'position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 999999999; display: flex; flex-direction: column; gap: 12px; pointer-events: none; width: 90%; max-width: 420px; align-items: center;';
             document.body.appendChild(container);
         } else {
             const lastToast = container.lastElementChild;
@@ -1301,27 +1314,24 @@ export const UICore = {
         const toast = document.createElement('div');
         toast.className = `custom-toast toast-${type}`;
         
-        // 🛡️ تصميم فولاذي مدمج 
-        let bgColor = '#1e293b', borderColor = '#3b82f6', iconClass = 'fa-circle-info', titleText = 'معلومة';
-        if (type === 'success') { bgColor = '#064e3b'; borderColor = '#10b981'; iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
-        if (type === 'error') { bgColor = '#7f1d1d'; borderColor = '#ef4444'; iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
-        if (type === 'warning') { bgColor = '#78350f'; borderColor = '#f59e0b'; iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } 
+        let iconClass = 'fa-circle-info', titleText = 'معلومة';
+        if (type === 'success') { iconClass = 'fa-circle-check'; titleText = 'نجاح'; }
+        if (type === 'error') { iconClass = 'fa-circle-xmark'; titleText = 'خطأ'; }
+        if (type === 'warning') { iconClass = 'fa-triangle-exclamation'; titleText = 'تنبيه'; } 
 
-        toast.style.cssText = `
-            background: ${bgColor}; color: #fff; padding: 14px 18px; border-radius: 12px; display: flex; align-items: center; gap: 14px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-right: 4px solid ${borderColor}; animation: slideInDownDynamic 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; pointer-events: auto; direction: rtl; font-family: inherit;
-        `;
-
-        toast.innerHTML = `<i class="fa-solid ${iconClass}" style="font-size: 24px; color: ${borderColor};"></i><div class="toast-content" style="display:flex; flex-direction:column; gap:4px;"><span class="toast-title" style="font-weight:900; font-size:14px; color:${borderColor};">${titleText}</span><span class="toast-msg" style="font-size:13px; font-weight:600; line-height:1.5;">${Utils.escapeHtml(msg)}</span></div>`;
+        toast.innerHTML = `<i class="fa-solid ${iconClass} toast-icon-base" style="font-size: 24px; color: var(--toast-border);"></i><div class="toast-content"><span class="toast-title">${titleText}</span><span class="toast-msg">${Utils.escapeHtml(msg)}</span></div>`;
         container.appendChild(toast);
         this.sfx?.(type === 'error' ? 'error' : 'success');
         
         setTimeout(() => {
             if(toast.isConnected) {
-                toast.style.animation = 'toastOutTopDynamic 0.4s forwards';
+                toast.classList.add('anim-out');
                 setTimeout(() => { if(toast.isConnected) toast.remove(); }, 400);
             }
         }, 4000);
-    },    sfx: function(type) {
+    },    
+    
+    sfx: function(type) {
         if(DataManager.prefs?.sound === false) return; 
         if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
 
@@ -1402,7 +1412,6 @@ export const UICore = {
 
         const isEnglish = /^[A-Za-z0-9]/.test(storeName);
 
-        // 1. تحديث العنوان وأيقونة المتصفح
         document.title = `${finalStoreName} | المتجر`;
         if (favicon) {
             let link = document.querySelector("link[rel~='icon']");
@@ -1410,7 +1419,6 @@ export const UICore = {
             link.href = favicon;
         }
 
-        // 2. تحديث متغيرات الـ CSS للألوان الأساسية
         const root = document.documentElement;
         root.style.setProperty('--brand-c1', c1);
         root.style.setProperty('--brand-c2', c2);
@@ -1429,7 +1437,6 @@ export const UICore = {
 
         const strictLogoStyle = `opacity: 1; max-height: ${logoSize}px !important; max-width: 150px !important; width: auto !important; object-fit: contain !important; display: inline-block;`;
 
-        // 3. بناء لوجو المتجر بناءً على الوضع (ليلي/نهاري)
         let logoHtml = '';
         if (logoDark) {
             if (!logoLight || logoDark === logoLight) {
@@ -1458,7 +1465,6 @@ export const UICore = {
         // 🚀 4. الحقن الديناميكي لتطبيق الجوال (Dynamic PWA Manifest Injection)
         // ====================================================================
         try {
-            // بناء هيكل بيانات التطبيق
             const manifestData = {
                 name: finalStoreName,
                 short_name: finalStoreName.substring(0, 12),
@@ -1480,18 +1486,15 @@ export const UICore = {
                 ]
             };
 
-            // تحويل البيانات إلى كائن برمجي (Blob) في ذاكرة الهاتف
             const manifestString = JSON.stringify(manifestData);
             const blob = new Blob([manifestString], { type: 'application/json' });
             const manifestUrl = URL.createObjectURL(blob);
 
-            // جلب الرابط القديم (إن وجد) لمسحه من الذاكرة وتجنب تسرب الذاكرة (Memory Leak)
             let manifestLink = document.querySelector('link[rel="manifest"]');
             if (manifestLink && manifestLink.href.startsWith('blob:')) {
                 URL.revokeObjectURL(manifestLink.href);
             }
 
-            // حقن الملف الجديد في المتصفح
             if (!manifestLink) {
                 manifestLink = document.createElement('link');
                 manifestLink.rel = 'manifest';
@@ -1502,7 +1505,9 @@ export const UICore = {
         } catch (e) {
             console.warn("⚠️ تعذر بناء ملف التطبيق الديناميكي PWA:", e);
         }
-    },      saveDisplayState: function() {
+    },      
+    
+    saveDisplayState: function() {
         const displayState = { sidebarOpen: document.querySelector('.sidebar.active') !== null, userImage: DataManager.user?.img || null, theme: DataManager.prefs?.theme || 'dark', sound: DataManager.prefs?.sound !== false, lastVisit: Date.now() };
         try { localStorage.setItem('telecard_display_state', JSON.stringify(displayState)); } catch (e) {}
     },
@@ -1797,18 +1802,15 @@ export const UICore = {
     },
 
     applyStoreSearch: function() {
-    const inp = document.getElementById('store-search-input');
-    
-    // 1. تنفيذ عملية البحث
-    if (RenderManager.searchStoreTerm) {
-        RenderManager.searchStoreTerm(inp ? inp.value : '');
-    }
-    
-    // 2. إغلاق لوحة المفاتيح (الكيبورد) في أجهزة الجوال لإظهار النتائج
-    if (inp) {
-        inp.blur();
-    }
-},
+        const inp = document.getElementById('store-search-input');
+        if (RenderManager.searchStoreTerm) {
+            RenderManager.searchStoreTerm(inp ? inp.value : '');
+        }
+        if (inp) {
+            inp.blur();
+        }
+    },
+
     setFilterDefaults: function(prefix) {
         const datePrefix = prefix === 'payments' ? 'pay' : prefix;
         const startEl = document.getElementById(`${datePrefix}-date-start`), endEl = document.getElementById(`${datePrefix}-date-end`);
@@ -1821,40 +1823,41 @@ export const UICore = {
     },
 
     checkSystemStatus: function() {
-    const sys = LiveStoreData.system || {};
-    
-    if (sys.maint === true || sys.maintenance === true) {
-        const msg = sys.msg || sys.maintenanceMsg || 'نحن نجري بعض التحسينات حالياً.';
-        let dateHtml = '';
-        if (sys.date) {
-            // 🛡️ الإصلاح الجذري: استخدام parseSafeTime الموحدة لمنع ظهور (Invalid Date) أو (NaN)
-            const safeTimeMs = Utils.parseSafeTime(sys.date);
-            if (safeTimeMs > 0) {
-                const d = new Date(safeTimeMs).toLocaleString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-                dateHtml = `<div class="m-date"><i class="fa-regular fa-clock"></i> وقت العودة المتوقع: <span dir="ltr">${d}</span></div>`;
+        const sys = LiveStoreData.system || {};
+        
+        if (sys.maint === true || sys.maintenance === true) {
+            const msg = sys.msg || sys.maintenanceMsg || 'نحن نجري بعض التحسينات حالياً.';
+            let dateHtml = '';
+            if (sys.date) {
+                const safeTimeMs = Utils.parseSafeTime(sys.date);
+                if (safeTimeMs > 0) {
+                    const d = new Date(safeTimeMs).toLocaleString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    dateHtml = `<div class="m-date"><i class="fa-regular fa-clock"></i> وقت العودة المتوقع: <span dir="ltr">${d}</span></div>`;
+                }
             }
+            
+            document.body.innerHTML = `<div class="maintenance-screen"><div class="m-glass-box"><i class="fa-solid fa-person-digging m-icon"></i><h1 class="m-title">المتجر في وضع الصيانة</h1><p class="m-desc">${Utils.escapeHtml(msg)}</p>${dateHtml}<button id="maint-refresh-btn" class="btn btn-primary mt-20">تحديث الصفحة</button></div></div>`;
+            document.getElementById('maint-refresh-btn').addEventListener('click', () => location.reload());
+            return true;
         }
         
-        document.body.innerHTML = `<div class="maintenance-screen"><div class="m-glass-box"><i class="fa-solid fa-person-digging m-icon"></i><h1 class="m-title">المتجر في وضع الصيانة</h1><p class="m-desc">${Utils.escapeHtml(msg)}</p>${dateHtml}<button id="maint-refresh-btn" class="btn btn-primary mt-20">تحديث الصفحة</button></div></div>`;
-        document.getElementById('maint-refresh-btn').addEventListener('click', () => location.reload());
-        return true;
-    }
-    
-    if (sys.freeze === true) {
-        let freezeBanner = document.getElementById('system-freeze-banner');
-        if (!freezeBanner) {
-            freezeBanner = document.createElement('div');
-            freezeBanner.id = 'system-freeze-banner';
-            freezeBanner.className = 'freeze-notice-bar';
-            freezeBanner.innerHTML = `<i class="fa-solid fa-snowflake fa-spin-slow"></i> <span>${Utils.escapeHtml(sys.freezeMsg || 'العمليات المالية متوقفة مؤقتاً للتحديث.')}</span>`;
-            document.body.prepend(freezeBanner);
+        if (sys.freeze === true) {
+            let freezeBanner = document.getElementById('system-freeze-banner');
+            if (!freezeBanner) {
+                freezeBanner = document.createElement('div');
+                freezeBanner.id = 'system-freeze-banner';
+                freezeBanner.className = 'freeze-notice-bar';
+                freezeBanner.innerHTML = `<i class="fa-solid fa-snowflake fa-spin-slow"></i> <span>${Utils.escapeHtml(sys.freezeMsg || 'العمليات المالية متوقفة مؤقتاً للتحديث.')}</span>`;
+                document.body.prepend(freezeBanner);
+            }
+        } else {
+            document.getElementById('system-freeze-banner')?.remove();
         }
-    } else {
-        document.getElementById('system-freeze-banner')?.remove();
-    }
+        
+        return false;
+    },    
     
-    return false;
-},    checkBrowserCompatibility: function() {
+    checkBrowserCompatibility: function() {
         const features = { 'localStorage': typeof(Storage) !== "undefined", 'CSS Grid': CSS.supports('display', 'grid'), 'CSS Flexbox': CSS.supports('display', 'flex') };
         let compatibleFeatures = 0, totalFeatures = 0;
         for (const [feature, supported] of Object.entries(features)) { totalFeatures++; if (supported) compatibleFeatures++; }
@@ -1979,7 +1982,7 @@ export const UICore = {
 
     openRatingModal: function() {
         this.closeSidebar();
-        this._currentRating = 0;
+        getSys()._currentRating = 0; // 🛡️ State Sync Fix
         const btn = document.getElementById('btnContinueRating');
         if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
         if (document.getElementById('ratingFeedbackInput')) document.getElementById('ratingFeedbackInput').value = '';
@@ -1991,7 +1994,8 @@ export const UICore = {
     },
     
     selectRatingStar: function(val) {
-        this._currentRating = val; this.sfx?.('nav');
+        getSys()._currentRating = val; // 🛡️ State Sync Fix
+        this.sfx?.('nav');
         document.querySelectorAll('.rating-star').forEach(star => {
             star.className = parseInt(star.dataset.value || star.getAttribute('data-value')) <= val ? 'fa-solid fa-star rating-star active' : 'fa-regular fa-star rating-star';
         });
@@ -2001,7 +2005,7 @@ export const UICore = {
     submitRatingStep: function() {
         this.sfx?.('nav');
         document.getElementById('rating-step-stars').style.display = 'none';
-        document.getElementById((this._currentRating || 0) <= 3 ? 'rating-step-feedback' : 'rating-step-share').style.display = 'block';
+        document.getElementById((getSys()._currentRating || 0) <= 3 ? 'rating-step-feedback' : 'rating-step-share').style.display = 'block'; // 🛡️ State Sync Fix
     },
     
     openAboutModal: function() {
@@ -2012,9 +2016,10 @@ export const UICore = {
         
         const logoTarget = document.getElementById('about-logo-box');
         if (logoTarget) {
+            // 🛡️ CSS Decoupling + XSS Protection
             logoTarget.innerHTML = logoDark 
-                ? `<div class="alert-icon-box" style="width: 75px; height: 75px; background: rgba(255,215,0,0.05); border: 1px solid var(--gold-main); border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; box-shadow: 0 0 15px rgba(255, 215, 0, 0.15);"><img src="${Utils.escapeHtml(logoDark)}" alt="Logo" style="max-height: 48px; width: auto; object-fit: contain;"></div>`
-                : `<div class="alert-icon-box"><i class="fa-solid fa-circle-info" style="font-size: 24px;"></i></div>`;
+                ? `<div class="about-logo-wrapper"><img src="${Utils.safeUrl(logoDark)}" alt="Logo" class="about-logo-img"></div>`
+                : `<div class="about-logo-wrapper"><i class="fa-solid fa-circle-info" style="font-size: 24px;"></i></div>`;
         }
         
         const titleEl = document.getElementById('about-popup-title');
@@ -2043,4 +2048,3 @@ export const UICore = {
         }
     }
 };
-

@@ -1,11 +1,11 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V15.6 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V15.7 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه
-// 🚀 التحديثات المعمارية الصارمة (V15.6):
-// 1. Safe DOM Removal: استخدام remove() لتنظيف حاويات التصوير بأمان مطلق.
-// 2. Battery Saver Timers: إيقاف وتشغيل المؤقتات بذكاء فقط عند وجود عناصر في الشاشة.
-// 3. CSS Object Injection Shield: حماية دوال التصميم من حقن الـ [object Object].
-// 4. Safe Time Unification: توحيد قراءة التواريخ عبر Utils.parseSafeTime لضمان الدقة.
+// 🚀 التحديثات المعمارية الصارمة (V15.7):
+// 1. Clean Architecture: فصل كامل للـ CSS عن الـ JS باستخدام Classes.
+// 2. Batch Cache Clearing: تفريغ الذاكرة المؤقتة للصور كمجموعات لتقليل الضغط.
+// 3. Class Injection Shield: تعقيم أسماء الفئات لتجنب كسر تصميم الـ HTML.
+// 4. Double-Click Protection: حماية دوال استخراج الصور من تكرار الاستدعاء.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS } from './config.js'; 
@@ -22,15 +22,11 @@ window.StoreRenderApp = window.StoreRenderApp || {
 
     revealImg: function(img) {
         if (!img) return;
-        img.style.cssText = ''; 
+        img.classList.remove('img-loading-state');
         img.classList.add('img-loaded-flat'); 
-        img.style.setProperty('opacity', '1', 'important');
-        img.style.setProperty('visibility', 'visible', 'important');
         
         if (img.parentElement) {
-            img.parentElement.classList.add('shimmer-stop');
-            img.parentElement.style.backgroundColor = 'transparent';
-            img.parentElement.style.animation = 'none'; 
+            img.parentElement.classList.add('shimmer-stop-override');
         }
     },
 
@@ -38,8 +34,16 @@ window.StoreRenderApp = window.StoreRenderApp || {
         if (!img) return;
         const key = img.getAttribute('data-key');
         if (key) {
-            if (this.imgCache.has(key)) this.imgCache.delete(key);
-            else if (this.imgCache.size > 500) this.imgCache.delete(this.imgCache.values().next().value);
+            if (this.imgCache.has(key)) {
+                this.imgCache.delete(key);
+            } else if (this.imgCache.size > 500) {
+                // مسح أقدم 50 صورة دفعة واحدة لتقليل الجهد العبء (Batch Clearing)
+                let i = 0;
+                for (const k of this.imgCache) {
+                    this.imgCache.delete(k);
+                    if (++i >= 50) break;
+                }
+            }
             this.imgCache.add(key);
         }
         
@@ -50,25 +54,23 @@ window.StoreRenderApp = window.StoreRenderApp || {
 
     handleImgError: function(img, type) {
         if (!img) return;
-        img.style.display = 'none';
+        img.classList.add('img-error-hidden');
         img.alt = ''; 
         
         const wrapper = img.parentElement;
         if (!wrapper) return;
         
-        wrapper.classList.add('shimmer-stop');
-        wrapper.style.cssText = 'animation: none !important; background-color: transparent !important;';
+        wrapper.classList.add('shimmer-stop-override');
         
         let fallback = wrapper.querySelector('.fallback-icon-ready');
         if (fallback) {
-            fallback.style.display = 'flex';
+            fallback.style.display = 'flex'; // يمكن نقلها أيضاً كـ class، لكن الـ inline هنا مقبول للإظهار فقط
         } else {
             let iconClass = type === 'cat' ? 'fa-layer-group' : (type === 'pay' ? 'fa-building-columns' : 'fa-box-open');
             let divClass = type === 'pay' ? 'pay-icon-default' : 'default-prod-icon';
             const fallbackDiv = document.createElement('div');
             fallbackDiv.className = `${divClass} fallback-icon-ready`;
-            fallbackDiv.style.cssText = 'display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: var(--text-muted); font-size: 24px;';
-            fallbackDiv.innerHTML = `<i class="fa-solid ${iconClass}"></i>`;
+            fallbackDiv.innerHTML = `<i class="fa-solid ${Utils.escapeHtml(iconClass)}"></i>`;
             wrapper.appendChild(fallbackDiv);
         }
     }
@@ -89,6 +91,11 @@ export const RenderManager = {
         };
     },
 
+    // دالة مساعدة لضمان عدم وجود رموز خبيثة في أسماء الفئات
+    _safeClass: function(str) {
+        return typeof str === 'string' ? str.replace(/[^a-zA-Z0-9-_%]/g, '') : '';
+    },
+
     _renderHtmlToFragment: function(htmlString) {
         const template = document.createElement('template');
         template.innerHTML = htmlString;
@@ -97,13 +104,13 @@ export const RenderManager = {
     
     _getMappedColor: function(colorStr) {
         const safeColor = typeof colorStr === 'string' ? colorStr : 'badge-blue';
-        return safeColor.replace('theme-ruby', 'badge-red').replace('theme-sunset', 'badge-red').replace('theme-sapphire', 'badge-blue').replace('theme-ocean', 'badge-blue').replace('theme-emerald', 'badge-green').replace('theme-gold', 'badge-gold').replace('theme-amethyst', 'badge-purple').replace('theme-cyber', 'badge-purple').replace('theme-carbon', 'badge-black').replace('theme-obsidian', 'badge-black');
+        return this._safeClass(safeColor.replace('theme-ruby', 'badge-red').replace('theme-sunset', 'badge-red').replace('theme-sapphire', 'badge-blue').replace('theme-ocean', 'badge-blue').replace('theme-emerald', 'badge-green').replace('theme-gold', 'badge-gold').replace('theme-amethyst', 'badge-purple').replace('theme-cyber', 'badge-purple').replace('theme-carbon', 'badge-black').replace('theme-obsidian', 'badge-black'));
     },
     
     _getMappedPosition: function(posStr, defaultPos) {
         const safePos = typeof posStr === 'string' ? posStr : defaultPos;
         const posMap = { 'pos-tl': 'top-left', 'pos-tc': 'top-center', 'pos-tr': 'top-right', 'pos-bl': 'bottom-left', 'pos-bc': 'bottom-center', 'pos-br': 'bottom-right' };
-        return posMap[safePos] || safePos;
+        return posMap[safePos] || this._safeClass(safePos);
     },
     
     _applyGridLayout: function(gridElement, settings = {}, overrideCols = null, gridType = 'prods') {
@@ -121,20 +128,20 @@ export const RenderManager = {
         let cacheKey = rawUrl;
         const isCached = window.StoreRenderApp.imgCache.has(cacheKey);
         return {
-            cacheKey: cacheKey, imgClass: '', wrapperClass: '',
+            cacheKey: cacheKey, imgClass: 'img-loading-state', wrapperClass: '',
             lazyAttrs: isCached ? 'loading="eager" decoding="sync" fetchpriority="high"' : 'loading="lazy" decoding="async"',
-            imgStyle: 'opacity: 0 !important; visibility: hidden !important;', wrapperStyle: ''
+            imgStyle: '', wrapperStyle: ''
         };
     },
 
     _generateImageHTML: function(rawUrl, safeName, type, isHighPriority = false) {
         let defaultIcon = type === 'cat' ? 'fa-layer-group' : (type === 'pay' ? 'fa-building-columns' : 'fa-box-open');
         let defaultClass = type === 'pay' ? 'pay-icon-default' : 'default-prod-icon';
-        let extraStyle = type === 'story' ? 'width: 100%; height: 100%;' : '';
+        let extraClass = type === 'story' ? ' story-fallback-icon' : '';
 
-        const fallbackHTML = `<div class="${defaultClass} fallback-icon-ready" style="display: none; align-items: center; justify-content: center; width: 100%; height: 100%; color: var(--text-muted); font-size: 24px; ${extraStyle}"><i class="fa-solid ${defaultIcon}"></i></div>`;
+        const fallbackHTML = `<div class="${defaultClass} fallback-icon-ready${extraClass}" style="display: none;"><i class="fa-solid ${Utils.escapeHtml(defaultIcon)}"></i></div>`;
 
-        if (!rawUrl) return { html: fallbackHTML.replace('display: none;', 'display: flex;'), wrapperClass: ' shimmer-stop', wrapperStyle: ' animation: none !important; background-color: transparent !important;' };
+        if (!rawUrl) return { html: fallbackHTML.replace('display: none;', 'display: flex;'), wrapperClass: ' shimmer-stop-override', wrapperStyle: '' };
 
         const safeUrl = typeof Utils !== 'undefined' && Utils.safeUrl ? Utils.safeUrl(rawUrl) : String(rawUrl).replace(/"/g, '&quot;');
         
@@ -142,7 +149,7 @@ export const RenderManager = {
         const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
         const imgClass = type === 'pay' ? `pay-icon-img ${imgVars.imgClass}` : imgVars.imgClass;
         
-        let imgHTML = `<img src="${safeUrl}" data-key="${imgVars.cacheKey}" class="${imgClass}" style="${imgVars.imgStyle}" ${imgVars.lazyAttrs} alt="${safeName}" ${priorityAttr} data-img-type="${type}" onload="window.StoreRenderApp.onImgLoad(this)" onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
+        let imgHTML = `<img src="${safeUrl}" data-key="${imgVars.cacheKey}" class="${imgClass}" ${imgVars.lazyAttrs} alt="${safeName}" ${priorityAttr} data-img-type="${type}" onload="window.StoreRenderApp.onImgLoad(this)" onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
         imgHTML += fallbackHTML;
         
         return { html: imgHTML, wrapperClass: imgVars.wrapperClass, wrapperStyle: imgVars.wrapperStyle };
@@ -156,11 +163,11 @@ export const RenderManager = {
         
         if (!pricingInfo) return ''; 
         
-        let priceSectionHtml = '', nameExpandedStyle = '';
+        let priceSectionHtml = '', nameExpandedClass = '';
         if (p.hideGridPrice !== true) {
             priceSectionHtml = `<div class="product-price">${pricingInfo.unitText}</div>`;
         } else {
-            nameExpandedStyle = 'white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; margin: auto 0;';
+            nameExpandedClass = 'product-name-expanded';
         }
         
         const safeName = Utils.safeText(p.name);
@@ -176,18 +183,19 @@ export const RenderManager = {
             const colorClass = this._getMappedColor(v.badgeColor);
             
             if (v.badgeStyle && v.badgeStyle !== 'none') {
-                visualElementsHtml += `<div class="offer-badge-base ${v.badgeStyle} ${colorClass} ${mappedBadgePos}">${Utils.escapeHtml(v.badgeText)}</div>`;
+                visualElementsHtml += `<div class="offer-badge-base ${this._safeClass(v.badgeStyle)} ${colorClass} ${mappedBadgePos}">${Utils.escapeHtml(v.badgeText)}</div>`;
             }
             if (v.timerStyle && v.timerStyle !== 'none') {
                 let timerContent = activeOffer.expiryDate ? `<span class="live-countdown num-en" data-expire="${activeOffer.expiryDate}">--:--:--</span>` : '--:--:--';
                 let tIcon = v.timerStyle === 'timer-digital' ? 'fa-stopwatch' : 'fa-clock';
-                visualElementsHtml += `<div class="${v.timerStyle} ${mappedTimerPos}"><i class="fa-regular ${tIcon}"></i> ${timerContent}</div>`;
+                visualElementsHtml += `<div class="${this._safeClass(v.timerStyle)} ${mappedTimerPos}"><i class="fa-regular ${tIcon}"></i> ${timerContent}</div>`;
             }
         } else if (p.badgeText) {
-            visualElementsHtml += `<div class="offer-badge-base prod-badge badge-${p.badgeColor || 'blue'}">${Utils.safeText(p.badgeText)}</div>`;
+            visualElementsHtml += `<div class="offer-badge-base prod-badge badge-${this._safeClass(p.badgeColor) || 'blue'}">${Utils.safeText(p.badgeText)}</div>`;
         }
         
-        return `<div class="product-card" data-action="open-product" data-id="${p.id}" style="--anim-idx: ${idx}">${UIBuilders.buildProductCardInner(safeName, priceSectionHtml, imgObj, visualElementsHtml, nameExpandedStyle)}</div>`;
+        // ملاحظة: يجب التأكد أن دالة UIBuilders.buildProductCardInner تم تحديثها لتقبل الـ Class بدلاً من الـ Style
+        return `<div class="product-card" data-action="open-product" data-id="${p.id}" style="--anim-idx: ${idx}">${UIBuilders.buildProductCardInner(safeName, priceSectionHtml, imgObj, visualElementsHtml, nameExpandedClass)}</div>`;
     },
 
     _appendLoadMoreButton: function(container, type, uid, totalCount, limitKey) {
@@ -364,7 +372,6 @@ export const RenderManager = {
     },
 
     initTimersEngine: function() {
-        // 🛡️ التعديل 2: الفحص المبكر - لا يتم إطلاق المؤقت إلا إذا كان هناك عنصر يحتاجه
         if (document.querySelectorAll('.live-countdown').length === 0) {
             if (window.StoreRenderApp.timerInterval) {
                 clearInterval(window.StoreRenderApp.timerInterval);
@@ -373,7 +380,6 @@ export const RenderManager = {
             return; 
         }
 
-        // إذا كان يعمل مسبقاً فلا داعي لإعادة التعيين لتوفير موارد المتصفح
         if (window.StoreRenderApp.timerInterval) return;
         
         window.StoreRenderApp.timerInterval = setInterval(() => {
@@ -430,20 +436,23 @@ export const RenderManager = {
                 targetedProds.forEach(prod => {
                     let shapeClass = ''; let shapeStyle = '';
                     const adminShape = v.storyShape || 'shape-circle';
-                    if (adminShape.includes('%') || adminShape.includes('px')) { shapeStyle = `border-radius: ${adminShape} !important;`; } 
-                    else { shapeClass = adminShape.startsWith('shape-') ? adminShape : `shape-${adminShape}`; }
+                    if (adminShape.includes('%') || adminShape.includes('px')) { 
+                        shapeStyle = `border-radius: ${Utils.escapeHtml(adminShape)} !important;`; 
+                    } else { 
+                        shapeClass = this._safeClass(adminShape.startsWith('shape-') ? adminShape : `shape-${adminShape}`); 
+                    }
 
                     let badgeHtml = '', timerHtml = '', bColorClass = ''; 
 
                     if (v.grid) {
                         bColorClass = this._getMappedColor(v.grid.badgeColor);
                         if (v.grid.badgeStyle && v.grid.badgeStyle !== 'none') {
-                            badgeHtml = `<div class="story-badge ${v.grid.badgeStyle} ${bColorClass} ${this._getMappedPosition(v.grid.badgePos, 'bottom-center')}">${Utils.escapeHtml(v.grid.badgeText || '')}</div>`;
+                            badgeHtml = `<div class="story-badge ${this._safeClass(v.grid.badgeStyle)} ${bColorClass} ${this._getMappedPosition(v.grid.badgePos, 'bottom-center')}">${Utils.escapeHtml(v.grid.badgeText || '')}</div>`;
                         }
                         if (v.grid.timerStyle && v.grid.timerStyle !== 'none') {
                             const timerContent = offer.expiryDate ? `<span class="live-countdown num-en" data-expire="${offer.expiryDate}">--:--:--</span>` : '--:--:--';
                             const tIcon = ['timer-bc-pill', 'timer-minimal'].includes(v.grid.timerStyle) ? `<i class="fa-regular fa-clock"></i> ` : (v.grid.timerStyle === 'timer-digital' ? `<i class="fa-solid fa-stopwatch"></i> ` : '');
-                            timerHtml = `<div class="${v.grid.timerStyle} ${this._getMappedPosition(v.grid.timerPos, 'top-center')}">${tIcon}${timerContent}</div>`;
+                            timerHtml = `<div class="${this._safeClass(v.grid.timerStyle)} ${this._getMappedPosition(v.grid.timerPos, 'top-center')}">${tIcon}${timerContent}</div>`;
                         }
                     }
 
@@ -518,7 +527,7 @@ export const RenderManager = {
                 if (combinedHtml) {
                     grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
                     if(items.length > 0 && Components?.initProductShine) Components.initProductShine();
-                    this.initTimersEngine(); // استدعاء ذكي
+                    this.initTimersEngine();
                 } else {
                     grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-box-open"></i><h3>لا توجد منتجات</h3></div>`;
                 }
@@ -596,7 +605,7 @@ export const RenderManager = {
             grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
             UIManager.setGridMode(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
             if(Components?.initProductShine) Components.initProductShine();
-            this.initTimersEngine(); // استدعاء ذكي
+            this.initTimersEngine(); 
         });
     },
 
@@ -643,7 +652,7 @@ export const RenderManager = {
             }
             this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols, 'prods');
             if (Components?.initProductShine) Components.initProductShine();
-            this.initTimersEngine(); // استدعاء ذكي
+            this.initTimersEngine(); 
         });
     },
 
@@ -756,9 +765,9 @@ export const RenderManager = {
                 const imgObj = this._generateImageHTML(p.img, safeName, 'pay');
 
                 if (isLocked) {
-                    html += `<div class="pay-card-select method-locked" style="opacity: 0.65;" onclick="window.UIManager?.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة.', 'warning')"><div class="pay-icon-wrapper ${imgObj.wrapperClass}" style="filter: grayscale(100%); ${imgObj.wrapperStyle}">${imgObj.html}</div><div class="pay-card-content"><h3 class="pay-card-name" style="color: var(--text-muted);">${safeName}</h3><span style="display:block; font-size:11px; color:var(--warning); margin-top:4px;"><i class="fa-solid fa-hourglass-half"></i> طلب قيد المعالجة</span></div><i class="fa-solid fa-lock pay-card-arrow" style="color: var(--text-muted);"></i></div>`;
+                    html += `<div class="pay-card-select method-locked" onclick="window.UIManager?.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة.', 'warning')"><div class="pay-icon-wrapper ${imgObj.wrapperClass}">${imgObj.html}</div><div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3><span class="method-locked-warning"><i class="fa-solid fa-hourglass-half"></i> طلب قيد المعالجة</span></div><i class="fa-solid fa-lock pay-card-arrow"></i></div>`;
                 } else {
-                    html += `<div class="pay-card-select clickable" data-action="select-pay" data-id="${p.id}"><div class="pay-icon-wrapper ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3></div><i class="fa-solid fa-chevron-left pay-card-arrow"></i></div>`;
+                    html += `<div class="pay-card-select clickable" data-action="select-pay" data-id="${p.id}"><div class="pay-icon-wrapper ${imgObj.wrapperClass}">${imgObj.html}</div><div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3></div><i class="fa-solid fa-chevron-left pay-card-arrow"></i></div>`;
                 }
             } catch(e) {}
         });
@@ -798,13 +807,8 @@ export const RenderManager = {
         const filters = DataManager.filters || { payments: 'all' };
         if (filters.payments !== 'all') myDeposits = myDeposits.filter(d => filters.payments === 'rejected' ? ['rejected', 'refunded', 'returned'].includes(d.status) : d.status === filters.payments);
 
-        if (q) myDeposits = myDeposits.filter(d =>
-    String(d.id).toLowerCase().includes(q) ||
-    (d.displayId && String(d.displayId).toLowerCase().includes(q)) ||
-    RenderHelpers.formatDepositId(d).toLowerCase().includes(q) ||
-    (d.method && d.method.toLowerCase().includes(q))
-);
-if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
+        if (q) myDeposits = myDeposits.filter(d => String(d.id).toLowerCase().includes(q) || (d.displayId && String(d.displayId).toLowerCase().includes(q)) || RenderHelpers.formatDepositId(d).toLowerCase().includes(q) || (d.method && d.method.toLowerCase().includes(q)));
+        if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
 
         myDeposits.sort((a, b) => {
@@ -860,12 +864,7 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         const filters = DataManager.filters || { orders: 'all' };
         if (filters.orders !== 'all') orders = orders.filter(o => o.status === filters.orders);
         
-        if (q) orders = orders.filter(o =>
-    String(o.id).toLowerCase().includes(q) ||
-    (o.displayId && String(o.displayId).toLowerCase().includes(q)) ||
-    RenderHelpers.formatOrderId(o).toLowerCase().includes(q) ||
-    (o.product && o.product.toLowerCase().includes(q))
-);
+        if (q) orders = orders.filter(o => String(o.id).toLowerCase().includes(q) || (o.displayId && String(o.displayId).toLowerCase().includes(q)) || RenderHelpers.formatOrderId(o).toLowerCase().includes(q) || (o.product && o.product.toLowerCase().includes(q)));
         if (tStart) orders = orders.filter(o => o.sortTime >= tStart);
         if (tEnd) orders = orders.filter(o => o.sortTime <= tEnd);
 
@@ -915,7 +914,6 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
             
             const cleanup = () => {
                 const orphanedContainer = document.getElementById(containerId);
-                // 🛡️ التعديل 1: استخدام remove للحذف بأمان وموثوقية
                 if (orphanedContainer) {
                     try { orphanedContainer.remove(); } catch(e){}
                 }
@@ -933,6 +931,7 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
                 const storeName = settings.storeName || 'TeleCard';
                 const storeLogo = settings.storeLogoLight || settings.storeLogo || '';
                 
+                // تم الإبقاء على ستايل الشعار الداخلي خصيصاً لدعم توافقية html2canvas
                 let safeLogoHtml = storeLogo ? `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;" crossorigin="anonymous">` : '';
                 const brandHTML = { html: `<div class="header-section"><div class="store-name">${Utils.escapeHtml(storeName)}</div>${safeLogoHtml}</div>` };
                 
@@ -940,11 +939,7 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
                 
                 const container = document.createElement('div');
                 container.id = containerId;
-                container.style.cssText = `
-                    position: fixed; top: 0; left: 0; width: 420px;
-                    background-color: #ffffff; z-index: -99999;
-                    opacity: 0.01; pointer-events: none; overflow: hidden;
-                `;
+                container.className = 'receipt-render-container'; // استبدال الـ style.cssText بالفئة المخصصة
                 container.innerHTML = fullHTML;
                 document.body.appendChild(container);
 
@@ -985,6 +980,8 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
     },
 
     exportReceipt: async function(orderId, btnElement = null) {
+        if (btnElement && btnElement.disabled) return; // حماية ضد الدبل كليك
+        
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
         if (!o) return;
         
@@ -1025,6 +1022,8 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
     },
     
     exportPaymentReceipt: async function(depositId, btnElement = null) {
+        if (btnElement && btnElement.disabled) return; // حماية ضد الدبل كليك
+
         const d = (LiveStoreData.deposits || []).find(x => String(x.id) === String(depositId));
         if (!d) return;
         
@@ -1095,7 +1094,7 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         html += allAlerts.slice(0, 30).map(alert => {
             try {
                 const isRead = readIds.includes(String(alert.id)) || alert.isRead || Utils.parseSafeTime(alert.createdAt || alert.time) <= serverLastReadTime;
-                return `<div class="nc-item ${isRead ? 'is-read' : 'unread'}" data-action="mark-single-read" data-id="${alert.id}"><div class="nc-icon"><i class="fa-solid ${(alert.jumpTarget === 'order') ? 'fa-box-open' : (alert.icon || 'fa-bullhorn')}"></i></div><div class="nc-content"><div class="nc-header"><h4 class="nc-title">${Utils.escapeHtml(alert.title || 'إشعار جديد')}</h4><span class="nc-time">${RenderHelpers.formatSafeDate(alert.createdAt || alert.time).split(' | ')[0]}</span></div><p class="nc-msg">${Utils.escapeHtml(alert.message || '')}</p></div>${!isRead ? '<div class="unread-indicator-dot"></div>' : ''}</div>`;
+                return `<div class="nc-item ${isRead ? 'is-read' : 'unread'}" data-action="mark-single-read" data-id="${alert.id}"><div class="nc-icon"><i class="fa-solid ${(alert.jumpTarget === 'order') ? 'fa-box-open' : (Utils.escapeHtml(alert.icon) || 'fa-bullhorn')}"></i></div><div class="nc-content"><div class="nc-header"><h4 class="nc-title">${Utils.escapeHtml(alert.title || 'إشعار جديد')}</h4><span class="nc-time">${RenderHelpers.formatSafeDate(alert.createdAt || alert.time).split(' | ')[0]}</span></div><p class="nc-msg">${Utils.escapeHtml(alert.message || '')}</p></div>${!isRead ? '<div class="unread-indicator-dot"></div>' : ''}</div>`;
             } catch(e) { return ''; }
         }).join('');
         
@@ -1109,9 +1108,10 @@ if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
         const active = (countries || []).filter(c => c.isActive !== false && !c.isBanned);
         if (active.length === 0) { listTarget.innerHTML = '<div class="dropdown-item">لا توجد دول متاحة</div>'; return; }
         
+        // إزالة التنسيقات المضمنة واستبدالها بفئات (Classes)
         const rawHtml = active.map(c => {
             const safeName = Utils.escapeHtml(c.name || c.nameAr || 'غير محددة'), safeFlag = Utils.escapeHtml(c.flag || c.flagEmoji || '🌍'), safeCode = Utils.escapeHtml(c.dialCode || '');
-            return `<div class="dropdown-item" data-action="select-country" data-name="${safeName}" data-code="${safeCode}" data-len="${parseInt(c.phoneLen) || 10}"><span style="margin-left: 8px;">${safeFlag}</span><span style="flex: 1;">${safeName}</span><span class="num-en" style="color: var(--text-muted);">${safeCode}</span></div>`;
+            return `<div class="dropdown-item" data-action="select-country" data-name="${safeName}" data-code="${safeCode}" data-len="${parseInt(c.phoneLen) || 10}"><span class="country-flag">${safeFlag}</span><span class="country-name">${safeName}</span><span class="num-en country-code">${safeCode}</span></div>`;
         }).join('');
 
         requestAnimationFrame(() => listTarget.replaceChildren(this._renderHtmlToFragment(rawHtml)));

@@ -1,12 +1,11 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الاحترافية V21.0.0 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الاحترافية V21.1.0 👑
 // 🎯 الوظيفة: المعاملات المالية، حماية الثغرات، التشافي الذاتي، والأرشفة الآمنة.
-// 🚀 التحديثات المعمارية (V21.0.0):
-// 1. تطبيق التشافي الذاتي (Self-Healing) لمنع حسابات الأشباح بالكامل.
-// 2. تطبيق الترتيب الهندسي الآمن (البضاعة قبل المال) لمنع تضارب الاسترجاع.
-// 3. حماية التسليم اليدوي للإدارة من تجاوز حاجز الـ 500 عملية.
-// 4. أرشفة الأصول الرقمية (Vault Archiving) لحماية الأكواد غير المباعة من الضياع.
-// 5. حماية الذاكرة عبر Pagination (maxResults) في تنظيف مساحة التخزين.
+// 🚀 التحديثات المعمارية (V21.1.0):
+// 1. All-in-One ACID Transaction: دمج حرق الأكواد وإرجاع المال في ترانزكشن واحد لمنع ضياع الأموال.
+// 2. Double-Refund Prevention: فحص حالة الطلب داخل الترانزكشن لمنع تضارب قرارات الإدارة.
+// 3. تطبيق التشافي الذاتي (Self-Healing) لمنع حسابات الأشباح بالكامل.
+// 4. حماية الذاكرة عبر Pagination (maxResults) في تنظيف مساحة التخزين.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -76,7 +75,6 @@ const generatePublicProductData = (prodData, tiersData) => {
     return publicData;
 };
 
-// التحديث للإحصائيات (DRY Principle)
 const generateAndSaveStats = async () => {
     const AggregateField = admin.firestore.AggregateField;
     const [ordersTotal, ordersCompleted, ordersRejected, ordersRefunded, financials, depTotal, depApproved, depRejected, depRefunded] = await Promise.all([
@@ -117,7 +115,7 @@ const generateUniqueId = () => {
 // 🛡️ 0. إنشاء الحساب (V1 + Retries)
 // ==========================================
 exports.onUserAuthCreated = functions
-    .runWith({ failurePolicy: true }) // تأمين الشبكة
+    .runWith({ failurePolicy: true }) 
     .auth.user().onCreate(async (user) => {
     try {
         const userRef = db.collection('telecard_users').doc(user.uid);
@@ -189,7 +187,6 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
             const tiersData = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
             const liveOffers = offersSnap.docs.map(d => d.data());
 
-            // 🛡️ التشافي الذاتي
             let userData = {};
             if (!userSnap.exists) {
                 let initialTierId = tiersData.find(t => t.isDefault)?.id || '1';
@@ -409,7 +406,7 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
 });
 
 // ==========================================
-// 👑 3. دوال الإدارة والعمليات المالية (إصلاح حاجز المعاملات وتضارب الاسترجاع)
+// 👑 3. دوال الإدارة والعمليات المالية (V21.1.0 - الاسترجاع الآمن المدمج)
 // ==========================================
 exports.adminProcessOrder = onCall(async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
@@ -434,7 +431,6 @@ exports.adminProcessOrder = onCall(async (request) => {
     let finalMsg = `تم تحديث الطلب إلى ${action}`;
 
     if (action === 'completed') {
-        // 🛡️ حماية حاجز الـ 500 عملية في التسليم اليدوي
         if ((orderData.qty || 1) > SYSTEM_LIMITS.MAX_VAULT_QTY_PER_ORDER) {
             throw new HttpsError('failed-precondition', `حماية السيرفر تمنع تسليم أكثر من ${SYSTEM_LIMITS.MAX_VAULT_QTY_PER_ORDER} كود يدوياً دفعة واحدة.`);
         }
@@ -471,43 +467,29 @@ exports.adminProcessOrder = onCall(async (request) => {
         if (keysAssignedCount > 0) finalMsg += ` (وتم تسليم ${keysAssignedCount} كود للعميل).`;
 
     } else if (isRefundingAction && !wasAlreadyRefunded) {
-        // 🛡️ الترتيب الآمن: تأمين الأكواد قبل إرجاع المال (Safe Sequence)
-        
-        // 1. قفل الطلب لمنع التضارب
-        await orderRef.update({ status: 'processing_refund', adminNote: safeAdminNote, actionTime: admin.firestore.FieldValue.serverTimestamp() });
-
-        // 2. سحب الأكواد بنظام الدفعات (Chunks) للتوالف
-        if (orderData.deliveredCode) {
-            let poolId = orderData.vaultPoolId;
-            if (!poolId) {
-                const prodSnap = await db.collection('telecard_prods').doc(String(orderData.prodId)).get();
-                if (prodSnap.exists) poolId = prodSnap.data().vaultPoolId;
-            }
-            if (poolId) {
-                const vaultRef = db.collection('telecard_vault').doc(String(poolId));
-                const keysQuerySnap = await vaultRef.collection('keys').where('orderId', '==', String(orderId)).get();
-                const docs = keysQuerySnap.docs;
-                const CHUNK_SIZE = 200;
-                
-                for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
-                    const chunk = docs.slice(i, i + CHUNK_SIZE);
-                    const batch = db.batch();
-                    chunk.forEach(keyDoc => {
-                        const keyData = keyDoc.data();
-                        const burnedKeyRef = db.collection('telecard_vault_returned').doc(keyDoc.id);
-                        batch.set(burnedKeyRef, { ...keyData, isBurned: true, refundedAt: admin.firestore.FieldValue.serverTimestamp(), refundedOrderId: orderId, reason: action, originalPoolId: poolId });
-                        batch.delete(keyDoc.ref);
-                        keysBurnedCount++;
-                    });
-                    await batch.commit();
-                }
-            }
+        // 🛡️ الترتيب الآمن الشامل (All-in-One ACID Transaction) - V21.1.0 Fix
+        let poolId = orderData.vaultPoolId;
+        if (!poolId) {
+            const prodSnap = await db.collection('telecard_prods').doc(String(orderData.prodId)).get();
+            if (prodSnap.exists) poolId = prodSnap.data().vaultPoolId;
         }
 
-        // 3. تحديث مالي دقيق في Transaction لاسترجاع الرصيد
+        let keysToBurn = [];
+        if (poolId && orderData.deliveredCode) {
+            const vaultRef = db.collection('telecard_vault').doc(String(poolId));
+            const keysQuerySnap = await vaultRef.collection('keys').where('orderId', '==', String(orderId)).get();
+            keysToBurn = keysQuerySnap.docs;
+        }
+
         await db.runTransaction(async (transaction) => {
             const userRef = db.collection('telecard_users').doc(String(orderData.userId));
             const userSnap = await transaction.get(userRef);
+            
+            // التأكد من حالة الطلب داخل الترانزكشن لمنع الازدواجية
+            const liveOrderSnap = await transaction.get(orderRef);
+            if (['rejected', 'refunded', 'returned'].includes(liveOrderSnap.data().status)) {
+                throw new HttpsError('failed-precondition', 'تم استرجاع هذا الطلب بالفعل في عملية متزامنة.');
+            }
             
             let couponSnap = null;
             if (orderData.couponCode) {
@@ -517,6 +499,16 @@ exports.adminProcessOrder = onCall(async (request) => {
             const tiersSnap = await transaction.get(db.collection('telecard_tiers'));
             const tiersData = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
+            // أ- حرق الأكواد داخل نفس الترانزكشن
+            keysToBurn.forEach(keyDoc => {
+                const keyData = keyDoc.data();
+                const burnedKeyRef = db.collection('telecard_vault_returned').doc(keyDoc.id);
+                transaction.set(burnedKeyRef, { ...keyData, isBurned: true, refundedAt: admin.firestore.FieldValue.serverTimestamp(), refundedOrderId: orderId, reason: action, originalPoolId: poolId });
+                transaction.delete(keyDoc.ref);
+                keysBurnedCount++;
+            });
+
+            // ب- استرجاع الأموال وتحديث المستخدم
             let newWalletBal = 0; 
             if (userSnap.exists) {
                 const ud = userSnap.data();
@@ -541,10 +533,13 @@ exports.adminProcessOrder = onCall(async (request) => {
                 transaction.update(userRef, { walletBalance: newWalletBal, totalSpent: safeSub(ud.totalSpent || 0, Number(orderData.price || 0)), tierCycleSpent: newCycleSpent, tierId: newTierId });
             }
             
-            if (couponSnap && !couponSnap.empty) transaction.update(couponSnap.docs[0].ref, { usedCount: admin.firestore.FieldValue.increment(-1) });
-            transaction.update(orderRef, { status: action, balanceAfter: newWalletBal });
+            // ج- إعادة تعيين الكوبون وتحديث حالة الطلب
+            if (couponSnap && !couponSnap.empty) {
+                transaction.update(couponSnap.docs[0].ref, { usedCount: admin.firestore.FieldValue.increment(-1) });
+            }
+            transaction.update(orderRef, { status: action, adminNote: safeAdminNote, actionTime: admin.firestore.FieldValue.serverTimestamp(), balanceAfter: newWalletBal });
         });
-        if (keysBurnedCount > 0) finalMsg += ` (وتم سحب ${keysBurnedCount} كود إلى خزنة التوالف).`;
+        if (keysBurnedCount > 0) finalMsg += ` (وتم سحب ${keysBurnedCount} كود إلى خزنة التوالف بأمان).`;
     }
 
     await logAdminAction(request.auth.uid, 'PROCESS_ORDER', `Order: ${orderId}, Action: ${action}`);
@@ -958,7 +953,7 @@ exports.cleanupOrphanedKycDocs = onSchedule({
                 }
             }
 
-            // التحقق مما  إذا كان هناك ملفات أخرى للانتقال إليها
+            // التحقق مما إذا كان هناك ملفات أخرى للانتقال إليها
             if (nextQuery) {
                 query = nextQuery;
             } else {

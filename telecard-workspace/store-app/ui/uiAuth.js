@@ -1,11 +1,11 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية V15.8 🛡️
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - النسخة الماسية V15.9 💎
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية (V15.8):
-// 1. Phone Sanitization: تنظيف رقم الهاتف (إزالة المسافات والأقواس) ليتطابق مع قيود السيرفر.
-// 2. Flexible KYC: السماح بتفريغ حقول الصور وحذفها من الذاكرة إذا ألغى العميل اختياره.
-// 3. Centralized Biometric Sync: مزامنة مفتاح البصمة مع السيرفر بدلاً من التخزين المحلي فقط.
-// 4. Currency Failsafe: تأمين العملة المرجعية بـ Fallback لتجنب تلف الرصيد عند حفظ الهوية.
+// 🚀 التحديثات المعمارية (V15.9):
+// 1. Stack-Safe Base64: حماية نظام تشفير البصمة من خطأ (Call Stack Exceeded).
+// 2. DOM Cleansing: إزالة التكرار العشوائي في تعديل الـ DOM والاكتفاء بـ Classes.
+// 3. CSS Decoupling: فصل التنسيقات الثابتة (للمستويات والـ QR) إلى ملف CSS الخارجي.
+// 4. Memory Flush: تفريغ حقول إدخال الملفات يدوياً عند إغلاق النوافذ.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -131,21 +131,21 @@ export const UIAuth = {
                 usernameEl.textContent = `@${usernameVal}`;
                 usernameEl.setAttribute('data-action', 'copy-text');
                 usernameEl.setAttribute('data-text', usernameVal);
-                usernameEl.style.cursor = 'pointer';
+                usernameEl.classList.add('clickable');
             }
             
             if(emailEl) {
                 emailEl.textContent = emailTxt;
                 emailEl.setAttribute('data-action', 'copy-text');
                 emailEl.setAttribute('data-text', emailTxt);
-                emailEl.style.cursor = 'pointer';
+                emailEl.classList.add('clickable');
             }
 
             if(phoneEl) {
                 phoneEl.innerHTML = `<span dir="ltr">${Utils.escapeHtml(phoneTxt)}</span>`;
                 const phoneCard = phoneEl.closest('.info-card-item');
                 if (phoneCard) {
-                    phoneCard.style.cursor = 'pointer';
+                    phoneCard.classList.add('clickable');
                     phoneCard.setAttribute('data-action', 'show-phone-toast');
                 }
             }
@@ -158,7 +158,7 @@ export const UIAuth = {
                 if (idWrap) {
                     idWrap.setAttribute('data-action', 'copy-text');
                     idWrap.setAttribute('data-text', idTxt);
-                    idWrap.style.cursor = 'pointer';
+                    idWrap.classList.add('clickable');
                 }
             }
             
@@ -182,10 +182,13 @@ export const UIAuth = {
             const cameraBtn = document.getElementById('avatar-menu-trigger');
             const fileInput = document.getElementById('avatar-upload-input');
             
-            if(imgEl) imgEl.src = currentAvatar;
+            if(imgEl) {
+                imgEl.src = currentAvatar;
+                imgEl.classList.add('clickable');
+                imgEl.setAttribute('data-action', 'handle-avatar-click');
+            }
             if(sidebarAvatar) sidebarAvatar.src = currentAvatar;
             
-            if(imgEl) { imgEl.style.cursor = 'pointer'; imgEl.setAttribute('data-action', 'handle-avatar-click'); }
             if(cameraBtn) { cameraBtn.setAttribute('data-action', 'handle-avatar-click'); }
 
             const deleteAvatarBtn = document.getElementById('inline-delete-avatar-btn');
@@ -347,7 +350,9 @@ export const UIAuth = {
         }
     },
     
-    closeProfileInfo: function() { getSys().closeModal?.('profile-info'); },
+    closeProfileInfo: function() { 
+        getSys().closeModal?.('profile-info'); 
+    },
 
     updateProfileDisplay: function() {
         try {
@@ -375,14 +380,9 @@ export const UIAuth = {
                 if (navRating) navRating.style.display = 'none';
                 if (logoutBtn) logoutBtn.style.display = 'none';
                 
-                if (alertCard) {
-                    alertCard.style.setProperty('display', 'none', 'important');
-                    alertCard.classList.add('d-none', 'hide-element');
-                }
-                if (kycContainer) {
-                    kycContainer.style.setProperty('display', 'none', 'important');
-                    kycContainer.classList.add('d-none', 'hide-element');
-                }
+                // 🛡️ DOM Cleanup: الاعتماد على الكلاس فقط وتجنب الفوضى مع الـ style
+                if (alertCard) alertCard.classList.add('d-none');
+                if (kycContainer) kycContainer.classList.add('d-none');
                 return;
             }
             
@@ -412,15 +412,12 @@ export const UIAuth = {
                 const isIdentityComplete = ((user.isVerified === true || String(user.isVerified) === 'true') || hasData) && hasCurrency;
                 
                 if (isIdentityComplete) {
-                    alertCard.style.setProperty('display', 'none', 'important');
-                    alertCard.classList.add('d-none', 'hide-element');
+                    alertCard.classList.add('d-none');
                     alertCard.style.pointerEvents = 'none';
                     alertCard.removeAttribute('data-action');
                     alertCard.onclick = null;
                 } else {
-                    alertCard.style.removeProperty('display');
-                    alertCard.style.display = 'flex';
-                    alertCard.classList.remove('d-none', 'hide-element');
+                    alertCard.classList.remove('d-none');
                     alertCard.style.pointerEvents = 'auto';
                     alertCard.setAttribute('data-action', 'open-identity-sidebar');
                 }
@@ -428,8 +425,7 @@ export const UIAuth = {
             
             const sidebarAvatar = document.getElementById('cs-avatar');
             if (sidebarAvatar) {
-                const defaultImg = typeof DEFAULT_AVATAR_URL !== 'undefined' ? DEFAULT_AVATAR_URL : 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
-                sidebarAvatar.src = user.img || defaultImg;
+                sidebarAvatar.src = user.img || DEFAULT_AVATAR_URL;
             }
             
             const idEl = document.getElementById('cs-id');
@@ -690,7 +686,8 @@ export const UIAuth = {
                 const liveContainer = document.getElementById('qrcode-container'); 
                 if (liveContainer && typeof window.QRCode !== 'undefined') {
                     const qrDataUrl = await window.QRCode.toDataURL(qrUri, { color: { dark: '#111a2b', light: '#ffffff' }, width: 200, margin: 1 });
-                    liveContainer.innerHTML = `<img src="${qrDataUrl}" style="width: 100%; height: 100%; border-radius: 8px;" alt="2FA QR Code">`;
+                    // 🛡️ CSS Decoupling: إزالة التنسيق المدمج والاعتماد على class
+                    liveContainer.innerHTML = `<img src="${qrDataUrl}" class="qr-code-img" alt="2FA QR Code">`;
                 } else if (liveContainer) {
                     liveContainer.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-muted);"><i class="fa-solid fa-shield-halved fa-2x mb-10"></i><br>يرجى إدخال الكود النصي يدوياً في التطبيق.</div>`;
                 }
@@ -829,7 +826,10 @@ export const UIAuth = {
                 }
             });
             
-            const rawIdBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(credential.rawId)));
+            // 🛡️ Memory Safe Base64: حماية من Call Stack Exceeded باستخدام Array Map
+            const rawIdBytes = new Uint8Array(credential.rawId);
+            const binaryString = Array.from(rawIdBytes).map(b => String.fromCharCode(b)).join('');
+            const rawIdBase64 = btoa(binaryString);
             
             const success = await DataManager.updateUserProfile({
                 biometricEnabled: true,
@@ -959,7 +959,8 @@ export const UIAuth = {
         if (this._isSavingIdentity || (btn && btn.disabled)) return;
         
         if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
-            getSys().showToast?.('عملية مرفوضة: لقد قمت بتأكيد هويتك مسبقاً ولا يمكن تغيير العملة الأساسية.', 'error');
+            // 🛡️ التعديل: تحسين لغة الرسالة
+            getSys().showToast?.('بياناتك مؤكدة مسبقاً! لا يمكنك تعديل العملة الأساسية بعد ربط المحفظة.', 'error');
             getSys().closeModal?.('identity');
             return;
         }
@@ -973,7 +974,6 @@ export const UIAuth = {
         let phoneRaw = phoneEl ? phoneEl.value.trim() : '';
         let phone = phoneRaw.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
         
-        // 🛡️ التحديث المعماري 1: تنظيف الرقم بالكامل من المسافات والأقواس ليتطابق مع السيرفر
         const cleanPhone = phone.replace(/[\s\-\(\)]/g, '');
         
         const currency = (hiddenCurrency ? hiddenCurrency.value.trim().toUpperCase() : '') || DataManager.user?.baseCurrency || 'USD';
@@ -1057,7 +1057,6 @@ export const UIAuth = {
         const previewImg = document.getElementById(previewId);
         
         if (!file) {
-            // 🛡️ التحديث المعماري 2: السماح بتفريغ الحقل ومسح الصورة من الذاكرة إذا ألغى المستخدم اختياره
             delete this.kycFiles[previewId];
             if (previewImg) {
                 if (previewImg.src && previewImg.src.startsWith('blob:')) {
@@ -1218,6 +1217,12 @@ export const UIAuth = {
             }
         });
         
+        // 🛡️ Memory Flush: تفريغ حقول الإدخال عند الإغلاق لتجنب تعليق رفع نفس الصورة
+        ['avatar-upload-input', 'kyc-input-front', 'kyc-input-back', 'kyc-input-selfie'].forEach(id => {
+            const inp = document.getElementById(id);
+            if (inp) inp.value = '';
+        });
+        
         this.kycFiles = {}; 
         getSys().closeModal?.('kyc-upload'); 
     },
@@ -1346,7 +1351,8 @@ export const UIAuth = {
                 html += `</div></div>`;
             }
         } else {
-            html += `<div class="tm-alert-box mt-15" style="background: rgba(239, 68, 68, 0.04); border: 1px solid rgba(239, 68, 68, 0.12); padding: 16px; border-radius: 16px; display: block; text-align: right; width: 100%;"><span class="nm-reply-head text-danger tm-text-highlight d-block mb-8" style="font-weight: 800; font-size: 13.5px;"><i class="fa-solid fa-circle-info"></i> تنبيه إداري</span><div class="nm-reply-body text-main line-height-lg" style="font-size: 13px; color: var(--text-gray); font-weight: 600;">${Utils.escapeHtml(pausedMsg)}</div></div>`;
+            // 🛡️ CSS Decoupling: إزالة الـ Inline CSS الضخم واستخدام الكلاسات
+            html += `<div class="tm-alert-box admin-alert mt-15"><span class="nm-reply-head text-danger tm-text-highlight d-block mb-8"><i class="fa-solid fa-circle-info"></i> تنبيه إداري</span><div class="nm-reply-body line-height-lg">${Utils.escapeHtml(pausedMsg)}</div></div>`;
         }
         
         html += `</div>`;

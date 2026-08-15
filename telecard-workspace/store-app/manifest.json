@@ -1,20 +1,26 @@
 {
   "name": "المتجر",
   "short_name": "المتجر",
-  "start_url": "/",
+  "description": "بوابتك الآمنة والسريعة لشراء البطاقات الرقمية وشحن الألعاب.",
+  "start_url": "/?source=pwa",
   "display": "standalone",
+  "orientation": "portrait",
+  "dir": "rtl",
+  "lang": "ar",
   "background_color": "#111a2b",
   "theme_color": "#FFD700",
   "icons": [
     {
       "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

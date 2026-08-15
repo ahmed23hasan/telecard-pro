@@ -1,10 +1,10 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud & Server Edition) - النسخة الاستراتيجية V18.5 👑
+// 💰 المحرك المالي المركزي (Cloud & Server Edition) - النسخة الاستراتيجية V18.6 👑
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، وتطبيق سياسات التسويق بذكاء.
-// 🚀 التحديثات (V18.5): 
-// 1. Global Failsafe Cap: إضافة شبكة أمان تمنع وصول الخصم لـ 100% في حال أخطأت الإدارة.
-// 2. Surgical Coupon Caps: تطبيق حد أعلى للخصم لكل كوبون على حدة.
-// 3. Anti-Stacking Shield: المنع القطعي لدمج عروض التخفيض مع الكوبونات.
+// 🚀 التحديثات (V18.6): 
+// 1. Strict Option Validation: الرفض القاطع (Throw Error) لأي محاولة تلاعب بالـ Index للباقات.
+// 2. Precision Sync: توحيد دالة التقريب مع المتغير المركزي لتتطابق مع الواجهة 100%.
+// 3. Global Failsafe Cap: شبكة أمان تمنع وصول الخصم لـ 100% في حال أخطأت الإدارة.
 // 4. Safe Margin Lock: حماية سعر التكلفة + 5% لضمان تغطية رسوم بوابات الدفع.
 // ============================================================================
 
@@ -108,9 +108,11 @@ const FinancialEngineDef = {
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c);
-        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * 10000) / 10000;
-        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * 10000) / 10000;
-        return Number(v.toFixed(4));
+        // 🛡️ التحديث 2: استخدام معامل التقريب المركزي بدلاً من 10000
+        const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
+        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * factor) / factor;
+        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * factor) / factor;
+        return Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
     },
 
     // ========================================================================
@@ -163,12 +165,16 @@ const FinancialEngineDef = {
         let isFixed = (String(product.isFixedPrice).toLowerCase() === 'true');
         let activeOption = null;
 
-        if (product.type === 'select' && Array.isArray(product.options)) {
+        // 🛡️ التحديث 1: الإغلاق الأمني الصارم لخيارات المنتجات
+        if (product.type === 'select' && Array.isArray(product.options) && product.options.length > 0) {
             const index = Number(optIdx);
             if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
                 activeOption = product.options[index];
                 cost = FinancialEngineDef.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
                 if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+            } else {
+                // في السيرفر: نرفض العملية فوراً إذا كان الـ Index ملعوباً به بدلاً من الـ Fallback
+                throw new Error(`[SECURITY] Invalid option index (${optIdx}) provided for product ${product.id}.`);
             }
         }
         

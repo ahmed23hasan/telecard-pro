@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي للواجهة الأمامية (Store Frontend Version) - V18.5 🛒
+// 💰 المحرك المالي للواجهة الأمامية (Store Frontend Version) - V18.6 💎
 // 🎯 الوظيفة: محاكاة أرقام السيرفر، معالجة الـ Strings من الـ DOM، وحماية الـ UX
-// 🚀 التحديثات (V18.5):
-// 1. Global Failsafe Cap: محاكاة شبكة الأمان (95%) ليتطابق السعر المعروض مع السيرفر.
-// 2. انعكاس سقف الكوبون (Max Discount Cap) لكي يراه العميل.
-// 3. تطبيق منع الازدواجية (Anti-Stacking Policy) بوضوح للمستخدم.
-// 4. تجاهل الجدار الناري صمتاً (لأن السيرفر هو من سيوقفه لحماية أسرار التكلفة).
+// 🚀 التحديثات (V18.6):
+// 1. CPU Optimization: التخلص من الاستنزاف في ترتيب المصفوفات (O(N) بدلاً من O(N log N)).
+// 2. Single Source of Truth: ربط التقريب بالمتغير المركزي PRECISION بدلاً من القيم الثابتة (10000).
+// 3. Select Fallback: تعقيم الـ optIdx لتجنب أخطاء التسعير إذا تم تمرير Index غير صالح.
+// 4. Global Failsafe Cap: محاكاة شبكة الأمان (95%) ليتطابق السعر المعروض مع السيرفر.
 // ============================================================================
 
 import { parseSafeTime } from '../utils.js';
@@ -18,7 +18,6 @@ const FinancialEngineDef = {
         PRECISION: 4,          
         INTERNAL_PRECISION: 8, 
         MIN_SALE_PRICE: 0.01,
-        // 🛡️ التحديث الجديد: شبكة الأمان ليتطابق الحساب مع السيرفر تماماً
         MAX_GLOBAL_DISCOUNT_PCT: 95 
     }),
 
@@ -106,9 +105,11 @@ const FinancialEngineDef = {
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c); 
-        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * 10000) / 10000;
-        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * 10000) / 10000;
-        return Number(v.toFixed(4));
+        // 🛡️ التحديث 2: استخدام المتغير المركزي بدلاً من القيمة الثابتة (10000)
+        const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
+        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * factor) / factor;
+        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * factor) / factor;
+        return Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
     },
 
     // ========================================================================
@@ -126,15 +127,26 @@ const FinancialEngineDef = {
         const currentTier = FinancialEngineDef.getUserTier(user, tiers);
         if (!currentTier || !tiers.length) return null;
 
-        const sorted = [...tiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
         const spent = Number(user.tierCycleSpent || 0);
         const durationMs = Number(currentTier.durationDays || 30) * 86400000;
         
         const safeStartDateMs = parseSafeTime(user.tierCycleStartDate) || now;
         const remainingDays = Math.max(0, Math.ceil((durationMs - (now - safeStartDateMs)) / 86400000)); 
 
-        const nextTier = sorted.find(t => Number(t.threshold || 0) > Number(currentTier.threshold || 0));
-        let target = nextTier ? Number(nextTier.threshold) : (Number(currentTier.threshold || 0) > 0 ? Number(currentTier.threshold) : 500);
+        // 🛡️ التحديث 1: استبدال الـ Sort العشوائي ببحث مباشر O(N) لتقليل الضغط على المعالج
+        let nextTier = null;
+        let currentThreshold = Number(currentTier.threshold || 0);
+        let minDiff = Infinity;
+        
+        for (const t of tiers) {
+            const tThreshold = Number(t.threshold || 0);
+            if (tThreshold > currentThreshold && (tThreshold - currentThreshold) < minDiff) {
+                minDiff = tThreshold - currentThreshold;
+                nextTier = t;
+            }
+        }
+
+        let target = nextTier ? Number(nextTier.threshold) : (currentThreshold > 0 ? currentThreshold : 500);
         
         return {
             currentTier, nextTier, targetNameDisplay: nextTier ? nextTier.name : "للحفاظ على المميزات", 
@@ -185,12 +197,15 @@ const FinancialEngineDef = {
         let isFixed = (String(product.isFixedPrice).toLowerCase() === 'true');
         let activeOption = null;
 
-        if (product.type === 'select' && Array.isArray(product.options)) {
+        // 🛡️ التحديث 3: تعقيم Index الخيارات لضمان عدم ظهور أخطاء إذا تغير المنتج بسرعة
+        if (product.type === 'select' && Array.isArray(product.options) && product.options.length > 0) {
             const index = Number(optIdx);
             if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
                 activeOption = product.options[index];
-                if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+            } else {
+                activeOption = product.options[0]; // Fallback
             }
+            if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
         }
         
         let baseSellingPrice = isFixed 
@@ -201,7 +216,6 @@ const FinancialEngineDef = {
         let currentPrice = originalPrice;
         const allowsDiscounts = !isFixed; 
 
-        // 1. تطبيق الخصم الترويجي (Offer)
         let offerName = null, offerDiscount = 0;
         if (allowsDiscounts && offer && typeof offer === 'object' && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name || null;
@@ -215,14 +229,12 @@ const FinancialEngineDef = {
                 calculatedOfferDiscount = offerVal;
             }
 
-            // 🛡️ تطبيق شبكة الأمان العالمية على الواجهة ليتطابق السعر المعروض مع السيرفر
             const maxGlobalOfferCap = FinancialEngineDef._internalMul(originalPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
             offerDiscount = Math.min(calculatedOfferDiscount, currentPrice, maxGlobalOfferCap);
             
             currentPrice = FinancialEngineDef._internalSub(currentPrice, offerDiscount);
         }
 
-        // 2. تطبيق الكوبون 
         let couponCode = null, couponDiscount = 0;
         const isCouponDisabled = (product.disableCoupons === true || String(product.disableCoupons).toLowerCase() === 'true');
         const canUseCoupon = allowsDiscounts && !isCouponDisabled && offerDiscount === 0;
@@ -244,7 +256,6 @@ const FinancialEngineDef = {
                 calculatedDiscount = Math.min(calculatedDiscount, maxCap);
             }
             
-            // 🛡️ تطبيق شبكة الأمان العالمية على الكوبون في الواجهة
             const maxGlobalCouponCap = FinancialEngineDef._internalMul(currentPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
             couponDiscount = Math.min(calculatedDiscount, currentPrice, maxGlobalCouponCap);
         }
@@ -283,24 +294,25 @@ const FinancialEngineDef = {
         const oldPriceUsd = (activeOffer?.type === 'fake') ? Number(activeOffer.value || 0) : null;
         const displayOldTotalUsd = oldPriceUsd ? FinancialEngineDef.safeMul(oldPriceUsd, q) : orderSnap.totalOriginalPrice;
         
-        const finalDisplayNum = FinancialEngineDef.convertViaUSD(orderSnap.totalFinalPrice, 'USD', dispCur, rates, 'pricing');
+        const rawUnit = FinancialEngineDef.convertViaUSD(orderSnap.finalPrice, 'USD', dispCur, rates, 'pricing');
+        const rawTotal = FinancialEngineDef.convertViaUSD(orderSnap.totalFinalPrice, 'USD', dispCur, rates, 'pricing');
+        
+        const safeUnitForDisplay = FinancialEngineDef._preciseRound(rawUnit, 2);
+        const safeTotalForDisplay = FinancialEngineDef._preciseRound(rawTotal, 2);
         
         return {
             totalUsd: orderSnap.totalFinalPrice,
             totalLocalBase: FinancialEngineDef.convertViaUSD(orderSnap.totalFinalPrice, 'USD', baseCur, rates, 'pricing'),
-            
-            totalDisplayNum: finalDisplayNum,
-            
+            totalDisplayNum: safeTotalForDisplay,
+            unitDisplayNum: safeUnitForDisplay,
             displayCurrency: dispCur,
-            unitText: FinancialEngineDef.convertViaUSD(orderSnap.finalPrice, 'USD', dispCur, rates, 'pricing').toFixed(2) + (dispCur === 'USD' ? ' $' : ' ' + dispCur),
-            totalText: finalDisplayNum.toFixed(2) + (dispCur === 'USD' ? ' $' : ' ' + dispCur),
+            unitText: safeUnitForDisplay.toFixed(2) + (dispCur === 'USD' ? ' $' : ' ' + dispCur),
+            totalText: safeTotalForDisplay.toFixed(2) + (dispCur === 'USD' ? ' $' : ' ' + dispCur),
             hasDiscount: Boolean(oldPriceUsd || orderSnap.couponDiscount > 0 || orderSnap.offerDiscount > 0),
-            
-            oldTotalDisplayNum: displayOldTotalUsd ? FinancialEngineDef.convertViaUSD(displayOldTotalUsd, 'USD', dispCur, rates, 'pricing') : 0,
-            
+            oldTotalDisplayNum: displayOldTotalUsd ? FinancialEngineDef._preciseRound(FinancialEngineDef.convertViaUSD(displayOldTotalUsd, 'USD', dispCur, rates, 'pricing'), 2) : 0,
             pricingSnapshot: { ...orderSnap, saleDiscountUsd: FinancialEngineDef.safeMul(orderSnap.offerDiscount, q), couponDiscountUsd: FinancialEngineDef.safeMul(orderSnap.couponDiscount, q), oldPriceUsd, displayOldTotalUsd }
         };
-    },
+    },    
     
     calculateDepositFee: function(amt, method, payCurr, baseCur = 'USD', rates = []) {
         const cleanAmt = Number(amt);

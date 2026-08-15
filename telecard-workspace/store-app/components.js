@@ -1,15 +1,15 @@
 // ============================================================================
-// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - ES6 Module V15.9 💎
+// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - ES6 Module V15.9.1 💎
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديثات المعمارية (V15.9):
-// 1. Architecture Sync: ربط حسابات الكوبونات بالجسور المعمارية الجديدة لـ FinancialEngine.
-// 2. Import Fix: إصلاح استيراد Utils ليطابق معايير (Named Exports).
-// 3. Discount Safety: التأكد من تمرير الخصومات النشطة لمنع تلاعب الأسعار.
+// 🚀 التحديثات المعمارية (V15.9.1):
+// 1. CSS Decoupling: تنظيف دالة التقويم من الستايلات المدمجة (Inline CSS).
+// 2. Safe DOM Scrolling: حماية دالة scrollIntoView داخل إطار الرسم.
+// 3. Class-Based Toggles: استبدال display:none بتبديل كلاسات الكوبونات.
 // ============================================================================
 
 import { DataManager, LiveStoreData } from './dataManager.js';
 import { UIManager } from './ui/uiManager.js'; 
-import * as Utils from './utils.js'; // 🛡️ الإصلاح: توافق الاستيراد مع Named Exports
+import * as Utils from './utils.js'; 
 import { RenderHelpers } from './core/renderHelpers.js'; 
 
 // =========================================================
@@ -128,13 +128,7 @@ export const CalendarApp = {
         if (modal) {
             if (modal.parentNode !== document.body) document.body.appendChild(modal);
             modal.classList.add('show');
-            
-            modal.style.position = "fixed";
-            modal.style.top = "50%";
-            modal.style.left = "50%";
-            modal.style.bottom = "auto";
-            modal.style.transform = "translate(-50%, -50%)";
-            modal.style.zIndex = "999999"; 
+            // 🛡️ الإصلاح: تم حذف التنسيقات المدمجة (Inline CSS) والاعتماد على الكلاس (.show) في ملف الـ CSS
         }
     },
 
@@ -230,7 +224,8 @@ export const CalendarApp = {
             l.classList.toggle('active'); 
             if(l.classList.contains('active')) { 
                 const s = l.querySelector('.selected'); 
-                if(s) s.scrollIntoView({block:'center'}); 
+                // 🛡️ الإصلاح: التمرير الآمن لتجنب أخطاء المتصفح قبل الريندر
+                if(s) requestAnimationFrame(() => s.scrollIntoView({block:'center'})); 
             }
         }
     },
@@ -337,44 +332,40 @@ export const Components = {
     },
 
     animatePriceChange: function(startVal, endVal, currency) {
-    const el = document.getElementById('pm-price');
-    if (!el) return;
-    if (this.priceTicker) cancelAnimationFrame(this.priceTicker);
-    
-    // 1. بناء الهيكل (HTML) مرة واحدة فقط قبل بدء الحركة
-    el.innerHTML = RenderHelpers.formatMoney(startVal, currency);
-    
-    // 2. التقاط العنصر الذي يحتوي على الرقم "فقط" من داخل الهيكل الذي صنعناه
-    const numElement = el.querySelector('.num-en.money-val');
-    
-    // في حال حدوث خطأ ولم نجد العنصر، نحدث السعر بالطريقة العادية ونخرج
-    if (!numElement) {
-        el.innerHTML = RenderHelpers.formatMoney(endVal, currency);
-        return;
-    }
-    
-    const duration = 800;
-    let startTimestamp = null;
-    
-    const step = (timestamp) => {
-        if (!startTimestamp) startTimestamp = timestamp;
-        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-        const easeProgress = 1 - Math.pow(1 - progress, 3);
-        const currentVal = startVal + (endVal - startVal) * easeProgress;
+        const el = document.getElementById('pm-price');
+        if (!el) return;
+        if (this.priceTicker) cancelAnimationFrame(this.priceTicker);
         
-        // 3. التحديث الخفيف جداً: نغير "النص" للرقم فقط دون لمس الـ HTML والعملة
-        numElement.textContent = RenderHelpers._enNum(currentVal, 2);
+        el.innerHTML = RenderHelpers.formatMoney(startVal, currency);
         
-        if (progress < 1) {
-            this.priceTicker = requestAnimationFrame(step);
-        } else {
-            this.priceTicker = null;
-            // 4. في النهاية نضع القيمة النهائية لضمان الدقة المطلقة
+        const numElement = el.querySelector('.num-en.money-val');
+        
+        if (!numElement) {
             el.innerHTML = RenderHelpers.formatMoney(endVal, currency);
+            return;
         }
-    };
-    this.priceTicker = requestAnimationFrame(step);
-},
+        
+        const duration = 800;
+        let startTimestamp = null;
+        
+        const step = (timestamp) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            const easeProgress = 1 - Math.pow(1 - progress, 3);
+            const currentVal = startVal + (endVal - startVal) * easeProgress;
+            
+            numElement.textContent = RenderHelpers._enNum(currentVal, 2);
+            
+            if (progress < 1) {
+                this.priceTicker = requestAnimationFrame(step);
+            } else {
+                this.priceTicker = null;
+                el.innerHTML = RenderHelpers.formatMoney(endVal, currency);
+            }
+        };
+        this.priceTicker = requestAnimationFrame(step);
+    },
+    
     toggleCoupon: function(btn) {
         const section = btn.closest('.coupon-section');
         if(section) section.classList.toggle('open');
@@ -419,11 +410,12 @@ export const Components = {
         
         msgBox.innerHTML = htmlContent;
         msgBox.className = `coupon-msg-box ${className}`;
-        msgBox.style.display = 'flex';
+        // 🛡️ الإصلاح: الاعتماد على الكلاس بدلاً من ستايل مباشر
+        msgBox.classList.add('coupon-msg-visible');
         
         if (duration > 0) {
             this._couponMsgTimer = setTimeout(() => {
-                if (msgBox.isConnected) msgBox.style.display = 'none';
+                if (msgBox.isConnected) msgBox.classList.remove('coupon-msg-visible');
             }, duration);
         }
     },
@@ -458,7 +450,6 @@ export const Components = {
 
         const selection = this._getCurrentSelection();
         
-        // 🛡️ الإصلاح المعماري 1: استدعاء الجسر الآمن من DataManager
         const result = DataManager.validateCoupon(code, DataManager.currentProd, selection.qty, selection.optIdx);
 
         if (!result.valid) {
@@ -467,7 +458,6 @@ export const Components = {
             return;
         }
 
-        // 🛡️ الإصلاح المعماري 2: استدعاء دالة الأسعار المُحدثة من الجسر (getPricingLocal)
         const pricingCheck = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, result.coupon);
         
         if (!pricingCheck || !pricingCheck.pricingSnapshot) return;
@@ -529,7 +519,7 @@ export const Components = {
             btnApply.classList.remove('btn-disabled');
         }
         
-        if (msgBox) msgBox.style.display = 'none';
+        if (msgBox) msgBox.classList.remove('coupon-msg-visible');
         if (this._couponMsgTimer) clearTimeout(this._couponMsgTimer);
         
         this.checkInputState(); 
@@ -541,7 +531,6 @@ export const Components = {
         if (!DataManager.appliedCoupon || !DataManager.currentProd) return;
         
         const selection = this._getCurrentSelection();
-        // 🛡️ الإصلاح المعماري 3: استدعاء الجسر الآمن
         const result = DataManager.validateCoupon(DataManager.appliedCoupon.code, DataManager.currentProd, selection.qty, selection.optIdx);
         
         if (!result.valid) {
@@ -555,40 +544,38 @@ export const Components = {
     },
 
     initBottomNavSync: function() {
-    const navContainer = document.querySelector('.bottom-nav');
-    if (!navContainer) return;
-    
-    const navIcons = navContainer.querySelectorAll('.nav-icon');
-    
-    // 🛡️ التعديل: توحيد الاسم ليطابق ما يتم استدعاؤه في renderManager.js
-    window.updateBottomNavState = function(targetState) {
-        navIcons.forEach(icon => icon.classList.remove('active'));
-        navIcons.forEach(icon => {
-            const action = icon.getAttribute('data-action') || '';
-            if (action.includes(targetState) || (targetState === 'home' && (action === 'go-home' || action === ''))) {
-                icon.classList.add('active');
-            }
-        });
-    };
-    
-    if (!navContainer.dataset.navBound) {
-        navContainer.dataset.navBound = '1';
-        navContainer.addEventListener('click', (e) => {
-            const clickedIcon = e.target.closest('.nav-icon');
-            if (!clickedIcon) return;
-            
-            navIcons.forEach(i => i.classList.remove('active'));
-            clickedIcon.classList.add('active');
-        });
+        const navContainer = document.querySelector('.bottom-nav');
+        if (!navContainer) return;
+        
+        const navIcons = navContainer.querySelectorAll('.nav-icon');
+        
+        window.updateBottomNavState = function(targetState) {
+            navIcons.forEach(icon => icon.classList.remove('active'));
+            navIcons.forEach(icon => {
+                const action = icon.getAttribute('data-action') || '';
+                if (action.includes(targetState) || (targetState === 'home' && (action === 'go-home' || action === ''))) {
+                    icon.classList.add('active');
+                }
+            });
+        };
+        
+        if (!navContainer.dataset.navBound) {
+            navContainer.dataset.navBound = '1';
+            navContainer.addEventListener('click', (e) => {
+                const clickedIcon = e.target.closest('.nav-icon');
+                if (!clickedIcon) return;
+                
+                navIcons.forEach(i => i.classList.remove('active'));
+                clickedIcon.classList.add('active');
+            });
+        }
+        
+        let initialState = 'home';
+        if (document.body.classList.contains('is-favorites')) initialState = 'favorites';
+        else if (document.body.classList.contains('is-wallet')) initialState = 'wallet';
+        else if (document.body.classList.contains('is-orders')) initialState = 'orders';
+        else if (document.body.classList.contains('is-settings')) initialState = 'settings';
+        
+        window.updateBottomNavState(initialState);
     }
-    
-    let initialState = 'home';
-    if (document.body.classList.contains('is-favorites')) initialState = 'favorites';
-    else if (document.body.classList.contains('is-wallet')) initialState = 'wallet';
-    else if (document.body.classList.contains('is-orders')) initialState = 'orders';
-    else if (document.body.classList.contains('is-settings')) initialState = 'settings';
-    
-    // 🛡️ التعديل: استدعاء الاسم الصحيح
-    window.updateBottomNavState(initialState);
-}
 };

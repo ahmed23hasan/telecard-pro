@@ -1,9 +1,10 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9.2 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9.3 💎
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع السريع، إدارة الكاش الذكي، والتوافقية
-// 🚀 التحديثات المعمارية (V16.9.2):
-// 1. نقل التجميد الذكي (Selective Lock) للحماية الفورية (Zero-Delay Lock).
-// 2. تعزيز قفل البصمة بحيث لا يكشف واجهة النظام عند الرفض.
+// 🚀 التحديثات المعمارية (V16.9.3):
+// 1. WebAuthn Base64URL Fix: معالجة فك تشفير البصمة الآمنة ومنع انهيار المتصفح.
+// 2. UX Deadlock Resolve: إزالة شاشة الـ Splash يدوياً عند قفل البصمة لمنع تجميد الواجهة.
+// 3. نقل التجميد الذكي (Selective Lock) للحماية الفورية (Zero-Delay Lock).
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -73,7 +74,7 @@ Object.assign(ClientSystem, {
         
         if (!window.PublicKeyCredential || !savedRawId) {
             if (lockScreen) lockScreen.classList.remove('active');
-            this.showToast?.('مفتاح البصمة مفقود. يرجى تسجيل الدخول.', 'error');
+            this.showToast?.('مفتاح البصمة مفقود. يرجى تسجيل الدخول مجدداً.', 'error');
             if (DataManager.logout) DataManager.logout();
             return false;
         }
@@ -88,8 +89,13 @@ Object.assign(ClientSystem, {
             const challenge = new Uint8Array(32);
             window.crypto.getRandomValues(challenge);
             
-            // 🛡️ فك تشفير Base64 الصحيح
-            const binaryString = atob(savedRawId);
+            // 🛡️ الإصلاح: تحويل Base64URL إلى Base64 قياسي لتجنب انهيار دالة atob
+            let base64 = savedRawId.replace(/-/g, '+').replace(/_/g, '/');
+            // إضافة حشوة (Padding) إذا لزم الأمر
+            while (base64.length % 4) {
+                base64 += '=';
+            }
+            const binaryString = atob(base64);
             const rawIdBytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
                 rawIdBytes[i] = binaryString.charCodeAt(i);
@@ -108,6 +114,7 @@ Object.assign(ClientSystem, {
             if (lockScreen) lockScreen.classList.remove('active');
             return true;
         } catch (error) {
+            console.warn("فشل التحقق من البصمة:", error);
             const retryBtn = document.getElementById('btn-biometric-retry');
             if (retryBtn) {
                 retryBtn.innerHTML = '<i class="fa-solid fa-fingerprint"></i> المحاولة مجدداً';
@@ -160,7 +167,7 @@ ClientSystem.initFirebaseListeners = function() {
                 
                 const reloadCount = parseInt(sessionStorage.getItem('tc_update_reloads') || '0');
                 if (reloadCount > 2) {
-                    console.error("🚨 تم إيقاف حلقة التحديث הלانهائية للحماية.");
+                    console.error("🚨 تم إيقاف حلقة التحديث اللانهائية للحماية.");
                     return;
                 }
                 sessionStorage.setItem('tc_update_reloads', String(reloadCount + 1));
@@ -206,15 +213,15 @@ ClientSystem.initFirebaseListeners = function() {
     }
     
     if (DB_KEYS.ALERTS) {
-    // تم استخدام listenQuery الصحيحة مع مصفوفة فلاتر فارغة لجلب كل الإشعارات الإدارية
-    this.activeListeners.push(StoreDB.listenQuery(DB_KEYS.ALERTS, [], 'createdAt', 50, (data) => {
-        _updateLiveArray(LiveStoreData.alerts, _normalizeDataTime(Array.isArray(data) ? data : []));
-        requestAnimationFrame(() => {
-            if (this.processAndDisplayAlerts) this.processAndDisplayAlerts();
-            if (this.updateNotifBadges) this.updateNotifBadges();
-        });
-    }));
-}    
+        this.activeListeners.push(StoreDB.listenQuery(DB_KEYS.ALERTS, [], 'createdAt', 50, (data) => {
+            _updateLiveArray(LiveStoreData.alerts, _normalizeDataTime(Array.isArray(data) ? data : []));
+            requestAnimationFrame(() => {
+                if (this.processAndDisplayAlerts) this.processAndDisplayAlerts();
+                if (this.updateNotifBadges) this.updateNotifBadges();
+            });
+        }));
+    }    
+    
     if (!auth) return; 
     
     if (this._authUnsubscribe) this._authUnsubscribe();
@@ -392,7 +399,14 @@ ClientSystem.init = async function() {
         if (DataManager.user && DataManager.user.biometricEnabled) {
             const isUnlocked = await this.enforceBiometricLock();
             if (!isUnlocked) {
-                // 🛡️ التعديل 2: إيقاف الإقلاع تماماً وإبقاء شاشة سبلاش لحماية الواجهة الخلفية
+                // 🛡️ الإصلاح: إزالة الـ Splash Screen لكي يتمكن المستخدم من رؤية واجهة قفل البصمة
+                const splash = document.getElementById('global-splash-screen');
+                if (splash) { 
+                    splash.style.opacity = '0'; 
+                    splash.style.visibility = 'hidden'; 
+                    setTimeout(() => { if (splash) splash.remove(); }, 400); 
+                }
+                // إيقاف إقلاع المتجر حمايةً للبيانات
                 return; 
             }
         }

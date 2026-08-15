@@ -1,9 +1,12 @@
 // ============================================================================
-// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة V2.8 (العقدة المركزية المطلقة 🧠)
-// 🚀 التحسينات (V2.8): 
-// 1. Firebase Native Caching: الاعتماد على الكاش الأصلي لخفض فواتير القراءة بنسبة 80%.
-// 2. Delta Sync Catalog: جلب التحديثات فقط للمنتجات بدلاً من تحميل الكتالوج بالكامل.
-// 3. Zero-Latency Boot: فتح المتجر للعملاء العائدين في أجزاء من الثانية (Cache First).
+// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة V2.9.1 💎 (The Unbreakable Core)
+// 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات والاتصال المالي.
+// 🚀 التحديثات المعمارية الصارمة (V2.9.1): 
+// 1. Fault-Tolerant Boot: استخدام Promise.allSettled لمنع انهيار الكتالوج بسبب فشل جزئي.
+// 2. V8 Engine Optimization: إفراغ الذاكرة الآمن لمنع إبطاء المتصفح دون استخدام delete.
+// 3. Batch I/O Operations: تجميع عمليات الـ localStorage لمنع تجميد واجهة المستخدم.
+// 4. Race Condition Fix: تأخير استدعاء التاريخ المالي لضمان تزامن خوادم Firebase.
+// 5. UX/Logic Fix: معالجة شاملة للإشعارات مع التوجيه المطلق لتسجيل الخروج.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -25,53 +28,72 @@ export const LiveStoreData = {
     isOfflineMode: false
 };
 
-// 🛑 تم إيقاف نظام الكاش اليدوي (LocalDBHelper) لأنه يستهلك الذاكرة بشكل مضاعف، 
-// وأصبحنا نعتمد على محرك Firebase IndexedDB الداخلي الأسرع والأذكى.
-
 export const DataManager = {
-        _ratesCache: null,
-        _actionLocks: new Set(),
-        cursors: { orders: null, deposits: null, wallet: null }, // 👈 هذا هو السطر الجديد
-        
-        get activeUid() { return this.user?.uid || this.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID); },
-        // ⚡ [التحديث الماسي 2.8]: تهيئة الكتالوج بسرعة البرق وبأقل تكلفة ممكنة
-    initStoreCatalog: async function() {
-        LiveStoreData.isOfflineMode = false;
-        try {
-            // 1. جلب الإعدادات من الكاش أولاً (لتسريع التهيئة)
-            const [settingsSnap, systemSnap] = await Promise.all([
-                StoreDB.getCacheFirst(DB_KEYS.SETTINGS, 'singleton').catch(() => null),
-                StoreDB.getCacheFirst(DB_KEYS.SYSTEM, 'cache_version').catch(() => null)
-            ]);
-            
-            if (settingsSnap) {
-                LiveStoreData.settings = settingsSnap;
-                if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) RenderHelpers.init(settingsSnap);
-            }
-            
-            // 2. استخدام queryCacheFirst لجلب الكتالوج (مصفوفة فارغة [] تعني جلب الكل)
-            // هذا السطر سيوفر لك مئات الدولارات شهرياً!
-            const [rawProds, rawCats, offers, tiers, rates, banners] = await Promise.all([
-                StoreDB.queryCacheFirst(DB_KEYS.PRODS, [], null, 2000).catch(() => []), 
-                StoreDB.queryCacheFirst(DB_KEYS.CATS, [], null, 200).catch(() => []),
-                StoreDB.queryCacheFirst(DB_KEYS.OFFERS, [], null, 100).catch(() => []), 
-                StoreDB.queryCacheFirst(DB_KEYS.TIERS, [], null, 50).catch(() => []),
-                StoreDB.queryCacheFirst(DB_KEYS.RATES, [], null, 50).catch(() => []), 
-                StoreDB.queryCacheFirst(DB_KEYS.BANNERS, [], null, 20).catch(() => [])
-            ]);
-            
-            const activeProds = rawProds.filter(p => p && String(p.isActive) !== 'false');
-            Object.assign(LiveStoreData, { prods: activeProds, cats: rawCats, offers, tiers, rates, banners });
-            this._ratesCache = null; 
-            
-            return true;
-        } catch (error) {
-            console.error("🚨 [DataManager] فشل تحميل الكتالوج:", error);
-            LiveStoreData.isOfflineMode = true;
-            return false;
-        }
-    },
+    _ratesCache: null,
+    _actionLocks: new Set(),
+    cursors: { orders: null, deposits: null, wallet: null }, 
+    
+    get activeUid() { return this.user?.uid || this.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID); },
 
+    // ⚡ [التحديث 2.9.2]: تطبيق الختم العالمي (Global Cache Versioning) الفعلي
+initStoreCatalog: async function() {
+    LiveStoreData.isOfflineMode = false;
+    try {
+        // 1. جلب الإعدادات والختم العالمي
+        const [settingsSnap, systemSnap] = await Promise.allSettled([
+            StoreDB.getCacheFirst(DB_KEYS.SETTINGS, 'singleton'),
+            StoreDB.getCacheFirst(DB_KEYS.SYSTEM, 'cache_version')
+        ]);
+        
+        let forceUpdateCatalog = false;
+        
+        if (settingsSnap.status === 'fulfilled' && settingsSnap.value) {
+            LiveStoreData.settings = settingsSnap.value;
+            if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) RenderHelpers.init(settingsSnap.value);
+        }
+        
+        // 2. التحقق من الختم العالمي لمعرفة هل هناك تحديثات من الإدارة
+        if (systemSnap.status === 'fulfilled' && systemSnap.value) {
+            const serverVersion = String(systemSnap.value.catalogVersion || '0');
+            const localVersion = localStorage.getItem('tc_catalog_version');
+            
+            if (serverVersion !== '0' && serverVersion !== localVersion) {
+                forceUpdateCatalog = true;
+                localStorage.setItem('tc_catalog_version', serverVersion);
+                console.log(`🔄 [Version Diff] تم اكتشاف تحديث للكتالوج للإصدار: ${serverVersion}`);
+            }
+        }
+        
+        // 3. التمرير الخارق: تمرير forceUpdateCatalog لإجبار السيرفر أو استخدام الكاش المجاني
+        const results = await Promise.allSettled([
+            StoreDB.queryCacheFirst(DB_KEYS.PRODS, [], null, 2000, forceUpdateCatalog),
+            StoreDB.queryCacheFirst(DB_KEYS.CATS, [], null, 200, forceUpdateCatalog),
+            StoreDB.queryCacheFirst(DB_KEYS.OFFERS, [], null, 100, forceUpdateCatalog),
+            StoreDB.queryCacheFirst(DB_KEYS.TIERS, [], null, 50, forceUpdateCatalog),
+            StoreDB.queryCacheFirst(DB_KEYS.RATES, [], null, 50, forceUpdateCatalog),
+            StoreDB.queryCacheFirst(DB_KEYS.BANNERS, [], null, 20, forceUpdateCatalog)
+        ]);
+        
+        const rawProds = results[0].status === 'fulfilled' ? results[0].value : [];
+        const activeProds = rawProds.filter(p => p && p.isActive !== false && String(p.isActive) !== 'false');
+        
+        Object.assign(LiveStoreData, {
+            prods: activeProds,
+            cats: results[1].status === 'fulfilled' ? results[1].value : [],
+            offers: results[2].status === 'fulfilled' ? results[2].value : [],
+            tiers: results[3].status === 'fulfilled' ? results[3].value : [],
+            rates: results[4].status === 'fulfilled' ? results[4].value : [],
+            banners: results[5].status === 'fulfilled' ? results[5].value : []
+        });
+        this._ratesCache = null;
+        
+        return true;
+    } catch (error) {
+        console.error("🚨 [DataManager] فشل تحميل الكتالوج:", error);
+        LiveStoreData.isOfflineMode = true;
+        return false;
+    }
+},
     serverTimeOffset: 0, 
     getNow: function() { return Date.now() + this.serverTimeOffset; },
     user: null, 
@@ -97,7 +119,6 @@ export const DataManager = {
     updateUserProfile: async function(newData) {
         if (!this.activeUid || typeof newData !== 'object' || Array.isArray(newData) || !newData) return false;
         
-        // 🛡️ درع حماية الحقول الحساسة
         const FORBIDDEN_KEYS = new Set(['walletBalance', 'balance', 'tierId', 'isBanned', 'isIpBanned', 'role', 'baseCurrency']);
         
         const sanitized = {};
@@ -141,10 +162,6 @@ export const DataManager = {
         this._ratesCache = typeof FinancialEngine.normalizeRates === 'function' ? FinancialEngine.normalizeRates(rawData) : { 'USD': { code: 'USD', symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true } };
         return this._ratesCache;
     },
-
-    // ========================================================================
-    // 🌉 الجسور المعمارية الشاملة (All Core Bridges)
-    // ========================================================================
     
     getTiers: function() { return LiveStoreData.tiers || []; },
     getUserTier: function(userObj) { return FinancialEngine.getUserTier(userObj || this.user, this.getTiers()); },
@@ -286,10 +303,6 @@ export const DataManager = {
         } catch (e) {}
     },
 
-    // ========================================================================
-    // 🔄 أحداث المزامنة والمستمعات 
-    // ========================================================================
-
     listenToUserUpdates: function(renderCb) {
         if (!this.activeUid) return;
         if (typeof this._userUnsubscribe === 'function') { this._userUnsubscribe(); this._userUnsubscribe = null; }
@@ -309,18 +322,23 @@ export const DataManager = {
         } catch (e) { }
     },
 
-    // ⚠️ تنبيه: هذه الدالة بقيت بدون كاش لأنها تتعلق برصيد المستخدم وأوامره ويجب أن تكون دقيقة 100% وفي الوقت الفعلي.
     fetchUserHistory: async function() {
         if (!this.activeUid || !StoreDB.query) return;
         try {
-            const [myOrders, myDeposits] = await Promise.all([
+            const [ordersRes, depositsRes] = await Promise.allSettled([
                 StoreDB.query(DB_KEYS.ORDERS, 'userId', '==', this.activeUid),
                 StoreDB.query(DB_KEYS.DEPOSITS, 'userId', '==', this.activeUid)
             ]);
-            LiveStoreData.orders = (myOrders || []).sort((a,b) => parseSafeTime(b.createdAt || b.time) - parseSafeTime(a.createdAt || a.time));
-            LiveStoreData.deposits = (myDeposits || []).sort((a,b) => parseSafeTime(b.createdAt || b.time) - parseSafeTime(a.createdAt || a.time));
+            
+            if (ordersRes.status === 'fulfilled') {
+                LiveStoreData.orders = (ordersRes.value || []).sort((a,b) => parseSafeTime(b.createdAt || b.time) - parseSafeTime(a.createdAt || a.time));
+            }
+            if (depositsRes.status === 'fulfilled') {
+                LiveStoreData.deposits = (depositsRes.value || []).sort((a,b) => parseSafeTime(b.createdAt || b.time) - parseSafeTime(a.createdAt || a.time));
+            }
+            
             if (window.RenderManager?.renderWallet) window.RenderManager.renderWallet(true);
-        } catch (error) { }
+        } catch (error) { console.warn("[DataManager] فشل جلب السجل:", error); }
     },
 
     logout: async function() {
@@ -334,24 +352,29 @@ export const DataManager = {
             if (typeof this._userUnsubscribe === 'function') { this._userUnsubscribe(); this._userUnsubscribe = null; } 
 
             Object.keys(LiveStoreData).forEach(k => {
-                if (Array.isArray(LiveStoreData[k])) { LiveStoreData[k].length = 0; }
-                else if (typeof LiveStoreData[k] === 'object' && LiveStoreData[k] !== null) {
-                    Object.keys(LiveStoreData[k]).forEach(subK => delete LiveStoreData[k][subK]); 
+                if (Array.isArray(LiveStoreData[k])) { 
+                    LiveStoreData[k].length = 0; 
+                } else if (typeof LiveStoreData[k] === 'object' && LiveStoreData[k] !== null) {
+                    for (let subK in LiveStoreData[k]) {
+                        LiveStoreData[k][subK] = undefined; 
+                    }
                 }
             });
             
             LiveStoreData.isInitialSyncDone = false; 
-// فحص حالة الاتصال الحقيقية بدلاً من فرضها
-LiveStoreData.isOfflineMode = typeof navigator !== 'undefined' ? !navigator.onLine : false; 
-LiveStoreData.popup = null;
+            LiveStoreData.isOfflineMode = typeof navigator !== 'undefined' ? !navigator.onLine : false; 
+            LiveStoreData.popup = null;
 
-            this._ratesCache = null; this.user = null; 
+            this._ratesCache = null; 
+            this.user = null; 
             
             if (this.favs) this.favs.clear(); 
+            this.prefs = { sound: true, theme: 'dark', security2fa: false, favs: [] };
+            
             this._actionLocks.clear();
-            this.cursors = { orders: null, deposits: null, wallet: null }; // 👈 هذا هو السطر الجديد            
+            this.cursors = { orders: null, deposits: null, wallet: null };          
         } catch(e) { console.warn("[DataManager] Error during logout:", e); }
-        window.location.replace('login.html');
+        window.location.replace(window.location.origin + '/login.html');
     },    
 
     syncUser: async function() {
@@ -452,7 +475,9 @@ LiveStoreData.popup = null;
         try {
             const req = { productId: String(prod.id), qty: Math.max(1, Math.floor(Number(qty)) || 1), optIdx: optIdx ?? null, finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null, idempotencyKey: generateIdempotencyKey() };
             const res = await StoreDB.callFunction('createOrder', req);
-            this.fetchUserHistory();
+            
+            setTimeout(() => this.fetchUserHistory(), 600);
+            
             return { success: true, msg: res.message || 'تم إتمام الطلب', isAutoDelivered: res.isAutoDelivered, deliveredCodeText: res.deliveredCode };
         } catch (err) {
             console.error("🚨 [CRASH DUMP] فشل لحظي قبل أو أثناء الإرسال:", err.message);
@@ -483,7 +508,9 @@ LiveStoreData.popup = null;
         try {
             const req = { amount: cleanAmt, paymentMethodName: method.name, payCurr, receiptUrl: receipt, idempotencyKey: generateIdempotencyKey() };
             const res = await StoreDB.callFunction('submitBalanceRequest', req);
-            this.fetchUserHistory();
+            
+            setTimeout(() => this.fetchUserHistory(), 600);
+            
             return { success: true, msg: res?.message || 'تم الإرسال بنجاح' };
         } catch (err) {
             console.error("Deposit Submission Error:", err);
@@ -519,25 +546,25 @@ LiveStoreData.popup = null;
     },
 
     _isAlertForUser: function(msg, user, now, readIds = [], excludeRead = false) {
-    if (excludeRead && (msg.isRead || readIds.includes(String(msg.id)))) return false;
-    if (msg.expiresAt && now > msg.expiresAt) return false;
+        if (excludeRead && (msg.isRead || readIds.includes(String(msg.id)))) return false;
+        if (msg.expiresAt && now > msg.expiresAt) return false;
+        
+        if (msg.type === 'notification' || msg.jumpTarget) return true;
+        
+        const type = msg.targetType || msg.target || 'all';
+        const tId = String(msg.targetId || msg.userId || msg.tierId || '');
+        const isForMe = type === 'all' || (type === 'user' && tId === String(user.uid)) || (type === 'tier' && tId === String(user.tierId));
+        
+        if (!isForMe) return false;
+        
+        if (type !== 'user') {
+            const userCreatedTime = parseSafeTime(user.createdAt);
+            const alertTime = parseSafeTime(msg.createdAt || msg.time || msg.timestamp);
+            if (userCreatedTime > 0 && alertTime > 0 && alertTime < userCreatedTime) return false;
+        }
+        return true;
+    },
     
-    // 🛡️ الإصلاح الجذري 1: السماح بمرور إشعارات السيرفر الشخصية (الطلبات/المحفظة) فوراً
-    if (msg.type === 'notification' || msg.jumpTarget) return true;
-    
-    const type = msg.targetType || msg.target || 'all';
-    const tId = String(msg.targetId || msg.userId || msg.tierId || '');
-    const isForMe = type === 'all' || (type === 'user' && tId === String(user.uid)) || (type === 'tier' && tId === String(user.tierId));
-    
-    if (!isForMe) return false;
-    
-    if (type !== 'user') {
-        const userCreatedTime = parseSafeTime(user.createdAt);
-        const alertTime = parseSafeTime(msg.createdAt || msg.time || msg.timestamp);
-        if (userCreatedTime > 0 && alertTime > 0 && alertTime < userCreatedTime) return false;
-    }
-    return true;
-},
     getUnreadAlerts: function() {
         if (!this.user) return [];
         const allAlerts = [...(LiveStoreData.alerts || []), ...(LiveStoreData.userNotifications || [])];
@@ -585,21 +612,31 @@ LiveStoreData.popup = null;
         if (!allAlerts.length) return;
         const readIds = this._getSafeReadIds();
         
-        for (const msg of allAlerts.slice(0, 50)) {
+        const bulkUpdates = {}; 
+        
+        for (const msg of allAlerts) {
             if (!readIds.includes(String(msg.id))) readIds.push(String(msg.id));
             if (msg.type === 'popup' || msg.isPopup) {
                 const viewKey = `alert_views_${msg.id}`;
                 const maxV = (msg.maxViews || 99).toString();
-                if (localStorage.getItem(viewKey) !== maxV) localStorage.setItem(viewKey, maxV);
+                if (localStorage.getItem(viewKey) !== maxV) bulkUpdates[viewKey] = maxV;
             }
         }
+        
+        Object.entries(bulkUpdates).forEach(([key, val]) => localStorage.setItem(key, val));
         
         const cappedReadIds = readIds.slice(-50);
         localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(cappedReadIds));
         
         window.UIManager?.updateNotifBadges?.();
         window.RenderManager?.renderNotifCenterList?.();
-        if (this.activeUid) this.updateUserProfile({ readAlerts: cappedReadIds }).catch(() => {});
+        
+        if (this.activeUid) {
+            this.updateUserProfile({ 
+                readAlerts: cappedReadIds, 
+                lastReadAlertTime: this.getNow() 
+            }).catch(() => {});
+        }
     },
     
     sendPasswordResetEmail: async function(email) { return email ? await StoreDB.sendResetEmail(email) : { success: false, msg: 'بريد مفقود.' }; },

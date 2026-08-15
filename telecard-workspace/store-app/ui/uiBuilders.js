@@ -1,10 +1,11 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V16.0 💎
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V16.1 💎
 // 🎯 الوظيفة: تحويل البيانات الخام (Data) إلى نصوص HTML جاهزة للرسم بأمان تام
-// 🚀 التحديثات المعمارية (V16.0):
-// 1. Strict XSS Shield: إزالة الـ (Fallback) الكارثي للروابط الخام وإجبار التصفية.
-// 2. Context Safety: استبدال `this` بـ `UIBuilders` لمنع انهيار الواجهة عند الـ Destructuring.
-// 3. Defensive Dates: تغليف كل التواريخ بـ `parseSafeTime` لمنع ظهور [object Object] للعملاء.
+// 🚀 التحديثات المعمارية (V16.1):
+// 1. CSS Decoupling: تطهير كامل للـ Inline CSS من كروت المحفظة وتفاصيل العمليات.
+// 2. Strict XSS Shield: إزالة الـ (Fallback) الكارثي للروابط الخام وإجبار التصفية.
+// 3. Context Safety: استبدال `this` بـ `UIBuilders` لمنع انهيار الواجهة.
+// 4. Defensive Dates: تغليف التواريخ بـ `parseSafeTime` لمنع ظهور الأخطاء.
 // ============================================================================
 
 import * as Utils from '../utils.js'; 
@@ -18,7 +19,6 @@ export const UIBuilders = {
         const isDep = tx.type === 'deposit';
         let amountPrefix = '', amountClass = '', cardClass = '', iconName = '', iconColorClass = '';
         
-        // 🛡️ الإصلاح 3: تحصين التاريخ قبل إرساله للرسم
         const safeTimeMs = Utils.parseSafeTime(tx.time || tx.createdAt);
         const formattedDate = RenderHelpers.formatSafeDate(safeTimeMs);
 
@@ -170,7 +170,7 @@ export const UIBuilders = {
             exchangeRateHtml = `
             <div class="ph-item">
                 <div class="ph-item-label"><i class="fa-solid fa-money-bill-transfer"></i> سعر الصرف المطبق</div>
-                <div class="ph-item-val num-en" dir="ltr" style="color: var(--text-muted); font-size: 13px;">1 ${targetCurr} = ${Number(d.exchangeRate).toFixed(4)} ${currency}</div>
+                <div class="ph-item-val num-en ph-rate-val" dir="ltr">1 ${targetCurr} = ${Number(d.exchangeRate).toFixed(4)} ${currency}</div>
             </div>`;
         }
 
@@ -180,13 +180,12 @@ export const UIBuilders = {
         let balanceAfterHtml = '';
         if (balAfter !== undefined && balAfter !== null && balAfter !== '') {
             balanceAfterHtml = `
-                <div class="ph-item" style="background: rgba(var(--primary-rgb), 0.05); border: 1px dashed rgba(var(--primary-rgb), 0.3); border-radius: 8px; margin-top: 8px; padding: 10px;">
-                    <div class="ph-item-label" style="color: var(--primary);"><i class="fa-solid fa-piggy-bank"></i> رصيد المحفظة الحالي</div>
-                    <div class="ph-item-val num-en" style="color: var(--primary); font-weight: 900; font-size: 15px;" dir="ltr">${RenderHelpers.formatMoney(balAfter, targetCurr)}</div>
+                <div class="ph-item ph-balance-box">
+                    <div class="ph-item-label ph-balance-label"><i class="fa-solid fa-piggy-bank"></i> رصيد المحفظة الحالي</div>
+                    <div class="ph-item-val num-en ph-balance-val" dir="ltr">${RenderHelpers.formatMoney(balAfter, targetCurr)}</div>
                 </div>`;
         }
 
-        // 🛡️ الإصلاح 1: إغلاق ثغرة الحقن للروابط (XSS)
         const safeReceiptUrl = d.receipt ? Utils.safeUrl(d.receipt) : '';
         let receiptHtml = '';
         if (safeReceiptUrl && safeReceiptUrl !== '#') {
@@ -194,8 +193,8 @@ export const UIBuilders = {
             <div class="ph-item align-center mt-10">
                 <div class="ph-item-label"><i class="fa-solid fa-file-invoice"></i> المرفقات (إشعار الدفع)</div>
                 <div class="ph-item-val">
-                    <a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" class="hover-scale" style="width: 45px; height: 45px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.2); transition: transform 0.2s;" title="اضغط لعرض الإشعار">
-                        <img src="${safeReceiptUrl}" style="width: 100%; height: 100%; object-fit: cover;" alt="إشعار الدفع">
+                    <a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" class="hover-scale ph-receipt-link" title="اضغط لعرض الإشعار">
+                        <img src="${safeReceiptUrl}" class="ph-receipt-img" alt="إشعار الدفع">
                     </a>
                 </div>
             </div>`;
@@ -234,14 +233,14 @@ export const UIBuilders = {
                         </div>
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-regular fa-calendar-check"></i> الوقت والتاريخ</div>
-                            <div class="ph-item-val num-en" dir="ltr" style="font-size: 12.5px;">${formattedDate.replace('|', '&nbsp;&nbsp;|&nbsp;&nbsp;')}</div>
+                            <div class="ph-item-val num-en ph-rate-val" dir="ltr">${formattedDate.replace('|', '&nbsp;&nbsp;|&nbsp;&nbsp;')}</div>
                         </div>
 
                         <div class="ph-sep-line" style="margin: 10px 0; opacity: 0.3;"></div>
                         
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-user-tag"></i> اسم العميل</div>
-                            <div class="ph-item-val" style="font-weight: 700;">${Utils.escapeHtml(finalUserName)}</div>
+                            <div class="ph-item-val fw-bold">${Utils.escapeHtml(finalUserName)}</div>
                         </div>
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرف الحساب</div>
@@ -257,7 +256,7 @@ export const UIBuilders = {
                         ${exchangeRateHtml}
                         <div class="ph-item item-highlight">
                             <div class="ph-item-label"><i class="fa-solid fa-hand-holding-dollar"></i> المبلغ الصافي المضاف</div>
-                            <div class="ph-item-val num-en ${amountColorClass}" style="font-size: 15px;">${RenderHelpers.formatMoney(displayNetAmount, targetCurr)}</div>
+                            <div class="ph-item-val num-en ${amountColorClass} fw-bold fs-15">${RenderHelpers.formatMoney(displayNetAmount, targetCurr)}</div>
                         </div>
                         
                         ${balanceAfterHtml}
@@ -265,12 +264,12 @@ export const UIBuilders = {
                     </div>
                     
                     ${d.adminNote ? `
-                        <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'}" style="margin-top: 15px;">
+                        <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'} ph-margin-top">
                             <i class="fa-solid fa-headset"></i>
                             <div class="ph-admin-note-content"><span class="ph-admin-note-title">رسالة الإدارة:</span><div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div></div>
                         </div>` : ''}
                     
-                    <div class="ph-footer-action" style="margin-top: 15px;">
+                    <div class="ph-footer-action ph-margin-top">
                         <button class="btn-receipt-export" data-action="export-receipt" data-id="${Utils.escapeHtml(d.id || '')}"><i class="fa-solid fa-file-export"></i> تصدير الإيصال PDF</button>
                     </div>
                 </div>
@@ -358,6 +357,7 @@ export const UIBuilders = {
             `;
         }
 
+        // إبقاء الـ CSS المدمج هنا هو القرار الصحيح معمارياً لضمان توافق مكتبة الطباعة html2canvas
         return `
             <!DOCTYPE html>
             <html lang="ar" dir="rtl">
@@ -518,11 +518,9 @@ export const UIBuilders = {
                 creditedRow = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</span><div class="nm-val">${RenderHelpers.formatMoney(d.creditedAmount, d.targetCurrency || 'USD')}</div></div>`;
             }
 
-            // 🛡️ الإصلاح 1: إغلاق ثغرة XSS
             const safeReceiptUrl = d.receipt ? Utils.safeUrl(d.receipt) : '';
-            const receiptHtml = (safeReceiptUrl && safeReceiptUrl !== '#') ? `<a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;"><div class="nm-universal-card nm-receipt-card" style="cursor: zoom-in;" data-url="${safeReceiptUrl}"><img src="${safeReceiptUrl}" class="nm-receipt-img hover-scale" alt="Receipt"><div style="text-align:center; font-size:11px; margin-top:8px; color:var(--text-muted); font-weight:700;"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً</div></div></a>` : '';
+            const receiptHtml = (safeReceiptUrl && safeReceiptUrl !== '#') ? `<a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><div class="nm-universal-card nm-receipt-card cursor-zoom-in" data-url="${safeReceiptUrl}"><img src="${safeReceiptUrl}" class="nm-receipt-img hover-scale" alt="Receipt"><div class="nm-receipt-card-info"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً</div></div></a>` : '';
 
-            // 🛡️ الإصلاح 3: تحصين التاريخ
             const safeTimeMs = Utils.parseSafeTime(d.time || d.createdAt);
 
             html = `
@@ -535,8 +533,8 @@ export const UIBuilders = {
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-building-columns"></i> طريقة الدفع</span><div class="nm-val"><span class="num-en">${Utils.escapeHtml(d.method || 'غير محدد')}</span></div></div>
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-circle-info"></i> الحالة</span><div class="nm-status-badge-lux ${stClass}"><i class="fa-solid ${stIcon}"></i> ${stTxt}</div></div>
                         <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${shortDepositId}">
-                            <span class="nm-label" style="pointer-events: none;"><i class="fa-solid fa-hashtag"></i> رقم العملية</span>
-                            <div class="uid-capsule" style="pointer-events: none;"><i class="fa-solid fa-id-card"></i><span class="num-en">${shortDepositId}</span></div>
+                            <span class="nm-label nm-pointer-none"><i class="fa-solid fa-hashtag"></i> رقم العملية</span>
+                            <div class="uid-capsule nm-pointer-none"><i class="fa-solid fa-id-card"></i><span class="num-en">${shortDepositId}</span></div>
                         </div>
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-calendar"></i> التاريخ</span><span class="nm-val num-en">${RenderHelpers.formatSafeDate(safeTimeMs)}</span></div>
                     </div>
@@ -571,8 +569,7 @@ export const UIBuilders = {
                 replyHtml += `<div class="nm-reply-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-headset"></i> رد المتجر</span><div class="nm-reply-body admin-reply-text">${safeResponse}</div></div></div>`;
             }
             if (o.status === 'completed' && o.deliveredCode && o.deliveredCode !== 'null') {
-                // 🛡️ الإصلاح 2: استدعاء آمن يحفظ الـ Context
-                replyHtml += `<div class="nm-reply-box auto-delivery-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم فوري</span><div class="nm-reply-body" style="max-height: 200px; overflow-y: auto;">${UIBuilders.buildCodesList(o.deliveredCode)}</div></div></div>`;
+                replyHtml += `<div class="nm-reply-box auto-delivery-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم فوري</span><div class="nm-reply-body nm-auto-delivery-scroll">${UIBuilders.buildCodesList(o.deliveredCode)}</div></div></div>`;
             }
 
             const cDiscountLocal = Number(o.pricingSnapshot?.couponDiscount || o.couponDiscount || 0);
@@ -593,7 +590,6 @@ export const UIBuilders = {
                 priceSectionHtml = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-coins"></i> السعر الاجمالي</span><div class="nm-val" dir="ltr">${formatFn(finalLocal)}</div></div>`;
             }
 
-            // 🛡️ الإصلاح 3: تحصين التاريخ
             const safeTimeMs = Utils.parseSafeTime(o.time || o.createdAt);
 
             html = `
@@ -603,8 +599,8 @@ export const UIBuilders = {
                     <div class="nm-title-frame"><div class="nm-prod-title">${Utils.escapeHtml(o.product || 'منتج')}</div></div>
                     <div class="nm-card-body">
                         <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${shortOrderId}">
-                            <span class="nm-label" style="pointer-events: none;"><i class="fa-solid fa-hashtag"></i> رقم الطلب</span>
-                            <div class="nm-val scl-text" dir="ltr" style="pointer-events: none;"><span class="num-en">${shortOrderId}</span><i class="fa-regular fa-copy scl-icon"></i></div>
+                            <span class="nm-label nm-pointer-none"><i class="fa-solid fa-hashtag"></i> رقم الطلب</span>
+                            <div class="nm-val scl-text nm-pointer-none" dir="ltr"><span class="num-en">${shortOrderId}</span><i class="fa-regular fa-copy scl-icon"></i></div>
                         </div>
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-circle-info"></i> الحالة</span><div class="nm-status-badge-lux ${stClass}"><i class="fa-solid ${stIcon}"></i> ${stTxt}</div></div>
                         ${priceSectionHtml} 

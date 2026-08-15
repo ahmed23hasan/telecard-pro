@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V18.5 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V18.6 💎 (The Oracle)
 // 🎯 الوظيفة: محاكاة أسعار السيرفر بدقة 100%، كشف الأرباح، وتشخيص الأخطاء بشفافية.
-// 🚀 التحديثات (V18.5): 
-// 1. Global Failsafe Cap: محاكاة شبكة الأمان (95%) ليتطابق حساب الإدارة مع السيرفر.
-// 2. Surgical Coupon Caps: محاكاة الحد الأعلى للخصم لكل كوبون (maxDiscount).
-// 3. Anti-Stacking Shield: تنبيه الإدارة عند محاولة دمج الكوبون مع التخفيض.
-// 4. Advanced Oracle Firewall: كشف كسر حاجز الربح الآمن 5% بشفافية دون انهيار.
+// 🚀 التحديثات (V18.6): 
+// 1. Strict Option Validation: التنبيه الصارم (Throw Error) لأي Index غير صالح لمحاكاة رد فعل السيرفر.
+// 2. Precision Sync: توحيد دالة التقريب المساعد مع المتغير المركزي للرياضيات.
+// 3. Global Failsafe Cap: محاكاة شبكة الأمان (95%) ليتطابق حساب الإدارة مع السيرفر.
+// 4. Advanced Oracle Firewall: كشف كسر حاجز الربح الآمن 5% بشفافية دون انهيار الواجهة.
 // ============================================================================
 
 export const FinancialEngine = {
@@ -108,9 +108,11 @@ export const FinancialEngine = {
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = this.convertViaUSD(amt, f, t, rates, c); 
-        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * 10000) / 10000;
-        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * 10000) / 10000;
-        return Number(v.toFixed(4));
+        // 🛡️ التحديث 2: استخدام معامل التقريب المركزي بدلاً من الثابت (10000)
+        const factor = Math.pow(10, this.CONFIG.PRECISION);
+        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * factor) / factor;
+        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * factor) / factor;
+        return Number(v.toFixed(this.CONFIG.PRECISION));
     },
 
     // ========================================================================
@@ -164,12 +166,15 @@ export const FinancialEngine = {
         let isFixed = (fixedPrice > 0) || (String(product.isFixedPrice).toLowerCase() === 'true' || product.is_fixed_price === true);
         let activeOption = null;
 
-        if (product.type === 'select' && Array.isArray(product.options)) {
+        // 🛡️ التحديث 1: الإغلاق الأمني الصارم لمحاكاة رفض السيرفر لأي Index غير صالح
+        if (product.type === 'select' && Array.isArray(product.options) && product.options.length > 0) {
             const index = Number(optIdx);
             if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
                 activeOption = product.options[index];
                 cost = this.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
                 if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
+            } else {
+                throw new Error(`🚨 [Admin Simulator]: الـ Index الممرر للخيارات (${optIdx}) غير صالح! السيرفر سيرفض هذا الطلب لحماية التسعير.`);
             }
         }
         
