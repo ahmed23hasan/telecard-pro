@@ -958,7 +958,7 @@ exports.cleanupOrphanedKycDocs = onSchedule({
                 }
             }
 
-            // التحقق مما  إذا كان هناك ملفات أخرى للانتقال إليها
+            // التحقق مما إذا كان هناك ملفات أخرى للانتقال إليها
             if (nextQuery) {
                 query = nextQuery;
             } else {
