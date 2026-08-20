@@ -4,7 +4,7 @@
 <head>
     <script>
         // 🚀 1. تحديد الإصدار (متوافق مع محرك V20.8 الماسي الذي بنيناه)
-        window.TELECARD_VERSION = "20.8.3";
+        window.TELECARD_VERSION = "20.8.5";
     </script>
     
     <!-- 🚀 نظام المراقبة المبكر للإقلاع -->
@@ -30,26 +30,32 @@
     </script>
     
     <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="robots" content="noindex, nofollow">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
+    <!-- 🛡️ الإصلاح 1: تفعيل الأرشفة ليظهر متجرك في محركات البحث -->
+    <meta name="robots" content="index, follow">
+<meta name="description" content="متجر تيليكارد - بوابتك الآمنة والسريعة لشراء البطاقات الرقمية، شدات الألعاب، وبطاقات الهدايا بأفضل الأسعار وتوصيل فوري.">
+    <title>TELE CARD | المتجر</title>
 
-<title>TELE CARD | المتجر</title>
-
-<!-- 🚀 مفتاح عبور تطبيق الجوال (Hybrid PWA Key) لإرضاء مفتش المتصفح فوراً -->
-<link rel="manifest" id="dynamic-manifest" href="./manifest.json">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- 🚀 مفتاح عبور تطبيق الجوال لجميع الأنظمة (Android + iOS) -->
+    <link rel="manifest" id="dynamic-manifest" href="./manifest.json">
+    <!-- 🛡️ الإصلاح 2: توافق أيقونات التثبيت لأجهزة آبل (آيفون/آيباد) -->
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>    
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- 🚀 نظام التصميم المركزي النظيف -->
     <link rel="stylesheet" href="style.css">
 
-    <!-- 🛡️ مكتبات النظام الأساسية المحصنة (تم التخلص من الوزن الميت والمكتبات المتضاربة) -->
+    <!-- 🛡️ مكتبات النظام الأساسية المحصنة -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
 </head>
 
-<body>
-    <!-- 🛑 تنبيه تعطيل الجافاسكريبت -->
+<body class="is-home">
+    <!-- 🛑 تنبيه تعطيل الجافاسكريبت --> 
     <noscript>
         <div class="noscript-overlay">
             <i class="fa-solid fa-triangle-exclamation noscript-icon"></i>
@@ -76,15 +82,14 @@
         </div>
         <h2 id="splash-store-name" class="splash-title">جاري إعداد حسابك...</h2>
     </div>
-
-    <!-- 🛡️ حقن الاسم المخبأ لتسريع شاشة الإقلاع -->
-    <script>
-        var cachedStoreName = localStorage.getItem('telecard_splash_name');
-        if (cachedStoreName) { document.getElementById('splash-store-name').textContent = cachedStoreName; }
-    </script>
-    
-    <!-- 🚨 نافذة الحماية والطرد المباشر -->
-    <div class="global-alert-overlay" id="global-security-alert" role="dialog" aria-modal="true">
+<!-- 🛡️ حقن الاسم المخبأ لتسريع شاشة الإقلاع -->
+<script>
+    // الاعتماد على الاحتمالين لضمان المصدر الوحيد للحقيقة
+    var cachedStoreName = localStorage.getItem('tc_splash_name') || localStorage.getItem('telecard_splash_name');
+    if (cachedStoreName) { document.getElementById('splash-store-name').textContent = cachedStoreName; }
+</script>
+<!-- 🚨 نافذة الحماية والطرد المباشر -->
+    <div class="global-alert-overlay master-overlay" id="global-security-alert" role="dialog" aria-modal="true">
         <div class="global-alert-card">
             <div class="global-icon-box">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -136,9 +141,10 @@
     </header>
 
     <!-- ======================= 📋 القائمة الجانبية ======================= -->
-    <div class="sidebar-overlay" id="sidebarOverlay" data-action="close-sidebar"></div>
+    <div class="sidebar-overlay master-overlay" id="sidebarOverlay" data-action="close-sidebar"></div>
     
-    <div class="sidebar" id="cs-menu">
+    <div class="sidebar show-scrollbar" id="cs-menu">
+
         <div class="sidebar-header">
             <div id="sidebar-branding-target" data-action="nav-home" style="cursor: pointer;"></div>
             <button class="sidebar-close-btn" data-action="close-sidebar" aria-label="إغلاق">
@@ -204,13 +210,15 @@
         </div>
             
         <div id="sidebar-kyc-container"></div>
-            <!-- 📱 زر تنزيل التطبيق -->
-<div id="pwa-install-container" style="display: none; margin: 15px; background: linear-gradient(135deg, var(--primary), #8b5cf6); border-radius: 12px; padding: 15px; color: #fff; text-align: center; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);">
-    <div style="font-size: 24px; margin-bottom: 8px;"><i class="fa-solid fa-mobile-screen"></i></div>
-    <h4 style="margin: 0 0 5px 0; font-weight: 800; font-size: 15px;">احصل على تطبيقنا</h4>
-    <p style="margin: 0 0 10px 0; font-size: 11px; opacity: 0.9;">أسرع، أخف، وبدون متصفح!</p>
-    <button id="pwa-install-btn" data-action="install-pwa" style="background: #fff; color: var(--primary); border: none; padding: 8px 20px; border-radius: 8px; font-weight: 800; font-size: 13px; width: 100%; cursor: pointer;">تثبيت التطبيق الآن</button>
-</div>
+        
+        <!-- 🛡️ الإصلاح 3: تطهير صندوق الـ PWA من الستايلات المدمجة والاعتماد على Classes -->
+        <div id="pwa-install-container" class="pwa-banner-wrapper">
+            <div class="pwa-banner-icon"><i class="fa-solid fa-mobile-screen"></i></div>
+            <h4 class="pwa-banner-title">احصل على تطبيقنا</h4>
+            <p class="pwa-banner-desc">أسرع، أخف، وبدون متصفح!</p>
+            <button id="pwa-install-btn" class="pwa-install-btn" data-action="install-pwa">تثبيت التطبيق الآن</button>
+        </div>
+
         <div class="menu-list">
             <div class="nav-item active" data-action="nav-home">
                 <i class="fa-solid fa-house nav-icon"></i>
@@ -276,7 +284,7 @@
     </div>
 
     <!-- ======================= 🛒 المحتوى الرئيسي ======================= -->
-    <div class="main-scroll">
+    <div class="main-scroll hide-scrollbar">
         <div class="hero-block-wrapper">
             <div class="hero-slider-section" id="slider">
                 <div class="slider-skeleton skeleton-box"></div>
@@ -315,22 +323,39 @@
                 <i class="fa-solid fa-magnifying-glass"></i>
             </button>
         </div>
-                
-        <div class="grid-layout grid-cats" id="store-grid">
-            <!-- Skeletons -->
-            <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
-            <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
-            <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
-            <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
-            <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
-            <div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>
-        </div>
-    </div>
+
+        <!-- الحاوية الأساسية المفرغة -->
+        <div class="grid-layout grid-cats" id="store-grid"></div>
+
+        <!-- 🚀 محقن السكيليتون اللحظي الموحد -->
+        <script>
+            (function() {
+                try {
+                    let skeletonCount = 3; // الافتراضي
+                    const cachedCount = localStorage.getItem('tc_cats_count');
+                    if (cachedCount && parseInt(cachedCount) > 0) skeletonCount = parseInt(cachedCount);
+                    
+                    let skeletonsHtml = '';
+                    for (let i = 0; i < skeletonCount; i++) {
+                        skeletonsHtml += `
+                                <div class="cat-card skeleton-mode" style="cursor: default; pointer-events: none;">
+                                    <div class="cat-img-box skeleton-box" style="border: none;"></div>
+                                    <div class="cat-name-box" style="border: none; background: var(--bg-glass-heavy);">
+                                        <div class="skeleton-box" style="height: 12px; width: 60%; border-radius: 6px;"></div>
+                                    </div>
+                                </div>`;
+                    }
+                    document.getElementById('store-grid').innerHTML = skeletonsHtml;
+                } catch (e) {}
+            })();
+        </script>
+
+    </div> <!-- إغلاق حاوية main-scroll -->
 
     <!-- ======================= 📦 النوافذ السفلية ======================= -->
     
     <!-- نافذة الطلبات -->
-    <div class="pm-overlay" id="orders-overlay" data-action="close-orders"></div>
+    <div class="pm-overlay master-overlay" id="orders-overlay" data-action="close-orders"></div>
     <div class="modal-sheet bottom-sheet" id="orders-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-orders" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>            
@@ -384,11 +409,10 @@
             <div class="mf-tab" data-action="filter-order" data-val="rejected">مرفوض</div>
             <div class="mf-tab" data-action="filter-order" data-val="refunded">مسترجع</div>
         </div>
-        <div class="pm-scroll-content"><div id="orders-list" class="u-list"></div></div>
+        <div class="pm-scroll-content hide-scrollbar"><div id="orders-list" class="u-list"></div></div>
     </div>
-
     <!-- نافذة المحفظة -->
-    <div class="pm-overlay" id="wallet-overlay" data-action="close-wallet"></div>
+    <div class="pm-overlay master-overlay" id="wallet-overlay" data-action="close-wallet"></div>
     <div class="modal-sheet bottom-sheet" id="wallet-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-wallet" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -490,11 +514,11 @@
             </div>
         </div>
 
-        <div class="pm-scroll-content"><div id="wallet-list" class="u-list"></div></div>
+        <div class="pm-scroll-content hide-scrollbar"><div id="wallet-list" class="u-list"></div></div>
     </div>
 
     <!-- نافذة المدفوعات -->
-    <div class="pm-overlay" id="mypay-overlay" data-action="close-mypayments"></div>
+    <div class="pm-overlay master-overlay" id="mypay-overlay" data-action="close-mypayments"></div>
     <div class="modal-sheet bottom-sheet" id="mypay-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-mypayments" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -548,13 +572,13 @@
             <div class="mf-tab" data-action="filter-pay" data-val="pending">قيد المعالجة</div>
         </div>
 
-        <div class="pm-scroll-content">
+        <div class="pm-scroll-content hide-scrollbar">
             <div id="mypay-list" class="u-list"></div>
         </div>
     </div>
 
     <!-- نافذة الإعدادات -->
-    <div class="pm-overlay" id="settings-overlay" data-action="close-settings"></div>
+    <div class="pm-overlay master-overlay" id="settings-overlay" data-action="close-settings"></div>
     <div class="modal-sheet bottom-sheet settings-modal" id="settings-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-settings" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -591,7 +615,7 @@
     </div>
 
     <!-- نافذة الإيداع المالي -->
-    <div class="pm-overlay" id="balance-overlay" data-action="close-balance"></div>
+    <div class="pm-overlay master-overlay" id="balance-overlay" data-action="close-balance"></div>
     <div class="modal-sheet bottom-sheet" id="balance-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <span class="title-badge pm-title-badge"><i class="fa-solid fa-wallet"></i> إيداع رصيد</span>
@@ -600,7 +624,7 @@
             </div>
         </div>
         
-        <div class="pm-scroll-content">
+        <div class="pm-scroll-content hide-scrollbar">
             <div id="bal-step-1">
                 <div id="bal-normal-view" class="bal-normal-view">
                     <p style="color: var(--text-muted); font-size: 13px; text-align: center; margin-bottom: 15px; font-weight: 600;">اختر طريقة الدفع المناسبة لك</p>
@@ -615,7 +639,7 @@
     </div>
 
     <!-- نافذة شراء المنتج -->
-    <div class="pm-overlay" id="purchase-overlay" data-action="close-purchase"></div>
+    <div class="pm-overlay master-overlay" id="purchase-overlay" data-action="close-purchase"></div>
     <div class="modal-sheet bottom-sheet" id="purchase-modal" role="dialog" aria-modal="true">
         <div class="pm-header-img-style transparent-header">
             <div class="pm-close-std" data-action="close-purchase" aria-label="إغلاق">
@@ -623,7 +647,7 @@
             </div>
         </div>
         
-        <div class="pm-scroll-content no-pt">
+        <div class="pm-scroll-content hide-scrollbar no-pt">
             <div class="classic-header-section">
                 <div style="display: flex; flex-direction: column; gap: 5px; max-width: 82%;">
                     <div id="pm-badge-container"></div> 
@@ -711,7 +735,7 @@
     </div>
 
     <!-- نوافذ النجاح -->
-    <div class="pm-overlay" id="success-overlay" data-action="close-success"></div>
+    <div class="pm-overlay master-overlay" id="success-overlay" data-action="close-success"></div>
     <div class="modal-sheet bottom-sheet success-card" id="success-modal" role="dialog" aria-modal="true">
         <div class="pm-close-std floating-close" data-action="close-success" aria-label="إغلاق" role="button">
             <i class="fa-solid fa-xmark"></i>
@@ -725,7 +749,7 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="purchase-success-overlay" data-action="close-purchase-success"></div>
+    <div class="pm-overlay master-overlay" id="purchase-success-overlay" data-action="close-purchase-success"></div>
     <div class="modal-sheet bottom-sheet success-card" id="purchase-success-modal" role="dialog" aria-modal="true">
         <div class="pm-close-std floating-close" data-action="close-purchase-success" aria-label="إغلاق" role="button">
             <i class="fa-solid fa-xmark"></i>
@@ -742,7 +766,7 @@
     </div>
 
     <!-- نافذة تفاصيل العملية -->
-    <div class="pm-overlay" id="tx-detail-overlay" data-action="close-tx-detail"></div>
+    <div class="pm-overlay master-overlay" id="tx-detail-overlay" data-action="close-tx-detail"></div>
     <div class="modal-sheet bottom-sheet tx-modal-sheet" id="tx-detail-modal" role="dialog" aria-modal="true">
         <div id="tx-top-badge-container"></div>
         <div class="pm-header-std">
@@ -754,11 +778,11 @@
             </div>
             <div class="pm-header-spacer"></div>
         </div>
-        <div class="pm-scroll-content" id="tx-detail-content"></div>
+        <div class="pm-scroll-content hide-scrollbar" id="tx-detail-content"></div>
     </div>
 
     <!-- نافذة الملف الشخصي -->
-    <div class="pm-overlay" id="profile-info-overlay" data-action="close-profile"></div>
+    <div class="pm-overlay master-overlay" id="profile-info-overlay" data-action="close-profile"></div>
     <div class="modal-sheet bottom-sheet" id="profile-info-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-profile" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -768,7 +792,7 @@
             <div class="pm-header-spacer"></div>
         </div>
 
-        <div class="profile-container" id="profile-card">
+        <div class="profile-container hide-scrollbar" id="profile-card">
             <div class="hero-section">                
                 <div class="avatar-wrapper">
                     <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" alt="Profile" class="profile-pic" id="profile-img">
@@ -875,7 +899,7 @@
     </nav> 
     
     <!-- عارض إيصالات الدفع -->
-    <div id="pay-receipt-lightbox" class="pay-receipt-lightbox" data-action="close-pay-receipt" role="dialog" aria-modal="true">
+    <div id="pay-receipt-lightbox" class="pay-receipt-lightbox master-overlay" data-action="close-pay-receipt" role="dialog" aria-modal="true">
         <div class="pay-receipt-inner">
             <img id="pay-receipt-img" alt="إشعار الدفع">    
             <div class="pay-receipt-close" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -914,7 +938,7 @@
     </div>
 
     <!-- نوافذ الإعدادات الإضافية (شروط، هوية، توثيق) -->
-    <div class="pm-overlay" id="terms-overlay" data-action="close-terms"></div>
+    <div class="pm-overlay master-overlay" id="terms-overlay" data-action="close-terms"></div>
     <div class="modal-sheet bottom-sheet terms-modal-content" id="terms-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-terms" aria-label="إغلاق">
@@ -926,7 +950,7 @@
             <div class="pm-header-spacer"></div>
         </div>
         
-        <div class="pm-scroll-content">
+        <div class="pm-scroll-content hide-scrollbar">
             <div class="terms-body" id="store-terms-content">
                 جاري تحميل الشروط...
             </div>
@@ -939,7 +963,7 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="identity-overlay" data-action="close-identity"></div>
+    <div class="pm-overlay master-overlay" id="identity-overlay" data-action="close-identity"></div>
     <div class="modal-sheet bottom-sheet" id="identity-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-identity" aria-label="إغلاق">
@@ -951,7 +975,7 @@
             <div class="pm-header-spacer"></div>
         </div>
         
-        <div class="pm-scroll-content">
+        <div class="pm-scroll-content hide-scrollbar">
             <div class="profile-lux-card glass-form" id="identity-section">
                 <div id="identity-inputs-wrap">
                     <div class="identity-info-banner mb-20">
@@ -1033,7 +1057,7 @@
         </div> 
     </div> 
 
-    <div class="pm-overlay" id="kyc-upload-overlay" data-action="close-kyc-upload"></div>
+    <div class="pm-overlay master-overlay" id="kyc-upload-overlay" data-action="close-kyc-upload"></div>
     <div class="modal-sheet bottom-sheet" id="kyc-upload-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-kyc-upload" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -1043,7 +1067,7 @@
             <div class="pm-header-spacer"></div>
         </div>
         
-        <div class="pm-scroll-content">
+        <div class="pm-scroll-content hide-scrollbar">
             <div class="profile-lux-card glass-form">
                 <div id="kyc-rejection-alert" class="nm-reply-box d-none rating-banner-error kyc-title-margin">
                     <div class="nm-reply-content">
@@ -1099,7 +1123,7 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="kyc-status-overlay" data-action="close-kyc-status"></div>
+    <div class="pm-overlay master-overlay" id="kyc-status-overlay" data-action="close-kyc-status"></div>
     <div class="modal-sheet bottom-sheet" id="kyc-status-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-kyc-status" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -1108,10 +1132,10 @@
             </div>
             <div class="pm-header-spacer"></div>
         </div>
-        <div class="pm-scroll-content" id="kyc-status-content"></div>
+        <div class="pm-scroll-content hide-scrollbar" id="kyc-status-content"></div>
     </div>
         
-    <div class="pm-overlay" id="notif-center-overlay" data-action="close-notif-center"></div>
+    <div class="pm-overlay master-overlay" id="notif-center-overlay" data-action="close-notif-center"></div>
     <div class="modal-sheet bottom-sheet" id="notif-center-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-notif-center" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -1120,12 +1144,12 @@
             </div>
             <div class="pm-header-spacer"></div>
         </div>
-        <div class="pm-scroll-content">
+        <div class="pm-scroll-content hide-scrollbar">
             <div id="notif-center-list" class="u-list"></div>
         </div>
     </div>        
 
-    <div class="pm-overlay" id="tier-info-overlay" data-action="close-tier-info"></div>
+    <div class="pm-overlay master-overlay" id="tier-info-overlay" data-action="close-tier-info"></div>
     <div class="modal-sheet bottom-sheet" id="tier-info-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-tier-info" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -1134,10 +1158,10 @@
             </div>
             <div class="pm-header-spacer"></div>
         </div>
-        <div class="pm-scroll-content" id="tier-info-content"></div>
+        <div class="pm-scroll-content hide-scrollbar" id="tier-info-content"></div>
     </div>
         
-    <div class="pm-overlay" id="kyc-celebration-overlay" data-action="close-kyc-celebration"></div>
+    <div class="pm-overlay master-overlay" id="kyc-celebration-overlay" data-action="close-kyc-celebration"></div>
     <div class="modal-sheet bottom-sheet success-card kyc-success-card" id="kyc-celebration-modal" role="dialog" aria-modal="true">
         <div class="pm-close-std floating-close" data-action="close-kyc-celebration" title="إغلاق" aria-label="إغلاق" role="button" tabindex="0">
             <i class="fa-solid fa-xmark"></i>
@@ -1158,7 +1182,7 @@
         </div>
     </div> 
 
-    <div class="pm-overlay" id="community-overlay" data-action="close-community"></div>
+    <div class="pm-overlay master-overlay" id="community-overlay" data-action="close-community"></div>
     <div class="modal-sheet bottom-sheet" id="community-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-community" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -1168,7 +1192,7 @@
             <div class="pm-header-spacer"></div>
         </div>
         
-        <div class="pm-scroll-content">
+        <div class="pm-scroll-content hide-scrollbar">
             <div class="community-intro-banner">
                 <i class="fa-solid fa-bullhorn fa-bounce"></i>
                 <span>تابع قنواتنا الرسمية ومجموعات الدعم لتحصل على التحديثات وأحدث العروض فوراً!</span>
@@ -1177,7 +1201,7 @@
         </div>
     </div>  
 
-    <div class="pm-overlay" id="rating-overlay" data-action="close-rating"></div>
+    <div class="pm-overlay master-overlay" id="rating-overlay" data-action="close-rating"></div>
     <div class="modal-sheet bottom-sheet" id="rating-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-rating" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -1187,7 +1211,7 @@
             <div class="pm-header-spacer"></div>
         </div>
         
-        <div class="pm-scroll-content">
+        <div class="pm-scroll-content hide-scrollbar">
             <div id="rating-step-stars" class="rating-step-block">
                 <p class="rating-intro-text">يُرجى تقييم جودة الخدمة لمساعدتنا في التطوير المستمر للأداء.</p>
                 <div class="rating-stars-container">
@@ -1228,7 +1252,7 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="about-overlay" data-action="close-about"></div>
+    <div class="pm-overlay master-overlay" id="about-overlay" data-action="close-about"></div>
     <div class="modal-sheet bottom-sheet" id="about-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-about" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -1238,7 +1262,7 @@
             <div class="pm-header-spacer"></div>
         </div>
         
-        <div class="pm-scroll-content">
+        <div class="pm-scroll-content hide-scrollbar">
             <div class="custom-alert-card about-card-clean">
                 <div id="about-logo-box"></div>
                 <h3 class="alert-title about-title" id="about-popup-title"></h3>
@@ -1248,7 +1272,7 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="security-overlay" data-action="close-security-modal"></div>
+    <div class="pm-overlay master-overlay" id="security-overlay" data-action="close-security-modal"></div>
     <div class="modal-sheet bottom-sheet" id="security-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-security-modal" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -1258,7 +1282,7 @@
             <div class="pm-header-spacer"></div>
         </div>
         
-        <div class="pm-scroll-content">
+        <div class="pm-scroll-content hide-scrollbar">
             <div class="settings-group-title">إعادة تعيين كلمة المرور وحماية الحساب</div>
             
             <div class="modern-setting-row">
@@ -1321,7 +1345,7 @@
         </div>
     </div>
 
-    <div class="pm-overlay" id="setup-2fa-overlay" data-action="close-setup-2fa"></div>
+    <div class="pm-overlay master-overlay" id="setup-2fa-overlay" data-action="close-setup-2fa"></div>
     <div class="modal-sheet bottom-sheet" id="setup-2fa-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
             <div class="pm-close-std" data-action="close-setup-2fa" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></div>
@@ -1331,7 +1355,7 @@
             <div class="pm-header-spacer"></div>
         </div>
         
-        <div class="pm-scroll-content setup-2fa-content">
+        <div class="pm-scroll-content hide-scrollbar setup-2fa-content">
             <div class="identity-info-banner setup-2fa-banner">
                 <i class="fa-solid fa-shield-halved"></i>
                 <span>حمل تطبيق <b>Google Authenticator</b> وامسح الرمز أدناه لربط حسابك بأمان.</span>
@@ -1356,7 +1380,7 @@
         </div>
     </div>
 
-    <div id="biometric-lock-screen" class="biometric-lock-overlay" role="dialog" aria-modal="true">
+    <div id="biometric-lock-screen" class="biometric-lock-overlay master-overlay" role="dialog" aria-modal="true">
         <div class="bio-lock-card">
             <div class="bio-icon-box pulse-anim">
                 <i class="fa-solid fa-fingerprint"></i>
@@ -1410,21 +1434,20 @@
         const origError = console.error;
         
         // 🛡️ التحديث الآمن: منع انهيار المتصفح عند طباعة كائنات فايربيز المعقدة
-const formatMsg = (args) => Array.from(args).map(a => {
-    if (a instanceof Error) return `${a.name}: ${a.message}`;
-    if (typeof a === 'object' && a !== null) {
-        try {
-            return JSON.stringify(a);
-        } catch (e) {
-            return '[كائن معقد لا يمكن طباعته - Object]';
-        }
-    }
-    return String(a);
-}).join(' ');
+        const formatMsg = (args) => Array.from(args).map(a => {
+            if (a instanceof Error) return `${a.name}: ${a.message}`;
+            if (typeof a === 'object' && a !== null) {
+                try {
+                    return JSON.stringify(a);
+                } catch (e) {
+                    return '[كائن معقد لا يمكن طباعته - Object]';
+                }
+            }
+            return String(a);
+        }).join(' ');
         console.log = function(...args) {
             origLog.apply(console, args);
             
-            // 🛡️ التحديث الأمني: استخدام عنصر آمن مشفر النص بدلاً من HTML مباشر لحماية المطورين (XSS Protection)
             const logDiv = document.createElement('div');
             logDiv.style.cssText = "color:#34d399; border-bottom:1px dashed #334155; padding:8px 0;";
             logDiv.textContent = `[LOG] ${formatMsg(args)}`;

@@ -1,10 +1,11 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9.3 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9.4 💎
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع السريع، إدارة الكاش الذكي، والتوافقية
-// 🚀 التحديثات المعمارية (V16.9.3):
-// 1. WebAuthn Base64URL Fix: معالجة فك تشفير البصمة الآمنة ومنع انهيار المتصفح.
-// 2. UX Deadlock Resolve: إزالة شاشة الـ Splash يدوياً عند قفل البصمة لمنع تجميد الواجهة.
-// 3. نقل التجميد الذكي (Selective Lock) للحماية الفورية (Zero-Delay Lock).
+// 🚀 التحديثات المعمارية (V16.9.4 - Master Sync):
+// 1. Biometric Deadlock Fix: تفعيل مستمعات الواجهة قبل قفل البصمة لمنع تجميد النظام.
+// 2. SSOT Cache Versioning: توحيد مفتاح الكاش (tc_server_version) مع باقي أجزاء النظام.
+// 3. WebAuthn Base64URL Fix: معالجة فك تشفير البصمة الآمنة ومنع انهيار المتصفح.
+// 4. Ghost Session Protection: توحيد المصادقة مع المحول الداخلي.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -89,9 +90,8 @@ Object.assign(ClientSystem, {
             const challenge = new Uint8Array(32);
             window.crypto.getRandomValues(challenge);
             
-            // 🛡️ الإصلاح: تحويل Base64URL إلى Base64 قياسي لتجنب انهيار دالة atob
+            // 🛡️ تحويل Base64URL إلى Base64 قياسي لتجنب انهيار دالة atob
             let base64 = savedRawId.replace(/-/g, '+').replace(/_/g, '/');
-            // إضافة حشوة (Padding) إذا لزم الأمر
             while (base64.length % 4) {
                 base64 += '=';
             }
@@ -101,7 +101,6 @@ Object.assign(ClientSystem, {
                 rawIdBytes[i] = binaryString.charCodeAt(i);
             }
             
-            // طلب البصمة
             await navigator.credentials.get({
                 publicKey: {
                     challenge,
@@ -159,7 +158,8 @@ ClientSystem.initFirebaseListeners = function() {
         this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.SETTINGS, 'singleton', (incoming) => {
             if (!incoming) return;            
             const serverVersion = String(incoming.appVersion || '0');
-            const localServerVersion = localStorage.getItem('telecard_server_version') || '0';
+            // ✅ الاعتماد على المفتاح الموحد للحقيقة المطلقة
+            const localServerVersion = localStorage.getItem('tc_server_version') || '0';
             
             if (serverVersion !== '0' && serverVersion !== localServerVersion) {
                 if (this._isUpdatingServer) return; 
@@ -176,7 +176,8 @@ ClientSystem.initFirebaseListeners = function() {
                 if(this.showToast) this.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل...', 'success');
                 
                 setTimeout(async () => {
-                    localStorage.setItem('telecard_server_version', serverVersion);
+                    // ✅ حفظ المفتاح الموحد
+                    localStorage.setItem('tc_server_version', serverVersion);
                     const clearPromises = [];
                     
                     const keysToRemove = [];
@@ -282,25 +283,36 @@ ClientSystem.initFirebaseListeners = function() {
             }
             
             if (StoreDB.listenQuery) {
-                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, ['userId', '==', uidStr], 'time', 30, (data) => {
+                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, [['userId', '==', uidStr]], 'time', 30, (data) => {
                     const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
                     _updateLiveArray(LiveStoreData.orders, normData); 
                     
                     try { 
-                        const minifiedOrders = normData.map(o => ({ id: o.id, displayId: o.displayId, product: o.product, price: o.price, priceCurrency: o.priceCurrency, status: o.status, time: o.time, createdAt: o.createdAt, pricingSnapshot: o.pricingSnapshot }));
+                        const minifiedOrders = normData.map(o => ({ 
+                            id: o.id, 
+                            displayId: o.displayId, 
+                            product: o.product, 
+                            price: o.price, 
+                            priceCurrency: o.priceCurrency, 
+                            status: o.status, 
+                            time: o.time, 
+                            createdAt: o.createdAt, 
+                            pricingSnapshot: o.pricingSnapshot 
+                        }));
                         localStorage.setItem(`tc_orders_cache_${uidStr}`, JSON.stringify(minifiedOrders)); 
-                    } catch(e){}
+                    } catch(e) {}
                     
-                    if (DataManager.cursors && DataManager.cursors.orders === undefined) DataManager.cursors.orders = null;
+                    if (DataManager.cursors && DataManager.cursors.orders === undefined) {
+                        DataManager.cursors.orders = null;
+                    }
                     
                     requestAnimationFrame(() => { 
                         if (RenderManager.renderOrders && document.getElementById('orders-modal')?.classList.contains('active')) {
                             RenderManager.renderOrders(true); 
                         }
                     });
-                }));
-                
-                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.DEPOSITS, ['userId', '==', uidStr], 'time', 30, (data) => {
+                }));               
+                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.DEPOSITS, [['userId', '==', uidStr]], 'time', 30, (data) => {
                     const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
                     _updateLiveArray(LiveStoreData.deposits, normData); 
                     
@@ -336,21 +348,21 @@ ClientSystem.init = async function() {
     if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
         RenderHelpers.init({ settings: {}, rates: [], offers: [], isStore: true });
     }
-
+    
     try {
         const currentVersion = APP_VERSION || "1.0.0";
         const savedVersion = localStorage.getItem('telecard_app_version');
-
+        
         if (savedVersion && savedVersion !== currentVersion) {
             console.warn(`🔄 تم اكتشاف تحديث محلي للمتجر! جاري التحديث من ${savedVersion} إلى ${currentVersion}...`);
             
             const clearPromises = [];
             
-            if ('serviceWorker' in navigator) { 
-                clearPromises.push(navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).catch(()=>[])); 
+            if ('serviceWorker' in navigator) {
+                clearPromises.push(navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).catch(() => []));
             }
             if ('caches' in window) {
-                clearPromises.push(caches.keys().then(names => Promise.all(names.map(name => caches.delete(name)))).catch(()=>[]));
+                clearPromises.push(caches.keys().then(names => Promise.all(names.map(name => caches.delete(name)))).catch(() => []));
             }
             
             const keysToRemove = [];
@@ -365,13 +377,13 @@ ClientSystem.init = async function() {
             localStorage.setItem('telecard_app_version', currentVersion);
             
             await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
-            window.location.replace(window.location.href.split('#')[0]); 
-            return; 
+            window.location.replace(window.location.href.split('#')[0]);
+            return;
         } else if (!savedVersion) {
             localStorage.setItem('telecard_app_version', currentVersion);
         }
     } catch (e) {}
-
+    
     try {
         const activeUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
         if (activeUid) {
@@ -390,111 +402,125 @@ ClientSystem.init = async function() {
     } catch (e) {
         console.warn("⚠️ [Cache Hydration] تعذر جلب السجلات المؤقتة.");
     }
-
+    
     try {
         if (DataManager.loadPrefs) DataManager.loadPrefs();
         if (DataManager.syncUser) await DataManager.syncUser().catch(() => {});
+        
+        // ✅ [إصلاح فخ البصمة]: تشغيل مستمعات الواجهة أولاً لضمان عمل أزرار شاشة القفل
+        if (this.initGlobalListeners) this.initGlobalListeners();
         
         // 🔒 [تفعيل قفل المتجر بالبصمة قبل إكمال التحميل]
         if (DataManager.user && DataManager.user.biometricEnabled) {
             const isUnlocked = await this.enforceBiometricLock();
             if (!isUnlocked) {
-                // 🛡️ الإصلاح: إزالة الـ Splash Screen لكي يتمكن المستخدم من رؤية واجهة قفل البصمة
                 const splash = document.getElementById('global-splash-screen');
-                if (splash) { 
-                    splash.style.opacity = '0'; 
-                    splash.style.visibility = 'hidden'; 
-                    setTimeout(() => { if (splash) splash.remove(); }, 400); 
+                if (splash) {
+                    splash.style.opacity = '0';
+                    splash.style.visibility = 'hidden';
+                    setTimeout(() => { if (splash) splash.remove(); }, 400);
                 }
-                // إيقاف إقلاع المتجر حمايةً للبيانات
-                return; 
+                // النظام سيتوقف، لكن الأزرار تعمل الآن
+                return;
             }
         }
         
         if (this.applySavedTheme) this.applySavedTheme();
-        DataManager.selectedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || LiveStoreData.settings?.defaultCurrency || 'USD';
-        if(this.updateDisplayCurrencyUI) this.updateDisplayCurrencyUI(DataManager.selectedCurr);
-        if(this.toggleHeroSection) this.toggleHeroSection(true);
-    } catch(e) {}
-
+        
+        // ✂️ تم إزالة أكواد تحديث العملة من هنا لمنع وميض "USD" الوهمي قبل تحميل الإعدادات
+        
+        if (this.toggleHeroSection) this.toggleHeroSection(true);
+    } catch (e) {}
+    
     try {
         if (this.checkSystemStatus && this.checkSystemStatus()) return;
         
-        if(this.initGlobalListeners) this.initGlobalListeners(); 
-
+        // جلب إعدادات المتجر والكتالوج من السيرفر/الكاش
         await DataManager.initStoreCatalog();
-
+        
+        // تحديث محرك الرسم بالإعدادات الصحيحة
         if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
             RenderHelpers.init({ settings: LiveStoreData.settings || {}, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
         }
         
+        // 🛡️ [الإصلاح الجذري - Zero-Glitch UI]: رسم العملة الآن فقط بعد أن نكون قد حصلنا على الإعدادات الفعلية
+        DataManager.selectedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || LiveStoreData.settings?.defaultCurrency || 'USD';
+        if (this.updateDisplayCurrencyUI) this.updateDisplayCurrencyUI(DataManager.selectedCurr);
+        
         const removeSplashScreen = () => {
             const splash = document.getElementById('global-splash-screen');
-            if (splash) { 
-                splash.style.opacity = '0'; 
-                splash.style.visibility = 'hidden'; 
-                setTimeout(() => { if (splash) splash.remove(); }, 400); 
+            if (splash) {
+                splash.style.opacity = '0';
+                splash.style.visibility = 'hidden';
+                setTimeout(() => { if (splash) splash.remove(); }, 400);
             }
         };
         requestAnimationFrame(removeSplashScreen);
-
-        if(this.applyStoreIdentity) this.applyStoreIdentity();
-        if(this.initSlider) this.initSlider(); 
-        if(this.renderTicker) this.renderTicker(); 
-        if(this.updateProfileDisplay) this.updateProfileDisplay();
-
+        
+        if (this.applyStoreIdentity) this.applyStoreIdentity();
+        if (this.initSlider) this.initSlider();
+        if (this.renderTicker) this.renderTicker();
+        if (this.updateProfileDisplay) this.updateProfileDisplay();
+        
         const sName = LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'TeleCard';
         const splashName = document.getElementById('splash-store-name');
         if (splashName) splashName.innerText = sName;
         localStorage.setItem(CACHE_KEYS.SPLASH_NAME, sName);
-
+        
         if (this.isReady && RenderManager) {
-            const secKeys = ['COUPONS', 'COUNTRIES', 'PAYMENTS'];
-            const promises = secKeys.map(k => StoreDB.getAll(DB_KEYS[k]).catch(() => []));
-            
-            Promise.all(promises).then(results => {
-                secKeys.forEach((key, i) => {
-                    if (results[i] && results[i].length > 0) {
-                        _updateLiveArray(LiveStoreData[key.toLowerCase()], results[i]);
-                    }
-                });
-                if(RenderManager.renderHome) RenderManager.renderHome(); 
-                if(this.initSlider) this.initSlider(); 
-                if(this.updateDisplayBalance) this.updateDisplayBalance();
-                
-                if (document.getElementById('balance-modal')?.classList.contains('active')) {
-                    if(RenderManager.renderPayMethods) RenderManager.renderPayMethods();
-                }
-            });
+    // 1. جلب البيانات العامة المسموحة للجميع (الضيوف والمستخدمين)
+    const publicKeys = ['COUNTRIES', 'PAYMENTS'];
+    const promises = publicKeys.map(k => StoreDB.getAll(DB_KEYS[k]).catch(() => []));
+    
+    // 2. حماية أمنية: جلب الكوبونات فقط إذا كان العميل مسجل الدخول!
+    if (DataManager.activeUid) {
+        promises.push(StoreDB.getAll(DB_KEYS.COUPONS).catch(() => []));
+        publicKeys.push('COUPONS');
+    }
+    
+    Promise.all(promises).then(results => {
+        publicKeys.forEach((key, i) => {
+            if (results[i] && results[i].length > 0) {
+                _updateLiveArray(LiveStoreData[key.toLowerCase()], results[i]);
+            }
+        });
+        if (RenderManager.renderHome) RenderManager.renderHome();
+        if (this.initSlider) this.initSlider();
+        if (this.updateDisplayBalance) this.updateDisplayBalance();
+        
+        if (document.getElementById('balance-modal')?.classList.contains('active')) {
+            if (RenderManager.renderPayMethods) RenderManager.renderPayMethods();
         }
+    });
+}
     } catch (e) {
         console.error("🚨 خطأ أثناء محاولة إقلاع الواجهة:", e);
         const splash = document.getElementById('global-splash-screen');
         if (splash) splash.remove();
     }
-
+    
     try {
-        setTimeout(() => { if(DataManager.injectSilentSensor) DataManager.injectSilentSensor(); }, 3000);
-        if(this.updateDisplayBalance) this.updateDisplayBalance();
+        setTimeout(() => { if (DataManager.injectSilentSensor) DataManager.injectSilentSensor(); }, 3000);
+        if (this.updateDisplayBalance) this.updateDisplayBalance();
         
         requestIdleCallback(() => {
             if (!this.isReady) return;
             try { this.initFirebaseListeners(); } catch (e) {}
-            try { if(CalendarApp?.init) CalendarApp.init(); } catch (e) {}
+            try { if (CalendarApp?.init) CalendarApp.init(); } catch (e) {}
             
             ['updateSidebarText', 'initSupportButton', 'applyFontSettings', 'refreshCurrencyMenuFlags', 'renderSettingsUI', 'loadUserImageAutomatically', 'restoreDisplayState', 'setupMainContentClickDetector', 'initSwipeGestures']
-            .forEach(m => { try { if(this[m]) this[m](); } catch (e) {} });
+            .forEach(m => { try { if (this[m]) this[m](); } catch (e) {} });
             
-            if(Components.initBottomNavSync) Components.initBottomNavSync();
-            if(this.checkKycCelebration) this.checkKycCelebration();
+            if (Components.initBottomNavSync) Components.initBottomNavSync();
+            if (this.checkKycCelebration) this.checkKycCelebration();
         }, { timeout: 2000 });
         
-        // 🛡️ التعديل 1: نقل التجميد الذكي المرن (Flexible Selective Lock) خارج دالة المهام الخاملة
+        // 🛡️ التجميد الذكي المرن (Flexible Selective Lock)
         Object.keys(this).forEach(key => {
             if (typeof this[key] === 'function') {
                 Object.defineProperty(this, key, {
-                    writable: false,      
-                    configurable: false   
+                    writable: false,
+                    configurable: false
                 });
             }
         });
@@ -507,8 +533,8 @@ if (typeof globalThis !== 'undefined') {
     if (!globalThis.ClientSystem) {
         Object.defineProperty(globalThis, 'ClientSystem', {
             value: ClientSystem,
-            writable: false, 
-            configurable: false 
+            writable: false,
+            configurable: false
         });
     }
     if (!globalThis.CalendarApp) {

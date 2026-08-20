@@ -477,16 +477,15 @@ export const Components = {
         if (SysUI && typeof SysUI.updatePriceDisplay === 'function') SysUI.updatePriceDisplay(); 
         if (SysUI) SysUI.sfx?.('success');
 
-        const safeCouponValue = Utils.escapeHtml(String(result.coupon.value));
-        const displayCurr = DataManager.selectedCurr || DataManager.user.baseCurrency || 'USD';
-        const currencySymbol = RenderHelpers ? RenderHelpers.getCurrencySymbolText(displayCurr) : displayCurr;
-        
-        const discountText = result.coupon.type === 'percentage' 
-                             ? `${safeCouponValue}%` 
-                             : `${RenderHelpers ? RenderHelpers._enNum(safeCouponValue, 2) : safeCouponValue} ${currencySymbol}`;
-        
-        this._showCouponMessage(msgBox, `<i class="fa-solid fa-check"></i> تم تطبيق خصم ${discountText}!`, 'success', 0);
-        
+        // ✅ الكود الجديد (محصن ضد تضارب العملات)
+const safeCouponValue = Utils.escapeHtml(String(result.coupon.value));
+
+// إظهار الرقم فقط إذا كان نسبة مئوية (لأنها ثابتة لكل العملات)، وإلا نكتفي بكلمة "ثابت"
+const discountText = result.coupon.type === 'percentage' ?
+    `بنسبة ${safeCouponValue}%` :
+    `ثابت`;
+
+this._showCouponMessage(msgBox, `<i class="fa-solid fa-check"></i> تم تطبيق خصم ${discountText} بنجاح!`, 'success', 0);
         codeInput.disabled = true; 
         if(btnApply) { btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
         

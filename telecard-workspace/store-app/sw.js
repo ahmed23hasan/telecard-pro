@@ -4,14 +4,16 @@
 // 🚀 التحذير الهندسي: هذا الملف يتجاهل عمليات Firebase عمداً لعدم كسر الـ DataManager.
 // ============================================================================
 
-const CACHE_NAME = 'telecard-static-v1'; // قم بتغيير الرقم مستقبلاً إذا قمت بتغيير الـ CSS بشكل جذري
+const CACHE_NAME = 'telecard-static-v1.1'; // تم تحديث رقم الإصدار لضمان تجديد الكاش
 
 // 📦 الملفات الثابتة التي نريد تخزينها ليفتح المتجر بدون إنترنت (Zero-Latency UI)
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/login.html',
-  // أضف هنا مسار ملف ستايل المتجر الأساسي الخاص بك، مثلاً:
+  '/store.html',  // ✅ واجهة المتجر الرئيسية
+  '/login.html',  // ✅ صفحة تسجيل الدخول
+  '/signup.html', // ✅ صفحة إنشاء الحساب
+  // أضف هنا مسار ملفات الستايل والصور الأساسية مستقبلاً، مثلاً:
   // '/assets/css/style.css',
   // '/assets/images/logo.png' 
 ];
@@ -25,7 +27,7 @@ self.addEventListener('install', (event) => {
   
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('📦 [Service Worker] جاري تخزين واجهة المتجر...');
+      console.log('📦 [Service Worker] جاري تخزين واجهة المتجر والصفحات الأساسية...');
       return cache.addAll(STATIC_ASSETS);
     }).catch(err => console.warn('SW Pre-cache Warning:', err))
   );
@@ -72,7 +74,7 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   
   // 🌟 استراتيجية 1: ملفات الـ HTML (نجلب من السيرفر أولاً، وإذا انقطع النت نجلب الكاش)
-  // هذا يضمن أن العميل دائماً لديه أحدث نسخة من ملفات الجافاسكريبت.
+  // هذا يضمن أن العميل دائماً لديه أحدث نسخة من واجهة المستخدم.
   if (request.mode === 'navigate' || request.headers.get('accept').includes('text/html')) {
     event.respondWith(
       fetch(request)

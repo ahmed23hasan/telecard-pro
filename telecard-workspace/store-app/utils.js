@@ -64,21 +64,21 @@ export function parseSafeNumber(val) {
 // === 2. أدوات التواريخ والزمن ===
 
 // 🛡️ تأمين ومعالجة التواريخ من مختلف الصيغ لضمان عدم عودة (NaN)
+// ✅ الكود الجديد (المصدر الوحيد للحقيقة)
 export function parseSafeTime(val) {
-    if (!val) return 0;
+    // 1. معالجة عمليات فايربيز المعلقة (Pending Writes) بإعطائها وقت اللحظة
+    if (val === null || val === undefined || val === '') return Date.now();
     if (typeof val === 'number') return val;
     if (typeof val.toMillis === 'function') return val.toMillis();
     if (val.seconds !== undefined) return val.seconds * 1000;
     if (val._seconds !== undefined) return val._seconds * 1000;
     
     if (typeof val === 'string') {
-        // إصلاح مشكلة المتصفحات (Safari خاصة) مع الـ '-' في التواريخ
-        const parsed = new Date(val.includes('T') ? val : val.replace(/-/g, '/')).getTime(); 
-        return isNaN(parsed) ? 0 : parsed;
+        const parsed = new Date(val.includes('T') ? val : val.replace(/-/g, '/')).getTime();
+        return isNaN(parsed) ? Date.now() : parsed;
     }
-    return 0;
+    return Date.now();
 }
-
 // ⏱️ محرك حساب مدة الإنجاز
 export function calculateOrderDuration(startTime, endTime) {
     if (!startTime || !endTime) return "---";
@@ -195,7 +195,36 @@ export function getSearchAndDateFilters(searchId, datePrefixId) {
     
     return { q, dStart, dEnd, tStart, tEnd, error };
 }
-
+// 🧭 محرك التوجيه الآمن (Environment-Aware Router) - 100% Bulletproof
+export function safeRedirect(pageName) {
+    // 1. تحديد ما إذا كنا في بيئة التطوير (Local Server)
+    const isLocal = window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.includes('192.168.');
+    
+    // 2. الافتراضي في الإنتاج (Firebase): التوجيه يتم دائماً من الجذر (Root)
+    let finalPath = '/' + pageName;
+    
+    if (isLocal) {
+        // 3. في بيئة التطوير: نستخرج المسار الديناميكي بدقة حتى مجلد (store-app)
+        const pathParts = window.location.pathname.split('/');
+        const appIndex = pathParts.indexOf('store-app');
+        
+        if (appIndex !== -1) {
+            // إعادة بناء المسار المحلي بدقة متناهية
+            const localBasePath = pathParts.slice(0, appIndex + 1).join('/');
+            finalPath = localBasePath + '/' + pageName;
+        } else {
+            // احتياطي (Fallback) في حال تم تشغيل السيرفر من داخل المجلد مباشرة
+            const lastSlash = window.location.pathname.lastIndexOf('/');
+            const safeBasePath = window.location.pathname.substring(0, lastSlash + 1);
+            finalPath = safeBasePath + pageName;
+        }
+    }
+    
+    // 4. تنفيذ التوجيه بأمان مطلق
+    window.location.replace(finalPath);
+}
 // 💳 استخراج أكواد الخزنة كنص
 export function extractCodeText(dCode) {
     if (dCode == null || dCode === 'null') return '';

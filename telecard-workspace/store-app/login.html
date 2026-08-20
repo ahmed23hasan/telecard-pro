@@ -6,8 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
     <script>
-        // 🛡️ الإصلاح 1: التحقق المبكر يعتمد على المفتاح الجديد المحمي V20
-        if (localStorage.getItem('telecard_active_user_uid_v20')) {
+        // 🛡️ الإصلاح 1: استخدام اسم المفتاح القياسي الموحد لمنع تضارب الكاش وحماية الجلسة
+        const activeUid = localStorage.getItem('tc_active_uid') || localStorage.getItem('telecard_active_user_uid_v20');
+        if (activeUid) {
             window.location.replace('store.html');
         }
     </script>
@@ -323,14 +324,12 @@
     </div>
 
 <script type="module">
-    // 🛡️ الإصلاح 2: استيراد المفاتيح الديناميكية (CACHE_KEYS) لنسف حلقة تسجيل الدخول اللانهائية
-    import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from './config.js';
+    import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES, ACTIVE_USER_KEY } from './config.js';
     import { auth } from './core/firebaseAdapter.js';
     import { 
         signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail,
         getMultiFactorResolver, TotpMultiFactorGenerator, signOut
     } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-    // 🛡️ الإصلاح 4: إزالة استدعاءات فايربيس المباشرة المتضاربة والاعتماد الكلي على StoreDB
     import { StoreDB } from './dataManager.js';
 
     const googleProvider = new GoogleAuthProvider();
@@ -423,7 +422,7 @@
         return 'USD';
     }
 
-    // === 4. تسجيل الدخول الفعلي عبر جوجل (مع الدرع الأمني وتصحيح المستوى) ===
+    // === 4. تسجيل الدخول الفعلي عبر جوجل (مع الدرع الأمني وتوحيد الهوية) ===
     async function handleGoogleLogin() {
         const btn = document.querySelector('.google-btn');
         const originalText = btn.innerHTML;
@@ -435,14 +434,12 @@
             const result = await signInWithPopup(auth, googleProvider);
             const firebaseUser = result.user;
             
-            // 🛡️ استخدام المحول المركزي (StoreDB) بدلاً من تجاوز الهندسة
             let activeUserObj = null;
             if (StoreDB && typeof StoreDB.getById === 'function') {
                 activeUserObj = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid);
             }
             
             if (!activeUserObj) {
-                // عميل جديد يسجل الدخول لأول مرة عبر جوجل
                 btn.innerHTML = 'جاري تهيئة الحساب...';
                 
                 const targetCurrency = await getAdminDefaultCurrency();
@@ -460,24 +457,34 @@
                     googleAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
                 }
                 
+                // 🛡️ الإصلاح 2: كائن مستخدم متكامل 100% يمنع انهيار النظام
                 activeUserObj = {
                     id: firebaseUser.uid,
                     uid: firebaseUser.uid,
                     displayId: shortDisplayId,
-                    name: firstName,
-                    lastName: lastName,
+                    firstName: firstName,       
+                    lastName: lastName,         
+                    fullName: fullName,    
+                    name: firstName,            
                     username: finalUsername,
                     email: firebaseUser.email,
                     img: googleAvatar,
-                    baseCurrency: "",
-                    base_currency: "",
+                    baseCurrency: targetCurrency, 
+                    base_currency: targetCurrency,
                     phone: null,
                     country: null,
                     walletBalance: 0,
                     balance: 0,
                     totalSpent: 0,
                     totalDeposit: 0,
-                    tierId: "1", // 🛡️ الإصلاح 3: استخدام "1" لتفادي تضارب المحرك المالي
+                    tierId: "1", 
+                    tierCycleSpent: 0,
+                    tierCycleStartDate: Date.now(),
+                    role: 'user',                        
+                    isVerified: false,                   
+                    kycStatus: 'none',                   
+                    isBanned: false,
+                    isIpBanned: false,
                     createdAt: Date.now()
                 };
                 
@@ -485,10 +492,9 @@
                     await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
                 }
                 
-                localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, targetCurrency);
+                localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', targetCurrency);
             } else {
                 
-                // 🛑 [الدرع الأمني البنكي]: منع العميل المحظور من الدخول
                 if (activeUserObj.isBanned === true || activeUserObj.isIpBanned === true) {
                     await signOut(auth);
                     localStorage.clear();
@@ -503,21 +509,21 @@
                     const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
                     activeUserObj.img = freshAvatar;
                     if (StoreDB && typeof StoreDB.set === 'function') {
-                        await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { img: freshAvatar });
+                        await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { img: freshAvatar }, { merge: true });
                     }
                 }
                 
                 if (activeUserObj.baseCurrency || activeUserObj.base_currency) {
-                    localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, activeUserObj.baseCurrency || activeUserObj.base_currency);
+                    localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency);
                 }
             }
             
-            // 🛡️ التحديث 1: استخدام المفاتيح الديناميكية من Cache Keys لمنع الانقطاع
-            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
-            localStorage.setItem(CACHE_KEYS.ACTIVE_USER, JSON.stringify(activeUserObj));
+            // 🛡️ الإصلاح 3: استخدام المفاتيح الديناميكية من الـ Config بدلاً من الأسماء الثابتة
+            localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
+            localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(activeUserObj));
             
             if (activeUserObj.img) {
-                localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, activeUserObj.img);
+                localStorage.setItem((DYNAMIC_PREFIXES?.USER_IMAGE || 'tc_uimg_') + firebaseUser.uid, activeUserObj.img);
             }
             
             btn.style.background = "var(--success-green, #10b981)";
@@ -547,7 +553,7 @@
         }
     }
 
-    // === 5. التحقق النهائي وإرسال النموذج (تسجيل الدخول اليدوي المصفح) ===
+    // === 5. التحقق النهائي وإرسال النموذج ===
     async function validateLogin() {
         const identifier = document.getElementById('identifier');
         const password = document.getElementById('password');
@@ -595,15 +601,13 @@
                 return;
             }
 
-            // 🛡️ التحديث 1: استخدام المفاتيح الديناميكية
-            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
+            localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
 
             if (userDoc) {
-                localStorage.setItem(CACHE_KEYS.ACTIVE_USER, JSON.stringify(userDoc));
-            }
-            
-            if(userDoc && (userDoc.baseCurrency || userDoc.base_currency)) {
-                localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, userDoc.baseCurrency || userDoc.base_currency);
+                localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(userDoc));
+                if(userDoc.baseCurrency || userDoc.base_currency) {
+                    localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', userDoc.baseCurrency || userDoc.base_currency);
+                }
             }
 
             btn.style.background = "var(--success-green, #10b981)";
@@ -679,12 +683,11 @@
                 return;
             }
 
-            // 🛡️ التحديث 1: استخدام المفاتيح الديناميكية
-            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
+            localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
             if (userDoc) {
-                localStorage.setItem(CACHE_KEYS.ACTIVE_USER, JSON.stringify(userDoc));
+                localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(userDoc));
                 if(userDoc.baseCurrency || userDoc.base_currency) {
-                    localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, userDoc.baseCurrency || userDoc.base_currency);
+                    localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', userDoc.baseCurrency || userDoc.base_currency);
                 }
             }
 
@@ -704,7 +707,6 @@
     // =================================================================
     // 🪄 7. دوال النوافذ المنبثقة الفاخرة (Custom Alerts & Modals)
     // =================================================================
-    
     function showCustomAlert(title, message, isSuccess = true) {
         const overlay = document.getElementById('customAlert');
         const titleEl = document.getElementById('alertTitle');
@@ -801,7 +803,7 @@
         }
     }
 
-    // 🛡️ إزالة التكرار: إتاحة الدوال للنطاق العام (Global Scope) لمرة واحدة فقط
+    // 🛡️ إتاحة الدوال للنطاق العام (Global Scope)
     window.togglePass = togglePass;
     window.handleGoogleLogin = handleGoogleLogin;
     window.validateLogin = validateLogin;

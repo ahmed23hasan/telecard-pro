@@ -1,25 +1,34 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud & Server Edition) - النسخة الاستراتيجية V18.6 👑
+// 💰 المحرك المالي المركزي (Cloud & Server Edition) - النسخة الاستراتيجية V19.0.0 👑
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، وتطبيق سياسات التسويق بذكاء.
-// 🚀 التحديثات (V18.6): 
-// 1. Strict Option Validation: الرفض القاطع (Throw Error) لأي محاولة تلاعب بالـ Index للباقات.
-// 2. Precision Sync: توحيد دالة التقريب مع المتغير المركزي لتتطابق مع الواجهة 100%.
-// 3. Global Failsafe Cap: شبكة أمان تمنع وصول الخصم لـ 100% في حال أخطأت الإدارة.
-// 4. Safe Margin Lock: حماية سعر التكلفة + 5% لضمان تغطية رسوم بوابات الدفع.
+// 🚀 التحديثات (V19.0.0 - Enterprise Core): 
+// 1. Custom Security Exceptions: فئة أخطاء مخصصة للتعامل الذكي مع الواجهة ومنع الـ Internal Errors.
+// 2. Strict Option Validation: الرفض القاطع (Throw Error) لأي محاولة تلاعب بخيارات المنتجات.
+// 3. Precision Sync: توحيد دالة التقريب مع المتغير المركزي لتتطابق مع الواجهة 100%.
+// 4. Global Failsafe Cap: شبكة أمان تمنع وصول الخصم لـ 100% في حال أخطأت الإدارة.
+// 5. Safe Margin Lock: حماية سعر التكلفة + 5% لضمان تغطية رسوم بوابات الدفع.
 // ============================================================================
+
+// 🛡️ فئة الأخطاء المخصصة لتتناغم مع مترجم الأخطاء في الخادم (index.js)
+class FinancialSecurityError extends Error {
+    constructor(message) {
+        super(`[SECURITY] ${message}`);
+        this.name = "FinancialSecurityError";
+    }
+}
 
 const FinancialEngineDef = {
     CONFIG: Object.freeze({
         BASE_CURRENCY: 'USD',
         MAX_QTY_LIMIT: 10000,
-        MAX_PRICE_LIMIT: 100000,
+        MAX_PRICE_LIMIT: 1000000, // سقف آمن لمنع التلاعب الرياضي (Overflow)
         PRECISION: 4,          
         INTERNAL_PRECISION: 8, 
         MIN_SALE_PRICE: 0.01,
         
         // 🛡️ دروع حماية رأس المال والأخطاء البشرية
         MIN_MARGIN_PERCENT: 5,        // يجب بقاء 5% ربح كحد أدنى فوق التكلفة
-        MAX_GLOBAL_DISCOUNT_PCT: 95   // شبكة أمان: يمنع أي خصم من تجاوز 95% حتى لو نسي الإداري وضع سقف
+        MAX_GLOBAL_DISCOUNT_PCT: 95   // شبكة أمان: يمنع أي خصم من تجاوز 95% 
     }),
 
     // ========================================================================
@@ -38,7 +47,7 @@ const FinancialEngineDef = {
     _internalMul: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) * (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalDiv: function(a, b) {
         const numB = Number(b) || 0;
-        if (numB === 0) throw new Error("[SECURITY - Math Core]: Division by zero detected!");
+        if (numB === 0) throw new FinancialSecurityError("Division by zero detected! محاولة قسمة على صفر.");
         return FinancialEngineDef._preciseRound((Number(a) || 0) / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
     },
 
@@ -62,7 +71,7 @@ const FinancialEngineDef = {
         const processRateObj = (code, priceR, depR) => {
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
-            if (numPrice === 0 || numDep === 0) throw new Error(`[SECURITY] Invalid exchange rate for currency: ${code}`);
+            if (numPrice === 0 || numDep === 0) throw new FinancialSecurityError(`Invalid exchange rate (Zero) for currency: ${code}`);
             ratesMap[code] = { code: code, priceRate: numPrice, depRate: numDep };
         };
 
@@ -97,18 +106,17 @@ const FinancialEngineDef = {
         if (amt === 0 || fCode === tCode) return amt;
         
         const ratesMap = FinancialEngineDef.normalizeRates(ratesArray);
-        if (!ratesMap[fCode] || !ratesMap[tCode]) throw new Error(`[SECURITY] Missing exchange rate for conversion.`);
+        if (!ratesMap[fCode] || !ratesMap[tCode]) throw new FinancialSecurityError("Missing exchange rate for conversion.");
         
         const fRate = channel === 'deposit' ? ratesMap[fCode].depRate : ratesMap[fCode].priceRate;
         const tRate = channel === 'deposit' ? ratesMap[tCode].depRate : ratesMap[tCode].priceRate;
-        if (fRate === 0 || tRate === 0) throw new Error(`[SECURITY] Invalid exchange rate (Zero) detected.`);
+        if (fRate === 0 || tRate === 0) throw new FinancialSecurityError("Invalid exchange rate (Zero) detected during conversion.");
 
         return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
     },
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c);
-        // 🛡️ التحديث 2: استخدام معامل التقريب المركزي بدلاً من 10000
         const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
         if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * factor) / factor;
         if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * factor) / factor;
@@ -133,9 +141,7 @@ const FinancialEngineDef = {
         
         // 🛡️ حماية المنتجات المستثناة
         const isCouponDisabled = (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true');
-        if (isCouponDisabled) { 
-            return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم استخدام الكوبونات' }; 
-        }
+        if (isCouponDisabled) return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم استخدام الكوبونات' }; 
 
         const expiryMs = cp.expiryDate ? new Date(cp.expiryDate).getTime() : 0;
         if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
@@ -159,13 +165,13 @@ const FinancialEngineDef = {
     calculatePrice: function(rawParams) {
         const params = rawParams || {};
         const { product, tier, offer, coupon, optIdx } = params;
-        if (!product || typeof product !== 'object') throw new Error("[SECURITY] Missing Product Data");
+        if (!product || typeof product !== 'object') throw new FinancialSecurityError("Missing Product Data.");
 
         let cost = FinancialEngineDef.extractNum(product.costPrice || product.cost_price || 0);
         let isFixed = (String(product.isFixedPrice).toLowerCase() === 'true');
         let activeOption = null;
 
-        // 🛡️ التحديث 1: الإغلاق الأمني الصارم لخيارات المنتجات
+        // 🛡️ الإغلاق الأمني الصارم لخيارات المنتجات
         if (product.type === 'select' && Array.isArray(product.options) && product.options.length > 0) {
             const index = Number(optIdx);
             if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
@@ -173,12 +179,11 @@ const FinancialEngineDef = {
                 cost = FinancialEngineDef.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
                 if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
             } else {
-                // في السيرفر: نرفض العملية فوراً إذا كان الـ Index ملعوباً به بدلاً من الـ Fallback
-                throw new Error(`[SECURITY] Invalid option index (${optIdx}) provided for product ${product.id}.`);
+                throw new FinancialSecurityError(`الخيار المحدد غير صالح للمنتج (${product.id}).`);
             }
         }
         
-        if (cost > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new Error(`[SECURITY] Cost exceeds maximum limit.`);
+        if (cost > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new FinancialSecurityError("Cost exceeds maximum safety limit.");
 
         let baseSellingPrice = 0;
         let standardPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.price || product.price) : FinancialEngineDef.extractNum(product.price);
@@ -205,7 +210,7 @@ const FinancialEngineDef = {
             baseSellingPrice = standardPrice;
         }
 
-        if (baseSellingPrice > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new Error(`[SECURITY] Selling price exceeds limit.`);
+        if (baseSellingPrice > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new FinancialSecurityError("Selling price exceeds maximum safety limit.");
 
         const originalPrice = baseSellingPrice;
         let currentPrice = originalPrice;
@@ -236,7 +241,7 @@ const FinancialEngineDef = {
         let couponCode = null, couponDiscount = 0;
         const isCouponDisabled = (product.disableCoupons === true || String(product.disableCoupons).toLowerCase() === 'true');
         
-        // 🛡️ درع الـ Anti-Stacking: لن يتم فحص الكوبون إذا كان هناك تخفيض فعال
+        // 🛡️ درع الـ Anti-Stacking
         const canUseCoupon = allowsDiscounts && !isCouponDisabled && offerDiscount === 0; 
         
         if (canUseCoupon && coupon && typeof coupon === 'object' && coupon.isActive !== false) {
@@ -251,13 +256,10 @@ const FinancialEngineDef = {
                 calculatedDiscount = coupVal;
             }
             
-            // 🛡️ تطبيق الحد الأعلى للخصم الخاص بالكوبون (Surgical Cap)
             const maxCap = FinancialEngineDef.extractNum(coupon.maxDiscount);
-            if (maxCap > 0) {
-                calculatedDiscount = Math.min(calculatedDiscount, maxCap);
-            }
+            if (maxCap > 0) calculatedDiscount = Math.min(calculatedDiscount, maxCap);
 
-            // 🛡️ Failsafe: شبكة الأمان العالمية تحسباً لأخطاء الإدارة البشرية
+            // 🛡️ Failsafe: شبكة الأمان العالمية للكوبونات
             const maxGlobalCouponCap = FinancialEngineDef._internalMul(currentPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
             couponDiscount = Math.min(calculatedDiscount, currentPrice, maxGlobalCouponCap);
         }
@@ -269,14 +271,12 @@ const FinancialEngineDef = {
         let rejectionReason = null;
 
         if (cost > 0) {
-            // الحد الأدنى الآمن = سعر التكلفة + 5% (لحماية رأس المال وعمولات الدفع)
             const minRequiredProfit = FinancialEngineDef._internalMul(cost, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MIN_MARGIN_PERCENT, 100));
             const safeMarginPrice = FinancialEngineDef._internalAdd(cost, minRequiredProfit);
             
             if (currentPrice < safeMarginPrice) {
                 isFirewallViolated = true;
                 rejectionReason = `السعر النهائي (${currentPrice}$) يكسر حاجز الربح الآمن (${safeMarginPrice}$). العملية مرفوضة لحماية رأس المال!`;
-                // الدالة لا تنهار هنا (No throw Error)، بل تعيد الراية الحمراء للسيرفر ليتعامل معها بأناقة.
             }
         }
 
@@ -297,7 +297,7 @@ const FinancialEngineDef = {
     calculateOrderTotal: function(params, rawQty) {
         let qty = Math.floor(FinancialEngineDef.extractNum(rawQty));
         if (qty <= 0) qty = 1;
-        if (qty > FinancialEngineDef.CONFIG.MAX_QTY_LIMIT) throw new Error(`[SECURITY] Requested quantity exceeds max limit.`);
+        if (qty > FinancialEngineDef.CONFIG.MAX_QTY_LIMIT) throw new FinancialSecurityError("الكمية المطلوبة تتجاوز الحد الأقصى المسموح به.");
         
         const unit = FinancialEngineDef.calculatePrice(params);
         return {
@@ -310,4 +310,5 @@ const FinancialEngineDef = {
     }
 };
 
+// 🛡️ تجميد الكائن بالكامل لحمايته من أي تعديل خارجي أثناء التشغيل
 module.exports = Object.freeze(FinancialEngineDef);

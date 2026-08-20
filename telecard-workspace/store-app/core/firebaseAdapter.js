@@ -1,10 +1,10 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V16.5 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V17.0 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق، والاستعلامات
-// 🚀 التحديثات المعمارية (V16.5):
-// 1. Global Cache Versioning: تطبيق "الختم العالمي" لمنع "الكاش الميت" وتخفيض الفاتورة لـ 0$.
-// 2. Smart Force Server: دعم تجاوز الكاش إجبارياً عند اكتشاف تحديث من الإدارة.
-// 3. Offline Resilience: قراءة الكاش الإجبارية عند انقطاع الإنترنت لمنع انهيار التطبيق.
+// 🚀 التحديثات المعمارية (V17.0 - Smart Sync):
+// 1. True Global Cache: تفعيل نظام قراءة الختم العالمي (cache_version) لمنع الكاش الميت.
+// 2. Zero-Leak Listeners: إغلاق ثغرة القراءة المزدوجة في onSnapshot لتقليل الفاتورة للنصف.
+// 3. App Check Ready: تجهيز بوابة ReCaptcha Enterprise لحماية السيرفر من هجمات الـ DDoS.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -20,11 +20,22 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
+// import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js";
 
 import { firebaseConfig } from '../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
+// 🛡️ تفعيل الـ App Check (يفضل إضافة مفتاح الـ reCAPTCHA الخاص بك في الإنتاج)
 let appCheck = null; 
+/*
+try {
+    appCheck = initializeAppCheck(app, {
+        provider: new ReCaptchaEnterpriseProvider('YOUR_RECAPTCHA_ENTERPRISE_SITE_KEY'),
+        isTokenAutoRefreshEnabled: true
+    });
+} catch (e) { console.warn("App Check not initialized", e); }
+*/
 
 const db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
@@ -40,8 +51,34 @@ export const FirebaseAdapter = {
     storage: storage,
     functions: functions,
     _activeListeners: new Map(),
+    _globalForceServer: false, // 👈 متغير يعكس حالة الختم العالمي
 
-    _registerListener: function(uniqueKey, unsubscribeFn) {
+    // ==========================================
+    // 🧠 1. نظام الختم العالمي (Global Cache Versioning)
+    // ==========================================
+    initGlobalCacheVersioning: async function() {
+        if (typeof window === 'undefined' || !window.localStorage) return;
+        
+  try {
+    // نقرأ نسخة السيرفر إجبارياً
+    const versionSnap = await getDoc(doc(db, 'telecard_system', 'cache_version'));
+    if (versionSnap.exists()) {
+        const serverVersion = versionSnap.data().version || 0;
+        
+        // ✅ استخدام المفتاح الموحد (tc_server_version) بدلاً من sys_cache_version
+        const localVersion = Number(localStorage.getItem('tc_server_version') || 0);
+        
+        if (serverVersion > localVersion) {
+            console.log(`🔄 تم اكتشاف تحديث جديد من الإدارة (V${serverVersion}). تجاوز الكاش مفعّل.`);
+            this._globalForceServer = true; // فرض جلب البيانات من السيرفر في هذا الـ Session
+            
+            // ✅ حفظ النسخة باستخدام المفتاح الموحد
+            localStorage.setItem('tc_server_version', serverVersion);
+        }
+    }
+} catch (error) { console.warn("تعذر التحقق من نسخة الكاش العالمي", error); }
+},
+_registerListener: function(uniqueKey, unsubscribeFn) {
         if (this._activeListeners.has(uniqueKey)) {
             this._activeListeners.get(uniqueKey)(); 
         }
@@ -151,6 +188,7 @@ export const FirebaseAdapter = {
         try {
             const safeId = this._sanitizeDocId(docId);
             const docRef = doc(db, collectionName, safeId);
+            const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
             
             let cachedData = null;
             try {
@@ -158,7 +196,8 @@ export const FirebaseAdapter = {
                 if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
             } catch (e) {}
             
-            if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            // 🛡️ الذكاء هنا: إذا كنا أوفلاين أو الكاش طازج جداً ولم يتم تحديث الإدارة
+            if (isOffline || (cachedData && !this._globalForceServer)) {
                 return cachedData;
             }
             
@@ -186,10 +225,10 @@ export const FirebaseAdapter = {
             if (limitCount) constraints.push(limit(limitCount));
             
             const q = query(collection(db, collectionName), ...constraints);
-            
             const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+            const needsServer = forceServer || this._globalForceServer;
             
-            if (!forceServer || isOffline) {
+            if (!needsServer || isOffline) {
                 try {
                     const cachedSnapshot = await getDocsFromCache(q);
                     if (!cachedSnapshot.empty) {
@@ -207,12 +246,10 @@ export const FirebaseAdapter = {
         }
     },
     
+    // 🛡️ التحديث المعماري: onSnapshot في فايربيز تقوم بمهام Cache-First برمجياً.
+    // القراءة المنفصلة من الكاش ثم السيرفر تضاعف التكلفة وتسبب تعارضاً.
     listenQueryWithCache(collectionName, filtersArray, orderField, limitCount, callback) {
-        this.queryCacheFirst(collectionName, filtersArray, orderField, limitCount, false)
-            .then(cachedData => {
-                if (cachedData && cachedData.length > 0) callback(cachedData);
-            }).catch(e => console.warn("Cache fail before listen", e));
-        
+        // نستخدم listenQuery العادية لأنها توفر تجربة Cache-First تلقائياً ومجاناً وبدون قراءات مزدوجة
         return this.listenQuery(collectionName, filtersArray, orderField, limitCount, callback);
     },   
 
@@ -402,3 +439,6 @@ export const FirebaseAdapter = {
         } catch (error) { return { success: false, msg: 'تعذر الإيقاف.' }; }
     }
 };
+
+// 🛡️ تشغيل فحص الختم العالمي عند تحميل المتجر
+FirebaseAdapter.initGlobalCacheVersioning();

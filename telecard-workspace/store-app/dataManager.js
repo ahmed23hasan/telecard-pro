@@ -1,21 +1,21 @@
 // ============================================================================
-// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة V2.9.1 💎 (The Unbreakable Core)
+// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة V2.9.2 💎 (The Unbreakable Core)
 // 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات والاتصال المالي.
-// 🚀 التحديثات المعمارية الصارمة (V2.9.1): 
-// 1. Fault-Tolerant Boot: استخدام Promise.allSettled لمنع انهيار الكتالوج بسبب فشل جزئي.
-// 2. V8 Engine Optimization: إفراغ الذاكرة الآمن لمنع إبطاء المتصفح دون استخدام delete.
-// 3. Batch I/O Operations: تجميع عمليات الـ localStorage لمنع تجميد واجهة المستخدم.
-// 4. Race Condition Fix: تأخير استدعاء التاريخ المالي لضمان تزامن خوادم Firebase.
-// 5. UX/Logic Fix: معالجة شاملة للإشعارات مع التوجيه المطلق لتسجيل الخروج.
+// 🚀 التحديثات المعمارية الصارمة (V2.9.2): 
+// 1. Single Source of Truth: توحيد مفتاح الكاش (tc_server_version) لربط النظام بالكامل.
+// 2. Skeleton Trap Fix: تحرير الواجهة فوراً بعد التحميل بتفعيل isInitialSyncDone.
+// 3. RenderHelpers Injection: تمرير العملات والعروض للمايسترو لمنع الانهيار المالي (NaN).
+// 4. Ghost Sessions Fix: ضمان استخدام المصادقة من الـ Adapter الداخلي حصراً.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
-import { DB_KEYS, ACTIVE_USER_KEY, CACHE_KEYS, DYNAMIC_PREFIXES } from './config.js';
+import { DB_KEYS, ACTIVE_USER_KEY, CACHE_KEYS, DYNAMIC_PREFIXES } from './config.js'; 
 import { FirebaseAdapter, auth } from './core/firebaseAdapter.js'; 
 import { RenderHelpers } from './core/renderHelpers.js'; 
-import { FinancialEngine } from './core/financialEngine.js';
+import { FinancialEngine } from './core/financialEngine.js'; 
 import { generateIdempotencyKey, parseSafeTime, getDeviceFingerprint } from './utils.js'; 
 
+// 🛡️ تصدير محول قاعدة البيانات ليكون متاحاً لبقية الملفات (حل مشكلة renderManager)
 export const StoreDB = FirebaseAdapter;
 
 export const LiveStoreData = {
@@ -35,65 +35,99 @@ export const DataManager = {
     
     get activeUid() { return this.user?.uid || this.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID); },
 
-    // ⚡ [التحديث 2.9.2]: تطبيق الختم العالمي (Global Cache Versioning) الفعلي
-initStoreCatalog: async function() {
-    LiveStoreData.isOfflineMode = false;
-    try {
-        // 1. جلب الإعدادات والختم العالمي
-        const [settingsSnap, systemSnap] = await Promise.allSettled([
-            StoreDB.getCacheFirst(DB_KEYS.SETTINGS, 'singleton'),
-            StoreDB.getCacheFirst(DB_KEYS.SYSTEM, 'cache_version')
-        ]);
-        
-        let forceUpdateCatalog = false;
-        
-        if (settingsSnap.status === 'fulfilled' && settingsSnap.value) {
-            LiveStoreData.settings = settingsSnap.value;
-            if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) RenderHelpers.init(settingsSnap.value);
-        }
-        
-        // 2. التحقق من الختم العالمي لمعرفة هل هناك تحديثات من الإدارة
-        if (systemSnap.status === 'fulfilled' && systemSnap.value) {
-            const serverVersion = String(systemSnap.value.catalogVersion || '0');
-            const localVersion = localStorage.getItem('tc_catalog_version');
+    // ⚡ تطبيق الختم العالمي (Global Cache Versioning) الفعلي الموحد
+    initStoreCatalog: async function() {
+        LiveStoreData.isOfflineMode = false;
+        try {
+            const [settingsSnap, systemSnap] = await Promise.allSettled([
+                StoreDB.getCacheFirst(DB_KEYS.SETTINGS, 'singleton'),
+                StoreDB.getCacheFirst(DB_KEYS.SYSTEM, 'cache_version')
+            ]);
             
-            if (serverVersion !== '0' && serverVersion !== localVersion) {
-                forceUpdateCatalog = true;
-                localStorage.setItem('tc_catalog_version', serverVersion);
-                console.log(`🔄 [Version Diff] تم اكتشاف تحديث للكتالوج للإصدار: ${serverVersion}`);
+            let forceUpdateCatalog = false;
+            let newServerVersion = null; // 🛡️ الاحتفاظ بالنسخة الجديدة مؤقتاً
+            
+            if (settingsSnap.status === 'fulfilled' && settingsSnap.value) {
+                LiveStoreData.settings = settingsSnap.value;
+                // ✅ الحقن المبدئي لمنع انهيار الواجهة
+                if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
+                    RenderHelpers.init({ 
+                        settings: LiveStoreData.settings, 
+                        rates: LiveStoreData.rates || [], 
+                        offers: LiveStoreData.offers || [], 
+                        isStore: true 
+                    });
+                }
             }
+            
+            if (systemSnap.status === 'fulfilled' && systemSnap.value) {
+                const serverVersion = String(systemSnap.value.catalogVersion || '0');
+                // ✅ استخدام المفتاح الموحد للحقيقة المطلقة
+                const localVersion = localStorage.getItem('tc_server_version');
+                
+                if (serverVersion !== '0' && serverVersion !== localVersion) {
+                    forceUpdateCatalog = true;
+                    newServerVersion = serverVersion; 
+                    console.log(`🔄 [Version Diff] تم اكتشاف تحديث للكتالوج للإصدار: ${serverVersion}`);
+                }
+            }
+            
+            const results = await Promise.allSettled([
+                StoreDB.queryCacheFirst(DB_KEYS.PRODS, [], null, 2000, forceUpdateCatalog),
+                StoreDB.queryCacheFirst(DB_KEYS.CATS, [], null, 200, forceUpdateCatalog),
+                StoreDB.queryCacheFirst(DB_KEYS.OFFERS, [], null, 100, forceUpdateCatalog),
+                StoreDB.queryCacheFirst(DB_KEYS.TIERS, [], null, 50, forceUpdateCatalog),
+                StoreDB.queryCacheFirst(DB_KEYS.RATES, [], null, 50, forceUpdateCatalog),
+                StoreDB.queryCacheFirst(DB_KEYS.BANNERS, [], null, 20, forceUpdateCatalog)
+            ]);
+            
+            const rawProds = results[0].status === 'fulfilled' ? results[0].value : [];
+            const activeProds = rawProds.filter(p => p && p.isActive !== false && String(p.isActive) !== 'false');
+            
+            Object.assign(LiveStoreData, {
+                prods: activeProds,
+                cats: results[1].status === 'fulfilled' ? results[1].value : [],
+                offers: results[2].status === 'fulfilled' ? results[2].value : [],
+                tiers: results[3].status === 'fulfilled' ? results[3].value : [],
+                rates: results[4].status === 'fulfilled' ? results[4].value : [],
+                banners: results[5].status === 'fulfilled' ? results[5].value : []
+            });
+            
+            // ✅ إعادة الحقن بعد اكتمال سحب العملات والعروض لضمان الحسابات المالية الدقيقة
+            if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
+                RenderHelpers.init({ 
+                    settings: LiveStoreData.settings, 
+                    rates: LiveStoreData.rates || [], 
+                    offers: LiveStoreData.offers || [], 
+                    isStore: true 
+                });
+            }
+
+            this._ratesCache = null;
+            
+            // 🧠 التحديث الذكي: حفظ العدد الفعلي للأقسام في الذاكرة اللحظية لضبط السكيليتون ومنع القفزات البصرية
+            try {
+                if (LiveStoreData.cats && LiveStoreData.cats.length > 0) {
+                    localStorage.setItem('tc_cats_count', LiveStoreData.cats.length);
+                }
+            } catch (e) {}
+            
+            // 🛡️ حفظ الختم العالمي فقط إذا نجح جلب المنتجات والفئات الأساسية
+            if (newServerVersion && results[0].status === 'fulfilled' && results[1].status === 'fulfilled') {
+                // ✅ الحفظ باستخدام المفتاح الموحد
+                localStorage.setItem('tc_server_version', newServerVersion);
+                console.log(`✅ تم تأكيد تحديث الكتالوج للإصدار: ${newServerVersion}`);
+            }
+            
+            // ✅ إنهاء فخ السكيليتون: إخبار الواجهة أن التحميل انتهى لكي يظهر المتجر فوراً
+            LiveStoreData.isInitialSyncDone = true; 
+            return true;
+        } catch (error) {
+            console.error("🚨 [DataManager] فشل تحميل الكتالوج:", error);
+            LiveStoreData.isOfflineMode = true;
+            return false;
         }
-        
-        // 3. التمرير الخارق: تمرير forceUpdateCatalog لإجبار السيرفر أو استخدام الكاش المجاني
-        const results = await Promise.allSettled([
-            StoreDB.queryCacheFirst(DB_KEYS.PRODS, [], null, 2000, forceUpdateCatalog),
-            StoreDB.queryCacheFirst(DB_KEYS.CATS, [], null, 200, forceUpdateCatalog),
-            StoreDB.queryCacheFirst(DB_KEYS.OFFERS, [], null, 100, forceUpdateCatalog),
-            StoreDB.queryCacheFirst(DB_KEYS.TIERS, [], null, 50, forceUpdateCatalog),
-            StoreDB.queryCacheFirst(DB_KEYS.RATES, [], null, 50, forceUpdateCatalog),
-            StoreDB.queryCacheFirst(DB_KEYS.BANNERS, [], null, 20, forceUpdateCatalog)
-        ]);
-        
-        const rawProds = results[0].status === 'fulfilled' ? results[0].value : [];
-        const activeProds = rawProds.filter(p => p && p.isActive !== false && String(p.isActive) !== 'false');
-        
-        Object.assign(LiveStoreData, {
-            prods: activeProds,
-            cats: results[1].status === 'fulfilled' ? results[1].value : [],
-            offers: results[2].status === 'fulfilled' ? results[2].value : [],
-            tiers: results[3].status === 'fulfilled' ? results[3].value : [],
-            rates: results[4].status === 'fulfilled' ? results[4].value : [],
-            banners: results[5].status === 'fulfilled' ? results[5].value : []
-        });
-        this._ratesCache = null;
-        
-        return true;
-    } catch (error) {
-        console.error("🚨 [DataManager] فشل تحميل الكتالوج:", error);
-        LiveStoreData.isOfflineMode = true;
-        return false;
-    }
-},
+    },
     serverTimeOffset: 0, 
     getNow: function() { return Date.now() + this.serverTimeOffset; },
     user: null, 
@@ -343,6 +377,7 @@ initStoreCatalog: async function() {
 
     logout: async function() {
         try {
+            // ✅ تم تأكيد الاعتماد على auth الداخلي لمنع جلسات الأشباح
             if (auth) await signOut(auth);
             localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
             localStorage.removeItem(ACTIVE_USER_KEY);
@@ -372,11 +407,12 @@ initStoreCatalog: async function() {
             this.prefs = { sound: true, theme: 'dark', security2fa: false, favs: [] };
             
             this._actionLocks.clear();
-            this.cursors = { orders: null, deposits: null, wallet: null };          
-        } catch(e) { console.warn("[DataManager] Error during logout:", e); }
-        window.location.replace(window.location.origin + '/login.html');
-    },    
+            this.cursors = { orders: null, deposits: null, wallet: null };      // ✅ الكود الاحترافي (إبقاء العميل في المتجر كضيف مع تفريغ الذاكرة)
+} catch (e) { console.warn("[DataManager] Error during logout:", e); }
 
+// إعادة تحميل نفس الصفحة الحالية (Store) لتنظيف الذاكرة وتطبيق واجهة الضيف
+window.location.replace(window.location.pathname);
+},
     syncUser: async function() {
         let me = null;
         if (this.activeUid) {

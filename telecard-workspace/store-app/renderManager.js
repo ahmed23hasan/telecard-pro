@@ -325,14 +325,19 @@ export const RenderManager = {
                 if (typeof this.renderHomeSkeletons === 'function') this.renderHomeSkeletons();
             }
             else {
-                setTimeout(() => {
-                    const finalCats = LiveStoreData.cats || [];
-                    if (finalCats.length === 0 && grid) {
-                        grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-store-slash"></i><h3>المتجر قيد التحديث</h3><p>يرجى العودة بعد قليل.</p></div>`;
-                    } else if (finalCats.length > 0) {
-                        this.renderHome(true);
-                    }
-                }, 1000);
+                // ✅ تمت إزالة التأخير الزمني (1000ms) المزعج لعرض النتيجة فوراً (Zero-Latency Rendering)
+                const finalCats = LiveStoreData.cats || [];
+                if (finalCats.length === 0 && grid) {
+                    grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-store-slash"></i><h3>المتجر قيد التحديث</h3><p>يرجى العودة بعد قليل.</p></div>`;
+                } else if (finalCats.length > 0) {
+                    // إذا ظهرت الأقسام لاحقاً، نعيد رسمها فوراً بدون إعادة استدعاء الدالة
+                    const combinedHtml = finalCats.map(c => {
+                        const safeName = Utils.safeText(c.name);
+                        const imgObj = this._generateImageHTML(c.img, safeName, 'cat', true);
+                        return `<div class="cat-card" data-action="open-category" data-id="${c.id}"><div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div></div>`;
+                    }).join('');
+                    grid.replaceChildren(this._renderHtmlToFragment(combinedHtml));
+                }
             }
             
             if (typeof UIManager !== 'undefined' && UIManager.initSlider) UIManager.initSlider();
@@ -342,15 +347,31 @@ export const RenderManager = {
 
     renderHomeSkeletons: function() {
         const grid = document.getElementById('store-grid');
-        if (grid) {
-            if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-cats');
-            this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
-            let catSkeletons = '';
-            for (let i = 0; i < 6; i++) catSkeletons += `<div class="cat-skeleton-card"><div class="cat-img-skeleton skeleton-box"></div><div class="cat-name-skeleton skeleton-box"></div></div>`;
-            grid.replaceChildren(this._renderHtmlToFragment(catSkeletons));
+        if (!grid) return;
+        
+        if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-cats');
+        this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
+        
+        let skeletonCount = 3;
+        try {
+            const cachedCount = localStorage.getItem('tc_cats_count');
+            if (cachedCount && parseInt(cachedCount) > 0) skeletonCount = parseInt(cachedCount);
+        } catch (e) {}
+        
+        let catSkeletons = '';
+        for (let i = 0; i < skeletonCount; i++) {
+            catSkeletons += `
+                <div class="cat-card skeleton-mode" style="cursor: default; pointer-events: none;">
+                    <div class="cat-img-box skeleton-box" style="border: none;"></div>
+                    <div class="cat-name-box" style="border: none; background: var(--bg-glass-heavy);">
+                        <div class="skeleton-box" style="height: 12px; width: 60%; border-radius: 6px;"></div>
+                    </div>
+                </div>`;
         }
+        
+        grid.replaceChildren(this._renderHtmlToFragment(catSkeletons));
     },
-  
+    
     renderProductSkeletons: function(containerId, overrideCount = null) {
         const container = document.getElementById(containerId);
         if (!container) return;
@@ -941,12 +962,19 @@ export const RenderManager = {
                 container.id = containerId;
                 container.className = 'receipt-render-container'; // استبدال الـ style.cssText بالفئة المخصصة
                 container.innerHTML = fullHTML;
+                
+                // ✅ إجبار المتصفح على تحميل الخط قبل التقاط الصورة
                 document.body.appendChild(container);
 
+                // 🛡️ الحل السحري: انتظار جاهزية الخطوط في المتصفح
+                if (document.fonts && document.fonts.ready) {
+                    await document.fonts.ready;
+                }
+                
+                // انتظار إضافي لضمان رسم الـ DOM
                 await new Promise(r => setTimeout(r, 600));
 
                 if (typeof html2canvas === 'undefined') throw new Error("مكتبة html2canvas مفقودة!");
-
                 const canvas = await html2canvas(container, {
                     scale: 2,
                     useCORS: true,
@@ -1077,9 +1105,16 @@ export const RenderManager = {
             return;
         }
         
+        // ✅ الكود الجديد (الاعتماد على مصدر الحقيقة للمستخدم النشط)
         const serverLastReadTime = DataManager.user?.lastReadAlertTime ? Utils.parseSafeTime(DataManager.user.lastReadAlertTime) : 0;
         let readIds = [];
-        try { readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String); } catch (e) { localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, "[]"); }
+        
+        // قراءة المقروء من كائن المستخدم مباشرة لضمان عدم اختلاط الحسابات
+        if (DataManager.user && Array.isArray(DataManager.user.readAlerts)) {
+            readIds = DataManager.user.readAlerts.map(String);
+        } else {
+            try { readIds = JSON.parse(localStorage.getItem(DB_KEYS.NOTIF_READ_LIST) || "[]").map(String); } catch (e) {}
+        }
         
         allAlerts.sort((a, b) => {
             const timeDiff = Utils.parseSafeTime(b.createdAt || b.time) - Utils.parseSafeTime(a.createdAt || a.time);
@@ -1108,10 +1143,11 @@ export const RenderManager = {
         const active = (countries || []).filter(c => c.isActive !== false && !c.isBanned);
         if (active.length === 0) { listTarget.innerHTML = '<div class="dropdown-item">لا توجد دول متاحة</div>'; return; }
         
-        // إزالة التنسيقات المضمنة واستبدالها بفئات (Classes)
+        // 🛡️ المعمارية النظيفة: المايسترو يطلب الـ HTML من المصنع (UIBuilders)
         const rawHtml = active.map(c => {
-            const safeName = Utils.escapeHtml(c.name || c.nameAr || 'غير محددة'), safeFlag = Utils.escapeHtml(c.flag || c.flagEmoji || '🌍'), safeCode = Utils.escapeHtml(c.dialCode || '');
-            return `<div class="dropdown-item" data-action="select-country" data-name="${safeName}" data-code="${safeCode}" data-len="${parseInt(c.phoneLen) || 10}"><span class="country-flag">${safeFlag}</span><span class="country-name">${safeName}</span><span class="num-en country-code">${safeCode}</span></div>`;
+            try {
+                return UIBuilders.buildCountryItem(c);
+            } catch (e) { return ''; }
         }).join('');
 
         requestAnimationFrame(() => listTarget.replaceChildren(this._renderHtmlToFragment(rawHtml)));

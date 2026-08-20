@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي للواجهة الأمامية (Store Frontend Version) - V18.6 💎
+// 💰 المحرك المالي للواجهة الأمامية (Store Frontend Version) - V19.0.0 💎
 // 🎯 الوظيفة: محاكاة أرقام السيرفر، معالجة الـ Strings من الـ DOM، وحماية الـ UX
-// 🚀 التحديثات (V18.6):
-// 1. CPU Optimization: التخلص من الاستنزاف في ترتيب المصفوفات (O(N) بدلاً من O(N log N)).
-// 2. Single Source of Truth: ربط التقريب بالمتغير المركزي PRECISION بدلاً من القيم الثابتة (10000).
-// 3. Select Fallback: تعقيم الـ optIdx لتجنب أخطاء التسعير إذا تم تمرير Index غير صالح.
-// 4. Global Failsafe Cap: محاكاة شبكة الأمان (95%) ليتطابق السعر المعروض مع السيرفر.
+// 🚀 التحديثات (V19.0.0 - Enterprise Sync):
+// 1. Exact Precision Sync: توحيد سقف العمليات (MAX_PRICE_LIMIT) ليتطابق مع السيرفر 100%.
+// 2. Graceful Degradation: منع انهيار الـ UI (شاشة بيضاء) عند القسمة على صفر أو خطأ الخيارات.
+// 3. Zero-Trust Exchange: تجاهل أسعار الصرف الصفرية وتأمين تحويل العملات.
+// 4. Absolute Cost Blindness: ضمان عدم تسريب أي متغيرات تخص التكلفة أو الأرباح للعميل (DOM).
 // ============================================================================
 
 import { parseSafeTime } from '../utils.js';
@@ -14,7 +14,7 @@ const FinancialEngineDef = {
     CONFIG: Object.freeze({
         BASE_CURRENCY: 'USD',
         MAX_QTY_LIMIT: 10000,
-        MAX_PRICE_LIMIT: 100000,
+        MAX_PRICE_LIMIT: 1000000, // 🛡️ تم التوحيد مع السيرفر (1 مليون)
         PRECISION: 4,          
         INTERNAL_PRECISION: 8, 
         MIN_SALE_PRICE: 0.01,
@@ -37,7 +37,12 @@ const FinancialEngineDef = {
     _internalMul: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) * (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalDiv: function(a, b) {
         const numB = Number(b) || 0;
-        return numB === 0 ? 0 : FinancialEngineDef._preciseRound((Number(a) || 0) / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
+        // 🛡️ Graceful UI Fallback: إرجاع 0 بدلاً من تحطيم الواجهة (السيرفر سيتولى الرفض)
+        if (numB === 0) {
+            console.warn("[UI Simulator]: Division by zero prevented.");
+            return 0;
+        }
+        return FinancialEngineDef._preciseRound((Number(a) || 0) / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
     },
 
     safeAdd: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalAdd(a, b)); },
@@ -60,6 +65,7 @@ const FinancialEngineDef = {
         const processRateObj = (code, priceR, depR) => {
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
+            // 🛡️ تأمين أسعار الصرف الصفرية
             if (numPrice > 0 && numDep > 0) ratesMap[code] = { code: code, priceRate: numPrice, depRate: numDep };
         };
 
@@ -105,7 +111,6 @@ const FinancialEngineDef = {
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c); 
-        // 🛡️ التحديث 2: استخدام المتغير المركزي بدلاً من القيمة الثابتة (10000)
         const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
         if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * factor) / factor;
         if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * factor) / factor;
@@ -133,7 +138,6 @@ const FinancialEngineDef = {
         const safeStartDateMs = parseSafeTime(user.tierCycleStartDate) || now;
         const remainingDays = Math.max(0, Math.ceil((durationMs - (now - safeStartDateMs)) / 86400000)); 
 
-        // 🛡️ التحديث 1: استبدال الـ Sort العشوائي ببحث مباشر O(N) لتقليل الضغط على المعالج
         let nextTier = null;
         let currentThreshold = Number(currentTier.threshold || 0);
         let minDiff = Infinity;
@@ -184,7 +188,7 @@ const FinancialEngineDef = {
         
         if (Number(cp.minOrder) > 0) {
             const p = FinancialEngineDef.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer: null }, qty);
-            if (p.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى لاستخدام الكود ${cp.minOrder}$` };
+            if (p && p.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى لاستخدام الكود ${cp.minOrder}$` };
         }
         
         return { valid: true, coupon: { code: cp.code, type: cp.type, value: cp.value, maxDiscount: cp.maxDiscount, isActive: cp.isActive } };
@@ -197,13 +201,14 @@ const FinancialEngineDef = {
         let isFixed = (String(product.isFixedPrice).toLowerCase() === 'true');
         let activeOption = null;
 
-        // 🛡️ التحديث 3: تعقيم Index الخيارات لضمان عدم ظهور أخطاء إذا تغير المنتج بسرعة
+        // 🛡️ Graceful Degradation: تعقيم الـ Index وحماية الـ UI من الانهيار
         if (product.type === 'select' && Array.isArray(product.options) && product.options.length > 0) {
             const index = Number(optIdx);
             if (Number.isInteger(index) && index >= 0 && index < product.options.length) {
                 activeOption = product.options[index];
             } else {
-                activeOption = product.options[0]; // Fallback
+                console.warn(`[Store UI] Invalid Option Index Detected: ${optIdx}. Using default to prevent crash.`);
+                activeOption = product.options[0]; // Fallback آمن للواجهة
             }
             if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
         }
@@ -262,6 +267,7 @@ const FinancialEngineDef = {
         
         currentPrice = Math.max(FinancialEngineDef.CONFIG.MIN_SALE_PRICE, FinancialEngineDef._internalSub(currentPrice, couponDiscount));
 
+        // 🛡️ المخرجات خالية تماماً من أي متغيرات تمس الـ Cost أو الربح 
         return {
             originalPrice: FinancialEngineDef._preciseRound(originalPrice),
             finalPrice: FinancialEngineDef._preciseRound(currentPrice),
@@ -291,6 +297,8 @@ const FinancialEngineDef = {
         if (prod.type === 'select') q = 1;
         
         const orderSnap = FinancialEngineDef.calculateOrderTotal({ product: prod, tier: userTier, offer: activeOffer, coupon: appliedCoupon, optIdx }, q);
+        if (!orderSnap) return null;
+
         const oldPriceUsd = (activeOffer?.type === 'fake') ? Number(activeOffer.value || 0) : null;
         const displayOldTotalUsd = oldPriceUsd ? FinancialEngineDef.safeMul(oldPriceUsd, q) : orderSnap.totalOriginalPrice;
         

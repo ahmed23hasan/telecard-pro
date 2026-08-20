@@ -1,7 +1,10 @@
 // ============================================================================
-// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة الماسية المطلقة V7.3 💎
+// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة الماسية V8.0 💎
 // 🎯 الوظيفة: استيراد المنتجات، وبناء الجداول المركزية بأمان
-// 🚀 التحديث الأخير: إزالة التمرد الجغرافي (us-east1) لضمان الخضوع للسيرفر المركزي.
+// 🚀 التحديثات (V8.0 - Enterprise Core):
+// 1. Memory Safety (OOM Protection): تفريغ دفعات البيانات أثناء المعالجة لمنع انهيار الذاكرة.
+// 2. Parallel Stock Aggregation: حساب المخزون بشكل متوازي لتجنب الـ Timeout.
+// 3. Perfect Batch Chunking: ضبط معمارية المعالجة المتزامنة لتخفيف الضغط على خوادم فايربيز.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -73,10 +76,7 @@ const ProviderAdapters = {
 };
 
 // ==========================================
-// 🧠 النواة المركزية للمزامنة (Core Sync Engine) 
-// ==========================================
-// ==========================================
-// 🧠 النواة المركزية للمزامنة (Core Sync Engine - High Performance) 
+// 🧠 النواة المركزية للمزامنة (Core Sync Engine - OOM Protected) 
 // ==========================================
 const coreSyncLogic = async (supplierId) => {
     const suppRef = db.collection('telecard_suppliers').doc(String(supplierId));
@@ -113,20 +113,32 @@ const coreSyncLogic = async (supplierId) => {
         const syncSessionId = Date.now();
         const defaultMargin = FinancialEngine.extractNum(supplier.defaultMargin || 0);
         
-        // 🚀🚀🚀 التحديث الاحترافي: هندسة الـ Batches المتوازية (Concurrent Batching)
-        let batchPromises = []; // مصفوفة لتخزين الدفعات الجاهزة للإرسال
+        // 🚀 هندسة حماية الذاكرة (Memory Flushing System)
+        let batchPromises = []; 
         let currentBatch = db.batch();
         let operationCount = 0;
         let importedCount = 0;
         let revokedCount = 0;
         
-        // دالة تقوم بتخزين الباتش الحالي للعمل في الخلفية وفتح باتش جديد فوراً
-        const commitAndReset = () => {
+        // تنفيذ الدفعات المخزنة لتفريغ الـ RAM
+        const flushBatches = async () => {
+            if (batchPromises.length > 0) {
+                await Promise.all(batchPromises.map(fn => fn()));
+                batchPromises = []; // تحرير الذاكرة العشوائية فوراً
+            }
+        };
+
+        const commitAndReset = async () => {
             if (operationCount > 0) { 
                 const batchToCommit = currentBatch;
-                batchPromises.push(() => batchToCommit.commit()); // إضافة دالة تنفيذ للحفاظ على الذاكرة
+                batchPromises.push(() => batchToCommit.commit()); 
                 currentBatch = db.batch(); 
                 operationCount = 0; 
+                
+                // 🛡️ OOM Protection: إذا تراكمت 5 دفعات، قم بتنفيذها وتفريغها من الذاكرة
+                if (batchPromises.length >= 5) {
+                    await flushBatches();
+                }
             }
         };
 
@@ -153,7 +165,7 @@ const coreSyncLogic = async (supplierId) => {
             }, { merge: true });
             
             operationCount++;
-            if (operationCount >= 400) commitAndReset(); // بدون await
+            if (operationCount >= 400) await commitAndReset(); // 👈 أصبح Await للحماية
 
             if (safeCodesArray.length > 0) {
                 const vaultRef = db.collection('telecard_vault').doc(vaultId);
@@ -176,7 +188,7 @@ const coreSyncLogic = async (supplierId) => {
                         }, { merge: true }); 
                         
                         operationCount++;
-                        if (operationCount >= 400) commitAndReset(); // بدون await
+                        if (operationCount >= 400) await commitAndReset(); 
                     }
 
                     const staleKeysSnap = await keysCollectionRef.where('isSold', '==', false).where('syncSessionId', '<', syncSessionId).get();
@@ -184,7 +196,7 @@ const coreSyncLogic = async (supplierId) => {
                     for (const doc of staleKeysSnap.docs) {
                         currentBatch.update(doc.ref, { isSold: true, isRevoked: true, syncNote: 'تم سحبه من المورد' });
                         operationCount++; revokedCount++;
-                        if (operationCount >= 400) commitAndReset(); // بدون await
+                        if (operationCount >= 400) await commitAndReset(); 
                     }
 
                     currentBatch.set(vaultRef, {
@@ -193,39 +205,36 @@ const coreSyncLogic = async (supplierId) => {
                     }, { merge: true });
                     
                     operationCount++;
-                    if (operationCount >= 400) commitAndReset(); // بدون await
+                    if (operationCount >= 400) await commitAndReset(); 
                 }
             }
             importedCount++;
         }
         
-        // 🗑️ مرحلة التنظيف العالمي للمنتجات 
+        // 🗑️ مرحلة التنظيف العالمي للمنتجات المحذوفة 
         let deletedCount = 0;
         const staleProdsSnap = await db.collection('telecard_prods').where('supplierId', '==', supplierId).where('isAvailable', '==', true).where('syncSessionId', '<', syncSessionId).get();
 
         for (const doc of staleProdsSnap.docs) {
             currentBatch.update(doc.ref, { isAvailable: false, syncNote: 'محذوف من المورد' });
             operationCount++; deletedCount++;
-            if (operationCount >= 400) commitAndReset();
+            if (operationCount >= 400) await commitAndReset();
         }
         
-        commitAndReset(); // إغلاق آخر باتش متبقي
+        await commitAndReset(); 
+        await flushBatches(); // 🧹 تنظيف أي دفعات متبقية في الذاكرة
 
-        // 🚀 تنفيذ الدفعات المتوازية (5 دفعات في نفس الوقت) لمنع الخنق السحابي
-        if (batchPromises.length > 0) {
-            const CONCURRENCY_LIMIT = 5; 
-            for (let i = 0; i < batchPromises.length; i += CONCURRENCY_LIMIT) {
-                const chunk = batchPromises.slice(i, i + CONCURRENCY_LIMIT);
-                await Promise.all(chunk.map(fn => fn())); // تنفيذ الشريحة كاملة
-            }
-        }
-
-        // 📊 حساب المخزون الحي 
-        for (const prod of normalizedProducts) {
+        // 📊 🚀 تسريع حساب المخزون الحي المتوازي (Parallel Chunking)
+        const stockTasks = normalizedProducts.map(prod => async () => {
             const vaultId = `vault_ext_${supplierId}_${prod.externalId}`;
             const vaultRef = db.collection('telecard_vault').doc(vaultId);
             const stockAgg = await vaultRef.collection('keys').where('isSold', '==', false).count().get();
             await vaultRef.update({ stockCount: stockAgg.data().count });
+        });
+
+        // تنفيذ جلب المخزون على دفعات (20 طلب في نفس الوقت) لتفادي اختناق الشبكة
+        for (let i = 0; i < stockTasks.length; i += 20) {
+            await Promise.all(stockTasks.slice(i, i + 20).map(fn => fn()));
         }
 
         await suppRef.update({ lastSync: admin.firestore.FieldValue.serverTimestamp(), importedCount: importedCount });
@@ -238,10 +247,10 @@ const coreSyncLogic = async (supplierId) => {
         await suppRef.update({ isSyncing: false }).catch(() => {});
     }
 };
+
 // ==========================================
 // 🚀 1. المزامنة اليدوية (من لوحة تحكم الإدارة)
 // ==========================================
-// 🛡️ التحديث: إزالة `region` ليخضع للسيرفر المركزي
 exports.syncSupplierData = onCall({ memory: '1GiB', timeoutSeconds: 540, enforceAppCheck: false }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     try {
@@ -254,7 +263,6 @@ exports.syncSupplierData = onCall({ memory: '1GiB', timeoutSeconds: 540, enforce
 // ==========================================
 // ⏱️ 2. المزامنة التلقائية (Cron Job) 
 // ==========================================
-// 🛡️ التحديث: إزالة `region` 
 exports.scheduledSupplierSync = onSchedule({ 
     schedule: '0 */12 * * *', 
     timeZone: 'Asia/Riyadh', 
@@ -265,7 +273,6 @@ exports.scheduledSupplierSync = onSchedule({
         const suppliersSnap = await db.collection('telecard_suppliers').where('isActive', '==', true).where('autoSync', '==', true).get();
         if (suppliersSnap.empty) return null;
         
-        // معالجة الموردين بحذر لتجنب اختناق الخادم (Concurrency Limit)
         for (let i = 0; i < suppliersSnap.docs.length; i += 2) {
             const chunk = suppliersSnap.docs.slice(i, i + 2);
             await Promise.allSettled(chunk.map(async (doc) => { 
@@ -282,7 +289,6 @@ exports.scheduledSupplierSync = onSchedule({
 // ==========================================
 // 🛡️ 3. حفظ بيانات المورد من الإدارة
 // ==========================================
-// 🛡️ التحديث: إزالة `region`
 exports.secureSaveSupplier = onCall({ enforceAppCheck: false }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     

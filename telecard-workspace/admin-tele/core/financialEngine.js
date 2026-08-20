@@ -1,20 +1,30 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V18.6 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V19.0.0 💎 (The Oracle)
 // 🎯 الوظيفة: محاكاة أسعار السيرفر بدقة 100%، كشف الأرباح، وتشخيص الأخطاء بشفافية.
-// 🚀 التحديثات (V18.6): 
-// 1. Strict Option Validation: التنبيه الصارم (Throw Error) لأي Index غير صالح لمحاكاة رد فعل السيرفر.
-// 2. Precision Sync: توحيد دالة التقريب المساعد مع المتغير المركزي للرياضيات.
-// 3. Global Failsafe Cap: محاكاة شبكة الأمان (95%) ليتطابق حساب الإدارة مع السيرفر.
-// 4. Advanced Oracle Firewall: كشف كسر حاجز الربح الآمن 5% بشفافية دون انهيار الواجهة.
+// 🚀 التحديثات (V19.0.0 - Enterprise Sync): 
+// 1. FinancialSecurityError: توحيد كلاس الأخطاء مع السيرفر لالتقاط التلاعبات في الواجهة.
+// 2. Max Price Limits: إضافة سقف حماية الأسعار (Overflow Protection) المطابق للسيرفر.
+// 3. Strict Oracle Firewall: كشف كسر حاجز الربح الآمن بشفافية مطلقة للإدارة.
+// 4. Zero-Trust Math: حماية القسمة على الصفر وفقدان أسعار الصرف بصرامة.
 // ============================================================================
+
+// 🛡️ فئة الأخطاء المخصصة لتتناغم مع استجابات السيرفر وتمنع انهيار الواجهة
+export class FinancialSecurityError extends Error {
+    constructor(message) {
+        super(`[SECURITY] ${message}`);
+        this.name = "FinancialSecurityError";
+    }
+}
 
 export const FinancialEngine = {
     CONFIG: Object.freeze({
         BASE_CURRENCY: 'USD',
+        MAX_QTY_LIMIT: 10000,
+        MAX_PRICE_LIMIT: 1000000, // سقف آمن لمنع التلاعب الرياضي أو أخطاء الإدخال البشرية
         PRECISION: 4,          
         INTERNAL_PRECISION: 8, 
-        MAX_UI_QTY: 10000,
         MIN_SALE_PRICE: 0.01,
+        
         // 🛡️ دروع الحماية المتطابقة مع السيرفر
         MIN_MARGIN_PERCENT: 5,        // يجب بقاء 5% ربح كحد أدنى فوق التكلفة
         MAX_GLOBAL_DISCOUNT_PCT: 95   // شبكة أمان تمنع أي خصم من تجاوز 95%
@@ -36,8 +46,8 @@ export const FinancialEngine = {
     _internalMul: function(a, b) { return this._preciseRound((Number(a) || 0) * (Number(b) || 0), this.CONFIG.INTERNAL_PRECISION); },
     _internalDiv: function(a, b) {
         const numB = Number(b) || 0;
-        // 🚨 Fail Fast: إيقاف محاكاة الإدارة فوراً لكشف الخطأ الهندسي 
-        if (numB === 0) throw new Error("🚨 [Admin Finance Guard]: محاولة قسمة على صفر! يرجى مراجعة أسعار الصرف.");
+        // 🚨 Fail Fast: إيقاف المحاكاة فوراً لمحاكاة استجابة السيرفر
+        if (numB === 0) throw new FinancialSecurityError("محاولة قسمة على صفر! يرجى مراجعة أسعار الصرف.");
         return this._preciseRound((Number(a) || 0) / numB, this.CONFIG.INTERNAL_PRECISION);
     },
 
@@ -58,15 +68,17 @@ export const FinancialEngine = {
         const ratesMap = {};
         ratesMap[this.CONFIG.BASE_CURRENCY] = { code: this.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
         
+        const processRateObj = (code, priceR, depR) => {
+            const numPrice = this.extractNum(priceR);
+            const numDep = this.extractNum(depR);
+            if (numPrice === 0 || numDep === 0) throw new FinancialSecurityError(`سعر الصرف معدوم (Zero) للعملة: ${code}`);
+            ratesMap[code] = { code: code, priceRate: numPrice, depRate: numDep };
+        };
+
         if (Array.isArray(raw)) {
             for (const rate of raw) {
                 if (rate && rate.code && rate.code !== this.CONFIG.BASE_CURRENCY) {
-                    const code = String(rate.code).toUpperCase();
-                    ratesMap[code] = { 
-                        code: code, 
-                        priceRate: this.extractNum(rate.priceRate || rate.value, false), 
-                        depRate: this.extractNum(rate.depRate || rate.value, false) 
-                    };
+                    processRateObj(String(rate.code).toUpperCase(), rate.priceRate || rate.value, rate.depRate || rate.value);
                 }
             }
         } else if (raw && typeof raw === 'object') {
@@ -76,11 +88,7 @@ export const FinancialEngine = {
                 
                 const code = String(value.code || key).toUpperCase();
                 if (code && code !== this.CONFIG.BASE_CURRENCY && !invalidKeys.includes(code)) {
-                    ratesMap[code] = {
-                        code: code,
-                        priceRate: this.extractNum(value.priceRate || value.value, false),
-                        depRate: this.extractNum(value.depRate || value.value, false)
-                    };
+                    processRateObj(code, value.priceRate || value.value, value.depRate || value.value);
                 }
             }
         }
@@ -95,20 +103,18 @@ export const FinancialEngine = {
         
         const ratesMap = this.normalizeRates(ratesRaw);
         if (!ratesMap[fCode] || !ratesMap[tCode]) {
-            console.warn(`[Admin Simulator] Missing exchange rate for: ${fCode} or ${tCode}`);
-            return 0;
+            throw new FinancialSecurityError(`سعر الصرف مفقود للتحويل بين ${fCode} و ${tCode}`);
         }
         
         const fRate = channel === 'deposit' ? ratesMap[fCode].depRate : ratesMap[fCode].priceRate;
         const tRate = channel === 'deposit' ? ratesMap[tCode].depRate : ratesMap[tCode].priceRate;
         
-        if (fRate === 0 || tRate === 0) return 0;
+        if (fRate === 0 || tRate === 0) throw new FinancialSecurityError("تم اكتشاف سعر صرف بقيمة صفر أثناء التحويل.");
         return this._preciseRound(this._internalMul(this._internalDiv(amt, fRate), tRate));
     },
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = this.convertViaUSD(amt, f, t, rates, c); 
-        // 🛡️ التحديث 2: استخدام معامل التقريب المركزي بدلاً من الثابت (10000)
         const factor = Math.pow(10, this.CONFIG.PRECISION);
         if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * factor) / factor;
         if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * factor) / factor;
@@ -122,7 +128,7 @@ export const FinancialEngine = {
     validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
         if (!code) return { valid: false, msg: 'لم يتم إدخال كود' };
         
-        // 🛡️ درع منع الازدواجية (محاكاة دقيقة للسيرفر)
+        // 🛡️ درع منع الازدواجية المتطابق مع السيرفر
         if (offer && typeof offer === 'object' && offer.isActive !== false && offer.type !== 'fake') {
             return { valid: false, msg: 'عذراً، لا يمكن استخدام الكوبونات على المنتجات الخاضعة لعروض التخفيض' };
         }
@@ -131,7 +137,6 @@ export const FinancialEngine = {
         if (!cp) return { valid: false, msg: 'كوبون غير صحيح' };
         if (cp.isActive === false) return { valid: false, msg: 'الكوبون غير مفعل' };
         
-        // حماية المنتج المستثنى
         if (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true') { 
             return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم استخدام الكوبونات' }; 
         }
@@ -158,6 +163,7 @@ export const FinancialEngine = {
     calculatePrice: function(params = {}) {
         const { product = {}, costPrice = 0, fixedPrice = 0, tier = null, offer = null, coupon = null, optIdx = null } = params;
         
+        // 🛡️ حماية واجهة الإدارة من الانهيار في حال كانت بيانات المنتج قيد التحميل
         if (!product || typeof product !== 'object' || Object.keys(product).length === 0) {
             return { costUsd: 0, tierPrice: 0, originalPrice: 0, finalPrice: 0, tierName: 'غير محدد', offerDiscount: 0, couponDiscount: 0, totalDiscount: 0, netProfitUsd: 0, marginPct: 0, isFirewallViolated: true, rejectionReason: "بيانات المنتج مفقودة" };
         }
@@ -174,10 +180,12 @@ export const FinancialEngine = {
                 cost = this.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
                 if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
             } else {
-                throw new Error(`🚨 [Admin Simulator]: الـ Index الممرر للخيارات (${optIdx}) غير صالح! السيرفر سيرفض هذا الطلب لحماية التسعير.`);
+                throw new FinancialSecurityError(`الـ Index الممرر للخيارات (${optIdx}) غير صالح! السيرفر سيرفض هذا الطلب.`);
             }
         }
         
+        if (cost > this.CONFIG.MAX_PRICE_LIMIT) throw new FinancialSecurityError("تجاوز سعر التكلفة الحد الأقصى الآمن.");
+
         let standardPrice = activeOption ? this.extractNum(activeOption.price || product.price) : this.extractNum(product.price);
         let currentPrice = standardPrice;
         let tierName = null;
@@ -203,6 +211,8 @@ export const FinancialEngine = {
             }
         }
 
+        if (currentPrice > this.CONFIG.MAX_PRICE_LIMIT) throw new FinancialSecurityError("تجاوز سعر البيع الحد الأقصى الآمن.");
+
         const tierPrice = currentPrice;
         const originalPrice = tierPrice;
         const allowsDiscounts = !isFixed;
@@ -227,7 +237,7 @@ export const FinancialEngine = {
             currentPrice = this._internalSub(currentPrice, offerDiscount);
         }
 
-        // 2. تطبيق الكوبون (مع حماية الحد الأعلى ومنع الازدواجية)
+        // 2. تطبيق الكوبون
         let couponCode = null, couponDiscount = 0;
         const isCouponDisabled = (product.disableCoupons === true || String(product.disableCoupons).toLowerCase() === 'true');
         const canUseCoupon = allowsDiscounts && !isCouponDisabled && offerDiscount === 0;
@@ -243,7 +253,6 @@ export const FinancialEngine = {
                 calculatedDiscount = coupVal;
             }
 
-            // 🛡️ تطبيق الحد الأعلى للخصم (Max Discount Cap) الخاص بالكوبون
             const maxCap = this.extractNum(coupon.maxDiscount);
             if (maxCap > 0) {
                 calculatedDiscount = Math.min(calculatedDiscount, maxCap);
@@ -256,7 +265,7 @@ export const FinancialEngine = {
         
         currentPrice = Math.max(this.CONFIG.MIN_SALE_PRICE, this._internalSub(currentPrice, couponDiscount));
 
-        // 🛑 الشفافية المطلقة (The Oracle Vision): كشف كسر الجدار الناري للإدارة
+        // 🛑 الشفافية المطلقة (The Oracle Vision): كشف كسر الجدار الناري
         let isFirewallViolated = false;
         let rejectionReason = null;
 
@@ -298,7 +307,10 @@ export const FinancialEngine = {
     },
 
     calculateOrderTotal: function(params = {}, rawQty = 1) {
-        const safeQty = Math.min(this.CONFIG.MAX_UI_QTY, Math.max(1, Math.floor(this.extractNum(rawQty) || 1)));
+        const safeQty = Math.floor(this.extractNum(rawQty) || 1);
+        if (safeQty > this.CONFIG.MAX_QTY_LIMIT) throw new FinancialSecurityError("الكمية المطلوبة تتجاوز الحد الأقصى المسموح به.");
+        if (safeQty <= 0) throw new FinancialSecurityError("الكمية غير صالحة.");
+
         const unit = this.calculatePrice(params);
         
         return {

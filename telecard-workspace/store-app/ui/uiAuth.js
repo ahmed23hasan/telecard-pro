@@ -6,6 +6,7 @@
 // 2. DOM Cleansing: إزالة التكرار العشوائي في تعديل الـ DOM والاكتفاء بـ Classes.
 // 3. CSS Decoupling: فصل التنسيقات الثابتة (للمستويات والـ QR) إلى ملف CSS الخارجي.
 // 4. Memory Flush: تفريغ حقول إدخال الملفات يدوياً عند إغلاق النوافذ.
+// 5. Audio Refactoring: إزالة استدعاءات الصوت اليدوية لمنع صدى الصوت (Double-Click Echo).
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -326,6 +327,7 @@ export const UIAuth = {
         }
     },
     
+    // ✅ تم إزالة الصوت المكرر من toggleAvatarMenu
     toggleAvatarMenu: function(event) {
         const menu = document.getElementById('avatar-action-menu');
         if (!menu) return;
@@ -336,7 +338,6 @@ export const UIAuth = {
         }
         
         menu.classList.toggle('active');
-        getSys().sfx?.('nav');
         
         if (menu.classList.contains('active')) {
             this._currentAvatarMenuListener = (e) => {
@@ -380,7 +381,6 @@ export const UIAuth = {
                 if (navRating) navRating.style.display = 'none';
                 if (logoutBtn) logoutBtn.style.display = 'none';
                 
-                // 🛡️ DOM Cleanup: الاعتماد على الكلاس فقط وتجنب الفوضى مع الـ style
                 if (alertCard) alertCard.classList.add('d-none');
                 if (kycContainer) kycContainer.classList.add('d-none');
                 return;
@@ -600,6 +600,7 @@ export const UIAuth = {
         if (otpInput) otpInput.value = '';
     },
 
+    // ✅ تم إزالة الصوت المكرر
     handle2FAToggle: async function() {
         const isCurrentlyEnabled = DataManager.is2FAEnabled ? DataManager.is2FAEnabled() : false;
         
@@ -610,7 +611,6 @@ export const UIAuth = {
             
             if (result.success) {
                 getSys().showToast?.('تم إيقاف المصادقة الثنائية', 'info');
-                getSys().sfx?.('nav');
                 this.openSecurityModal(); 
             } else {
                 getSys().showToast?.(result.msg, 'error');
@@ -686,7 +686,6 @@ export const UIAuth = {
                 const liveContainer = document.getElementById('qrcode-container'); 
                 if (liveContainer && typeof window.QRCode !== 'undefined') {
                     const qrDataUrl = await window.QRCode.toDataURL(qrUri, { color: { dark: '#111a2b', light: '#ffffff' }, width: 200, margin: 1 });
-                    // 🛡️ CSS Decoupling: إزالة التنسيق المدمج والاعتماد على class
                     liveContainer.innerHTML = `<img src="${qrDataUrl}" class="qr-code-img" alt="2FA QR Code">`;
                 } else if (liveContainer) {
                     liveContainer.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-muted);"><i class="fa-solid fa-shield-halved fa-2x mb-10"></i><br>يرجى إدخال الكود النصي يدوياً في التطبيق.</div>`;
@@ -773,6 +772,7 @@ export const UIAuth = {
         }
     },
 
+    // ✅ تم إزالة الصوت المكرر
     handleBiometricToggle: async function() {
         const sys = getSys();
         const user = DataManager.user;
@@ -785,7 +785,6 @@ export const UIAuth = {
                 if (success) {
                     try { localStorage.removeItem(CACHE_KEYS.BIOMETRIC_KEY); } catch (e) {}
                     sys.showToast?.('تم إيقاف قفل البصمة بنجاح', 'info');
-                    sys.sfx?.('nav');
                     this.openSecurityModal();
                 } else {
                     sys.showToast?.('تعذر إيقاف البصمة، يرجى المحاولة لاحقاً', 'error');
@@ -924,6 +923,7 @@ export const UIAuth = {
         }
     },
 
+    // ✅ تم إزالة الصوت المكرر
     selectRegCurrency: function(name, code) {
         const textEl = document.getElementById('selected-currency-text');
         const hiddenInput = document.getElementById('reg-currency');
@@ -932,9 +932,9 @@ export const UIAuth = {
         if (textEl) { textEl.innerText = name; textEl.style.color = 'var(--text-main)'; }
         if (hiddenInput) { hiddenInput.value = code; }
         if (dropdown) { dropdown.classList.remove('open'); }
-        getSys().sfx?.('nav');
     },
 
+    // ✅ تم إزالة الصوت المكرر
     selectCountry: function(name, prefix, phoneLen) {
         const textEl = document.getElementById('selected-country-text');
         const hiddenInput = document.getElementById('reg-country');
@@ -951,7 +951,6 @@ export const UIAuth = {
             phoneInp.placeholder = `أدخل رقم هاتفك`;
         }
         if (dropdown) { dropdown.classList.remove('open'); }
-        getSys().sfx?.('nav');
     },
 
     saveIdentityData: async function() {
@@ -959,7 +958,6 @@ export const UIAuth = {
         if (this._isSavingIdentity || (btn && btn.disabled)) return;
         
         if (DataManager.user && (DataManager.user.isVerified === true || String(DataManager.user.isVerified) === 'true')) {
-            // 🛡️ التعديل: تحسين لغة الرسالة
             getSys().showToast?.('بياناتك مؤكدة مسبقاً! لا يمكنك تعديل العملة الأساسية بعد ربط المحفظة.', 'error');
             getSys().closeModal?.('identity');
             return;
@@ -1009,11 +1007,11 @@ export const UIAuth = {
                 
                 const inputsWrap = document.getElementById('identity-inputs-wrap');
                 const statusWrap = document.getElementById('identity-verified-status');
+                
                 if (inputsWrap) inputsWrap.style.display = 'none';
                 if (statusWrap) statusWrap.classList.remove('hide-element');
                 
                 getSys().sfx?.('success');
-                getSys().showToast?.(result.message || 'تم ربط المحفظة وتأكيد البيانات بنجاح! يمكنك الآن إغلاق النافذة.', 'success');
             } else {
                 throw new Error(result?.msg || 'فشلت العملية، يرجى المحاولة لاحقاً.');
             }
@@ -1035,18 +1033,27 @@ export const UIAuth = {
         if (!listTarget) return;
         
         const rates = (typeof LiveStoreData !== 'undefined' && LiveStoreData.rates) ? LiveStoreData.rates : [];
-        let html = `<div class="dropdown-item" data-action="select-reg-currency" data-code="USD" data-name="دولار أمريكي (USD)"><span style="flex: 1; text-align: right;">دولار أمريكي (USD)</span><span class="num-en" style="color: var(--primary); font-weight: 900;">USD</span></div>`;
+        
+        let html = `<div class="dropdown-item" data-action="select-reg-currency" data-code="USD" data-name="دولار أمريكي">
+                        <span class="currency-name" style="flex: 1; text-align: start;">دولار أمريكي</span>
+                        <span class="num-en currency-code" style="color: var(--primary); font-weight: 900;">USD</span>
+                    </div>`;
         
         if (rates.length > 0) {
             rates.forEach(r => {
                 if (r.isActive === false || r.code.toUpperCase() === 'USD') return;
-                const currName = `${r.name || r.code} (${r.code})`;
-                html += `<div class="dropdown-item" data-action="select-reg-currency" data-code="${r.code}" data-name="${currName}"><span style="flex: 1; text-align: right;">${currName}</span><span class="num-en" style="color: var(--primary); font-weight: 900;">${r.code}</span></div>`;
+                
+                const currName = r.name || r.code; 
+                
+                html += `<div class="dropdown-item" data-action="select-reg-currency" data-code="${r.code}" data-name="${currName}">
+                            <span class="currency-name" style="flex: 1; text-align: start;">${currName}</span>
+                            <span class="num-en currency-code" style="color: var(--primary); font-weight: 900;">${r.code}</span>
+                         </div>`;
             });
         }
         listTarget.innerHTML = html;
     },
-
+    
     handleKycImage: async function(input, previewId) {
         if (this._processingImgs.has(previewId)) return;
         
@@ -1217,12 +1224,13 @@ export const UIAuth = {
             }
         });
         
-        // 🛡️ Memory Flush: تفريغ حقول الإدخال عند الإغلاق لتجنب تعليق رفع نفس الصورة
-        ['avatar-upload-input', 'kyc-input-front', 'kyc-input-back', 'kyc-input-selfie'].forEach(id => {
-            const inp = document.getElementById(id);
-            if (inp) inp.value = '';
-        });
-        
+        const avatarInp = document.getElementById('avatar-upload-input');
+        if (avatarInp) avatarInp.value = '';
+
+        const kycModal = document.getElementById('kyc-upload-modal');
+        if (kycModal) {
+            kycModal.querySelectorAll('input[type="file"]').forEach(inp => inp.value = '');
+        }        
         this.kycFiles = {}; 
         getSys().closeModal?.('kyc-upload'); 
     },
@@ -1351,7 +1359,6 @@ export const UIAuth = {
                 html += `</div></div>`;
             }
         } else {
-            // 🛡️ CSS Decoupling: إزالة الـ Inline CSS الضخم واستخدام الكلاسات
             html += `<div class="tm-alert-box admin-alert mt-15"><span class="nm-reply-head text-danger tm-text-highlight d-block mb-8"><i class="fa-solid fa-circle-info"></i> تنبيه إداري</span><div class="nm-reply-body line-height-lg">${Utils.escapeHtml(pausedMsg)}</div></div>`;
         }
         
@@ -1360,6 +1367,7 @@ export const UIAuth = {
         getSys().openModal?.('tier-info');
     },
 
+    // ✅ تم إزالة الصوت المكرر
     submitPrivateFeedback: async function() {
         const rawFeedback = document.getElementById('ratingFeedbackInput')?.value.trim() || '';
         const feedback = Utils.escapeHtml ? Utils.escapeHtml(rawFeedback) : rawFeedback.replace(/[<>]/g, '');
@@ -1370,7 +1378,7 @@ export const UIAuth = {
         if (btn) { btn.textContent = "جاري الإرسال..."; btn.disabled = true; }
         
         try {
-            const res = await DataManager.submitPrivateFeedback(this._currentRating, feedback);
+            const res = await DataManager.submitPrivateFeedback(getSys()._currentRating || 0, feedback);
             
             if (res.success) {
                 getSys().closeModal?.('rating'); 

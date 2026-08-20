@@ -5,6 +5,7 @@
 // 1. CSS Decoupling: تطهير الملف بالكامل من الـ Inline CSS ونقل التنسيقات لملفات الستايل.
 // 2. Animation Refactoring: استخدام الكلاسات لإدارة الأنيميشن (Shake) بدلاً من حقن الـ Style.
 // 3. DOM Cleansing: تنظيف أكواد كروت النسخ (Smart Copy Lines) والدرع الأمني.
+// 4. Audio Refactoring: إزالة استدعاءات الصوت اليدوية (nav) لمنع صدى الصوت (Double-Click Echo).
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -35,55 +36,36 @@ export const UIFinance = {
         return Utils.parseSafeNumber(val);
     },
     
+    // ✅ الكود الجديد (نظيف، يثق في الـ CSS بنسبة 100%)
     _toggleButtonLoader: function(btn, isLoading) {
         if (!btn) return;
-        
         try {
             if (isLoading) {
-                if (btn._originalHtml === undefined && !btn.innerHTML.includes('fa-spinner')) {
-                    btn._originalHtml = btn.innerHTML;
+                if (btn._originalHtml === undefined && !btn.querySelector('.btn-content')) {
+                    btn._originalHtml = btn.innerHTML; // حفظ المحتوى للأزرار القديمة فقط
                 }
-                
                 btn.disabled = true;
-                btn.classList.remove('is-loading');
+                btn.classList.add('is-loading', 'tx-processing-safe');
                 
-                const contentSpan = btn.querySelector('.btn-content');
-                const spinnerSpan = btn.querySelector('.btn-spinner');
-                
-                if (contentSpan && spinnerSpan) {
-                    btn._isComplex = true;
-                    contentSpan.style.display = 'none';
-                    spinnerSpan.style.display = 'inline-block';
-                } else {
+                // إذا كان زراً قديماً لا يحتوي على هيكل btn-content الحديث
+                if (!btn.querySelector('.btn-content')) {
                     const currentWidth = btn.offsetWidth;
                     if (currentWidth > 0) btn.style.width = `${currentWidth}px`;
                     btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="margin-inline-end: 6px;"></i> جاري المعالجة...`;
                 }
-                
-                btn.classList.add('tx-processing-safe');
-                
             } else {
                 btn.disabled = false;
-                btn.classList.remove('tx-processing-safe', 'is-loading');
+                btn.classList.remove('is-loading', 'tx-processing-safe');
                 
-                if (btn._isComplex) {
-                    const contentSpan = btn.querySelector('.btn-content');
-                    const spinnerSpan = btn.querySelector('.btn-spinner');
-                    if (contentSpan) contentSpan.style.display = '';
-                    if (spinnerSpan) spinnerSpan.style.display = 'none';
-                } else if (btn._originalHtml !== undefined) {
+                if (btn._originalHtml !== undefined) {
                     btn.innerHTML = btn._originalHtml;
                     btn.style.width = '';
                     btn._originalHtml = undefined;
-                } else {
-                    btn.innerHTML = 'تأكيد';
-                    btn.style.width = '';
                 }
             }
         } catch (e) {
-            console.error("🚨 Button Restore Error:", e);
             btn.disabled = false;
-            btn.classList.remove('tx-processing-safe', 'is-loading');
+            btn.classList.remove('is-loading', 'tx-processing-safe');
         }
     },
 
@@ -133,9 +115,10 @@ export const UIFinance = {
         if (this._offlineHandler) { window.removeEventListener('offline', this._offlineHandler); this._offlineHandler = null; }
     },
 
+    // ✅ إزالة الصوت المكرر هنا
     _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
         if (element.classList.contains('active')) return;
-        getSys().sfx?.('nav');
+        
         const tabs = element.parentElement.querySelectorAll('.mf-tab');
         tabs.forEach(tab => tab.classList.remove('active'));
         element.classList.add('active');
@@ -150,8 +133,8 @@ export const UIFinance = {
     setWalletFilter: function(val, el) { this._applyTabFilter('wallet', val, el, 'renderWallet'); },
     setPaymentFilter: function(val, el) { this._applyTabFilter('payments', val, el, 'renderPayments'); },
 
+    // ✅ إزالة الصوت المكرر هنا
     jumpToTransaction: function(id, type) {
-        getSys().sfx?.('nav');
         getSys().closeWallet?.();
         setTimeout(() => {
             if (type === 'purchase') getSys().openOrders?.(); else getSys().openMyPayments?.();
@@ -240,7 +223,7 @@ export const UIFinance = {
             const inputContainer = document.getElementById('pm-input-container');
             const simpleQtyBox = document.getElementById('simple-qty-wrapper');
 
-            // 🛡️ CSS Decoupling: استبدال الستايل المدمج بالكلاس pm-badge-wrapper
+            // 🛡️ CSS Decoupling
             if (badgeContainer) {
                 const activeOffer = DataManager.getActiveOffer(DataManager.currentProd.id);
                 if (activeOffer?.visualConfig?.grid && activeOffer.visualConfig.badgeStyle !== 'none') {
@@ -376,7 +359,7 @@ export const UIFinance = {
             const result = DataManager.getPricingLocal(DataManager.currentProd, qty, optIdx, DataManager.appliedCoupon);
             if (!result || typeof result !== 'object') return;
 
-            // 🛡️ CSS Decoupling: استبدال setProperty بالكلاس text-center-force
+            // 🛡️ CSS Decoupling
             const unitInput = document.getElementById('pm-price-unit');
             if (unitInput) {
                 unitInput.value = result.unitText || '';
@@ -495,7 +478,7 @@ export const UIFinance = {
                     if (result.isAutoDelivered && result.deliveredCodeText) {
                         if (titleEl) titleEl.innerText = 'تم تنفيذ الطلب بنجاح!';
                         if (descEl) descEl.innerHTML = 'تم إصدار الكود بنجاح، ومحفوظ في <span class="smart-link" data-action="navigate-orders-success">سجل طلباتك</span>.';
-                        // 🛡️ CSS Decoupling: استبدال الستايل المدمج بـ auto-delivery-scroll
+                        // 🛡️ CSS Decoupling
                         if (codeDisplayContainer) {
                             codeDisplayContainer.innerHTML = `<div class="dc-title"><i class="fa-solid fa-key"></i> الأكواد المستلمة:</div><div class="auto-delivery-scroll">${UIBuilders.buildCodesList(result.deliveredCodeText)}</div>`;
                             codeDisplayContainer.classList.remove('d-none');
@@ -530,20 +513,12 @@ export const UIFinance = {
                 const icon = titleEl.querySelector('i');
                 titleEl.innerHTML = (icon ? icon.outerHTML + ' ' : '') + 'إتمام الإيداع';
             }
-            if (headerBtn) {
-                headerBtn.innerHTML = '<i class="fa-solid fa-arrow-right"></i>';
-                headerBtn.setAttribute('data-action', 'back-pay-step');
-                if (!headerBtn._backBound) {
-                    headerBtn.addEventListener('click', (e) => {
-                        if (headerBtn.getAttribute('data-action') === 'back-pay-step') {
-                            e.preventDefault(); e.stopPropagation();
-                            this.backToPayMethods();
-                        }
-                    });
-                    headerBtn._backBound = true;
-                }
-            }
-        } else {
+            // ✅ الكود الجديد (الاعتماد على الموزع المركزي 100%)
+if (headerBtn) {
+    headerBtn.innerHTML = '<i class="fa-solid fa-arrow-right"></i>';
+    headerBtn.setAttribute('data-action', 'back-balance-step');
+    // تم مسح الكود اليدوي بالكامل لكي نسمح للموزع المركزي بالتقاط النقرة وإطلاق الصوت
+}        } else {
             modal.classList.remove('is-step-2');
             if (titleEl) {
                 const icon = titleEl.querySelector('i');
@@ -586,7 +561,7 @@ export const UIFinance = {
         });
     },
 
-    // 🛡️ CSS Decoupling: استبدال كروت النسخ بكلاسات احترافية
+    // 🛡️ CSS Decoupling + ✅ إزالة الصوت المكرر
     selectPay: function(id) {
         const payments = LiveStoreData.payments || [];
         const modal = document.getElementById('balance-modal');
@@ -636,11 +611,12 @@ export const UIFinance = {
         
         window.requestAnimationFrame(() => {
             section.innerHTML = UIBuilders.buildDepositForm(p, copyContainer, uniqueCurrencies.length === 1, this.currentPayCurrency, uniqueCurrencies.map((c, i) => `<div class="dropdown-item ${i === 0 ? 'active' : ''}" data-curr="${c}">${c}</div>`).join(''), (DataManager.user?.baseCurrency || 'USD').toUpperCase());
-            this.calcFee(); getSys().sfx?.('nav');
+            this.calcFee();
         });
     },
 
-    backToPayMethods: function(playSound = true) {
+    // ✅ إزالة بارامتر الصوت لتصبح الدالة أنيقة
+    backToPayMethods: function() {
         const modal = document.getElementById('balance-modal');
         if (!modal) return;
 
@@ -657,16 +633,15 @@ export const UIFinance = {
             const section = document.getElementById('bal-method-info-section');
             if (section && !modal.classList.contains('is-step-2')) section.innerHTML = ''; 
         }, 400);
-
-        if (playSound) getSys().sfx?.('nav');
     },
 
+    // ✅ تعديل الاستدعاء للوضع الافتراضي الجديد
     closeBalanceModal: function() {
         if (this._isProcessingTx) return; 
         const modal = document.getElementById('balance-modal');
         getSys().closeModal?.('balance');
         if (modal) {
-            modal.addEventListener('transitionend', () => { this.backToPayMethods(false); }, { once: true });
+            modal.addEventListener('transitionend', () => { this.backToPayMethods(); }, { once: true });
         }
     },    
     
@@ -810,7 +785,7 @@ export const UIFinance = {
         });
     },
 
-    // 🛡️ Animation Refactoring: استبدال الأنيميشن العشوائي بالكلاسات (Shake)
+    // 🛡️ Animation Refactoring
     handleBalanceSubmit: async function(currency) {
         if (this._isProcessingTx || !this._validateKycAndSystem('deposit')) return;
         
@@ -916,16 +891,26 @@ export const UIFinance = {
         }
     },
     
+    // ✅ إزالة الصوت المكرر هنا
     togglePayDetail: function(headerElement) {
         if (!headerElement) return; const card = headerElement.closest('.pay-history-card'); if (!card) return;
         window.requestAnimationFrame(() => {
             const det = card.querySelector('.ph-details-body'), arrow = headerElement.querySelector('.fa-chevron-down, .fa-angle-down, .fa-chevron-left, .ph-arrow-btn, .ph-arrow');
             if (det) { const isOpen = det.classList.toggle('is-open'); if(arrow) arrow.classList.toggle('is-open', isOpen); }
-        }); getSys().sfx?.('nav');
+        });
     },
 
     toggleWalletStats: function(btn) { const drawer = document.getElementById('walletStatsDrawer'); if (drawer) drawer.classList.contains('active') ? this.closeWalletStats() : this.openWalletStats(btn); },
-    openWalletStats: function(btn) { window.requestAnimationFrame(() => { document.getElementById('walletStatsDrawer')?.classList.add('active'); if (btn) btn.classList.add('open'); document.getElementById('wallet-modal')?.classList.add('drawer-blur-active'); }); getSys().sfx?.('nav'); },
+    
+    // ✅ إزالة الصوت المكرر هنا
+    openWalletStats: function(btn) { 
+        window.requestAnimationFrame(() => { 
+            document.getElementById('walletStatsDrawer')?.classList.add('active'); 
+            if (btn) btn.classList.add('open'); 
+            document.getElementById('wallet-modal')?.classList.add('drawer-blur-active'); 
+        }); 
+    },
+    
     closeWalletStats: function() { window.requestAnimationFrame(() => { document.getElementById('walletStatsDrawer')?.classList.remove('active'); const wModal = document.getElementById('wallet-modal'); if (wModal) { wModal.classList.remove('drawer-blur-active'); wModal.querySelector('.detail-arrow')?.classList.remove('open'); } }); },
     
     openDetail: function(e, type, id) {

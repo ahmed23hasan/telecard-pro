@@ -107,17 +107,16 @@ export const UIBuilders = {
         const totalDiscLocal = Number((safeCouponDisc + safeSaleDisc).toFixed(4));
         
         let discountBadgeHtml = '';
-        if (totalDiscLocal > 0) {
-            const isCombo = (safeCouponDisc > 0 && safeSaleDisc > 0);
-            const isCoupon = (safeCouponDisc > 0);
-            discountBadgeHtml = `
+        // ✅ الكود الجديد
+if (totalDiscLocal > 0) {
+    const isCombo = (safeCouponDisc > 0 && safeSaleDisc > 0);
+    const isCoupon = (safeCouponDisc > 0);
+    discountBadgeHtml = `
                 <div class="oh-discount-badge ${isCombo ? 'badge-combo' : (isCoupon ? 'badge-coupon' : 'badge-sale')}">
                     <i class="fa-solid ${isCombo ? 'fa-gift' : (isCoupon ? 'fa-ticket' : 'fa-tag')}"></i> 
-                    <span>${isCombo ? 'توفير مضاعف' : (isCoupon ? 'كوبون' : 'تخفيض')}</span>
-                    <span class="num-en">(-${RenderHelpers.formatMoney(totalDiscLocal, displayCurr)})</span>
+                    <span>${isCombo ? 'توفير مضاعف' : (isCoupon ? 'تم تطبيق كوبون' : 'يشمله تخفيض')}</span>
                 </div>`;
-        }
-        
+}
         const isHighlighted = (highlightId && String(o.id) === String(highlightId)) ? 'jump-highlight' : '';
         const safeTimeMs = Utils.parseSafeTime(o.time || o.createdAt);
         
@@ -482,6 +481,23 @@ export const UIBuilders = {
                     <span class="btn-spinner"><i class="fa-solid fa-spinner fa-spin"></i></span>
                 </button>         
             </div>`;
+    },
+    /** بناء عنصر دولة واحدة للقائمة المنسدلة */
+    buildCountryItem: function(c) {
+        if (!c) return '';
+        const safeName = Utils.escapeHtml(c.name || c.nameAr || 'غير محددة');
+        const safeFlag = Utils.escapeHtml(c.flag || c.flagEmoji || '🌍');
+        const safeCode = Utils.escapeHtml(c.dialCode || '');
+        const safeLen = parseInt(c.phoneLen) || 10;
+        
+        return `
+        <div class="dropdown-item" data-action="select-country" data-name="${safeName}" data-code="${safeCode}" data-len="${safeLen}">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="country-flag" style="font-size: 16px;">${safeFlag}</span>
+                <span class="country-name">${safeName}</span>
+            </div>
+            <span class="num-en country-code" style="color: var(--text-muted); opacity: 0.8; font-weight: 800;">${safeCode}</span>
+        </div>`;
     },
 
     /** 9️⃣ بناء تفاصيل العملية (Transaction Detail - Order/Deposit) */

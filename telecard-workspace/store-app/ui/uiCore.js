@@ -64,23 +64,30 @@ export const UICore = {
             window.history.replaceState(null, null, window.location.href);
         }
         
-        setTimeout(() => { 
+        setTimeout(() => {
             if (DataManager && typeof DataManager.logout === 'function') {
                 DataManager.logout();
             } else {
                 try {
-                    localStorage.clear();
+                    // مسح بيانات المستخدم فقط وترك إعدادات وكاش النظام
+                    localStorage.removeItem('telecard_active_uid');
+                    localStorage.removeItem('telecard_active_user');
+                    localStorage.removeItem('telecard_display_currency');
                     sessionStorage.clear();
                     if (window.indexedDB) {
                         indexedDB.databases().then(dbs => {
                             dbs.forEach(db => indexedDB.deleteDatabase(db.name));
                         });
                     }
-                } catch(e) {}
-                window.location.replace(window.LOGIN_URL || 'login.html');
-            }
-        }, 3500);
+                } catch (e) {}
+                
+                // التوجيه المباشر النظيف (Relative Path) المتوافق مع فايربيز
+                window.location.replace('login.html');
+            } 
+        }, 3500); 
+
     },
+
     openSettings: function() { getSys().resetUI?.(); getSys().renderSettingsUI?.(); getSys().openModal?.('settings'); },
     closeSettings: function() { getSys().closeModal?.('settings'); },
 
@@ -90,10 +97,7 @@ export const UICore = {
     toggleTheme: function() {
         const isCurrentlyLight = document.body.classList.contains('light-mode');
         getSys().setThemePref(isCurrentlyLight ? 'dark' : 'light');
-        this.sfx?.('nav');
     },
-    
-    toggleThemePref: function() { getSys().toggleTheme(); },
     
     setThemePref: function(mode) {
         const isLight = mode === 'light';
@@ -133,7 +137,6 @@ export const UICore = {
         DataManager.prefs.sound = !DataManager.prefs.sound;
         if (DataManager.savePrefs) DataManager.savePrefs();
         getSys().updateSoundUI();
-        this.sfx?.('nav');
     },
     
     updateSoundUI: function() {
@@ -260,13 +263,7 @@ export const UICore = {
         ['store-search-input', 'order-search-input', 'wallet-search-input', 'pay-search-input'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 
         if (!document.querySelector('.sidebar.active') && this.activeModals.length === 0) document.body.classList.remove('no-scroll');
-        
-        if (!DataManager.user) {
-            this.navHistory = [];
-            this.currentCategoryId = null;
-        }
     },
-
     resetGridScroll: function() {
         window.scrollTo(0, 0);
         const grid = document.getElementById('store-grid');
@@ -634,7 +631,19 @@ export const UICore = {
             'send-reset-pass': () => getSys().sendResetPasswordEmail?.(),
             'submit-password-change': () => getSys().handlePasswordSubmit?.(),
             'verify-and-enable-2fa': () => getSys().verifyAndEnable2FA?.(),
-            'toggle-parent-dropdown': (e, id, val, target) => target.parentElement.classList.toggle('open'),
+            'toggle-parent-dropdown': (e, id, val, target) => {
+                const parentBox = target.parentElement;
+                const isAlreadyOpen = parentBox.classList.contains('open');
+                
+                // 1. إغلاق جميع القوائم المفتوحة أولاً
+                document.querySelectorAll('.custom-dropdown-container').forEach(el => el.classList.remove('open'));
+                
+                // 2. إذا لم تكن مفتوحة سابقاً، قم بفتحها الآن
+                if (!isAlreadyOpen) {
+                    parentBox.classList.add('open');
+                }
+            },
+
             'select-reg-currency': (e, id, val, target, dataType, dataCurr, dataName, dataCode) => { e.preventDefault(); getSys().selectRegCurrency?.(dataName, dataCode); },
             'select-country': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen) => { e.preventDefault(); getSys().selectCountry?.(dataName, dataCode, dataLen); },
             'save-identity': () => getSys().saveIdentityData?.(),
@@ -806,12 +815,19 @@ export const UICore = {
                 return;
             }
             
-            if (target.classList.contains('pm-overlay') || target.classList.contains('modal-overlay')) {
+            // 🌟 التحديث الجديد ليراقب الاستراتيجية الموحدة (Master Overlay)
+            if (target.classList.contains('master-overlay') || target.classList.contains('pm-overlay')) {
                 e.preventDefault();
+                
+                // منع إغلاق نوافذ الحماية الإجبارية عند النقر خارجها
+                if (target.id === 'global-security-alert' || target.id === 'biometric-lock-screen') {
+                    this.sfx?.('error'); return; 
+                }
+                
                 this.closeModal?.(target.id.replace('-overlay', ''));
                 this.sfx?.('nav'); return;
             }
-            
+           
             const actionBtn = target.closest('[data-action]');
             if (!actionBtn) return;
             
@@ -849,26 +865,37 @@ export const UICore = {
                 this.sfx?.('nav');
             }
             
+            // ✅ الكود الجديد (اصطياد الأخطاء بأمان دون الاعتماد على دوال غير موجودة)
             if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) target.blur();
-            
+
             try {
                 const res = ActionDictionary[action]?.(...args);
-                if (res instanceof Promise && this.logCloudError) res.catch(err => this.logCloudError(action, err));
-            } catch (err) { if (this.logCloudError) this.logCloudError(action, err); }
+                if (res instanceof Promise) {
+                    res.catch(err => {
+                        console.error(`[UI Action Error] Action: ${action} Failed:`, err);
+                    });
+                }
+            } catch (err) {
+                console.error(`[UI Sync Error] Action: ${action} Crashed:`, err);
+            }
         });
-    },    
+    },
 
     triggerPWAInstall: async function() {
         if (!deferredInstallPrompt) return;
         
         getSys().sfx?.('nav');
         deferredInstallPrompt.prompt();
-        
         const { outcome } = await deferredInstallPrompt.userChoice;
+        
+        // ✅ إخفاء البنر في كل الحالات (سواء وافق العميل أو رفض) لكي لا يبقى كـ "زومبي" على الشاشة
+        const installContainer = document.getElementById('pwa-install-container');
+        if (installContainer) installContainer.style.display = 'none';
+        
         if (outcome === 'accepted') {
             console.log('✅ [PWA] تم قبول التثبيت من العميل');
-            const installContainer = document.getElementById('pwa-install-container');
-            if (installContainer) installContainer.style.display = 'none';
+        } else {
+            console.log('ℹ️ [PWA] العميل رفض التثبيت في الوقت الحالي');
         }
         deferredInstallPrompt = null;
     },
@@ -876,7 +903,6 @@ export const UICore = {
     // =========================================================
     // 🌟 محرك الانتقالات الفاخر
     // =========================================================
-    // 🛡️ CSS Decoupling
     _toggleNavLoader: function(show) {
         let loader = document.getElementById('premium-nav-loader');
         if (!loader) {
@@ -926,8 +952,7 @@ export const UICore = {
     },
     
     openFavorites: function() {
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
-        if (document.getElementById('grid-title')?.innerText?.trim() === 'المفضلة') { this.closeSidebar(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { DataManager.logout(); }, 1500); return; }     if (document.getElementById('grid-title')?.innerText?.trim() === 'المفضلة') { this.closeSidebar(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
         this.closeSidebar(); this.resetUI(); this.currentCategoryId = null;
         this._executePageTransition(() => { if (RenderManager.renderFavorites) RenderManager.renderFavorites(); });
     },
@@ -992,15 +1017,13 @@ export const UICore = {
     },    
     
     openOrders: function() {
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
-        this.resetUI(); getSys().setFilterDefaults?.('order');
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { DataManager.logout(); }, 1500); return; }     this.resetUI(); getSys().setFilterDefaults?.('order');
         if (RenderManager.renderOrders) RenderManager.renderOrders(true);
         setTimeout(() => { this.openModal('orders'); }, 10);
     },
     
     openWallet: function() {
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
-        this.resetUI(); getSys().setFilterDefaults?.('wallet'); getSys().updateDisplayBalance?.();
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { DataManager.logout(); }, 1500); return; }      this.resetUI(); getSys().setFilterDefaults?.('wallet'); getSys().updateDisplayBalance?.();
         if (RenderManager.renderWallet) RenderManager.renderWallet(true);
         this._syncWalletBlur();
         setTimeout(() => { this.openModal('wallet'); }, 10);
@@ -1028,8 +1051,7 @@ export const UICore = {
     },
     
     openMyPayments: function() {
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
-        this.resetUI(); getSys().setFilterDefaults?.('payments');
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { DataManager.logout(); }, 1500); return; }      this.resetUI(); getSys().setFilterDefaults?.('payments');
         if (RenderManager.renderPayments) RenderManager.renderPayments(true);
         setTimeout(() => { this.openModal('mypay'); }, 10);
     },
@@ -1126,11 +1148,11 @@ export const UICore = {
             try { document.execCommand('copy'); successVisuals(); } catch (e) { this.showToast('فشل النسخ', 'error'); }
             document.body.removeChild(textarea);
         }
-    },    copyOrderInput: function(text, element) { this.copyToClipboard(text, element, 'default'); },
+    },    
+
+    copyOrderInput: function(text, element) { this.copyToClipboard(text, element, 'default'); },
     copySmartLine: function(element, text) { this.copyToClipboard(text, element, 'smartline'); },
 
-    
-    
     showAdminDirectMessage: function(msgText) {
         if (document.getElementById('admin-direct-msg-popup')) return;
         const html = `<div id="admin-direct-msg-popup" class="sys-dialog-wrapper active"><div class="sys-dialog-overlay"></div><div class="sys-dialog-card"><div class="sys-dialog-header"><div class="sys-dialog-icon warning"><i class="fa-solid fa-envelope-open-text fa-bounce"></i></div><h3 class="sys-dialog-title warning">رسالة إدارية هامة</h3></div><div class="sys-dialog-msg-container"><p class="sys-dialog-msg">${Utils.escapeHtml(msgText)}</p></div><div class="sys-dialog-actions" style="margin-top:20px;"><button id="ack-admin-msg-btn" class="adv-close-btn" style="background:#111a2b;">قرأت ذلك، شكراً</button></div></div></div>`;
@@ -1236,8 +1258,7 @@ export const UICore = {
     }, 
 
     openNotifCenter: function() {     
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
-        this.closeSidebar();
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { DataManager.logout(); }, 1500); return; }      this.closeSidebar();
         if (RenderManager.renderNotifCenterList) RenderManager.renderNotifCenterList();
         document.getElementById('notif-center-modal')?.classList.add('active'); 
         document.getElementById('notif-center-overlay')?.classList.add('active');
@@ -1666,18 +1687,20 @@ export const UICore = {
     refreshCurrencyMenuFlags: function() { document.querySelectorAll('.ct-item').forEach(item => this.setFlagEl(item.querySelector('.ct-flag-box'), item.dataset.curr || item.getAttribute('data-curr'))); },
 
     setDisplayCurrency: function(curr) {
-        if (!DataManager.user) return; 
-        
-        DataManager.selectedCurr = curr || (DataManager.user.baseCurrency || 'USD');
+        DataManager.selectedCurr = curr || (DataManager.user?.baseCurrency || LiveStoreData.settings?.defaultCurrency || 'USD');
         localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY || 'telecard_display_currency', DataManager.selectedCurr);
         
         this.updateDisplayBalance();
         const pm = document.getElementById('purchase-modal');
-        if(pm && pm.classList.contains('active') && DataManager.currentProd) { getSys().updatePriceDisplay?.(); }
+        if (pm && pm.classList.contains('active') && DataManager.currentProd) { getSys().updatePriceDisplay?.(); }
         this.updateDisplayCurrencyUI(DataManager.selectedCurr);
-
+        
         if (typeof RenderManager !== 'undefined') {
-            if (this.currentCategoryId) {
+            const searchInput = document.getElementById('store-search-input');
+            
+            if (searchInput && searchInput.value.trim() !== '') {
+                RenderManager.searchStoreTerm(searchInput.value.trim());
+            } else if (this.currentCategoryId) {
                 RenderManager._renderContent(this.currentCategoryId);
             } else if (document.body.classList.contains('is-home')) {
                 RenderManager.renderHome(true);
@@ -1693,7 +1716,6 @@ export const UICore = {
             }
         }
     },
-
     clearDisplayCurrencyTimer: function() { if(this.displayMenuTimer) { clearTimeout(this.displayMenuTimer); this.displayMenuTimer = null; } },
     toggleDisplayCurrencyMenu: function() {
         const menu = document.getElementById('ct-menu');
@@ -1884,7 +1906,12 @@ export const UICore = {
     // =========================================================
     toggleFavoriteFromModal: function() {
         if (!DataManager.currentProd) return;
-        if (!DataManager.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); this.sfx?.('error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
+        if (!DataManager.user) {
+            getSys().showToast?.('يجب تسجيل الدخول', 'error');
+            this.sfx?.('error');
+            setTimeout(() => { window.location.replace('login.html'); }, 1500);
+            return;
+        }
         
         const productId = DataManager.currentProd.id;
         const wasFavorite = DataManager.isFavorite?.(productId);
@@ -1897,21 +1924,28 @@ export const UICore = {
             if (icon) icon.className = !wasFavorite ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
         }
         
-        this.sfx?.('nav');
         if (wasFavorite) {
             getSys().showToast?.('تمت إزالة المنتج من المفضلة', 'info');
             if (document.body.classList.contains('is-favorites')) {
                 const card = document.querySelector(`.product-card[data-id="${productId}"]`);
                 if (card) {
-                    card.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'; card.style.opacity = '0'; card.style.transform = 'scale(0.8)';
-                    setTimeout(() => { card.remove(); if (document.querySelectorAll('#store-grid .product-card').length === 0 && RenderManager.renderFavorites) RenderManager.renderFavorites(); }, 300);
+                    card.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+                    card.style.opacity = '0';
+                    card.style.transform = 'scale(0.8)';
+                    setTimeout(() => {
+                        card.remove();
+                        if (document.querySelectorAll('#store-grid .product-card').length === 0 && RenderManager.renderFavorites) {
+                            RenderManager.renderFavorites();
+                        }
+                    }, 300);
                 }
             }
-        } else { getSys().showToast?.('تمت إضافة المنتج إلى المفضلة', 'success'); }
+        } else {
+            getSys().showToast?.('تمت إضافة المنتج إلى المفضلة', 'success');
+        }
         
         if (typeof this.updateFavBadgeCount === 'function') this.updateFavBadgeCount();
-    },
-    
+    },    
     triggerMagicFavorite: function(e, productId) {
         if (e) e.preventDefault();
         if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); this.sfx?.('error'); setTimeout(() => { window.location.replace('login.html'); }, 1500); return; }
@@ -1982,7 +2016,7 @@ export const UICore = {
 
     openRatingModal: function() {
         this.closeSidebar();
-        getSys()._currentRating = 0; // 🛡️ State Sync Fix
+        getSys()._currentRating = 0; 
         const btn = document.getElementById('btnContinueRating');
         if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
         if (document.getElementById('ratingFeedbackInput')) document.getElementById('ratingFeedbackInput').value = '';
@@ -1994,8 +2028,7 @@ export const UICore = {
     },
     
     selectRatingStar: function(val) {
-        getSys()._currentRating = val; // 🛡️ State Sync Fix
-        this.sfx?.('nav');
+        getSys()._currentRating = val; 
         document.querySelectorAll('.rating-star').forEach(star => {
             star.className = parseInt(star.dataset.value || star.getAttribute('data-value')) <= val ? 'fa-solid fa-star rating-star active' : 'fa-regular fa-star rating-star';
         });
@@ -2003,9 +2036,8 @@ export const UICore = {
     },
     
     submitRatingStep: function() {
-        this.sfx?.('nav');
         document.getElementById('rating-step-stars').style.display = 'none';
-        document.getElementById((getSys()._currentRating || 0) <= 3 ? 'rating-step-feedback' : 'rating-step-share').style.display = 'block'; // 🛡️ State Sync Fix
+        document.getElementById((getSys()._currentRating || 0) <= 3 ? 'rating-step-feedback' : 'rating-step-share').style.display = 'block'; 
     },
     
     openAboutModal: function() {
@@ -2016,7 +2048,6 @@ export const UICore = {
         
         const logoTarget = document.getElementById('about-logo-box');
         if (logoTarget) {
-            // 🛡️ CSS Decoupling + XSS Protection
             logoTarget.innerHTML = logoDark 
                 ? `<div class="about-logo-wrapper"><img src="${Utils.safeUrl(logoDark)}" alt="Logo" class="about-logo-img"></div>`
                 : `<div class="about-logo-wrapper"><i class="fa-solid fa-circle-info" style="font-size: 24px;"></i></div>`;
