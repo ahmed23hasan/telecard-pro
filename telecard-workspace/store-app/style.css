@@ -5,7 +5,9 @@
 /* =========================================================
    [ 1. الإعدادات العامة والخطوط وحل مشاكل اللمس (Global Resets) ]
    ========================================================= */
-* { margin: 0; padding: 0; box-sizing: border-box; font-family: var(--font-family-main); outline: none; -webkit-tap-highlight-color: transparent; }
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: var(--font-family-main); -webkit-tap-highlight-color: transparent; }
+*:focus:not(:focus-visible) { outline: none; }
+*:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 html { font-size: var(--fs-base); overscroll-behavior-x: none; overscroll-behavior-y: auto; }
 body {
     background: var(--bg-body); color: var(--text-main);
@@ -246,7 +248,15 @@ body.light-mode {
 
 /* --- 3. التأثيرات المرئية والنصوص (UI & Typography) --- */
 .text-truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.text-line-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.text-line-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    /* autoprefixer: ignore next */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+    /* 🚀 يحمي الكلمات العربية الطويلة من تجاوز حدود البطاقة */
+}
 .text-glow { text-shadow: var(--text-shadow-lux); }
 
 /* تأثير الزجاج الموحد (تم ربطه بالروت) */
@@ -319,7 +329,7 @@ body.light-mode {
     transition: opacity 0.3s ease, visibility 0s linear 0s;
 }
 /* 🌟 تجميع الكلاسات التي تتطلب توسيط تام لتقليل حجم الملف */
-.action-btn, .theme-toggle-btn, .sidebar-close-btn, .support-icon-frame,
+ .sidebar-close-btn, .support-icon-frame,
 .ticker-icon-box, .default-prod-icon, .img-placeholder, .nav-icon, 
 .ct-flag-box, .ct-flag-emoji, .pm-close-std, .pm-close-btn-small,
 .switch-knob, .pm-fav-btn, .pm-qty-btn, .pay-icon-wrapper, .bio-icon-box,
@@ -328,7 +338,7 @@ body.light-mode {
 }
 /* =========================================================
    [ 4.1. المكونات المركزية (Master Components) ]
-   ========================================================= */
+   =========================================================*/
 /* 🌟 نظام الأزرار الذهبية الموحد (Master Gold Button) */
 .pm-btn-gold, .pwa-install-btn, .btn-save-lux, .alert-btn, .c-btn, .btn-guest-login, .bal-submit-btn-new:not(:disabled) {
     background: var(--gold-crystal-grad);
@@ -377,7 +387,47 @@ body.light-mode {
     display: none !important;
     animation: none !important;
 }
+/* =========================================================
+   [ 4.2. درع حماية التفاعل (UI Interaction Shield) ]
+   ========================================================= */
 
+/* 1. المنع القياسي والمجمع لجميع العناصر التفاعلية في المتجر */
+button, 
+a, 
+select, 
+[role="button"], 
+[data-action],
+.cat-card, 
+.product-card, 
+.custom-dropdown-container, 
+.btn-pro {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none; /* حماية الآيفون من ظهور قائمة الحفظ/النسخ */
+}
+
+/* 2. كلاس مساعدة (Utility) نضعه لأي هيكل مخصص في الـ HTML لا نريده أن يُظلل */
+.no-select, .nav-item, .mf-tab, .bottom-nav {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+    -webkit-touch-callout: none !important;
+}
+
+/* 3. السماح الإجباري (Whitelist) لحقول الإدخال والبيانات المالية للنسخ */
+input, 
+textarea, 
+.is-copyable, 
+.is-copyable *, 
+.num-en, 
+.allow-select {
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    user-select: text !important;
+    -webkit-touch-callout: default !important;
+}
 /* --- 6. حالات الجافا سكريبت ومحركات الرسم (JS Rendering States) --- */
 .img-loading-state { opacity: 0 !important; visibility: hidden !important; }
 .img-loaded-flat { opacity: 1 !important; visibility: visible !important; }
@@ -409,42 +459,6 @@ h1, h2, h3, h4, .card-title, .section-title, .store-header .header-title, .order
 .active-link, .highlight-text { color: var(--primary); font-weight: 800; }
 .text-amount-gold { color: var(--primary); font-weight: 900; text-shadow: var(--shadow-glow); }
 /* =========================================================
-   [ 4.2. درع حماية التفاعل (UI Interaction Shield) ]
-   ========================================================= */
-
-/* 1. المنع القياسي لجميع العناصر التفاعلية الأساسية في الـ HTML */
-button, 
-a, 
-select, 
-[role="button"], 
-[data-action] {
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none; /* حماية الآيفون */
-}
-
-/* 2. كلاس مساعدة (Utility) نضعه لأي هيكل مخصص لا نريده أن يُظلل */
-.no-select, .nav-item, .mf-tab, .bottom-nav {
-    -webkit-user-select: none !important;
-    user-select: none !important;
-    -webkit-touch-callout: none !important;
-}
-
-/* 3. السماح الإجباري (Whitelist) لحقول الإدخال والبيانات المالية للنسخ */
-input, 
-textarea, 
-.is-copyable, 
-.is-copyable *, 
-.num-en, 
-.allow-select {
-    -webkit-user-select: text !important;
-    -moz-user-select: text !important;
-    -ms-user-select: text !important;
-    user-select: text !important;
-}
-/* =========================================================
    [ 6. الهيكل العام والحالات الفارغة (Layout & Empty States) ]
    ========================================================= */
 .main-scroll, .content-area, .top-container, #store-grid, .grid-layout {
@@ -455,10 +469,14 @@ textarea,
 .main-scroll, .content-area { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
 
 /* 🌟 الإخفاء الموحد لأشرطة التمرير */
-.main-scroll::-webkit-scrollbar, .content-area::-webkit-scrollbar, .grid-layout::-webkit-scrollbar, .pm-scroll-content::-webkit-scrollbar { 
-    display: none; width: 0px; background: transparent; 
+/* 🌟 الإخفاء الموحد لأشرطة التمرير (دعم جميع المتصفحات) */
+.main-scroll, .content-area, .grid-layout, .pm-scroll-content { 
+    scrollbar-width: none; 
+    -ms-overflow-style: none; 
 }
-
+.main-scroll::-webkit-scrollbar, .content-area::-webkit-scrollbar, .grid-layout::-webkit-scrollbar, .pm-scroll-content::-webkit-scrollbar { 
+    display: none; width: 0; background: transparent; 
+}
 /* --- الحالات الفارغة (Empty States) --- */
 .empty-state-v2 {
     grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; 
@@ -526,29 +544,29 @@ textarea,
     display: flex; align-items: center; gap: 10px; flex-direction: row; 
     transition: all var(--trans-speed) ease; justify-content: flex-start;
     flex: 0 1 auto; min-width: 0; overflow: visible; 
-    /* 🌟 تم حذف direction: ltr ليتجاوب الفليكس بوكس بذكاء مع لغة الموقع */
 }
-
-/* 🌟 تم حذف كلاس .logo-area.is-en بالكامل لأنه لم يعد له داعٍ */
 
 .brand-logo-dynamic { height: auto; flex-shrink: 0; object-fit: contain; transition: transform 0.3s ease; }
 .brand-text-dynamic {
     color: var(--text-main); transition: color var(--trans-speed) ease; 
-    /* 🌟 تم حذف direction: rtl لترك النصوص تتأقلم مع الحاوية */
     white-space: nowrap; text-overflow: clip; font-size: clamp(14px, 4.5vw, 20px); font-weight: var(--fw-head);
     overflow: visible; line-height: 1.4; padding-bottom: 5px; display: inline-block; min-width: 0; 
 }
 
 .header-actions-right { display: flex; align-items: center; gap: 10px; padding-inline: 4px; flex-shrink: 0; }
 
+/* 🌟 الإصلاح المعماري الجذري: إرجاع التوسيط الهندسي المطلق وحماية الأزرار */
 .action-btn, .theme-toggle-btn {
     width: 38px; height: 38px; border-radius: var(--radius-sm); 
-    display: flex; align-items: center; justify-content: center; font-size: 16px; 
+    display: flex; align-items: center; justify-content: center; /* 🎯 التوسيط الداخلي */
+    padding: 0; margin: 0; line-height: 1; /* 🎯 قتل المسافات الوهمية لتوسيط الأيقونة بالمليمتر */
+    font-size: 16px; 
     cursor: pointer; transition: all var(--trans-speed) cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .action-btn { background: var(--bg-hover); color: var(--icon-color); border: var(--card-border); }
-.theme-toggle-btn { background: transparent; border: none; color: var(--icon-color); padding: 0; box-shadow: none; }
+.theme-toggle-btn { background: transparent; border: none; color: var(--icon-color); box-shadow: none; }
+
 @media (hover: hover) and (pointer: fine) {
     .action-btn:hover { background: var(--bg-glass); border-color: var(--primary); color: var(--primary); transform: translateY(-1px); }
     body.light-mode .store-header .action-btn:hover { background: rgba(0, 0, 0, 0.04); }
@@ -569,16 +587,29 @@ textarea,
     --sub-header-height: 48px;  
 }
 
-
-/* 🛠️ الإظهار الذكي: يظهر فقط إذا كان المتجر لا يحتوي على كلاس is-home */
-body:not(.is-home) .section-header-modern, 
-body:not(.is-home) #sticky-header-bar { 
+.section-header-modern, #sticky-header-bar {
+    position: -webkit-sticky;
+    position: sticky; top: 0; left: 0; z-index: calc(var(--z-navbar) - 1); 
+    width: 100%; height: var(--sub-header-height); min-height: var(--sub-header-height); padding: 0 5px 0 15px; 
+    
+    /* 🌟 التعديل هنا: شفافية 88% تسمح برؤية انزلاق المنتجات تحت الشريط بشكل أنيق (وبدون بلور كما طلبت) */
+    background: rgba(15, 23, 42, 0.88); 
+    
+    border-bottom: var(--border-compact); 
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    transition: all var(--trans-speed) cubic-bezier(0.25, 0.8, 0.25, 1);
+    transform: translateZ(0); will-change: transform; 
+    
+    /* ✅ تم الإصلاح: استبدال none بـ flex لكي يظهر الشريط مع محتوياته */
     display: flex; 
-    align-items: center; 
+    align-items: center;
 }
 
+/* 🌟 الوضع النهاري: شفافية 90% (بدون بلور) */
 body.light-mode .section-header-modern, body.light-mode #sticky-header-bar { 
-    background: rgba(255, 255, 255, 0.9); border-bottom: 1px solid var(--border-light); box-shadow: 0 4px 15px rgba(0,0,0,0.03); 
+    background: rgba(255, 255, 255, 0.90); 
+    border-bottom: 1px solid var(--border-light); 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
 }
 
 .header-right-group { display: flex; align-items: center; justify-content: flex-start; gap: 5px; width: 100%; height: 100%; }
@@ -606,7 +637,6 @@ body.is-home #smart-back-btn, body.is-home .modern-back-btn {
     opacity: 0 !important; 
     transform: translateX(10px) scale(0.9) !important;
 }
-
 /* =========================================================
    [ 9. القائمة الجانبية الموحدة (Sidebar Engine VIP) ]
    ========================================================= */
@@ -757,7 +787,7 @@ body.light-mode .btn-guest-google:hover { background: var(--bg-hover); border-co
 
 /* --- محرك الشريط الإخباري (News Ticker) --- */
 .hero-ticker-section { width: 100%; height: 48px; background: var(--bg-input); display: flex; align-items: center; padding: 0 12px; position: relative; overflow: hidden; z-index: 1; border-top: var(--card-border); transition: border-top var(--trans-speed), background-color var(--trans-speed); }
-.ticker-icon-box { width: 32px; height: 32px; z-index: 20; position: relative; display: flex; align-items: center; justify-content: center; background: var(--bg-hover); color: var(--primary); border: var(--card-border); border-radius: var(--radius-sm); flex-shrink: 0; order: 2; margin-right: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.15); transition: border-color var(--trans-speed), box-shadow var(--trans-speed); }
+.ticker-icon-box { width: 32px; height: 32px; z-index: 20; position: relative; background: var(--bg-hover); color: var(--primary); border: var(--card-border); border-radius: var(--radius-sm); flex-shrink: 0; order: 2; margin-right: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.15); transition: border-color var(--trans-speed), box-shadow var(--trans-speed); }
 .ticker-icon-box i { mask-image: linear-gradient(to right, black 40%, transparent 100%); -webkit-mask-image: linear-gradient(to right, black 40%, transparent 100%); mask-size: 200% 100%; mask-position: right; animation: luxuryPulse 2.5s infinite ease-out; }
 
 .ticker-content-mask { position: relative; flex-grow: 1; height: 100%; overflow: hidden; z-index: 10; mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%); -webkit-mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%); }
@@ -818,7 +848,7 @@ body.hero-hidden .hero-block-wrapper { display: none; }
     /* 🌟 إزالة !important المزعجة لتسهيل التعديل */
     height: calc(115px + (4 - var(--layout-cols, 2)) * 35px); 
     position: relative; isolation: isolate; cursor: pointer;
-    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    
 }
 
 .cat-img-box {
@@ -832,10 +862,20 @@ body.hero-hidden .hero-block-wrapper { display: none; }
 .cat-name-box {
     position: relative; z-index: 3; margin-top: calc(-16px + (4 - var(--layout-cols, 2)) * -4px); 
     width: 90%; min-height: calc(34px + (4 - var(--layout-cols, 2)) * 4px); padding: 4px 8px; 
-    background: var(--bg-glass-heavy); 
+    
+    /* 🚀 التحديث هنا: خلفية شبه صلبة مع عزل ضبابي (Blur) لقتل تفاصيل الصورة خلف النص */
+    background: rgba(15, 23, 42, 0.96); 
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    
     border-radius: 12px; border: var(--card-border); box-shadow: var(--shadow-soft);
     display: flex; justify-content: center; align-items: center; text-align: center;
     transition: all var(--trans-speed);
+}
+
+/* 🌟 دعم الوضع النهاري (Light Mode) ليكون ناصعاً ومقروءاً */
+body.light-mode .cat-name-box {
+    background: rgba(255, 255, 255, 0.98);
 }
 
 .cat-name {
@@ -923,7 +963,7 @@ body.hero-hidden .hero-block-wrapper { display: none; }
 }
 
 .default-prod-icon, .img-placeholder {
-    width: 100%; height: 100%; min-height: 80px; display: flex; align-items: center; justify-content: center; 
+    width: 100%; height: 100%; min-height: 80px; 
     background: var(--bg-glass-dark); border-radius: inherit; color: var(--text-muted); font-size: 28px; opacity: 0.7; transition: var(--trans-speed);
 }
 body.light-mode .default-prod-icon, body.light-mode .img-placeholder { background: var(--bg-compact); color: var(--primary-dim); }
@@ -1042,7 +1082,7 @@ body.light-mode .bottom-nav::before {
 .cat-card, .product-card,
 .cat-img-box img, .cat-card img, .product-card img {
     -webkit-user-drag: none; user-drag: none;
-    -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+    
 }
 
 /* 🛡️ منع تداخل الشارات والمؤقتات إذا تواجدت في نفس الزاوية بالضبط */
@@ -1241,7 +1281,7 @@ body.light-mode .modern-switch-btn { box-shadow: inset 0 2px 4px rgba(0,0,0,0.1)
 
 .pm-fav-btn {
     width: 42px; height: 42px; background: var(--bg-card); border: var(--card-border); border-radius: var(--radius-sm);
-    display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 20px; 
+     color: var(--text-muted); font-size: 20px; 
     cursor: pointer; transition: all var(--trans-speed); 
 }
 @media (hover: hover) and (pointer: fine) {
@@ -1264,15 +1304,29 @@ body.light-mode .modern-switch-btn { box-shadow: inset 0 2px 4px rgba(0,0,0,0.1)
 .checkout-coupon-wrap { width: 100%; overflow: hidden; background: var(--bg-glass-light); border: var(--border-nested); border-radius: 10px; margin-bottom: 12px; outline: none; }
 .qty-control-box { display: none !important; }
 
-.pm-buttons-row { display: flex; gap: 12px; align-items: stretch; margin-top: 5px; width: 100%; }
-.pm-buttons-row.checkout-actions { margin-top: 15px; padding-top: 20px; border-top: var(--border-nested); position: relative; }
+/* 🌟 حماية صف الأزرار من الالتفاف والتقلص */
+.pm-buttons-row { display: flex; gap: 12px; align-items: stretch; margin-top: 5px; width: 100%; flex-shrink: 0; flex-wrap: nowrap; }
+.pm-buttons-row.checkout-actions { margin-top: 15px; padding-top: 20px; border-top: var(--border-nested); position: relative; flex-shrink: 0; }
 
+/* 🌟 صندوق السعر المدرع (تم إزالة البلور لمنع وميض الكيبورد + تجميد الأبعاد) */
 .price-panel-footer {
-    flex: 0 0 auto; min-width: 120px; background: var(--bg-card); backdrop-filter: var(--blur-glass); -webkit-backdrop-filter: var(--blur-glass); 
+    flex: 0 0 auto; flex-shrink: 0; 
+    min-width: 120px; height: 60px; min-height: 60px; 
+    
+    /* 🚫 تم حذف backdrop-filter واستبداله بلون صلب شبه شفاف لحماية الرندر */
+    background: rgba(15, 23, 42, 0.98); 
+    
     background-clip: padding-box; border: 1px solid rgba(var(--primary-rgb), 0.3); border-radius: var(--radius-lg); 
-    padding: 8px 16px; display: flex; flex-direction: column; justify-content: center; align-items: center; 
-    box-shadow: inset 0 0 10px rgba(0,0,0,0.05), var(--shadow-soft); transition: all var(--trans-speed);
+    padding: 0 16px; display: flex; flex-direction: column; justify-content: center; align-items: center; 
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.1), var(--shadow-soft); 
+    
+    /* 🌟 إيقاف الحركات العشوائية أثناء فتح الكيبورد وتجميد العنصر في الـ GPU */
+    transition: border-color var(--trans-speed), box-shadow var(--trans-speed);
+    transform: translateZ(0); backface-visibility: hidden;
 }
+
+/* دعم الوضع النهاري للصندوق المدرع */
+body.light-mode .price-panel-footer { background: rgba(255, 255, 255, 0.98); }
 
 .price-box { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 100px; min-height: 38px; }
 .price-stack { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
@@ -1283,7 +1337,8 @@ body.light-mode .modern-switch-btn { box-shadow: inset 0 2px 4px rgba(0,0,0,0.1)
 .old-price .money-pro { text-decoration: line-through; text-decoration-color: rgba(255, 255, 255, 0.4); text-decoration-thickness: 1px; }
 .price-box.active .old-price { font-size: 12.5px; height: 14px; margin-bottom: 3px; opacity: 0.7; transform: translateY(0); }
 
-.pm-buttons-row .pm-btn-gold { flex: 1; height: 60px; border-radius: var(--radius-lg); padding: 0 20px; font-size: 18px; gap: 10px; }
+/* 🌟 زر الشراء الذهبي محصن أيضاً */
+.pm-buttons-row .pm-btn-gold { flex: 1; height: 60px; min-height: 60px; flex-shrink: 0; border-radius: var(--radius-lg); padding: 0 20px; font-size: 18px; gap: 10px; }
 /* =========================================================
    [ 20. الإدارة المركزية للحقول والقوائم (Clean Royal Inputs) ]
    ========================================================= */
@@ -1320,19 +1375,18 @@ body.light-mode .modern-switch-btn { box-shadow: inset 0 2px 4px rgba(0,0,0,0.1)
 }
 
 /* 🌟 منع الآيفون من عمل زووم إجباري بتثبيت حجم الخط على 16 بكسل في الشاشات الصغيرة */
+/* 🌟 منع الآيفون من عمل زووم إجباري بتثبيت حجم الخط على 16 بكسل (للحقول الفعلية فقط) */
 @media screen and (max-width: 768px) {
+
     .floating-group .floating-input,
     .custom-dropdown-container .dropdown-trigger,
     .pm-float-box input,
     .pm-quantity-group,
     .lux-input,
-    .c-input,
-    .c-input::placeholder,
-    .lux-input::placeholder {
+    .c-input {
         font-size: 16px !important;
     }
-}
-/* 🌟 نظام التسميات العائمة */
+}/* 🌟 نظام التسميات العائمة */
 .floating-group .floating-label { 
     position: absolute; 
     inset-inline-start: 14px; 
@@ -1349,7 +1403,7 @@ body.light-mode .modern-switch-btn { box-shadow: inset 0 2px 4px rgba(0,0,0,0.1)
 }
 
 /* 🌟 القوائم المنسدلة المخصصة (Dropdowns) */
-.custom-dropdown-container { position: relative; width: 100%; margin-bottom: 15px; user-select: none; }
+.custom-dropdown-container { position: relative; width: 100%; margin-bottom: 15px; }
 .dropdown-trigger { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
 .dropdown-trigger:active { transform: scale(0.98); }
 
@@ -1419,7 +1473,8 @@ body.light-mode .dropdown-menu {
 .custom-dropdown-container.currency-dropdown .dropdown-item, .split-dropdown .dropdown-item { width: 100%; padding: 10px 4px; margin: 0; border-radius: 0; font-size: 13px; text-align: center; justify-content: center; white-space: nowrap; border-bottom: var(--card-border); }
 
 .pm-quantity-group { display: flex; align-items: center; justify-content: space-between; padding: 4px; height: 56px; width: 100%; margin-bottom: 15px; box-sizing: border-box; }
-.pm-qty-btn { width: 46px; height: 100%; border-radius: var(--radius-sm); cursor: pointer; background: var(--bg-hover); border: var(--card-border); color: var(--text-main); font-size: 18px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all var(--trans-speed); user-select: none; }
+.pm-qty-btn { width: 46px; height: 100%; border-radius: var(--radius-sm); cursor: pointer; background: var(--bg-hover); border: var(--card-border); color: var(--text-main); font-size: 18px; font-weight: bold; 
+transition: all var(--trans-speed); user-select: none; }
 @media (hover: hover) and (pointer: fine) { .pm-qty-btn:hover { background: var(--primary-glow); color: var(--primary); border-color: var(--primary-glow); } }
 .pm-qty-btn:active { transform: scale(0.9); background: var(--primary); color: var(--gold-text); border-color: var(--primary); }
 .pm-qty-input { background: transparent; border: none; color: var(--primary); font-size: 22px; font-weight: 900; font-family: 'Inter', sans-serif; text-align: center; flex-grow: 1; height: 100%; direction: ltr; text-shadow: var(--text-shadow-lux); outline: none; }
@@ -1448,7 +1503,7 @@ body.light-mode .dropdown-menu {
 /* --- حالة التحميل (Switch State) --- */
 .btn-pro.is-loading, .bal-submit-btn-new.is-loading, .pm-btn-gold.is-loading, .alert-btn.is-loading { 
     pointer-events: none !important; cursor: wait !important; transform: scale(0.98); 
-    user-select: none; -webkit-user-select: none; /* 🌟 منع تحديد النص بالخطأ أثناء الضغط */
+     /* 🌟 منع تحديد النص بالخطأ أثناء الضغط */
 }
 
 /* إخفاء المحتوى بذكاء مع الحفاظ على أبعاد الزر */
@@ -1576,7 +1631,7 @@ body.light-mode .dropdown-menu {
 .pay-icon-wrapper {
     width: 60px; height: 60px; flex-shrink: 0; border-radius: 14px; overflow: hidden; 
     background: var(--bg-input); border: var(--border-nested);
-    display: flex; align-items: center; justify-content: center; position: relative; 
+     position: relative; 
     box-shadow: var(--shadow-input-inner); transform: rotate(0deg) scale(1); transition: all var(--trans-speed);
 }
 .pay-icon-img { width: 100%; height: 100%; object-fit: cover; transition: transform var(--trans-speed); }
@@ -1934,19 +1989,29 @@ html[dir="ltr"] .bal-input-new {
     border: var(--border-nested); box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 14px;
     overflow: visible; touch-action: pan-y;
 }
-
 .security-pass-wrapper .input-field-lux { margin-bottom: 0; }
 .security-pass-wrapper .input-field-lux label { color: var(--text-muted); font-size: 12px; margin-bottom: 6px; }
 
 .security-pass-wrapper .lux-input {
     height: 52px; padding: 0 18px; border: 1.5px solid rgba(var(--primary-rgb), 0.15);
-    font-size: 18px; font-family: 'Inter', sans-serif; letter-spacing: 4px; 
-    text-align: right; direction: rtl; transition: all var(--trans-speed);
+    
+    /* 🌟 الحل الجذري للتناسق (تصغير الخط وتقليل التباعد المفرط) */
+    font-size: 14.5px; 
+    font-weight: 800; 
+    font-family: 'Inter', sans-serif; 
+    letter-spacing: 1.5px; 
+    
+    /* 🌟 حماية اتجاه كلمة المرور لتكتب الإنجليزية والأرقام بشكل سليم */
+    text-align: right; 
+    direction: ltr; 
+    
+    transition: all var(--trans-speed);
 }
 .security-pass-wrapper .lux-input:focus { transform: translateY(-2px); border-color: var(--primary); box-shadow: var(--shadow-input-inner), var(--shadow-glow); }
 
 .security-pass-wrapper .lux-input::placeholder {
-    letter-spacing: 0; font-family: var(--font-family-main); font-size: 13.5px; font-weight: 600; color: var(--text-muted); opacity: 0.6;
+    letter-spacing: 0; font-family: var(--font-family-main); font-size: 12.5px; font-weight: 600; color: var(--text-muted); opacity: 0.6;
+    direction: rtl; /* 🌟 إبقاء النص التوضيحي متجهاً للغة العربية */
 }
 
 body.light-mode .security-pass-wrapper .lux-input { border-color: rgba(var(--primary-rgb), 0.4); }
@@ -1954,8 +2019,7 @@ body.light-mode .security-pass-wrapper .lux-input { border-color: rgba(var(--pri
 .danger-zone-wrapper {
     background: rgba(var(--danger-rgb), 0.04); border: 1px dashed rgba(var(--danger-rgb), 0.25);
     padding: 18px; border-radius: var(--radius-lg); display: flex; flex-direction: column; gap: 15px;
-}
-/* =========================================================
+}/* =========================================================
    [ 28. نافذة المستويات الملكية V9 - Professional UI ]
    ========================================================= */
 .tm-wrapper { text-align: center; padding: 35px 20px; }
@@ -2374,29 +2438,60 @@ body.light-mode .oh-left { background: var(--bg-compact); border-inline-start-co
 body.light-mode .oh-input-line { background: var(--bg-compact); border-color: var(--border-light); color: var(--primary-dim); }
 
 .oh-date-time { margin-top: auto; font-size: 11.5px; font-weight: 600; color: var(--text-muted); opacity: 0.8; }
+/* 🌟 المحاذاة المنطقية المدرعة (Status, Price, Order) - لا تتأثر باللغة أبداً */
+.oh-status-box, .oh-order-box { 
+    width: 100%; 
+    display: flex; 
+    align-items: center;
+}
 
-/* 🌟 استخدام end بدلاً من left */
-.oh-status-box { width: 100%; text-align: end; }
-.oh-status { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+/* =========================================================
+   [ البنية المعمارية للطرف الأيسر من الكرت ]
+   ========================================================= */
 
-.oh-price-box { width: 100%; margin-top: 10px; margin-bottom: 6px; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 6px; }
-.oh-amount { font-family: 'Inter', sans-serif; font-size: 15px; font-weight: 900; color: var(--primary); text-shadow: var(--text-shadow-lux); }
+/* 🌟 1. إجبار العمود بأكمله على دفع محتوياته لليسار (النهاية في العربي) */
+.oh-left {
+    flex-shrink: 0; width: 160px; min-width: 160px; padding: 14px; 
+    display: flex; flex-direction: column; justify-content: space-between;
+    
+    /* السحر يبدأ هنا: هذا الأمر يدفع الكتل الداخلية كقطعة واحدة لأقصى اليسار */
+    align-items: flex-end; 
+    
+    background: var(--bg-glass-dark); 
+    border-inline-start: 1px dashed var(--border-light); 
+    border-start-end-radius: var(--radius-lg); border-end-end-radius: var(--radius-lg);
+}
+body.light-mode .oh-left { background: var(--bg-compact); border-inline-start-color: rgba(0,0,0,0.06); }
+
+/* 🌟 2. تجريد الصناديق من التمدد (width: auto) لكي لا يتلاعب بها المتصفح */
+.oh-status-box, .oh-order-box { 
+    width: auto; /* إلغاء التمدد */
+    display: flex; align-items: center; 
+}
+
+.oh-price-box { 
+    width: auto; /* إلغاء التمدد */
+    margin-top: 10px; margin-bottom: 6px; 
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px; 
+}
+
+/* باقي التنسيقات والألوان كما هي تماماً */
+.oh-status { display: inline-flex; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+
+.oh-amount { font-family: 'Inter', sans-serif; font-size: 15px; font-weight: 900; color: var(--primary); text-shadow: var(--text-shadow-lux); direction: ltr; }
 body.light-mode .oh-amount { color: var(--primary-dim); }
 
-.oh-qty-badge { padding: 2px 6px; border-radius: 4px; background: var(--bg-glass-light); border: var(--border-nested); color: var(--text-sub); font-family: 'Inter', sans-serif; font-size: 11.5px; font-weight: 800; }
+.oh-qty-badge { padding: 2px 6px; border-radius: 4px; background: var(--bg-glass-light); border: var(--border-nested); color: var(--text-sub); font-family: 'Inter', sans-serif; font-size: 11.5px; font-weight: 800; direction: ltr; }
 body.light-mode .oh-qty-badge { background: var(--bg-card); border-color: var(--border-light); }
 
-/* 🌟 استخدام end بدلاً من left */
-.oh-order-box { width: 100%; text-align: end; }
 .oh-order-number { 
     padding: 4px 10px; border-radius: var(--radius-sm);
     background: var(--bg-glass); border: var(--border-nested); color: var(--text-muted); 
     font-family: 'Inter', monospace; font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px;
     display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
+    direction: ltr; 
 }
-body.light-mode .oh-order-number { background: var(--bg-hover); color: var(--text-sub); }
-
-/* =========================================================
+body.light-mode .oh-order-number { background: var(--bg-hover); color: var(--text-sub); }/* =========================================================
    [ 32. 🎁 كبسولات الخصم الفاخرة (Discount Badges) ]
    ========================================================= */
 .oh-discount-badge {
@@ -2577,6 +2672,65 @@ body.light-mode .nm-btn-print-magic { background: var(--bg-card); border-color: 
     .nm-btn-print-magic:hover { background: var(--primary); color: var(--gold-text); box-shadow: 0 8px 25px var(--primary-glow); transform: translateY(-2px); border-style: solid; }
 }
 .nm-btn-print-magic:active { transform: translateY(0) scale(0.96); }
+/* =========================================================
+   [ إصلاح أيقونات النسخ المدمجة داخل النصوص (Inline Copy Icons Fix) ]
+   ========================================================= */
+
+/* 🚀 ترويض لون أيقونات النسخ المدمجة (i) لتكون باهتة وشفافة بدلاً من الأبيض الفاقع */
+.ph-item-val i.fa-copy,
+.ph-item-val i.fa-clone,
+.nm-val i.fa-copy,
+.nm-val i.fa-clone,
+.oh-input-line i.fa-copy,
+.oh-input-line i.fa-clone,
+.is-copyable i.fa-copy,
+.is-copyable i.fa-clone,
+[data-action="copy"] i.fa-copy,
+[data-action="copy"] i.fa-clone {
+    color: var(--text-muted) !important; /* لون هادئ جداً يندمج مع الخلفية */
+    opacity: 0.65; /* شفافية احترافية لعدم تشتيت العين */
+    font-size: 0.9em; /* تصغير الأيقونة قليلاً لتناسب حجم النص */
+    margin-inline-start: 8px; /* مسافة مريحة بين الأيقونة والنص */
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* 🌟 التفاعل عند مرور الماوس: تضيء الأيقونة باللون الذهبي الفخم */
+@media (hover: hover) and (pointer: fine) {
+    .ph-item-val:hover i.fa-copy,
+    .ph-item-val:hover i.fa-clone,
+    .nm-val:hover i.fa-copy,
+    .nm-val:hover i.fa-clone,
+    .is-copyable:hover i.fa-copy,
+    .is-copyable:hover i.fa-clone {
+        color: var(--primary) !important;
+        opacity: 1; /* إزالة الشفافية لتلمع */
+        transform: scale(1.15) translateY(-1px);
+        filter: drop-shadow(0 2px 4px rgba(var(--primary-rgb), 0.3));
+    }
+}
+
+/* 🌟 تأثير النقر (Active) */
+.ph-item-val:active i.fa-copy,
+.ph-item-val:active i.fa-clone,
+.nm-val:active i.fa-copy,
+.nm-val:active i.fa-clone,
+.is-copyable:active i.fa-copy,
+.is-copyable:active i.fa-clone {
+    transform: scale(0.9);
+    color: var(--primary) !important;
+}
+
+/* 🌟 حالة النسخ الناجح (تتحول فوراً للأخضر المضيء) */
+.is-copied i.fa-copy,
+.is-copied i.fa-clone,
+.is-copied.ph-item-val i.fa-copy,
+.is-copied.ph-item-val i.fa-clone {
+    color: var(--success) !important;
+    opacity: 1 !important;
+    transform: scale(1.2);
+    filter: drop-shadow(0 0 5px rgba(var(--success-rgb), 0.5));
+}
 
 /* =========================================================
    [ 36. صندوق الرد اليدوي للإدارة (Admin Reply Box) ]
@@ -3507,6 +3661,18 @@ select.lux-input:invalid { color: var(--text-muted); }
 select.lux-input:valid { color: var(--text-main); }
 select.lux-input option { color: var(--text-main); background: var(--bg-modal); }
 
+/* 🚀 إضافة سهم مخصص للقوائم المنسدلة يتوافق مع اللغة (RTL/LTR) */
+select.lux-input {
+    padding-inline-end: 35px; /* ترك مساحة للسهم */
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23FFD700%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: left 15px center; /* السهم على اليسار في الواجهة العربية */
+    background-size: 12px auto;
+}
+html[dir="ltr"] select.lux-input {
+    background-position: right 15px center; /* ينقلب السهم لليمين في الواجهة الإنجليزية */
+}
+
 /* --- [ 5. شبكة الرفع والمعاينة لتوثيق الهوية (KYC Upload Grid) ] --- */
 .kyc-upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; margin-bottom: 18px; }
 
@@ -3922,7 +4088,7 @@ body.light-mode .custom-alert-card, body.light-mode .global-alert-card, body.lig
 .bio-icon-box {
     width: 80px; height: 80px; margin: 0 auto 20px; border-radius: 50%;
     background: rgba(var(--primary-rgb), 0.1); border: 2px solid var(--primary);
-    display: flex; justify-content: center; align-items: center; color: var(--primary); font-size: 35px;
+     color: var(--primary); font-size: 35px;
 }
 .bio-icon-box.pulse-anim { animation: bioPulse 2s infinite; }
 @keyframes bioPulse { 0% { box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0.4); } 70% { box-shadow: 0 0 0 20px rgba(var(--primary-rgb), 0); } 100% { box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0); } }
@@ -4121,3 +4287,142 @@ body.light-mode .pwa-banner-wrapper {
     gap: 8px; padding: 14px 20px; border-radius: var(--radius-md); 
     font-size: 14px; width: 100%; z-index: 2;
 }
+/* ============================================================================
+   [ 64. صفحات المصادقة والتسجيل (Auth & Login Pages) - Anti-Bleed Engine ]
+   ============================================================================ */
+/* 🛡️ 1. صبغ جذور المتصفح: يمنع تسرب اللون الأبيض عند حدود الشاشة نهائياً */
+html, body {
+    background-color: var(--bg-body) !important;
+    overscroll-behavior-y: none; /* يمنع الارتداد المطاطي للشاشة */
+}
+
+.auth-page-wrapper {
+    min-height: 100vh; min-height: 100dvh; 
+    display: flex; justify-content: center; align-items: center; padding: 20px;
+    background-color: var(--bg-body);
+    
+    /* 🛡️ إيقاف التضخم في الشاشات الكبيرة */
+    --fs-base: 14px; --fs-label: 14px; --fs-title: 22px; --fs-small: 12px;
+}
+
+.auth-container {
+    box-sizing: border-box;
+    width: 100%; max-width: 440px; 
+    padding: 40px 30px; margin: auto; 
+    position: relative; z-index: 1;
+    border-radius: 24px;
+    
+    /* 🌟 2. لون صلب شبه معتم (0.95): يخفف الضغط عن محرك البلور ويمنع التشوه */
+    background-color: rgba(15, 23, 42, 0.95); 
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    
+    /* إطار زجاجي ناعم */
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background-clip: padding-box;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    
+    /* ❌ تمت إزالة خصائص الـ Transform و GPU لمنع ذعر المتصفح عند فتح الكيبورد */
+    
+    animation: fadeInMain 0.6s ease-out forwards;
+}
+
+/* دعم الوضع النهاري */
+body.light-mode .auth-container { 
+    background-color: rgba(255, 255, 255, 0.98);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.08); 
+}
+
+/* أحجام الحقول والأزرار */
+.auth-container .lux-input { height: 52px !important; }
+.auth-container .pm-btn-gold.btn-pro { height: 54px !important; min-height: 54px !important; font-size: 15px !important; }
+
+/* 🌟 شبكة الحقول (الاسم الأول والأخير متجاورين في صفحة التسجيل) */
+.form-grid { 
+    display: grid; 
+    grid-template-columns: 1fr 1fr; 
+    gap: 20px 12px; 
+    margin-bottom: 20px;
+}
+.form-grid .floating-group { 
+    margin-bottom: 0 !important; 
+    grid-column: 1 / -1; 
+}
+.form-grid .floating-group:nth-child(1),
+.form-grid .floating-group:nth-child(2) { 
+    grid-column: span 1; 
+}
+@media (max-width: 380px) {
+    .form-grid .floating-group:nth-child(1),
+    .form-grid .floating-group:nth-child(2) { 
+        grid-column: 1 / -1; 
+    }
+}
+
+.auth-header { text-align: center; margin-bottom: 25px; }
+.auth-header h1 { color: var(--text-main); font-size: 24px; font-weight: 900; margin-bottom: 4px; }
+.auth-header .glow-gold { color: var(--primary); text-shadow: var(--shadow-glow); }
+.auth-header .sub-text { color: var(--text-muted); font-size: 13px; font-weight: 700; }
+
+.btn-google-auth {
+    width: 100%; margin-bottom: 25px; 
+    background: var(--bg-input); border: var(--card-border); border-radius: var(--radius-md);
+    color: var(--text-main); height: 50px !important; font-size: 14px !important; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    cursor: pointer; transition: all var(--trans-speed); box-shadow: var(--shadow-input-inner);
+}
+@media (hover: hover) and (pointer: fine) {
+    .btn-google-auth:hover { background: var(--bg-hover); border-color: var(--primary); transform: translateY(-1px); }
+}
+.btn-google-auth:active { transform: scale(0.97); }
+
+.auth-divider { 
+    display: flex; align-items: center; text-align: center; 
+    margin-top: 25px; margin-bottom: 25px; 
+    color: var(--text-muted); font-size: 12px; font-weight: 700; 
+}
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; border-bottom: var(--border-nested); }
+.auth-divider span { padding: 0 15px; }
+
+/* 🛡️ 3. تثبيت أيقونة العين وحماية النص من التداخل (تم حلها نهائياً) */
+.auth-eye-icon { 
+    position: absolute; 
+    left: 15px !important; right: auto !important; 
+    top: 50%; transform: translateY(-50%); 
+    cursor: pointer; color: var(--text-muted); z-index: 10; 
+    transition: color var(--trans-speed); display: flex; align-items: center; 
+}
+.auth-eye-icon:hover, .auth-eye-icon.active { color: var(--primary); }
+.auth-eye-icon svg { width: 20px; height: 20px; }
+.eye-closed { display: block; } .eye-open { display: none; }
+.auth-eye-icon.active .eye-closed { display: none; } .auth-eye-icon.active .eye-open { display: block; }
+
+.auth-container .floating-group.has-eye .lux-input,
+.auth-container .floating-group.has-eye .floating-input { 
+    padding-left: 45px !important; 
+    padding-right: 15px !important;
+    text-align: left !important;
+    direction: ltr !important;
+}
+
+/* التحذيرات والخيارات */
+.password-warning { margin-top: -5px; margin-bottom: 15px; background: var(--warning-bg); border: 1px solid rgba(var(--warning-rgb), 0.3); border-radius: var(--radius-sm); padding: 10px 12px; display: none; align-items: flex-start; gap: 8px; animation: fadeInDown 0.3s ease; }
+.password-warning svg { width: 18px; height: 18px; color: var(--warning); flex-shrink: 0; margin-top: 2px; }
+.password-warning span { font-size: 12px; color: var(--text-main); line-height: 1.6; font-weight: 700; text-align: start; }
+.password-warning span strong { color: var(--warning); font-weight: 900; }
+
+.auth-footer-link { text-align: center; margin-top: 25px; font-size: 13.5px; color: var(--text-muted); font-weight: 700; }
+.auth-footer-link a { color: var(--primary); text-decoration: none; font-weight: 900; transition: all var(--trans-speed); }
+.auth-footer-link a:hover { filter: drop-shadow(var(--shadow-glow)); text-decoration: underline; text-underline-offset: 4px; }
+
+.form-options { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; margin-top: 5px; font-size: 13.5px; }
+.checkbox-container { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-muted); user-select: none; font-weight: 700; transition: color var(--trans-speed); }
+.checkbox-container:hover { color: var(--text-main); }
+.custom-checkbox { width: 18px; height: 18px; border: var(--card-border); border-radius: 5px; background: var(--bg-input); display: flex; align-items: center; justify-content: center; transition: all var(--trans-speed); }
+input[type="checkbox"]:checked + .custom-checkbox { background: var(--primary); border-color: var(--primary); }
+input[type="checkbox"] { display: none; }
+.custom-checkbox svg { width: 12px; height: 12px; color: var(--gold-text); display: none; }
+input[type="checkbox"]:checked + .custom-checkbox svg { display: block; }
+.forgot-link { color: var(--text-muted); text-decoration: none; transition: all var(--trans-speed); font-weight: 700; }
+.forgot-link:hover { color: var(--primary); filter: drop-shadow(var(--shadow-glow)); }

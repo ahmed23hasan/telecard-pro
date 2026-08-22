@@ -201,9 +201,9 @@ export const RenderHelpers = Object.freeze({
     },
 
     parseTime: function(ts) {
-        if (ts === null || ts === undefined) return 0;
-        if (typeof ts === 'number') return ts;
-        if (ts instanceof Date) return ts.getTime();
+        // 🛡️ الإصلاح: توحيد سلوك (Pending Write) مع المتجر لمنع ارتداد الطلبات لعام 1970
+        if (ts === null || ts === undefined || ts === '') return Date.now();
+        if (typeof ts === 'number') return ts;        if (ts instanceof Date) return ts.getTime();
         
         if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
         if (ts.seconds !== undefined) return ts.seconds * 1000; 

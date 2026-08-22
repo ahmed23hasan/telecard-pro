@@ -1,9 +1,9 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9.4 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9.5 💎
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع السريع، إدارة الكاش الذكي، والتوافقية
-// 🚀 التحديثات المعمارية (V16.9.4 - Master Sync):
+// 🚀 التحديثات المعمارية (V16.9.5 - Master Sync & Stability):
 // 1. Biometric Deadlock Fix: تفعيل مستمعات الواجهة قبل قفل البصمة لمنع تجميد النظام.
-// 2. SSOT Cache Versioning: توحيد مفتاح الكاش (tc_server_version) مع باقي أجزاء النظام.
+// 2. SSOT Cache Versioning: فصل مفتاح كاش التطبيق عن المنتجات لمنع حلقة التحديث اللانهائية.
 // 3. WebAuthn Base64URL Fix: معالجة فك تشفير البصمة الآمنة ومنع انهيار المتصفح.
 // 4. Ghost Session Protection: توحيد المصادقة مع المحول الداخلي.
 // ============================================================================
@@ -158,10 +158,10 @@ ClientSystem.initFirebaseListeners = function() {
         this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.SETTINGS, 'singleton', (incoming) => {
             if (!incoming) return;            
             const serverVersion = String(incoming.appVersion || '0');
-            // ✅ الاعتماد على المفتاح الموحد للحقيقة المطلقة
-            const localServerVersion = localStorage.getItem('tc_server_version') || '0';
+            // 🛡️ الإصلاح: فصل مفتاح كاش التطبيق (tc_app_version) عن مفتاح الكتالوج
+            const localAppVersion = localStorage.getItem('tc_app_version') || '0';
             
-            if (serverVersion !== '0' && serverVersion !== localServerVersion) {
+            if (serverVersion !== '0' && serverVersion !== localAppVersion) {
                 if (this._isUpdatingServer) return; 
                 this._isUpdatingServer = true;
                 
@@ -176,8 +176,8 @@ ClientSystem.initFirebaseListeners = function() {
                 if(this.showToast) this.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل...', 'success');
                 
                 setTimeout(async () => {
-                    // ✅ حفظ المفتاح الموحد
-                    localStorage.setItem('tc_server_version', serverVersion);
+                    // 🛡️ الإصلاح: حفظ مفتاح التطبيق الصحيح لمنع حلقة التحديث
+                    localStorage.setItem('tc_app_version', serverVersion);
                     const clearPromises = [];
                     
                     const keysToRemove = [];
@@ -410,24 +410,23 @@ ClientSystem.init = async function() {
         // ✅ [إصلاح فخ البصمة]: تشغيل مستمعات الواجهة أولاً لضمان عمل أزرار شاشة القفل
         if (this.initGlobalListeners) this.initGlobalListeners();
         
-        // 🔒 [تفعيل قفل المتجر بالبصمة قبل إكمال التحميل]
+        // 🔒 [تفعيل قفل المتجر بالبصمة بأمان]
         if (DataManager.user && DataManager.user.biometricEnabled) {
-            const isUnlocked = await this.enforceBiometricLock();
-            if (!isUnlocked) {
-                const splash = document.getElementById('global-splash-screen');
-                if (splash) {
-                    splash.style.opacity = '0';
-                    splash.style.visibility = 'hidden';
-                    setTimeout(() => { if (splash) splash.remove(); }, 400);
+            // 🛡️ الإصلاح: لا نوقف الإقلاع بـ (return). 
+            // نسمح للواجهة بالرسم في الخلفية، بينما يمنع الـ Overlay التفاعل حتى ينجح الفتح.
+            this.enforceBiometricLock().then(isUnlocked => {
+                if (!isUnlocked) {
+                    const splash = document.getElementById('global-splash-screen');
+                    if (splash) {
+                        splash.style.opacity = '0';
+                        splash.style.visibility = 'hidden';
+                        setTimeout(() => { if (splash) splash.remove(); }, 400);
+                    }
                 }
-                // النظام سيتوقف، لكن الأزرار تعمل الآن
-                return;
-            }
+            });
         }
         
         if (this.applySavedTheme) this.applySavedTheme();
-        
-        // ✂️ تم إزالة أكواد تحديث العملة من هنا لمنع وميض "USD" الوهمي قبل تحميل الإعدادات
         
         if (this.toggleHeroSection) this.toggleHeroSection(true);
     } catch (e) {}
@@ -468,31 +467,31 @@ ClientSystem.init = async function() {
         localStorage.setItem(CACHE_KEYS.SPLASH_NAME, sName);
         
         if (this.isReady && RenderManager) {
-    // 1. جلب البيانات العامة المسموحة للجميع (الضيوف والمستخدمين)
-    const publicKeys = ['COUNTRIES', 'PAYMENTS'];
-    const promises = publicKeys.map(k => StoreDB.getAll(DB_KEYS[k]).catch(() => []));
-    
-    // 2. حماية أمنية: جلب الكوبونات فقط إذا كان العميل مسجل الدخول!
-    if (DataManager.activeUid) {
-        promises.push(StoreDB.getAll(DB_KEYS.COUPONS).catch(() => []));
-        publicKeys.push('COUPONS');
-    }
-    
-    Promise.all(promises).then(results => {
-        publicKeys.forEach((key, i) => {
-            if (results[i] && results[i].length > 0) {
-                _updateLiveArray(LiveStoreData[key.toLowerCase()], results[i]);
+            // 1. جلب البيانات العامة المسموحة للجميع (الضيوف والمستخدمين)
+            const publicKeys = ['COUNTRIES', 'PAYMENTS'];
+            const promises = publicKeys.map(k => StoreDB.getAll(DB_KEYS[k]).catch(() => []));
+            
+            // 2. حماية أمنية: جلب الكوبونات فقط إذا كان العميل مسجل الدخول!
+            if (DataManager.activeUid) {
+                promises.push(StoreDB.getAll(DB_KEYS.COUPONS).catch(() => []));
+                publicKeys.push('COUPONS');
             }
-        });
-        if (RenderManager.renderHome) RenderManager.renderHome();
-        if (this.initSlider) this.initSlider();
-        if (this.updateDisplayBalance) this.updateDisplayBalance();
-        
-        if (document.getElementById('balance-modal')?.classList.contains('active')) {
-            if (RenderManager.renderPayMethods) RenderManager.renderPayMethods();
+            
+            Promise.all(promises).then(results => {
+                publicKeys.forEach((key, i) => {
+                    if (results[i] && results[i].length > 0) {
+                        _updateLiveArray(LiveStoreData[key.toLowerCase()], results[i]);
+                    }
+                });
+                if (RenderManager.renderHome) RenderManager.renderHome();
+                if (this.initSlider) this.initSlider();
+                if (this.updateDisplayBalance) this.updateDisplayBalance();
+                
+                if (document.getElementById('balance-modal')?.classList.contains('active')) {
+                    if (RenderManager.renderPayMethods) RenderManager.renderPayMethods();
+                }
+            });
         }
-    });
-}
     } catch (e) {
         console.error("🚨 خطأ أثناء محاولة إقلاع الواجهة:", e);
         const splash = document.getElementById('global-splash-screen');

@@ -478,17 +478,24 @@ exports.adminProcessOrder = onCall(async (request) => {
             
             const tiersSnap = await transaction.get(db.collection('telecard_tiers'));
             const tiersData = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+keysToBurn.forEach(keyDoc => {
+    const keyData = keyDoc.data();
+    const burnedKeyRef = db.collection('telecard_vault_returned').doc(keyDoc.id);
+    transaction.set(burnedKeyRef, { ...keyData, isBurned: true, refundedAt: admin.firestore.FieldValue.serverTimestamp(), refundedOrderId: orderId, reason: action, originalPoolId: poolId });
+    transaction.delete(keyDoc.ref);
+    keysBurnedCount++;
+});
 
-            keysToBurn.forEach(keyDoc => {
-                const keyData = keyDoc.data();
-                const burnedKeyRef = db.collection('telecard_vault_returned').doc(keyDoc.id);
-                transaction.set(burnedKeyRef, { ...keyData, isBurned: true, refundedAt: admin.firestore.FieldValue.serverTimestamp(), refundedOrderId: orderId, reason: action, originalPoolId: poolId });
-                transaction.delete(keyDoc.ref);
-                keysBurnedCount++;
-            });
+// 🛡️ الإصلاح: تسجيل الأكواد التالفة والمسترجعة في الخزنة لضمان دقة تقارير المخزون
+if (poolId && keysBurnedCount > 0) {
+    const vaultRef = db.collection('telecard_vault').doc(String(poolId));
+    transaction.set(vaultRef, {
+        burnedCount: admin.firestore.FieldValue.increment(keysBurnedCount),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+}
 
-            let newWalletBal = 0; 
-            if (userSnap.exists) {
+let newWalletBal = 0;            if (userSnap.exists) {
                 const ud = userSnap.data();
                 newWalletBal = safeAdd(ud.walletBalance || 0, Number(orderData.price || 0));
                 let newCycleSpent = ud.tierCycleSpent || 0;
@@ -675,22 +682,22 @@ exports.updateGlobalStatsOnOrder = onDocumentWritten({ document: 'telecard_order
         } else if (after.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(1);
     } else if (before && after && before.status !== after.status) {
         if (before.status === 'completed') {
-            updates['orders.completed'] = FieldValue.increment(-1);
-            updates['financials.totalRevenue'] = FieldValue.increment(-(before.price || 0));
-            updates['financials.totalCost'] = FieldValue.increment(-(before.pricingSnapshot?.costUsd || 0));
-            updates['financials.totalProfit'] = FieldValue.increment(-(before.pricingSnapshot?.netProfitUsd || 0));
-        } else if (before.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(-1);
-        else if (before.status === 'refunded') updates['orders.refunded'] = FieldValue.increment(-1);
+    updates['orders.completed'] = FieldValue.increment(-1);
+    updates['financials.totalRevenue'] = FieldValue.increment(-(before.price || 0));
+    updates['financials.totalCost'] = FieldValue.increment(-(before.pricingSnapshot?.costUsd || 0));
+    updates['financials.totalProfit'] = FieldValue.increment(-(before.pricingSnapshot?.netProfitUsd || 0));
+} else if (before.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(-1);
+// 🛡️ الإصلاح: توحيد حالات الاسترجاع (refunded / returned) لضمان دقة العدادات
+else if (before.status === 'refunded' || before.status === 'returned') updates['orders.refunded'] = FieldValue.increment(-1);
 
-        if (after.status === 'completed') {
-            updates['orders.completed'] = FieldValue.increment(1);
-            updates['financials.totalRevenue'] = FieldValue.increment(after.price || 0);
-            updates['financials.totalCost'] = FieldValue.increment(after.pricingSnapshot?.costUsd || 0);
-            updates['financials.totalProfit'] = FieldValue.increment(after.pricingSnapshot?.netProfitUsd || 0);
-        } else if (after.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(1);
-        else if (after.status === 'refunded') updates['orders.refunded'] = FieldValue.increment(1);
-    }
-    
+if (after.status === 'completed') {
+    updates['orders.completed'] = FieldValue.increment(1);
+    updates['financials.totalRevenue'] = FieldValue.increment(after.price || 0);
+    updates['financials.totalCost'] = FieldValue.increment(after.pricingSnapshot?.costUsd || 0);
+    updates['financials.totalProfit'] = FieldValue.increment(after.pricingSnapshot?.netProfitUsd || 0);
+} else if (after.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(1);
+// 🛡️ الإصلاح: توحيد حالات الاسترجاع عند الإضافة
+else if (after.status === 'refunded' || after.status === 'returned') updates['orders.refunded'] = FieldValue.increment(1);    
     if (Object.keys(updates).length > 0) {
         updates.lastUpdated = FieldValue.serverTimestamp();
         await statsRef.set(updates, { merge: true });

@@ -146,12 +146,30 @@ export const FinancialEngine = {
         
         if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'استنفد الحد الأقصى للاستخدام' };
         if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'غير متاح لهذا المستوى' };
-        if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'غير مخصص لهذا المنتج' };
-        
-        if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.some(u => String(u) === String(user?.uid || user?.id))) {
-            return { valid: false, msg: 'غير مسموح لهذا المستخدم' }; 
-        }
-        
+        // 1. التحقق من تطابق المنتج أو القسم (مع دعم الأقسام المتعددة)
+if (cp.targetProds?.length > 0) {
+    const isProdMatched = cp.targetProds.includes(String(prod.id));
+    let isCatMatched = false;
+    
+    if (Array.isArray(prod.catId)) {
+        isCatMatched = prod.catId.some(cid => cp.targetProds.includes(String(cid)));
+    } else if (Array.isArray(prod.categoryIds)) {
+        isCatMatched = prod.categoryIds.some(cid => cp.targetProds.includes(String(cid)));
+    } else {
+        isCatMatched = cp.targetProds.includes(String(prod.catId)) ||
+            cp.targetProds.includes(String(prod.categoryId)) ||
+            cp.targetProds.includes(String(prod.category_id));
+    }
+    
+    if (!isProdMatched && !isCatMatched) {
+        return { valid: false, msg: 'غير مخصص لهذا المنتج' };
+    }
+}
+
+// 2. التحقق من صلاحية المستخدم (الكوبونات المخصصة)
+if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.some(u => String(u) === String(user?.uid || user?.id))) {
+    return { valid: false, msg: 'غير مسموح لهذا المستخدم' };
+}        
         if (Number(cp.minOrder) > 0) {
             const tempPrice = this.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer: null }, qty);
             if (tempPrice.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى لاستخدام الكوبون هو ${cp.minOrder}$` };

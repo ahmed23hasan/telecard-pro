@@ -180,8 +180,23 @@ const FinancialEngineDef = {
         if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
         if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'نفذت كمية الاستخدام' };
         if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'غير متاح لمستوى عضويتك' };
-        if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'غير مخصص لهذا المنتج' };
-        
+        if (cp.targetProds?.length > 0) {
+    const isProdMatched = cp.targetProds.includes(String(prod.id));
+    let isCatMatched = false;
+    
+    // 🛡️ الإصلاح: دعم الأقسام المتعددة (Multi-Category) للكوبونات
+    if (Array.isArray(prod.catId)) {
+        isCatMatched = prod.catId.some(cid => cp.targetProds.includes(String(cid)));
+    } else if (Array.isArray(prod.categoryIds)) {
+        isCatMatched = prod.categoryIds.some(cid => cp.targetProds.includes(String(cid)));
+    } else {
+        isCatMatched = cp.targetProds.includes(String(prod.catId)) || cp.targetProds.includes(String(prod.categoryId)) || cp.targetProds.includes(String(prod.category_id));
+    }
+    
+    if (!isProdMatched && !isCatMatched) {
+        return { valid: false, msg: 'غير مخصص لهذا المنتج' };
+    }
+}     
         if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.some(u => String(u) === String(user?.uid || user?.id))) {
             return { valid: false, msg: 'مخصص لعملاء محددين' };
         }

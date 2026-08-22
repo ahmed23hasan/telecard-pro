@@ -1,11 +1,12 @@
 // ============================================================================
-// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة V2.9.2 💎 (The Unbreakable Core)
+// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة V2.9.3 💎 (The Unbreakable Core)
 // 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات والاتصال المالي.
-// 🚀 التحديثات المعمارية الصارمة (V2.9.2): 
+// 🚀 التحديثات المعمارية الصارمة (V2.9.3): 
 // 1. Single Source of Truth: توحيد مفتاح الكاش (tc_server_version) لربط النظام بالكامل.
 // 2. Skeleton Trap Fix: تحرير الواجهة فوراً بعد التحميل بتفعيل isInitialSyncDone.
 // 3. RenderHelpers Injection: تمرير العملات والعروض للمايسترو لمنع الانهيار المالي (NaN).
 // 4. Ghost Sessions Fix: ضمان استخدام المصادقة من الـ Adapter الداخلي حصراً.
+// 5. Zero-Flicker Fix: إزالة الاستدعاء اليدوي للسجلات والاعتماد كلياً على المستمعات اللحظية.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -407,12 +408,13 @@ export const DataManager = {
             this.prefs = { sound: true, theme: 'dark', security2fa: false, favs: [] };
             
             this._actionLocks.clear();
-            this.cursors = { orders: null, deposits: null, wallet: null };      // ✅ الكود الاحترافي (إبقاء العميل في المتجر كضيف مع تفريغ الذاكرة)
-} catch (e) { console.warn("[DataManager] Error during logout:", e); }
+            this.cursors = { orders: null, deposits: null, wallet: null };      
+        } catch (e) { console.warn("[DataManager] Error during logout:", e); }
 
-// إعادة تحميل نفس الصفحة الحالية (Store) لتنظيف الذاكرة وتطبيق واجهة الضيف
-window.location.replace(window.location.pathname);
-},
+        // إعادة تحميل نفس الصفحة الحالية (Store) لتنظيف الذاكرة وتطبيق واجهة الضيف
+        window.location.replace(window.location.pathname);
+    },
+    
     syncUser: async function() {
         let me = null;
         if (this.activeUid) {
@@ -446,7 +448,8 @@ window.location.replace(window.location.pathname);
             
             this.injectSilentSensor();
             
-            if (!LiveStoreData.isOfflineMode) this.fetchUserHistory();
+            // 🛡️ الإصلاح: تم إزالة fetchUserHistory لمنع التعارض وتدمير البيانات اللحظية. 
+            // سيقوم script.js بجلب السجل وتحديثه لحظياً (Real-time) بكفاءة أعلى.
             this.listenToUserUpdates(() => { window.UIManager?.updateProfileDisplay?.(); window.UIManager?.updateDisplayBalance?.(); window.RenderManager?.renderWallet?.(true); });
         } else if (!this.activeUid) this.user = null;
         
@@ -512,7 +515,7 @@ window.location.replace(window.location.pathname);
             const req = { productId: String(prod.id), qty: Math.max(1, Math.floor(Number(qty)) || 1), optIdx: optIdx ?? null, finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null, idempotencyKey: generateIdempotencyKey() };
             const res = await StoreDB.callFunction('createOrder', req);
             
-            setTimeout(() => this.fetchUserHistory(), 600);
+            // 🛡️ الإصلاح: تم إزالة الاستدعاء اليدوي للسجلات هنا لمنع تعارض الواجهة
             
             return { success: true, msg: res.message || 'تم إتمام الطلب', isAutoDelivered: res.isAutoDelivered, deliveredCodeText: res.deliveredCode };
         } catch (err) {
@@ -545,7 +548,7 @@ window.location.replace(window.location.pathname);
             const req = { amount: cleanAmt, paymentMethodName: method.name, payCurr, receiptUrl: receipt, idempotencyKey: generateIdempotencyKey() };
             const res = await StoreDB.callFunction('submitBalanceRequest', req);
             
-            setTimeout(() => this.fetchUserHistory(), 600);
+            // 🛡️ الإصلاح: تم إزالة الاستدعاء اليدوي للسجلات هنا لمنع تعارض الواجهة
             
             return { success: true, msg: res?.message || 'تم الإرسال بنجاح' };
         } catch (err) {

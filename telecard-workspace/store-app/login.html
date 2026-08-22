@@ -6,246 +6,115 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
     <script>
-        // 🛡️ الإصلاح 1: استخدام اسم المفتاح القياسي الموحد لمنع تضارب الكاش وحماية الجلسة
         const activeUid = localStorage.getItem('tc_active_uid') || localStorage.getItem('telecard_active_user_uid_v20');
-        if (activeUid) {
-            window.location.replace('store.html');
-        }
+        if (activeUid) window.location.replace('store.html');
     </script>
 
+    <!-- 🌟 ربط الستايل المركزي والمكتبات الرسومية الموحدة -->
+    <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
-    
-    <style>
-        /* === تعريف الخطوط === */
-        @font-face { font-family: 'Cairo'; src: url('fonts/Cairo-Regular.ttf') format('truetype'); font-weight: 400; }
-        @font-face { font-family: 'Cairo'; src: url('fonts/Cairo-Bold.ttf') format('truetype'); font-weight: 700; }
-        @font-face { font-family: 'Cairo'; src: url('fonts/Cairo-ExtraBold.ttf') format('truetype'); font-weight: 800; }
-        @font-face { font-family: 'Cairo'; src: url('fonts/Cairo-Black.ttf') format('truetype'); font-weight: 900; }
-
-        /* === المتغيرات والألوان === */
-        :root {
-            --bg-store: #050910; 
-            --bg-card: #111a2b;
-            --gold-crystal-grad: linear-gradient(135deg, #FFD700 0%, #E3BC43 50%, #FFD700 100%);
-            --gold-main: #FFD700;
-            --text-btn-luxury: #3d2c00; 
-            --error-red: #E53E3E;
-            --text-gray: #8F9BB3;
-            --border-default: #1F293A;
-            --radius: 12px;
-        }
-
-        * { box-sizing: border-box; outline: none; font-family: 'Cairo', sans-serif !important; margin: 0; padding: 0; }
-
-        body {
-            background-color: var(--bg-store);
-            min-height: 100vh;
-            display: flex; justify-content: center; align-items: center;
-            padding: 20px;
-        }
-
-        .container {
-            width: 100%;
-            max-width: 440px; 
-            padding: 40px 30px;
-            background-color: var(--bg-card);
-            border-radius: 24px;
-            box-shadow: 0 15px 50px rgba(0,0,0,0.6);
-            border: 1px solid rgba(255,255,255,0.05);
-            position: relative;
-        }
-
-        /* === الرأس === */
-        .header { text-align: center; margin-bottom: 25px; }
-        .header h1 { color: #fff; font-size: 26px; font-weight: 800; margin-bottom: 6px; }
-        .glow-gold { color: var(--gold-main); text-shadow: 0 0 8px rgba(251, 191, 36, 0.35); }
-        .sub-text { color: var(--text-gray); font-size: 13px; font-weight: 600; }
-
-        /* === زر غوغل === */
-        .google-btn {
-            width: 100%; height: 50px;
-            background: #0a101d; border: 1px solid var(--border-default); border-radius: var(--radius);
-            color: #fff; font-size: 14px; font-weight: 700;
-            display: flex; align-items: center; justify-content: center; gap: 10px;
-            cursor: pointer; transition: .3s; margin-bottom: 20px;
-        }
-        .google-btn:hover { border-color: var(--text-gray); background: #111a2b; transform: translateY(-1px); }
-
-        .divider { display: flex; align-items: center; text-align: center; margin-bottom: 25px; color: var(--text-gray); font-size: 12px; font-weight: 600; }
-        .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid var(--border-default); }
-        .divider span { padding: 0 15px; }
-
-        /* === الهيكلة المعزولة للحقول === */
-        .input-group { 
-            display: flex; 
-            flex-direction: column; 
-            width: 100%; 
-            margin-bottom: 20px;
-        }
-
-        .input-box {
-            position: relative;
-            width: 100%;
-            height: 54px;
-        }
-
-        .input-field {
-            width: 100%; height: 100%; padding: 0 15px;
-            background: #0a101d; border: 1px solid var(--border-default);
-            border-radius: var(--radius); color: #fff; font-size: 14px; font-weight: 700;
-            transition: .3s; appearance: none; position: absolute; top: 0; left: 0; z-index: 2;
-        }
-        .input-field:focus { border-color: var(--gold-main); box-shadow: 0 0 10px rgba(255, 215, 0, 0.1); }
-        .input-error { border-color: var(--error-red) !important; background: rgba(229, 62, 62, 0.05) !important; box-shadow: none !important; }
-
-        /* === التسميات العائمة الذكية === */
-        .label {
-            position: absolute; 
-            top: 50%; right: 15px; transform: translateY(-50%);
-            color: var(--text-gray); font-size: 13px; pointer-events: none; transition: .25s; font-weight: 600;
-            z-index: 3; background: transparent; padding: 0 4px;
-        }
-        
-        .input-field:focus ~ .label, 
-        .input-field:not(:placeholder-shown) ~ .label {
-            top: 0; right: 10px; font-size: 11px; font-weight: 700; color: var(--gold-main); background-color: var(--bg-card); z-index: 5;
-        }
-
-        /* === وسائد حماية الباسورد وأيقونة العين === */
-        input::-ms-reveal, input::-ms-clear { display: none !important; }
-        .input-box.has-eye .input-field { padding-left: 45px !important; padding-right: 40px !important; }
-
-        /* === رسائل الخطأ الديناميكية === */
-        .error-text { 
-            font-size: 11px; color: var(--error-red); font-weight: 700; 
-            display: none; line-height: 1.4; margin-top: 6px; padding-right: 5px;
-            animation: fadeIn 0.2s ease;
-        }
-
-        /* === أيقونة العين === */
-        .eye-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-gray); display: flex; align-items: center; justify-content: center; z-index: 10; transition: 0.25s ease; }
-        .eye-icon:hover { color: var(--gold-main); }
-        .eye-icon svg { width: 22px; height: 22px; }
-        .eye-closed { display: block; } .eye-open { display: none; }
-        .eye-icon.active .eye-closed { display: none; } .eye-icon.active .eye-open { display: block; }
-
-        /* === خيارات النموذج === */
-        .form-options { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; margin-top: 5px; font-size: 13px; }
-        .checkbox-container { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-gray); user-select: none; font-weight: 700; }
-        .custom-checkbox { width: 18px; height: 18px; border: 2px solid var(--border-default); border-radius: 5px; background: #0a101d; display: flex; align-items: center; justify-content: center; transition: .3s; }
-        input[type="checkbox"]:checked + .custom-checkbox { background: var(--gold-main); border-color: var(--gold-main); }
-        input[type="checkbox"] { display: none; }
-        .custom-checkbox svg { width: 12px; height: 12px; color: #000; display: none; }
-        input[type="checkbox"]:checked + .custom-checkbox svg { display: block; }
-        .forgot-link { color: var(--text-gray); text-decoration: none; transition: .3s; font-weight: 700; }
-        .forgot-link:hover { color: var(--gold-main); text-shadow: 0 0 5px rgba(251, 191, 36, 0.3); }
-
-        /* === زر الإرسال === */
-        .submit-btn {
-            width: 100%; height: 54px; 
-            background: var(--gold-crystal-grad); color: var(--text-btn-luxury);
-            border-radius: var(--radius); font-size: 16px; font-weight: 800;
-            cursor: pointer; border: none; transition: transform 0.2s; box-shadow: 0 5px 15px rgba(251, 191, 36, 0.15);
-        }
-        .submit-btn:active { transform: scale(0.98); }
-        .submit-btn:hover { box-shadow: 0 8px 25px rgba(251, 191, 36, 0.25); }
-
-        .footer-link { text-align: center; margin-top: 25px; font-size: 13px; color: var(--text-gray); font-weight: 700; }
-        .footer-link a { color: var(--gold-main); text-decoration: none; font-weight: 800; transition: .3s; }
-        .footer-link a:hover { text-shadow: 0 0 6px rgba(255,215,0,0.6); }
-
-        /* === الكلاسات المساعدة === */
-        .num-en { font-family: 'Inter', sans-serif !important; direction: ltr !important; text-align: left !important; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
-
-        /* =========================================================
-           🌟 تصاميم النوافذ المنبثقة الفاخرة البديلة عن alert و prompt
-           ========================================================= */
-        .custom-alert-overlay {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(5, 9, 16, 0.85); 
-            backdrop-filter: blur(10px); 
-            display: none; justify-content: center; align-items: center;
-            z-index: 9999;
-            opacity: 0; transition: opacity 0.3s ease;
-            padding: 15px;
-        }
-        .custom-alert-overlay.active { display: flex; opacity: 1; }
-        
-        .custom-alert-card {
-            width: 100%; max-width: 380px;
-            background: var(--bg-card);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 24px;
-            padding: 35px 24px;
-            text-align: center;
-            box-shadow: 0 25px 60px rgba(0,0,0,0.85);
-            transform: scale(0.9); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-        .custom-alert-overlay.active .custom-alert-card { transform: scale(1); }
-
-        .alert-icon-box {
-            width: 60px; height: 60px;
-            margin: 0 auto 20px;
-            background: rgba(255, 215, 0, 0.15);
-            border: 1px solid var(--gold-main);
-            border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            color: var(--gold-main);
-        }
-        .alert-icon-box svg { width: 28px; height: 28px; }
-
-        .alert-title { color: #fff; font-size: 18px; font-weight: 800; margin-bottom: 10px; }
-        .alert-msg { color: var(--text-gray); font-size: 13px; line-height: 1.6; margin-bottom: 25px; }
-        
-        .alert-btn {
-            width: 100%; height: 48px;
-            background: var(--gold-crystal-grad); color: var(--text-btn-luxury);
-            border-radius: var(--radius); font-size: 14px; font-weight: 800;
-            cursor: pointer; border: none; transition: .2s;
-        }
-        .alert-btn:active { transform: scale(0.97); }
-    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 
-<body>
+<body class="auth-page-wrapper">
 
-    <div class="container">
-        <div class="header">
+    <!-- 🌟 نظام التنبيهات المركزي -->
+    <div id="custom-notification">
+    <div class="notif-icon-box"><i class="notif-icon fa-solid fa-check"></i></div>
+    <div class="notif-content">
+        <span class="notif-title" id="toastTitle">نجاح</span>
+        <span class="notif-msg" id="toastMsg">تم الدخول بنجاح! جاري التوجيه...</span>
+    </div>
+</div>
+
+    <!-- 🌟 نظام النوافذ المنبثقة المركزي لرسائل التنبيهات العام -->
+    <div id="customAlert" class="sys-dialog-wrapper pnl-backdrop">
+        <div class="sys-dialog-card">
+            <div class="sys-dialog-icon warning" id="alertIconBox">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <h3 class="sys-dialog-title warning" id="alertTitle">نجاح العملية</h3>
+            <p class="sys-dialog-msg" id="alertMsg">تم تنفيذ الإجراء بنجاح.</p>
+            <button type="button" class="pm-btn-gold alert-btn mt-15" onclick="closeCustomAlert()">حسناً</button>
+        </div>
+    </div>
+
+    <!-- 🌟 نافذة استعادة كلمة المرور المدمجة كلياً مع النظام -->
+    <div id="forgotPasswordModal" class="sys-dialog-wrapper pnl-backdrop">
+        <div class="sys-dialog-card">
+            <div class="sys-dialog-icon warning" style="color: #a855f7; border-color: #a855f7; background: rgba(168, 85, 247, 0.12);">
+                <i class="fa-regular fa-envelope"></i>
+            </div>
+            <h3 class="sys-dialog-title" style="color: #a855f7;">استعادة كلمة المرور</h3>
+            <p class="sys-dialog-msg">أدخل بريدك الإلكتروني لإرسال رابط إعادة التعيين.</p>
+            
+            <div class="floating-group" style="margin-bottom: 25px; width: 100%;">
+                <input type="email" class="lux-input floating-input num-en" placeholder=" " id="forgotEmailInput">
+                <label class="floating-label">البريد الإلكتروني</label>
+                <div class="input-error-text" id="forgotEmailError" style="display:none; text-align: start;"></div>
+            </div>
+
+            <div class="pm-buttons-row" style="width: 100%; gap: 10px;">
+                <button type="button" class="pm-btn-gold" id="btnSubmitForgot" onclick="submitForgotPasswordModal()" style="flex: 1; height: 48px; border-radius: var(--radius-md);">إرسال الرابط</button>
+                <button type="button" class="pm-btn-gold" onclick="closeForgotPasswordModal()" style="flex: 1; height: 48px; border-radius: var(--radius-md); background: var(--bg-input); border: var(--card-border); color: var(--text-muted); box-shadow: none;">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🌟 نافذة التحقق الثنائي (2FA) المدمجة بالكامل مع كلاسات النظام -->
+    <div id="login2FAModal" class="sys-dialog-wrapper pnl-backdrop">
+        <div class="sys-dialog-card">
+            <div class="sys-dialog-icon" style="color: var(--success); border-color: var(--success); background: rgba(var(--success-rgb), 0.12);">
+                <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <h3 class="sys-dialog-title" style="color: var(--success);">مصادقة أمنية</h3>
+            <p class="sys-dialog-msg">حسابك محمي بالمصادقة الثنائية. يرجى إدخال الرمز المكون من 6 أرقام من تطبيق المصدق.</p>
+            
+            <div class="floating-group" style="margin-bottom: 25px; width: 100%;">
+                <input type="text" id="loginOtpInput" class="lux-input floating-input num-en" placeholder="000 000" maxlength="6" inputmode="numeric" style="text-align: center; font-size: 24px; letter-spacing: 8px; height: 58px;">
+                <div class="input-error-text" id="loginOtpError" style="display:none; text-align: center; justify-content: center;"></div>
+            </div>
+
+            <div class="pm-buttons-row" style="width: 100%; gap: 10px;">
+                <button type="button" class="pm-btn-gold" id="btnSubmit2FA" onclick="submit2FALogin()" style="flex: 1; height: 48px; border-radius: var(--radius-md); background: var(--success); color: var(--gold-text); box-shadow: 0 4px 15px rgba(var(--success-rgb), 0.3);">تأكيد الدخول</button>
+                <button type="button" class="pm-btn-gold" onclick="close2FAModal()" style="flex: 1; height: 48px; border-radius: var(--radius-md); background: var(--bg-input); border: var(--card-border); color: var(--text-muted); box-shadow: none;">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🌟 هيكل الصندوق الرئيسي لتسجيل الدخول -->
+    <div class="auth-container">
+        <div class="auth-header">
             <h1>أهلاً بك في <span class="glow-gold">تيليكارد</span></h1>
             <p class="sub-text">سجل دخولك لمتابعة متجرك</p>
         </div>
 
-        <button type="button" class="google-btn" onclick="handleGoogleLogin()">
+        <button type="button" class="btn-google-auth" onclick="handleGoogleLogin()">
             <svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
             تسجيل الدخول بواسطة Google
         </button>
 
-        <div class="divider"><span>أو عبر البريد الإلكتروني</span></div>
+        <div class="auth-divider"><span>أو عبر البريد الإلكتروني</span></div>
 
         <form autocomplete="off" id="loginForm">
 
-            <div class="input-group">
-                <div class="input-box">
-                    <input type="email" class="input-field num-en" placeholder=" " id="identifier">
-                    <label class="label" style="direction: rtl;">البريد الإلكتروني</label>
-                </div>
-                <div class="error-text" id="identifierError">يرجى إدخال البريد الإلكتروني</div>
+            <div class="floating-group">
+                <input type="email" class="lux-input floating-input num-en" placeholder=" " id="identifier">
+                <label class="floating-label">البريد الإلكتروني</label>
+                <div class="input-error-text" id="identifierError" style="display:none; text-align: start;"></div>
             </div>
 
-            <div class="input-group">
-                <div class="input-box has-eye" dir="ltr">
-                    <input type="password" class="input-field num-en" placeholder=" " id="password">
-                    <label class="label" style="direction: rtl;">كلمة المرور</label>
-                    <div class="eye-icon" onclick="togglePass('password', this)">
-                        <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2.5-4 5.5-6 9-6 3.5 0 6.5 2 9 6-2.5 4-5.5 6-9 6-3.5 0-6.5-2-9-6z" /><path d="M5 5l14 14" stroke-width="1.6" /></svg>
-                        <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3.2" /></svg>
-                    </div>
+            <div class="floating-group has-eye">
+                <input type="password" class="lux-input floating-input num-en" placeholder=" " id="password">
+                <label class="floating-label">كلمة المرور</label>
+                <div class="auth-eye-icon" onclick="togglePass('password', this)">
+                    <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2.5-4 5.5-6 9-6 3.5 0 6.5 2 9 6-2.5 4-5.5 6-9 6-3.5 0-6.5-2-9-6z" /><path d="M5 5l14 14" stroke-width="1.6" /></svg>
+                    <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3.2" /></svg>
                 </div>
-                <div class="error-text" id="passwordError" style="direction: rtl; text-align: right;">يرجى كتابة كلمة المرور</div>
+                <div class="input-error-text" id="passwordError" style="display:none; text-align: start;"></div>
             </div>
 
+            <!-- 🌟 تطبيق تنسيقات الخيارات والـ Checkbox الموحدة -->
             <div class="form-options">
                 <label class="checkbox-container">
                     <input type="checkbox" id="rememberMe" checked>
@@ -257,70 +126,17 @@
                 <a href="#" class="forgot-link" onclick="event.preventDefault(); handleForgotPassword();">نسيت كلمة المرور؟</a>
             </div>
 
-            <button type="button" class="submit-btn" id="loginBtn" onclick="validateLogin()">تسجيل الدخول</button>
+            <!-- 🌟 استخدام نظام الأزرار الفاخرة الموحد والتحميل ثنائي الحالة -->
+            <button type="button" class="pm-btn-gold btn-pro" style="height: 56px; width: 100%; border-radius: var(--radius-md);" id="loginBtn" onclick="validateLogin()">
+                <span class="btn-content">تسجيل الدخول</span>
+                <i class="fa-solid fa-circle-notch fa-spin btn-spinner"></i>
+            </button>
 
-            <div class="footer-link">
+            <div class="auth-footer-link">
                 ليس لديك حساب؟ <a href="signup.html">إنشاء حساب جديد</a>
             </div>
 
         </form>
-
-        <div id="customAlert" class="custom-alert-overlay">
-            <div class="custom-alert-card">
-                <div class="alert-icon-box" id="alertIconBox">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                </div>
-                <h3 class="alert-title" id="alertTitle">نجاح العملية</h3>
-                <p class="alert-msg" id="alertMsg">تم تنفيذ الإجراء بنجاح.</p>
-                <button type="button" class="alert-btn" onclick="closeCustomAlert()">حسناً</button>
-            </div>
-        </div>
-
-        <div id="forgotPasswordModal" class="custom-alert-overlay">
-            <div class="custom-alert-card">
-                <div class="alert-icon-box" style="background: rgba(168, 85, 247, 0.15); border-color: #a855f7; color: #a855f7;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-                </div>
-                <h3 class="alert-title" style="color: #a855f7;">استعادة كلمة المرور</h3>
-                <p class="alert-msg">أدخل بريدك الإلكتروني لإرسال رابط إعادة التعيين.</p>
-                
-                <div class="input-group" style="margin-bottom: 25px;">
-                    <div class="input-box">
-                        <input type="email" class="input-field num-en" placeholder=" " id="forgotEmailInput">
-                        <label class="label" style="direction: rtl;">البريد الإلكتروني</label>
-                    </div>
-                    <div class="error-text" id="forgotEmailError" style="direction: rtl; text-align: right;">يرجى إدخال بريد إلكتروني صالح</div>
-                </div>
-
-                <div style="display: flex; gap: 10px; width: 100%;">
-                    <button type="button" class="alert-btn" id="btnSubmitForgot" onclick="submitForgotPasswordModal()" style="flex: 1;">إرسال الرابط</button>
-                    <button type="button" class="alert-btn" onclick="closeForgotPasswordModal()" style="flex: 1; background: #0a101d; border: 1px solid var(--border-default); color: var(--text-gray);">إلغاء</button>
-                </div>
-            </div>
-        </div>
-
-        <div id="login2FAModal" class="custom-alert-overlay">
-            <div class="custom-alert-card">
-                <div class="alert-icon-box" style="background: rgba(16, 185, 129, 0.15); border-color: #10b981; color: #10b981;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                </div>
-                <h3 class="alert-title" style="color: #10b981;">مصادقة أمنية</h3>
-                <p class="alert-msg">حسابك محمي بالمصادقة الثنائية. يرجى إدخال الرمز المكون من 6 أرقام من تطبيق المصدق.</p>
-                
-                <div class="input-group" style="margin-bottom: 25px;">
-                    <div class="input-box">
-                        <input type="text" id="loginOtpInput" class="input-field num-en" placeholder="000 000" maxlength="6" inputmode="numeric" style="text-align: center; font-size: 24px; letter-spacing: 8px;">
-                    </div>
-                    <div class="error-text" id="loginOtpError" style="text-align: center;">رمز غير صحيح</div>
-                </div>
-
-                <div style="display: flex; gap: 10px; width: 100%;">
-                    <button type="button" class="alert-btn" id="btnSubmit2FA" onclick="submit2FALogin()" style="flex: 1; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff;">تأكيد الدخول</button>
-                    <button type="button" class="alert-btn" onclick="close2FAModal()" style="flex: 1; background: #0a101d; border: 1px solid var(--border-default); color: var(--text-gray);">إلغاء</button>
-                </div>
-            </div>
-        </div>
-
     </div>
 
 <script type="module">
@@ -333,10 +149,6 @@
     import { StoreDB } from './dataManager.js';
 
     const googleProvider = new GoogleAuthProvider();
-
-    // =================================================================
-    // 🛡️ متغيرات ودوال المصادقة الثنائية (2FA)
-    // =================================================================
     let current2FAResolver = null;
 
     function show2FAModal(resolver) {
@@ -353,16 +165,12 @@
         document.body.style.overflow = '';
     }
 
-    // =================================================================
-    // 🧠 دالة توليد رقم عرض (Display ID) آمنة وسريعة
-    // =================================================================
     async function generateUniqueDisplayId() {
         const timePart = String(Date.now()).slice(-4);
         const randPart = Math.floor(100 + Math.random() * 900);
         return Number(timePart + randPart);
     }
 
-    // === 1. إظهار/إخفاء كلمة المرور ===
     function togglePass(inputId, el) {
         const inp = document.getElementById(inputId);
         if(!inp) return;
@@ -372,23 +180,26 @@
         inp.focus();
     }
 
-    // === 2. دوال رسائل الخطأ ===
+    // === دوال رسائل الخطأ المعززة بالاهتزاز التفاعلي ومطابقة للـ Sign Up ===
     function showError(inputId, errorId, msg) {
         const input = document.getElementById(inputId);
         const error = document.getElementById(errorId);
-        input.classList.add('input-error');
-        if(msg) error.textContent = msg;
-        error.style.display = 'block';
+        
+        input.classList.remove('shake-error-input');
+        void input.offsetWidth; // Trigger reflow to restart animation
+        input.classList.add('input-error', 'shake-error-input');
+        
+        if(msg) error.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${msg}`;
+        error.style.display = 'flex';
     }
 
     function hideError(inputId, errorId) {
         const input = document.getElementById(inputId);
         const error = document.getElementById(errorId);
-        if (input) input.classList.remove('input-error');
+        if (input) input.classList.remove('input-error', 'shake-error-input');
         if (error) error.style.display = 'none';
     }
 
-    // === 3. مراقبة الحقول أثناء الكتابة ===
     const fields = [
         { id: 'identifier', err: 'identifierError' },
         { id: 'password', err: 'passwordError' },
@@ -405,9 +216,6 @@
         }
     });
 
-    // =================================================================
-    // 🌐 دالة جلب العملة الافتراضية
-    // =================================================================
     async function getAdminDefaultCurrency() {
         try {
             if (StoreDB && typeof StoreDB.getById === 'function') {
@@ -416,19 +224,16 @@
                     return String(settingsDoc.defaultCurrency || settingsDoc.currency || 'USD').toUpperCase();
                 }
             }
-        } catch (error) {
-            console.warn("⚠️ تعذر جلب العملة الافتراضية، سيتم استخدام USD كاحتياطي.");
-        }
+        } catch (error) {}
         return 'USD';
     }
 
-    // === 4. تسجيل الدخول الفعلي عبر جوجل (مع الدرع الأمني وتوحيد الهوية) ===
     async function handleGoogleLogin() {
-        const btn = document.querySelector('.google-btn');
+        const btn = document.querySelector('.btn-google-auth');
         const originalText = btn.innerHTML;
         btn.innerHTML = 'جاري الاتصال بجوجل...';
         btn.style.opacity = '0.7';
-        btn.disabled = true;
+        btn.style.pointerEvents = "none";
         
         try {
             const result = await signInWithPopup(auth, googleProvider);
@@ -441,7 +246,6 @@
             
             if (!activeUserObj) {
                 btn.innerHTML = 'جاري تهيئة الحساب...';
-                
                 const targetCurrency = await getAdminDefaultCurrency();
                 const shortDisplayId = await generateUniqueDisplayId();
                 
@@ -449,62 +253,36 @@
                 const nameParts = fullName.split(' ');
                 const firstName = nameParts[0];
                 const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
-                const baseUsername = fullName.toLowerCase().replace(/\s+/g, '');
-                const finalUsername = baseUsername + firebaseUser.uid.substring(0, 4);
+                const baseUsername = fullName.toLowerCase().replace(/\s+/g, '') + firebaseUser.uid.substring(0, 4);
                 
                 let googleAvatar = null;
                 if (firebaseUser.photoURL) {
                     googleAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
                 }
                 
-                // 🛡️ الإصلاح 2: كائن مستخدم متكامل 100% يمنع انهيار النظام
                 activeUserObj = {
-                    id: firebaseUser.uid,
-                    uid: firebaseUser.uid,
-                    displayId: shortDisplayId,
-                    firstName: firstName,       
-                    lastName: lastName,         
-                    fullName: fullName,    
-                    name: firstName,            
-                    username: finalUsername,
-                    email: firebaseUser.email,
-                    img: googleAvatar,
-                    baseCurrency: targetCurrency, 
-                    base_currency: targetCurrency,
-                    phone: null,
-                    country: null,
-                    walletBalance: 0,
-                    balance: 0,
-                    totalSpent: 0,
-                    totalDeposit: 0,
-                    tierId: "1", 
-                    tierCycleSpent: 0,
-                    tierCycleStartDate: Date.now(),
-                    role: 'user',                        
-                    isVerified: false,                   
-                    kycStatus: 'none',                   
-                    isBanned: false,
-                    isIpBanned: false,
-                    createdAt: Date.now()
+                    id: firebaseUser.uid, uid: firebaseUser.uid, displayId: shortDisplayId,
+                    firstName: firstName, lastName: lastName, fullName: fullName, name: firstName, username: baseUsername, email: firebaseUser.email,
+                    img: googleAvatar, baseCurrency: targetCurrency, base_currency: targetCurrency,
+                    phone: null, country: null, walletBalance: 0, balance: 0, totalSpent: 0, totalDeposit: 0,
+                    tierId: "1", tierCycleSpent: 0, tierCycleStartDate: Date.now(),
+                    role: 'user', isVerified: false, kycStatus: 'none', isBanned: false, isIpBanned: false, createdAt: Date.now()
                 };
                 
                 if (StoreDB && typeof StoreDB.set === 'function') {
                     await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
                 }
-                
                 localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', targetCurrency);
             } else {
-                
-                if (activeUserObj.isBanned === true || activeUserObj.isIpBanned === true) {
+                if (activeUserObj.isBanned || activeUserObj.isIpBanned) {
                     await signOut(auth);
                     localStorage.clear();
                     btn.innerHTML = originalText;
                     btn.style.opacity = '1';
-                    btn.disabled = false;
+                    btn.style.pointerEvents = "auto";
                     showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة لمخالفة الشروط.", false);
                     return;
                 }
-                
                 if (!activeUserObj.img && firebaseUser.photoURL) {
                     const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
                     activeUserObj.img = freshAvatar;
@@ -512,39 +290,30 @@
                         await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { img: freshAvatar }, { merge: true });
                     }
                 }
-                
                 if (activeUserObj.baseCurrency || activeUserObj.base_currency) {
                     localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency);
                 }
             }
             
-            // 🛡️ الإصلاح 3: استخدام المفاتيح الديناميكية من الـ Config بدلاً من الأسماء الثابتة
             localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
             localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(activeUserObj));
-            
             if (activeUserObj.img) {
                 localStorage.setItem((DYNAMIC_PREFIXES?.USER_IMAGE || 'tc_uimg_') + firebaseUser.uid, activeUserObj.img);
             }
             
-            btn.style.background = "var(--success-green, #10b981)";
-            btn.style.color = "#fff";
-            btn.style.border = "none";
-            btn.innerHTML = "تم تسجيل الدخول بنجاح ✔";
-            
-            setTimeout(() => { window.location.replace("store.html"); }, 1000);
+            document.getElementById('custom-notification').classList.add('active', 'success');
+            setTimeout(() => { window.location.replace("store.html"); }, 1200);
             
         } catch (error) {
-            console.error("Google Auth Error:", error);
             btn.innerHTML = originalText;
             btn.style.opacity = '1';
-            btn.disabled = false;
+            btn.style.pointerEvents = "auto";
             
             if (error.code === 'auth/multi-factor-auth-required') {
                 const resolver = getMultiFactorResolver(auth, error);
                 show2FAModal(resolver);
                 return;
             }
-            
             if (error.code === 'auth/popup-closed-by-user') {
                 showError('identifier', 'identifierError', "تم إغلاق نافذة الدخول قبل إتمام العملية.");
             } else {
@@ -553,7 +322,6 @@
         }
     }
 
-    // === 5. التحقق النهائي وإرسال النموذج ===
     async function validateLogin() {
         const identifier = document.getElementById('identifier');
         const password = document.getElementById('password');
@@ -575,10 +343,7 @@
         if (!isValid) return;
 
         const btn = document.getElementById('loginBtn');
-        const originalText = btn.textContent;
-        btn.textContent = "جاري المصادقة...";
-        btn.style.opacity = "0.8";
-        btn.disabled = true;
+        btn.classList.add('is-loading'); // تفعيل الأنيميشن المركزي
 
         try {
             const userCredential = await signInWithEmailAndPassword(auth, identifier.value.trim().toLowerCase(), password.value);
@@ -586,23 +351,18 @@
 
             let userDoc = null;
             if(StoreDB && typeof StoreDB.getById === 'function') {
-                try {
-                    userDoc = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid);
-                } catch(e) { console.warn("تعذر جلب تفضيلات العميل"); }
+                try { userDoc = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid); } catch(e) {}
             }
 
-            if (userDoc && (userDoc.isBanned === true || userDoc.isIpBanned === true)) {
+            if (userDoc && (userDoc.isBanned || userDoc.isIpBanned)) {
                 await signOut(auth);
                 localStorage.clear();
-                btn.textContent = originalText;
-                btn.style.opacity = "1";
-                btn.disabled = false;
+                btn.classList.remove('is-loading');
                 showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة لمخالفة الشروط.", false);
                 return;
             }
 
             localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
-
             if (userDoc) {
                 localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(userDoc));
                 if(userDoc.baseCurrency || userDoc.base_currency) {
@@ -610,41 +370,27 @@
                 }
             }
 
-            btn.style.background = "var(--success-green, #10b981)";
-            btn.style.boxShadow = "none";
-            btn.textContent = "تم تسجيل الدخول بنجاح ✔";
-            
-            setTimeout(() => window.location.replace("store.html"), 600);
+            document.getElementById('custom-notification').classList.add('active', 'success');
+            setTimeout(() => window.location.replace("store.html"), 1200);
             
         } catch (error) {
-            console.error('Auth Error', error);
+            btn.classList.remove('is-loading');
             
             if (error.code === 'auth/multi-factor-auth-required') {
-                btn.textContent = originalText;
-                btn.style.opacity = "1";
-                btn.disabled = false;
                 const resolver = getMultiFactorResolver(auth, error);
                 show2FAModal(resolver); 
                 return;
             }
-
             if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
                 showError('identifier', 'identifierError', "البريد الإلكتروني أو كلمة المرور غير صحيحة");
             } else if (error.code === 'auth/too-many-requests') {
-                showError('identifier', 'identifierError', "تم حظر الحساب مؤقتاً بسبب محاولات متكررة خاطئة");
+                showError('identifier', 'identifierError', "تم حظر المحاولات مؤقتاً بسبب تكرار الدخول الخاطئ");
             } else {
                 showError('identifier', 'identifierError', "حدث خطأ غير متوقع، يرجى المحاولة لاحقاً");
             }
-
-            btn.textContent = originalText;
-            btn.style.opacity = "1";
-            btn.disabled = false;
         }
     }
 
-    // =================================================================
-    // 🛡️ 6. دالة التأكيد النهائي وفتح الباب بعد إدخال كود الـ 2FA المصفحة
-    // =================================================================
     async function submit2FALogin() {
         if (!current2FAResolver) return;
 
@@ -664,7 +410,6 @@
         try {
             const tfaHint = current2FAResolver.hints[0];
             const assertion = TotpMultiFactorGenerator.assertionForSignIn(tfaHint.uid, code);
-            
             const userCredential = await current2FAResolver.resolveSignIn(assertion);
             const firebaseUser = userCredential.user;
 
@@ -673,7 +418,7 @@
                 try { userDoc = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid); } catch(e) {}
             }
 
-            if (userDoc && (userDoc.isBanned === true || userDoc.isIpBanned === true)) {
+            if (userDoc && (userDoc.isBanned || userDoc.isIpBanned)) {
                 await signOut(auth);
                 localStorage.clear();
                 btn.innerHTML = origText;
@@ -693,20 +438,15 @@
 
             btn.innerHTML = "نجاح ✔";
             btn.style.background = "var(--success-green, #10b981)";
-            
             setTimeout(() => window.location.replace("store.html"), 500);
 
         } catch (error) {
             btn.innerHTML = origText;
             btn.disabled = false;
-            console.error("2FA Verification Error:", error);
             showError('loginOtpInput', 'loginOtpError', 'الكود غير صحيح أو منتهي الصلاحية');
         }
     }
 
-    // =================================================================
-    // 🪄 7. دوال النوافذ المنبثقة الفاخرة (Custom Alerts & Modals)
-    // =================================================================
     function showCustomAlert(title, message, isSuccess = true) {
         const overlay = document.getElementById('customAlert');
         const titleEl = document.getElementById('alertTitle');
@@ -790,7 +530,6 @@
         } catch (error) {
             btn.textContent = originalText;
             btn.disabled = false;
-            console.error("Forgot Password Error:", error);
             
             if (error.code === 'auth/user-not-found') {
                 closeForgotPasswordModal();
@@ -803,7 +542,6 @@
         }
     }
 
-    // 🛡️ إتاحة الدوال للنطاق العام (Global Scope)
     window.togglePass = togglePass;
     window.handleGoogleLogin = handleGoogleLogin;
     window.validateLogin = validateLogin;
@@ -814,9 +552,6 @@
     window.close2FAModal = close2FAModal;
     window.submit2FALogin = submit2FALogin;
 
-    // =================================================================
-    // 🪄 8. التحميل الذكي (استقبال العميل المحول من صفحة التسجيل)
-    // =================================================================
     window.addEventListener('DOMContentLoaded', () => {
         const prefilledEmail = sessionStorage.getItem('prefilled_email');
         if (prefilledEmail) {
@@ -832,6 +567,5 @@
     });
 
 </script>
-
 </body>
 </html>

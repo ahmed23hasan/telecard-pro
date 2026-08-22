@@ -861,10 +861,10 @@ export const UICore = {
                 return;
             }
             
-            if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigger-click', 'update-simple-qty', 'delete-avatar', 'open-product', 'mark-single-read'].includes(action)) {
-                this.sfx?.('nav');
-            }
-            
+            // 🛡️ الإصلاح: إضافة أزرار المفضلة والنوافذ للقائمة المستثناة لمنع صدى الصوت المزدوج
+if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigger-click', 'update-simple-qty', 'delete-avatar', 'open-product', 'mark-single-read', 'toggle-fav-modal', 'open-favorites', 'open-sidebar', 'nav-home', 'nav-deposit', 'nav-payments', 'nav-orders', 'open-notif-center', 'nav-settings'].includes(action)) {
+    this.sfx?.('nav');
+}
             // ✅ الكود الجديد (اصطياد الأخطاء بأمان دون الاعتماد على دوال غير موجودة)
             if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) target.blur();
 
@@ -1196,11 +1196,14 @@ export const UICore = {
         }
         
         if (shownToasts.length > 50) shownToasts = shownToasts.slice(-50);
-        localStorage.setItem('telecard_shown_toasts', JSON.stringify(shownToasts));
-        
-        this.updateNotifBadges();
-    },    
+// 🛡️ الإصلاح: حماية ضد انهيار التخزين (Storage Quota Exceeded / Private Mode)
+try {
+    localStorage.setItem('telecard_shown_toasts', JSON.stringify(shownToasts));
+} catch (e) {
+    console.warn("تعذر حفظ سجل الإشعارات محلياً (الوضع الخفي أو مساحة ممتلئة).");
+}
 
+this.updateNotifBadges();},
     // 🛡️ CSS Decoupling
     showAdvancedPopup: function(alertObj, remainingQueue) {
         const existingModal = document.getElementById('advanced-alert-modal');

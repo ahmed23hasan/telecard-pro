@@ -147,12 +147,26 @@ const FinancialEngineDef = {
         if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
         if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'استنفد الكوبون الحد الأقصى للاستخدام' };
         if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'الكوبون غير متاح لمستوى حسابك' };
-        if (cp.targetProds?.length > 0 && !cp.targetProds.includes(String(prod.id)) && !cp.targetProds.includes(String(prod.catId))) return { valid: false, msg: 'الكوبون غير مخصص لهذا المنتج' };
-        
-        if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.some(u => String(u) === String(user?.uid || user?.id))) {
-            return { valid: false, msg: 'غير مسموح لك باستخدام هذا الكوبون' };
-        }
-        
+        if (cp.targetProds?.length > 0) {
+    const isProdMatched = cp.targetProds.includes(String(prod.id));
+    let isCatMatched = false;
+    
+    if (Array.isArray(prod.catId)) {
+        isCatMatched = prod.catId.some(cid => cp.targetProds.includes(String(cid)));
+    } else if (Array.isArray(prod.categoryIds)) {
+        isCatMatched = prod.categoryIds.some(cid => cp.targetProds.includes(String(cid)));
+    } else {
+        isCatMatched = cp.targetProds.includes(String(prod.catId)) || cp.targetProds.includes(String(prod.categoryId)) || cp.targetProds.includes(String(prod.category_id));
+    }
+    
+    if (!isProdMatched && !isCatMatched) {
+        return { valid: false, msg: 'الكوبون غير مخصص لهذا المنتج' };
+    }
+}
+
+if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.some(u => String(u) === String(user?.uid || user?.id))) {
+    return { valid: false, msg: 'غير مسموح لك باستخدام هذا الكوبون' };
+}        
         // 🛡️ الحد الأدنى للطلب (Minimum Order Value)
         if (Number(cp.minOrder) > 0) {
             const tempPrice = FinancialEngineDef.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer: null }, qty);

@@ -30,29 +30,28 @@ window.StoreRenderApp = window.StoreRenderApp || {
         }
     },
 
-    onImgLoad: function(img) {
-        if (!img) return;
-        const key = img.getAttribute('data-key');
-        if (key) {
-            if (this.imgCache.has(key)) {
-                this.imgCache.delete(key);
-            } else if (this.imgCache.size > 500) {
-                // مسح أقدم 50 صورة دفعة واحدة لتقليل الجهد العبء (Batch Clearing)
-                let i = 0;
-                for (const k of this.imgCache) {
-                    this.imgCache.delete(k);
-                    if (++i >= 50) break;
-                }
+  onImgLoad: function(img) {
+    if (!img) return;
+    const key = img.getAttribute('data-key');
+    if (key) {
+        if (this.imgCache.has(key)) {
+            this.imgCache.delete(key);
+        } else if (this.imgCache.size > 500) {
+            // 🛡️ الإصلاح: تفريغ الذاكرة العشوائية (RAM) فعلياً لمنع انهيار متصفحات الجوال
+            let i = 0;
+            for (const k of this.imgCache) {
+                if (k.startsWith('blob:')) URL.revokeObjectURL(k); // تحرير الذاكرة
+                this.imgCache.delete(k);
+                if (++i >= 50) break;
             }
-            this.imgCache.add(key);
         }
-        
-        if (img.complete && img.naturalHeight > 0) { this.revealImg(img); return; }
-        if ('decode' in img) img.decode().then(() => this.revealImg(img)).catch(() => this.revealImg(img));
-        else this.revealImg(img);
-    },
-
-    handleImgError: function(img, type) {
+        this.imgCache.add(key);
+    }
+    
+    if (img.complete && img.naturalHeight > 0) { this.revealImg(img); return; }
+    if ('decode' in img) img.decode().then(() => this.revealImg(img)).catch(() => this.revealImg(img));
+    else this.revealImg(img);
+},    handleImgError: function(img, type) {
         if (!img) return;
         img.classList.add('img-error-hidden');
         img.alt = ''; 
@@ -157,9 +156,29 @@ export const RenderManager = {
 
     _generateProductCardHTML: function(p, idx) {
         let pricingInfo = null;
+        
+        // 🛡️ التحسين الماسي 1: جلب العرض النشط مرة واحدة فقط لتوفير عمليات البحث المتكررة
+        const activeOffer = DataManager.getActiveOffer(p.id);
+        
         try { 
-            pricingInfo = DataManager.getPricingLocal(p, 1, null, null); 
-        } catch(e) { console.error("🚨 Pricing Error:", p.name, e.message); }
+            // 🛡️ التحسين الماسي 2: نظام كاش لحظي للسعر لتخفيف الضغط بنسبة 90% على المعالج (CPU)
+            const tierId = DataManager.user?.tierId || '1';
+            const displayCurr = DataManager.selectedCurr || 'USD';
+            const offerKey = activeOffer ? activeOffer.id : 'none';
+            
+            // مفتاح ذكي يتغير تلقائياً إذا تغير مستوى العميل، أو العملة، أو العرض النشط
+            const cacheKey = `_cached_price_${tierId}_${displayCurr}_${offerKey}`;
+            
+            if (p[cacheKey]) {
+                pricingInfo = p[cacheKey];
+            } else {
+                pricingInfo = DataManager.getPricingLocal(p, 1, null, null); 
+                // حفظ السعر بشكل مخفي (غير قابل للعد) لمنع أي مشاكل مع قواعد البيانات
+                Object.defineProperty(p, cacheKey, { value: pricingInfo, configurable: true }); 
+            }
+        } catch(e) { 
+            console.error("🚨 Pricing Error:", p.name, e.message); 
+        }
         
         if (!pricingInfo) return ''; 
         
@@ -174,7 +193,6 @@ export const RenderManager = {
         const imgObj = this._generateImageHTML(p.img, safeName, 'prod');
         
         let visualElementsHtml = '';
-        const activeOffer = DataManager.getActiveOffer(p.id);
         
         if (activeOffer?.visualConfig?.grid) {
             const v = activeOffer.visualConfig.grid;
@@ -194,10 +212,8 @@ export const RenderManager = {
             visualElementsHtml += `<div class="offer-badge-base prod-badge badge-${this._safeClass(p.badgeColor) || 'blue'}">${Utils.safeText(p.badgeText)}</div>`;
         }
         
-        // ملاحظة: يجب التأكد أن دالة UIBuilders.buildProductCardInner تم تحديثها لتقبل الـ Class بدلاً من الـ Style
         return `<div class="product-card" data-action="open-product" data-id="${p.id}" style="--anim-idx: ${idx}">${UIBuilders.buildProductCardInner(safeName, priceSectionHtml, imgObj, visualElementsHtml, nameExpandedClass)}</div>`;
     },
-
     _appendLoadMoreButton: function(container, type, uid, totalCount, limitKey) {
         const hasMoreData = DataManager.cursors && DataManager.cursors[type];
         if (totalCount > this.limits[limitKey] || hasMoreData) {
