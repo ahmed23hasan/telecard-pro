@@ -11,32 +11,21 @@
     </script>
 
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- 🌟 ربط الستايل المركزي الاحترافي -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
-    
 </head>
 
 <body class="auth-page-wrapper">
 
-    <!-- 🌟 نظام التنبيهات المركزي (مستورد من الستايل) -->
-    <div id="custom-notification">
-    <div class="notif-icon-box"><i class="notif-icon fa-solid fa-check"></i></div>
-    <div class="notif-content">
-        <span class="notif-title" id="toastTitle">نجاح</span>
-        <span class="notif-msg" id="toastMsg">تم التسجيل بنجاح! جاري الدخول...</span>
-    </div>
-</div>
-
-    <!-- 🌟 نظام النوافذ المنبثقة المركزي (مستورد من الستايل) -->
+    <!-- 🌟 صندوق التنبيهات المركزي الذكي -->
     <div id="customAlert" class="sys-dialog-wrapper pnl-backdrop">
-        <div class="sys-dialog-card">
-            <div class="sys-dialog-icon warning" id="alertIconBox">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <div class="sys-dialog-card" id="alertCard">
+            <div class="sys-dialog-icon" id="alertIconBox">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </div>
-            <h3 class="sys-dialog-title warning" id="alertTitle">نجاح العملية</h3>
-            <p class="sys-dialog-msg" id="alertMsg">تم تنفيذ الإجراء بنجاح.</p>
-            <button type="button" class="pm-btn-gold alert-btn mt-15" onclick="closeCustomAlert()">حسناً</button>
+            <h3 class="sys-dialog-title" id="alertTitle">رسالة</h3>
+            <p class="sys-dialog-msg" id="alertMsg">يرجى الانتظار...</p>
+            <button type="button" class="pm-btn-gold alert-btn mt-15" onclick="closeCustomAlert()" id="alertOkBtn">حسناً</button>
         </div>
     </div>
 
@@ -46,9 +35,14 @@
             <p class="sub-text">بوابتك الأولى لعالم الخدمات الرقمية</p>
         </div>
 
-        <button type="button" class="btn-google-auth" onclick="handleGoogleLogin()">
-            <svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-            التسجيل السريع بواسطة Google
+        <button type="button" class="btn-google-auth btn-pro" id="googleSignupBtn" onclick="handleGoogleLogin()">
+            <span class="btn-content">
+                <svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                التسجيل السريع بواسطة Google
+            </span>
+            <span class="btn-spinner">
+                <i class="fa-solid fa-spinner fa-spin"></i>
+            </span>
         </button>
 
         <div class="auth-divider"><span>أو إدخال البيانات يدوياً</span></div>
@@ -56,61 +50,61 @@
         <form autocomplete="off" id="regForm">
             <div class="form-grid">
                 
-                <!-- 🌟 استخدام الحقول العائمة المركزية -->
                 <div class="floating-group">
-                    <input type="text" class="lux-input floating-input" placeholder=" " id="fname" maxlength="25">
+                    <input type="text" class="lux-input floating-input num-en" placeholder=" " id="fname" maxlength="25" dir="ltr" style="text-align: right;">
                     <label class="floating-label">الاسم الأول</label>
                     <div class="input-error-text" id="fnameError" style="display:none;"></div>
                 </div>
 
                 <div class="floating-group">
-                    <input type="text" class="lux-input floating-input" placeholder=" " id="lname" maxlength="25">
+                    <input type="text" class="lux-input floating-input num-en" placeholder=" " id="lname" maxlength="25" dir="ltr" style="text-align: right;">
                     <label class="floating-label">الاسم الأخير</label>
                     <div class="input-error-text" id="lnameError" style="display:none;"></div>
                 </div>
 
                 <div class="floating-group full-width">
-                    <input type="email" class="lux-input floating-input num-en" placeholder=" " id="email" maxlength="50">
+                    <input type="email" class="lux-input floating-input num-en" placeholder=" " id="email" maxlength="50" dir="ltr" style="text-align: right;">
                     <label class="floating-label">البريد الإلكتروني</label>
                     <div class="input-error-text" id="emailError" style="display:none;"></div>
                 </div>
 
                 <div class="floating-group full-width has-eye">
-                    <input type="password" class="lux-input floating-input num-en" placeholder=" " id="password" maxlength="30">
+                    <input type="password" class="lux-input floating-input num-en" placeholder=" " id="password" maxlength="30" dir="ltr">
                     <label class="floating-label">كلمة المرور</label>
                     <div class="auth-eye-icon" onclick="togglePass('password', this)">
                         <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2.5-4 5.5-6 9-6 3.5 0 6.5 2 9 6-2.5 4-5.5 6-9 6-3.5 0-6.5-2-9-6z" /><path d="M5 5l14 14" stroke-width="1.6" /></svg>
                         <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3.2" /></svg>
                     </div>
+                    <div class="input-error-text" id="passwordError" style="display:none; text-align: start;"></div>
                 </div>
                 
-                <div class="password-warning full-width" id="passWarning">
+                <div class="password-warning" id="passWarning" style="grid-column: 1 / -1; width: 100%;">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                     <span id="passWarningText"><strong>تنبيه الأمان:</strong> يرجى إدخال كلمة مرور قوية.</span>
                 </div>
 
                 <div class="floating-group full-width has-eye">
-                    <input type="password" class="lux-input floating-input num-en" placeholder=" " id="confirm" maxlength="30">
+                    <input type="password" class="lux-input floating-input num-en" placeholder=" " id="confirm" maxlength="30" dir="ltr">
                     <label class="floating-label">تأكيد كلمة المرور</label>
                     <div class="auth-eye-icon" onclick="togglePass('confirm', this)">
                         <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2.5-4 5.5-6 9-6 3.5 0 6.5 2 9 6-2.5 4-5.5 6-9 6-3.5 0-6.5-2-9-6z" /><path d="M5 5l14 14" stroke-width="1.6" /></svg>
                         <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3.2" /></svg>
                     </div>
-                    <div class="input-error-text" id="confirmError" style="display:none;"></div>
+                    <div class="input-error-text" id="confirmError" style="display:none; text-align: start;"></div>
                 </div>
 
             </div>
 
-            <!-- 🌟 استخدام الزر الذهبي المركزي -->
             <button type="button" class="pm-btn-gold btn-pro" style="height: 56px; width: 100%; margin-top: 15px; border-radius: var(--radius-md);" id="submitBtn" onclick="validateAndRegister()">
                 <span class="btn-content">إنشاء حساب جديد</span>
-                <i class="fa-solid fa-circle-notch fa-spin btn-spinner"></i>
+                <span class="btn-spinner">
+                    <i class="fa-solid fa-spinner fa-spin"></i>
+                </span>
             </button>
 
             <div class="auth-footer-link">
                 لديك حساب بالفعل؟ <a href="login.html">تسجيل الدخول</a>
             </div>
-
         </form>
     </div>
 
@@ -123,43 +117,62 @@
     const googleProvider = new GoogleAuthProvider();
     let preFetchedCurrency = 'USD'; 
 
-    // =================================================================
-    // 🪄 دوال النوافذ المنبثقة والتنبيهات متصلة بالستايل المركزي
-    // =================================================================
-    function showCustomAlert(title, message, isSuccess = true) {
+    function showButtonSuccess(btn, text) {
+        btn.disabled = false;
+        btn.classList.remove('is-loading');
+        btn.style.background = "var(--success)";
+        btn.style.color = "var(--bg-body)";
+        btn.style.boxShadow = "0 4px 15px rgba(var(--success-rgb), 0.4)";
+        btn.querySelector('.btn-content').innerHTML = `${text} <i class="fa-solid fa-check" style="margin-right: 5px;"></i>`;
+    }
+
+    function showCustomAlert(title, message, type = 'error') {
         const overlay = document.getElementById('customAlert');
+        const card = document.getElementById('alertCard');
         const titleEl = document.getElementById('alertTitle');
         const msgEl = document.getElementById('alertMsg');
         const iconBox = document.getElementById('alertIconBox');
+        const btn = document.getElementById('alertOkBtn');
         
-        if (!overlay || !titleEl || !msgEl || !iconBox) return;
+        if (!overlay || !titleEl || !msgEl) return;
         
         titleEl.textContent = title;
         msgEl.textContent = message;
         
-        if (isSuccess) {
-            iconBox.className = "sys-dialog-icon"; // كلاس لونه أخضر نجاح (إذا كان متوفراً بملفك)
+        card.className = "sys-dialog-card";
+        iconBox.className = "sys-dialog-icon";
+        titleEl.className = "sys-dialog-title";
+        btn.style.display = 'block';
+
+        if (type === 'info') {
+            iconBox.style.color = "#0ea5e9";
+            iconBox.style.borderColor = "#0ea5e9";
+            iconBox.style.background = "rgba(14, 165, 233, 0.15)";
+            titleEl.style.color = "#0ea5e9";
+            iconBox.innerHTML = `<i class="fa-solid fa-user-check" style="font-size: 24px;"></i>`;
+            card.style.borderColor = "#0ea5e9";
+            btn.style.display = 'none'; 
+        } else if (type === 'success') {
             iconBox.style.color = "var(--success)";
             iconBox.style.borderColor = "var(--success)";
             iconBox.style.background = "var(--success-bg)";
             titleEl.style.color = "var(--success)";
+            card.style.borderColor = "var(--success)";
             iconBox.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
         } else {
             iconBox.className = "sys-dialog-icon danger";
             titleEl.className = "sys-dialog-title danger";
+            card.classList.add('danger-border');
             iconBox.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
         }
         
-        overlay.classList.add('active');
+        overlay.classList.add('active'); 
         document.body.style.overflow = 'hidden'; 
     }
 
     function closeCustomAlert() {
         const overlay = document.getElementById('customAlert');
-        if (overlay) {
-            overlay.classList.remove('active');
-            document.body.style.overflow = '';
-        }
+        if (overlay) { overlay.classList.remove('active'); document.body.style.overflow = ''; }
     }
     window.closeCustomAlert = closeCustomAlert;
 
@@ -169,7 +182,9 @@
                 const settingsDoc = await StoreDB.getCacheFirst(DB_KEYS.SETTINGS, 'singleton');
                 if (settingsDoc) preFetchedCurrency = String(settingsDoc.defaultCurrency || settingsDoc.currency || 'USD').toUpperCase();
             }
-        } catch (error) {}
+        } catch (error) {
+            console.warn("TeleCard Auth: Failed to load default currency. Falling back to USD.");
+        }
     }
     document.addEventListener('DOMContentLoaded', preloadDefaultCurrency);
 
@@ -234,8 +249,8 @@
             const val = this.value;
             if (val.trim() === '') hideError(elId, errId);
             else {
-                if (type === 'name' && !latinRegex.test(val)) showError(elId, errId, 'يُرجى استخدام الأحرف اللاتينية فقط');
-                else if (type === 'email' && !/^[\x20-\x7E]+$/.test(val)) showError(elId, errId, 'يُرجى إدخال بريد إلكتروني صالح');
+                if (type === 'name' && !latinRegex.test(val)) showError(elId, errId, 'يُرجى كتابة الاسم بالإنجليزي');
+                else if (type === 'email' && !/^[\x20-\x7E]+$/.test(val)) showError(elId, errId, 'بريد إلكتروني غير صالح');
                 else hideError(elId, errId); 
             }
         });
@@ -249,7 +264,7 @@
     function showError(inputId, errorId, msg) {
         const inp = document.getElementById(inputId);
         inp.classList.remove('shake-error-input');
-        void inp.offsetWidth; // Trigger reflow
+        void inp.offsetWidth; 
         inp.classList.add('input-error', 'shake-error-input');
         
         const err = document.getElementById(errorId);
@@ -263,26 +278,32 @@
     }
 
     async function handleGoogleLogin() {
-        const btn = document.querySelector('.btn-google-auth');
-        const originalText = btn.innerHTML;
-        btn.innerHTML = 'جاري الاتصال بجوجل...';
-        btn.style.opacity = '0.7'; btn.style.pointerEvents = "none";
+        const btn = document.getElementById('googleSignupBtn');
+        btn.disabled = true;
+        btn.classList.add('is-loading');
 
         try {
             const result = await signInWithPopup(auth, googleProvider);
             const firebaseUser = result.user;
 
             let activeUserObj = null;
-            if(StoreDB && typeof StoreDB.getById === 'function') activeUserObj = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid);
+            let isBrandNewUser = false; // 🛡️ كاشف العميل الجديد
+
+            if(StoreDB && typeof StoreDB.getById === 'function') {
+                activeUserObj = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid);
+            }
 
             if (!activeUserObj) {
-                btn.innerHTML = 'جاري تهيئة الحساب...';
+                isBrandNewUser = true; // تم التأكد أنه عميل جديد
                 const shortDisplayId = await generateUniqueDisplayId();
                 const rawDisplayName = firebaseUser.displayName || '';
+                
+                const cleanNameForUser = rawDisplayName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9\s]/g, "");
+                
                 let firstName = ''; let lastName = ''; let finalFullName = '';
 
-                if (rawDisplayName) {
-                    finalFullName = rawDisplayName;
+                if (cleanNameForUser.trim()) {
+                    finalFullName = cleanNameForUser.trim();
                     const nameParts = finalFullName.split(' ');
                     firstName = nameParts[0];
                     lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
@@ -298,8 +319,8 @@
 
                 activeUserObj = {
                     id: firebaseUser.uid, uid: firebaseUser.uid, displayId: shortDisplayId,
-                    firstName: firstName, lastName: lastName, fullName: finalFullName, name: firstName, username: baseUsername, email: firebaseUser.email,
-                    img: googleAvatar, baseCurrency: preFetchedCurrency, base_currency: preFetchedCurrency,
+                    firstName: firstName, lastName: lastName, fullName: finalFullName, username: baseUsername, email: firebaseUser.email,
+                    img: googleAvatar, baseCurrency: preFetchedCurrency, 
                     phone: null, country: null, walletBalance: 0, balance: 0, totalSpent: 0, totalDeposit: 0,
                     tierId: "1", tierCycleSpent: 0, tierCycleStartDate: Date.now(),
                     role: 'user', isVerified: false, kycStatus: 'none', isBanned: false, isIpBanned: false, createdAt: Date.now()
@@ -309,8 +330,9 @@
             } else {
                 if (activeUserObj.isBanned || activeUserObj.isIpBanned) {
                     await signOut(auth); localStorage.clear();
-                    btn.innerHTML = originalText; btn.style.opacity = '1'; btn.style.pointerEvents = "auto";
-                    showCustomAlert("حساب محظور", "عذراً، هذا الحساب تم حظره مسبقاً ولا يمكن استخدامه.", false);
+                    btn.classList.remove('is-loading');
+                    btn.disabled = false; 
+                    showCustomAlert("حساب محظور", "عذراً، هذا الحساب تم حظره مسبقاً ولا يمكن استخدامه.");
                     return; 
                 }
                 if (!activeUserObj.img && firebaseUser.photoURL) {
@@ -322,15 +344,22 @@
 
             localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
             localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(activeUserObj));
-            localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', activeUserObj.baseCurrency || activeUserObj.base_currency || 'USD');
+            localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', activeUserObj.baseCurrency || 'USD');
             if (activeUserObj.img) localStorage.setItem((DYNAMIC_PREFIXES?.USER_IMAGE || 'tc_uimg_') + firebaseUser.uid, activeUserObj.img);
 
-            document.getElementById('custom-notification').classList.add('active', 'success');
+            showButtonSuccess(btn, "تم إنشاء الحساب");
+            
+            // 🛡️ إرسال إشارة للمتجر للترحيب الخاص (فقط إذا كان العميل جديداً فعلاً)
+            if (isBrandNewUser) {
+                sessionStorage.setItem('tc_new_user_signup', 'true');
+            }
+
             setTimeout(() => { window.location.replace("store.html"); }, 1500);
 
         } catch (error) {
-            btn.innerHTML = originalText; btn.style.opacity = '1'; btn.style.pointerEvents = "auto";
-            showCustomAlert("فشل الدخول عبر جوجل", error.message, false);
+            btn.classList.remove('is-loading');
+            btn.disabled = false; 
+            showCustomAlert("فشل الدخول عبر جوجل", error.message);
         }
     }
 
@@ -343,25 +372,36 @@
         let isValid = true;
 
         if(!fname.value.trim()) { showError('fname', 'fnameError', 'هذا الحقل مطلوب'); isValid = false; }
-        else if(!latinRegex.test(fname.value)) { showError('fname', 'fnameError', 'يُرجى استخدام الأحرف اللاتينية فقط'); isValid = false; }
+        else if(!latinRegex.test(fname.value)) { showError('fname', 'fnameError', 'يُرجى كتابة الاسم بالإنجليزي'); isValid = false; }
 
         if(!lname.value.trim()) { showError('lname', 'lnameError', 'هذا الحقل مطلوب'); isValid = false; }
-        else if(!latinRegex.test(lname.value)) { showError('lname', 'lnameError', 'يُرجى استخدام الأحرف اللاتينية فقط'); isValid = false; }
+        else if(!latinRegex.test(lname.value)) { showError('lname', 'lnameError', 'يُرجى كتابة الاسم بالإنجليزي'); isValid = false; }
 
         if(!email.value.trim()) { showError('email', 'emailError', 'هذا الحقل مطلوب'); isValid = false; }
         else if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) { showError('email', 'emailError', 'البريد الإلكتروني غير صالح'); isValid = false; }
 
         if(pass.value.trim() === '') {
-            passInput.classList.add('input-error', 'shake-error-input'); passWarningText.innerHTML = `<strong>تنبيه الأمان:</strong> حقل كلمة المرور مطلوب.`;
-            document.getElementById('passWarning').style.display = 'flex'; isValid = false;
-        } else if(!isPassStrong) { checkPasswordStrength(); isValid = false; }
+            showError('password', 'passwordError', 'هذا الحقل مطلوب'); 
+            document.getElementById('passWarning').style.display = 'none';
+            isValid = false;
+        } else if(!isPassStrong) { 
+            checkPasswordStrength(); 
+            isValid = false; 
+        }
 
-        if(pass.value !== confirm.value || confirm.value.trim() === '') { showError('confirm', 'confirmError', 'كلمات المرور غير متطابقة'); isValid = false; }
+        if(confirm.value.trim() === '') { 
+            showError('confirm', 'confirmError', 'هذا الحقل مطلوب'); 
+            isValid = false; 
+        } else if(pass.value !== confirm.value) { 
+            showError('confirm', 'confirmError', 'كلمات المرور غير متطابقة'); 
+            isValid = false; 
+        }
 
         if(!isValid) return;
 
         const btn = document.getElementById('submitBtn');
-        btn.classList.add('is-loading'); // الكلاس المركزي لدوران التحميل
+        btn.disabled = true;
+        btn.classList.add('is-loading'); 
 
         try {
             const rawEmail = email.value.trim().toLowerCase();
@@ -376,8 +416,9 @@
 
             const newUser = {
                 id: firebaseUser.uid, uid: firebaseUser.uid, displayId: shortDisplayId,
-                firstName: safeFirstName, lastName: safeLastName, fullName: finalFullName, name: safeFirstName, username: finalUsername, email: firebaseUser.email,
-                baseCurrency: preFetchedCurrency, base_currency: preFetchedCurrency, phone: null, country: null, walletBalance: 0, balance: 0, totalSpent: 0, totalDeposit: 0,
+                firstName: safeFirstName, lastName: safeLastName, fullName: finalFullName, username: finalUsername, email: firebaseUser.email,
+                baseCurrency: preFetchedCurrency, 
+                phone: null, country: null, walletBalance: 0, balance: 0, totalSpent: 0, totalDeposit: 0,
                 tierId: "1", tierCycleSpent: 0, tierCycleStartDate: Date.now(),
                 role: 'user', isVerified: false, kycStatus: 'none', isBanned: false, isIpBanned: false, createdAt: Date.now()
             };
@@ -388,15 +429,22 @@
             localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(newUser));
             localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', preFetchedCurrency);
 
-            document.getElementById('custom-notification').classList.add('active', 'success');
+            showButtonSuccess(btn, "تم إنشاء الحساب");
+            
+            // 🛡️ إرسال إشارة للمتجر للترحيب الخاص 
+            sessionStorage.setItem('tc_new_user_signup', 'true');
+
             setTimeout(() => { window.location.replace("store.html"); }, 1500);
 
         } catch(error) {
             btn.classList.remove('is-loading');
+            btn.disabled = false; 
+            
             if (error.code === 'auth/email-already-in-use') {
-                showError('email', 'emailError', 'البريد مسجل مسبقاً! جاري توجيهك...');
+                hideError('email', 'emailError'); 
+                showCustomAlert("أهلاً بك من جديد!", "هذا البريد مسجل لدينا بالفعل. جاري تحويلك لصفحة تسجيل الدخول...", "info");
                 try { sessionStorage.setItem('prefilled_email', email.value.trim().toLowerCase()); } catch(e) {}
-                setTimeout(() => { window.location.replace("login.html"); }, 1800);
+                setTimeout(() => { window.location.replace("login.html"); }, 2800); 
             }
             else if (error.code === 'auth/network-request-failed') { showError('email', 'emailError', 'خطأ في الاتصال بالإنترنت'); }
             else { showError('email', 'emailError', error.message); }

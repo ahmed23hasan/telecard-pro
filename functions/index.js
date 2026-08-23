@@ -101,10 +101,17 @@ exports.onUserAuthCreated = functions
         const defaultTierSnap = await db.collection('telecard_tiers').where('isDefault', '==', true).limit(1).get();
         if (!defaultTierSnap.empty) initialTierId = defaultTierSnap.docs[0].id;
         
-        const initialProfile = {
-            email: user.email || '', fullName: user.displayName || 'عميل جديد', role: 'user',
-            walletBalance: 0.0, totalSpent: 0.0, totalDeposit: 0.0,
-            tierId: initialTierId, tierCycleSpent: 0.0, tierCycleStartDate: admin.firestore.FieldValue.serverTimestamp(),
+        const rawName = user.displayName || 'عميل جديد';
+const firstName = rawName.split(' ')[0]; // 🛡️ استخراج الاسم الأول للترحيب
+
+const initialProfile = {
+    email: user.email || '', 
+    fullName: rawName, 
+    firstName: firstName, // 👈 إضافة الاسم الأول
+    baseCurrency: 'USD',  // 👈 تأمين العملة الأساسية كاحتياطي
+    role: 'user',
+    walletBalance: 0.0, totalSpent: 0.0, totalDeposit: 0.0,
+     tierId: initialTierId, tierCycleSpent: 0.0, tierCycleStartDate: admin.firestore.FieldValue.serverTimestamp(),
             manualTierOverride: false, isBanned: false, isIpBanned: false, isVerified: false, kycStatus: 'none',
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         };
@@ -1013,7 +1020,12 @@ exports.adminDeleteUserData = onCall(async (request) => {
         catch (authError) { if (authError.code !== 'auth/user-not-found') throw new HttpsError('internal', authError.message); }
         
         await db.collection('telecard_users').doc(targetUid).update({
-            email: `deleted_${targetUid.substring(0, 5)}@system.local`, fullName: 'حساب محذوف', phone: '---', country: '---',
+            email: `deleted_${targetUid.substring(0, 5)}@system.local`,
+            fullName: 'حساب محذوف',
+            firstName: 'محذوف', // 👈 تدمير الاسم الأول
+            lastName: '', // 👈 تدمير الاسم الأخير
+            phone: '---',
+            country: '---',
             isDeleted: true, isBanned: true, banReason: 'Deleted by Admin', manualTierOverride: true, deletedAt: admin.firestore.FieldValue.serverTimestamp()
         });
 

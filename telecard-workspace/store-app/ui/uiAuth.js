@@ -302,11 +302,24 @@ export const UIAuth = {
             if (newVal.length < 2) { getSys().showToast?.('الاسم قصير جداً أو فارغ، يرجى كتابة اسم صحيح', 'warning'); return; }
             if (newVal.length > 40) { getSys().showToast?.('الاسم طويل جداً، يرجى كتابة اسم أقصر', 'warning'); return; }
             
-            if (DataManager.user && newVal !== DataManager.user.name) {
-                DataManager.updateUserProfile({ name: newVal, fullName: newVal }).then(success => {
-                    if (success) {
-                        nameEl.textContent = newVal; 
-                        getSys().showToast?.('تم تحديث الاسم بنجاح', 'success');
+            const currentFullName = DataManager.user.fullName || DataManager.user.name || '';
+if (DataManager.user && newVal !== currentFullName) {
+    
+    // 🛡️ تقسيم الاسم بذكاء لتحديث الحقول الثلاثة معاً
+    const nameParts = newVal.split(' ');
+    const newFirstName = nameParts[0];
+    const newLastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+    
+    // حفظ التحديث بالشكل المعماري النظيف (Single Source of Truth)
+    DataManager.updateUserProfile({ 
+        firstName: newFirstName, 
+        lastName: newLastName, 
+        fullName: newVal 
+        // ⚠️ تم حذف إرسال حقل name القديم للسيرفر
+    }).then(success => {
+        if (success) {
+            nameEl.textContent = newVal; 
+           getSys().showToast?.('تم تحديث الاسم بنجاح', 'success');
                         if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
                     }
                 });

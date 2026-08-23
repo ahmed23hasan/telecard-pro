@@ -83,13 +83,14 @@ export const UsersController = {
         }
 
         if (nameInput) {
-            const parts = nameInput.split(' ').filter(Boolean);
-            const first = parts.shift() || nameInput;
-            const last = parts.join(' ').trim();
-            user.name = first;
-            user.lastName = last;
-            user.fullName = last ? `${first} ${last}` : first;
-        }
+    const parts = nameInput.split(' ').filter(Boolean);
+    const first = parts.shift() || nameInput;
+    const last = parts.join(' ').trim();
+    user.firstName = first; 
+    user.lastName = last;
+    user.fullName = last ? `${first} ${last}` : first;
+    user.name = first; 
+}
 
         if (email) user.email = email;
         if (phone) user.phone = phone;

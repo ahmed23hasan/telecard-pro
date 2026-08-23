@@ -51,7 +51,8 @@ export const UsersUI = {
     },
 
     animateBalanceUpdate: function(newBal, curCode, type) {
-        const modalBalVal = document.querySelector('#tab-wallet.ud-balance-card-pro.val'); 
+        const modalBalVal = document.querySelector('#tab-wallet .ud-balance-card-pro .val'); 
+
         if (modalBalVal) {
             modalBalVal.innerHTML = `${Utils.enNum(newBal, 2)} <span class="cur">${curCode}</span>`;
             const popClass = type === 'add' ? 'bal-pop-up' : 'bal-pop-down';

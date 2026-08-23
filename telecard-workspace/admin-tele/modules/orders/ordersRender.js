@@ -173,7 +173,8 @@ export const OrdersRender = {
             const userRec = AdminData.data.usersMap?.[o.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
             
             const displayId = RenderHelpers.formatUserId(userRec);
-            const customerName = sanitizeCSV(userRec ? (userRec.name || o.userName) : (o.userName || o.userId));
+            const customerName = sanitizeCSV(userRec ? (userRec.fullName || userRec.name || o.userName) : (o.userName || o.userId));
+
 
             const product = sanitizeCSV(o.product || 'منتج غير معروف');
             const qty = Number(o.qty || 1);

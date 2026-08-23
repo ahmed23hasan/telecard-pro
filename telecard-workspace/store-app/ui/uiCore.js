@@ -239,15 +239,21 @@ export const UICore = {
     },    
     closeAllModals: function() { if (this.activeModals) [...this.activeModals].forEach(id => this.closeModal(id)); },
 
-    resetUI: function() {
-        const sidebar = document.querySelector('.sidebar') || document.getElementById('cs-menu');
-        const sidebarOverlay = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
-        
-        if (sidebar) sidebar.classList.remove('active');
-        if (sidebarOverlay) sidebarOverlay.classList.remove('active');
+    resetUI: function(preserveState = false) {
+        // 🛡️ الإصلاح: إذا كان preserveState مفعلاً، نحترم حالة المستخدم ولا نغلق القائمة والنوافذ
+        if (!preserveState) {
+            const sidebar = document.querySelector('.sidebar') || document.getElementById('cs-menu');
+            const sidebarOverlay = document.getElementById('sidebarOverlay') || document.querySelector('.sidebar-overlay');
+            if (sidebar) sidebar.classList.remove('active');
+            if (sidebarOverlay) sidebarOverlay.classList.remove('active');
+            
+            this.closeAllModals();
 
-        this.closeAllModals();
+            // مسح حقول البحث فقط إذا لم نكن في وضع حفظ الحالة (لكي لا نمسح ما يكتبه العميل أثناء التحميل)
+            ['store-search-input', 'order-search-input', 'wallet-search-input', 'pay-search-input'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        }
 
+        // إغلاق القوائم المنسدلة فقط (Dropdowns) لضمان عدم تشوه الواجهة
         document.querySelectorAll('.nm-container').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.ct-menu').forEach(el => el.classList.remove('open', 'active'));
         document.querySelectorAll('.custom-dropdown-container').forEach(el => el.classList.remove('open'));
@@ -259,12 +265,11 @@ export const UICore = {
             if(walletModal) walletModal.classList.remove('drawer-blur-active');
         }
         document.querySelector('.detail-arrow')?.classList.remove('open');
-        
-        ['store-search-input', 'order-search-input', 'wallet-search-input', 'pay-search-input'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 
-        if (!document.querySelector('.sidebar.active') && this.activeModals.length === 0) document.body.classList.remove('no-scroll');
-    },
-    resetGridScroll: function() {
+        if (!document.querySelector('.sidebar.active') && this.activeModals.length === 0) {
+            document.body.classList.remove('no-scroll');
+        }
+    },    resetGridScroll: function() {
         window.scrollTo(0, 0);
         const grid = document.getElementById('store-grid');
         if (grid) { grid.scrollTop = 0; let parent = grid.parentElement; while (parent && parent.tagName !== 'HTML') { parent.scrollTop = 0; parent = parent.parentElement; } }
@@ -570,18 +575,27 @@ export const UICore = {
             'apply-coupon': () => getSys().applyCoupon?.(),
             'remove-coupon': () => getSys().removeCoupon?.(),
             'paste-coupon': () => this.pasteText?.(),
-            
-            // 🛡️ [توجيه المهام المالية المركزية]
+        // 🛡️ [توجيه المهام المالية المركزية - تم تسليم شكل الأزرار لملف الـ CSS بالكامل]
             'confirm-purchase': async (e, id, val, target) => { 
-                if (target.disabled || target.dataset.processing === 'true') return;
-                target.disabled = true; target.dataset.processing = 'true';
-                const originalHtml = target.innerHTML;
-                target.innerHTML = '<span class="btn-content"><i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ...</span>';
+                if (target.dataset.processing === 'true') return;
+                target.dataset.processing = 'true';
                 try { await getSys().handlePurchaseSubmit?.(); } 
-                finally { target.disabled = false; target.dataset.processing = 'false'; target.innerHTML = originalHtml; }
+                finally { target.dataset.processing = 'false'; }
             },
             
             'nav-orders-from-success': () => { 
+                if (getSys().closePurchaseSuccess) getSys().closePurchaseSuccess(); else this.closeModal('purchase-success');
+                setTimeout(() => { this.navigateOrders?.(); }, 360); 
+            },
+            'navigate-orders-success': () => { this.closeModal?.('purchase-success'); setTimeout(() => { this.navigateOrders?.(); }, 360); }, 
+            'select-pay': (e, id) => getSys().selectPay?.(id),
+            
+            'submit-balance': async (e, id, val, target, dataType, dataCurr) => { 
+                if (target.dataset.processing === 'true') return;
+                target.dataset.processing = 'true';
+                try { await getSys().handleBalanceSubmit?.(dataCurr); } 
+                finally { target.dataset.processing = 'false'; }
+            },          'nav-orders-from-success': () => { 
                 if (getSys().closePurchaseSuccess) getSys().closePurchaseSuccess(); else this.closeModal('purchase-success');
                 setTimeout(() => { this.navigateOrders?.(); }, 360); 
             },
@@ -860,12 +874,10 @@ export const UICore = {
                 }, 250);
                 return;
             }
-            
-            // 🛡️ الإصلاح: إضافة أزرار المفضلة والنوافذ للقائمة المستثناة لمنع صدى الصوت المزدوج
-if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigger-click', 'update-simple-qty', 'delete-avatar', 'open-product', 'mark-single-read', 'toggle-fav-modal', 'open-favorites', 'open-sidebar', 'nav-home', 'nav-deposit', 'nav-payments', 'nav-orders', 'open-notif-center', 'nav-settings'].includes(action)) {
+          // 🛡️ الإصلاح: السماح لأزرار التنقل والجرس بإصدار الصوت، واستثناء الأزرار التي تمتلك صوتها الخاص فقط
+if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigger-click', 'update-simple-qty', 'delete-avatar', 'open-product', 'mark-single-read', 'toggle-fav-modal'].includes(action)) {
     this.sfx?.('nav');
-}
-            // ✅ الكود الجديد (اصطياد الأخطاء بأمان دون الاعتماد على دوال غير موجودة)
+}            // ✅ الكود الجديد (اصطياد الأخطاء بأمان دون الاعتماد على دوال غير موجودة)
             if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) target.blur();
 
             try {
@@ -913,7 +925,7 @@ if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigge
             loader.innerHTML = `
                 <div class="pnl-content">
                     <div class="pnl-spinner-box">
-                        <i class="fa-solid fa-circle-notch fa-spin pnl-spinner-icon"></i>
+                        <i class="fa-solid fa-spinner fa-spin pnl-spinner-icon"></i>
                         <i class="fa-solid fa-store pnl-store-icon"></i>
                     </div>
                     <div class="pnl-store-name">${Utils.escapeHtml(s.storeName || s.name || 'المتجر')}</div>
@@ -952,7 +964,7 @@ if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigge
     },
     
     openFavorites: function() {
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { DataManager.logout(); }, 1500); return; }     if (document.getElementById('grid-title')?.innerText?.trim() === 'المفضلة') { this.closeSidebar(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { window.location.href = 'login.html'; }, 1500); return; }     if (document.getElementById('grid-title')?.innerText?.trim() === 'المفضلة') { this.closeSidebar(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
         this.closeSidebar(); this.resetUI(); this.currentCategoryId = null;
         this._executePageTransition(() => { if (RenderManager.renderFavorites) RenderManager.renderFavorites(); });
     },
@@ -1017,13 +1029,13 @@ if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigge
     },    
     
     openOrders: function() {
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { DataManager.logout(); }, 1500); return; }     this.resetUI(); getSys().setFilterDefaults?.('order');
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { window.location.href = 'login.html'; }, 1500); return; }     this.resetUI(); getSys().setFilterDefaults?.('order');
         if (RenderManager.renderOrders) RenderManager.renderOrders(true);
         setTimeout(() => { this.openModal('orders'); }, 10);
     },
     
     openWallet: function() {
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { DataManager.logout(); }, 1500); return; }      this.resetUI(); getSys().setFilterDefaults?.('wallet'); getSys().updateDisplayBalance?.();
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { window.location.href = 'login.html'; }, 1500); return; }      this.resetUI(); getSys().setFilterDefaults?.('wallet'); getSys().updateDisplayBalance?.();
         if (RenderManager.renderWallet) RenderManager.renderWallet(true);
         this._syncWalletBlur();
         setTimeout(() => { this.openModal('wallet'); }, 10);
@@ -1051,7 +1063,7 @@ if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigge
     },
     
     openMyPayments: function() {
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { DataManager.logout(); }, 1500); return; }      this.resetUI(); getSys().setFilterDefaults?.('payments');
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { window.location.href = 'login.html'; }, 1500); return; }      this.resetUI(); getSys().setFilterDefaults?.('payments');
         if (RenderManager.renderPayments) RenderManager.renderPayments(true);
         setTimeout(() => { this.openModal('mypay'); }, 10);
     },
@@ -1261,7 +1273,7 @@ this.updateNotifBadges();},
     }, 
 
     openNotifCenter: function() {     
-        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { DataManager.logout(); }, 1500); return; }      this.closeSidebar();
+        if (!DataManager?.user) { getSys().showToast?.('يجب تسجيل الدخول', 'error'); setTimeout(() => { window.location.href = 'login.html'; }, 1500); return; }      this.closeSidebar();
         if (RenderManager.renderNotifCenterList) RenderManager.renderNotifCenterList();
         document.getElementById('notif-center-modal')?.classList.add('active'); 
         document.getElementById('notif-center-overlay')?.classList.add('active');

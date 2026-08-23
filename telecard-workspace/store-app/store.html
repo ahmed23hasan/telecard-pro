@@ -80,13 +80,17 @@
             </svg>
             <i class="fa-solid fa-store splash-icon"></i>
         </div>
-        <h2 id="splash-store-name" class="splash-title">جاري إعداد حسابك...</h2>
-    </div>
-<!-- 🛡️ حقن الاسم المخبأ لتسريع شاشة الإقلاع -->
+        <h2 id="splash-store-name" class="splash-title">جاري التحميل...</h2>
+</div>
+
+<!-- 🛡️ استرجاع اسم المتجر فقط للحفاظ على أناقة شاشة الإقلاع -->
 <script>
-    // الاعتماد على الاحتمالين لضمان المصدر الوحيد للحقيقة
-    var cachedStoreName = localStorage.getItem('tc_splash_name') || localStorage.getItem('telecard_splash_name');
-    if (cachedStoreName) { document.getElementById('splash-store-name').textContent = cachedStoreName; }
+    (function() {
+        var cachedStoreName = localStorage.getItem('tc_splash_name') || localStorage.getItem('telecard_splash_name');
+        if (cachedStoreName) {
+            document.getElementById('splash-store-name').textContent = cachedStoreName;
+        }
+    })();
 </script>
 <!-- 🚨 نافذة الحماية والطرد المباشر -->
     <div class="global-alert-overlay master-overlay" id="global-security-alert" role="dialog" aria-modal="true">

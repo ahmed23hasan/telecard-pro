@@ -79,10 +79,10 @@
       ]
     },
     {
-      "collectionGroup": "telecard_kyc",
+      "collectionGroup": "telecard_users",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "kycStatus", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },

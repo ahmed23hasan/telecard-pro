@@ -1,10 +1,10 @@
 // ============================================================================
-// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V14.4 💎
+// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V14.5 💎
 // 🎯 الوظيفة: SSOT (المصدر الوحيد للحقيقة)، معالجة البيانات الضخمة، والبحث اللحظي
 // 🚀 التحديثات:
-// 1. Cache Invalidator Fix: ربط البنرات (banners) بنظام مسح الكاش لإظهار العروض فوراً.
-// 2. Prods Separation: فصل قراءة الإدارة عن المتجر لضمان رؤية الـ Cost Price.
-// 3. Force Sync Engine: إضافة جسر لدالة (adminForceSyncCatalog) السحابية.
+// 1. KYC Purge: إزالة الجلب المستقل للتوثيق لمنع انهيار اللوحة وتخفيف الضغط.
+// 2. Syntax Fix: إصلاح خطأ الفاصلة المفقودة المسبب للشاشة البيضاء (Fatal Crash).
+// 3. Name Normalization: تقديم fullName في قائمة أفضل العملاء (Top Heroes).
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -22,7 +22,7 @@ export const AdminData = {
         deposits: [], orders: [], users: [], cats: [], prods: [], 
         payments: [], banners: [], settings: {}, rates: [], 
         system: {}, adminProfile: {}, tiers: [], countries: [], 
-        vault: [], coupons: [], offers: [], logs: [], alerts: [], kyc: [],
+        vault: [], coupons: [], offers: [], logs: [], alerts: [],
         
         usersMap: {}, prodsMap: {}, catsMap: {}, tiersMap: {}, 
         couponsMap: {}, countriesMap: {}, ratesMap: {},
@@ -91,18 +91,17 @@ export const AdminData = {
             const results = await Promise.all([
                 fetchArray(DB_KEYS.RATES), fetchArray(DB_KEYS.TIERS), fetchRecent(DB_KEYS.USERS, 200, 'createdAt'),
                 fetchRecent(DB_KEYS.DEPOSITS, 150, 'time'), fetchRecent(DB_KEYS.ORDERS, 150, 'time'),
-                fetchArray(DB_KEYS.CATS), fetchArray(ADMIN_PRODS_KEY), fetchArray(DB_KEYS.PAYMENTS), // 👈 تصحيح قراءة المنتجات
+                fetchArray(DB_KEYS.CATS), fetchArray(ADMIN_PRODS_KEY), fetchArray(DB_KEYS.PAYMENTS),
                 fetchArray(DB_KEYS.BANNERS), fetchSingleton(DB_KEYS.SETTINGS), fetchSingleton(DB_KEYS.POPUP),
                 fetchSingleton(DB_KEYS.SYSTEM), fetchSingleton(DB_KEYS.ADMIN), fetchArray(DB_KEYS.COUNTRIES),
                 fetchArray(DB_KEYS.VAULT), fetchArray(DB_KEYS.COUPONS), fetchArray(DB_KEYS.OFFERS),
-                fetchRecent(DB_KEYS.LOGS, 50, 'timestamp'), fetchRecent(DB_KEYS.ALERTS, 50, 'time'),
-                fetchArray(DB_KEYS.KYC)
+                fetchRecent(DB_KEYS.LOGS, 50, 'timestamp'), fetchRecent(DB_KEYS.ALERTS, 50, 'time')
             ]);
 
             const [
                 rRates, rTiers, rUsers, rDeposits, rOrders, rCats, rProds, rPayments, 
                 rBanners, rSettings, rNotif, rSystem, rAdmin, rCountries, rVault, 
-                rCoupons, rOffers, rLogs, rAlerts, rKyc
+                rCoupons, rOffers, rLogs, rAlerts
             ] = results;
 
             const ratesMapRaw = normalizeRates(rRates);
@@ -198,7 +197,6 @@ export const AdminData = {
 
             this.data.logs = rLogs;
             this.data.alerts = rAlerts;
-            this.data.kyc = rKyc;
 
             this._buildMaps();
 
@@ -310,7 +308,8 @@ export const AdminData = {
                 const u = d.usersMap[uid]; 
                 return u ? {
                     id: u.id, displayId: u.displayId || String(u.id).substring(0, 8),
-                    name: u.name || u.fullName || u.username || 'عميل مميز',
+                    // 🛡️ توحيد الأسماء للمحرك
+                    name: u.fullName || u.name || u.username || 'عميل مميز',
                     img: u.profileImage || u.img || null, spent: spent
                 } : null;
             }).filter(Boolean);

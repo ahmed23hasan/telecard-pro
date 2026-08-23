@@ -35,6 +35,8 @@ service cloud.firestore {
 
     function isSafeUserCreation() {
       let data = request.resource.data;
+      
+      // 🛡️ التحقق الصارم من عدم تلاعب العميل بالأرصدة والصلاحيات عند الإنشاء
       let safeValues = data.get('walletBalance', 0) == 0 &&
                        data.get('balance', 0) == 0 &&
                        data.get('totalSpent', 0) == 0 &&
@@ -43,7 +45,16 @@ service cloud.firestore {
                        data.get('isBanned', false) == false &&
                        data.get('isIpBanned', false) == false;
       
-      let allowedCreationKeys = ['email', 'fullName', 'walletBalance', 'balance', 'totalSpent', 'totalDeposit', 'tierId', 'role', 'isBanned', 'isIpBanned', 'createdAt', 'provider'];
+      // 🛡️ القائمة الماسية: السماح بجميع الحقول المعمارية الجديدة لمنع خطأ (Permission Denied)
+      let allowedCreationKeys = [
+        'id', 'uid', 'displayId', 
+        'firstName', 'lastName', 'fullName', 'name', 'username', 'email', 'img',
+        'baseCurrency', 'base_currency', 'phone', 'country', 
+        'walletBalance', 'balance', 'totalSpent', 'totalDeposit', 
+        'tierId', 'tierCycleSpent', 'tierCycleStartDate', 
+        'role', 'isVerified', 'kycStatus', 'isBanned', 'isIpBanned', 'createdAt', 'provider'
+      ];
+      
       return safeValues && data.keys().hasOnly(allowedCreationKeys);
     }
 

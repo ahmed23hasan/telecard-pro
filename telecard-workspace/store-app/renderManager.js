@@ -312,9 +312,10 @@ export const RenderManager = {
         
         const performRender = () => {
             if (typeof UIManager !== 'undefined') {
-                UIManager.toggleHeroSection(true); UIManager.navHistory = []; UIManager.currentCategoryId = null; UIManager.resetGridScroll(); UIManager.resetUI(); UIManager.renderTicker();
+                UIManager.toggleHeroSection(true); UIManager.navHistory = []; UIManager.currentCategoryId = null; UIManager.resetGridScroll(); 
+                UIManager.resetUI(true); // 🛡️ الإصلاح: نحترم ما فتحه العميل أثناء التحميل
+                UIManager.renderTicker();
             }
-            
             if (!isBackAction && window.history.replaceState) window.history.replaceState(null, '', ' ');
             
             if (grid) {
@@ -519,10 +520,17 @@ export const RenderManager = {
         UIManager.toggleHeroSection(false);
 
         const grid = document.getElementById('store-grid');
-        UIManager.resetGridScroll(); UIManager.resetUI();
-
+        
+        UIManager.resetGridScroll(); 
+        UIManager.resetUI(true); // 🛡️ الإصلاح: نحافظ على حالة الواجهة بدون إغلاق النوافذ المفتوحة
+        
+        // 👇 تم إنزال المتغير لسطر جديد لكي لا يعلق داخل التعليق
         const titleEl = document.getElementById('grid-title');
-        if(titleEl) { titleEl.innerText = this._getCategoryName(id); titleEl.classList.add('show-correct-title'); }
+        
+        if(titleEl) { 
+            titleEl.innerText = this._getCategoryName(id); 
+            titleEl.classList.add('show-correct-title'); 
+        }
 
         const subs = (LiveStoreData.cats || []).filter(c => String(c.parentId) === String(id)).sort((a,b) => (a.order||0)-(b.order||0));
         
@@ -571,7 +579,6 @@ export const RenderManager = {
             });
         }
     },
-
     searchStoreTerm: function(q) {
         if(!q || !q.trim()) { this.renderHome(); return; }
         const renderId = ++this.currentRenderId;
@@ -859,7 +866,8 @@ export const RenderManager = {
 
         if (visibleDeposits.length === 0) { list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد عمليات</h3></div>`; return; }
 
-        const userDisplayName = Utils.escapeHtml(user.username ? `@${user.username}` : (user.name || 'العميل'));
+        const userDisplayName = Utils.escapeHtml(user.username ? `@${user.username}` : (user.fullName || 'العميل'));
+
         const userIdString = RenderHelpers.formatUserId(user);
 
         requestAnimationFrame(() => {
@@ -1039,7 +1047,8 @@ export const RenderManager = {
         try {
             const finalPrice = Number(o.pricingSnapshot?.finalPrice || o.price || 0);
             const originalPrice = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
-            const rawUserName = typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل');
+            const rawUserName = typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.fullName || 'العميل');
+
 
             const success = await this.generateReceiptImage({
                 type: 'order', 
@@ -1083,7 +1092,8 @@ export const RenderManager = {
             const credAmt = d.creditedAmount !== undefined ? Number(d.creditedAmount) : rawAmt;
             const calcFee = Math.abs(rawAmt - credAmt);
             const isBonus = credAmt > rawAmt;
-            const rawUserName = typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.name || 'العميل');
+            const rawUserName = typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.fullName || 'العميل');
+
 
             const success = await this.generateReceiptImage({
                 type: 'deposit', 

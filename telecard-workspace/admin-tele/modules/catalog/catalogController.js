@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Enterprise V14.5 💎
+// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Enterprise V14.6 💎
 // 🎯 الوظيفة: المنطق التجاري للمنتجات، الأقسام، الدول، وصناديق الأكواد (Vault)
 // 🚀 التحديثات: 
 // 1. Data Contract Fix: إضافة حقلي `isActive` و `isAvailable` لمنع السيرفر من إخفاء المنتجات.
 // 2. Force Sync Button: إضافة دالة `forceSyncStore` كزر طوارئ لإعادة المنتجات للواجهة.
-// 3. Server-Side Vault & Fail-Fast UI مدعومة ومفعلة.
+// 3. Memory Leak Prevention: تطهير الخرائط السريعة O(1) تلقائياً عند الإضافة والحذف.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -144,6 +144,7 @@ export const CatalogController = {
                 AdminData.data.prods.push(newProd);
             }
 
+            // 🛡️ تزامن خريطة المنتجات السريعة O(1)
             if (!AdminData.data.prodsMap) AdminData.data.prodsMap = {};
             AdminData.data.prodsMap[newProd.id] = newProd;
 
@@ -194,10 +195,10 @@ export const CatalogController = {
 
     saveCat: async function() {
         const name = Utils.escapeHTML(Utils.getVal('c-name'));
-        if (!name) return EventBus.emit('req-show-toast', {message:'يرجى إدخال اسم القسم', type:'warning'});
-
+        if (!name) return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم القسم', type: 'warning' });
+        
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إنشاء وتوثيق القسم سحابياً...');
-
+        
         try {
             const hasImg = AdminUI?.CatalogUI?.hasImage?.('c-img-wrap');
             const tempEditId = AdminData.tempEditId;
@@ -208,19 +209,27 @@ export const CatalogController = {
                 const fileInput = document.getElementById('c-img-input');
                 if (fileInput?.files?.[0]) finalImg = await FirebaseAdapter.uploadImage(fileInput.files[0], 'categories', null, oldImg);
             }
-
+            
             const isEdit = !!tempEditId;
             const catId = isEdit ? String(tempEditId) : 'cat_' + Date.now();
-
+            
             if (isEdit) {
                 const c = AdminData.data.cats.find(x => String(x.id) === catId);
-                if (c) { c.name = name; c.img = finalImg; }
+                if (c) { 
+                    c.name = name;
+                    c.img = finalImg; 
+                }
             } else {
                 const sameParentCats = AdminData.data.cats.filter(c => String(c.parentId) === String(AdminData.currFolder));
                 const maxOrder = sameParentCats.length > 0 ? Math.max(...sameParentCats.map(c => Number(c.order) || -1)) + 1 : 0;
                 AdminData.data.cats.push({ id: catId, name: name, parentId: AdminData.currFolder != null ? String(AdminData.currFolder) : null, img: finalImg, order: maxOrder, isActive: true });
             }
-
+            
+            // 🛡️ تزامن خريطة الأقسام السريعة O(1) لمنع تسرب الذاكرة
+            if (!AdminData.data.catsMap) AdminData.data.catsMap = {};
+            const updatedCat = AdminData.data.cats.find(x => String(x.id) === catId);
+            if (updatedCat) AdminData.data.catsMap[catId] = updatedCat;
+            
             await AdminData?.saveCategories?.();
             
             EventBus.emit('req-finish-action', {
@@ -232,7 +241,7 @@ export const CatalogController = {
             });
             
         } catch (error) {
-            EventBus.emit('req-show-toast', {message:'فشل الحفظ: ' + error.message, type:'error'});
+            EventBus.emit('req-show-toast', { message: 'فشل الحفظ: ' + error.message, type: 'error' });
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
@@ -249,6 +258,8 @@ export const CatalogController = {
                 if (prod?.img) await FirebaseAdapter.deleteImageByUrl(prod.img).catch(() => {});
                 
                 AdminData.data.prods = AdminData.data.prods.filter(p => String(p.id) !== String(id));
+                
+                // 🛡️ تطهير الخريطة السريعة O(1)
                 if(AdminData.data.prodsMap) delete AdminData.data.prodsMap[id];
 
                 await AdminData?.saveProducts?.();
@@ -292,6 +303,15 @@ export const CatalogController = {
                 
                 AdminData.data.cats = AdminData.data.cats.filter(c => String(c.id) !== catId && !allChildCatIds.has(String(c.id)));
                 AdminData.data.prods = AdminData.data.prods.filter(p => String(p.catId) !== catId && !allChildCatIds.has(String(p.catId)));
+                
+                // 🛡️ تطهير الخرائط السريعة O(1) لمنع تسرب الذاكرة
+                if (AdminData.data.catsMap) {
+                    delete AdminData.data.catsMap[catId];
+                    allChildCatIds.forEach(childId => delete AdminData.data.catsMap[childId]);
+                }
+                if (AdminData.data.prodsMap) {
+                    affectedProds.forEach(p => delete AdminData.data.prodsMap[p.id]);
+                }
                 
                 await AdminData?.saveCategories?.();
                 await AdminData?.saveProducts?.();
@@ -415,6 +435,10 @@ export const CatalogController = {
                 if (idx > -1) AdminData.data.countries[idx] = newCountry;
             } else { AdminData.data.countries.push(newCountry); }
 
+            // 🛡️ تزامن خريطة الدول السريعة O(1)
+            if (!AdminData.data.countriesMap) AdminData.data.countriesMap = {};
+            AdminData.data.countriesMap[newCountry.id] = newCountry;
+
             await AdminData?.saveCountries?.();
             
             EventBus.emit('req-finish-action', {
@@ -430,7 +454,7 @@ export const CatalogController = {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
-    
+
     deleteCountry: async function(id) {
         if (AdminData.data.countries && AdminData.data.countries.length <= 1) {
             return EventBus.emit('req-show-toast', { message: 'يجب أن يحتوي المتجر على دولة واحدة على الأقل.', type: 'error' });
@@ -441,6 +465,10 @@ export const CatalogController = {
             try {
                 const countryName = AdminData.data.countriesMap?.[id]?.name || 'الدولة';
                 AdminData.data.countries = AdminData.data.countries.filter(c => String(c.id) !== String(id));
+                
+                // 🛡️ تطهير الخريطة السريعة O(1)
+                if (AdminData.data.countriesMap) delete AdminData.data.countriesMap[id];
+                
                 await AdminData?.saveCountries?.();
                 if (AdminData?.addLog) AdminData.addLog('DELETE_COUNTRY', `تم حذف الدولة: ${countryName}`);
                 EventBus.emit('req-render-countries');

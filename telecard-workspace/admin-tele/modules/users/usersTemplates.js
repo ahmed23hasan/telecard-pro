@@ -31,7 +31,8 @@ export const UsersTemplates = {
     userSortLabel: (isAsc) => isAsc ? '<span class="sort-icon-group"><i class="fa-solid fa-long-arrow-alt-up"></i><i class="fa-solid fa-long-arrow-alt-down icon-dimmed icon-ms-n2"></i></span>' : '<span class="sort-icon-group"><i class="fa-solid fa-long-arrow-alt-up icon-dimmed icon-me-n2"></i><i class="fa-solid fa-long-arrow-alt-down"></i></span>',
     emptyUsers: () => `<div class="empty-state"><i class="fa-solid fa-users-slash"></i><span>لا يوجد مستخدمون حتى الآن</span></div>`,
     
-    userCard: (u, sortType = 'newest', thisMonthKey = '', lastMonthKey = '', index = 0) => {
+    userCard: (u, sortType = 'newest', currentMonthKey = '', lastMonthKey = '', index = 0) => {
+
         const name = _esc(RenderHelpers._getExplicitName(u));
         const exactStatus = u.isBanned ? 'banned' : (u.isRestricted ? 'restricted' : 'active');
         const statusClass = `status-${exactStatus}`;

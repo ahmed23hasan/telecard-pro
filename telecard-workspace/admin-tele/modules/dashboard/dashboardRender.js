@@ -251,7 +251,8 @@ export const DashboardRender = {
             
             // 🛡️ استخراج اسم الأدمن الحقيقي (حتى لو كان مخفياً تحت adminUid)
             const adminUser = AdminData.data.usersMap?.[log.adminUid];
-            const displayAdminName = log.admin || (adminUser ? (adminUser.name || adminUser.fullName || adminUser.username) : 'مدير النظام');
+            const displayAdminName = log.admin || (adminUser ? (adminUser.fullName || adminUser.firstName || adminUser.name || adminUser.username) : 'مدير النظام');
+
 
             html += `<tr>
                 <td><div class="log-date-cell"><span class="d-date num-en" dir="ltr">${safeDateTime}</span></div></td>

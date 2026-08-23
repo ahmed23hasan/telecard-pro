@@ -6,6 +6,7 @@
 // 2. SSOT Cache Versioning: فصل مفتاح كاش التطبيق عن المنتجات لمنع حلقة التحديث اللانهائية.
 // 3. WebAuthn Base64URL Fix: معالجة فك تشفير البصمة الآمنة ومنع انهيار المتصفح.
 // 4. Ghost Session Protection: توحيد المصادقة مع المحول الداخلي.
+// 5. Smart Greeting Engine: دمج الترحيب النفسي المخصص للعملاء الجدد والعائدين.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -455,17 +456,79 @@ ClientSystem.init = async function() {
             }
         };
         requestAnimationFrame(removeSplashScreen);
-        
+
+        // =================================================================
+        // 🛡️ محرك التنبيهات الذكي للبدء (Logout Toast OR Smart Greeting)
+        // =================================================================
+        if (localStorage.getItem('tc_show_logout_toast')) {
+            // 1. إذا كان العميل قد سجل خروجه للتو، نظهر له رسالة الوداع فقط
+            localStorage.removeItem('tc_show_logout_toast');
+            setTimeout(() => {
+                if (window.UIManager && window.UIManager.showToast) {
+                    window.UIManager.showToast('تم تسجيل الخروج بنجاح. نراك قريباً!', 'success');
+                }
+                if (window.UIManager && window.UIManager.sfx) {
+                    window.UIManager.sfx('success');
+                }
+            }, 1200); // تأخير لضمان اختفاء شاشة الإقلاع تماماً
+            
+        } else if (!sessionStorage.getItem('tc_has_been_greeted')) {
+            // 2. إذا كانت هذه أول مرة يفتح فيها المتجر في هذه الجلسة، نظهر له التحية الذكية
+            sessionStorage.setItem('tc_has_been_greeted', 'true');
+            
+            setTimeout(() => {
+                const isNewUser = sessionStorage.getItem('tc_new_user_signup');
+                const storeName = localStorage.getItem('tc_splash_name') || LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'متجرنا';
+                const firstName = DataManager.user?.firstName || DataManager.user?.name || '';
+                const namePart = firstName ? ` يا ${firstName}` : '';
+                let finalGreeting = '';
+                
+                if (isNewUser) {
+                    // 🌟 سيناريو 1: العميل أنشأ حسابه للتو (ترحيب حار باسم المتجر)
+                    sessionStorage.removeItem('tc_new_user_signup');
+                    const newWelcomePhrases = [
+                        `أهلاً بك في عائلة ${storeName}${namePart} 🎉`,
+                        `بداية موفقة معنا في ${storeName}${namePart} 🚀`,
+                        `سعيدون بانضمامك لـ ${storeName}${namePart} ✨`
+                    ];
+                    finalGreeting = newWelcomePhrases[Math.floor(Math.random() * newWelcomePhrases.length)];
+                } else {
+                    // 🌟 سيناريو 2: الزيارات المتكررة (عشوائية زمنية لكسر الروتين)
+                    const hour = new Date().getHours();
+                    let timePhrases = [];
+                    
+                    if (hour >= 5 && hour < 12) {
+                        timePhrases = ["صباح الخير", "عمت صباحاً", "صباح النشاط", "إشراقة جديدة"];
+                    } else if (hour >= 12 && hour < 18) {
+                        timePhrases = ["طاب مساؤك", "كيف الحال", "ما الأخبار", "مرحباً بك"];
+                    } else {
+                        timePhrases = ["مساء الخير", "سهرة ممتعة", "عمت مساءً", "أهلاً بك الليلة"];
+                    }
+                    
+                    const randomPhrase = timePhrases[Math.floor(Math.random() * timePhrases.length)];
+                    finalGreeting = `${randomPhrase}${namePart} ✨`;
+                }
+                
+                // 🛡️ عرض الترحيب النهائي للعميل
+                if (window.UIManager && window.UIManager.showToast) {
+                    window.UIManager.showToast(finalGreeting, 'info');
+                }
+            }, 1500); // تأخير أنيق ليظهر بعد استقرار الواجهة
+        }
+
+        // =================================================================
+        // 🚀 إكمال بناء الواجهة وجلب البيانات
+        // =================================================================
         if (this.applyStoreIdentity) this.applyStoreIdentity();
         if (this.initSlider) this.initSlider();
         if (this.renderTicker) this.renderTicker();
         if (this.updateProfileDisplay) this.updateProfileDisplay();
-        
+
         const sName = LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'TeleCard';
         const splashName = document.getElementById('splash-store-name');
         if (splashName) splashName.innerText = sName;
         localStorage.setItem(CACHE_KEYS.SPLASH_NAME, sName);
-        
+
         if (this.isReady && RenderManager) {
             // 1. جلب البيانات العامة المسموحة للجميع (الضيوف والمستخدمين)
             const publicKeys = ['COUNTRIES', 'PAYMENTS'];
@@ -497,7 +560,7 @@ ClientSystem.init = async function() {
         const splash = document.getElementById('global-splash-screen');
         if (splash) splash.remove();
     }
-    
+
     try {
         setTimeout(() => { if (DataManager.injectSilentSensor) DataManager.injectSilentSensor(); }, 3000);
         if (this.updateDisplayBalance) this.updateDisplayBalance();

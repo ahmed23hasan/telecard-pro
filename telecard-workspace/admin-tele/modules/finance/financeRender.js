@@ -208,7 +208,8 @@ if (isA_Pending !== isB_Pending) return isB_Pending - isA_Pending;
             // ⚡ جلب العميل فورا بـ O(1) من الخريطة
             const userRec = AdminData.data.usersMap?.[d.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
             const displayId = RenderHelpers.formatUserId(userRec);
-            const customerName = sanitizeCSV(userRec ? (userRec.name || d.userName) : (d.userName || d.userId));
+            const customerName = sanitizeCSV(userRec ? (userRec.fullName || userRec.name || d.userName) : (d.userName || d.userId));
+
 
             const method = sanitizeCSV(d.method || d.methodName || 'إيداع غير محدد');
             const amount = Number(d.amount || 0).toFixed(2);
