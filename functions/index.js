@@ -689,28 +689,29 @@ exports.updateGlobalStatsOnOrder = onDocumentWritten({ document: 'telecard_order
         } else if (after.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(1);
     } else if (before && after && before.status !== after.status) {
         if (before.status === 'completed') {
-    updates['orders.completed'] = FieldValue.increment(-1);
-    updates['financials.totalRevenue'] = FieldValue.increment(-(before.price || 0));
-    updates['financials.totalCost'] = FieldValue.increment(-(before.pricingSnapshot?.costUsd || 0));
-    updates['financials.totalProfit'] = FieldValue.increment(-(before.pricingSnapshot?.netProfitUsd || 0));
-} else if (before.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(-1);
-// 🛡️ الإصلاح: توحيد حالات الاسترجاع (refunded / returned) لضمان دقة العدادات
-else if (before.status === 'refunded' || before.status === 'returned') updates['orders.refunded'] = FieldValue.increment(-1);
+            updates['orders.completed'] = FieldValue.increment(-1);
+            updates['financials.totalRevenue'] = FieldValue.increment(-(before.price || 0));
+            updates['financials.totalCost'] = FieldValue.increment(-(before.pricingSnapshot?.costUsd || 0));
+            updates['financials.totalProfit'] = FieldValue.increment(-(before.pricingSnapshot?.netProfitUsd || 0));
+        } else if (before.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(-1);
+        // 🛡️ الإصلاح: توحيد حالات الاسترجاع (refunded / returned) لضمان دقة العدادات
+        else if (before.status === 'refunded' || before.status === 'returned') updates['orders.refunded'] = FieldValue.increment(-1);
 
-if (after.status === 'completed') {
-    updates['orders.completed'] = FieldValue.increment(1);
-    updates['financials.totalRevenue'] = FieldValue.increment(after.price || 0);
-    updates['financials.totalCost'] = FieldValue.increment(after.pricingSnapshot?.costUsd || 0);
-    updates['financials.totalProfit'] = FieldValue.increment(after.pricingSnapshot?.netProfitUsd || 0);
-} else if (after.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(1);
-// 🛡️ الإصلاح: توحيد حالات الاسترجاع عند الإضافة
-else if (after.status === 'refunded' || after.status === 'returned') updates['orders.refunded'] = FieldValue.increment(1);    
+        if (after.status === 'completed') {
+            updates['orders.completed'] = FieldValue.increment(1);
+            updates['financials.totalRevenue'] = FieldValue.increment(after.price || 0);
+            updates['financials.totalCost'] = FieldValue.increment(after.pricingSnapshot?.costUsd || 0);
+            updates['financials.totalProfit'] = FieldValue.increment(after.pricingSnapshot?.netProfitUsd || 0);
+        } else if (after.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(1);
+        // 🛡️ الإصلاح: توحيد حالات الاسترجاع عند الإضافة
+        else if (after.status === 'refunded' || after.status === 'returned') updates['orders.refunded'] = FieldValue.increment(1);    
+    } // <===== 🛡️ هذا هو قوس الإغلاق الذي كان مفقوداً وتسبب بانهيار السيرفر!
+
     if (Object.keys(updates).length > 0) {
         updates.lastUpdated = FieldValue.serverTimestamp();
         await statsRef.set(updates, { merge: true });
     }
 });
-
 exports.updateGlobalStatsOnDeposit = onDocumentWritten({ document: 'telecard_deposits/{depositId}', retry: true }, async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : null;
     const after = event.data.after.exists ? event.data.after.data() : null;
