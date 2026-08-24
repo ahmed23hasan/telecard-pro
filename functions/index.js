@@ -667,7 +667,7 @@ exports.completeUserIdentity = onCall({ enforceAppCheck: false }, async (request
 });
 
 // ==========================================
-// 📊 5. التحديث اللحظي للإحصائيات (Zero-Cost Stats)
+// 📊 5. التحدي ث اللحظي للإحصائيات (Zero-Cost Stats)
 // ==========================================
 exports.getServerTime = onCall(() => { return { success: true, serverTime: admin.firestore.Timestamp.now().toMillis() }; });
 
