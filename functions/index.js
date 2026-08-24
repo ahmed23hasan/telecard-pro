@@ -703,7 +703,7 @@ exports.updateGlobalStatsOnOrder = onDocumentWritten({ document: 'telecard_order
             updates['financials.totalCost'] = FieldValue.increment(after.pricingSnapshot?.costUsd || 0);
             updates['financials.totalProfit'] = FieldValue.increment(after.pricingSnapshot?.netProfitUsd || 0);
         } else if (after.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(1);
-        // 🛡️ الإصلاح: توحيد  حالات  الاسترجاع عند الإضافة
+        // 🛡️ الإصلاح: توحيد  حالات الاسترجاع عند الإضافة
         else if (after.status === 'refunded' || after.status === 'returned') updates['orders.refunded'] = FieldValue.increment(1);    
     } 
 
