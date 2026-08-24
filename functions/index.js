@@ -705,7 +705,7 @@ exports.updateGlobalStatsOnOrder = onDocumentWritten({ document: 'telecard_order
         } else if (after.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(1);
         // 🛡️ الإصلاح: توحيد حالات الاسترجاع عند الإضافة
         else if (after.status === 'refunded' || after.status === 'returned') updates['orders.refunded'] = FieldValue.increment(1);    
-    } // <===== 🛡️ هذا هو قوس الإغلاق الذي كان مفقوداً وتسبب بانهيار السيرفر!
+    } // <===== 🛡️ هذا هاو قوس الإغلاق الذي كان مفقوداً وتسبب بانهيار السيرفر!
 
     if (Object.keys(updates).length > 0) {
         updates.lastUpdated = FieldValue.serverTimestamp();
