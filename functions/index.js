@@ -879,12 +879,22 @@ exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{produ
 
 exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', timeoutSeconds: 540 }, async (event) => {
     await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
-    const oldTier = event.data.before.data(); const newTier = event.data.after.data();
-    if (oldTier.profitPercent === newTier.profitPercent && oldTier.minProfitUsd === newTier.minProfitUsd) return null;
+    const oldTier = event.data.before.data(); 
+    const newTier = event.data.after.data();
+    
+    // 🛡️ الإصلاح: قراءة المتغيرات بالشكل المطابق لـ Schema قاعدة البيانات
+    const oldProfit = oldTier.profit_percent ?? oldTier.profitPercent;
+    const newProfit = newTier.profit_percent ?? newTier.profitPercent;
+    const oldMin = oldTier.min_profit_usd ?? oldTier.minProfitUsd;
+    const newMin = newTier.min_profit_usd ?? newTier.minProfitUsd;
+
+    if (oldProfit === newProfit && oldMin === newMin) return null;
+    
     const tiersSnap = await db.collection('telecard_tiers').get();
     const allTiers = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() })); 
     const activeProdsStream = db.collection('telecard_prods').where('isActive', '==', true).stream();
     let currentBatch = db.batch(), opCount = 0, totalUpdated = 0;
+    
     for await (const doc of activeProdsStream) {
         const prodData = doc.data();
         if (String(prodData.isFixedPrice).toLowerCase() === 'true') continue;
@@ -892,10 +902,10 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
         totalUpdated++; opCount++;
         if (opCount >= 250) { await currentBatch.commit(); currentBatch = db.batch(); opCount = 0; }
     }
+    
     if (opCount > 0) await currentBatch.commit();
     return { success: true, updatedProductsCount: totalUpdated };
 });
-
 // Notifications
 exports.autoNotifyOrderStatus = onDocumentWritten({ document: 'telecard_orders/{orderId}', retry: true }, async (event) => {
     if (!event.data.after.exists) return null;
