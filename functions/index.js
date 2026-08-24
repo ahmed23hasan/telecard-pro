@@ -705,7 +705,7 @@ exports.updateGlobalStatsOnOrder = onDocumentWritten({ document: 'telecard_order
         } else if (after.status === 'rejected') updates['orders.rejected'] = FieldValue.increment(1);
         // 🛡️ الإصلاح: توحيد حالات الاسترجاع عند الإضافة
         else if (after.status === 'refunded' || after.status === 'returned') updates['orders.refunded'] = FieldValue.increment(1);    
-    } // <===== 🛡️ هذا ه و قوس الإغلاق الذي كان مفقوداً وتسبب بانهيار السيرفر!
+    } 
 
     if (Object.keys(updates).length > 0) {
         updates.lastUpdated = FieldValue.serverTimestamp();
@@ -829,7 +829,7 @@ exports.cleanupOrphanedKycDocs = onSchedule({
                         const userData = userDoc.data();
                         const kycData = userData.kycData || {};
                         
-                        // 🛡️ Safe URL Decoding: فك ترميزز الأسماء لضمان المطابقة حتى لو احتوت على مسافات
+                        // 🛡️ Safe URL Decoding: فك ترميز الأسماء لضمان المطابقة حتى لو احتوت على مسافات
                         const pureFileName = decodeURIComponent(file.name.split('/').pop());
                         
                         const frontDecoded = kycData.frontImg ? decodeURIComponent(String(kycData.frontImg)) : '';
