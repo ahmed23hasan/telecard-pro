@@ -196,7 +196,7 @@ _registerListener: function(uniqueKey, unsubscribeFn) {
                 if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
             } catch (e) {}
             
-            // 🛡️ الذكاء هنا: إذا كنا أوفلاين أو الكاش طازج جداً ولم يتم تحديث الإدارة
+            // 🛡️ الذكاء  هنا: إذا كنا أوفلاين أو الكاش طازج جداً ولم يتم تحديث الإدارة
             if (isOffline || (cachedData && !this._globalForceServer)) {
                 return cachedData;
             }
