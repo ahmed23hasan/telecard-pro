@@ -829,7 +829,7 @@ exports.cleanupOrphanedKycDocs = onSchedule({
                         const userData = userDoc.data();
                         const kycData = userData.kycData || {};
                         
-                        // 🛡️ Safe URL Decoding: فك ترميز الأسماء لضمان المطابقة حتى لو احتوت على مسافات
+                        // 🛡️ Safe URL Decoding: فك ترميزز الأسماء لضمان المطابقة حتى لو احتوت على مسافات
                         const pureFileName = decodeURIComponent(file.name.split('/').pop());
                         
                         const frontDecoded = kycData.frontImg ? decodeURIComponent(String(kycData.frontImg)) : '';
