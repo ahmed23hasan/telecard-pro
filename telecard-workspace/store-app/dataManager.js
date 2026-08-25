@@ -1,12 +1,10 @@
 // ============================================================================
-// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة V2.9.3 💎 (The Unbreakable Core)
+// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة V2.9.4 💎 (The Unbreakable Core)
 // 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات والاتصال المالي.
-// 🚀 التحديثات المعمارية الصارمة (V2.9.3): 
-// 1. Single Source of Truth: توحيد مفتاح الكاش (tc_server_version) لربط النظام بالكامل.
-// 2. Skeleton Trap Fix: تحرير الواجهة فوراً بعد التحميل بتفعيل isInitialSyncDone.
-// 3. RenderHelpers Injection: تمرير العملات والعروض للمايسترو لمنع الانهيار المالي (NaN).
-// 4. Ghost Sessions Fix: ضمان استخدام المصادقة من الـ Adapter الداخلي حصراً.
-// 5. Zero-Flicker Fix: إزالة الاستدعاء اليدوي للسجلات والاعتماد كلياً على المستمعات اللحظية.
+// 🚀 التحديثات المعمارية الصارمة (V2.9.4): 
+// 1. Error Propagation Pipeline: تمرير أخطاء السيرفر (Firewall Rejections) الصريحة مباشرة للواجهة.
+// 2. Single Source of Truth: توحيد مفتاح الكاش لربط النظام بالكامل.
+// 3. Skeleton Trap Fix: تحرير الواجهة فوراً بعد التحميل بتفعيل isInitialSyncDone.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -16,7 +14,7 @@ import { RenderHelpers } from './core/renderHelpers.js';
 import { FinancialEngine } from './core/financialEngine.js'; 
 import { generateIdempotencyKey, parseSafeTime, getDeviceFingerprint } from './utils.js'; 
 
-// 🛡️ تصدير محول قاعدة البيانات ليكون متاحاً لبقية الملفات (حل مشكلة renderManager)
+// 🛡️ تصدير محول قاعدة البيانات ليكون متاحاً لبقية الملفات
 export const StoreDB = FirebaseAdapter;
 
 export const LiveStoreData = {
@@ -36,7 +34,6 @@ export const DataManager = {
     
     get activeUid() { return this.user?.uid || this.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID); },
 
-    // ⚡ تطبيق الختم العالمي (Global Cache Versioning) الفعلي الموحد
     initStoreCatalog: async function() {
         LiveStoreData.isOfflineMode = false;
         try {
@@ -46,11 +43,10 @@ export const DataManager = {
             ]);
             
             let forceUpdateCatalog = false;
-            let newServerVersion = null; // 🛡️ الاحتفاظ بالنسخة الجديدة مؤقتاً
+            let newServerVersion = null; 
             
             if (settingsSnap.status === 'fulfilled' && settingsSnap.value) {
                 LiveStoreData.settings = settingsSnap.value;
-                // ✅ الحقن المبدئي لمنع انهيار الواجهة
                 if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
                     RenderHelpers.init({ 
                         settings: LiveStoreData.settings, 
@@ -63,13 +59,11 @@ export const DataManager = {
             
             if (systemSnap.status === 'fulfilled' && systemSnap.value) {
                 const serverVersion = String(systemSnap.value.catalogVersion || '0');
-                // ✅ استخدام المفتاح الموحد للحقيقة المطلقة
                 const localVersion = localStorage.getItem('tc_server_version');
                 
                 if (serverVersion !== '0' && serverVersion !== localVersion) {
                     forceUpdateCatalog = true;
                     newServerVersion = serverVersion; 
-                    console.log(`🔄 [Version Diff] تم اكتشاف تحديث للكتالوج للإصدار: ${serverVersion}`);
                 }
             }
             
@@ -94,7 +88,6 @@ export const DataManager = {
                 banners: results[5].status === 'fulfilled' ? results[5].value : []
             });
             
-            // ✅ إعادة الحقن بعد اكتمال سحب العملات والعروض لضمان الحسابات المالية الدقيقة
             if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
                 RenderHelpers.init({ 
                     settings: LiveStoreData.settings, 
@@ -106,25 +99,19 @@ export const DataManager = {
 
             this._ratesCache = null;
             
-            // 🧠 التحديث الذكي: حفظ العدد الفعلي للأقسام في الذاكرة اللحظية لضبط السكيليتون ومنع القفزات البصرية
             try {
                 if (LiveStoreData.cats && LiveStoreData.cats.length > 0) {
                     localStorage.setItem('tc_cats_count', LiveStoreData.cats.length);
                 }
             } catch (e) {}
             
-            // 🛡️ حفظ الختم العالمي فقط إذا نجح جلب المنتجات والفئات الأساسية
             if (newServerVersion && results[0].status === 'fulfilled' && results[1].status === 'fulfilled') {
-                // ✅ الحفظ باستخدام المفتاح الموحد
                 localStorage.setItem('tc_server_version', newServerVersion);
-                console.log(`✅ تم تأكيد تحديث الكتالوج للإصدار: ${newServerVersion}`);
             }
             
-            // ✅ إنهاء فخ السكيليتون: إخبار الواجهة أن التحميل انتهى لكي يظهر المتجر فوراً
             LiveStoreData.isInitialSyncDone = true; 
             return true;
         } catch (error) {
-            console.error("🚨 [DataManager] فشل تحميل الكتالوج:", error);
             LiveStoreData.isOfflineMode = true;
             return false;
         }
@@ -243,7 +230,15 @@ export const DataManager = {
                 this.saveUserLocal();
             }
             return result;
-        } finally { this._actionLocks.delete('identity'); }
+        } catch(err) {
+            // 🛡️ اصطياد أخطاء السيرفر عند إكمال الهوية (مثلاً: تم الإكمال مسبقاً)
+            const msg = String(err.message || '');
+            let finalMsg = 'تعذر تحديث البيانات، حاول مجدداً.';
+            if (/[\u0600-\u06FF]/.test(msg)) finalMsg = msg; 
+            return { success: false, msg: finalMsg };
+        } finally { 
+            this._actionLocks.delete('identity'); 
+        }
     },
 
     submitKycDocuments: async function(kycData, files) {
@@ -292,7 +287,10 @@ export const DataManager = {
             
         } catch (error) {
             uploadedUrls.forEach(url => StoreDB.deleteImageByUrl(url).catch(() => {}));
-            return { success: false, msg: error.message };
+            const msg = String(error.message || '');
+            let finalMsg = msg;
+            if (!/[\u0600-\u06FF]/.test(msg)) finalMsg = 'فشل رفع المستندات.';
+            return { success: false, msg: finalMsg };
         } finally { this._actionLocks.delete('kyc'); }
     },
 
@@ -377,25 +375,20 @@ export const DataManager = {
     },
 
     logout: async function() {
-        // 1. إغلاق القائمة الجانبية فوراً لإعطاء استجابة بصرية للمس
         if (window.UIManager && window.UIManager.closeSidebar) {
             window.UIManager.closeSidebar();
         }
 
         try {
-            // 2. تسجيل الخروج من فايربيز (يحدث في أجزاء من الثانية)
             if (auth) await signOut(auth);
             
-            // 3. تنظيف الكاش المحلي
             localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
             localStorage.removeItem(ACTIVE_USER_KEY);
             localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
             
-            // إيقاف المستمعات
             if (typeof this._notifUnsubscribe === 'function') { this._notifUnsubscribe(); this._notifUnsubscribe = null; }
             if (typeof this._userUnsubscribe === 'function') { this._userUnsubscribe(); this._userUnsubscribe = null; } 
 
-            // 4. تدمير البيانات الحية
             Object.keys(LiveStoreData).forEach(k => {
                 if (Array.isArray(LiveStoreData[k])) { 
                     LiveStoreData[k].length = 0; 
@@ -418,120 +411,110 @@ export const DataManager = {
             
             this._actionLocks.clear();
             this.cursors = { orders: null, deposits: null, wallet: null };      
-        } catch (e) { 
-            console.warn("[DataManager] Error during logout:", e); 
-        }
+        } catch (e) {}
 
-        // 5. زرع رسالة النجاح في الذاكرة
         localStorage.setItem('tc_show_logout_toast', 'true');
-
-        // 6. القتل وإعادة الإقلاع بسرعة البرق (بدون أي تأخير مصطنع 🚀)
         window.location.replace(window.location.pathname);
-    },   syncUser: async function() {
-    let me = null;
+    },   
     
-    // 🛡️ الإصلاح المعماري 1: استخراج عملة الإدارة بأمان حتى أثناء الإقلاع المبكر (Boot Phase)
-    let adminDef = 'USD';
-    if (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) {
-        adminDef = LiveStoreData.settings.defaultCurrency;
-    } else {
-        // إذا كانت الإعدادات لم تُحمل بعد، نحاول إنقاذ العملة من كاش فايربيز الداخلي
-        try {
-            const cachedSettings = JSON.parse(localStorage.getItem('telecard_store_cache_telecard_settings_singleton') || '{}');
-            if (cachedSettings.defaultCurrency) adminDef = cachedSettings.defaultCurrency;
-        } catch (e) {}
-    }
-    
-    if (this.activeUid) {
-        try {
-            me = (LiveStoreData.users || []).find(u => String(u.uid || u.id) === String(this.activeUid)) || JSON.parse(localStorage.getItem(ACTIVE_USER_KEY) || 'null');
-        } catch (e) { me = null; }
+    syncUser: async function() {
+        let me = null;
         
-        if (me && String(me.uid || me.id) !== String(this.activeUid)) me = null;
+        let adminDef = 'USD';
+        if (LiveStoreData.settings && LiveStoreData.settings.defaultCurrency) {
+            adminDef = LiveStoreData.settings.defaultCurrency;
+        } else {
+            try {
+                const cachedSettings = JSON.parse(localStorage.getItem('telecard_store_cache_telecard_settings_singleton') || '{}');
+                if (cachedSettings.defaultCurrency) adminDef = cachedSettings.defaultCurrency;
+            } catch (e) {}
+        }
         
-        try {
-            const lastSync = sessionStorage.getItem(CACHE_KEYS.TIME_SYNC);
-            if (!LiveStoreData.isOfflineMode && StoreDB.callFunction && (!lastSync || (Date.now() - Number(lastSync)) > 21600000 || this.serverTimeOffset === 0)) {
-                StoreDB.callFunction('getServerTime').then(res => {
-                    if (res?.serverTime) {
-                        this.serverTimeOffset = res.serverTime - Date.now();
-                        sessionStorage.setItem(CACHE_KEYS.TIME_SYNC, Date.now().toString());
-                    }
-                }).catch(() => {});
-            }
-        } catch (e) {}
-    }
-    
-    if (this.activeUid && !me && window.ClientSystem?.isReady) {
-        if (!LiveStoreData.isOfflineMode) this.logout();
-        return false;
-    }
-    
-    if (me) {
-        if (me.isBanned || me.isIpBanned || me.isRestricted) {
-            window.UIManager?.triggerLiveBanAlert ? window.UIManager.triggerLiveBanAlert(me.banReason) : this.logout();
+        if (this.activeUid) {
+            try {
+                me = (LiveStoreData.users || []).find(u => String(u.uid || u.id) === String(this.activeUid)) || JSON.parse(localStorage.getItem(ACTIVE_USER_KEY) || 'null');
+            } catch (e) { me = null; }
+            
+            if (me && String(me.uid || me.id) !== String(this.activeUid)) me = null;
+            
+            try {
+                const lastSync = sessionStorage.getItem(CACHE_KEYS.TIME_SYNC);
+                if (!LiveStoreData.isOfflineMode && StoreDB.callFunction && (!lastSync || (Date.now() - Number(lastSync)) > 21600000 || this.serverTimeOffset === 0)) {
+                    StoreDB.callFunction('getServerTime').then(res => {
+                        if (res?.serverTime) {
+                            this.serverTimeOffset = res.serverTime - Date.now();
+                            sessionStorage.setItem(CACHE_KEYS.TIME_SYNC, Date.now().toString());
+                        }
+                    }).catch(() => {});
+                }
+            } catch (e) {}
+        }
+        
+        if (this.activeUid && !me && window.ClientSystem?.isReady) {
+            if (!LiveStoreData.isOfflineMode) this.logout();
             return false;
         }
         
-        me.uid = this.activeUid;
-        me.id = this.activeUid;
-        
-        // 🛡️ الإصلاح المعماري 2: لا نختلق عملة للعميل إذا لم يخترها! نقرأها فقط إذا كانت موجودة.
-        if (me.baseCurrency || me.base_currency) {
-            me.baseCurrency = (me.baseCurrency || me.base_currency).toUpperCase();
-        } else {
-            me.baseCurrency = null; // العميل لم يكمل بياناته
+        if (me) {
+            if (me.isBanned || me.isIpBanned || me.isRestricted) {
+                window.UIManager?.triggerLiveBanAlert ? window.UIManager.triggerLiveBanAlert(me.banReason) : this.logout();
+                return false;
+            }
+            
+            me.uid = this.activeUid;
+            me.id = this.activeUid;
+            
+            if (me.baseCurrency || me.base_currency) {
+                me.baseCurrency = (me.baseCurrency || me.base_currency).toUpperCase();
+            } else {
+                me.baseCurrency = null; 
+            }
+            
+            me.walletBalance = Number(me.walletBalance ?? me.wallet_balance ?? me.balance ?? 0);
+            
+            if (me.tierCycleStartDate === undefined) {
+                me.tierCycleStartDate = this.getNow();
+                me.tierCycleSpent = 0;
+            }
+            
+            if (Array.isArray(me.readAlerts)) {
+                try { localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(me.readAlerts)); } catch (e) {}
+            }
+            
+            this.user = me;
+            this.saveUserLocal();
+            
+            this.injectSilentSensor();
+            
+            this.listenToUserUpdates(() => {
+                window.UIManager?.updateProfileDisplay?.();
+                window.UIManager?.updateDisplayBalance?.();
+                window.RenderManager?.renderWallet?.(true);
+            });
+            
+        } else if (!this.activeUid) {
+            this.user = null;
         }
         
-        me.walletBalance = Number(me.walletBalance ?? me.wallet_balance ?? me.balance ?? 0);
+        this.enforceIpBan().catch(() => {});
         
-        if (me.tierCycleStartDate === undefined) {
-            me.tierCycleStartDate = this.getNow();
-            me.tierCycleSpent = 0;
+        let savedCurr = null;
+        try { savedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY); } catch (e) {}
+        
+        savedCurr = savedCurr || (this.user?.baseCurrency) || adminDef;
+        
+        const hasCompletedData = this.user && (this.user.isVerified === true || String(this.user.isVerified) === 'true' || this.user.country);
+        
+        if (LiveStoreData.settings?.showCurrencyToggle === false && hasCompletedData && this.user.baseCurrency && savedCurr !== this.user.baseCurrency) {
+            savedCurr = this.user.baseCurrency;
+            try { localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, savedCurr); } catch (e) {}
         }
         
-        if (Array.isArray(me.readAlerts)) {
-            try { localStorage.setItem(DB_KEYS.NOTIF_READ_LIST, JSON.stringify(me.readAlerts)); } catch (e) {}
-        }
-        
-        this.user = me;
-        this.saveUserLocal();
-        
-        this.injectSilentSensor();
-        
-        this.listenToUserUpdates(() => {
-            window.UIManager?.updateProfileDisplay?.();
-            window.UIManager?.updateDisplayBalance?.();
-            window.RenderManager?.renderWallet?.(true);
-        });
-        
-    } else if (!this.activeUid) {
-        this.user = null;
-    }
-    
-    this.enforceIpBan().catch(() => {});
-    
-    // ==========================================
-    // 🛡️ هندسة تجربة المستخدم وعرض العملات (UX)
-    // ==========================================
-    
-    let savedCurr = null;
-    try { savedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY); } catch (e) {}
-    
-    // الأولوية: 1. الكاش (ما اختاره العميل يدوياً) -> 2. عملة حسابه الأساسية (إن وجدت) -> 3. عملة الإدارة
-    savedCurr = savedCurr || (this.user?.baseCurrency) || adminDef;
-    
-    const hasCompletedData = this.user && (this.user.isVerified === true || String(this.user.isVerified) === 'true' || this.user.country);
-    
-    // إذا كان زر العملات مغلقاً، والعميل أكمل بياناته ولديه عملة، نجبره عليها
-    if (LiveStoreData.settings?.showCurrencyToggle === false && hasCompletedData && this.user.baseCurrency && savedCurr !== this.user.baseCurrency) {
-        savedCurr = this.user.baseCurrency;
-        try { localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, savedCurr); } catch (e) {}
-    }
-    
-    this.selectedCurr = savedCurr;
-    return true;
-},    enforceIpBan: async function() {
+        this.selectedCurr = savedCurr;
+        return true;
+    },    
+
+    enforceIpBan: async function() {
         if (LiveStoreData.isOfflineMode) return false;
         try {
             const banned = LiveStoreData.settings?.bannedIps || [];
@@ -569,7 +552,7 @@ export const DataManager = {
         } catch (e) { return { success: false, msg: 'خطأ اتصال.' }; }
     },
 
-    confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
+        confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
         
@@ -581,18 +564,23 @@ export const DataManager = {
             const req = { productId: String(prod.id), qty: Math.max(1, Math.floor(Number(qty)) || 1), optIdx: optIdx ?? null, finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null, idempotencyKey: generateIdempotencyKey() };
             const res = await StoreDB.callFunction('createOrder', req);
             
-            // 🛡️ الإصلاح: تم إزالة الاستدعاء اليدوي للسجلات هنا لمنع تعارض الواجهة
-            
             return { success: true, msg: res.message || 'تم إتمام الطلب', isAutoDelivered: res.isAutoDelivered, deliveredCodeText: res.deliveredCode };
         } catch (err) {
-            console.error("🚨 [CRASH DUMP] فشل لحظي قبل أو أثناء الإرسال:", err.message);
-            const msg = String(err.message || '');
+            // 🛡️ اصطياد رسائل الجدار الناري الصريحة من السيرفر وعرضها للمستخدم بدبلوماسية
+            const msg = String(err.message || '').toLowerCase();
             let finalMsg = 'خطأ بالشبكة أو نفد المخزون.';
-            if (/[\u0600-\u06FF]/.test(msg)) finalMsg = msg;
-            else if (msg.toLowerCase().includes('balance')) finalMsg = 'رصيدك غير كافٍ.';
-            else if (msg.toLowerCase().includes('already')) finalMsg = 'تم استلام طلبك مسبقاً.';
-            else if (err.code === 'network-offline' || msg.toLowerCase().includes('fetch')) finalMsg = 'تأكد من اتصالك بالإنترنت.';
-            else if (msg.toLowerCase().includes('internal')) finalMsg = 'رفض السيرفر الطلب (خطأ داخلي).';
+            
+            // 🛡️ حماية أسرار العمل (Error Masking) كخط دفاع أخير
+            const sensitiveKeywords = ['رأس المال', 'الربح', 'تكلفة', 'يكسر حاجز', 'خسارة', 'السعر النهائي', 'cost', 'profit'];
+            if (sensitiveKeywords.some(keyword => msg.includes(keyword))) {
+                finalMsg = 'عذراً، تعذر تنفيذ الطلب حالياً بسبب تحديث في أسعار المزود.';
+            } else if (/[\u0600-\u06FF]/.test(msg)) {
+                finalMsg = String(err.message); // السماح بالرسائل العربية الآمنة من السيرفر
+            } else if (msg.includes('balance')) finalMsg = 'رصيدك غير كافٍ.';
+            else if (msg.includes('already')) finalMsg = 'تم استلام طلبك مسبقاً.';
+            else if (err.code === 'network-offline' || msg.includes('fetch')) finalMsg = 'تأكد من اتصالك بالإنترنت.';
+            else if (msg.includes('internal')) finalMsg = 'رفض السيرفر الطلب (خطأ داخلي).';
+            
             return { success: false, msg: finalMsg };
         } finally {
             this._actionLocks.delete(lockKey);
@@ -614,13 +602,16 @@ export const DataManager = {
             const req = { amount: cleanAmt, paymentMethodName: method.name, payCurr, receiptUrl: receipt, idempotencyKey: generateIdempotencyKey() };
             const res = await StoreDB.callFunction('submitBalanceRequest', req);
             
-            // 🛡️ الإصلاح: تم إزالة الاستدعاء اليدوي للسجلات هنا لمنع تعارض الواجهة
-            
             return { success: true, msg: res?.message || 'تم الإرسال بنجاح' };
         } catch (err) {
-            console.error("Deposit Submission Error:", err);
-            return { success: false, msg: 'تعذر الإرسال، جرب لاحقاً.' };
-        } finally { this._actionLocks.delete(lockKey); }
+            // 🛡️ اصطياد أخطاء السيرفر (مثل: العميل لم يكمل الهوية، أو تجاوز الحد) بدلاً من ابتلاعها
+            const msg = String(err.message || '');
+            let finalMsg = 'تعذر الإرسال، جرب لاحقاً.';
+            if (/[\u0600-\u06FF]/.test(msg)) finalMsg = msg; 
+            return { success: false, msg: finalMsg };
+        } finally { 
+            this._actionLocks.delete(lockKey); 
+        }
     },
     
     isFavorite: function(id) { return this.favs?.has(String(id)); },

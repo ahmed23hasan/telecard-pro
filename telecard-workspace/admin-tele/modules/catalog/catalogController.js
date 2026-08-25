@@ -1,24 +1,24 @@
 // ============================================================================
-// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Enterprise V14.6 💎
+// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Enterprise V14.8 💎
 // 🎯 الوظيفة: المنطق التجاري للمنتجات، الأقسام، الدول، وصناديق الأكواد (Vault)
-// 🚀 التحديثات: 
-// 1. Data Contract Fix: إضافة حقلي `isActive` و `isAvailable` لمنع السيرفر من إخفاء المنتجات.
-// 2. Force Sync Button: إضافة دالة `forceSyncStore` كزر طوارئ لإعادة المنتجات للواجهة.
-// 3. Memory Leak Prevention: تطهير الخرائط السريعة O(1) تلقائياً عند الإضافة والحذف.
+// 🚀 التحديثات:
+// 1. Storage Leak Protection: تدمير الصور القديمة قبل رفع الجديدة أو عند المسح.
+// 2. Financial Parity: تسليم حسابات السعر الافتراضي للمحرك المالي الموحد.
+// 3. Data Contract Fix: ضمان تمرير isActive و isAvailable لعدم إخفاء المنتجات.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
-import { TelecardPricingEngine } from '../../adminConfig.js';
+import { FinancialEngine } from '../../core/financialEngine.js'; 
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const CatalogController = {
     tempPackages: [],
 
     // =========================================================
-    // 📦 1. إدارة المنتجات والأقسام
+    // 📦 1. إدارة المنتجات
     // =========================================================
     openProductModal: function(id = null) {
         let strId = id ? String(id) : null;
@@ -45,7 +45,8 @@ export const CatalogController = {
         const type = Utils.getVal('pr-type', 'simple');
         const cost = parseFloat(Utils.getVal('pr-cost', 0)) || 0;
         const tiers = AdminData.data.tiers || [];
-        AdminUI?.CatalogUI?.renderPricePreview?.(type, cost, tiers, this.tempPackages, TelecardPricingEngine);
+        // 🛡️ إرسال FinancialEngine كمرجع للواجهة لحساب التسعير المباشر بدقة
+        AdminUI?.CatalogUI?.renderPricePreview?.(type, cost, tiers, this.tempPackages, FinancialEngine);
     },
 
     saveProd: async function() {
@@ -59,8 +60,7 @@ export const CatalogController = {
             return EventBus.emit('req-show-toast', {message:'لا يمكن أن تكون التكلفة 0 للمنتجات الفردية', type:'error'});
         }
 
-        // 🛡️ [Fail-Fast]: حماية الواجهة من الأخطاء البشرية (الحد الأقصى للتكلفة)
-        const MAX_PRICE_LIMIT = 10000;
+        const MAX_PRICE_LIMIT = FinancialEngine.CONFIG.MAX_PRICE_LIMIT;
         if (rawCost > MAX_PRICE_LIMIT) {
             return EventBus.emit('req-show-toast', { 
                 message: `مرفوض: لا يمكن إضافة منتج سعر تكلفته يتجاوز ${MAX_PRICE_LIMIT}$ لحماية النظام.`, 
@@ -78,26 +78,33 @@ export const CatalogController = {
             const oldProd = isEdit ? AdminData.data.prodsMap?.[tempEditId] : null;
             const oldImg = oldProd?.img || null;
             
+            // 🛡️ [إصلاح ماسي 1]: منع تسريب الصور (حذف القديمة قبل الرفع أو عند الإزالة)
             let finalImg = oldImg || '';
             if (hasImg) {
                 const fileInput = document.getElementById('pr-img-input');
                 if (fileInput?.files?.[0]) {
-                    EventBus.emit('req-show-toast', {message:'جاري رفع الصورة للسحابة...', type:'info'});
-                    finalImg = await FirebaseAdapter.uploadImage(fileInput.files[0], 'products', null, oldImg);
+                    EventBus.emit('req-show-toast', {message:'جاري معالجة ورفع الصورة للسحابة...', type:'info'});
+                    if (oldImg && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                        await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
+                    }
+                    finalImg = await FirebaseAdapter.uploadImage(fileInput.files[0], 'products', null, true);
                 }
+            } else if (oldImg) {
+                // إذا قام بمسح الصورة من الواجهة
+                await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
+                finalImg = '';
             }
 
             const vaultPoolId = Utils.getVal('pr-vault');
             const newProdId = isEdit ? String(tempEditId) : 'prod_' + Date.now();
 
+            // 🛡️ [إصلاح ماسي 2]: استخدام المحرك المالي لحساب السعر الافتراضي
             const defaultTier = AdminData.data.tiers?.find(t => t.isDefault) || AdminData.data.tiers?.[0];
             let fallbackPrice = rawCost;
+            
             if (defaultTier && type !== 'select') {
-                const profitPercent = Number(defaultTier.profit_percent || defaultTier.profitPercent || 0);
-                const minProfitUsd = Number(defaultTier.min_profit_usd || defaultTier.minProfitUsd || 0);
-                let profitAdded = (rawCost * profitPercent) / 100;
-                if (profitAdded < minProfitUsd) profitAdded = minProfitUsd;
-                fallbackPrice = rawCost + profitAdded;
+                const pricing = FinancialEngine.calculatePrice({ product: { costPrice: rawCost }, tier: defaultTier });
+                fallbackPrice = pricing.finalPrice;
             }
 
             let newProd = {
@@ -111,8 +118,6 @@ export const CatalogController = {
                 price: fallbackPrice, 
                 vaultPoolId: vaultPoolId,
                 hideGridPrice: Utils.getCheck('pr-hide-price'),
-                
-                // 🛡️ [إصلاح الكارثة الماسي]: هذه الأعلام هي التي تجعل السيرفر يظهر المنتج!
                 isActive: isEdit ? (oldProd.isActive !== undefined ? oldProd.isActive : true) : true,
                 isAvailable: isEdit ? (oldProd.isAvailable !== undefined ? oldProd.isAvailable : true) : true
             };
@@ -144,7 +149,6 @@ export const CatalogController = {
                 AdminData.data.prods.push(newProd);
             }
 
-            // 🛡️ تزامن خريطة المنتجات السريعة O(1)
             if (!AdminData.data.prodsMap) AdminData.data.prodsMap = {};
             AdminData.data.prodsMap[newProd.id] = newProd;
 
@@ -165,34 +169,33 @@ export const CatalogController = {
         }
     },    
 
-    // =========================================================
-    // 🚀 1.1 دالة المزامنة الجبرية (زر الطوارئ)
-    // =========================================================
-    forceSyncStore: async function() {
-        if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من رغبتك في إجبار السيرفر على مزامنة وتحديث المتجر بالكامل؟ (استخدم هذا الخيار إذا كانت بعض المنتجات لا تظهر للعملاء)')) {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إرسال أوامر المزامنة الشاملة للسيرفر...');
+    deleteProduct: async function(id) {
+        if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من حذف هذا المنتج نهائياً؟')) {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح بيانات المنتج...');
             
             try {
-                if (!AdminData || typeof AdminData.forceSyncCatalog !== 'function') {
-                    throw new Error("دالة المزامنة غير مدعومة في إصدار قاعدة البيانات الحالي.");
-                }
+                const prod = AdminData.data.prodsMap?.[id] || AdminData.data.prods.find(p => String(p.id) === String(id));
+                const prodName = prod?.name || 'المنتج';
                 
-                const result = await AdminData.forceSyncCatalog();
+                if (prod?.img) await FirebaseAdapter.deleteImageByUrl(prod.img).catch(() => {});
                 
-                if (result && result.success) {
-                    EventBus.emit('req-show-toast', { message: result.message || 'تمت المزامنة بنجاح!', type: 'success' });
-                    if (AdminData?.addLog) AdminData.addLog('FORCE_SYNC', 'تمت المزامنة القسرية للمتجر من قبل الإدارة.');
-                } else {
-                    throw new Error(result ? result.message : "السيرفر لم يستجب لطلب المزامنة.");
-                }
-            } catch (error) {
-                EventBus.emit('req-show-toast', { message: `فشل المزامنة: ${error.message}`, type: 'error' });
+                AdminData.data.prods = AdminData.data.prods.filter(p => String(p.id) !== String(id));
+                if(AdminData.data.prodsMap) delete AdminData.data.prodsMap[id];
+
+                await AdminData?.saveProducts?.();
+                
+                if (AdminData?.addLog) AdminData.addLog('DELETE_PROD', `تم حذف المنتج: ${prodName}`);
+                EventBus.emit('req-render-prods');
+                EventBus.emit('req-show-toast', { message: 'تم مسح المنتج وصورته بنجاح', type: 'success' });
             } finally {
                 if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
             }
         }
     },
 
+    // =========================================================
+    // 📂 2. إدارة الأقسام
+    // =========================================================
     saveCat: async function() {
         const name = Utils.escapeHTML(Utils.getVal('c-name'));
         if (!name) return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم القسم', type: 'warning' });
@@ -204,10 +207,19 @@ export const CatalogController = {
             const tempEditId = AdminData.tempEditId;
             const oldImg = tempEditId ? AdminData.data.catsMap?.[tempEditId]?.img : null;
             
+            // 🛡️ [إصلاح ماسي]: منع تسريب الصور عند الأقسام
             let finalImg = oldImg || '';
             if (hasImg) {
                 const fileInput = document.getElementById('c-img-input');
-                if (fileInput?.files?.[0]) finalImg = await FirebaseAdapter.uploadImage(fileInput.files[0], 'categories', null, oldImg);
+                if (fileInput?.files?.[0]) {
+                    if (oldImg && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                        await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
+                    }
+                    finalImg = await FirebaseAdapter.uploadImage(fileInput.files[0], 'categories', null, true);
+                }
+            } else if (oldImg) {
+                await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
+                finalImg = '';
             }
             
             const isEdit = !!tempEditId;
@@ -215,17 +227,13 @@ export const CatalogController = {
             
             if (isEdit) {
                 const c = AdminData.data.cats.find(x => String(x.id) === catId);
-                if (c) { 
-                    c.name = name;
-                    c.img = finalImg; 
-                }
+                if (c) { c.name = name; c.img = finalImg; }
             } else {
                 const sameParentCats = AdminData.data.cats.filter(c => String(c.parentId) === String(AdminData.currFolder));
                 const maxOrder = sameParentCats.length > 0 ? Math.max(...sameParentCats.map(c => Number(c.order) || -1)) + 1 : 0;
                 AdminData.data.cats.push({ id: catId, name: name, parentId: AdminData.currFolder != null ? String(AdminData.currFolder) : null, img: finalImg, order: maxOrder, isActive: true });
             }
             
-            // 🛡️ تزامن خريطة الأقسام السريعة O(1) لمنع تسرب الذاكرة
             if (!AdminData.data.catsMap) AdminData.data.catsMap = {};
             const updatedCat = AdminData.data.cats.find(x => String(x.id) === catId);
             if (updatedCat) AdminData.data.catsMap[catId] = updatedCat;
@@ -247,32 +255,6 @@ export const CatalogController = {
         }
     },
 
-    deleteProduct: async function(id) {
-        if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من حذف هذا المنتج نهائياً؟')) {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح بيانات المنتج...');
-            
-            try {
-                const prod = AdminData.data.prodsMap?.[id] || AdminData.data.prods.find(p => String(p.id) === String(id));
-                const prodName = prod?.name || 'المنتج';
-                
-                if (prod?.img) await FirebaseAdapter.deleteImageByUrl(prod.img).catch(() => {});
-                
-                AdminData.data.prods = AdminData.data.prods.filter(p => String(p.id) !== String(id));
-                
-                // 🛡️ تطهير الخريطة السريعة O(1)
-                if(AdminData.data.prodsMap) delete AdminData.data.prodsMap[id];
-
-                await AdminData?.saveProducts?.();
-                
-                if (AdminData?.addLog) AdminData.addLog('DELETE_PROD', `تم حذف المنتج: ${prodName}`);
-                EventBus.emit('req-render-prods');
-                EventBus.emit('req-show-toast', { message: 'تم مسح المنتج وصورته بنجاح', type: 'success' });
-            } finally {
-                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-            }
-        }
-    },
-    
     deleteCategory: async function(id) {
         if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف القسم وكل المنتجات والأقسام الفرعية التابعة له. المتابعة؟')) {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حرق بيانات القسم وتوابعه سحابياً...');
@@ -304,14 +286,11 @@ export const CatalogController = {
                 AdminData.data.cats = AdminData.data.cats.filter(c => String(c.id) !== catId && !allChildCatIds.has(String(c.id)));
                 AdminData.data.prods = AdminData.data.prods.filter(p => String(p.catId) !== catId && !allChildCatIds.has(String(p.catId)));
                 
-                // 🛡️ تطهير الخرائط السريعة O(1) لمنع تسرب الذاكرة
                 if (AdminData.data.catsMap) {
                     delete AdminData.data.catsMap[catId];
                     allChildCatIds.forEach(childId => delete AdminData.data.catsMap[childId]);
                 }
-                if (AdminData.data.prodsMap) {
-                    affectedProds.forEach(p => delete AdminData.data.prodsMap[p.id]);
-                }
+                if (AdminData.data.prodsMap) affectedProds.forEach(p => delete AdminData.data.prodsMap[p.id]);
                 
                 await AdminData?.saveCategories?.();
                 await AdminData?.saveProducts?.();
@@ -324,6 +303,32 @@ export const CatalogController = {
                 EventBus.emit('req-render-prods');
                 EventBus.emit('req-show-toast', { message: 'تم إبادة القسم وتوابعه سحابياً بنجاح', type: 'success' });
                 
+            } finally {
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            }
+        }
+    },
+
+    // =========================================================
+    // ⚙️ 3. وظائف النظام والترتيب
+    // =========================================================
+    forceSyncStore: async function() {
+        if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من رغبتك في إجبار السيرفر على مزامنة وتحديث المتجر بالكامل؟')) {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إرسال أوامر المزامنة الشاملة للسيرفر...');
+            
+            try {
+                if (!AdminData || typeof AdminData.forceSyncCatalog !== 'function') throw new Error("دالة المزامنة غير مدعومة.");
+                
+                const result = await AdminData.forceSyncCatalog();
+                
+                if (result && result.success) {
+                    EventBus.emit('req-show-toast', { message: result.message || 'تمت المزامنة بنجاح!', type: 'success' });
+                    if (AdminData?.addLog) AdminData.addLog('FORCE_SYNC', 'تمت المزامنة القسرية للمتجر من قبل الإدارة.');
+                } else {
+                    throw new Error(result ? result.message : "السيرفر لم يستجب لطلب المزامنة.");
+                }
+            } catch (error) {
+                EventBus.emit('req-show-toast', { message: `فشل المزامنة: ${error.message}`, type: 'error' });
             } finally {
                 if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
             }
@@ -398,7 +403,7 @@ export const CatalogController = {
     },
 
     // =========================================================
-    // 🌍 2. إدارة الدول ومناطق الخدمة
+    // 🌍 4. إدارة الدول
     // =========================================================
     saveCountry: async function() {
         const editId = Utils.getVal('country-edit-id');
@@ -435,7 +440,6 @@ export const CatalogController = {
                 if (idx > -1) AdminData.data.countries[idx] = newCountry;
             } else { AdminData.data.countries.push(newCountry); }
 
-            // 🛡️ تزامن خريطة الدول السريعة O(1)
             if (!AdminData.data.countriesMap) AdminData.data.countriesMap = {};
             AdminData.data.countriesMap[newCountry.id] = newCountry;
 
@@ -465,8 +469,6 @@ export const CatalogController = {
             try {
                 const countryName = AdminData.data.countriesMap?.[id]?.name || 'الدولة';
                 AdminData.data.countries = AdminData.data.countries.filter(c => String(c.id) !== String(id));
-                
-                // 🛡️ تطهير الخريطة السريعة O(1)
                 if (AdminData.data.countriesMap) delete AdminData.data.countriesMap[id];
                 
                 await AdminData?.saveCountries?.();
@@ -480,7 +482,7 @@ export const CatalogController = {
     },
 
     // =========================================================
-    // 🏦 3. إدارة صناديق الأكواد (Vault)
+    // 🏦 5. إدارة صناديق الأكواد (Vault)
     // =========================================================
     saveVaultPool: async function() {
         const id = Utils.getVal('v-pool-id');
@@ -539,7 +541,7 @@ export const CatalogController = {
     },
 
     deleteVaultPool: async function(id) {
-        if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف صندوق الأكواد بالكامل. يفضل ترك هذه المهمة لعملية التنظيف السحابي (Cloud Function). متأكد؟')) {
+        if (AdminUI && await AdminUI.showConfirm('تحذير: سيتم حذف صندوق الأكواد بالكامل. متأكد؟')) {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إتلاف الصندوق سحابياً...');
             try {
                 const result = await FirebaseAdapter.callFunction('adminDeleteVaultPool', { poolId: String(id) });

@@ -1,9 +1,9 @@
 // ============================================================================
-// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - النسخة الماسية V10.4 💎
+// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - النسخة الماسية V14.8 💎
 // 🌟 التحديث الأقصى: 
-// 1. [Decoupling]: إزالة الارتباط الدائري بـ AppController تماماً.
-// 2. [State Management]: توجيه الملاحة (enter/back) عبر EventBus النقي.
-// 3. [Ghost Bug Fix]: بناء الجسر المفقود لعرض الأكواد التالفة (Defective Codes).
+// 1. [Storage Fix]: توجيه الملاحة بـ EventBus نقي.
+// 2. [Lazy Loading]: جلب الأكواد التالفة من السحابة مباشرة لتخفيف الضغط.
+// 3. [Syntax Patch]: إغلاق ثغرة الاستيراد وفصل السطور برمجياً.
 // ============================================================================
 
 import { CatalogController } from './catalogController.js';
@@ -11,19 +11,20 @@ import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { AdminData } from '../../adminData.js';
 import { EventBus } from '../../adminUtils.js';
+import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const CatalogActions = {
-// ==========================================
-// 📁 1. الملاحة بين الأقسام (Navigation) - O(1)
-// ==========================================
-'enter-folder': (data) => {
-  EventBus.emit('req-update-state', { currFolder: data.enter || data.id });
-  EventBus.emit('req-render-prods');
-},
-
-// 🛡️ [الترقيع الماسي]: تم مسح الكود المعطوب وتوجيه السهم للمحرك المركزي الذي أصلحناه
-'cat-back': () => EventBus.emit('req-go-back'),  // ==========================================
-  // 🪟 2. النوافذ المنبثقة (Modals)
+  // ==========================================
+  // 📁 1. الملاحة بين الأقسام
+  // ==========================================
+  'enter-folder': (data) => {
+    EventBus.emit('req-update-state', { currFolder: data.enter || data.id });
+    EventBus.emit('req-render-prods');
+  },
+  'cat-back': () => EventBus.emit('req-go-back'),
+  
+  // ==========================================
+  // 🪟 2. النوافذ المنبثقة
   // ==========================================
   'open-cat-modal': (data) => AdminUI?.CatalogUI?.openCategoryModal?.(data.id),
   'open-prod-modal': (data) => CatalogController.openProductModal?.(data.id),
@@ -31,7 +32,7 @@ export const CatalogActions = {
   'open-vault-modal': (data) => AdminUI?.CatalogUI?.openVaultModal?.(data.id),
   
   // ==========================================
-  // 💾 3. عمليات الحفظ والحذف (Controllers)
+  // 💾 3. عمليات الحفظ والحذف
   // ==========================================
   'save-cat': () => CatalogController.saveCat?.(),
   'save-prod': () => CatalogController.saveProd?.(),
@@ -39,7 +40,7 @@ export const CatalogActions = {
   'save-vault': () => CatalogController.saveVaultPool?.(),
   
   // ==========================================
-  // ⚙️ 4. تفاعلات بناء المنتجات (Product Builder)
+  // ⚙️ 4. تفاعلات بناء المنتجات
   // ==========================================
   'render-prod-config': () => {
     EventBus.emit('req-update-state', { tempPackages: [] });
@@ -51,7 +52,7 @@ export const CatalogActions = {
   'toggle-simple-qty': (data) => AdminUI?.CatalogUI?.toggleSimpleQty?.(data.element.checked),
   
   // ==========================================
-  // 🎨 5. تفاعلات الواجهة والأشجار (UI & Trees)
+  // 🎨 5. تفاعلات الواجهة والأشجار
   // ==========================================
   'change-grid-layout': (data) => CatalogController.changeGridLayout?.(data.val),
   'toggle-drag-edit': (data) => AdminUI?.CatalogUI?.toggleDragEditMode?.(data.originalEvent),
@@ -63,21 +64,30 @@ export const CatalogActions = {
   'tree-child-check': (data) => AdminUI?.CatalogUI?.handleTreeChildCheck?.(data.element),
   'toggle-all-tree': (data) => AdminUI?.CatalogUI?.toggleAllTree?.(data.target),
   'detect-country': (data) => AdminUI?.detectCountryAutoFill?.(data.val, AdminData.data.countries),
-  // 🛡️ [مسار مفقود]: التقاط حدث حفظ الترتيب من الواجهة وإرساله للمتحكم
-'save-order': (data) => CatalogController.saveNewOrder?.(data.orderArray),
- 
+  'save-order': (data) => CatalogController.saveNewOrder?.(data.orderArray),
+  
   // ==========================================
   // 🏦 6. إدارة الأكواد التالفة (Defective Vault)
   // ==========================================
-  'view-defective-codes': (data) => {
-    // 🛡️ بناء الجسر المفقود: استخراج الأكواد التالفة من الخزنة وإرسالها للواجهة
-    const pool = AdminData.data.vault?.find(v => String(v.id) === String(data.id));
-    if (pool) {
-      const defectiveCodes = (pool.codes || []).filter(c => typeof c === 'object' && (c.status === 'defective' || c.status === 'refunded'));
-      AdminUI?.CatalogUI?.renderDefectiveCodesModal?.(pool.name, defectiveCodes);
-    } else {
-      EventBus.emit('req-show-toast', { message: 'تعذر العثور على الصندوق المالي.', type: 'error' });
+  'view-defective-codes': async (data) => {
+    const poolId = String(data.id);
+    const pool = AdminData.data.vault?.find(v => String(v.id) === poolId);
+    
+    if (!pool) return EventBus.emit('req-show-toast', { message: 'الصندوق غير موجود', type: 'error' });
+    
+    if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري جلب الأكواد التالفة من السحابة...');
+    try {
+      const defectiveCodes = await FirebaseAdapter.getAll('telecard_vault_returned', 100, 1);
+      const filteredCodes = defectiveCodes.filter(c => String(c.originalPoolId) === poolId);
+      
+      AdminUI?.CatalogUI?.renderDefectiveCodesModal?.(pool.name, filteredCodes);
+    } catch (e) {
+      EventBus.emit('req-show-toast', { message: 'فشل جلب السجلات من السحابة', type: 'error' });
+    } finally {
+      if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
     }
   },
+  
   'close-defective-modal': () => AdminUI?.CatalogUI?.closeDefectiveModalUI?.()
-};
+  
+}; // نهاية الملف

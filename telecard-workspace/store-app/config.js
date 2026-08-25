@@ -1,13 +1,13 @@
 // ============================================================================
-// 📁 ملف الإعدادات المركزي (config.js) - Enterprise V20.8 💎
-// 🎯 الوظيفة: يحتوي على جميع الثوابت، مفاتيح قواعد البيانات، وإعدادات المتجر
-// 🚀 التحديثات المعمارية (V20.8):
+// 📁 ملف الإعدادات المركزي (config.js) - Enterprise V20.9 💎
+// 🎯 الوظيفة: ثوابت النظام، حماية مفاتيح قواعد البيانات، ونسف الكاش القديم
+// 🚀 التحديثات المعمارية (V20.9):
 // 1. SSR & Worker Safe: تحصين استدعاء window لمنع انهيار الـ Service Workers.
-// 2. Hard Cache Wipe: تغيير مفاتيح الكاش لجبر هواتف العملاء على مسح البيانات القديمة.
+// 2. Hard Cache Wipe (_v20): تغيير مفاتيح الكاش لجبر هواتف العملاء على مسح البيانات القديمة.
+// 3. API Security: توثيق حماية مفاتيح فايربيز.
 // ============================================================================
 
-// 🛡️ الإصلاح المعماري: حماية المتغيرات من الانهيار في بيئات الـ Workers والسيرفرات
-export const APP_VERSION = (typeof window !== 'undefined' && window.TELECARD_VERSION) ? window.TELECARD_VERSION : 'v20.8';
+export const APP_VERSION = (typeof window !== 'undefined' && window.TELECARD_VERSION) ? window.TELECARD_VERSION : 'v20.9';
 
 const deepFreeze = (obj) => {
     Object.keys(obj).forEach(prop => {
@@ -20,6 +20,7 @@ const deepFreeze = (obj) => {
 
 // ☁️ إعدادات فايربيز 
 export const firebaseConfig = deepFreeze({
+    // 🛑 [تنبيه أمني أقصى]: تذكر إضافة نطاق موقعك في (HTTP Referrers) من Google Cloud
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
     projectId: "telecard-1",
@@ -30,7 +31,7 @@ export const firebaseConfig = deepFreeze({
 
 export const DB_KEYS = deepFreeze({
     CATS: 'telecard_cats',
-    PRODS: 'telecard_prods_public',
+    PRODS: 'telecard_prods_public', // 👈 حماية مطلقة: المتجر يرى النسخة المفلترة فقط
     SETTINGS: 'telecard_settings',
     USERS: 'telecard_users',
     BANNERS: 'telecard_banners',
@@ -85,7 +86,6 @@ export const StoreConfig = deepFreeze({
     orderStatusMap: {
         pending: { text: 'قيد التنفيذ', icon: 'fa-clock', class: 'pending' },
         processing: { text: 'جاري تجهيز الطلب', icon: 'fa-gears', class: 'processing' },
-
         completed: { text: 'مكتمل', icon: 'fa-circle-check', class: 'completed' },
         refunded: { text: 'مسترجع', icon: 'fa-rotate-left', class: 'refunded' },
         returned: { text: 'مرتجع', icon: 'fa-rotate-left', class: 'returned' },

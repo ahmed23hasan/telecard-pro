@@ -1,7 +1,7 @@
 // ============================================================================
-// 📦 وحدة الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V4.4 💎
+// 📦 وحدة الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V4.5 💎
 // 🎯 الوظيفة: إدارة واجهات ونوافذ الطلبات (معزولة بالكامل عن باقي النظام)
-// 🚀 التحديث الأقصى: إصلاح تضارب خرائط الكوبونات وتوحيد الدقة المالية O(1)
+// 🚀 التحديث الأقصى: تأمين الواجهة بـ Fallbacks للكوبونات المحذوفة والدوال
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -93,6 +93,7 @@ export const OrdersUI = {
                 // ⚡ 4. [إصلاح جراحي]: البحث عن الكوبون بالرمز (Code) وليس الـ ID من المصفوفة مباشرة
                 const coupon = (AdminData.data.coupons || []).find(c => String(c.code).toUpperCase() === String(order.couponCode).toUpperCase());
                 
+                // 🛡️ حماية الواجهة إذا كان الكوبون محذوفاً
                 if (coupon) {
                     if (coupon.type === 'percentage') {
                         const ratio = FinancialEngine.safeSub(1, FinancialEngine.safeDiv(coupon.value, 100));
@@ -100,12 +101,14 @@ export const OrdersUI = {
                     } else {
                         originalUsd = FinancialEngine.safeAdd(exactPriceUsd, coupon.value);
                     }
-                }
 
-                const origPriceTxt = RenderHelpers.formatMoney(originalUsd, 'USD', 2);
-                if (AdminTemplates.orderReceiptRow) {
-                    couponRowHtml = AdminTemplates.orderReceiptRow('fa-solid fa-tags text-primary', 'كوبون خصم مفعّل', `<b class="num-en text-primary">${Utils.escapeHTML(order.couponCode)}</b>`);
-                    originalPriceRowHtml = AdminTemplates.orderReceiptRow('fa-solid fa-money-bill-trend-up text-muted', 'السعر قبل الكوبون', `<del class="num-en text-muted">${origPriceTxt}</del>`);
+                    const origPriceTxt = RenderHelpers.formatMoney(originalUsd, 'USD', 2);
+                    if (AdminTemplates && AdminTemplates.orderReceiptRow) {
+                        couponRowHtml = AdminTemplates.orderReceiptRow('fa-solid fa-tags text-primary', 'كوبون خصم مفعّل', `<b class="num-en text-primary">${Utils.escapeHTML(order.couponCode)}</b>`);
+                        originalPriceRowHtml = AdminTemplates.orderReceiptRow('fa-solid fa-money-bill-trend-up text-muted', 'السعر قبل الكوبون', `<del class="num-en text-muted">${origPriceTxt}</del>`);
+                    }
+                } else {
+                    console.warn("[OrdersUI] الكوبون المستخدم في هذا الطلب تم حذفه من النظام مسبقاً.");
                 }
             }
         }
@@ -124,7 +127,11 @@ export const OrdersUI = {
             const diffMins = Math.floor(diffMs / 60000);
             let dTxt = diffMins > 60 ? `${Math.floor(diffMins/60)} Hr & ${diffMins%60} Min` : `${diffMins} Min`;
             if (diffMins === 0) dTxt = "لحظي ⚡";
-            durationHtml = AdminTemplates.orderDurationRow(dTxt);
+            
+            // 🛡️ التحديث المعماري: التأكد من وجود الدالة قبل استدعائها لمنع انهيار الشاشة
+            if (AdminTemplates && typeof AdminTemplates.orderDurationRow === 'function') {
+                durationHtml = AdminTemplates.orderDurationRow(dTxt);
+            }
         }
 
         // معالجة المدخلات (Labels & Values)

@@ -1,11 +1,11 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم للإدارة (Admin Render Helpers) - Enterprise V14.8 💎
-// 🚀 الهندسة: Provider Pattern (Pure Agnostic Core) + Destructuring-Safe
+// 🛠️ مساعدات محرك الرسم للإدارة (Admin Render Helpers) - Enterprise V15.3 💎
 // 🎯 الوظيفة: تنسيق الفواتير، التقارير، والواجهات الخاصة بلوحة تحكم المدير.
-// 🌟 التحديث الأقصى: 
-// 1. دعم المزامنة الهيكلية للعملات (Object Maps) لتطابق مخرجات FinancialEngine.
-// 2. درع تواريخ آبل (Safari ISO Shield) لمنع انهيار التقارير على أجهزة Mac/iPad.
-// 3. تأمين الأعلام الوهمية (Fallback Global Icon).
+// 🚀 التحديثات المعمارية (V15.3):
+// 1. Visual Masking: اقتطاع المعرفات الطويلة لـ 8 رموز (جماليات العرض البصري).
+// 2. Data Integrity: إيقاف السفر عبر الزمن (Time-Travel) في الإحصائيات للتواريخ التالفة.
+// 3. Name Priority: أولوية لـ fullName على الأسماء المدمجة لتجنب تشوه البيانات.
+// 4. Decimal Zero Fix: معالجة فخ القيمة الصفرية في الخانات العشرية وتفعيل الفواصل.
 // ============================================================================
 
 let _injectedSource = null;
@@ -24,8 +24,7 @@ export const RenderHelpers = Object.freeze({
      */
     _getDataSource: function() {
         if (_injectedSource) return _injectedSource;
-        
-        console.warn("⚠️ [Admin RenderHelpers]: محاولة استخدام المحرك قبل الحقن (init). سيتم استخدام قيم افتراضية.");
+        console.warn("⚠️ [Admin RenderHelpers]: محاولة استخدام المحرك قبل الحقن (init).");
         return { settings: {}, rates: [], offers: [], isStore: false };
     },
 
@@ -46,90 +45,105 @@ export const RenderHelpers = Object.freeze({
     },
 
     /**
-     * 🔢 دالة تنسيق الأرقام (البنكية) - [محصنة ضد RangeError]
+     * 🔢 دالة تنسيق الأرقام (البنكية) - مريحة لعين المدير (UI Clarity)
      */
-    _enNum: function(num, decimals = 2) {
+    _enNum: function(num, decimals) {
         const parsedNum = Number(num) || 0;
-        // 🛡️ حماية المتصفح: دوال JS تقبل الخانات العشرية من 0 إلى 20 فقط
-        const safeDecimals = Math.min(20, Math.max(0, Number(decimals) || 2));
+        
+        // 🛡️ إصلاح فخ القيمة الصفرية: التأكد من السماح بتمرير 0 دون أن يتحول إلى 2
+        const targetDecimals = (decimals !== undefined && decimals !== null) ? Number(decimals) : 2;
+        const safeDecimals = Math.min(20, Math.max(0, targetDecimals));
         
         return parsedNum.toLocaleString('en-US', {
             minimumFractionDigits: safeDecimals,
             maximumFractionDigits: safeDecimals,
-            useGrouping: false
+            useGrouping: true // 🛡️ تفعيل فواصل الآلاف لراحة عين الأدمن (مثال: 10,000.00)
         });
     },
-    
+
     // ============================================================================
-    // 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (مدرع ضد XSS و المعرفات الفارغة)
+    // 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (Visual Masking for UI)
     // ============================================================================
-    
+
     formatUserId: function(userObj, withPrefix = false) {
         if (!userObj) return '---';
-        let finalId = '';
+        let fullId = '';
         
         if (typeof userObj === 'object') {
-            if (userObj.displayId) finalId = String(userObj.displayId);
-            else finalId = String(userObj.uid || userObj.id || '').substring(0, 6).toUpperCase();
+            fullId = String(userObj.displayId || userObj.uid || userObj.id || '');
         } else {
-            const strId = String(userObj);
-            finalId = strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
+            fullId = String(userObj);
         }
         
-        if (!finalId || finalId.trim() === '') finalId = 'UKNWN';
-        const formatted = withPrefix ? `USR-${finalId}` : finalId;
+        if (!fullId.trim()) fullId = 'UKNWN';
+
+        // 🚀 الاقتطاع البصري: عرض أول 8 رموز لراحة العين وجمال التصميم
+        let shortId = fullId;
+        if (fullId.length > 15) {
+            shortId = fullId.substring(0, 8);
+        }
         
+        const formatted = withPrefix ? `USR-${shortId.toUpperCase()}` : shortId.toUpperCase();
         return RenderHelpers._esc(formatted);
     },
-    
+
     formatOrderId: function(orderObj, withPrefix = true) {
         if (!orderObj) return '---';
-        const rawId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
+        let rawId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
         
-        if (!rawId || String(rawId).trim() === '') return '---';
-        return RenderHelpers._esc(withPrefix ? `ORD-${String(rawId).toUpperCase()}` : String(rawId).toUpperCase());
+        // إزالة البادئة القديمة لتنظيف الرقم
+        rawId = String(rawId).replace(/^ORD-/i, '').trim();
+        if (!rawId) return '---';
+
+        // 🚀 الاقتطاع البصري: أخذ آخر 8 رموز من الـ ID لأنه الجزء الأكثر عشوائية
+        const shortId = rawId.length > 8 ? rawId.slice(-8) : rawId;
+        
+        return RenderHelpers._esc(withPrefix ? `ORD-${shortId.toUpperCase()}` : shortId.toUpperCase());
     },
-    
+
     formatDepositId: function(depObj, withPrefix = true) {
         if (!depObj) return '---';
-        const rawId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
+        let rawId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
         
-        if (!rawId || String(rawId).trim() === '') return '---';
-        return RenderHelpers._esc(withPrefix ? `DEP-${String(rawId).toUpperCase()}` : String(rawId).toUpperCase());
+        rawId = String(rawId).replace(/^DEP-/i, '').trim();
+        if (!rawId) return '---';
+
+        // 🚀 الاقتطاع البصري: أخذ آخر 8 رموز
+        const shortId = rawId.length > 8 ? rawId.slice(-8) : rawId;
+        
+        return RenderHelpers._esc(withPrefix ? `DEP-${shortId.toUpperCase()}` : shortId.toUpperCase());
     },    
 
     // ============================================================================
     // 💰 المحركات المالية والعملات 
     // ============================================================================
-    
+
     getCurrencySymbolText: function(currCode = 'USD') {
         const source = RenderHelpers._getDataSource();
         const { settings, rates } = source;
         const code = String(currCode).toUpperCase();
         
-        let displayType = 'symbol'; 
-        if (source.isStore) {
-            const isSyncEnabled = settings.syncCurrencyDisplay === true;
-            displayType = isSyncEnabled ? (settings.currencyDisplay || 'symbol') : 'symbol';
-        } else {
-            displayType = settings.currencyDisplay || 'symbol';
-        }
-
+        const displayType = settings.currencyDisplay || 'symbol';
         if (displayType === 'code') return code;
         
-        // 🛡️ [التحديث الماسي 1]: دعم المزامنة الهيكلية (Object Maps & Arrays) 
         let curObj = null;
-        if (Array.isArray(rates)) {
-            curObj = rates.find(r => r.code === code);
-        } else if (rates && typeof rates === 'object') {
-            curObj = rates[code]; 
-        }
+        if (Array.isArray(rates)) curObj = rates.find(r => r.code === code);
+        else if (rates && typeof rates === 'object') curObj = rates[code]; 
         
         return (curObj && curObj.symbol) ? curObj.symbol : code;
     },
 
     getCurrencyFlagUrl: function(currCode = 'USD') {
         const code = String(currCode).toUpperCase().trim();
+        
+        // 🪙 دعم أيقونات العملات الرقمية
+        const cryptoIcons = {
+            'USDT': 'https://cdn-icons-png.flaticon.com/512/825/825508.png',
+            'BTC': 'https://cdn-icons-png.flaticon.com/512/5968/5968260.png',
+            'ETH': 'https://cdn-icons-png.flaticon.com/512/6001/6001368.png'
+        };
+        if (cryptoIcons[code]) return cryptoIcons[code];
+
         const currencyToCountry = {
             'USD': 'us', 'TRY': 'tr', 'SAR': 'sa', 'AED': 'ae', 
             'EUR': 'eu', 'SYP': 'sy', 'EGP': 'eg', 'JOD': 'jo',
@@ -138,15 +152,12 @@ export const RenderHelpers = Object.freeze({
         };
         const countryCode = currencyToCountry[code]; 
         
-        // 🛡️ [التحديث الماسي 2]: تأمين الأعلام بلوحة الإدارة (أيقونة عالمية بدلاً من علم مكسور)
         if (!countryCode) return `https://cdn-icons-png.flaticon.com/512/1198/1198696.png`;
-        
         return `https://flagcdn.com/w40/${countryCode}.png`;
     },
 
     formatMoney: function(amount, currencyCode = 'USD', decimals = 2) {
         const formattedNum = RenderHelpers._enNum(amount, decimals);
-        
         const displayCur = RenderHelpers.getCurrencySymbolText(currencyCode);
         const isLongText = displayCur.trim().length > 1;
         const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
@@ -161,18 +172,23 @@ export const RenderHelpers = Object.freeze({
 
     _getTxName: function(u) {
         if (!u) return 'مستخدم جديد';
-        const f = u.firstName || u.first_name || u.name || '';
-        const l = u.lastName || u.last_name || '';
-        let fullName = (f + ' ' + l).trim() || u.fullName || u.username;
-        return RenderHelpers._esc(fullName ? fullName : 'مستخدم جديد');
+        const f = String(u.firstName || u.first_name || u.name || '').trim();
+        const l = String(u.lastName || u.last_name || '').trim();
+        const combined = (f + ' ' + l).trim();
+        
+        // 🛡️ الأولوية القصوى لـ fullName لضمان عدم فقدان الأسماء المسجلة رسمياً
+        const fullName = u.fullName || combined || u.username || 'مستخدم جديد';
+        return RenderHelpers._esc(fullName);
     },
 
     _getExplicitName: function(u) {
         if (!u) return 'مستخدم غير معروف';
-        const f = u.firstName || u.first_name || u.name || '';
-        const l = u.lastName || u.last_name || '';
-        const fullName = (f + ' ' + l).trim();
-        return RenderHelpers._esc(fullName || u.username || 'مستخدم غير معروف');
+        const f = String(u.firstName || u.first_name || u.name || '').trim();
+        const l = String(u.lastName || u.last_name || '').trim();
+        const combined = (f + ' ' + l).trim();
+        
+        const fullName = u.fullName || combined || u.username || 'مستخدم غير معروف';
+        return RenderHelpers._esc(fullName);
     },
 
     _getActiveOfferBadge: function(prodId) {
@@ -191,7 +207,7 @@ export const RenderHelpers = Object.freeze({
     },
 
     // ============================================================================
-    // ⏱️ المحرك الزمني المركزي
+    // ⏱️ المحرك الزمني المركزي (Analytics-Safe Logic)
     // ============================================================================
 
     parseUnifiedTime: function(item) {
@@ -201,30 +217,30 @@ export const RenderHelpers = Object.freeze({
     },
 
     parseTime: function(ts) {
-        // 🛡️ الإصلاح: توحيد سلوك (Pending Write) مع المتجر لمنع ارتداد الطلبات لعام 1970
-        if (ts === null || ts === undefined || ts === '') return Date.now();
-        if (typeof ts === 'number') return ts;        if (ts instanceof Date) return ts.getTime();
+        // 🛡️ حماية الإحصائيات (Admin Mode): إذا كان التاريخ مفقوداً فعلياً، نرجع 0 (1970).
+        // هذا يمنع السفر عبر الزمن ويضمن عدم ظهور الطلبات القديمة التالفة كأنها حدثت "اليوم".
+        if (ts === null || ts === undefined || ts === '') return 0; 
+        
+        if (typeof ts === 'number') return ts;
+        if (ts instanceof Date) return ts.getTime();
         
         if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
         if (ts.seconds !== undefined) return ts.seconds * 1000; 
         if (ts._seconds !== undefined) return ts._seconds * 1000; 
         
         if (typeof ts === 'string') {
-            // 🛡️ [التحديث الماسي 3]: إصلاح آبل الماسي (Safari ISO Bug)
             let safeString = ts;
-            if (!ts.includes('T')) {
-                safeString = ts.replace(/-/g, '/');
-            }
+            if (!ts.includes('T')) safeString = ts.replace(/-/g, '/'); // Safari ISO Shield
             const parsed = new Date(safeString).getTime();
             return isNaN(parsed) ? 0 : parsed;
         }
-        
         return 0; 
     },
 
     formatSafeDate: function(ts) {
         const timeMs = RenderHelpers.parseTime(ts);
-        if (!timeMs) return '---';
+        if (timeMs === 0) return '---'; // دلالة بصرية للأدمن أن التاريخ مفقود أو معلق
+        
         const dateObj = new Date(timeMs);
         if (isNaN(dateObj.getTime())) return '---';
         
@@ -233,4 +249,5 @@ export const RenderHelpers = Object.freeze({
         
         return `${dateStr} | ${timeStr}`;
     }
+
 });

@@ -228,14 +228,49 @@ ClientSystem.initFirebaseListeners = function() {
     
     if (this._authUnsubscribe) this._authUnsubscribe();
     
-    this._authUnsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+        this._authUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => { // 🛡️ التعديل: إضافة async
         this.userAuthListeners.forEach(unsub => { if (typeof unsub === 'function') unsub(); });
         this.userAuthListeners = [];
 
         if (firebaseUser) {
             const uidStr = firebaseUser.uid;
-            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
             
+            // =================================================================
+            // 🛡️ جسر التشافي الذاتي للجلسات الشبحية (Ghost Session Self-Healing)
+            // =================================================================
+            const localUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
+            
+            // إذا كان المستخدم موجوداً في فايربيز، لكن الكاش المحلي (DataManager) فارغ أو مفقود
+            if (!localUid || !DataManager.user) {
+                console.warn("👻 [Ghost Session Detected]: فايربيز متصل لكن الكاش فارغ. جاري التشافي الذاتي...");
+                
+                // إصلاح مبدئي: حفظ المفتاح في الكاش
+                localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
+                
+                try {
+                    // جلب بيانات الحساب (الرصيد، الاسم، إلخ) من السيرفر بصمت وإعادة إحياء DataManager
+                    const userDoc = await StoreDB.getById(DB_KEYS.USERS, uidStr);
+                    if (userDoc) {
+                        DataManager.user = { ...userDoc, uid: uidStr, id: uidStr };
+                        DataManager.saveUserLocal(); 
+                        console.log("✅ [Self-Healing Complete]: تم استعادة الجلسة بنجاح!");
+                        
+                        // إغلاق أي نافذة تسجيل دخول قد تكون مفتوحة بالخطأ
+                        if (this.closeModal) this.closeModal('login');
+                    } else {
+                        // الحساب مسجل بفايربيز لكن بياناته محذوفة من الإدارة
+                        if (DataManager.logout) DataManager.logout();
+                        return;
+                    }
+                } catch (e) {
+                    console.error("🚨 فشل استعادة الجلسة الشبحية:", e);
+                }
+            } else {
+                // الوضع الطبيعي: تأكيد حفظ الـ UID في الكاش
+                localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
+            }
+            // =================================================================
+
             if (DataManager && typeof DataManager.listenToUserNotifications === 'function') {
                 const notifUnsub = DataManager.listenToUserNotifications(() => requestAnimationFrame(() => {
                     if (this.processAndDisplayAlerts) this.processAndDisplayAlerts();
@@ -244,6 +279,7 @@ ClientSystem.initFirebaseListeners = function() {
                 }));
                 if (notifUnsub) this.userAuthListeners.push(notifUnsub);
             }
+            
             if (StoreDB.listenDoc) {
                 this.userAuthListeners.push(StoreDB.listenDoc(DB_KEYS.USERS, uidStr, (userData) => {
                     if (userData) {
@@ -334,18 +370,24 @@ ClientSystem.initFirebaseListeners = function() {
             }
         } else {
             console.log("👤 العميل زائر. تم تنظيف المستمعات.");
-            localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
-            LiveStoreData.users.length = 0; LiveStoreData.orders.length = 0; LiveStoreData.deposits.length = 0;
-            DataManager.cursors = {}; 
-            if(DataManager.syncUser) DataManager.syncUser(); 
-            if(this.updateDisplayBalance) this.updateDisplayBalance();
+                   // 🛡️ جسر حماية الزوار: التأكد من مسح الكاش المحلي إذا كان فايربيز فارغاً (Stale Session)
+            const staleLocalUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
+            if (staleLocalUid || DataManager.user) {
+                console.warn("🧹 [Stale Session]: فايربيز غير متصل لكن الكاش موجود. جاري التنظيف...");
+                if (DataManager.logout) DataManager.logout();
+            } else {
+                localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
+                LiveStoreData.users.length = 0; LiveStoreData.orders.length = 0; LiveStoreData.deposits.length = 0;
+                DataManager.cursors = {}; 
+                if(DataManager.syncUser) DataManager.syncUser(); 
+                if(this.updateDisplayBalance) this.updateDisplayBalance();
+            }
         }
-    });
-};
+    }); // <-- إغلاق onAuthStateChanged
+}; // <-- إغلاق ClientSystem.initFirebaseListeners
 
 ClientSystem.init = async function() {
     console.log(`🚀 جاري إقلاع المتجر (نسخة المحرك الماسي ${APP_VERSION})...`);
-    
     if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
         RenderHelpers.init({ settings: {}, rates: [], offers: [], isStore: true });
     }

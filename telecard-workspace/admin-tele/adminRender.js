@@ -1,14 +1,16 @@
 // ============================================================================
 // 🖥️ موزع محرك الرسم (adminRender.js) - نمط الواجهة النظيف (Facade) 🚀
-// 🎯 الوظيفة: المايسترو الذي يوجه طلبات الرسم للوحدات المعزولة
-// 🌟 التحديث: توافق تام مع V8، تنظيف الروابط الميتة، وتوحيد المخططات
+// 🎯 الوظيفة: المايسترو الذي يوجه طلبات الرسم للوحدات المعزولة (Micro-Frontends).
+// 🌟 التحديثات المعمارية: 
+// 1. Safe Delegation: تأمين الاستدعاءات لمنع انهيار النظام إذا تعطلت إحدى الوحدات.
+// 2. Dead-Link Purge: تنظيف الروابط الميتة وتوحيد المخططات (Charts Routing).
 // ============================================================================
 
 import { EventBus, Utils } from './adminUtils.js'; 
 import { AdminData } from './adminData.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 
-// استيراد محركات الرسم للوحدات
+// استيراد محركات الرسم للوحدات المعزولة
 import { OrdersRender } from './modules/orders/ordersRender.js';
 import { FinanceRender } from './modules/finance/financeRender.js';
 import { UsersRender } from './modules/users/usersRender.js';
@@ -18,19 +20,19 @@ import { SalesRender } from './modules/dashboard/salesRender.js';
 import { MarketingRender } from './modules/marketing/marketingRender.js'; 
 import { IntegrationsRender } from './modules/integrations/integrationsRender.js'; 
 
-// 🌟 تهيئة مستمعات الوحدات لسماع التحديثات
-OrdersRender.initListeners();
-FinanceRender.initListeners();
-UsersRender.initListeners();
-CatalogRender.initListeners();
-MarketingRender.initListeners(); 
-IntegrationsRender.initListeners(); 
-if (DashboardRender.initListeners) DashboardRender.initListeners();
-if (SalesRender.initListeners) SalesRender.initListeners(); 
+// 🌟 تهيئة مستمعات الوحدات لسماع التحديثات فور الإقلاع
+OrdersRender?.initListeners?.();
+FinanceRender?.initListeners?.();
+UsersRender?.initListeners?.();
+CatalogRender?.initListeners?.();
+MarketingRender?.initListeners?.(); 
+IntegrationsRender?.initListeners?.(); 
+DashboardRender?.initListeners?.();
+SalesRender?.initListeners?.(); 
 
 export const AdminRender = {
     // ==========================================
-    // 🔗 روابط مساعدة الرسم الموحدة
+    // 🔗 روابط مساعدة الرسم الموحدة (Helpers Bridge)
     // ==========================================
     _getTxName: (u) => RenderHelpers._getTxName(u),
     _getExplicitName: (u) => RenderHelpers._getExplicitName(u),
@@ -39,7 +41,7 @@ export const AdminRender = {
     _getActiveOfferBadge: (id) => RenderHelpers._getActiveOfferBadge(id),
 
     // ==========================================
-    // 📦 روابط محركات الأقسام (Modules Routing)
+    // 📦 تفويض محركات الأقسام (Modules Routing)
     // ==========================================
     
     // 1. الطلبات (Orders)
@@ -91,7 +93,6 @@ export const AdminRender = {
     // 7. الربط والموردين (Integrations)
     renderSuppliers: () => IntegrationsRender.renderSuppliers(),
 
-
     // ==========================================
     // 🌟 دوال النظام المشتركة (Global UI Actions)
     // ==========================================
@@ -106,19 +107,19 @@ export const AdminRender = {
         else this.exportOrdersToExcel();
     },
 
-    // 💡 معلومة هندسية: هذا الفلتر سريع ولن يبطئ المتصفح لأننا جلبنا آخر 100 طلب فقط في adminData
+    // 💡 تحديث الإشعارات (سريع O(N) في الذاكرة لتجنب البطء)
     updateBadges: function() {
-        const d = (AdminData.data.deposits || []).filter(x=>x.status==='pending').length;
-        const o = (AdminData.data.orders || []).filter(x=>x.status==='pending').length;
+        const d = (AdminData.data.deposits || []).filter(x => x.status === 'pending').length;
+        const o = (AdminData.data.orders || []).filter(x => x.status === 'pending').length;
         const bDep = document.getElementById('badge-dep');
         const bOrd = document.getElementById('badge-ord');
         
-        if(bDep) { 
-            if(d > 0) { bDep.innerText=Utils.enNum(d); bDep.classList.add('active'); bDep.classList.remove('hide-element'); } 
+        if (bDep) { 
+            if (d > 0) { bDep.innerText = Utils.enNum(d); bDep.classList.add('active'); bDep.classList.remove('hide-element'); } 
             else { bDep.classList.remove('active'); bDep.classList.add('hide-element'); } 
         }
-        if(bOrd) { 
-            if(o > 0) { bOrd.innerText=Utils.enNum(o); bOrd.classList.add('active'); bOrd.classList.remove('hide-element'); } 
+        if (bOrd) { 
+            if (o > 0) { bOrd.innerText = Utils.enNum(o); bOrd.classList.add('active'); bOrd.classList.remove('hide-element'); } 
             else { bOrd.classList.remove('active'); bOrd.classList.add('hide-element'); } 
         }
     },
@@ -127,7 +128,7 @@ export const AdminRender = {
         const txtEl = document.getElementById('promo-text');
         const animEl = document.getElementById('promo-speed');
         const prevTxt = document.querySelector('.tp-text');
-        if(txtEl && animEl && prevTxt) { 
+        if (txtEl && animEl && prevTxt) { 
             prevTxt.innerText = txtEl.value || 'معاينة...'; 
             prevTxt.className = 'tp-text anim-' + Utils.escapeHTML(animEl.value); 
         }
@@ -146,7 +147,7 @@ export const AdminRender = {
     },
 
     // ==========================================
-    // 🎧 تهيئة مستمعات المايسترو لرسم الشاشات (Event Routing)
+    // 🎧 تهيئة مستمعات الناقل المركزي (Event Bus Routing)
     // ==========================================
     initListeners: function() {
         EventBus.on('req-render-dash', () => this.renderDashboard());

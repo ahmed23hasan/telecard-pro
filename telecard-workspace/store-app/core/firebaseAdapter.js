@@ -322,32 +322,55 @@ _registerListener: function(uniqueKey, unsubscribeFn) {
         return this._registerListener(safeKey, unsubscribe);
     },
 
-    async callFunction(functionName, payload = {}, retryCount = 1) { 
+        async callFunction(functionName, payload = {}, retryCount = 1) { 
+        // 1. 🛡️ فحص الاتصال بالإنترنت أولاً لمنع تعليق الطلبات
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-            const err = new Error('لا يوجد اتصال بالإنترنت.');
+            const err = new Error('لا يوجد اتصال بالإنترنت. يرجى التحقق من الشبكة.');
             err.code = 'network-offline';
             throw err;
         }
 
         try {
-            const result = await this._withTimeout(httpsCallable(functions, functionName)(payload), 15000, `Function -> ${functionName}`, false);
+            // 2. 🚀 استدعاء الدالة السحابية مع نظام مهلة (Timeout) مدته 15 ثانية
+            const result = await this._withTimeout(
+                httpsCallable(functions, functionName)(payload), 
+                15000, 
+                `Function -> ${functionName}`, 
+                false
+            );
             return result.data;
         } catch (error) {
             const isSensitiveFunction = ['createOrder', 'submitBalanceRequest', 'adminAdjustBalance'].includes(functionName);
             const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
             
+            // 3. 🔄 نظام إعادة المحاولة الذكي (Retry System) للأخطاء العابرة
             if (isTransientError && retryCount > 0 && !isSensitiveFunction) {
                 console.warn(`⏳ تأخير في الشبكة. إعادة محاولة [${functionName}]...`);
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 return this.callFunction(functionName, payload, retryCount - 1); 
             }
             
-            const errObj = new Error(error.message || 'فشل الاتصال بالخادم.');
+            // =================================================================
+            // 🛡️ 4. درع التقنيع (Error Masking): حماية أسرار العمل من التسريب
+            // =================================================================
+            let errorMsg = error.message || 'فشل الاتصال بالخادم.';
+            
+            // الكلمات الحساسة التي لو ظهرت تعني تسريباً لمعادلة التسعير الخاصة بك
+            const sensitiveKeywords = ['رأس المال', 'الربح', 'تكلفة', 'يكسر حاجز', 'خسارة', 'السعر النهائي', 'cost', 'profit', 'margin'];
+            const isSensitiveError = sensitiveKeywords.some(keyword => errorMsg.includes(keyword));
+            
+            if (isSensitiveError) {
+                // استبدال الرسالة برسالة دبلوماسية غامضة للعميل
+                errorMsg = 'عذراً، لا يمكن تنفيذ الطلب حالياً بسبب تحديثات في أسعار المزود. يرجى المحاولة لاحقاً.';
+                console.warn("🛡️ [Security] تم التقاط رسالة سيرفر حساسة وإخفاؤها عن العميل بنجاح.");
+            }
+            // =================================================================
+
+            const errObj = new Error(errorMsg);
             errObj.code = error.code || 'unknown';
             throw errObj;
         }
     },
-
     async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = false) { 
         if (!file) return ''; 
         

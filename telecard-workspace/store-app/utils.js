@@ -1,9 +1,11 @@
 // ============================================================================
-// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V15.3 💎 (The Forge)
+// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V15.4 💎 (The Forge)
 // 🎯 الوظيفة: أدوات نقية للتعامل مع النصوص، الروابط، التواريخ، وبصمة الجهاز.
-// 🚀 التحديثات المعمارية (V15.3):
-// 1. Crypto Fallback: منع انهيار المتصفحات غير المدعومة أو بيئات HTTP في بصمة الجهاز.
-// 2. Consistent Number Formatting: توحيد مخرجات (NaN/Null) في دالة enNum.
+// 🚀 التحديثات المعمارية (V15.4 - Bulletproof Edition):
+// 1. Dynamic Router Fix: فك ارتباط التوجيه بأسماء المجلدات ليعمل في أي بيئة.
+// 2. Decimal Trap Fix: معالجة ذكية للفواصل في الأرقام العربية/الأوروبية.
+// 3. Time-Travel Sync: مزامنة فلاتر البحث مع وقت السيرفر بدلاً من هاتف العميل.
+// 4. UI Clarity: تفعيل فواصل الآلاف (useGrouping) لراحة العين.
 // ============================================================================
 
 // === 1. أدوات حماية النصوص وتنسيقها (OWASP Standard) ===
@@ -40,7 +42,7 @@ export function safeUrl(url, fallback = '#') {
     }
 }
 
-// 🌟 تنسيق الأرقام كنصوص للواجهة فقط
+// 🌟 تنسيق الأرقام كنصوص للواجهة فقط (تم تفعيل useGrouping لتسهيل القراءة)
 export function enNum(val, decimals = 2) {
     const safeDecimals = Math.min(20, Math.max(0, Number(decimals) || 2));
     
@@ -50,23 +52,29 @@ export function enNum(val, decimals = 2) {
     return new Intl.NumberFormat('en-US', {
         minimumFractionDigits: safeDecimals,
         maximumFractionDigits: safeDecimals,
-        useGrouping: false
+        useGrouping: true // 🛡️ تم التفعيل لمنع أخطاء قراءة الأرقام الضخمة
     }).format(num);
 }
 
-// 🛡️ توحيد الأرقام العربية وإزالة الفواصل للحسابات
+// 🛡️ توحيد الأرقام العربية وإصلاح فخ الفواصل (Decimal Trap Fix)
 export function parseSafeNumber(val) {
     if (!val) return 0;
-    const englishVal = String(val).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[, \s]/g, '');
+    // 1. تحويل الأرقام العربية إلى إنجليزية
+    let englishVal = String(val).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).trim();
+    
+    // 2. المعالجة الذكية للفاصلة العشرية: إذا كانت الفاصلة قبل آخر رقم أو رقمين (مثال 10,50 تصبح 10.50)
+    englishVal = englishVal.replace(/,(\d{1,2})$/, '.$1');
+    
+    // 3. إزالة فواصل الآلاف والمسافات بأمان
+    englishVal = englishVal.replace(/[, \s]/g, '');
+    
     return parseFloat(englishVal) || 0;
 }
 
 // === 2. أدوات التواريخ والزمن ===
 
 // 🛡️ تأمين ومعالجة التواريخ من مختلف الصيغ لضمان عدم عودة (NaN)
-// ✅ الكود الجديد (المصدر الوحيد للحقيقة)
 export function parseSafeTime(val) {
-    // 1. معالجة عمليات فايربيز المعلقة (Pending Writes) بإعطائها وقت اللحظة
     if (val === null || val === undefined || val === '') return Date.now();
     if (typeof val === 'number') return val;
     if (typeof val.toMillis === 'function') return val.toMillis();
@@ -79,6 +87,7 @@ export function parseSafeTime(val) {
     }
     return Date.now();
 }
+
 // ⏱️ محرك حساب مدة الإنجاز
 export function calculateOrderDuration(startTime, endTime) {
     if (!startTime || !endTime) return "---";
@@ -105,7 +114,7 @@ export function calculateOrderDuration(startTime, endTime) {
 
 // === 3. أدوات الأمان والمصادقة ===
 
-// 🔑 توليد مفتاح منع تكرار الطلبات (آمن تشفيرياً 100%)
+// 🔑 توليد مفتاح منع تكرار الطلبات (آمن تشفيرياً مع Fallback)
 export function generateIdempotencyKey() {
     if (typeof crypto !== 'undefined') {
         if (crypto.randomUUID) return crypto.randomUUID();
@@ -121,7 +130,7 @@ export function generateIdempotencyKey() {
 // 🕵️‍♂️ توليد بصمة الجهاز (محصنة بيئياً - Environment Safe)
 export async function getDeviceFingerprint() {
     try {
-        if (typeof window !== 'undefined' && window.FingerprintJS) { 
+        if (typeof window !== 'undefined' && window.FingerprintJS) {
             const loadedFp = await window.FingerprintJS.load();
             return (await loadedFp.get()).visitorId;
         } else {
@@ -129,17 +138,15 @@ export async function getDeviceFingerprint() {
             const scr = typeof screen !== 'undefined' ? screen : {};
             const rawPrint = (nav.userAgent || 'unknown') + (nav.language || '') + (scr.width || 0) + (scr.height || 0);
             
-            // 🛡️ [الإصلاح الماسي 1]: الحماية إذا كان crypto.subtle غير متاح (HTTP/Old Browsers)
             if (typeof crypto !== 'undefined' && crypto.subtle) {
                 const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawPrint));
                 return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
             } else {
-                // Fallback Hash بسيط وسريع للبيئات المعتمة
                 let hash = 0;
                 for (let i = 0; i < rawPrint.length; i++) {
                     const char = rawPrint.charCodeAt(i);
                     hash = ((hash << 5) - hash) + char;
-                    hash = hash & hash; 
+                    hash = hash & hash;
                 }
                 return 'fb-' + Math.abs(hash).toString(16) + Date.now().toString(16).slice(-4);
             }
@@ -149,8 +156,8 @@ export async function getDeviceFingerprint() {
 
 // === 4. أدوات الواجهة والمنوعات ===
 
-// 📄 أداة تصفية التواريخ والبحث
-export function getSearchAndDateFilters(searchId, datePrefixId) {
+// 📄 أداة تصفية التواريخ والبحث (تستخدم وقت السيرفر لسد ثغرة Time-Travel)
+export function getSearchAndDateFilters(searchId, datePrefixId, serverNowTime = Date.now()) {
     if (typeof document === 'undefined') return { q: '', dStart: '', dEnd: '', tStart: null, tEnd: null, error: null };
     
     const qInput = document.getElementById(`${searchId}-search-input`);
@@ -162,8 +169,9 @@ export function getSearchAndDateFilters(searchId, datePrefixId) {
     let dStart = dStartEl ? dStartEl.value : '';
     let dEnd = dEndEl ? dEndEl.value : '';
     
-    const todayObj = new Date();
-    todayObj.setHours(0, 0, 0, 0); 
+    // 🛡️ استخدام وقت السيرفر لحساب (اليوم والأمس)
+    const todayObj = new Date(serverNowTime);
+    todayObj.setHours(0, 0, 0, 0);
     const yestObj = new Date(todayObj);
     yestObj.setDate(todayObj.getDate() - 1);
     
@@ -180,7 +188,8 @@ export function getSearchAndDateFilters(searchId, datePrefixId) {
     if (dEnd && !dStart) { dStart = defStart; if (dStartEl) dStartEl.value = defStart; }
     if (dStart && !dEnd) { dEnd = defEnd; if (dEndEl) dEndEl.value = defEnd; }
     
-    let tStart = null, tEnd = null;
+    let tStart = null,
+        tEnd = null;
     if (dStart) {
         const [year, month, day] = dStart.split('-').map(Number);
         if (year && month && day) tStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
@@ -195,36 +204,27 @@ export function getSearchAndDateFilters(searchId, datePrefixId) {
     
     return { q, dStart, dEnd, tStart, tEnd, error };
 }
-// 🧭 محرك التوجيه الآمن (Environment-Aware Router) - 100% Bulletproof
+
+// 🧭 محرك التوجيه الآمن الديناميكي (Dynamic Environment-Aware Router)
 export function safeRedirect(pageName) {
-    // 1. تحديد ما إذا كنا في بيئة التطوير (Local Server)
     const isLocal = window.location.hostname === 'localhost' ||
         window.location.hostname === '127.0.0.1' ||
         window.location.hostname.includes('192.168.');
     
-    // 2. الافتراضي في الإنتاج (Firebase): التوجيه يتم دائماً من الجذر (Root)
     let finalPath = '/' + pageName;
     
     if (isLocal) {
-        // 3. في بيئة التطوير: نستخرج المسار الديناميكي بدقة حتى مجلد (store-app)
-        const pathParts = window.location.pathname.split('/');
-        const appIndex = pathParts.indexOf('store-app');
+        // 🚀 الحل الديناميكي: استخراج المسار الأساسي تلقائياً دون كتابة اسم المجلد برمجياً
+        const currentPath = window.location.pathname;
+        const lastSlashIndex = currentPath.lastIndexOf('/');
+        const safeBasePath = currentPath.substring(0, lastSlashIndex + 1);
         
-        if (appIndex !== -1) {
-            // إعادة بناء المسار المحلي بدقة متناهية
-            const localBasePath = pathParts.slice(0, appIndex + 1).join('/');
-            finalPath = localBasePath + '/' + pageName;
-        } else {
-            // احتياطي (Fallback) في حال تم تشغيل السيرفر من داخل المجلد مباشرة
-            const lastSlash = window.location.pathname.lastIndexOf('/');
-            const safeBasePath = window.location.pathname.substring(0, lastSlash + 1);
-            finalPath = safeBasePath + pageName;
-        }
+        finalPath = safeBasePath + pageName;
     }
     
-    // 4. تنفيذ التوجيه بأمان مطلق
     window.location.replace(finalPath);
 }
+
 // 💳 استخراج أكواد الخزنة كنص
 export function extractCodeText(dCode) {
     if (dCode == null || dCode === 'null') return '';
@@ -245,7 +245,7 @@ export async function smartShareOrDownload(blob, fileName, shareTitle = 'مشا�
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     
     const forceDownload = () => {
-        if (typeof document === 'undefined') return; 
+        if (typeof document === 'undefined') return;
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;

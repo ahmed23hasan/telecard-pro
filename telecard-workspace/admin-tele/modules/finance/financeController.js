@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 متحكم المالية (modules/finance/financeController.js) - النسخة الماسية V8.5 💎
+// 🧠 متحكم المالية (modules/finance/financeController.js) - النسخة الماسية V8.6 💎
 // الوظيفة: معالجة العمليات المنطقية للإيداعات، بوابات الدفع، والعملات.
-// 🚀 التحديث الأقصى: القضاء على الـ O(N) في المعاملات المالية وفك الارتباط الدائري كلياً
+// 🚀 التحديث الأقصى: تأمين حسابات الاسترجاع والديون للإيداعات الإدارية
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -9,13 +9,13 @@ import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { FinancialEngine } from '../../core/financialEngine.js';
-// 🚀 [نقاء هندسي]: تم حذف استيراد AppController تماماً لكسر الارتباط الدائري الميت!
 import { normalizeRates } from '../../adminConfig.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const FinanceController = {
 
-    _isProcessingDeposit: false,
+    // 🛡️ التحديث: استخدام Set لقفل الإيداعات الفردية بدلاً من شلل المتحكم بالكامل
+    _actionLocks: new Set(),
 
     // =========================================================
     // 💳 1. إدارة بوابات الدفع (Payment Gateways)
@@ -50,7 +50,6 @@ export const FinanceController = {
 
         try {
             const hasImg = AdminUI?.FinanceUI?.hasImage?.('pay-img-wrap');
-            // ⚡ التحديث: استخدام المتغير المؤقت من مستودع الحالة الصافي AdminData لمنع التداخل
             const tempEditId = AdminData.tempEditId;
             const oldImg = tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(tempEditId))?.img : null;
             
@@ -70,7 +69,7 @@ export const FinanceController = {
             const newPay = {
                 id: tempEditId || String(Date.now()),
                 name: Utils.escapeHTML(Utils.getVal('pay-name')),
-                detailFields: AdminData.tempPayDetails || [], // ⚡ تحديث قراءة التفاصيل
+                detailFields: AdminData.tempPayDetails || [],
                 currencies: checks.join(',') || 'USD',
                 currencySettings: currSettings,
                 inputPlaceholder: Utils.escapeHTML(Utils.getVal('pay-input-placeholder')),
@@ -89,7 +88,6 @@ export const FinanceController = {
 
             await AdminData?.savePayments?.();
             
-            // ⚡ التحديث النقي: إنهاء العمليات بحدث EventBus موحد دون نداء AppController المباشر
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-payments',
                 modalId: null,
@@ -201,7 +199,6 @@ export const FinanceController = {
             AdminData.data.rates = rates;
             await AdminData?.saveRates?.();
             
-            // ⚡ التحديث النقي بـ EventBus
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-rates',
                 modalId: null,
@@ -278,39 +275,33 @@ export const FinanceController = {
     // 🏦 3. معالجة الإيداعات الآمنة (أمان مالي + Loader)
     // ==========================================
     submitDepositReview: async function(action) {
-        if (this._isProcessingDeposit) return;
-        
         const reviewId = AdminUI?.FinanceUI?.currentDepositId || null;
-        if (!reviewId) return;
+        if (!reviewId || this._actionLocks.has(reviewId)) return;
         
-        // ⚡ جلب فوري بـ O(1) للإيداع من الخريطة السحابية مع fallback آمن
         const dep = AdminData.data.depositsMap?.[reviewId] || AdminData.data.deposits.find(d => String(d.id) === String(reviewId));
         if (!dep) return;
 
-        this._isProcessingDeposit = true;
+        this._actionLocks.add(reviewId);
+        
         const note = Utils.escapeHTML(Utils.getVal('dep-drawer-note'));
         const mappedAction = action === 'approve' ? 'approved' : 'rejected';
         
-        // 🌟 1. تجهيز الرسالة الدقيقة بناءً على الإجراء والمبلغ
         const amtVal = Number(dep.amount || 0).toFixed(2);
         const curr = (dep.currency || 'USD').toUpperCase();
         
         const customMessage = action === 'approve' 
             ? `تم قبول طلب إيداع بقيمة ${amtVal} ${curr}`
-            : `تم رفض طلب إيداع بقيمة ${amtVal} ${curr}`; // 🛡️ تم إصلاح متغير amtEq الميت هنا!
+            : `تم رفض طلب إيداع بقيمة ${amtVal} ${curr}`;
         
-        // 🌟 2. تجميد الشاشة وحمايتها من النقر المزدوج (Loader)
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري توثيق العملية وتحديث الرصيد سحابياً...');
         
         try {
-            // 🌟 3. إرسال الطلب للسيرفر والانتظار لضمان الأمان المالي
             const result = await FirebaseAdapter.callFunction('adminProcessDeposit', {
                 depositId: String(dep.id),
                 action: mappedAction,
                 adminNote: note
             });
             
-            // 🌟 4. إذا نجح السيرفر، نقوم بتحديث الشاشة وإظهار الإشعار النهائي فقط
             if (result && result.success) {
                 dep.status = mappedAction;
                 
@@ -323,54 +314,49 @@ export const FinanceController = {
                     AdminData.addLog(`DEPOSIT_${mappedAction.toUpperCase()}`, `${customMessage} للعميل ${dep.userName || dep.userId}`);
                 }
                 
-                // إشعار واحد فقط دقيق وجميل!
                 EventBus.emit('req-show-toast', { message: customMessage, type: 'success' });
             }
         } catch (error) {
             console.error("Deposit Processing Error:", error);
             EventBus.emit('req-show-toast', { message: `فشل السيرفر: ${error.message}`, type: 'error' });
         } finally {
-            // 🌟 5. رفع الحظر عن الشاشة دائماً في النهاية
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-            this._isProcessingDeposit = false;
+            this._actionLocks.delete(reviewId);
         }
     },
     
     reEvaluateDeposit: async function(depId) {
-        if (this._isProcessingDeposit) return;
+        if (this._actionLocks.has(depId)) return;
 
-        // ⚡ جلب فوري بـ O(1) للإيداع من الخريطة
         const dep = AdminData.data.depositsMap?.[depId] || AdminData.data.deposits.find(d => String(d.id) === String(depId));
         if (!dep || dep.status !== 'approved') return;
         
-        // ⚡ جلب فوري بـ O(1) للعميل من الخريطة
         const user = AdminData.data.usersMap?.[dep.userId] || AdminData.data.users.find(u => String(u.id) === String(dep.userId));
         if (!user) {
             EventBus.emit('req-show-toast', { message: 'لم يتم العثور على العميل المرتبط بهذا الإيداع', type: 'error' });
             return;
         }
         
-  // 🛡️ [تحديث ماسي 💎]: استخدام المحرك المالي السيادي لمنع أخطاء الفواصل العشرية
-const amount = FinancialEngine.extractNum(dep.amount);
-const feeVal = FinancialEngine.extractNum(dep.feePct ?? dep.fee);
-const feeType = dep.feeType || 'fee';
-const feeUnit = dep.feeUnit || dep.unit || dep.calcMethod || 'percent';
+        const amount = FinancialEngine.extractNum(dep.amount);
+        const feeVal = FinancialEngine.extractNum(dep.feePct ?? dep.fee);
+        const feeType = dep.feeType || 'fee';
+        const feeUnit = dep.feeUnit || dep.unit || dep.calcMethod || 'percent';
 
-// حساب الرسوم بأمان (أرقام صحيحة خالية من كسور الجافاسكريبت)
-let feeAmount = (feeUnit === 'fixed' || feeUnit === 'amount') ?
-    feeVal :
-    FinancialEngine.safeMul(amount, FinancialEngine.safeDiv(feeVal, 100));
+        let feeAmount = (feeUnit === 'fixed' || feeUnit === 'amount') ?
+            feeVal :
+            FinancialEngine.safeMul(amount, FinancialEngine.safeDiv(feeVal, 100));
 
-// حساب الصافي (بونص أو خصم)
-let netPayCurr = (feeType === 'bonus') ?
-    FinancialEngine.safeAdd(amount, feeAmount) :
-    FinancialEngine.safeSub(amount, feeAmount);
+        let netPayCurr = (feeType === 'bonus') ?
+            FinancialEngine.safeAdd(amount, feeAmount) :
+            FinancialEngine.safeSub(amount, feeAmount);
 
-// حساب المعادل بالدولار أو العملة الأساسية بدقة 100%
-const fxRate = FinancialEngine.extractNum(dep.fxRate, false);
-const netBase = (dep.creditedAmount != null) ?
-    FinancialEngine.extractNum(dep.creditedAmount) :
-    FinancialEngine.safeMul(netPayCurr, fxRate);        const currentBalance = Number(user.walletBalance || user.balance || 0);
+        // 🛡️ التحديث المعماري للديون (إصلاح الكارثة السالبة)
+        const fxRate = FinancialEngine.extractNum(dep.fxRate, false);
+        const netBase = (dep.creditedAmount != null) ?
+            FinancialEngine.extractNum(dep.creditedAmount) :
+            FinancialEngine.safeMul(netPayCurr, fxRate);
+
+        const currentBalance = Number(user.walletBalance || user.balance || 0);
         const safeCurrency = (user.baseCurrency || 'USD').toUpperCase();
         
         let confirmMsg = "";
@@ -378,20 +364,23 @@ const netBase = (dep.creditedAmount != null) ?
         
         const isDeduction = netBase < 0;
         if (isDeduction) {
+            // حالة إلغاء الخصم (هنا نحن نُعيد المال للعميل، فلا مجال للديون)
             confirmTitle = "تأكيد إلغاء الخصم";
             confirmMsg = `هل أنت متأكد من إلغاء عملية الخصم هذه؟\nسوف يتم إعادة مبلغ (${Math.abs(netBase).toFixed(2)} ${safeCurrency}) إلى محفظة العميل.`;
         } else {
+            // حالة استرجاع الإيداع (هنا نحن نسحب المال من العميل)
             confirmTitle = "تأكيد استرجاع الإيداع";
             confirmMsg = "هل أنت متأكد من استرجاع هذا الإيداع وخصم المال من رصيد العميل؟";
             if (currentBalance < netBase) {
-                const debtAmount = netBase - currentBalance;
+                // 🛡️ حساب ديون دقيق (نطرح الرصيد المتاح من المبلغ المطلوب استرجاعه)
+                const debtAmount = FinancialEngine.safeSub(netBase, currentBalance);
                 const plainDebtText = `${debtAmount.toFixed(2)} ${safeCurrency}`;
                 confirmMsg += `\n\n⚠️ تنبيه هام: لا يوجد رصيد كافٍ عند العميل حالياً.\nسوف يصبح رصيد العميل بالسالب كـ (دين عليه) بمقدار: ${plainDebtText}`;
             }
         }
         
         if (AdminUI && await AdminUI.showConfirm(confirmMsg, confirmTitle)) {
-            this._isProcessingDeposit = true;
+            this._actionLocks.add(depId);
 
             const customMessage = isDeduction 
                 ? `تم إلغاء الخصم وإعادة ${Math.abs(dep.amount)} ${dep.currency}`
@@ -423,7 +412,7 @@ const netBase = (dep.creditedAmount != null) ?
                 EventBus.emit('req-show-toast', { message: `فشل السيرفر: ${error.message}`, type: 'error' });
             } finally {
                 if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-                this._isProcessingDeposit = false;
+                this._actionLocks.delete(depId);
             }
         }
     }

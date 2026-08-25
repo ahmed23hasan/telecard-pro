@@ -143,13 +143,19 @@ export const AppController = {
         });
     },
 
-    logoutAdmin: function() { 
-        sessionStorage.removeItem('telecard_admin_auth'); 
-        if (auth) auth.signOut().catch(()=>{}); 
-        window.location.replace('login.html'); 
-    },
-
-    setupEventBusListeners: function() {
+    logoutAdmin: function() {
+    sessionStorage.removeItem('telecard_admin_auth');
+    
+    // 🛡️ تدمير مستمعات الفايربيز
+    if (typeof FirebaseAdapter !== 'undefined') FirebaseAdapter.killAllListeners();
+    
+    // 🛡️ تدمير مستمعات الـ EventBus (بفضل الدالة التي ابتكرتها)
+    if (typeof EventBus !== 'undefined') EventBus.clearAll();
+    
+    if (auth) auth.signOut().catch(() => {});
+    window.location.replace('login.html');
+},
+setupEventBusListeners: function() {
         // --- 1. أحداث النظام والملاحة الأساسية ---
         EventBus.on('req-logout', () => this.logoutAdmin());
         EventBus.on('req-navigate', (data) => this.nav?.(data.page, data.btnEl));
@@ -536,50 +542,62 @@ export const AppController = {
         }
     },
     
-    saveAdminProfile: async function() { 
-        const name = Utils.escapeHTML(Utils.getVal('adm-name')), 
-              email = Utils.escapeHTML(Utils.getVal('adm-email')), 
-              pass = Utils.escapeHTML(Utils.getVal('adm-pass')); 
-              
-        if (!name || !email) return AdminUI?.showToast('الاسم والبريد مطلوبان', 'error'); 
+    saveAdminProfile: async function() {
+    const name = Utils.escapeHTML(Utils.getVal('adm-name')),
+        email = Utils.escapeHTML(Utils.getVal('adm-email')),
+        pass = Utils.escapeHTML(Utils.getVal('adm-pass'));
+    
+    if (!name || !email) return AdminUI?.showToast('الاسم والبريد مطلوبان', 'error');
+    
+    if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث الملف الشخصي...');
+    
+    try {
+        const wrap = document.getElementById('adm-img-wrap');
+        const hasImg = wrap?.classList.contains('has-img');
         
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث الملف الشخصي...');
-
-        try {
-            const wrap = document.getElementById('adm-img-wrap'); 
-            const hasImg = wrap?.classList.contains('has-img'); 
+        let finalImg = '';
+        const oldImgUrl = this.data.adminProfile?.img || null;
+        
+        if (hasImg) {
+            const fileInput = document.getElementById('adm-img-file');
+            const fileToUpload = fileInput?.files?.[0];
             
-            let finalImg = '';
-            if (hasImg) {
-                const fileInput = document.getElementById('adm-img-file');
-                const fileToUpload = fileInput?.files?.[0];
-
-                if (fileToUpload) {
-                    AdminUI?.showToast('جاري رفع صورتك الشخصية...', 'info');
-                    const oldImgUrl = this.data.adminProfile?.img || null;
-                    finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'admin', 'admin_profile_pic.webp', oldImgUrl);
-                } else {
-                    finalImg = this.data.adminProfile.img || '';
-                }
-            } else {
-                const oldImgUrl = this.data.adminProfile?.img || null;
+            if (fileToUpload) {
+                AdminUI?.showToast('جاري معالجة ورفع الصورة...', 'info');
+                
+                // 🛡️ 1. حذف الصورة القديمة أولاً لمنع تسريب التخزين (Storage Leak)
                 if (oldImgUrl && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
-                    FirebaseAdapter.deleteImageByUrl(oldImgUrl).catch(()=>{});
+                    await FirebaseAdapter.deleteImageByUrl(oldImgUrl).catch(() => {});
                 }
+                
+                // 🛡️ 2. استخراج امتداد الملف الحقيقي لضمان التوافق (بدل الإجبار على webp)
+                const ext = fileToUpload.name.includes('.') ? fileToUpload.name.split('.').pop().toLowerCase() : 'jpg';
+                const customName = `admin_profile_${Date.now()}.${ext}`;
+                
+                // 🛡️ 3. تمرير المعاملات الصحيحة للمحول
+                finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'admin', customName, true);
+            } else {
+                finalImg = oldImgUrl || '';
             }
-            
-            this.data.adminProfile = { name, email, pass, img: finalImg }; 
-            
-            await AdminData?.saveAdminProfile?.(); 
-            EventBus.emit('req-update-profile-ui'); 
-            AdminUI?.showToast('تم حفظ الملف الشخصي بنجاح', 'success'); 
-        } catch (error) {
-            AdminUI?.showToast('تعذر تحديث الملف الشخصي', 'error');
-        } finally {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+        } else {
+            // 🛡️ في حالة أن المشرف أزال صورته بالكامل
+            if (oldImgUrl && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                await FirebaseAdapter.deleteImageByUrl(oldImgUrl).catch(() => {});
+            }
+            finalImg = '';
         }
-    },
-
+        
+        this.data.adminProfile = { name, email, pass, img: finalImg };
+        
+        await AdminData?.saveAdminProfile?.();
+        EventBus.emit('req-update-profile-ui');
+        AdminUI?.showToast('تم حفظ الملف الشخصي بنجاح', 'success');
+    } catch (error) {
+        AdminUI?.showToast('تعذر تحديث الملف الشخصي', 'error');
+    } finally {
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+    }
+},
     delItem: async function(type, id) {
         const strId = String(id);
         

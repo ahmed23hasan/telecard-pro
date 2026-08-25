@@ -1,9 +1,9 @@
 // ============================================================================
-// 📦 وحدة المنتجات والأقسام (modules/catalog/catalogUI.js) - Enterprise V14.7 💎
+// 📦 وحدة المنتجات والأقسام (modules/catalog/catalogUI.js) - Enterprise V14.8 💎
 // 🎯 الوظيفة: التعديل المباشر، شجرة الأقسام، وتهيئة نوافذ الكتالوج (DOM Isolation)
 // 🚀 التحديثات:
 // 1. Vault Sync: تصحيح قراءة أعداد الأكواد من stockCount لتتوافق مع السيرفر السحابي.
-// 2. Financial Math Fix: تصحيح تمرير المتغيرات للمحرك المالي في المعاينة الحية.
+// 2. Financial Math Fix: الاعتماد التام على FinancialEngine لضمان دقة صافي الربح.
 // 3. State Purge: تفريغ النماذج بالكامل عند الإضافة الجديدة لمنع تداخل البيانات.
 // ============================================================================
 
@@ -11,8 +11,8 @@ import { AdminData } from '../../adminData.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { AdminTemplates } from '../../adminTemplates.js';
 import { UIService } from '../../core/uiService.js';
-// 🛡️ [إصلاح ماسي 4]: إزالة التكرار، نعتمد على المحرك المالي الموثوق من المصدر
-import { TelecardPricingEngine } from '../../adminConfig.js';
+// 🛡️ المحرك المالي المركزي لتسعير دقيق خالي من أخطاء الفاصلة العائمة
+import { FinancialEngine } from '../../core/financialEngine.js';
 
 export const CatalogUI = {
   dragEditMode: false,
@@ -23,7 +23,6 @@ export const CatalogUI = {
 
   openCategoryModal: function(id = null) {
     EventBus.emit('set-temp-edit-id', id);
-    // ⚡ جلب سريع جداً بـ O(1)
     const cat = id ? (AdminData.data.catsMap?.[id] || (AdminData.data.cats || []).find(c => String(c.id) === String(id))) : null;
     const isSubCat = window.AdminApp ? !!window.AdminApp.currFolder : false;
     this.setupCategoryModal(cat, isSubCat);
@@ -32,7 +31,6 @@ export const CatalogUI = {
   
   openProductModal: function(id = null) {
     EventBus.emit('set-temp-edit-id', id);
-    // ⚡ جلب سريع جداً بـ O(1)
     const prod = id ? (AdminData.data.prodsMap?.[id] || (AdminData.data.prods || []).find(p => String(p.id) === String(id))) : null;
     const vaultData = AdminData.data.vault || [];
     this.setupProductModal(prod, vaultData);
@@ -41,7 +39,6 @@ export const CatalogUI = {
   
   openCountryModal: function(id = null) {
     EventBus.emit('set-temp-edit-id', id);
-    // ⚡ جلب سريع جداً بـ O(1)
     const country = id ? (AdminData.data.countriesMap?.[id] || (AdminData.data.countries || []).find(c => String(c.id) === String(id))) : null;
     this.setupCountryModal(country);
     EventBus.emit('req-open-modal', 'country');
@@ -86,7 +83,7 @@ export const CatalogUI = {
     const titleEl = document.getElementById('prod-modal-title');
     if (titleEl) titleEl.innerText = strId ? 'تعديل المنتج' : 'إضافة منتج';
     
-    // 🛡️ [إصلاح ماسي 3]: تفريغ حقيقي للحقول عند الإضافة الجديدة لمنع تسرب بيانات المنتجات الأخرى
+    // 🛡️ تفريغ حقيقي للحقول عند الإضافة الجديدة لمنع تسرب بيانات المنتجات الأخرى
     safeSetVal('pr-name', p ? p.name : '');
     safeSetVal('pr-desc', p ? (p.description || '') : '');
     safeSetVal('pr-type', p ? p.type : 'simple');
@@ -103,7 +100,7 @@ export const CatalogUI = {
     if (vaultSelect) {
       let vHtml = '<option value="">-- بدون ربط (منتج يدوي) --</option>';
       (vaultData || []).forEach(v => {
-        // 🛡️ [إصلاح ماسي 1]: قراءة العداد السحابي stockCount بدلاً من مصفوفة codes المحدوفة من السيرفر
+        // 🛡️ قراءة العداد السحابي stockCount 
         const count = Number(v.stockCount || 0);
         vHtml += `<option value="${Utils.escapeHTML(v.id)}">${Utils.escapeHTML(v.name)} (${count} كود متاح)</option>`;
       });
@@ -271,10 +268,13 @@ export const CatalogUI = {
     if (limitBox) limitBox.classList.toggle('hide-element', !isChecked);
   },
 
-  // 🛡️ [إصلاح ماسي 2]: تصحيح الحساب المالي للمعاينة الحية للمستويات
-  renderPricePreview: function(type, cost, tiers, pkgs) {
+  // 🛡️ [إصلاح ماسي 2]: تصحيح الحساب المالي للمعاينة الحية للمستويات باستخدام FinancialEngine
+  renderPricePreview: function(type, cost, tiers, pkgs, EngineRef) {
       const previewContainer = document.getElementById('universal-price-preview');
       if (!previewContainer) return;
+      
+      const safeEngine = EngineRef || window.FinancialEngine || FinancialEngine;
+      if (!safeEngine) return;
       
       let html = '<div class="fs-12 fw-bold text-primary mb-10"><i class="fa-solid fa-eye"></i> المعاينة الحية لأسعار المستويات:</div>';
       
@@ -286,15 +286,14 @@ export const CatalogUI = {
           
           html += '<div class="preview-tiers-grid">';
           tiers.forEach(tier => {
-              // 🛡️ تمرير الكائن بالشكل الصحيح للمحرك المالي
-              const pricing = TelecardPricingEngine.calculate({ product: { costPrice: cost }, tier: tier });
+              const pricing = safeEngine.calculatePrice({ product: { costPrice: cost }, tier: tier });
               html += `
                   <div class="preview-tier-card text-center">
                       <div class="fs-11 fw-bold text-main mb-10">
                           <i class="fa-solid ${Utils.escapeHTML(tier.icon || 'fa-user')} text-gold"></i> ${Utils.escapeHTML(tier.name)}
                       </div>
                       <div class="num-en text-success fw-bold" dir="ltr">${pricing.finalPrice} $</div>
-                      <div class="num-en text-muted fs-9" dir="ltr">ربحك: <span class="text-success">+${pricing.profit}</span> $</div>
+                      <div class="num-en text-muted fs-9" dir="ltr">ربحك: <span class="text-success">+${pricing.netProfitUsd}</span> $</div>
                   </div>`;
           });
           html += '</div>';
@@ -317,13 +316,14 @@ export const CatalogUI = {
                       <div class="preview-mini-grid">`;
               
               tiers.forEach(tier => {
-                  const pricing = TelecardPricingEngine.calculate({ product: { costPrice: pkgCost }, tier: tier });
+                  const pricing = safeEngine.calculatePrice({ product: { costPrice: pkgCost }, tier: tier });
                   pkgHtml += `
                           <div class="preview-micro-card text-center">
                               <div class="fs-10 text-main mb-10">
                                   <i class="fa-solid ${Utils.escapeHTML(tier.icon || 'fa-user')} text-gold"></i> ${Utils.escapeHTML(tier.name)}
                               </div>
                               <div class="num-en text-success fw-bold fs-12" dir="ltr">${pricing.finalPrice}$</div>
+                              <div class="num-en text-muted fs-9" dir="ltr">ربحك: <span class="text-success">+${pricing.netProfitUsd}</span> $</div>
                           </div>`;
               });
               

@@ -56,7 +56,8 @@ export const UsersTemplates = {
         else if (sortType === 'spend_month') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-fire text-orange"></i> هذا الشهر: <span class="num-en text-orange" dir="ltr">${RenderHelpers.formatMoney(Number(u.monthlySpent?.[currentMonthKey] || 0), 'USD', 2)}</span></div>`;
         else if (sortType === 'spend_last_month') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-calendar-check text-info"></i> الشهر الماضي: <span class="num-en text-info" dir="ltr">${RenderHelpers.formatMoney(Number(u.monthlySpent?.[lastMonthKey] || 0), 'USD', 2)}</span></div>`;
         else if (sortType === 'orders_all') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-box-open text-primary"></i> إجمالي الطلبات: <span class="num-en text-primary" dir="ltr">${_enNum(u.totalOrdersCount || 0)}</span></div>`;
-        else if (sortType === 'orders_month') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-bolt text-success"></i> طلبات هذا الشهر: <span class="num-en text-success" dir="ltr">${_enNum(Number(u.monthlyOrders?.[thisMonthKey] || 0))}</span></div>`;
+        else if (sortType === 'orders_month') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-bolt text-success"></i> طلبات هذا الشهر: <span class="num-en text-success" dir="ltr">${_enNum(Number(u.monthlyOrders?.[currentMonthKey] || 0))}</span></div>`;
+
         else if (sortType === 'orders_last_month') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-check-double text-purple"></i> طلبات الشهر الماضي: <span class="num-en text-purple" dir="ltr">${_enNum(Number(u.monthlyOrders?.[lastMonthKey] || 0))}</span></div>`;
 
         const currText = (u.baseCurrency || u.base_currency || 'USD').toUpperCase().replace('$', 'USD');

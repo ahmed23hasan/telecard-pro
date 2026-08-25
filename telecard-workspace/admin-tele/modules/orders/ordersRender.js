@@ -1,7 +1,7 @@
 // ============================================================================
-// 📦 محرك رسم الطلبات (modules/orders/ordersRender.js) - النسخة الماسية V4.3 💎
+// 📦 محرك رسم الطلبات (modules/orders/ordersRender.js) - النسخة الماسية V4.4 💎
 // 🎯 الوظيفة: التكفل برسم قوائم الطلبات، الفلترة، والتحميل التدريجي وتصدير الإكسل
-// 🚀 التحديث: القضاء على تداخل المصفوفات والتحول الشامل للبحث السريع بـ O(1)
+// 🚀 التحديث: تصحيح العد المزدوج وتأمين التصدير للإكسل (Export Mismatch Fix)
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -13,6 +13,7 @@ export const OrdersRender = {
     ordersLimit: 50,
     tabState: 'all',
     filters: {},
+    _currentFilteredData: [], // 🛡️ مصفوفة لحفظ البيانات المفلترة لمنع التصدير الأعمى
 
     initListeners: function() {
         EventBus.on('state-update', (newState) => {
@@ -75,11 +76,17 @@ export const OrdersRender = {
 
         if (!isAppend) {
             const counts = { all: data.length, pending: 0, completed: 0, rejected: 0, refunded: 0 };
+            
+            // 🛡️ التحديث المعماري: توحيد عدادات المعالجة والانتظار بدقة ومنع التداخل
             data.forEach(o => { 
                 let st = o.status || 'pending'; 
-                if(counts[st] !== undefined) counts[st]++; 
-                else if (st === 'processing') counts.pending++; 
+                if (st === 'pending' || st === 'processing') { 
+                    counts.pending++; 
+                } else if (counts[st] !== undefined) { 
+                    counts[st]++; 
+                } 
             });
+
             ['all', 'pending', 'completed', 'rejected', 'refunded'].forEach(st => {
                 const el = document.getElementById(`count-ord-${st}`);
                 if(el) { el.innerText = Utils.enNum(counts[st]); el.setAttribute('lang', 'en'); }
@@ -104,6 +111,9 @@ export const OrdersRender = {
             const timeB = RenderHelpers.parseTime(b.time || b.createdAt);
             return timeB - timeA;
         });
+
+        // 🛡️ حفظ البيانات المفلترة لتصديرها للإكسل بدقة
+        this._currentFilteredData = data;
 
         if(!data.length) { 
             if(!isAppend) list.innerHTML = AdminTemplates.emptyOrders(); 
@@ -158,9 +168,10 @@ export const OrdersRender = {
     },
 
     exportToExcel: function() {
-        const dataToExport = AdminData.data.orders || [];
+        // 🛡️ التحديث: التصدير يتم للبيانات المفلترة التي يراها المدير حالياً فقط
+        const dataToExport = this._currentFilteredData || [];
         if (dataToExport.length === 0) { 
-            EventBus.emit('req-show-toast', { message: "لا توجد طلبات لتصديرها", type: "error" }); return; 
+            EventBus.emit('req-show-toast', { message: "لا توجد طلبات تطابق الفلتر لتصديرها", type: "error" }); return; 
         }
 
         let csvContent = "\uFEFFرقم الطلب,التاريخ,اسم العميل,المعرف القصير,المنتج,الكمية,السعر الاجمالي($),التكلفة($),الربح($),المصدر,الحالة\n";
@@ -174,7 +185,6 @@ export const OrdersRender = {
             
             const displayId = RenderHelpers.formatUserId(userRec);
             const customerName = sanitizeCSV(userRec ? (userRec.fullName || userRec.name || o.userName) : (o.userName || o.userId));
-
 
             const product = sanitizeCSV(o.product || 'منتج غير معروف');
             const qty = Number(o.qty || 1);

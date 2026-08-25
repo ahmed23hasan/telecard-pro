@@ -1,7 +1,7 @@
 // ============================================================================
-// 🧠 متحكم الطلبات (modules/orders/ordersController.js) - النسخة الماسية V4.3 💎
+// 🧠 متحكم الطلبات (modules/orders/ordersController.js) - النسخة الماسية V4.4 💎
 // 🎯 الوظيفة: معالجة الطلبات، استرجاع الأموال، وإدارة واجهة الطلبات بصرامة
-// 🚀 التحديث الأقصى: ترقية سرعة جلب الطلب إلى O(1) باستخدام الخريطة المركزية
+// 🚀 التحديث الأقصى: تطبيق القفل الفردي (Per-Order Lock) لمنع شلل التزامن
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -9,20 +9,21 @@ import { AdminUI } from '../../adminUI.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
-import { FinancialEngine } from '../../core/financialEngine.js';
 
 export const OrdersController = {
   
-  _isProcessing: false,
+  // 🛡️ التحديث: استخدام Set لقفل الطلبات الفردية بدلاً من قفل المتحكم بالكامل
+  _actionLocks: new Set(),
   
   submitOrderAction: async function(action, orderId) {
-    if (this._isProcessing) return;
+    if (this._actionLocks.has(orderId)) return;
     
     // ⚡ التحديث الفائق: جلب الطلب بـ O(1) من الخريطة مباشرة مع fallback آمن
     const o = AdminData.data.ordersMap?.[orderId] || AdminData.data.orders.find(x => String(x.id) === String(orderId));
     if (!o) return;
     
-    this._isProcessing = true;
+    // إقفال هذا الطلب فقط
+    this._actionLocks.add(orderId);
     
     try {
       const note = Utils.escapeHTML(Utils.getVal('order-modal-note'));
@@ -72,7 +73,8 @@ export const OrdersController = {
       
     } finally {
       if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-      this._isProcessing = false;
+      // تحرير الطلب
+      this._actionLocks.delete(orderId);
     }
   },
   

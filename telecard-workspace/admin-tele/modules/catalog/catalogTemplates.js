@@ -1,7 +1,9 @@
 // ============================================================================
-// 📦 قوالب المنتجات والكتالوج (modules/catalog/catalogTemplates.js) - V10.3 💎
+// 📦 قوالب المنتجات والكتالوج (modules/catalog/catalogTemplates.js) - Enterprise V14.8 💎
 // 🎯 الوظيفة: توليد الـ HTML المتقدم للأقسام، المنتجات، الخزنة، والبلدان
-// 🌟 التحديث الأقصى: إصلاح تسعير الكروت، منع الـ Double-Escaping للأكواد.
+// 🌟 التحديث الأقصى: 
+// 1. Data Mapping Fix: قراءة `codeText` لتطابق هيكل بيانات السيرفر الجديد.
+// 2. XSS Prevention: عزل الرموز المزدوجة (Double-Escaping) بأمان تام.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -92,7 +94,6 @@ export const CatalogTemplates = {
     prodCard: (p, index) => {
         const orderValue = (p.order !== undefined) ? Number(p.order) : index;
         
-        // 🛡️ [إصلاح العرض البصري للسعر]: إظهار "التكلفة" إذا كان السعر الثابت 0 لمنع ذعر الأدمن
         let safePrice = '0.00 $';
         if (p.type === 'select') {
             safePrice = 'باقات متعددة';
@@ -166,7 +167,7 @@ export const CatalogTemplates = {
     },
     
     /**
-     * حاوية الشبكة المدمجة (للأقسام والمنتجات معاً)
+     * حاوية الشبكة المدمجة
      */
     gridContainer: (catsHtml, prodsHtml) => `
         ${catsHtml ? `<div class="items-grid cats-grid sortable-container ignore-elements mb-15">${catsHtml}</div>` : ''}
@@ -174,10 +175,10 @@ export const CatalogTemplates = {
     `,
 
     defectiveModal: (poolName, codes) => {
-        // 🛡️ [إصلاح الثغرة]: استخدام c.text مباشرة دون _esc لأنها محمية مسبقاً من السيرفر (تجنباً لـ Double Escape للأكواد)
+        // 🛡️ [إصلاح الثغرة]: استخدام c.codeText كخيار أول لتتطابق مع السيرفر تماماً
         const codesHtml = codes.map(c => {
-            const rawText = c.text || '';
-            const safeTextForHtml = rawText.replace(/"/g, '&quot;'); // فقط هروب للعلامة لتجنب كسر الـ Attribute
+            const rawText = c.codeText || c.text || '';
+            const safeTextForHtml = rawText.replace(/"/g, '&quot;'); 
             return `
             <div class="copy-row success-copy-row" data-action="copy-text" data-copy-text="${safeTextForHtml}" title="اضغط للنسخ">
                 <div class="cr-content cr-content-center w-100">

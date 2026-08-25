@@ -26,8 +26,11 @@ export const UsersUI = {
         EventBus.emit('req-open-modal', 'tier');
     },
 
-    setupTierModal: function(tier) {
+        setupTierModal: function(tier) {
         const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
+        
+        // 🛡️ التحديث: حقن الـ ID في حقل مخفي لمنع الاعتماد على ملفات خارجية
+        safeSetVal('t-id', tier ? tier.id : ''); 
         
         safeSetVal('t-name', tier ? tier.name : '');
         safeSetVal('t-profit', tier ? tier.profit_percent : '');
@@ -49,7 +52,6 @@ export const UsersUI = {
         }
         safeSetVal('t-icon', iconClass);
     },
-
     animateBalanceUpdate: function(newBal, curCode, type) {
         const modalBalVal = document.querySelector('#tab-wallet .ud-balance-card-pro .val'); 
 

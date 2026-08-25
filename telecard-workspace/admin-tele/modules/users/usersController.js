@@ -517,7 +517,10 @@ deleteUser: async function(userId) {
     // =========================================================
     // 👑 3. إدارة المستويات (Tiers)
     // =========================================================
-    saveTier: async function() {
+        saveTier: async function() {
+        // 🛡️ التحديث: قراءة الـ ID من الحقل المخفي مباشرة
+        const targetId = Utils.escapeHTML(Utils.getVal('t-id', '')); 
+        
         const name = Utils.escapeHTML(Utils.getVal('t-name', ''));
         const icon = Utils.escapeHTML(Utils.getVal('t-icon', 'fa-user'));
         const profit = Number(Utils.getVal('t-profit', 0));
@@ -544,29 +547,26 @@ deleteUser: async function(userId) {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات المستوى...');
         
         try {
-            // 🌟 هذا هو السطر السحري الذي سيمنع الشاشة الحمراء نهائياً!
-            const { AppController } = await import('../../core/appController.js');
+            // ❌ تم إزالة الاستيراد الديناميكي الكارثي من هنا!
             
             const tiers = Array.isArray(AdminData.data.tiers) ? [...AdminData.data.tiers] : [];
-            const isEdit = !!AppController.tempEditId;
-            let targetId = null;
+            const isEdit = targetId !== ''; // إذا وجدنا ID فهو تعديل، وإلا إضافة جديدة
+            let finalTierId = targetId;
             
             if (isEdit) {
-                targetId = String(AppController.tempEditId);
                 const idx = tiers.findIndex(x => String(x.id) === targetId);
                 if (idx > -1) {
                     tiers[idx] = { ...tiers[idx], name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef };
                 }
             } else {
-                targetId = 'TIER_' + Utils.generateID();
+                finalTierId = 'TIER_' + Utils.generateID();
                 tiers.push({
-                    id: targetId, name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef, autoAdvance: true
+                    id: finalTierId, name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef, autoAdvance: true
                 });
             }
             
-            // 🛡️ هذا الجزء سيقوم بمسح الافتراضي من المستويات القديمة وتعيينه للجديد
             if (isDef) {
-                tiers.forEach(x => { x.isDefault = (String(x.id) === targetId); });
+                tiers.forEach(x => { x.isDefault = (String(x.id) === finalTierId); });
             }
             
             const hasDefault = tiers.some(t => t.isDefault === true);
