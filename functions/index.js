@@ -421,136 +421,147 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
 
 // 🛡️ إضافة حماية { enforceAppCheck: false } لتخطي مشاكل لوحة الإدارة المحلية
 exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) => {
-    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
-    const data = request.data || {};
-    let { orderId, action, adminNote } = data;
-    const safeAdminNote = String(adminNote || '').substring(0, SYSTEM_LIMITS.MAX_NOTE_LENGTH);
-    const validActions = ['completed', 'rejected', 'refunded', 'returned', 'processing'];
-    if (!validActions.includes(action)) throw new HttpsError('invalid-argument', 'حالة غير صالحة.');
-    
-    const orderRef = db.collection('telecard_orders').doc(String(orderId));
-    let keysAssignedCount = 0;
-    let keysBurnedCount = 0;
-    let finalMsg = `تم تحديث الطلب إلى ${action}`;
+    try {
+        if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
+        const data = request.data || {};
+        let { orderId, action, adminNote } = data;
+        const safeAdminNote = String(adminNote || '').substring(0, SYSTEM_LIMITS.MAX_NOTE_LENGTH);
+        const validActions = ['completed', 'rejected', 'refunded', 'returned', 'processing'];
+        if (!validActions.includes(action)) throw new HttpsError('invalid-argument', 'حالة غير صالحة.');
+        
+        const orderRef = db.collection('telecard_orders').doc(String(orderId));
+        let keysAssignedCount = 0;
+        let keysBurnedCount = 0;
+        let finalMsg = `تم تحديث الطلب إلى ${action}`;
 
-    if (action === 'completed') {
-        await db.runTransaction(async (transaction) => {
-            const liveOrder = (await transaction.get(orderRef)).data();
-            if (!liveOrder) throw new HttpsError('not-found', 'الطلب غير موجود.');
-            if (['completed', 'rejected', 'refunded', 'returned'].includes(liveOrder.status)) throw new HttpsError('failed-precondition', 'لا يمكن إكمال طلب تمت معالجته بالفعل.');
-            if ((liveOrder.qty || 1) > SYSTEM_LIMITS.MAX_VAULT_QTY_PER_ORDER) throw new HttpsError('failed-precondition', 'تجاوز الحد المسموح للأكواد.');
+        if (action === 'completed') {
+            await db.runTransaction(async (transaction) => {
+                const liveOrder = (await transaction.get(orderRef)).data();
+                if (!liveOrder) throw new HttpsError('not-found', 'الطلب غير موجود.');
+                if (['completed', 'rejected', 'refunded', 'returned'].includes(liveOrder.status)) throw new HttpsError('failed-precondition', 'لا يمكن إكمال طلب تمت معالجته بالفعل.');
+                if ((liveOrder.qty || 1) > SYSTEM_LIMITS.MAX_VAULT_QTY_PER_ORDER) throw new HttpsError('failed-precondition', 'تجاوز الحد المسموح للأكواد.');
 
-            let deliveredCodeText = liveOrder.deliveredCode || null;
+                let deliveredCodeText = liveOrder.deliveredCode || null;
 
-            if (!liveOrder.deliveredCode) {
-                 const prodSnap = await transaction.get(db.collection('telecard_prods').doc(String(liveOrder.prodId)));
-                 const prodData = prodSnap.exists ? prodSnap.data() : null;
-                 if (prodData && prodData.vaultPoolId) {
-                     const vaultRef = db.collection('telecard_vault').doc(String(prodData.vaultPoolId));
-                     const keysQuerySnap = await transaction.get(vaultRef.collection('keys').where('isSold', '==', false).limit(liveOrder.qty || 1));
-                     if (keysQuerySnap.size < (liveOrder.qty || 1)) throw new HttpsError('failed-precondition', 'لا توجد أكواد كافية في الخزنة.');
+                if (!liveOrder.deliveredCode) {
+                    const prodSnap = await transaction.get(db.collection('telecard_prods').doc(String(liveOrder.prodId)));
+                    const prodData = prodSnap.exists ? prodSnap.data() : null;
+                    if (prodData && prodData.vaultPoolId) {
+                        const vaultRef = db.collection('telecard_vault').doc(String(prodData.vaultPoolId));
+                        const keysQuerySnap = await transaction.get(vaultRef.collection('keys').where('isSold', '==', false).limit(liveOrder.qty || 1));
+                        if (keysQuerySnap.size < (liveOrder.qty || 1)) throw new HttpsError('failed-precondition', 'لا توجد أكواد كافية في الخزنة.');
 
-                     let selectedDocs = [];
-                     keysQuerySnap.forEach(docSnap => selectedDocs.push(docSnap));
-                     deliveredCodeText = selectedDocs.map(d => d.data().codeText).join(' | ');
+                        let selectedDocs = [];
+                        keysQuerySnap.forEach(docSnap => selectedDocs.push(docSnap));
+                        deliveredCodeText = selectedDocs.map(d => d.data().codeText).join(' | ');
 
-                     selectedDocs.forEach(docSnap => {
-                         transaction.update(docSnap.ref, { isSold: true, soldAt: admin.firestore.FieldValue.serverTimestamp(), orderId: orderId, userId: liveOrder.userId });
-                         keysAssignedCount++;
-                     });
-                     transaction.update(vaultRef, { stockCount: admin.firestore.FieldValue.increment(-keysAssignedCount), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-                 }
-            }
-            let orderUpdateObj = { status: action, adminNote: safeAdminNote, actionTime: admin.firestore.FieldValue.serverTimestamp() };
-            if (keysAssignedCount > 0) orderUpdateObj.deliveredCode = deliveredCodeText;
-            transaction.update(orderRef, orderUpdateObj);
-        });
-        if (keysAssignedCount > 0) finalMsg += ` (وتم تسليم ${keysAssignedCount} كود للعميل).`;
-
-    } else if (['rejected', 'refunded', 'returned'].includes(action)) {
-        await db.runTransaction(async (transaction) => {
-            const liveOrderSnap = await transaction.get(orderRef);
-            if (!liveOrderSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود.');
-            const orderData = liveOrderSnap.data();
-
-            if (['rejected', 'refunded', 'returned'].includes(orderData.status)) {
-                throw new HttpsError('failed-precondition', 'تم استرجاع هذا الطلب بالفعل.');
-            }
-
-            let poolId = orderData.vaultPoolId;
-            let keysToBurn = [];
-            
-            if (!poolId) {
-                const prodSnap = await transaction.get(db.collection('telecard_prods').doc(String(orderData.prodId)));
-                if (prodSnap.exists) poolId = prodSnap.data().vaultPoolId;
-            }
-
-            if (poolId && orderData.deliveredCode) {
-                const vaultRef = db.collection('telecard_vault').doc(String(poolId));
-                const keysQuerySnap = await transaction.get(vaultRef.collection('keys').where('orderId', '==', String(orderId)));
-                keysToBurn = keysQuerySnap.docs;
-            }
-
-            const userRef = db.collection('telecard_users').doc(String(orderData.userId));
-            const userSnap = await transaction.get(userRef);
-            
-            let couponSnap = null;
-            if (orderData.couponCode) {
-                couponSnap = await transaction.get(db.collection('telecard_coupons').where('code', '==', orderData.couponCode).limit(1));
-            }
-            
-            const tiersSnap = await transaction.get(db.collection('telecard_tiers'));
-            const tiersData = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-            keysToBurn.forEach(keyDoc => {
-                const keyData = keyDoc.data();
-                const burnedKeyRef = db.collection('telecard_vault_returned').doc(keyDoc.id);
-                transaction.set(burnedKeyRef, { ...keyData, isBurned: true, refundedAt: admin.firestore.FieldValue.serverTimestamp(), refundedOrderId: orderId, reason: action, originalPoolId: poolId });
-                transaction.delete(keyDoc.ref);
-                keysBurnedCount++;
-            });
-
-            if (poolId && keysBurnedCount > 0) {
-                const vaultRef = db.collection('telecard_vault').doc(String(poolId));
-                transaction.set(vaultRef, {
-                    burnedCount: admin.firestore.FieldValue.increment(keysBurnedCount),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-            }
-
-            let newWalletBal = 0;            
-            if (userSnap.exists) {
-                const ud = userSnap.data();
-                newWalletBal = safeAdd(ud.walletBalance || 0, Number(orderData.price || 0));
-                let newCycleSpent = ud.tierCycleSpent || 0;
-                let newTierId = ud.tierId;
-                const orderTime = orderData.createdAt ? orderData.createdAt.toMillis() : 0;
-                const cycleStart = ud.tierCycleStartDate ? ud.tierCycleStartDate.toMillis() : 0;
-
-                if (orderTime >= cycleStart) {
-                    newCycleSpent = safeSub(newCycleSpent, Number(orderData.price || 0));
-                    if (ud.manualTierOverride !== true) {
-                        const getThreshold = (t) => Number(t.threshold || t.condition_amount || 0);
-                        const validTiers = tiersData.filter(t => t.autoAdvance !== false && getThreshold(t) <= newCycleSpent).sort((a,b) => getThreshold(b) - getThreshold(a));
-                        if (validTiers.length > 0) newTierId = validTiers[0].id;
-                        else {
-                           const defaultTier = tiersData.find(t => t.isDefault) || tiersData[0];
-                           newTierId = defaultTier ? defaultTier.id : '1';
-                        }
+                        selectedDocs.forEach(docSnap => {
+                            transaction.update(docSnap.ref, { isSold: true, soldAt: admin.firestore.FieldValue.serverTimestamp(), orderId: orderId, userId: liveOrder.userId });
+                            keysAssignedCount++;
+                        });
+                        transaction.update(vaultRef, { stockCount: admin.firestore.FieldValue.increment(-keysAssignedCount), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
                     }
                 }
-                transaction.update(userRef, { walletBalance: newWalletBal, totalSpent: safeSub(ud.totalSpent || 0, Number(orderData.price || 0)), tierCycleSpent: newCycleSpent, tierId: newTierId });
-            }
-            
-            if (couponSnap && !couponSnap.empty) transaction.update(couponSnap.docs[0].ref, { usedCount: admin.firestore.FieldValue.increment(-1) });
-            transaction.update(orderRef, { status: action, adminNote: safeAdminNote, actionTime: admin.firestore.FieldValue.serverTimestamp(), balanceAfter: newWalletBal });
-        });
-        
-        if (keysBurnedCount > 0) finalMsg += ` (وتم سحب ${keysBurnedCount} كود إلى خزنة التوالف بأمان).`;
-    }
+                let orderUpdateObj = { status: action, adminNote: safeAdminNote, actionTime: admin.firestore.FieldValue.serverTimestamp() };
+                if (keysAssignedCount > 0) orderUpdateObj.deliveredCode = deliveredCodeText;
+                transaction.update(orderRef, orderUpdateObj);
+            });
+            if (keysAssignedCount > 0) finalMsg += ` (وتم تسليم ${keysAssignedCount} كود للعميل).`;
 
-    await logAdminAction(request.auth.uid, 'PROCESS_ORDER', `Order: ${orderId}, Action: ${action}`);
-    return { success: true, message: finalMsg };
+        } else if (['rejected', 'refunded', 'returned'].includes(action)) {
+            await db.runTransaction(async (transaction) => {
+                const liveOrderSnap = await transaction.get(orderRef);
+                if (!liveOrderSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود.');
+                const orderData = liveOrderSnap.data();
+
+                if (['rejected', 'refunded', 'returned'].includes(orderData.status)) {
+                    throw new HttpsError('failed-precondition', 'تم استرجاع هذا الطلب بالفعل.');
+                }
+
+                let poolId = orderData.vaultPoolId;
+                let keysToBurn = [];
+                
+                if (!poolId) {
+                    const prodSnap = await transaction.get(db.collection('telecard_prods').doc(String(orderData.prodId)));
+                    if (prodSnap.exists) poolId = prodSnap.data().vaultPoolId;
+                }
+
+                if (poolId && orderData.deliveredCode) {
+                    const vaultRef = db.collection('telecard_vault').doc(String(poolId));
+                    const keysQuerySnap = await transaction.get(vaultRef.collection('keys').where('orderId', '==', String(orderId)));
+                    keysToBurn = keysQuerySnap.docs;
+                }
+
+                const userRef = db.collection('telecard_users').doc(String(orderData.userId));
+                const userSnap = await transaction.get(userRef);
+                
+                let couponSnap = null;
+                if (orderData.couponCode) {
+                    couponSnap = await transaction.get(db.collection('telecard_coupons').where('code', '==', orderData.couponCode).limit(1));
+                }
+                
+                const tiersSnap = await transaction.get(db.collection('telecard_tiers'));
+                const tiersData = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+                keysToBurn.forEach(keyDoc => {
+                    const keyData = keyDoc.data();
+                    const burnedKeyRef = db.collection('telecard_vault_returned').doc(keyDoc.id);
+                    transaction.set(burnedKeyRef, { ...keyData, isBurned: true, refundedAt: admin.firestore.FieldValue.serverTimestamp(), refundedOrderId: orderId, reason: action, originalPoolId: poolId });
+                    transaction.delete(keyDoc.ref);
+                    keysBurnedCount++;
+                });
+
+                if (poolId && keysBurnedCount > 0) {
+                    const vaultRef = db.collection('telecard_vault').doc(String(poolId));
+                    transaction.set(vaultRef, {
+                        burnedCount: admin.firestore.FieldValue.increment(keysBurnedCount),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                }
+
+                let newWalletBal = 0;            
+                if (userSnap.exists) {
+                    const ud = userSnap.data();
+                    newWalletBal = safeAdd(ud.walletBalance || 0, Number(orderData.price || 0));
+                    let newCycleSpent = ud.tierCycleSpent || 0;
+                    let newTierId = ud.tierId;
+                    
+                    // 🛡️ الحماية من بيانات الاختبار اليدوية التي تسبب انهيار (toMillis)
+                    const getMs = (val) => (val && typeof val.toMillis === 'function') ? val.toMillis() : (val instanceof Date ? val.getTime() : 0);
+                    const orderTime = getMs(orderData.createdAt);
+                    const cycleStart = getMs(ud.tierCycleStartDate);
+
+                    if (orderTime >= cycleStart) {
+                        newCycleSpent = safeSub(newCycleSpent, Number(orderData.price || 0));
+                        if (ud.manualTierOverride !== true) {
+                            const getThreshold = (t) => Number(t.threshold || t.condition_amount || 0);
+                            const validTiers = tiersData.filter(t => t.autoAdvance !== false && getThreshold(t) <= newCycleSpent).sort((a,b) => getThreshold(b) - getThreshold(a));
+                            if (validTiers.length > 0) newTierId = validTiers[0].id;
+                            else {
+                               const defaultTier = tiersData.find(t => t.isDefault) || tiersData[0];
+                               newTierId = defaultTier ? defaultTier.id : '1';
+                            }
+                        }
+                    }
+                    transaction.update(userRef, { walletBalance: newWalletBal, totalSpent: safeSub(ud.totalSpent || 0, Number(orderData.price || 0)), tierCycleSpent: newCycleSpent, tierId: newTierId });
+                }
+                
+                if (couponSnap && !couponSnap.empty) transaction.update(couponSnap.docs[0].ref, { usedCount: admin.firestore.FieldValue.increment(-1) });
+                transaction.update(orderRef, { status: action, adminNote: safeAdminNote, actionTime: admin.firestore.FieldValue.serverTimestamp(), balanceAfter: newWalletBal });
+            });
+            
+            if (keysBurnedCount > 0) finalMsg += ` (وتم سحب ${keysBurnedCount} كود إلى خزنة التوالف بأمان).`;
+        }
+
+        await logAdminAction(request.auth.uid, 'PROCESS_ORDER', `Order: ${orderId}, Action: ${action}`);
+        return { success: true, message: finalMsg };
+
+    } catch (error) {
+        // 🛡️ إجبار السيرفر على إرسال رسالة الخطأ الحقيقية للواجهة لاكتشاف الثغرة
+        console.error("🚨 [ADMIN_PROCESS_ORDER_CRASH]:", error);
+        if (error instanceof HttpsError) throw error;
+        throw new HttpsError('internal', `خطأ برمجي في السيرفر: ${error.message}`);
+    }
 });
 
 // 🛡️ إضافة حماية { enforceAppCheck: false } لتخطي مشاكل لوحة الإدارة
