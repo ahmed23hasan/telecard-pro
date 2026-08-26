@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الاستراتيجية V23.2.0 👑
+// 🧠 المحرك الرئيسي (functions/index.js) لـ TeleCard - النسخة الاستراتيجية V23.3.0 👑
 // 🎯 الوظيفة: المعاملات المالية، حماية الثغرات، التشافي الذاتي، والأرشفة الآمنة.
-// 🚀 التحديثات المعمارية (V23.2.0 - The Ultimate Enterprise Edition):
+// 🚀 التحديثات المعمارية (V23.3.0 - The Ultimate Enterprise Edition):
 // 1. Strict KYC Firewall: منع أي تعامل مالي (شراء، إيداع، شحن إداري) قبل استكمال بيانات المحفظة.
-// 2. In-Memory Promo Filtering: اصطياد العروض العامة والمخصصة برمجياً دون استنزاف قاعدة البيانات.
-// 3. Crash-Proof Analytics: دروع حماية حول الإحصائيات لمنع الانهيار الصامت (Silent Crashes).
+// 2. Exact FX Rate Sealing: ختم أسعار الصرف والعملات المستهدفة مباشرة في قاعدة البيانات.
+// 3. AppCheck Bypass for Admins: تخطي فحص AppCheck لدوال الإدارة لمنع انهيار لوحة التحكم.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -164,7 +164,7 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
                 transaction.get(userRef),
                 transaction.get(productRef),
                 transaction.get(db.collection('telecard_tiers')),
-                transaction.get(db.collection('telecard_offers').where('isActive', '==', true)) // جلب كل العروض النشطة
+                transaction.get(db.collection('telecard_offers').where('isActive', '==', true)) 
             ]);
 
             if (!productSnap.exists) throw new HttpsError('not-found', 'المنتج غير متوفر.');
@@ -182,7 +182,7 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
             if (userData.isVerified !== true) throw new HttpsError('failed-precondition', 'يجب إكمال إعداد محفظتك أولاً.');
             if (product.isActive === false || String(product.isAvailable) === 'false') throw new HttpsError('failed-precondition', 'المنتج غير متاح حالياً.');
 
-            // 🛠️ تصفية العروض برمجياً (In-Memory) لاصطياد العرض العام أو المخصص
+            // 🛠️ تصفية العروض برمجياً (In-Memory) לאصطياد العرض العام أو المخصص
             let activeOffer = liveOffers.find(off => 
                 (!off.expiryDate || off.expiryDate > serverNow) &&
                 (!off.targetProds || off.targetProds.length === 0 || off.targetProds.includes(productId))
@@ -380,8 +380,14 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
             let netPayCurr = feeType === 'bonus' ? FinancialEngine.safeAdd(amount, feeAmount) : Math.max(0, FinancialEngine.safeSub(amount, feeAmount));
             let safeNetBase = netPayCurr;
             
+            // 🛡️ [الإصلاح الماسي]: حساب وحفظ سعر الصرف والعملة المستهدفة بدقة
+            let fxRateUsed = 1;
             try {
-                if (payCurr !== baseCurr) safeNetBase = FinancialEngine.convertViaUSD(netPayCurr, payCurr, baseCurr, ratesSnap.docs.map(d => d.data()), 'deposit');
+                if (payCurr !== baseCurr) {
+                    safeNetBase = FinancialEngine.convertViaUSD(netPayCurr, payCurr, baseCurr, ratesSnap.docs.map(d => d.data()), 'deposit');
+                    // استنتاج سعر الصرف الفعلي الذي تم استخدامه
+                    if (netPayCurr > 0) fxRateUsed = FinancialEngine.safeDiv(safeNetBase, netPayCurr);
+                }
             } catch (err) {
                 throw new HttpsError('invalid-argument', 'حدث خطأ أثناء تقييم العملة المدخلة.');
             }
@@ -392,7 +398,10 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
             
             transaction.set(db.collection('telecard_deposits').doc(cleanId), {
                 id: cleanId, displayId: cleanId, userId: uid, method: paymentMethodName, amount, currency: payCurr, 
-                creditedAmount: safeNetBase, status: 'pending', time: admin.firestore.FieldValue.serverTimestamp(), 
+                creditedAmount: safeNetBase, 
+                targetCurrency: baseCurr, // 👈 ختم العملة المستهدفة بدقة
+                fxRate: fxRateUsed,       // 👈 ختم سعر الصرف بدقة
+                status: 'pending', time: admin.firestore.FieldValue.serverTimestamp(), 
                 createdAt: admin.firestore.FieldValue.serverTimestamp(), receiptUrl: receiptUrl 
             });
 
@@ -409,7 +418,9 @@ exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request
 // ==========================================
 // 👑 3. دوال الإدارة والعمليات المالية 
 // ==========================================
-exports.adminProcessOrder = onCall(async (request) => {
+
+// 🛡️ إضافة حماية { enforceAppCheck: false } لتخطي مشاكل لوحة الإدارة المحلية
+exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     const data = request.data || {};
     let { orderId, action, adminNote } = data;
@@ -542,13 +553,14 @@ exports.adminProcessOrder = onCall(async (request) => {
     return { success: true, message: finalMsg };
 });
 
-exports.adminProcessDeposit = onCall(async (request) => {
+// 🛡️ إضافة حماية { enforceAppCheck: false } لتخطي مشاكل لوحة الإدارة
+exports.adminProcessDeposit = onCall({ enforceAppCheck: false }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     const data = request.data || {};
     let { depositId, action, adminNote } = data;
     const safeAdminNote = String(adminNote || '').substring(0, SYSTEM_LIMITS.MAX_NOTE_LENGTH);
     
-    return await db.runTransaction(async (transaction) => {
+    await db.runTransaction(async (transaction) => {
         const depRef = db.collection('telecard_deposits').doc(String(depositId));
         const depSnap = await transaction.get(depRef);
         if (!depSnap.exists) throw new HttpsError('not-found', 'الإيداع غير موجود.');
@@ -578,20 +590,23 @@ exports.adminProcessDeposit = onCall(async (request) => {
         let depUpdateObj = { status: action, adminNote: safeAdminNote, actionTime: admin.firestore.FieldValue.serverTimestamp() };
         if (action === 'approved' || (wasApproved && (action === 'refunded' || action === 'rejected'))) depUpdateObj.balanceAfter = newWalletBal;
         transaction.update(depRef, depUpdateObj);
-
-        await logAdminAction(request.auth.uid, 'PROCESS_DEPOSIT', `Deposit: ${depositId}, Action: ${action}`);
-        return { success: true };
     });
+    
+    await logAdminAction(request.auth.uid, 'PROCESS_DEPOSIT', `Deposit: ${depositId}, Action: ${action}`);
+    return { success: true };
 });
 
-exports.adminAdjustBalance = onCall(async (request) => {
+// 🛡️ إضافة الحماية وإصلاح إرجاع بيانات الإيداع للواجهة لمنع ظهور NaN
+exports.adminAdjustBalance = onCall({ enforceAppCheck: false }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     const { userId, type, amount, adminName } = request.data || {};
     const adjustAmount = Number(amount);
     if (isNaN(adjustAmount) || adjustAmount <= 0) throw new HttpsError('invalid-argument', 'المبلغ غير صالح.');
 
     const userRef = db.collection('telecard_users').doc(String(userId));
-    return await db.runTransaction(async (transaction) => {
+    
+    // إرجاع الرصيد الجديد والوثيقة بشكل منفصل لحماية الواجهة
+    const transactionResult = await db.runTransaction(async (transaction) => {
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists) throw new HttpsError('not-found', 'المستخدم غير موجود.');
 
@@ -612,16 +627,20 @@ exports.adminAdjustBalance = onCall(async (request) => {
         transaction.update(userRef, updateObj);
         
         const depId = generateUniqueId();
-        transaction.set(db.collection('telecard_deposits').doc(depId), {
+        const depositDoc = {
             id: depId, userId, amount: adjustAmount, creditedAmount: type === 'add' ? adjustAmount : -adjustAmount, 
             status: 'approved', method: type === 'add' ? 'إيداع إداري' : 'خصم إداري',
             time: admin.firestore.FieldValue.serverTimestamp(), admin: adminName || 'النظام',
             createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-        await logAdminAction(request.auth.uid, 'ADJUST_BALANCE', `User: ${userId}, Type: ${type}, Amount: ${amount}`);
-        return { success: true, newBalance: newBal };
+        };
+        transaction.set(db.collection('telecard_deposits').doc(depId), depositDoc);
+        
+        return { depositDoc, newBal }; 
     });
+
+    await logAdminAction(request.auth.uid, 'ADJUST_BALANCE', `User: ${userId}, Type: ${type}, Amount: ${amount}`);
+    // إرسال الرصيد الجديد المستخرج من الترانزكشن بأمان
+    return { success: true, newBalance: transactionResult.newBal, newDeposit: transactionResult.depositDoc };
 });
 
 exports.grantAdminRole = onCall(async (request) => {
