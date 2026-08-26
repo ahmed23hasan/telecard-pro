@@ -987,7 +987,7 @@ exports.autoNotifyDepositStatus = onDocumentWritten({ document: 'telecard_deposi
 });
 
 // ==========================================
-// 🛠️ 12. دوال مساندة للوحة التحكم (المسترجعة للواجهة)
+// 🛠️ 12. دوال ممساندة للوحة التحكم (المسترجعة للواجهة)
 // ==========================================
 
 exports.adminForceSyncCatalog = onCall({ timeoutSeconds: 540 }, async (request) => {
