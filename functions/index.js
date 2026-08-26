@@ -991,7 +991,7 @@ exports.autoNotifyDepositStatus = onDocumentWritten({ document: 'telecard_deposi
 // ==========================================
 
 exports.adminForceSyncCatalog = onCall({ timeoutSeconds: 540 }, async (request) => {
-    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
+    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غيير مصرح.');
     try {
         const tiersSnap = await db.collection('telecard_tiers').get();
         const tiersData = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
