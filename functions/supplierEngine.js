@@ -1,10 +1,11 @@
 // ============================================================================
-// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة الماسية V8.0 💎
+// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة الماسية V9.0 💎
 // 🎯 الوظيفة: استيراد المنتجات، وبناء الجداول المركزية بأمان
-// 🚀 التحديثات (V8.0 - Enterprise Core):
-// 1. Memory Safety (OOM Protection): تفريغ دفعات البيانات أثناء المعالجة لمنع انهيار الذاكرة.
-// 2. Parallel Stock Aggregation: حساب المخزون بشكل متوازي لتجنب الـ Timeout.
-// 3. Perfect Batch Chunking: ضبط معمارية المعالجة المتزامنة لتخفيف الضغط على خوادم فايربيز.
+// 🚀 التحديثات (V9.0 - Cloud Native Edition):
+// 1. Sequential Batching: إرسال الدفعات بالتسلسل (await commit) لمنع خنق السيرفر (429 Error).
+// 2. Zero-Cost Stock: حساب المخزون في الذاكرة (In-Memory) لحذف تكلفة قراءات count() نهائياً.
+// 3. API Sanitization: جدار حماية يرفض المنتجات المعطوبة (بدون ID) من واجهات الموردين.
+// 4. Session-Based Upsert: إلغاء الـ Master Hash والاعتماد على syncSessionId لحذف الأكواد المباعة.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -19,6 +20,7 @@ const db = admin.firestore();
 // ==========================================
 // 🛡️ دوال المساعدة، الأمان، وسجل الأخطاء السحابي
 // ==========================================
+// نستخدم الـ Hash فقط لتوليد ID آمن لوثائق الأكواد (Document ID) لتجنب الحروف الممنوعة في Firestore
 const generateCodeHash = (codeString) => crypto.createHash('sha256').update(String(codeString).trim()).digest('hex');
 const isMasterAdmin = (request) => request.auth?.token?.admin === true;
 
@@ -56,27 +58,51 @@ const fetchWithTimeout = async (url, options, timeout = 15000) => {
 // ==========================================
 // 🔌 محولات المنصات (Provider Adapters)
 // ==========================================
+// ============================================================================
+// 🔌 محولات المنصات (Provider Adapters)
+// ==========================================
 const ProviderAdapters = {
-    salla: async (baseUrl, token) => { return []; },
-    zid: async (baseUrl, token) => { return []; },
-    custom: async (baseUrl, token) => {
-        const response = await fetchWithTimeout(`${baseUrl}/export-products`, { 
-            headers: { 'x-api-key': token, 'Content-Type': 'application/json' } 
+    salla: async (baseUrl, token) => { return []; }, // محول سلة (للمستقبل)
+    zid: async (baseUrl, token) => { return []; },   // محول زد (للمستقبل)
+    
+    // 🌐 المحول العام (Standard API) - يدعم Star Store وأي متجر يستخدم نفس نظامهم
+    standard_api: async (baseUrl, token) => {
+        // 1. تنظيف الرابط لتجنب الأخطاء المطبعية من الأدمن (مثل وضع / في النهاية)
+        const cleanUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+        
+        // 2. طلب البيانات (مع افتراض أن مسار المنتجات هو /api/products أو المشابه له)
+        // ملاحظة: تأكد من المسار النهائي من توثيقهم (API Docs)
+        const response = await fetchWithTimeout(`${cleanUrl}/products`, { 
+            method: 'GET',
+            headers: { 
+                'Authorization': `Bearer ${token}`, // بعض المتاجر تستخدم Bearer
+                'x-api-key': token,                 // والبعض يستخدم x-api-key (نرسل الاثنين للأمان)
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            } 
         }, 15000);
         
-        if (!response.ok) throw new Error(`API Error: ${response.status}`);
+        if (!response.ok) throw new Error(`API Error: فشل الاتصال بالمورد (كود الخطأ: ${response.status})`);
         
         let data;
-        try { data = await response.json(); } catch (e) { throw new Error('الاستجابة ليست بصيغة JSON صحيحة.'); }
+        try { data = await response.json(); } catch (e) { throw new Error('استجابة المورد ليست بصيغة JSON صحيحة.'); }
         
-        return (data.products || []).map(item => ({ 
-            externalId: item.prodId, name: item.product, cost: item.price, stock: item.qty || 0, codes: item.vaultCodes || [] 
+        // 3. مرونة قراءة المصفوفة (بعض المتاجر تضعها داخل data وبعضها داخل products)
+        const rawProducts = data.data || data.products || data;
+        if (!Array.isArray(rawProducts)) throw new Error('البيانات المستلمة من المورد لا تحتوي على قائمة منتجات.');
+
+        // 4. التوحيد المعياري (Data Normalization) - مرونة عالية في أسماء الحقول
+        return rawProducts.map(item => ({ 
+            externalId: String(item.id || item.prodId || item.product_id || ''), 
+            name: String(item.name || item.product || item.title || 'منتج بدون اسم'), 
+            cost: FinancialEngine.extractNum(item.price || item.cost || item.wholesale_price), 
+            stock: FinancialEngine.extractNum(item.qty || item.stock || item.quantity), 
+            codes: Array.isArray(item.codes) ? item.codes : (Array.isArray(item.vaultCodes) ? item.vaultCodes : []) 
         }));
     }
 };
-
 // ==========================================
-// 🧠 النواة المركزية للمزامنة (Core Sync Engine - OOM Protected) 
+// 🧠 النواة المركزية للمزامنة (Core Sync Engine - Zero Cost & Sequential) 
 // ==========================================
 const coreSyncLogic = async (supplierId) => {
     const suppRef = db.collection('telecard_suppliers').doc(String(supplierId));
@@ -113,107 +139,105 @@ const coreSyncLogic = async (supplierId) => {
         const syncSessionId = Date.now();
         const defaultMargin = FinancialEngine.extractNum(supplier.defaultMargin || 0);
         
-        // 🚀 هندسة حماية الذاكرة (Memory Flushing System)
-        let batchPromises = []; 
+        // 🚀 معمارية (Sequential Batching) لحماية الذاكرة والهروب من خطأ 429
         let currentBatch = db.batch();
         let operationCount = 0;
         let importedCount = 0;
         let revokedCount = 0;
         
-        // تنفيذ الدفعات المخزنة لتفريغ الـ RAM
-        const flushBatches = async () => {
-            if (batchPromises.length > 0) {
-                await Promise.all(batchPromises.map(fn => fn()));
-                batchPromises = []; // تحرير الذاكرة العشوائية فوراً
-            }
-        };
-
         const commitAndReset = async () => {
             if (operationCount > 0) { 
-                const batchToCommit = currentBatch;
-                batchPromises.push(() => batchToCommit.commit()); 
+                await currentBatch.commit(); // 👈 التنفيذ المتسلسل المباشر
                 currentBatch = db.batch(); 
                 operationCount = 0; 
-                
-                // 🛡️ OOM Protection: إذا تراكمت 5 دفعات، قم بتنفيذها وتفريغها من الذاكرة
-                if (batchPromises.length >= 5) {
-                    await flushBatches();
-                }
             }
         };
 
         for (const prod of normalizedProducts) {
+            // 🛑 1. جدار الحماية (Sanitization): رفض البيانات الفاسدة من المورد
+            if (!prod.externalId || String(prod.externalId).trim() === '') {
+                console.warn(`[API WARNING] تخطي منتج بدون معرف خارجي (ID) من المورد: ${supplierId}`);
+                continue; 
+            }
+            const rawName = String(prod.name || '').trim();
+            if (!rawName) continue;
+
             const safeId = `ext_${supplierId}_${prod.externalId}`;
             const vaultId = `vault_${safeId}`;
             
+            // 🧮 2. المعالجة المالية
             let rawCost = Math.min(FinancialEngine.extractNum(prod.cost), FinancialEngine.CONFIG.MAX_PRICE_LIMIT);
             const profitAdded = FinancialEngine.safeMul(rawCost, FinancialEngine.safeDiv(defaultMargin, 100));
             let calculatedFinalPrice = Math.min(FinancialEngine.safeAdd(rawCost, profitAdded), FinancialEngine.CONFIG.MAX_PRICE_LIMIT);
             
             const existingData = existingProdsMap.get(safeId);
             const isFixed = existingData ? (String(existingData.isFixedPrice).toLowerCase() === 'true') : false;
-            let finalPrice = isFixed ? existingData.price : calculatedFinalPrice;
+            let finalPrice = isFixed ? FinancialEngine.extractNum(existingData.price) : calculatedFinalPrice;
 
+            // 📦 3. تنظيف الأكواد وحساب المخزون في الذاكرة (In-Memory Stock)
             const safeCodesArray = Array.isArray(prod.codes) ? prod.codes.slice(0, 5000) : [];
-            const hasStock = Number(prod.stock) > 0 || safeCodesArray.length > 0;
+            const cleanCodes = [...new Set(safeCodesArray.map(c => (typeof c === 'object' ? (c.text || c.code || '') : String(c)).replace(/\s+/g, '')).filter(c => c !== ''))];
             
+            // حساب المخزون فورياً بدون استعلامات Database!
+            let inMemoryStockCount = cleanCodes.length > 0 ? cleanCodes.length : FinancialEngine.extractNum(prod.stock);
+            const hasStock = inMemoryStockCount > 0;
+            
+            // حفظ المنتج
             const prodRef = db.collection('telecard_prods').doc(safeId);
             currentBatch.set(prodRef, {
-                id: safeId, name: prod.name, costPrice: rawCost, price: finalPrice, supplierId: supplierId, 
-                vaultPoolId: vaultId, isExternal: true, isAvailable: hasStock, 
+                id: safeId, name: rawName, costPrice: rawCost, price: finalPrice, supplierId: supplierId, 
+                vaultPoolId: cleanCodes.length > 0 ? vaultId : null, 
+                isExternal: true, isAvailable: hasStock, 
                 syncSessionId: syncSessionId, lastSync: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
             
             operationCount++;
-            if (operationCount >= 400) await commitAndReset(); // 👈 أصبح Await للحماية
+            if (operationCount >= 400) await commitAndReset(); 
 
-            if (safeCodesArray.length > 0) {
+            // 🔐 4. معالجة الخزنة بطريقة (Upsert & Prune) الموفرة
+            if (cleanCodes.length > 0) {
                 const vaultRef = db.collection('telecard_vault').doc(vaultId);
-                const cleanCodes = safeCodesArray.map(c => (typeof c === 'object' ? (c.text || c.code || '') : String(c)).replace(/\s+/g, '')).filter(c => c !== '');
-                cleanCodes.sort(); 
+                const keysCollectionRef = vaultRef.collection('keys');
                 
-                const masterHash = generateCodeHash(cleanCodes.join('||'));
-                const vaultSnap = await vaultRef.get();
-                const existingVaultData = vaultSnap.exists ? vaultSnap.data() : null;
-
-                if (!existingVaultData || existingVaultData.lastCodesHash !== masterHash) {
-                    const keysCollectionRef = vaultRef.collection('keys');
-                    
-                    for (const code of cleanCodes) {
-                        const hash = generateCodeHash(code);
-                        const keyDocRef = keysCollectionRef.doc(`key_${hash}`); 
-                        currentBatch.set(keyDocRef, {
-                            codeText: code, isSold: false, supplierId: supplierId, 
-                            syncSessionId: syncSessionId, importedAt: admin.firestore.FieldValue.serverTimestamp()
-                        }, { merge: true }); 
-                        
-                        operationCount++;
-                        if (operationCount >= 400) await commitAndReset(); 
-                    }
-
-                    const staleKeysSnap = await keysCollectionRef.where('isSold', '==', false).where('syncSessionId', '<', syncSessionId).get();
-                    
-                    for (const doc of staleKeysSnap.docs) {
-                        currentBatch.update(doc.ref, { isSold: true, isRevoked: true, syncNote: 'تم سحبه من المورد' });
-                        operationCount++; revokedCount++;
-                        if (operationCount >= 400) await commitAndReset(); 
-                    }
-
-                    currentBatch.set(vaultRef, {
-                        id: vaultId, supplierId: supplierId, name: `أكواد: ${prod.name}`,
-                        lastCodesHash: masterHash, lastSync: admin.firestore.FieldValue.serverTimestamp()
-                    }, { merge: true });
+                // إدخال الأكواد الواردة وتحديث جلستها
+                for (const code of cleanCodes) {
+                    const hash = generateCodeHash(code); // معرف وثيقة آمن
+                    const keyDocRef = keysCollectionRef.doc(`key_${hash}`); 
+                    currentBatch.set(keyDocRef, {
+                        codeText: code, isSold: false, supplierId: supplierId, 
+                        syncSessionId: syncSessionId, importedAt: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true }); 
                     
                     operationCount++;
                     if (operationCount >= 400) await commitAndReset(); 
                 }
+
+                // سحب الأكواد القديمة (التي لم يرسلها المورد في هذه الجلسة لأنها بيعت)
+                const staleKeysSnap = await keysCollectionRef.where('isSold', '==', false).where('syncSessionId', '<', syncSessionId).get();
+                for (const doc of staleKeysSnap.docs) {
+                    currentBatch.update(doc.ref, { isSold: true, isRevoked: true, syncNote: 'تم سحبه من المورد' });
+                    operationCount++; revokedCount++;
+                    if (operationCount >= 400) await commitAndReset(); 
+                }
+
+                // تحديث الخزنة بالرقم المحسوب في الذاكرة (0 تكلفة قراءة!)
+                currentBatch.set(vaultRef, {
+                    id: vaultId, supplierId: supplierId, name: `أكواد: ${rawName}`,
+                    stockCount: inMemoryStockCount, lastSync: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                
+                operationCount++;
+                if (operationCount >= 400) await commitAndReset(); 
             }
             importedCount++;
         }
         
-        // 🗑️ مرحلة التنظيف العالمي للمنتجات المحذوفة 
+        // 🗑️ مرحلة التنظيف العالمي للمنتجات المحذوفة من المورد
         let deletedCount = 0;
-        const staleProdsSnap = await db.collection('telecard_prods').where('supplierId', '==', supplierId).where('isAvailable', '==', true).where('syncSessionId', '<', syncSessionId).get();
+        const staleProdsSnap = await db.collection('telecard_prods')
+            .where('supplierId', '==', supplierId)
+            .where('isAvailable', '==', true)
+            .where('syncSessionId', '<', syncSessionId).get();
 
         for (const doc of staleProdsSnap.docs) {
             currentBatch.update(doc.ref, { isAvailable: false, syncNote: 'محذوف من المورد' });
@@ -221,21 +245,8 @@ const coreSyncLogic = async (supplierId) => {
             if (operationCount >= 400) await commitAndReset();
         }
         
+        // تنفيذ الدفعة الأخيرة
         await commitAndReset(); 
-        await flushBatches(); // 🧹 تنظيف أي دفعات متبقية في الذاكرة
-
-        // 📊 🚀 تسريع حساب المخزون الحي المتوازي (Parallel Chunking)
-        const stockTasks = normalizedProducts.map(prod => async () => {
-            const vaultId = `vault_ext_${supplierId}_${prod.externalId}`;
-            const vaultRef = db.collection('telecard_vault').doc(vaultId);
-            const stockAgg = await vaultRef.collection('keys').where('isSold', '==', false).count().get();
-            await vaultRef.update({ stockCount: stockAgg.data().count });
-        });
-
-        // تنفيذ جلب المخزون على دفعات (20 طلب في نفس الوقت) لتفادي اختناق الشبكة
-        for (let i = 0; i < stockTasks.length; i += 20) {
-            await Promise.all(stockTasks.slice(i, i + 20).map(fn => fn()));
-        }
 
         await suppRef.update({ lastSync: admin.firestore.FieldValue.serverTimestamp(), importedCount: importedCount });
         return { importedCount, deletedCount, revokedCount };
