@@ -1,7 +1,7 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V19.2.0 💎 (The Oracle)
-// 🎯 الوظيفة: محاكاة أسعار السيرفر بدقة 100%، كشف الأرباح، وتشخيص الأخطاء بشفافية.
-// 🚀 التحديثات: مطابقة تامة لمعمارية السيرفر (Unified Signature, Anti-Stacking, ID Collision Fix).
+// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V24.0.0 💎 (The Oracle)
+// 🎯 الوظيفة: محاكاة أسعار السيرفر بدقة 100%، كشف الأرباح، وتشخيص الأخطاء بشفافية للمدير.
+// 🚀 التحديثات: مطابقة تامة لمعمارية السيرفر (Math Parity, Type Safety, Absolute Discount Cap).
 // ============================================================================
 
 export class FinancialSecurityError extends Error { 
@@ -44,10 +44,12 @@ const FinancialEngineDef = {
     },
 
     safeAdd: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalAdd(a, b)); },
+    // 🛠️ تم التوحيد الرياضي: إرجاع القيمة الحقيقية (حتى لو سالبة) للمطابقة مع السيرفر
     safeSub: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(a, b)); },
     safeMul: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(a, b)); },
     safeDiv: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalDiv(a, b)); },
 
+    // 🛠️ الصرامة المطلقة في استخراج الأرقام (Type Safety)
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '' || Array.isArray(val) || typeof val === 'object') return 0;
         const num = Number(val);
@@ -129,9 +131,8 @@ const FinancialEngineDef = {
             return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم استخدام الكوبونات' }; 
         }
         
-                let expiryMs = 0;
+        let expiryMs = 0;
         if (cp.expiryDate) {
-            // توافق ذكي: إذا كان كائن Firestore نستخدم toMillis()، وإلا نستخدم new Date()
             expiryMs = typeof cp.expiryDate.toMillis === 'function' 
                 ? cp.expiryDate.toMillis() 
                 : new Date(cp.expiryDate).getTime();
@@ -220,7 +221,6 @@ const FinancialEngineDef = {
 
         let offerName = null, offerDiscount = 0, couponCode = null, couponDiscount = 0;
         
-        // تطبيق الغطاء الأمني الشامل لمنع تراكم الخصومات
         const absoluteMaxDiscountAllowable = FinancialEngineDef._internalMul(originalPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
         let accumulatedDiscount = 0;
 
@@ -261,6 +261,7 @@ const FinancialEngineDef = {
         }
 
         const finalPrice = currentPrice;
+        // هنا نستخدم Math.max لمنع أن تكون الأرباح بالسالب (لأن الطرح الرياضي الأساسي تم توحيده)
         const netProfitUsd = Math.max(0, FinancialEngineDef._internalSub(finalPrice, cost)); 
         let marginPct = finalPrice > 0 ? FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(netProfitUsd, finalPrice), 100) : 0;
 

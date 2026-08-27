@@ -1,10 +1,10 @@
 // ============================================================================
-// 💰 المحرك المالي للواجهة الأمامية (Store Frontend Version) - V19.2.0 💎 
+// 💰 المحرك المالي للواجهة الأمامية (Store Frontend Version) - V24.0.0 💎 
 // 🎯 الوظيفة: محاكاة أرقام السيرفر، إخفاء بيانات التكلفة والربح كلياً، وحماية الـ UX
-// 🚀 التحديثات (V19.2.0 - Enterprise Sync): 
-// 1. Math Parity: تطبيق (Absolute Discount Cap) والـ (Unified Signature).
-// 2. ID Collision Fix: فصل المنتجات عن الأقسام في الكوبونات لتطابق السيرفر 100%.
-// 3. Graceful UI Fallbacks: حماية الـ DOM من الانهيار والتحذير بدلاً من إيقاف المتصفح.
+// 🚀 التحديثات (V24.0.0 - Enterprise Sync): 
+// 1. Math Parity: توحيد (safeSub) والمخرجات مع السيرفر بدقة متناهية.
+// 2. Type Strictness: استخدام (extractNum) في كل مكان.
+// 3. Graceful Fallbacks: الحماية من انهيار الواجهة (DOM) عند حدوث استثناءات (Errors).
 // ============================================================================
 
 import { parseSafeTime } from '../utils.js';
@@ -45,7 +45,8 @@ const FinancialEngineDef = {
     },
 
     safeAdd: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalAdd(a, b)); },
-    safeSub: function(a, b) { return Math.max(0, FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(a, b))); },
+    // 🛠️ تم التوحيد الرياضي للتطابق التام مع السيرفر والأدمن
+    safeSub: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(a, b)); },
     safeMul: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(a, b)); },
     safeDiv: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalDiv(a, b)); },
 
@@ -179,7 +180,6 @@ const FinancialEngineDef = {
         if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'نفذت كمية الاستخدام' };
         if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'غير متاح لمستوى عضويتك' };
         
-        // 🛠️ الإصلاح المعماري 2: فصل الأقسام عن المنتجات لمنع تصادم الـ IDs في الواجهة
         const isProdMatched = cp.targetProds?.length > 0 ? cp.targetProds.includes(String(prod.id)) : true;
         let isCatMatched = true;
 
@@ -224,7 +224,6 @@ const FinancialEngineDef = {
             if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
         }
         
-        // 💡 قراءة ذكية من الـ tierPrices المحسوبة مسبقاً لحجب معادلات التكلفة والأرباح
         let baseSellingPrice = isFixed 
             ? FinancialEngineDef.extractNum(activeOption ? (activeOption.fixedPriceUsd || activeOption.price || product.price) : (product.fixedPriceUsd || product.fixed_price_usd || product.price))
             : FinancialEngineDef.extractNum(tier ? (activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id]) : null) || FinancialEngineDef.extractNum(activeOption?.price || product.price);
@@ -234,7 +233,6 @@ const FinancialEngineDef = {
 
         let offerName = null, offerDiscount = 0, couponCode = null, couponDiscount = 0;
         
-        // 🛠️ الإصلاح المعماري 1: توحيد الغطاء الأمني لمنع تراكم الخصومات لمطابقة السيرفر بدقة
         const absoluteMaxDiscountAllowable = FinancialEngineDef._internalMul(originalPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
         let accumulatedDiscount = 0;
 
@@ -251,9 +249,7 @@ const FinancialEngineDef = {
         const isCouponDisabled = (product.disableCoupons === true || String(product.disableCoupons).toLowerCase() === 'true');
         const canUseCoupon = allowsDiscounts && !isCouponDisabled && offerDiscount === 0;
 
-        // تم تبسيط الفحص لأن validateCoupon قامت بالمهمة مسبقاً
         if (canUseCoupon && coupon && coupon.code) {
-
             couponCode = coupon.code || null;
             const coupVal = FinancialEngineDef.extractNum(coupon.value);
             
@@ -325,8 +321,8 @@ const FinancialEngineDef = {
     },    
 
     calculateDepositFee: function(amt, method, payCurr, baseCur = 'USD', rates = []) {
-        const cleanAmt = Number(amt);
-        if (!method || isNaN(cleanAmt) || cleanAmt <= 0) return { isValid: false, msg: 'بيانات غير صالحة', netBase: 0, feePct: 0, feeType: 'fee', feeUnit: 'percent' };
+        const cleanAmt = FinancialEngineDef.extractNum(amt, false);
+        if (!method || cleanAmt <= 0) return { isValid: false, msg: 'بيانات غير صالحة', netBase: 0, feePct: 0, feeType: 'fee', feeUnit: 'percent' };
         
         const curr = String(payCurr || 'USD').toUpperCase();
         let s = method.currencySettings?.[curr] 

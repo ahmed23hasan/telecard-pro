@@ -1,11 +1,10 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Cloud & Server Edition) - النسخة الموحدة V19.2.0 👑
+// 💰 المحرك المالي المركزي (Cloud & Server Edition) - النسخة الموحدة V24.0.0 👑
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، وتطبيق سياسات التسويق بذكاء.
-// 🚀 التحديثات (V19.2.0 - Universal Enterprise Core): 
-// 1. Unified Signature: توحيد استقبال المعاملات مع لوحة الإدارة لمنع التضارب الرياضي (Math Drift).
-// 2. Anti-Stacking Fix: حماية سقف الخصم العالمي من الاستنزاف التراكمي للخصومات.
-// 3. ID Collision Fix: فصل معرّفات المنتجات عن الأقسام لمنع تداخل صلاحيات الكوبونات.
-// 4. Error Propagation: تصدير FinancialSecurityError للالتقاط الدقيق في الواجهات.
+// 🚀 التحديثات (V24.0.0 - The Judge Edition): 
+// 1. Math Parity Fix: توحيد دالة (safeSub) رياضياً لتتطابق مع باقي الواجهات.
+// 2. Strict Type Casting: حماية المدخلات عبر (extractNum) ضد هجمات (NaN).
+// 3. Absolute Discount Cap: حماية السقف العالمي (95%) من استنزاف الخصومات المتراكمة.
 // ============================================================================
 
 class FinancialSecurityError extends Error {
@@ -50,10 +49,12 @@ const FinancialEngineDef = {
     },
 
     safeAdd: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalAdd(a, b)); },
+    // 🛠️ تم التصحيح: الطرح الرياضي البحت (يسمح بالسالب للعمليات التجريدية)
     safeSub: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(a, b)); },
     safeMul: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(a, b)); },
     safeDiv: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalDiv(a, b)); },
     
+    // 🛠️ حماية الـ Types الصارمة
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '' || Array.isArray(val) || typeof val === 'object') return 0;
         const num = Number(val);
@@ -140,8 +141,13 @@ const FinancialEngineDef = {
         const isCouponDisabled = (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true');
         if (isCouponDisabled) return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم الكوبونات' }; 
 
-        const expiryMs = cp.expiryDate ? new Date(cp.expiryDate).getTime() : 0;
+        // 🕒 توافق التواريخ الموحد
+        let expiryMs = 0;
+        if (cp.expiryDate) {
+            expiryMs = typeof cp.expiryDate.toMillis === 'function' ? cp.expiryDate.toMillis() : new Date(cp.expiryDate).getTime();
+        }
         if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
+        
         if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'استنفد الكوبون الحد الأقصى للاستخدام' };
         if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'الكوبون غير متاح لمستوى حسابك' };
         
@@ -172,7 +178,6 @@ const FinancialEngineDef = {
     },
 
     calculatePrice: function(params = {}) {
-        // 🛠️ الإصلاح الشامل: توحيد استقبال البيانات بين لوحة التحكم والسيرفر
         const { product = {}, costPrice = 0, fixedPrice = 0, tier = null, offer = null, coupon = null, optIdx = null } = params;
         
         if (!product || typeof product !== 'object' || Object.keys(product).length === 0) {
@@ -229,7 +234,6 @@ const FinancialEngineDef = {
         const absoluteMaxDiscountAllowable = FinancialEngineDef._internalMul(originalPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
         let accumulatedDiscount = 0;
 
-        // 1. تطبيق العرض الترويجي
         if (allowsDiscounts && offer && offer.type !== 'fake' && offer.isActive !== false) {
             offerName = offer.name || null;
             const offerVal = FinancialEngineDef.extractNum(offer.value);
@@ -239,7 +243,6 @@ const FinancialEngineDef = {
             accumulatedDiscount = FinancialEngineDef._internalAdd(accumulatedDiscount, offerDiscount);
         }
 
-        // 2. تطبيق الكوبون
         const isCouponDisabled = (product.disableCoupons === true || String(product.disableCoupons).toLowerCase() === 'true');
         if (allowsDiscounts && !isCouponDisabled && offerDiscount === 0 && coupon && coupon.isActive !== false) {
             couponCode = coupon.code || null;
