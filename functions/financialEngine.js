@@ -311,7 +311,7 @@ const FinancialEngineDef = {
     }
 };
 
-// 🛠️ تصدير مخصص لبيئة Node.js (Firebase Functions)
+// 🛠️ تصدير رمخصص لبيئة Node.js (Firebase Functions)
 module.exports = Object.freeze({
     ...FinancialEngineDef,
     FinancialSecurityError
