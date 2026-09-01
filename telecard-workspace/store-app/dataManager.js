@@ -1,10 +1,11 @@
 // ============================================================================
-// ⚙️ مدير البيانات الرئيسي (DataManager.js) - النسخة V2.9.4 💎 (The Unbreakable Core)
+// ⚙️ مدير البيانات الرئيسي (dataManager.js) - الإصدار المؤسسي V17.3 💎
 // 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات والاتصال المالي.
-// 🚀 التحديثات المعمارية الصارمة (V2.9.4): 
-// 1. Error Propagation Pipeline: تمرير أخطاء السيرفر (Firewall Rejections) الصريحة مباشرة للواجهة.
-// 2. Single Source of Truth: توحيد مفتاح الكاش لربط النظام بالكامل.
-// 3. Skeleton Trap Fix: تحرير الواجهة فوراً بعد التحميل بتفعيل isInitialSyncDone.
+// 🚀 التحديثات المعمارية الصارمة: 
+// 1. Storage Quota Shield: تنظيف آلي لكاشات الحسابات السابقة لمنع انهيار الـ LocalStorage.
+// 2. SRP Pagination Fix: الاعتماد على التصدير النظيف لدوال الوقت من utils.js.
+// 3. Time-Sync Await: إيقاف الإقلاع حتمياً حتى مزامنة وقت السيرفر لمنع تلاعب الواجهة.
+// 4. Secure KYC Uploads: حماية مسارات رفع المستندات بـ UUID لمنع تضارب الملفات.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -58,8 +59,8 @@ export const DataManager = {
             }
             
             if (systemSnap.status === 'fulfilled' && systemSnap.value) {
-                const serverVersion = String(systemSnap.value.catalogVersion || '0');
-                const localVersion = localStorage.getItem('tc_server_version');
+                const serverVersion = String(systemSnap.value.catalogVersion || '0').trim();
+                const localVersion = String(localStorage.getItem('tc_server_version') || '0').trim();
                 
                 if (serverVersion !== '0' && serverVersion !== localVersion) {
                     forceUpdateCatalog = true;
@@ -116,6 +117,7 @@ export const DataManager = {
             return false;
         }
     },
+    
     serverTimeOffset: 0, 
     getNow: function() { return Date.now() + this.serverTimeOffset; },
     user: null, 
@@ -214,7 +216,7 @@ export const DataManager = {
 
     calculateDepositFee: function(amt, method, payCurr) {
         const baseCur = (this.user?.baseCurrency || 'USD').toUpperCase();
-        return FinancialEngine.calculateDepositFee(amt, method, payCurr, baseCur, this.getRates());
+        return FinancialEngine.calculateDepositFee(amt, method, payCurr, baseCur, this.getRates(), LiveStoreData.settings || {});
     },
 
     submitIdentityData: async function(country, phone, currency) {
@@ -231,7 +233,6 @@ export const DataManager = {
             }
             return result;
         } catch(err) {
-            // 🛡️ اصطياد أخطاء السيرفر عند إكمال الهوية (مثلاً: تم الإكمال مسبقاً)
             const msg = String(err.message || '');
             let finalMsg = 'تعذر تحديث البيانات، حاول مجدداً.';
             if (/[\u0600-\u06FF]/.test(msg)) finalMsg = msg; 
@@ -249,10 +250,12 @@ export const DataManager = {
             const userId = this.user?.id || 'unknown';
             const timestamp = Date.now();
             
+            const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
+            
             const uploadPromises = [
-                StoreDB.uploadImage(files.front, 'kyc_docs', `${userId}_front_${timestamp}.webp`),
-                StoreDB.uploadImage(files.back, 'kyc_docs', `${userId}_back_${timestamp}.webp`),
-                StoreDB.uploadImage(files.selfie, 'kyc_docs', `${userId}_selfie_${timestamp}.webp`)
+                StoreDB.uploadImage(files.front, 'kyc_docs', `kyc_${userId}_front_${timestamp}_${uniqueId}.webp`),
+                StoreDB.uploadImage(files.back, 'kyc_docs', `kyc_${userId}_back_${timestamp}_${uniqueId}.webp`),
+                StoreDB.uploadImage(files.selfie, 'kyc_docs', `kyc_${userId}_selfie_${timestamp}_${uniqueId}.webp`)
             ];
             
             const results = await Promise.allSettled(uploadPromises);
@@ -295,19 +298,35 @@ export const DataManager = {
     },
 
     submitPrivateFeedback: async function(rating, feedbackText) {
+        const userId = this.user?.id || this.activeUid || localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
+        if (!userId || userId === '0' || userId === 'undefined' || userId.startsWith('guest')) {
+            if (window.UIManager && window.UIManager.showToast) {
+                window.UIManager.showToast('عذراً، يرجى تسجيل الدخول لتتمكن من تقييم المتجر.', 'warning');
+            }
+            return { success: false, msg: 'auth_required' };
+        }
+
         if (this._actionLocks.has('feedback')) return { success: false };
         this._actionLocks.add('feedback');
+        
         try {
-            await StoreDB.add(DB_KEYS.FEEDBACKS, {
-                userId: this.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || 'guest',
-                username: this.user?.username || 'ضيف',
+            await StoreDB.set('reviews', String(userId), {
+                userId: String(userId),
+                username: this.user?.username || this.user?.fullName || 'العميل',
                 rating: rating || 0,
-                feedback: feedbackText,
+                text: feedbackText || '', 
+                status: 'pending', 
                 time: Date.now()
-            });
+            }, { merge: true }); 
+            
             return { success: true };
-        } catch (e) { return { success: false }; } 
-        finally { this._actionLocks.delete('feedback'); }
+        } catch (e) { 
+            console.error("🚨 [DataManager] Feedback Error:", e);
+            return { success: false }; 
+        } 
+        finally { 
+            this._actionLocks.delete('feedback'); 
+        }
     },
 
     ackAdminMessage: async function() {
@@ -374,7 +393,38 @@ export const DataManager = {
         } catch (error) { console.warn("[DataManager] فشل جلب السجل:", error); }
     },
 
-    logout: async function() {
+    // 🚀 دالة معمارية لإدارة تحميل المزيد (Pagination Controller - SRP Fix)
+    loadMoreHistoricalData: async function(type, uid, limitCount = 15) {
+        if (!this.cursors) this.cursors = {};
+        if (!this.cursors[type]) return { success: false, data: [] }; // لا يوجد المزيد من البيانات
+
+        const dbKey = type === 'orders' ? DB_KEYS.ORDERS : DB_KEYS.DEPOSITS;
+        try {
+            const res = await StoreDB.fetchMoreWithCursor(dbKey, ['userId', '==', String(uid)], 'time', this.cursors[type], limitCount);
+            
+            if (res.data && res.data.length > 0) {
+                // تحديث المؤشر محلياً داخل مدير البيانات (مكانها الصحيح)
+                this.cursors[type] = res.newLastDoc;
+                
+                // 🛡️ توحيد تنسيق التواريخ بشكل آمن بالاعتماد على دالة utils المستوردة مباشرة
+                const normData = res.data.map(item => ({
+                    ...item, 
+                    time: parseSafeTime(item.time), 
+                    createdAt: parseSafeTime(item.createdAt)
+                }));
+                return { success: true, data: normData };
+            } else {
+                // تصفير المؤشر لانتهاء البيانات
+                this.cursors[type] = null; 
+                return { success: true, data: [] };
+            }
+        } catch (error) {
+            console.error(`🚨 [DataManager] Error fetching more ${type}:`, error);
+            throw error; 
+        }
+    },
+
+    logout: async function(hardRedirect = true) {
         if (window.UIManager && window.UIManager.closeSidebar) {
             window.UIManager.closeSidebar();
         }
@@ -385,6 +435,15 @@ export const DataManager = {
             localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
             localStorage.removeItem(ACTIVE_USER_KEY);
             localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
+            
+            // 🛡️ Storage Quota Shield: تنظيف شامل وآمن لكاشات الطلبات الخاصة بالحسابات القديمة 
+            Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('tc_orders_cache_') || 
+                    key.startsWith('tc_deposits_cache_') || 
+                    key.startsWith(DYNAMIC_PREFIXES.ALERT_VIEWS)) {
+                    localStorage.removeItem(key);
+                }
+            });
             
             if (typeof this._notifUnsubscribe === 'function') { this._notifUnsubscribe(); this._notifUnsubscribe = null; }
             if (typeof this._userUnsubscribe === 'function') { this._userUnsubscribe(); this._userUnsubscribe = null; } 
@@ -413,8 +472,10 @@ export const DataManager = {
             this.cursors = { orders: null, deposits: null, wallet: null };      
         } catch (e) {}
 
-        localStorage.setItem('tc_show_logout_toast', 'true');
-        window.location.replace(window.location.pathname);
+        if (hardRedirect) {
+            localStorage.setItem('tc_show_logout_toast', 'true');
+            window.location.replace(window.location.pathname);
+        }
     },   
     
     syncUser: async function() {
@@ -425,7 +486,7 @@ export const DataManager = {
             adminDef = LiveStoreData.settings.defaultCurrency;
         } else {
             try {
-                const cachedSettings = JSON.parse(localStorage.getItem('telecard_store_cache_telecard_settings_singleton') || '{}');
+                const cachedSettings = JSON.parse(localStorage.getItem(`telecard_store_cache_${DB_KEYS.SETTINGS}_singleton`) || '{}');
                 if (cachedSettings.defaultCurrency) adminDef = cachedSettings.defaultCurrency;
             } catch (e) {}
         }
@@ -440,14 +501,17 @@ export const DataManager = {
             try {
                 const lastSync = sessionStorage.getItem(CACHE_KEYS.TIME_SYNC);
                 if (!LiveStoreData.isOfflineMode && StoreDB.callFunction && (!lastSync || (Date.now() - Number(lastSync)) > 21600000 || this.serverTimeOffset === 0)) {
-                    StoreDB.callFunction('getServerTime').then(res => {
-                        if (res?.serverTime) {
-                            this.serverTimeOffset = res.serverTime - Date.now();
-                            sessionStorage.setItem(CACHE_KEYS.TIME_SYNC, Date.now().toString());
-                        }
-                    }).catch(() => {});
+                    
+                    const res = await StoreDB.callFunction('getServerTime').catch(() => null);
+                    if (res && res.serverTime) {
+                        this.serverTimeOffset = res.serverTime - Date.now();
+                        sessionStorage.setItem(CACHE_KEYS.TIME_SYNC, Date.now().toString());
+                    }
+                    
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.warn("⚠️ تعذر جلب وقت السيرفر، تم الاعتماد على الوقت المحلي.");
+            }
         }
         
         if (this.activeUid && !me && window.ClientSystem?.isReady) {
@@ -552,7 +616,7 @@ export const DataManager = {
         } catch (e) { return { success: false, msg: 'خطأ اتصال.' }; }
     },
 
-        confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
+    confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
         
@@ -566,16 +630,14 @@ export const DataManager = {
             
             return { success: true, msg: res.message || 'تم إتمام الطلب', isAutoDelivered: res.isAutoDelivered, deliveredCodeText: res.deliveredCode };
         } catch (err) {
-            // 🛡️ اصطياد رسائل الجدار الناري الصريحة من السيرفر وعرضها للمستخدم بدبلوماسية
             const msg = String(err.message || '').toLowerCase();
             let finalMsg = 'خطأ بالشبكة أو نفد المخزون.';
             
-            // 🛡️ حماية أسرار العمل (Error Masking) كخط دفاع أخير
             const sensitiveKeywords = ['رأس المال', 'الربح', 'تكلفة', 'يكسر حاجز', 'خسارة', 'السعر النهائي', 'cost', 'profit'];
             if (sensitiveKeywords.some(keyword => msg.includes(keyword))) {
                 finalMsg = 'عذراً، تعذر تنفيذ الطلب حالياً بسبب تحديث في أسعار المزود.';
             } else if (/[\u0600-\u06FF]/.test(msg)) {
-                finalMsg = String(err.message); // السماح بالرسائل العربية الآمنة من السيرفر
+                finalMsg = String(err.message); 
             } else if (msg.includes('balance')) finalMsg = 'رصيدك غير كافٍ.';
             else if (msg.includes('already')) finalMsg = 'تم استلام طلبك مسبقاً.';
             else if (err.code === 'network-offline' || msg.includes('fetch')) finalMsg = 'تأكد من اتصالك بالإنترنت.';
@@ -604,7 +666,6 @@ export const DataManager = {
             
             return { success: true, msg: res?.message || 'تم الإرسال بنجاح' };
         } catch (err) {
-            // 🛡️ اصطياد أخطاء السيرفر (مثل: العميل لم يكمل الهوية، أو تجاوز الحد) بدلاً من ابتلاعها
             const msg = String(err.message || '');
             let finalMsg = 'تعذر الإرسال، جرب لاحقاً.';
             if (/[\u0600-\u06FF]/.test(msg)) finalMsg = msg; 
@@ -741,5 +802,3 @@ export const DataManager = {
     unenrollMFA: async function() { return await StoreDB.unenrollMFA(); },
     is2FAEnabled: function() { return auth?.currentUser?.multiFactor?.enrolledFactors?.length > 0; }
 };
-
-Object.defineProperty(DataManager, 'enforceIpBan', { configurable: false, writable: false });

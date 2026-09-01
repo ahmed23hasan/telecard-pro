@@ -668,7 +668,7 @@
                                 </div>
                                 <div class="flex-1">
                                     <label class="form-label">ستايل اللون (Color Style)</label>
-                                    <select id="store-color-type" class="form-input" data-action="update-brand-color">
+                                    <select id="store-color-type" class="form-input" data-action="toggle-color-type">
                                         <option value="solid">لون موحد (Solid)</option>
                                         <option value="gradient">تدرج لوني (Gradient)</option>
                                     </select>
@@ -740,7 +740,6 @@
                     <div class="form-group">
                         <label class="form-label">النص المكتوب</label>
                         <input type="text" id="promo-text" class="form-input" spellcheck="false" placeholder="اكتب إعلانك هنا..." data-action="auto-save-settings" data-oninput="update-ticker-preview">
-
                     </div>
                     
                     <div class="form-group">
@@ -762,6 +761,44 @@
                         <i class="fa-solid fa-floppy-disk"></i> حفظ الإعدادات
                     </button>
                 </div>
+
+                <!-- 🚀 قسم من نحن (About Us) -->
+                <div class="card mt-15">
+                    <div class="card-header no-border-bottom mb-15">
+                        <div class="card-title"><i class="fa-solid fa-circle-info text-primary"></i> صفحة (من نحن) في المتجر</div>
+                    </div>
+                    <div class="form-group mb-0">
+                        <label class="form-label">النص التعريفي للمتجر (يظهر للعملاء)</label>
+                        <textarea id="store-about-us" class="form-input" rows="5" placeholder="اكتب نبذة تعريفية عن متجرك، رؤيتك، ومميزات خدماتك... (يمكنك استخدام أسطر جديدة)"></textarea>
+                        <small class="text-muted d-block mt-5">سيظهر هذا النص بشكل ديناميكي في نافذة "من نحن" في تطبيق العميل بدلاً من النص الصلب.</small>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-full mt-10" data-action="save-about-us">
+                        <i class="fa-solid fa-floppy-disk"></i> حفظ النص التعريفي
+                    </button>
+                </div>
+                <!-- 🚀 قسم قنواتنا ومجتمعنا (النسخة الديناميكية) -->
+                <div class="card mt-15">
+                    <div class="card-header no-border-bottom mb-15">
+                        <div class="card-title"><i class="fa-solid fa-share-nodes text-primary"></i> روابط مجتمع المتجر</div>
+                        <button type="button" class="btn-compact btn-primary" data-action="add-social-link">
+                            <i class="fa-solid fa-plus"></i> إضافة رابط
+                        </button>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">وصف المجتمع (يظهر أعلى الروابط في التطبيق)</label>
+                        <input type="text" id="social-desc" class="form-input" placeholder="تابعنا على قنواتنا الرسمية ليصلك كل جديد...">
+                    </div>
+                    
+                    <!-- 🚀 حاوية الروابط الديناميكية -->
+                    <div id="social-links-container" class="d-flex flex-column gap-2 mb-15">
+                        <!-- سيتم حقن الروابط هنا برمجياً -->
+                    </div>
+                    
+                    <button type="button" class="btn btn-primary btn-full mt-10" data-action="save-social-links">
+                        <i class="fa-solid fa-floppy-disk"></i> حفظ كافة الروابط
+                    </button>
+                </div>
+
             </div>
 
             <div id="view-rates" class="section">
@@ -818,7 +855,6 @@
                 <div id="rates-grid" class="rates-grid-layout"></div>
             </div>
 
-            <!-- تم جلب قسم المحافظ من الملف الثاني -->
             <div id="view-wallets" class="section">
                 <div class="card-header mb-15 no-border-bottom">
                     <div class="card-title"><i class="fa-solid fa-wallet text-success"></i> إدارة المحافظ المالية</div>
@@ -827,7 +863,6 @@
                 <div id="wallets-overview-grid" class="wallets-overview-grid"></div>
             </div>
 
-            <!-- تم جلب قسم بوابات الدفع من الملف الثاني -->
             <div id="view-payments" class="section">
                 <div class="card-header no-border-bottom mb-10">
                     <div class="card-title"><i class="fa-solid fa-credit-card text-warning"></i> بوابات الدفع (Payments)</div>
@@ -862,60 +897,89 @@
             </div>
 
             <div id="view-notifs" class="section">
-                <div class="card mb-15">
-                    <div class="card-header mb-15 no-border-bottom p-0">
-                        <div class="card-title"><i class="fa-solid fa-bell text-warning"></i> نظام التنبيهات الموحد (Unified Alerts)</div>
-                        <button type="button" class="btn btn-primary btn-no-shrink" data-action="open-alert-modal">
-                            <i class="fa-solid fa-paper-plane"></i> إرسال تنبيه جديد
+                <!-- 🚀 ترويسة التبويبات (الإشعارات vs الشكاوى) -->
+                <div class="main-tabs-header mb-15" id="tabs-support">
+                    <button type="button" class="main-tab-btn active" data-action="switch-notifs-tab" data-tab="alerts"><i class="fa-solid fa-bell"></i> الإشعارات التسويقية</button>
+                    <button type="button" class="main-tab-btn tab-danger" data-action="switch-notifs-tab" data-tab="complaints"><i class="fa-solid fa-star-half-stroke"></i> التقييمات والشكاوى <span class="tab-count pulse-badge" id="count-complaints">0</span></button>
+                </div>
+
+                <!-- حاوية الإشعارات القديمة وإعدادات الدعم -->
+                <div id="notifs-alerts-container">
+                    <div class="card mb-15">
+                        <div class="card-header mb-15 no-border-bottom p-0">
+                            <div class="card-title"><i class="fa-solid fa-bell text-warning"></i> نظام التنبيهات الموحد (Unified Alerts)</div>
+                            <button type="button" class="btn btn-primary btn-no-shrink" data-action="open-alert-modal">
+                                <i class="fa-solid fa-paper-plane"></i> إرسال تنبيه جديد
+                            </button>
+                        </div>
+                        
+                        <div class="alert-info mb-15">
+                            <i class="fa-solid fa-circle-info text-info alert-icon"></i>
+                            <span>يمكنك إرسال إشعارات هادئة (جرس) أو رسائل منبثقة (Popups) للجميع، لمستوى معين، أو لعميل محدد.</span>
+                        </div>
+
+                        <div id="alerts-grid" class="items-grid"></div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title mb-15"><i class="fa-solid fa-headset text-success"></i> إعدادات الدعم والمساعدة</div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">الرابط أو الرقم (واتساب/تلغرام)</label>
+                            <input type="text" id="supp-link" class="form-input num-en" dir="ltr" lang="en" placeholder="https://t.me/username OR +90555...">
+                        </div>
+                        
+                        <div class="form-group mt-15">
+                            <label class="form-label">اختر الأيقونة</label>
+                            <div class="icon-selector" id="icon-selector">
+                                <div class="is-opt active" data-val="fa-whatsapp" data-action="select-icon"><i class="fa-brands fa-whatsapp"></i></div>
+                                <div class="is-opt" data-val="fa-telegram" data-action="select-icon"><i class="fa-telegram"></i></div>
+                                <div class="is-opt" data-val="fa-headset" data-action="select-icon"><i class="fa-solid fa-headset"></i></div>
+                                <div class="is-opt" data-val="fa-comments" data-action="select-icon"><i class="fa-solid fa-comments"></i></div>
+                                <div class="is-opt" data-val="fa-message" data-action="select-icon"><i class="fa-solid fa-message"></i></div>
+                                <div class="is-opt" data-val="fa-phone" data-action="select-icon"><i class="fa-solid fa-phone"></i></div>
+                                <div class="is-opt" data-val="fa-envelope" data-action="select-icon"><i class="fa-solid fa-envelope"></i></div>
+                                <div class="is-opt" data-val="fa-circle-question" data-action="select-icon"><i class="fa-solid fa-circle-question"></i></div>
+                                <div class="is-opt" data-val="fa-life-ring" data-action="select-icon"><i class="fa-solid fa-life-ring"></i></div>
+                                <div class="is-opt" data-val="fa-handshake" data-action="select-icon"><i class="fa-solid fa-handshake"></i></div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group mt-15">
+                            <label class="form-label">حركة الأيقونة</label>
+                            <div class="animation-selector" id="animation-selector">
+                                <div class="anim-opt" data-val="none" data-action="select-animation"><i class="fa-solid fa-ban"></i><span>بدون حركة</span></div>
+                                <div class="anim-opt" data-val="glow" data-action="select-animation"><i class="fa-solid fa-sparkles"></i><span>وهج</span></div>
+                                <div class="anim-opt" data-val="pulse" data-action="select-animation"><i class="fa-solid fa-circle-radiation"></i><span>نبض</span></div>
+                                <div class="anim-opt" data-val="blink" data-action="select-animation"><i class="fa-solid fa-eye"></i><span>وميض</span></div>
+                                <div class="anim-opt" data-val="bounce" data-action="select-animation"><i class="fa-solid fa-arrow-up"></i><span>نط</span></div>
+                                <div class="anim-opt" data-val="shake" data-action="select-animation"><i class="fa-solid fa-hand"></i><span>اهتزاز</span></div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-full mt-15" data-action="save-support">
+                            <i class="fa-solid fa-floppy-disk"></i> حفظ إعدادات الدعم
                         </button>
                     </div>
-                    
+                </div>
+
+                <!-- 🚀 حاوية الشكاوى والتقييمات المطورة -->
+                <div id="notifs-complaints-container" class="hide-element">
+                    <div class="card-header no-border-bottom mb-10">
+                        <div class="card-title"><i class="fa-solid fa-headset text-danger"></i> مركز التقييمات وشكاوى العملاء</div>
+                        <div class="header-actions-row">
+                            <select id="reviews-filter" class="form-input select-micro mb-0" data-action="filter-reviews">
+                                <option value="pending_bad">الشكاوى المعلقة (نجمة/نجمتين)</option>
+                                <option value="all">عرض كل التقييمات (1 إلى 5 نجوم)</option>
+                                <option value="resolved">الشكاوى المحلولة</option>
+                            </select>
+                            <button type="button" class="btn-compact btn-refresh" data-action="refresh" data-type="complaints"><i class="fa-solid fa-rotate"></i> تحديث</button>
+                        </div>
+                    </div>
                     <div class="alert-info mb-15">
                         <i class="fa-solid fa-circle-info text-info alert-icon"></i>
-                        <span>يمكنك إرسال إشعارات هادئة (جرس) أو رسائل منبثقة (Popups) للجميع، لمستوى معين، أو لعميل محدد.</span>
+                        <span>يمكنك هنا رؤية رأي العملاء بمتجرك، والرد على أصحاب التقييمات المنخفضة لإرضائهم.</span>
                     </div>
-
-                    <div id="alerts-grid" class="items-grid"></div>
-                </div>
-                
-                <div class="card">
-                    <div class="card-title mb-15"><i class="fa-solid fa-headset text-success"></i> إعدادات الدعم والمساعدة</div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">الرابط أو الرقم (واتساب/تلغرام)</label>
-                        <input type="text" id="supp-link" class="form-input num-en" dir="ltr" lang="en" placeholder="https://t.me/username OR +90555...">
-                    </div>
-                    
-                    <div class="form-group mt-15">
-                        <label class="form-label">اختر الأيقونة</label>
-                        <div class="icon-selector" id="icon-selector">
-                            <div class="is-opt active" data-val="fa-whatsapp" data-action="select-icon"><i class="fa-brands fa-whatsapp"></i></div>
-                            <div class="is-opt" data-val="fa-telegram" data-action="select-icon"><i class="fa-telegram"></i></div>
-                            <div class="is-opt" data-val="fa-headset" data-action="select-icon"><i class="fa-solid fa-headset"></i></div>
-                            <div class="is-opt" data-val="fa-comments" data-action="select-icon"><i class="fa-solid fa-comments"></i></div>
-                            <div class="is-opt" data-val="fa-message" data-action="select-icon"><i class="fa-solid fa-message"></i></div>
-                            <div class="is-opt" data-val="fa-phone" data-action="select-icon"><i class="fa-solid fa-phone"></i></div>
-                            <div class="is-opt" data-val="fa-envelope" data-action="select-icon"><i class="fa-solid fa-envelope"></i></div>
-                            <div class="is-opt" data-val="fa-circle-question" data-action="select-icon"><i class="fa-solid fa-circle-question"></i></div>
-                            <div class="is-opt" data-val="fa-life-ring" data-action="select-icon"><i class="fa-solid fa-life-ring"></i></div>
-                            <div class="is-opt" data-val="fa-handshake" data-action="select-icon"><i class="fa-solid fa-handshake"></i></div>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group mt-15">
-                        <label class="form-label">حركة الأيقونة</label>
-                        <div class="animation-selector" id="animation-selector">
-                            <div class="anim-opt" data-val="none" data-action="select-animation"><i class="fa-solid fa-ban"></i><span>بدون حركة</span></div>
-                            <div class="anim-opt" data-val="glow" data-action="select-animation"><i class="fa-solid fa-sparkles"></i><span>وهج</span></div>
-                            <div class="anim-opt" data-val="pulse" data-action="select-animation"><i class="fa-solid fa-circle-radiation"></i><span>نبض</span></div>
-                            <div class="anim-opt" data-val="blink" data-action="select-animation"><i class="fa-solid fa-eye"></i><span>وميض</span></div>
-                            <div class="anim-opt" data-val="bounce" data-action="select-animation"><i class="fa-solid fa-arrow-up"></i><span>نط</span></div>
-                            <div class="anim-opt" data-val="shake" data-action="select-animation"><i class="fa-solid fa-hand"></i><span>اهتزاز</span></div>
-                        </div>
-                    </div>
-                    <button type="button" class="btn btn-primary btn-full mt-15" data-action="save-support">
-                        <i class="fa-solid fa-floppy-disk"></i> حفظ إعدادات الدعم
-                    </button>
+                    <div id="complaints-grid" class="items-grid"></div>
                 </div>
             </div> 
 
@@ -955,7 +1019,7 @@
                     </div> 
                 </div>
 
-                <div class="card maint-card">
+                <div class="card maint-card mb-15">
                     <div class="card-title text-warning mb-15"><i class="fa-solid fa-snowflake"></i> تجميد المشتريات والإيداعات (Soft Lock)</div>
                     <div class="maint-alert-box">
                         <div class="maint-alert-header">
@@ -966,28 +1030,67 @@
                         <input type="text" id="sys-freeze-msg" class="form-input" placeholder="رسالة التجميد (مثلاً: نحدث الأسعار حالياً...)" data-action="save-system">
                     </div>
                 </div>
+
+                <!-- 🛡️ إضافة قسم الجدار الناري المفقود (Firewall) -->
+                <div class="card maint-card mb-15">
+                    <div class="card-title text-danger mb-15"><i class="fa-solid fa-shield-halved"></i> الجدار الناري (القائمة السوداء)</div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">حظر عنوان IP جديد</label>
+                        <div class="flex-gap-10">
+                            <input type="text" id="new-ban-ip-input" class="form-input num-en flex-1" dir="ltr" placeholder="مثال: 192.168.1.1">
+                            <button type="button" class="btn btn-red w-auto" data-action="add-global-ban-ip"><i class="fa-solid fa-ban"></i> حظر</button>
+                        </div>
+                    </div>
+
+                    <div class="mb-15">
+                        <label class="form-label text-warning"><i class="fa-solid fa-network-wired"></i> عناوين IP المحظورة حالياً</label>
+                        <div id="global-banned-ips-container" class="d-flex flex-wrap gap-2 p-10" style="background: rgba(0,0,0,0.2); border-radius: 8px; min-height: 45px;"></div>
+                    </div>
+
+                    <div>
+                        <label class="form-label text-info"><i class="fa-solid fa-mobile-screen"></i> الأجهزة المحظورة (Device Prints)</label>
+                        <div id="global-banned-devices-container" class="d-flex flex-wrap gap-2 p-10" style="background: rgba(0,0,0,0.2); border-radius: 8px; min-height: 45px;"></div>
+                    </div>
+                </div>
+
+                <!-- 🚀 كارت الطوارئ والتعافي السحابي -->
+                <div class="card maint-card" style="border: 1px dashed rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.03);">
+                    <div class="card-title text-danger mb-10">
+                        <i class="fa-solid fa-triangle-exclamation"></i> أدوات الطوارئ والتعافي السحابي
+                    </div>
+                    <p class="text-muted fs-12 mb-15">
+                        استخدم هذا الخيار (كزر طوارئ) في حال تأخر مزامنة السيرفر، أو إذا لاحظت أن الأسعار أو بوابات الدفع لا تتحدث في واجهة العملاء. سيقوم هذا الزر بإجبار خوادم Firebase على هدم وبناء كاش التسعير من الصفر.
+                    </p>
+                    <button type="button" class="btn btn-red w-100" data-action="force-sync-pricing" style="font-weight: bold; padding: 12px;">
+                        <i class="fa-solid fa-server"></i> ترميم وبناء الكاش السحابي
+                    </button>
+                </div>
+
             </div>
             
             <div id="view-terms" class="section">
-    <div class="card-header mb-15 no-border-bottom">
-    <div class="card-title"><i class="fa-solid fa-file-contract text-primary"></i> إدارة الشروط والأحكام</div>
-    <button type="button" class="btn btn-primary" data-action="add-term-card">
-        <i class="fa-solid fa-plus"></i> إضافة بند جديد
-    </button>
-</div>    <div class="alert-info mb-15">
-        <i class="fa-solid fa-circle-info text-info alert-icon"></i>
-        <span>قم ببناء الشروط على شكل كروت ذكية. سيتم عرضها للعميل بتصميم عصري (أيقونة، عنوان، تفاصيل). يمكنك سحب الكروت لترتيبها.</span>
-    </div>
-    
-    <div class="card terms-card">
-        <!-- الحاوية التي سيتم رسم الكروت بداخلها ديناميكياً -->
-        <div id="dynamic-terms-container" class="dynamic-cards-list"></div>
-        
-        <button type="button" class="btn btn-primary btn-full btn-terms-save mt-15" data-action="save-terms">
-            <i class="fa-solid fa-floppy-disk"></i> حفظ الشروط والأحكام
-        </button>
-    </div>
-</div>            
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-file-contract text-primary"></i> إدارة الشروط والأحكام</div>
+                    <button type="button" class="btn btn-primary" data-action="add-term-card">
+                        <i class="fa-solid fa-plus"></i> إضافة بند جديد
+                    </button>
+                </div>    
+                
+                <div class="alert-info mb-15">
+                    <i class="fa-solid fa-circle-info text-info alert-icon"></i>
+                    <span>قم ببناء الشروط على شكل كروت ذكية. سيتم عرضها للعميل بتصميم عصري (أيقونة، عنوان، تفاصيل). يمكنك سحب الكروت لترتيبها.</span>
+                </div>
+                
+                <div class="card terms-card">
+                    <!-- الحاوية التي سيتم رسم الكروت بداخلها ديناميكياً -->
+                    <div id="dynamic-terms-container" class="dynamic-cards-list"></div>
+                    
+                    <button type="button" class="btn btn-primary btn-full btn-terms-save mt-15" data-action="save-terms">
+                        <i class="fa-solid fa-floppy-disk"></i> حفظ الشروط والأحكام
+                    </button>
+                </div>
+            </div>            
             <div id="view-integrations" class="section">
                 <div class="card-header mb-15 no-border-bottom">
                     <div class="card-title"><i class="fa-solid fa-plug text-primary"></i> إدارة الربط والموردين (API)</div>
@@ -1136,6 +1239,9 @@
             <label class="form-label">البريد الإلكتروني</label>
             <input id="adm-email" class="form-input mb-10" dir="ltr" lang="en">
             
+            <!-- 🛡️ إضافة حقل كلمة المرور المفقود -->
+            <label class="form-label">كلمة المرور الجديدة (اتركه فارغاً إذا لم ترد التغيير)</label>
+            <input type="password" id="adm-pass" class="form-input mb-10" dir="ltr" lang="en" placeholder="********">
                     
             <div class="modal-actions-row flex-gap-10 mt-15 pt-15" style="border-top: 1px solid var(--border);">
                 <button type="button" class="btn btn-primary flex-1" data-action="save-admin-profile">
@@ -1264,11 +1370,26 @@
                         </div>
                         <small class="text-info d-block mt-5 fs-11"><i class="fa-solid fa-circle-info"></i> عند الربط، سيتم قفل حقل "التكلفة" وتحديثه آلياً من المورد.</small>
                     </div>
+
                     <div id="main-price-area" class="settings-box mb-10">
                         <div class="form-group mb-10">
                             <label class="form-label text-danger" style="font-size: 13px;"><i class="fa-solid fa-box-open"></i> سعر التكلفة ($) - رأس المال</label>
                             <input type="text" inputmode="decimal" id="pr-cost" class="form-input num-en text-center" style="font-size: 18px; font-weight: bold; color: var(--text-danger);" dir="ltr" lang="en" placeholder="0.00">
                         </div>
+                        
+                        <!-- 🛡️ إضافة حقل السعر الثابت المفقود -->
+                        <div class="switch-row-box p-8-12 mb-10" style="background: rgba(245, 158, 11, 0.1); border: 1px dashed rgba(245, 158, 11, 0.3);">
+                            <div>
+                                <span class="switch-title text-warning"><i class="fa-solid fa-thumbtack"></i> تفعيل السعر الثابت</span>
+                                <span class="switch-desc">تجاهل نسبة المستوى وبيع المنتج بسعر ثابت للجميع</span>
+                            </div>
+                            <label class="switch"><input type="checkbox" id="pr-fixed-price"><span class="slider"></span></label>
+                        </div>
+                        <div class="form-group mb-10">
+                            <label class="form-label text-warning" style="font-size: 13px;">السعر الثابت للمنتج ($)</label>
+                            <input type="text" inputmode="decimal" id="pr-fixed-val" class="form-input num-en text-center" style="font-size: 18px; font-weight: bold; color: var(--text-warning);" dir="ltr" lang="en" placeholder="0.00">
+                        </div>
+
                         <div class="switch-row-box p-8-12" style="background: rgba(0,0,0,0.2); border: 1px dashed var(--border-light);">
                             <div>
                                 <span class="switch-title text-info"><i class="fa-solid fa-eye-slash"></i> إخفاء السعر في الواجهة</span>
@@ -2119,9 +2240,5 @@
     window.addEventListener('unhandledrejection', handleModuleError);
 </script>
 
-
-
-
 </body>
-
 </html>

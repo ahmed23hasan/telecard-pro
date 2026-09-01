@@ -1,8 +1,12 @@
 // ============================================================================
 // 🔌 قوالب الربط التلقائي والموردين (modules/integrations/integrationsTemplates.js)
+// 🚀 التحديث الأقصى: 
+// 1. Integration Link Fix: دعم محول (Standard API) لمتجر Star Store وأمثاله.
+// 2. Timezone Fix: استيراد واستخدام المنسق المركزي لتوحيد التاريخ عالمياً.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
+import { RenderHelpers } from '../../core/renderHelpers.js'; // 🛡️ استيراد المنسق المركزي للتواريخ
 
 const _esc = Utils.escapeHTML;
 
@@ -21,9 +25,11 @@ export const IntegrationsTemplates = {
         const statusClass = isActive ? 'completed' : 'rejected';
         const statusIcon = isActive ? '<i class="fa-solid fa-link"></i> متصل' : '<i class="fa-solid fa-link-slash"></i> متوقف';
         
+        // 🛡️ دعم تسمية المحول القياسي الجديد
         let typeName = 'API مخصص';
         if (supplier.type === 'salla') typeName = 'منصة سلة';
         else if (supplier.type === 'zid') typeName = 'منصة زد';
+        else if (supplier.type === 'standard_api') typeName = 'متجر قياسي (API)';
 
         return `
         <div class="card promo-card" data-status="${isActive ? 'active' : 'inactive'}">
@@ -55,7 +61,7 @@ export const IntegrationsTemplates = {
                 </div>
                 <div class="promo-col">
                     <span class="promo-lbl"><i class="fa-solid fa-clock-rotate-left"></i> آخر مزامنة</span>
-                    <span class="promo-val num-en" dir="ltr">${supplier.lastSync ? Utils.formatDate(supplier.lastSync) : 'لم تتم بعد'}</span>
+                    <span class="promo-val num-en" dir="ltr">${supplier.lastSync ? RenderHelpers.formatSafeDate(supplier.lastSync) : 'لم تتم بعد'}</span>
                 </div>
             </div>
             
@@ -79,7 +85,8 @@ export const IntegrationsTemplates = {
         <div class="form-group">
             <label class="form-label">نوع الربط (المنصة)</label>
             <select id="supp-type" class="form-input">
-                <option value="custom" ${s && s.type === 'custom' ? 'selected' : ''}>Telecard API (تليكارد)</option>
+                <option value="custom" ${s && s.type === 'custom' ? 'selected' : ''}>Telecard API (تليكارد القديم)</option>
+                <option value="standard_api" ${s && s.type === 'standard_api' ? 'selected' : ''}>متجر قياسي API (Star Store وأمثاله)</option>
                 <option value="salla" ${s && s.type === 'salla' ? 'selected' : ''}>منصة سلة (Salla)</option>
                 <option value="zid" ${s && s.type === 'zid' ? 'selected' : ''}>منصة زد (Zid)</option>
             </select>

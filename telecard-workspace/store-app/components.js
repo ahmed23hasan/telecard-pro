@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - ES6 Module V15.9.1 💎
+// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V17.4 💎
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديثات المعمارية (V15.9.1):
-// 1. CSS Decoupling: تنظيف دالة التقويم من الستايلات المدمجة (Inline CSS).
-// 2. Safe DOM Scrolling: حماية دالة scrollIntoView داخل إطار الرسم.
-// 3. Class-Based Toggles: استبدال display:none بتبديل كلاسات الكوبونات.
+// 🚀 التحديثات المعمارية:
+// 1. Context Binding Safety: توافق تام مع سياق this للموزع المركزي (UIManager).
+// 2. Animation Guards: استخدام requestAnimationFrame لنعومة الواجهة البصرية.
+// 3. Clean CSS Decoupling: فصل كامل للستايلات عن الجافاسكريبت.
 // ============================================================================
 
 import { DataManager, LiveStoreData } from './dataManager.js';
@@ -13,7 +13,7 @@ import * as Utils from './utils.js';
 import { RenderHelpers } from './core/renderHelpers.js'; 
 
 // =========================================================
-// 2️⃣ نظام التقويم الذكي (Calendar App)
+// 1️⃣ نظام التقويم الذكي (Calendar App)
 // =========================================================
 export const CalendarApp = {
     monthNames: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
@@ -99,8 +99,10 @@ export const CalendarApp = {
             if (inputEl) targetElement = inputEl.closest('.custom-field');
         }
         
-        document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
-        if (targetElement) targetElement.classList.add('active');
+        requestAnimationFrame(() => {
+            document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
+            if (targetElement) targetElement.classList.add('active');
+        });
         
         const hiddenInput = document.getElementById(inputId);
         const currentVal = hiddenInput ? hiddenInput.value : '';
@@ -127,8 +129,7 @@ export const CalendarApp = {
         
         if (modal) {
             if (modal.parentNode !== document.body) document.body.appendChild(modal);
-            modal.classList.add('show');
-            // 🛡️ الإصلاح: تم حذف التنسيقات المدمجة (Inline CSS) والاعتماد على الكلاس (.show) في ملف الـ CSS
+            requestAnimationFrame(() => modal.classList.add('show'));
         }
     },
 
@@ -140,53 +141,60 @@ export const CalendarApp = {
     },
 
     close: function() {
-        const modal = document.getElementById('cal-modal');
-        if(modal) modal.classList.remove('show');
-        document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
+        requestAnimationFrame(() => {
+            const modal = document.getElementById('cal-modal');
+            if(modal) modal.classList.remove('show');
+            document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
+        });
     },
 
     render: function() {
-        document.getElementById('disp-month').innerText = this.monthNames[this.currMonth];
-        document.getElementById('disp-year').innerText = this.currYear;
-        const grid = document.getElementById('days-container');
-        if(!grid) return;
-        
-        grid.innerHTML = '';
-        const fragment = document.createDocumentFragment();
-        
-        this.dayNames.forEach(d => { 
-            const div = document.createElement('div'); 
-            div.className = 'day-head'; div.innerText = d; 
-            fragment.appendChild(div); 
-        });
-        
-        const firstDay = new Date(this.currYear, this.currMonth, 1).getDay();
-        const daysInMonth = new Date(this.currYear, this.currMonth + 1, 0).getDate();
-        
-        for(let i = 0; i < firstDay; i++) { 
-            const e = document.createElement('div'); 
-            e.className = 'day-cell empty'; 
-            fragment.appendChild(e); 
-        }
-        
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        
-        for(let d = 1; d <= daysInMonth; d++) {
-            const cell = document.createElement('div'); 
-            cell.className = 'day-cell'; 
-            cell.innerText = d;
+        requestAnimationFrame(() => {
+            const dispMonth = document.getElementById('disp-month');
+            const dispYear = document.getElementById('disp-year');
+            if (dispMonth) dispMonth.innerText = this.monthNames[this.currMonth];
+            if (dispYear) dispYear.innerText = this.currYear;
             
-            if (this.tempSelectedDate && this.tempSelectedDate.getDate() === d && this.tempSelectedDate.getMonth() === this.currMonth && this.tempSelectedDate.getFullYear() === this.currYear) {
-                cell.classList.add('selected');
+            const grid = document.getElementById('days-container');
+            if(!grid) return;
+            
+            grid.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            
+            this.dayNames.forEach(d => { 
+                const div = document.createElement('div'); 
+                div.className = 'day-head'; div.innerText = d; 
+                fragment.appendChild(div); 
+            });
+            
+            const firstDay = new Date(this.currYear, this.currMonth, 1).getDay();
+            const daysInMonth = new Date(this.currYear, this.currMonth + 1, 0).getDate();
+            
+            for(let i = 0; i < firstDay; i++) { 
+                const e = document.createElement('div'); 
+                e.className = 'day-cell empty'; 
+                fragment.appendChild(e); 
             }
-            const cellDate = new Date(this.currYear, this.currMonth, d);
-            if (cellDate > today) cell.classList.add('disabled-day'); 
             
-            fragment.appendChild(cell);
-        }
-        
-        grid.appendChild(fragment);
-        this.updateHighlights();
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            
+            for(let d = 1; d <= daysInMonth; d++) {
+                const cell = document.createElement('div'); 
+                cell.className = 'day-cell'; 
+                cell.innerText = d;
+                
+                if (this.tempSelectedDate && this.tempSelectedDate.getDate() === d && this.tempSelectedDate.getMonth() === this.currMonth && this.tempSelectedDate.getFullYear() === this.currYear) {
+                    cell.classList.add('selected');
+                }
+                const cellDate = new Date(this.currYear, this.currMonth, d);
+                if (cellDate > today) cell.classList.add('disabled-day'); 
+                
+                fragment.appendChild(cell);
+            }
+            
+            grid.appendChild(fragment);
+            this.updateHighlights();
+        });
     },
 
     confirmSelection: function() {
@@ -218,16 +226,17 @@ export const CalendarApp = {
     
     toggleList: function(id, e) {
         if(e) e.stopPropagation();
-        document.querySelectorAll('.dropdown-list').forEach(l => { if(l.id !== id) l.classList.remove('active'); });
-        const l = document.getElementById(id); 
-        if(l) { 
-            l.classList.toggle('active'); 
-            if(l.classList.contains('active')) { 
-                const s = l.querySelector('.selected'); 
-                // 🛡️ الإصلاح: التمرير الآمن لتجنب أخطاء المتصفح قبل الريندر
-                if(s) requestAnimationFrame(() => s.scrollIntoView({block:'center'})); 
+        requestAnimationFrame(() => {
+            document.querySelectorAll('.dropdown-list').forEach(l => { if(l.id !== id) l.classList.remove('active'); });
+            const l = document.getElementById(id); 
+            if(l) { 
+                l.classList.toggle('active'); 
+                if(l.classList.contains('active')) { 
+                    const s = l.querySelector('.selected'); 
+                    if(s) s.scrollIntoView({block:'center'}); 
+                }
             }
-        }
+        });
     },
     
     buildDropdowns: function() {
@@ -241,7 +250,7 @@ export const CalendarApp = {
                         e.stopPropagation(); 
                         this.currMonth = parseInt(item.dataset.idx, 10); 
                         this.render(); 
-                        mL.classList.remove('active');
+                        requestAnimationFrame(() => mL.classList.remove('active'));
                     }
                 });
                 mL._boundDelegation = true;
@@ -263,7 +272,7 @@ export const CalendarApp = {
                         e.stopPropagation(); 
                         this.currYear = parseInt(item.dataset.year, 10); 
                         this.render(); 
-                        yL.classList.remove('active');
+                        requestAnimationFrame(() => yL.classList.remove('active'));
                     }
                 });
                 yL._boundDelegation = true;
@@ -278,7 +287,7 @@ export const CalendarApp = {
 };
 
 // =========================================================
-// 3️⃣ تجميع المكونات (مصدّرة كـ Module)
+// 2️⃣ تجميع المكونات (مصدّرة كـ Module)
 // =========================================================
 export const Components = {
     priceTicker: null,
@@ -367,9 +376,11 @@ export const Components = {
     },
     
     toggleCoupon: function(btn) {
-        const section = btn.closest('.coupon-section');
-        if(section) section.classList.toggle('open');
-        if(btn) btn.blur();
+        requestAnimationFrame(() => {
+            const section = btn?.closest('.coupon-section');
+            if(section) section.classList.toggle('open');
+            if(btn) btn.blur();
+        });
     },
 
     checkInputState: function() {
@@ -379,13 +390,15 @@ export const Components = {
         
         if (!codeInput || !pasteIcon) return;
         
-        if (codeInput.value.trim().length > 0) {
-            pasteIcon.style.display = 'none';
-            if (clearIcon && !codeInput.disabled) clearIcon.style.display = 'block';
-        } else {
-            pasteIcon.style.display = 'block';
-            if (clearIcon) clearIcon.style.display = 'none';
-        }
+        requestAnimationFrame(() => {
+            if (codeInput.value.trim().length > 0) {
+                pasteIcon.style.display = 'none';
+                if (clearIcon && !codeInput.disabled) clearIcon.style.display = 'block';
+            } else {
+                pasteIcon.style.display = 'block';
+                if (clearIcon) clearIcon.style.display = 'none';
+            }
+        });
     },
 
     pasteText: async function() {
@@ -408,14 +421,16 @@ export const Components = {
         if (!msgBox) return;
         if (this._couponMsgTimer) clearTimeout(this._couponMsgTimer);
         
-        msgBox.innerHTML = htmlContent;
-        msgBox.className = `coupon-msg-box ${className}`;
-        // 🛡️ الإصلاح: الاعتماد على الكلاس بدلاً من ستايل مباشر
-        msgBox.classList.add('coupon-msg-visible');
+        requestAnimationFrame(() => {
+            msgBox.innerHTML = htmlContent;
+            msgBox.className = `coupon-msg-box ${className} coupon-msg-visible`;
+        });
         
         if (duration > 0) {
             this._couponMsgTimer = setTimeout(() => {
-                if (msgBox.isConnected) msgBox.classList.remove('coupon-msg-visible');
+                if (msgBox.isConnected) {
+                    requestAnimationFrame(() => msgBox.classList.remove('coupon-msg-visible'));
+                }
             }, duration);
         }
     },
@@ -477,20 +492,17 @@ export const Components = {
         if (SysUI && typeof SysUI.updatePriceDisplay === 'function') SysUI.updatePriceDisplay(); 
         if (SysUI) SysUI.sfx?.('success');
 
-        // ✅ الكود الجديد (محصن ضد تضارب العملات)
-const safeCouponValue = Utils.escapeHtml(String(result.coupon.value));
+        const safeCouponValue = Utils.escapeHtml(String(result.coupon.value));
+        const discountText = result.coupon.type === 'percentage' ? `بنسبة ${safeCouponValue}%` : `ثابت`;
 
-// إظهار الرقم فقط إذا كان نسبة مئوية (لأنها ثابتة لكل العملات)، وإلا نكتفي بكلمة "ثابت"
-const discountText = result.coupon.type === 'percentage' ?
-    `بنسبة ${safeCouponValue}%` :
-    `ثابت`;
-
-this._showCouponMessage(msgBox, `<i class="fa-solid fa-check"></i> تم تطبيق خصم ${discountText} بنجاح!`, 'success', 0);
-        codeInput.disabled = true; 
-        if(btnApply) { btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
+        this._showCouponMessage(msgBox, `<i class="fa-solid fa-check"></i> تم تطبيق خصم ${discountText} بنجاح!`, 'success', 0);
         
-        if(pasteIcon) pasteIcon.style.display = 'none'; 
-        if(clearIcon) clearIcon.style.display = 'block'; 
+        requestAnimationFrame(() => {
+            codeInput.disabled = true; 
+            if(btnApply) { btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
+            if(pasteIcon) pasteIcon.style.display = 'none'; 
+            if(clearIcon) clearIcon.style.display = 'block'; 
+        });
 
         if(SysUI) SysUI.showToast('تم تطبيق الخصم بنجاح', 'success');
     },
@@ -505,20 +517,23 @@ this._showCouponMessage(msgBox, `<i class="fa-solid fa-check"></i> تم تطبي
         
         if (SysUI && typeof SysUI.updatePriceDisplay === 'function') SysUI.updatePriceDisplay(); 
         
-        if (codeInput) {
-            codeInput.value = '';
-            codeInput.disabled = false;
-            if (!silent && window.innerWidth > 768) {
-                codeInput.focus();
+        requestAnimationFrame(() => {
+            if (codeInput) {
+                codeInput.value = '';
+                codeInput.disabled = false;
+                if (!silent && window.innerWidth > 768) {
+                    codeInput.focus();
+                }
             }
-        }
 
-        if (btnApply) {
-            btnApply.disabled = false;
-            btnApply.classList.remove('btn-disabled');
-        }
+            if (btnApply) {
+                btnApply.disabled = false;
+                btnApply.classList.remove('btn-disabled');
+            }
+            
+            if (msgBox) msgBox.classList.remove('coupon-msg-visible');
+        });
         
-        if (msgBox) msgBox.classList.remove('coupon-msg-visible');
         if (this._couponMsgTimer) clearTimeout(this._couponMsgTimer);
         
         this.checkInputState(); 
@@ -549,12 +564,14 @@ this._showCouponMessage(msgBox, `<i class="fa-solid fa-check"></i> تم تطبي
         const navIcons = navContainer.querySelectorAll('.nav-icon');
         
         window.updateBottomNavState = function(targetState) {
-            navIcons.forEach(icon => icon.classList.remove('active'));
-            navIcons.forEach(icon => {
-                const action = icon.getAttribute('data-action') || '';
-                if (action.includes(targetState) || (targetState === 'home' && (action === 'go-home' || action === ''))) {
-                    icon.classList.add('active');
-                }
+            requestAnimationFrame(() => {
+                navIcons.forEach(icon => icon.classList.remove('active'));
+                navIcons.forEach(icon => {
+                    const action = icon.getAttribute('data-action') || '';
+                    if (action.includes(targetState) || (targetState === 'home' && (action === 'go-home' || action === ''))) {
+                        icon.classList.add('active');
+                    }
+                });
             });
         };
         
@@ -564,8 +581,10 @@ this._showCouponMessage(msgBox, `<i class="fa-solid fa-check"></i> تم تطبي
                 const clickedIcon = e.target.closest('.nav-icon');
                 if (!clickedIcon) return;
                 
-                navIcons.forEach(i => i.classList.remove('active'));
-                clickedIcon.classList.add('active');
+                requestAnimationFrame(() => {
+                    navIcons.forEach(i => i.classList.remove('active'));
+                    clickedIcon.classList.add('active');
+                });
             });
         }
         

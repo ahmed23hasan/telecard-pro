@@ -1,9 +1,8 @@
 // ============================================================================
-// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - النسخة الماسية V14.8 💎
-// 🌟 التحديث الأقصى: 
-// 1. [Storage Fix]: توجيه الملاحة بـ EventBus نقي.
-// 2. [Lazy Loading]: جلب الأكواد التالفة من السحابة مباشرة لتخفيف الضغط.
-// 3. [Syntax Patch]: إغلاق ثغرة الاستيراد وفصل السطور برمجياً.
+// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - Enterprise V15.0 💎
+// 🌟 التحديث الأقصى (Strict MVC Edition): 
+// 1. MVC Enforcement: منع الـ Actions من التحدث المباشر مع قاعدة البيانات.
+// 2. Storage Fix: توجيه الملاحة بـ EventBus نقي.
 // ============================================================================
 
 import { CatalogController } from './catalogController.js';
@@ -11,7 +10,6 @@ import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { AdminData } from '../../adminData.js';
 import { EventBus } from '../../adminUtils.js';
-import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const CatalogActions = {
   // ==========================================
@@ -69,25 +67,8 @@ export const CatalogActions = {
   // ==========================================
   // 🏦 6. إدارة الأكواد التالفة (Defective Vault)
   // ==========================================
-  'view-defective-codes': async (data) => {
-    const poolId = String(data.id);
-    const pool = AdminData.data.vault?.find(v => String(v.id) === poolId);
-    
-    if (!pool) return EventBus.emit('req-show-toast', { message: 'الصندوق غير موجود', type: 'error' });
-    
-    if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري جلب الأكواد التالفة من السحابة...');
-    try {
-      const defectiveCodes = await FirebaseAdapter.getAll('telecard_vault_returned', 100, 1);
-      const filteredCodes = defectiveCodes.filter(c => String(c.originalPoolId) === poolId);
-      
-      AdminUI?.CatalogUI?.renderDefectiveCodesModal?.(pool.name, filteredCodes);
-    } catch (e) {
-      EventBus.emit('req-show-toast', { message: 'فشل جلب السجلات من السحابة', type: 'error' });
-    } finally {
-      if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-    }
-  },
-  
+  // 🚀 [التصحيح المعماري]: تفويض العملية للمتحكم (Controller)
+  'view-defective-codes': (data) => CatalogController.viewDefectiveCodes?.(data.id),
   'close-defective-modal': () => AdminUI?.CatalogUI?.closeDefectiveModalUI?.()
   
-}; // نهاية الملف
+};

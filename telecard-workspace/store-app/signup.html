@@ -2,11 +2,16 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>إنشاء حساب - تيليكارد</title>
+    <title>إنشاء حساب - المتجر</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <script>
-        const activeUid = localStorage.getItem('tc_active_uid') || localStorage.getItem('telecard_active_user_uid_v20');
+        // 🛡️ الإصلاح الجذري (Bounce Bug Fix): تطهير الكاش القديم قبل فحص حالة الدخول
+        const legacyKeys = ['tc_active_uid', 'telecard_active_user_uid_v20'];
+        legacyKeys.forEach(k => { if(localStorage.getItem(k)) localStorage.removeItem(k); });
+        
+        // استخدام مفتاح V21 المعتمد في المعمارية الجديدة
+        const activeUid = localStorage.getItem('telecard_active_user_uid_v21');
         if (activeUid) window.location.replace('store.html');
     </script>
 
@@ -31,7 +36,7 @@
 
     <div class="auth-container">
         <div class="auth-header">
-            <h1>إنشاء حساب في <span class="glow-gold">تيليكارد</span></h1>
+            <h1>إنشاء حساب في <span class="glow-gold">المتجر</span></h1>
             <p class="sub-text">بوابتك الأولى لعالم الخدمات الرقمية</p>
         </div>
 
@@ -47,7 +52,7 @@
 
         <div class="auth-divider"><span>أو إدخال البيانات يدوياً</span></div>
 
-        <form autocomplete="off" id="regForm">
+        <form autocomplete="off" id="regForm" onsubmit="event.preventDefault(); validateAndRegister();">
             <div class="form-grid">
                 
                 <div class="floating-group">
@@ -95,7 +100,7 @@
 
             </div>
 
-            <button type="button" class="pm-btn-gold btn-pro" style="height: 56px; width: 100%; margin-top: 15px; border-radius: var(--radius-md);" id="submitBtn" onclick="validateAndRegister()">
+            <button type="submit" class="pm-btn-gold btn-pro" style="height: 56px; width: 100%; margin-top: 15px; border-radius: var(--radius-md);" id="submitBtn">
                 <span class="btn-content">إنشاء حساب جديد</span>
                 <span class="btn-spinner">
                     <i class="fa-solid fa-spinner fa-spin"></i>
@@ -109,10 +114,10 @@
     </div>
 
 <script type="module">
-    import { auth } from './core/firebaseAdapter.js';
-    import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
     import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES, ACTIVE_USER_KEY } from './config.js'; 
-    import { StoreDB } from './dataManager.js';
+    // 🛡️ التحديث المعماري: استيراد محول قاعدة البيانات المباشر لتخفيف وزن الصفحة
+    import { auth, FirebaseAdapter as StoreDB } from './core/firebaseAdapter.js';
+    import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const googleProvider = new GoogleAuthProvider();
     let preFetchedCurrency = 'USD'; 
@@ -287,14 +292,14 @@
             const firebaseUser = result.user;
 
             let activeUserObj = null;
-            let isBrandNewUser = false; // 🛡️ كاشف العميل الجديد
+            let isBrandNewUser = false; 
 
             if(StoreDB && typeof StoreDB.getById === 'function') {
                 activeUserObj = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid);
             }
 
             if (!activeUserObj) {
-                isBrandNewUser = true; // تم التأكد أنه عميل جديد
+                isBrandNewUser = true; 
                 const shortDisplayId = await generateUniqueDisplayId();
                 const rawDisplayName = firebaseUser.displayName || '';
                 
@@ -342,14 +347,14 @@
                 }
             }
 
-            localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
-            localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(activeUserObj));
-            localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', activeUserObj.baseCurrency || 'USD');
-            if (activeUserObj.img) localStorage.setItem((DYNAMIC_PREFIXES?.USER_IMAGE || 'tc_uimg_') + firebaseUser.uid, activeUserObj.img);
+            // 🛡️ حفظ المفاتيح الجديدة حصراً
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
+            localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(activeUserObj));
+            localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, activeUserObj.baseCurrency || 'USD');
+            if (activeUserObj.img) localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, activeUserObj.img);
 
             showButtonSuccess(btn, "تم إنشاء الحساب");
             
-            // 🛡️ إرسال إشارة للمتجر للترحيب الخاص (فقط إذا كان العميل جديداً فعلاً)
             if (isBrandNewUser) {
                 sessionStorage.setItem('tc_new_user_signup', 'true');
             }
@@ -425,13 +430,13 @@
 
             if(StoreDB && typeof StoreDB.set === 'function') await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, newUser);
 
-            localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
-            localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(newUser));
-            localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', preFetchedCurrency);
+            // 🛡️ حفظ المفاتيح الجديدة حصراً
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
+            localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(newUser));
+            localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, preFetchedCurrency);
 
             showButtonSuccess(btn, "تم إنشاء الحساب");
             
-            // 🛡️ إرسال إشارة للمتجر للترحيب الخاص 
             sessionStorage.setItem('tc_new_user_signup', 'true');
 
             setTimeout(() => { window.location.replace("store.html"); }, 1500);

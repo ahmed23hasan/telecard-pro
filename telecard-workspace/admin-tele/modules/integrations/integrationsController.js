@@ -1,14 +1,14 @@
 // ============================================================================
-// 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js) - V9.0 💎
+// 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js) - V15.0 💎
 // 🎯 الوظيفة: إدارة واجهة الموردين والتواصل مع المحرك السحابي (Supplier Engine)
-// 🌟 التحديث الأقصى: فك الارتباط الدائري، ترقية البحث لـ O(1)، وتوحيد الـ UI Events
+// 🌟 التحديث الأقصى: 
+// 1. Audit Trail Fix: تسجيل عمليات الإيقاف والتفعيل في السجل لضمان المساءلة الرقابية.
+// 2. فك الارتباط الدائري، ترقية البحث لـ O(1)، وتوحيد الـ UI Events.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminUI } from '../../adminUI.js';
 import { EventBus, Utils } from '../../adminUtils.js';
-
-// 🚀 [نقاء هندسي]: تم إزالة AppController لفك الارتباط الدائري تماماً
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const IntegrationsController = {
@@ -23,7 +23,6 @@ export const IntegrationsController = {
         const token = Utils.escapeHTML(Utils.getVal('supp-token'));
         const margin = parseFloat(Utils.getVal('supp-margin')) || 0;
         
-        // ⚡ استخدام دالة الـ Utils الموحدة
         const autoSync = Utils.getCheck('supp-auto-sync');
 
         if (!name || !baseUrl) {
@@ -34,7 +33,6 @@ export const IntegrationsController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تشفير وحفظ بيانات المورد سحابياً...');
 
         try {
-            // 🌟 استدعاء السيرفر عبر البوابة المدرعة
             const result = await FirebaseAdapter.callFunction('secureSaveSupplier', { 
                 id, name, type, baseUrl, token, defaultMargin: margin, autoSync 
             });
@@ -57,16 +55,14 @@ export const IntegrationsController = {
                     AdminData.data.suppliers.push(supplierData);
                 }
 
-                // ⚡ تحديث الـ Map فورياً محلياً للبحث بـ O(1)
                 if (!AdminData.data.suppliersMap) AdminData.data.suppliersMap = {};
                 AdminData.data.suppliersMap[finalId] = supplierData;
 
                 if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
 
-                // 🚀 استخدام EventBus بدلاً من AppController لإنهاء العملية (Decoupling)
                 EventBus.emit('req-finish-action', {
                     renderEvent: 'req-render-integrations',
-                    modalId: 'modal', // أو اسم الـ ID الخاص بنافذة المورد لديك
+                    modalId: 'modal', 
                     logAction: id ? 'UPDATE_SUPPLIER' : 'ADD_SUPPLIER',
                     logDetails: `تحديث المورد: ${name}`,
                     toastMsg: 'تم حفظ بيانات المورد بأمان تام'
@@ -95,6 +91,11 @@ export const IntegrationsController = {
 
             supp.isActive = isChecked;
             if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
+
+            // 🛡️ [سد الثغرة الأمنية]: توثيق الحدث في السجلات الجنائية للإدارة
+            if (AdminData.addLog) {
+                AdminData.addLog('TOGGLE_SUPPLIER', `تم ${isChecked ? 'تفعيل' : 'إيقاف'} المورد: ${supp.name}`);
+            }
 
             EventBus.emit('req-show-toast', { 
                 message: isChecked ? `تم تفعيل المورد (${supp.name}) بنجاح` : `تم إيقاف المورد (${supp.name}) مؤقتاً`, 
@@ -131,7 +132,6 @@ export const IntegrationsController = {
                 
                 if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
                 
-                // 🚀 إنهاء العملية عبر الـ EventBus الموحد
                 EventBus.emit('req-finish-action', {
                     renderEvent: 'req-render-integrations',
                     modalId: null,

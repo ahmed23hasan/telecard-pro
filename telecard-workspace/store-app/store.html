@@ -32,14 +32,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     
-    <!-- 🛡️ الإصلاح 1: تفعيل الأرشفة ليظهر متجرك في محركات البحث -->
+    <!-- 🛡️ الأرشفة لتظهر في محركات البحث -->
     <meta name="robots" content="index, follow">
-<meta name="description" content="متجر تيليكارد - بوابتك الآمنة والسريعة لشراء البطاقات الرقمية، شدات الألعاب، وبطاقات الهدايا بأفضل الأسعار وتوصيل فوري.">
+    <meta name="description" content="متجر تيليكارد - بوابتك الآمنة والسريعة لشراء البطاقات الرقمية، شدات الألعاب، وبطاقات الهدايا بأفضل الأسعار وتوصيل فوري.">
     <title>TELE CARD | المتجر</title>
+
+    <!-- 🌟 بطاقات المشاركة على السوشيال ميديا (Open Graph) -->
+    <meta property="og:title" content="TELE CARD | المتجر">
+    <meta property="og:description" content="بوابتك الآمنة والسريعة لشراء البطاقات الرقمية، شدات الألعاب، وبطاقات الهدايا بأفضل الأسعار وتوصيل فوري.">
+    <!-- يمكنك لاحقاً استبدال هذا الرابط برابط اللوجو الرسمي لمتجرك -->
+    <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"> 
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
 
     <!-- 🚀 مفتاح عبور تطبيق الجوال لجميع الأنظمة (Android + iOS) -->
     <link rel="manifest" id="dynamic-manifest" href="./manifest.json">
-    <!-- 🛡️ الإصلاح 2: توافق أيقونات التثبيت لأجهزة آبل (آيفون/آيباد) -->
+    <!-- 🛡️ توافق أيقونات التثبيت لأجهزة آبل (آيفون/آيباد) -->
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -47,8 +55,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- 🚀 نظام التصميم المركزي النظيف -->
-    <link rel="stylesheet" href="style.css">
+    <!-- 🚀 نظام التصميم المركزي النظيف (مع كسر كاش المتصفح للإصدار الجديد) -->
+    <link rel="stylesheet" href="style.css?v=20.8.5">
 
     <!-- 🛡️ مكتبات النظام الأساسية المحصنة -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
@@ -81,18 +89,19 @@
             <i class="fa-solid fa-store splash-icon"></i>
         </div>
         <h2 id="splash-store-name" class="splash-title">جاري التحميل...</h2>
-</div>
+    </div>
 
-<!-- 🛡️ استرجاع اسم المتجر فقط للحفاظ على أناقة شاشة الإقلاع -->
-<script>
-    (function() {
-        var cachedStoreName = localStorage.getItem('tc_splash_name') || localStorage.getItem('telecard_splash_name');
-        if (cachedStoreName) {
-            document.getElementById('splash-store-name').textContent = cachedStoreName;
-        }
-    })();
-</script>
-<!-- 🚨 نافذة الحماية والطرد المباشر -->
+    <!-- 🛡️ استرجاع اسم المتجر فقط للحفاظ على أناقة شاشة الإقلاع -->
+    <script>
+        (function() {
+            var cachedStoreName = localStorage.getItem('tc_splash_name') || localStorage.getItem('telecard_splash_name');
+            if (cachedStoreName) {
+                document.getElementById('splash-store-name').textContent = cachedStoreName;
+            }
+        })();
+    </script>
+
+    <!-- 🚨 نافذة الحماية والطرد المباشر -->
     <div class="global-alert-overlay master-overlay" id="global-security-alert" role="dialog" aria-modal="true">
         <div class="global-alert-card">
             <div class="global-icon-box">
@@ -215,7 +224,7 @@
             
         <div id="sidebar-kyc-container"></div>
         
-        <!-- 🛡️ الإصلاح 3: تطهير صندوق الـ PWA من الستايلات المدمجة والاعتماد على Classes -->
+        <!-- 🛡️ التطهير من الستايلات المدمجة والاعتماد على Classes -->
         <div id="pwa-install-container" class="pwa-banner-wrapper">
             <div class="pwa-banner-icon"><i class="fa-solid fa-mobile-screen"></i></div>
             <h4 class="pwa-banner-title">احصل على تطبيقنا</h4>
@@ -1400,15 +1409,24 @@
 
 
 <!-- ========================================================================= -->
-<!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.4 💎 -->
+<!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.5 💎 -->
 <!-- ========================================================================= -->
 <script>
     (function initMobileDevTools() {
         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('github.dev');
         const isDebugUrl = window.location.search.includes('debug=1');
 
-        if (!isLocal && !isDebugUrl && localStorage.getItem('dev_mode') !== '1') return;
-        localStorage.setItem('dev_mode', '1');
+        // 🛡️ كتم الكونسول في بيئة الإنتاج لمنع المتطفلين (إن لم يكن المطور)
+        const isDevMode = sessionStorage.getItem('dev_mode') === '1';
+        if (!isLocal && !isDebugUrl && !isDevMode) {
+            console.log = function() {}; 
+            console.warn = function() {};
+            // نترك console.error تعمل بصمت لالتقاطها عبر أنظمة التتبع إن وجدت
+            return;
+        }
+
+        // 🛡️ استخدام sessionStorage لمنع احتجاز الزوار في وضع المطور للأبد
+        sessionStorage.setItem('dev_mode', '1');
         
         document.body.insertAdjacentHTML('beforeend', `
             <div id="tc-dev-console" style="position:fixed; bottom:0; left:0; width:100%; height:50%; background:rgba(15, 23, 42, 0.98); color:#10b981; font-family:'Courier New', monospace; font-size:12px; z-index:9999999999; overflow-y:auto; border-top:4px solid #3b82f6; direction:ltr; text-align:left; display:none; padding-top:60px; box-shadow: 0 -10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);">
@@ -1437,71 +1455,66 @@
         const origWarn = console.warn;
         const origError = console.error;
         
-        // 🛡️ التحديث الآمن: منع انهيار المتصفح عند طباعة كائنات فايربيز المعقدة
         const formatMsg = (args) => Array.from(args).map(a => {
             if (a instanceof Error) return `${a.name}: ${a.message}`;
             if (typeof a === 'object' && a !== null) {
-                try {
-                    return JSON.stringify(a);
-                } catch (e) {
-                    return '[كائن معقد لا يمكن طباعته - Object]';
-                }
+                try { return JSON.stringify(a); } catch (e) { return '[كائن معقد لا يمكن طباعته - Object]'; }
             }
             return String(a);
         }).join(' ');
+
         console.log = function(...args) {
             origLog.apply(console, args);
-            
             const logDiv = document.createElement('div');
             logDiv.style.cssText = "color:#34d399; border-bottom:1px dashed #334155; padding:8px 0;";
             logDiv.textContent = `[LOG] ${formatMsg(args)}`;
             logsContainer.appendChild(logDiv);
-            
             devConsole.scrollTop = devConsole.scrollHeight;
         };
         
         console.warn = function(...args) {
             origWarn.apply(console, args);
-            
             const warnDiv = document.createElement('div');
             warnDiv.style.cssText = "color:#fbbf24; border-bottom:1px dashed #334155; padding:8px 0;";
             warnDiv.textContent = `[WARN] ${formatMsg(args)}`;
             logsContainer.appendChild(warnDiv);
-            
             devConsole.scrollTop = devConsole.scrollHeight;
         };
         
         console.error = function(...args) {
             origError.apply(console, args);
-            
             const errDiv = document.createElement('div');
             errDiv.style.cssText = "color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);";
             errDiv.textContent = `[ERROR] ${formatMsg(args)}`;
             logsContainer.appendChild(errDiv);
-            
             devConsole.scrollTop = devConsole.scrollHeight;
             if (!document.hidden) devConsole.style.display = 'block'; 
         };
         
         window.addEventListener('error', function(e) {
             const target = e.target || e.srcElement;
-            const tag = target?.tagName?.toUpperCase();
+            const isElement = target instanceof HTMLElement;
 
-            if (tag === 'IMG') {
-                console.warn(`⚠️ رابط صورة مكسور: ${target.src || 'غير معروف'}`);
-                return;
-            } 
-            
-            if (tag === 'SCRIPT' || tag === 'LINK') {
-                const missingFile = target.src || target.href || 'Unknown File';
+            // 🛡️ فلترة دقيقة للأخطاء للتمييز بين الملفات المفقودة وأخطاء التشغيل
+            if (isElement) {
+                const tag = target.tagName.toUpperCase();
+
+                if (tag === 'IMG') {
+                    console.warn(`⚠️ رابط صورة مكسور: ${target.src || 'غير معروف'}`);
+                    return;
+                } 
                 
-                if (isLocal && target.type === 'module') {
-                    console.warn(`⚠️ السيرفر المحلي للمحرر حظر ملف (Module) بسبب قيود (MIME/CORS). المتجر سيعمل بشكل مثالي عند الرفع على Firebase.\nالملف المحظور: ${missingFile}`);
+                if (tag === 'SCRIPT' || tag === 'LINK') {
+                    const missingFile = target.src || target.href;
+                    if (missingFile) {
+                        if (isLocal && target.type === 'module') {
+                            console.warn(`⚠️ السيرفر المحلي للمحرر حظر ملف (Module) بسبب قيود (MIME/CORS). المتجر سيعمل بشكل مثالي عند الرفع على Firebase.\nالملف المحظور: ${missingFile}`);
+                        } else {
+                            console.error(`❌ فشل في تحميل ملف أساسي: ${missingFile}`);
+                        }
+                    }
                     return;
                 }
-                
-                console.error(`❌ فشل في تحميل ملف أساسي: ${missingFile}`);
-                return;
             }
             
             if (e.message) {
@@ -1538,7 +1551,7 @@
             document.body.removeChild(textarea);
         });
 
-        console.log("🚀 TeleCard DevTools V3.4 Initialized!");
+        console.log("🚀 TeleCard DevTools V3.5 Initialized!");
     })();
 </script>
 
@@ -1546,11 +1559,8 @@
 <!-- ⚡ محرك تطبيق الجوال (PWA Service Worker Registration) -->
 <!-- ========================================================================= -->
 <script>
-    // 1. فحص الأمان: نتأكد أولاً أن متصفح العميل يدعم هذه التقنية
     if ('serviceWorker' in navigator) {
-        // 2. إدارة الأداء: لا نوقظ العامل إلا بعد أن تكتمل الصفحة تماماً (load)
         window.addEventListener('load', () => {
-            // 3. الإيقاظ والتسجيل: نوجه المتصفح لمكان ملف sw.js
             navigator.serviceWorker.register('./sw.js')
                 .then((registration) => {
                     console.log('✅ [PWA Engine] تم تشغيل محرك تطبيق الجوال بنجاح! النطاق:', registration.scope);

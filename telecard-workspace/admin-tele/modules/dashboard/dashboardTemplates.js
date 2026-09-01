@@ -1,7 +1,8 @@
 // ============================================================================
-// 📊 قوالب لوحة القيادة والمبيعات (modules/dashboard/dashboardTemplates.js) - V11.0 👑
-// 🎯 الوظيفة: توليد الـ HTML للأدوات المالية، الإحصائيات، ومنصة التتويج الملكية
-// 🚀 التحديث: اعتماد نظام "الأوسمة الرقمية" (Minimalist Medals) وإلغاء الصور للاتساق
+// 📊 قوالب لوحة القيادة والمبيعات (modules/dashboard/dashboardTemplates.js) - V15.1 👑
+// 🎯 الوظيفة: توليد الـ HTML للأدوات المالية، الإحصائيات، ومؤشرات النمو
+// 🚀 التحديث الأقصى: 
+// 1. Growth Engine: دمج مؤشرات (الأسهم الخضراء والحمراء) لمقارنة الفترات الزمنية.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -12,6 +13,71 @@ const _enNum = Utils.enNum;
 
 export const DashboardTemplates = {
     
+    // 🌟 [محرك حساب النمو - Growth Engine]
+    growthBadge: (curr, prev) => {
+        if (prev === 0 && curr === 0) return '<span class="fs-11 text-muted" dir="ltr">0%</span>';
+        if (prev === 0) return '<span class="fs-11 text-success fw-bold" dir="ltr"><i class="fa-solid fa-arrow-trend-up"></i> 100%</span>';
+        
+        const pct = ((curr - prev) / prev) * 100;
+        const formatted = _enNum(Math.abs(pct), 1) + '%';
+        
+        if (pct > 0) return `<span class="fs-11 text-success fw-bold" dir="ltr" title="مقارنة بالفترة السابقة"><i class="fa-solid fa-arrow-trend-up"></i> +${formatted}</span>`;
+        if (pct < 0) return `<span class="fs-11 text-danger fw-bold" dir="ltr" title="مقارنة بالفترة السابقة"><i class="fa-solid fa-arrow-trend-down"></i> -${formatted}</span>`;
+        return `<span class="fs-11 text-muted fw-bold" dir="ltr">0%</span>`;
+    },
+
+    // 🌟 [لوحة ملخص المبيعات مع مؤشرات النمو]
+    salesExecutiveSummary: function(currStats, prevStats, range) {
+        const isComparing = range !== 'all';
+        const growthRev = isComparing ? this.growthBadge(currStats.revenue, prevStats.revenue) : '';
+        const growthCost = isComparing ? this.growthBadge(currStats.cost, prevStats.cost) : '';
+        const growthProf = isComparing ? this.growthBadge(currStats.profit, prevStats.profit) : '';
+        const growthCount = isComparing ? this.growthBadge(currStats.count, prevStats.count) : '';
+
+        return `
+            <div class="dash-circ-card">
+                <div class="circ-icon bg-primary"><i class="fa-solid fa-money-bill-trend-up"></i></div>
+                <div class="circ-data">
+                    <div class="flex-between align-items-center w-100 mb-5">
+                        <h3 class="num-en text-primary m-0" dir="ltr">${RenderHelpers.formatMoney(currStats.revenue, 'USD', 2)}</h3>
+                        ${growthRev}
+                    </div>
+                    <span>إجمالي الإيرادات</span>
+                </div>
+            </div>
+            <div class="dash-circ-card">
+                <div class="circ-icon bg-danger"><i class="fa-solid fa-hand-holding-dollar"></i></div>
+                <div class="circ-data">
+                    <div class="flex-between align-items-center w-100 mb-5">
+                        <h3 class="num-en text-danger m-0" dir="ltr">${RenderHelpers.formatMoney(currStats.cost, 'USD', 2)}</h3>
+                        ${growthCost}
+                    </div>
+                    <span>إجمالي التكاليف</span>
+                </div>
+            </div>
+            <div class="dash-circ-card">
+                <div class="circ-icon bg-gold"><i class="fa-solid fa-sack-dollar"></i></div>
+                <div class="circ-data">
+                    <div class="flex-between align-items-center w-100 mb-5">
+                        <h3 class="num-en text-gold m-0" dir="ltr">${RenderHelpers.formatMoney(currStats.profit, 'USD', 2)}</h3>
+                        ${growthProf}
+                    </div>
+                    <span>الربح الصافي</span>
+                </div>
+            </div>
+            <div class="dash-circ-card">
+                <div class="circ-icon bg-warning"><i class="fa-solid fa-box-open"></i></div>
+                <div class="circ-data">
+                    <div class="flex-between align-items-center w-100 mb-5">
+                        <h3 class="num-en text-warning m-0" dir="ltr">${_enNum(currStats.count)}</h3>
+                        ${growthCount}
+                    </div>
+                    <span>الطلبات الناجحة</span>
+                </div>
+            </div>
+        `;
+    },
+
     // 💰 قوالب المحافظ والسيولة
     dashEmptyWallets: () => `
         <div class="dash-circ-card" data-action="nav" data-target="wallets">
@@ -28,7 +94,6 @@ export const DashboardTemplates = {
             </div>
         </div>`,
     
-    // 🎟️ مركز تحليل العروض والكوبونات
     dashCouponsSection: (promoStats) => `
         <div class="dash-group-header">
             <h4><i class="fa-solid fa-tags text-purple"></i> مركز تحليل العروض والخصومات الشامل</h4>
@@ -41,7 +106,6 @@ export const DashboardTemplates = {
             <div class="dash-circ-card" data-action="nav" data-target="coupons"><div class="circ-icon bg-purple"><i class="fa-solid fa-ticket"></i></div><div class="circ-data"><h3 class="num-en text-purple" dir="ltr">${_esc(promoStats.topCoupon || '---')}</h3><span>الكوبون الأقوى</span></div></div>
         </div>`,
     
-    // 🏆 مجتمع الأبطال (لوحة الشرف) - التصميم المينيمالي الماسي
     dashCommunitySection: (podiumHtml, activeUserHtml, currentFilter = 'all') => `
         <div class="dash-group-header dash-header-with-filter">
             <h4><i class="fa-solid fa-trophy text-gold"></i> مجتمع الأبطال (لوحة الشرف)</h4>
@@ -61,7 +125,6 @@ export const DashboardTemplates = {
             return `<div class="podium-container"><div class="empty-alert text-muted align-self-center"><i class="fa-solid fa-trophy"></i><span>لا توجد بيانات كافية</span></div></div>`;
         }
         
-        // 🎖️ مخطط منصة التتويج: [المركز الثاني (يسار)، المركز الأول (وسط)، المركز الثالث (يمين)]
         const podiumSchema = [
             { index: 1, rankClass: 'rank-2', num: '2' },
             { index: 0, rankClass: 'rank-1', num: '1' },
@@ -84,7 +147,6 @@ export const DashboardTemplates = {
                         </div>
                     </div>`;
             } else {
-                // 🛡️ إضافة مكان فارغ (Ghost Slot) للحفاظ على هيبة المنصة وتوازنها البصري
                 html += `<div class="podium-item ${slot.rankClass} podium-ghost"></div>`;
             }
         });
@@ -106,7 +168,6 @@ export const DashboardTemplates = {
             </div>`;
     },
     
-    // 📊 الهيكل الرئيسي للكبسولات
     dashGrid: (stats, walletsCapsules, couponsHtml, communityHtml) => `
         <div class="dash-group-header"><h4><i class="fa-solid fa-money-bill-trend-up text-gold"></i> النبض المالي</h4><div class="group-line"></div></div>
         <div class="dash-circ-grid">
@@ -133,7 +194,7 @@ export const DashboardTemplates = {
         ${communityHtml || ''}
     `,
     
-    dashEmptyAlerts: () => `<div class="empty-alert text-muted"><i class="fa-solid fa-check-circle"></i> النظام مستقر، لا توجد تنبيهات.</div>`,
+    dashEmptyAlerts: () => `<div class="empty-alert text-muted"><i class="fa-solid fa-check-circle"></i> النظام مستقر، لا توجد تنبيهات أو مهام معلقة.</div>`,
     
     dashAlertItem: (type, icon, text, actionStr, timeStr) => `
         <div class="smart-alert-item alert-${type} ${actionStr ? 'clickable' : ''}" ${actionStr || ''}>

@@ -1,7 +1,10 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V24.0.0 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - النسخة الموحدة V25.3.0 💎 (The Oracle)
 // 🎯 الوظيفة: محاكاة أسعار السيرفر بدقة 100%، كشف الأرباح، وتشخيص الأخطاء بشفافية للمدير.
-// 🚀 التحديثات: مطابقة تامة لمعمارية السيرفر (Math Parity, Type Safety, Absolute Discount Cap).
+// 🚀 التحديثات المعمارية: 
+// 1. Full Synchronization: إضافة calculateDepositFee لمطابقة السيرفر والواجهة.
+// 2. Variable Collision Fix: فصل حدود الإيداع عن حدود العمولة.
+// 3. Time Safety: إضافة parseSafeTime المركزية لحماية محاكي الكوبونات من الانهيار.
 // ============================================================================
 
 export class FinancialSecurityError extends Error { 
@@ -44,12 +47,10 @@ const FinancialEngineDef = {
     },
 
     safeAdd: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalAdd(a, b)); },
-    // 🛠️ تم التوحيد الرياضي: إرجاع القيمة الحقيقية (حتى لو سالبة) للمطابقة مع السيرفر
     safeSub: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(a, b)); },
     safeMul: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(a, b)); },
     safeDiv: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalDiv(a, b)); },
 
-    // 🛠️ الصرامة المطلقة في استخراج الأرقام (Type Safety)
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '' || Array.isArray(val) || typeof val === 'object') return 0;
         const num = Number(val);
@@ -57,6 +58,110 @@ const FinancialEngineDef = {
         if (!allowZero && num === 0) return 1;
         return num;
     },
+
+    // 🚀 أداة الوقت الآمنة لتوحيد قراءة كائنات التاريخ من قاعدة البيانات
+    parseSafeTime: function(val) {
+        if (val === null || val === undefined || val === '') return Date.now();
+        if (typeof val === 'number') return val;
+        if (typeof val.toMillis === 'function') return val.toMillis();
+        if (val.seconds !== undefined) return val.seconds * 1000;
+        if (val._seconds !== undefined) return val._seconds * 1000;
+        if (val instanceof Date) return val.getTime();
+        if (typeof val === 'string') {
+            const parsed = new Date(val.includes('T') ? val : val.replace(/-/g, '/')).getTime();
+            return isNaN(parsed) ? Date.now() : parsed;
+        }
+        return Date.now();
+    },
+
+    // ========================================================================
+    // 🏦 القسم الثاني: معالجة الإيداعات ورسوم البوابات (Gateway Engine)
+    // ========================================================================
+    
+    calculateDepositNet: function(amount, feeSettings = {}) {
+        const amt = FinancialEngineDef.extractNum(amount);
+        if (amt === 0) return 0;
+        if (!feeSettings || Object.keys(feeSettings).length === 0) return amt;
+
+        const feeType = feeSettings.feeType || 'fee'; 
+        const feeUnit = feeSettings.feeUnit || 'percent'; 
+        const feeVal = FinancialEngineDef.extractNum(feeSettings.fee);
+
+        if (feeVal === 0) return amt;
+
+        let feeAmount = 0;
+        if (feeUnit === 'fixed') {
+            feeAmount = feeVal;
+        } else {
+            feeAmount = FinancialEngineDef.safeMul(amt, FinancialEngineDef.safeDiv(feeVal, 100));
+        }
+
+        // 🚀 الإصلاح: استخدام minFee / maxFee لمنع التضارب مع حدود الإيداع
+        const minFee = FinancialEngineDef.extractNum(feeSettings.minFee);
+        const maxFee = FinancialEngineDef.extractNum(feeSettings.maxFee);
+        
+        if (minFee > 0 && feeAmount < minFee) feeAmount = minFee;
+        if (maxFee > 0 && feeAmount > maxFee) feeAmount = maxFee;
+
+        return feeType === 'bonus' 
+            ? FinancialEngineDef.safeAdd(amt, feeAmount) 
+            : Math.max(0, FinancialEngineDef.safeSub(amt, feeAmount));
+    },
+
+    // 🚀 إضافة دالة محاكاة الإيداعات الشاملة لنسخة الإدارة (لمطابقة السيرفر والواجهة)
+    calculateDepositFee: function(amt, method, payCurr, baseCur = 'USD', rates = [], globalSettings = {}) {
+        const cleanAmt = FinancialEngineDef.extractNum(amt, true);
+        const curr = String(payCurr || 'USD').toUpperCase();
+        
+        let s = method?.currencySettings?.[curr] 
+            ? { 
+                fee: parseFloat(method.currencySettings[curr].fee || method.currencySettings[curr].value) || 0, 
+                min: parseFloat(method.currencySettings[curr].min || method.currencySettings[curr].minVal) || 0, 
+                max: parseFloat(method.currencySettings[curr].max || method.currencySettings[curr].maxVal) || 0, 
+                minFee: parseFloat(method.currencySettings[curr].minFee) || 0, 
+                maxFee: parseFloat(method.currencySettings[curr].maxFee) || 0,
+                feeType: method.currencySettings[curr].feeType || method.currencySettings[curr].type || 'fee', 
+                feeUnit: method.currencySettings[curr].feeUnit || method.currencySettings[curr].fee_unit || method.currencySettings[curr].unit || 'percent' 
+              }
+            : { 
+                fee: parseFloat(method?.fee || method?.value) || 0, 
+                min: parseFloat(method?.min || method?.minVal) || 0, 
+                max: parseFloat(method?.max || method?.maxVal) || 0, 
+                minFee: parseFloat(method?.minFee) || 0, 
+                maxFee: parseFloat(method?.maxFee) || 0,
+                feeType: method?.feeType || method?.type || 'fee', 
+                feeUnit: method?.feeUnit || method?.fee_unit || method?.unit || 'percent' 
+              };
+
+        let rawGlobalMaxUsd = parseFloat(globalSettings?.globalMaxDepositUsd || globalSettings?.maxDeposit);
+        let globalMaxUsd = (isNaN(rawGlobalMaxUsd) || rawGlobalMaxUsd <= 0) ? 5000 : rawGlobalMaxUsd;
+        
+        let dynamicGlobalMax = globalMaxUsd;
+        if (curr !== 'USD') {
+            dynamicGlobalMax = FinancialEngineDef.convertViaUSD(globalMaxUsd, 'USD', curr, rates, 'deposit');
+        }
+
+        if (!method || cleanAmt <= 0) return { isValid: false, msg: 'مبلغ غير صالح' };
+        if (s.min > 0 && cleanAmt < s.min) return { isValid: false, msg: `عذراً، أقل مبلغ للإيداع هو ${s.min} ${curr}` };
+
+        if (s.max > 0) {
+            if (cleanAmt > s.max) return { isValid: false, msg: `أقصى حد للإيداع بطريقة الدفع هذه هو ${s.max} ${curr}` };
+        } else {
+            if (cleanAmt > dynamicGlobalMax) {
+                const displayLimit = FinancialEngineDef._preciseRound(dynamicGlobalMax, 0); 
+                return { isValid: false, msg: `أقصى حد للإيداع في المرة الواحدة هو ${displayLimit} ${curr}` };
+            }
+        }
+
+        const netPayCurr = FinancialEngineDef.calculateDepositNet(cleanAmt, s);
+        let netBase = FinancialEngineDef.convertViaUSDHelper(netPayCurr, curr, baseCur, rates, 'floor', 'deposit');
+        
+        return { isValid: true, netBase: isNaN(netBase) ? 0 : netBase, feePct: s.fee, feeType: s.feeType, feeUnit: s.feeUnit, adminMax: s.max, adminMin: s.min };
+    },
+
+    // ========================================================================
+    // 💱 القسم الثالث: محول العملات المتعدد (Currency Exchange)
+    // ========================================================================
 
     normalizeRates: function(raw) {
         const ratesMap = {};
@@ -113,11 +218,11 @@ const FinancialEngineDef = {
     },
 
     // ========================================================================
-    // 💼 القسم الثاني: محاكاة التسعير والجدار الناري الصريح (Honest Simulator)
+    // 💼 القسم الرابع: محاكاة التسعير والجدار الناري الصريح (Honest Simulator)
     // ========================================================================
 
     validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
-        if (!code) return { valid: false, msg: 'لم يتم إدخال كود' };
+        if (!code) return { valid: false, msg: 'لم يتم تقديم كود خصم' };
         
         if (offer && typeof offer === 'object' && offer.isActive !== false && offer.type !== 'fake') {
             return { valid: false, msg: 'عذراً، لا يمكن استخدام الكوبونات مع العروض الترويجية' };
@@ -127,21 +232,26 @@ const FinancialEngineDef = {
         if (!cp) return { valid: false, msg: 'كوبون غير صحيح' };
         if (cp.isActive === false) return { valid: false, msg: 'الكوبون غير مفعل' };
         
-        if (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true') { 
-            return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم استخدام الكوبونات' }; 
+        if (FinancialEngineDef.extractNum(cp.value) <= 0) {
+            return { valid: false, msg: 'الكوبون غير صالح للاستخدام (قيمة معدومة)' };
         }
         
-        let expiryMs = 0;
-        if (cp.expiryDate) {
-            expiryMs = typeof cp.expiryDate.toMillis === 'function' 
-                ? cp.expiryDate.toMillis() 
-                : new Date(cp.expiryDate).getTime();
+        const isCouponDisabled = (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true');
+        if (isCouponDisabled) return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم الكوبونات' }; 
+
+        // 🚀 الإصلاح: ربط فحص التواريخ بالمحرك الزمني المركزي 
+        if (cp.startDate) {
+            const startMs = FinancialEngineDef.parseSafeTime(cp.startDate);
+            if (startMs > 0 && now < startMs) return { valid: false, msg: 'هذا الكوبون لم تبدأ فترة صلاحيته بعد' };
         }
 
-        if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
+        if (cp.expiryDate) {
+            const expiryMs = FinancialEngineDef.parseSafeTime(cp.expiryDate);
+            if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
+        }
         
-        if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'استنفد الحد الأقصى للاستخدام' };
-        if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'غير متاح لهذا المستوى' };
+        if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'استنفد الكوبون الحد الأقصى للاستخدام' };
+        if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'الكوبون غير متاح لمستوى حسابك' };
         
         const isProdMatched = cp.targetProds?.length > 0 ? cp.targetProds.includes(String(prod.id)) : true;
         let isCatMatched = true;
@@ -156,7 +266,7 @@ const FinancialEngineDef = {
         }
 
         if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.some(u => String(u) === String(user?.uid || user?.id))) {
-            return { valid: false, msg: 'غير مسموح لهذا المستخدم' };
+            return { valid: false, msg: 'غير مسموح لك باستخدام هذا الكوبون' };
         }        
         
         if (Number(cp.minOrder) > 0) {
@@ -185,11 +295,13 @@ const FinancialEngineDef = {
                 cost = FinancialEngineDef.extractNum(activeOption.costPrice || activeOption.cost_price || cost);
                 if (activeOption.isFixedPrice !== undefined) isFixed = (String(activeOption.isFixedPrice).toLowerCase() === 'true');
             } else {
-                throw new FinancialSecurityError(`الـ Index الممرر للخيارات (${optIdx}) غير صالح! السيرفر سيرفض هذا الطلب.`);
+                return { costUsd: 0, tierPrice: 0, originalPrice: 0, finalPrice: 0, tierName: 'خطأ', offerDiscount: 0, couponDiscount: 0, totalDiscount: 0, netProfitUsd: 0, marginPct: 0, isFirewallViolated: true, rejectionReason: `الـ Index الممرر للخيارات (${optIdx}) غير صالح!` };
             }
         }
         
-        if (cost > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new FinancialSecurityError("تجاوز سعر التكلفة الحد الأقصى الآمن.");
+        if (cost > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) {
+            return { costUsd: cost, tierPrice: 0, originalPrice: 0, finalPrice: 0, tierName: 'خطأ', offerDiscount: 0, couponDiscount: 0, totalDiscount: 0, netProfitUsd: 0, marginPct: 0, isFirewallViolated: true, rejectionReason: "تجاوز سعر التكلفة الحد الأقصى الآمن." };
+        }
 
         let currentPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.price || product.price) : FinancialEngineDef.extractNum(product.price);
         let tierName = "عضو";
@@ -213,7 +325,9 @@ const FinancialEngineDef = {
             }
         }
 
-        if (currentPrice > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) throw new FinancialSecurityError("تجاوز سعر البيع الحد الأقصى الآمن.");
+        if (currentPrice > FinancialEngineDef.CONFIG.MAX_PRICE_LIMIT) {
+            return { costUsd: cost, tierPrice: currentPrice, originalPrice: currentPrice, finalPrice: 0, tierName: 'خطأ', offerDiscount: 0, couponDiscount: 0, totalDiscount: 0, netProfitUsd: 0, marginPct: 0, isFirewallViolated: true, rejectionReason: "تجاوز سعر البيع الحد الأقصى الآمن." };
+        }
 
         const tierPrice = currentPrice;
         const originalPrice = tierPrice;
@@ -256,12 +370,12 @@ const FinancialEngineDef = {
             const safeMarginPrice = FinancialEngineDef._internalAdd(cost, FinancialEngineDef._internalMul(cost, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MIN_MARGIN_PERCENT, 100)));
             if (currentPrice < safeMarginPrice) {
                 isFirewallViolated = true;
+                // 💡 التميز هنا: الإدمن لا يُلقي خطأ يكسر الواجهة، بل يرجع السبب لكي يعرضه كرسالة تحذير في لوحة التحكم
                 rejectionReason = `السعر النهائي (${currentPrice}$) يكسر حاجز الربح الآمن (${safeMarginPrice}$). السيرفر سيرفض هذه العملية حمايةً للأرباح!`;
             }
         }
 
         const finalPrice = currentPrice;
-        // هنا نستخدم Math.max لمنع أن تكون الأرباح بالسالب (لأن الطرح الرياضي الأساسي تم توحيده)
         const netProfitUsd = Math.max(0, FinancialEngineDef._internalSub(finalPrice, cost)); 
         let marginPct = finalPrice > 0 ? FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(netProfitUsd, finalPrice), 100) : 0;
 
@@ -282,22 +396,25 @@ const FinancialEngineDef = {
     },
 
     calculateOrderTotal: function(params = {}, rawQty = 1) {
-        const safeQty = Math.floor(FinancialEngineDef.extractNum(rawQty) || 1);
-        if (safeQty > FinancialEngineDef.CONFIG.MAX_QTY_LIMIT) throw new FinancialSecurityError("الكمية المطلوبة تتجاوز الحد الأقصى المسموح به.");
-        if (safeQty <= 0) throw new FinancialSecurityError("الكمية غير صالحة.");
+        let qty = Math.floor(FinancialEngineDef.extractNum(rawQty));
+        if (qty <= 0) qty = 1;
+        if (qty > FinancialEngineDef.CONFIG.MAX_QTY_LIMIT) {
+             return { costUsd: 0, tierPrice: 0, originalPrice: 0, finalPrice: 0, tierName: 'خطأ', offerDiscount: 0, couponDiscount: 0, totalDiscount: 0, netProfitUsd: 0, marginPct: 0, isFirewallViolated: true, rejectionReason: "الكمية المطلوبة تتجاوز الحد الأقصى المسموح به." };
+        }
 
         const unit = FinancialEngineDef.calculatePrice(params);
         
         return {
             ...unit,
-            qty: safeQty,
-            totalCostUsd: FinancialEngineDef.safeMul(unit.costUsd, safeQty),
-            totalOriginalPrice: FinancialEngineDef.safeMul(unit.originalPrice, safeQty),
-            totalFinalPrice: FinancialEngineDef.safeMul(unit.finalPrice, safeQty),
-            totalNetProfitUsd: FinancialEngineDef.safeMul(unit.netProfitUsd, safeQty),
-            totalDiscount: FinancialEngineDef.safeMul(unit.totalDiscount, safeQty)
+            qty: qty,
+            totalCostUsd: FinancialEngineDef.safeMul(unit.costUsd, qty),
+            totalOriginalPrice: FinancialEngineDef.safeMul(unit.originalPrice, qty),
+            totalFinalPrice: FinancialEngineDef.safeMul(unit.finalPrice, qty),
+            totalNetProfitUsd: FinancialEngineDef.safeMul(unit.netProfitUsd, qty),
+            totalDiscount: FinancialEngineDef.safeMul(unit.totalDiscount, qty)
         };
     }
 };
 
 export const FinancialEngine = Object.freeze(FinancialEngineDef);
+if (typeof window !== 'undefined') { window.FinancialEngine = FinancialEngine; }

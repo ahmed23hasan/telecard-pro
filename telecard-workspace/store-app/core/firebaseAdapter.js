@@ -1,10 +1,11 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - Enterprise V17.0 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V17.2 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق، والاستعلامات
-// 🚀 التحديثات المعمارية (V17.0 - Smart Sync):
-// 1. True Global Cache: تفعيل نظام قراءة الختم العالمي (cache_version) لمنع الكاش الميت.
-// 2. Zero-Leak Listeners: إغلاق ثغرة القراءة المزدوجة في onSnapshot لتقليل الفاتورة للنصف.
-// 3. App Check Ready: تجهيز بوابة ReCaptcha Enterprise لحماية السيرفر من هجمات الـ DDoS.
+// 🚀 التحديثات المعمارية:
+// 1. Upload Sync Fix: توحيد حجم الملفات المرفوعة (10MB) ليتطابق مع الواجهة لمنع التضارب.
+// 2. Single Source of Truth: ربط الختم العالمي بمفاتيح DB_KEYS و CACHE_KEYS.
+// 3. Zero-Leak Listeners: إغلاق ثغرة القراءة المزدوجة في onSnapshot لتقليل الفاتورة.
+// 4. Error Masking: إخفاء الأخطاء الحساسة (Cost/Profit) عن العملاء لحماية أسرار المتجر.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -20,22 +21,10 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
-// import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js";
 
-import { firebaseConfig } from '../config.js';
+import { firebaseConfig, DB_KEYS, CACHE_KEYS } from '../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-
-// 🛡️ تفعيل الـ App Check (يفضل إضافة مفتاح الـ reCAPTCHA الخاص بك في الإنتاج)
-let appCheck = null; 
-/*
-try {
-    appCheck = initializeAppCheck(app, {
-        provider: new ReCaptchaEnterpriseProvider('YOUR_RECAPTCHA_ENTERPRISE_SITE_KEY'),
-        isTokenAutoRefreshEnabled: true
-    });
-} catch (e) { console.warn("App Check not initialized", e); }
-*/
 
 const db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
@@ -44,14 +33,14 @@ const auth = getAuth(app);
 const storage = getStorage(app);
 const functions = getFunctions(app);
 
-export { auth, db, storage, functions, appCheck };
+export { auth, db, storage, functions };
 
 export const FirebaseAdapter = {
     db: db,
     storage: storage,
     functions: functions,
     _activeListeners: new Map(),
-    _globalForceServer: false, // 👈 متغير يعكس حالة الختم العالمي
+    _globalForceServer: false, 
 
     // ==========================================
     // 🧠 1. نظام الختم العالمي (Global Cache Versioning)
@@ -59,26 +48,22 @@ export const FirebaseAdapter = {
     initGlobalCacheVersioning: async function() {
         if (typeof window === 'undefined' || !window.localStorage) return;
         
-  try {
-    // نقرأ نسخة السيرفر إجبارياً
-    const versionSnap = await getDoc(doc(db, 'telecard_system', 'cache_version'));
-    if (versionSnap.exists()) {
-        const serverVersion = versionSnap.data().version || 0;
-        
-        // ✅ استخدام المفتاح الموحد (tc_server_version) بدلاً من sys_cache_version
-        const localVersion = Number(localStorage.getItem('tc_server_version') || 0);
-        
-        if (serverVersion > localVersion) {
-            console.log(`🔄 تم اكتشاف تحديث جديد من الإدارة (V${serverVersion}). تجاوز الكاش مفعّل.`);
-            this._globalForceServer = true; // فرض جلب البيانات من السيرفر في هذا الـ Session
-            
-            // ✅ حفظ النسخة باستخدام المفتاح الموحد
-            localStorage.setItem('tc_server_version', serverVersion);
-        }
-    }
-} catch (error) { console.warn("تعذر التحقق من نسخة الكاش العالمي", error); }
-},
-_registerListener: function(uniqueKey, unsubscribeFn) {
+        try {
+            const versionSnap = await getDoc(doc(db, DB_KEYS.SYSTEM, 'cache_version'));
+            if (versionSnap.exists()) {
+                const serverVersion = versionSnap.data().version || 0;
+                const localVersion = Number(localStorage.getItem(CACHE_KEYS.SERVER_VERSION) || 0);
+                
+                if (serverVersion > localVersion) {
+                    console.log(`🔄 تم اكتشاف تحديث جديد من الإدارة (V${serverVersion}). تجاوز الكاش مفعّل.`);
+                    this._globalForceServer = true; 
+                    localStorage.setItem(CACHE_KEYS.SERVER_VERSION, serverVersion);
+                }
+            }
+        } catch (error) { console.warn("تعذر التحقق من نسخة الكاش العالمي", error); }
+    },
+
+    _registerListener: function(uniqueKey, unsubscribeFn) {
         if (this._activeListeners.has(uniqueKey)) {
             this._activeListeners.get(uniqueKey)(); 
         }
@@ -114,6 +99,7 @@ _registerListener: function(uniqueKey, unsubscribeFn) {
             }, ms);
         });
         
+        // ملاحظة: فايربيز لا يدعم AbortController لـ getDocs لذلك الوعد يستمر بالخلفية
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
 
@@ -196,7 +182,6 @@ _registerListener: function(uniqueKey, unsubscribeFn) {
                 if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
             } catch (e) {}
             
-            // 🛡️ الذكاء  هنا: إذا كنا أوفلاين أو الكاش طازج جداً ولم يتم تحديث الإدارة
             if (isOffline || (cachedData && !this._globalForceServer)) {
                 return cachedData;
             }
@@ -246,10 +231,7 @@ _registerListener: function(uniqueKey, unsubscribeFn) {
         }
     },
     
-    // 🛡️ التحديث المعماري: onSnapshot في فايربيز تقوم بمهام Cache-First برمجياً.
-    // القراءة المنفصلة من الكاش ثم السيرفر تضاعف التكلفة وتسبب تعارضاً.
     listenQueryWithCache(collectionName, filtersArray, orderField, limitCount, callback) {
-        // نستخدم listenQuery العادية لأنها توفر تجربة Cache-First تلقائياً ومجاناً وبدون قراءات مزدوجة
         return this.listenQuery(collectionName, filtersArray, orderField, limitCount, callback);
     },   
 
@@ -322,8 +304,7 @@ _registerListener: function(uniqueKey, unsubscribeFn) {
         return this._registerListener(safeKey, unsubscribe);
     },
 
-        async callFunction(functionName, payload = {}, retryCount = 1) { 
-        // 1. 🛡️ فحص الاتصال بالإنترنت أولاً لمنع تعليق الطلبات
+    async callFunction(functionName, payload = {}, retryCount = 1) { 
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             const err = new Error('لا يوجد اتصال بالإنترنت. يرجى التحقق من الشبكة.');
             err.code = 'network-offline';
@@ -331,7 +312,6 @@ _registerListener: function(uniqueKey, unsubscribeFn) {
         }
 
         try {
-            // 2. 🚀 استدعاء الدالة السحابية مع نظام مهلة (Timeout) مدته 15 ثانية
             const result = await this._withTimeout(
                 httpsCallable(functions, functionName)(payload), 
                 15000, 
@@ -343,42 +323,37 @@ _registerListener: function(uniqueKey, unsubscribeFn) {
             const isSensitiveFunction = ['createOrder', 'submitBalanceRequest', 'adminAdjustBalance'].includes(functionName);
             const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
             
-            // 3. 🔄 نظام إعادة المحاولة الذكي (Retry System) للأخطاء العابرة
             if (isTransientError && retryCount > 0 && !isSensitiveFunction) {
                 console.warn(`⏳ تأخير في الشبكة. إعادة محاولة [${functionName}]...`);
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 return this.callFunction(functionName, payload, retryCount - 1); 
             }
             
-            // =================================================================
-            // 🛡️ 4. درع التقنيع (Error Masking): حماية أسرار العمل من التسريب
-            // =================================================================
             let errorMsg = error.message || 'فشل الاتصال بالخادم.';
-            
-            // الكلمات الحساسة التي لو ظهرت تعني تسريباً لمعادلة التسعير الخاصة بك
             const sensitiveKeywords = ['رأس المال', 'الربح', 'تكلفة', 'يكسر حاجز', 'خسارة', 'السعر النهائي', 'cost', 'profit', 'margin'];
             const isSensitiveError = sensitiveKeywords.some(keyword => errorMsg.includes(keyword));
             
             if (isSensitiveError) {
-                // استبدال الرسالة برسالة دبلوماسية غامضة للعميل
                 errorMsg = 'عذراً، لا يمكن تنفيذ الطلب حالياً بسبب تحديثات في أسعار المزود. يرجى المحاولة لاحقاً.';
                 console.warn("🛡️ [Security] تم التقاط رسالة سيرفر حساسة وإخفاؤها عن العميل بنجاح.");
             }
-            // =================================================================
 
             const errObj = new Error(errorMsg);
             errObj.code = error.code || 'unknown';
             throw errObj;
         }
     },
+    
     async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = false) { 
         if (!file) return ''; 
         
-        const allowedTypes = isAdmin ? ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml', 'application/pdf'] : ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']; 
+        // 🛡️ الإصلاح: السماح بكافة أنواع الصور والـ PDF 
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml', 'application/pdf']; 
         if (!allowedTypes.includes(file.type)) throw new Error(`نوع الملف غير مدعوم.`); 
         
-        const MAX_FILE_SIZE_MB = isAdmin ? 10 : 5; 
-        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) throw new Error(`حجم الملف كبير جداً.`); 
+        // 🛡️ الإصلاح الجذري: توحيد الحد الأقصى للملفات بـ 10MB ليتطابق مع الواجهة ولا ينهار
+        const MAX_FILE_SIZE_MB = 10; 
+        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) throw new Error(`حجم الملف كبير جداً. الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت.`); 
         
         try { 
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general'; 

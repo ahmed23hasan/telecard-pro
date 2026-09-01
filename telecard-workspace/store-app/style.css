@@ -1533,6 +1533,21 @@ transition: all var(--trans-speed); user-select: none; }
     z-index: calc(var(--z-modal-top) + 100); /* 🌟 تم ربطه بالنظام المركزي لضمان الأمان */
     background: transparent; cursor: wait; 
 }
+/* 🌟 إجبار الزر على الاحتفاظ باللون الذهبي أثناء حالة التحميل رغم كونه Disabled */
+.bal-submit-btn-new.is-loading, 
+.pm-btn-gold.is-loading {
+    background: var(--gold-crystal-grad) !important;
+    color: var(--gold-text) !important;
+    border-color: var(--primary) !important;
+    opacity: 0.85 !important; /* بهتان خفيف جداً ليدل على أنه مشغول */
+}
+
+/* 🌟 ضمان ظهور أيقونة التحميل الدوارة في المنتصف باللون الصحيح */
+.btn-pro.is-loading .btn-spinner, 
+.bal-submit-btn-new.is-loading .btn-spinner, 
+.pm-btn-gold.is-loading .btn-spinner {
+    color: var(--gold-text) !important; /* لون اللودر أسود ليتناسب مع الخلفية الذهبية */
+}
 /* =========================================================
    [ 22. قسم الكوبون المطور (Coupon Engine) ]
    ========================================================= */
@@ -4017,32 +4032,80 @@ body.light-mode .community-item-card { background: var(--bg-card); border-color:
 .community-arrow { color: var(--text-muted); font-size: 14px; }
 
 /* =========================================================
-   [ 55. نافذة التقييم الذكي (UI Rating Modal) ]
+   [ 55. نافذة التقييم الذكي (UI Rating Modal) - FIXED ]
    ========================================================= */
-.rating-step-block { animation: fadeIn 0.3s ease; text-align: center; }
-.rating-intro-text { color: var(--text-muted); font-size: 13px; line-height: 1.6; margin-bottom: 25px; text-align: center; }
-
-.rating-stars-container { display: flex; justify-content: center; gap: 15px; font-size: 34px; color: var(--text-muted); margin-bottom: 30px; }
-.rating-star { cursor: pointer; transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.2s ease; }
-@media (hover: hover) and (pointer: fine) { .rating-star:hover { transform: scale(1.2); } }
-.rating-star.active { color: var(--primary); text-shadow: 0 0 15px rgba(var(--primary-rgb), 0.4); transform: scale(1.08); }
-
-.rating-textarea {
-    width: 100%; height: 120px; background: var(--bg-input); border: 1px solid var(--border-light); border-radius: var(--radius-md);
-    color: var(--text-main); font-size: 13.5px; font-weight: 600; padding: 15px; resize: none; 
-    transition: border-color var(--trans-speed) ease, box-shadow var(--trans-speed) ease; text-align: start; line-height: 1.6;
+/* 1. إجبار المحتوى على الترتيب العمودي لمنع صعود النجوم بجانب النص */
+.rating-step-block { 
+    display: flex; flex-direction: column; align-items: center; 
+    width: 100%; animation: fadeIn 0.3s ease; text-align: center; 
 }
 
-.rating-textarea:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(var(--primary-rgb), 0.1); }
-.rating-textarea::placeholder { color: var(--text-muted); font-size: 12.5px; font-weight: 600; opacity: 0.6; }
+/* 2. نص التوجيه */
+.rating-intro-text { 
+    width: 100%; color: var(--text-muted); font-size: 14px; font-weight: 700;
+    line-height: 1.6; margin-bottom: 25px; text-align: center; display: block;
+}
 
-.rating-banner-error { background: rgba(var(--danger-rgb), 0.04); border: 1px solid rgba(var(--danger-rgb), 0.12); color: var(--text-muted); margin-bottom: 20px; padding: 12px; border-radius: var(--radius-md); }
-.rating-icon-error { color: var(--danger); font-size: 1.4rem; }
-.rating-banner-success { background: rgba(var(--success-rgb), 0.04); border: 1px solid rgba(var(--success-rgb), 0.12); color: var(--text-muted); margin-bottom: 20px; padding: 12px; border-radius: var(--radius-md); }
-.rating-icon-crown { color: var(--primary); font-size: 1.4rem; animation: pulseStatus 2s infinite; }
-.rating-intro-bold { margin-bottom: 20px; font-weight: 700; }
+/* 3. حاوية النجوم (إجبارها على أخذ سطر كامل وتوسيط النجوم) */
+/* 3. حاوية النجوم (تم تصحيح الاتجاه ليتوافق مع العقلية العربية RTL) */
+.rating-stars-container { 
+    display: flex; justify-content: center; align-items: center; gap: 15px; 
+    width: 100%; margin-bottom: 35px; 
+    direction: rtl !important; /* 🚀 الإصلاح: إجبار الترتيب من اليمين لليسار */
+}
+/* 4. النجوم (الحجم الكبير ومنع اللون الأبيض عند اللمس في الجوال) */
+.rating-star { 
+    font-size: 42px !important; /* تكبير الحجم إجبارياً */
+    color: #cbd5e1 !important; /* لون رمادي باهت ثابت */
+    opacity: 0.8;
+    cursor: pointer; 
+    -webkit-tap-highlight-color: transparent; /* إخفاء مربع اللمس المزعج في الجوال */
+    transition: transform var(--trans-speed) cubic-bezier(0.175, 0.885, 0.32, 1.275), color var(--trans-speed) ease; 
+}
+
+@media (hover: hover) and (pointer: fine) { 
+    .rating-star:hover { transform: scale(1.15); color: var(--primary-glow) !important; opacity: 1; } 
+}
+
+/* 5. النجمة المفعلة (ذهبية فقط) */
+.rating-star.active { 
+    color: var(--primary) !important; /* اللون الذهبي إجبارياً */
+    opacity: 1;
+    filter: drop-shadow(0 0 10px rgba(var(--primary-rgb), 0.5)); /* توهج بديل عن text-shadow لدعم الجوال */
+    transform: scale(1.2); 
+}
+
+/* 6. تصميم حقل الشكوى والاقتراحات (Textarea) الذي كان مفقوداً */
+.rating-textarea {
+    width: 100%; height: 130px; 
+    background: var(--bg-input); 
+    border: 2px solid var(--border-light); 
+    border-radius: var(--radius-md);
+    color: var(--text-main); 
+    font-size: 14.5px; font-weight: 600; font-family: var(--font-family-main);
+    padding: 16px; margin-bottom: 20px; 
+    resize: none; outline: none; 
+    text-align: right; direction: rtl;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+    transition: all var(--trans-speed);
+}
+
+.rating-textarea:focus { 
+    border-color: var(--primary); 
+    background: var(--bg-card);
+    box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.1), inset 0 2px 4px rgba(0,0,0,0.05); 
+}
+
+.rating-textarea::placeholder { 
+    color: var(--text-muted); opacity: 0.6; font-size: 13.5px; font-weight: 600; 
+}
+
+/* 7. البنرات */
+.rating-banner-error { background: rgba(var(--danger-rgb), 0.04); border: 1px solid rgba(var(--danger-rgb), 0.12); color: var(--text-main); margin-bottom: 20px; padding: 12px; border-radius: var(--radius-md); font-weight: 700; font-size: 13px; line-height: 1.6;}
+.rating-icon-error { color: var(--danger); font-size: 1.4rem; margin-bottom: 8px;}
+.rating-banner-success { background: rgba(var(--success-rgb), 0.04); border: 1px solid rgba(var(--success-rgb), 0.12); color: var(--text-main); margin-bottom: 20px; padding: 12px; border-radius: var(--radius-md); font-weight: 700; font-size: 13px; line-height: 1.6;}
+.rating-icon-crown { color: var(--primary); font-size: 1.4rem; animation: pulseStatus 2s infinite; margin-bottom: 8px;}
 .rating-share-btn { display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; margin-top: 20px; }
-
 /* =========================================================
    [ 56. نوافذ التنبيه والتعريف المخصصة (Custom Alert Modals) ]
    ========================================================= */

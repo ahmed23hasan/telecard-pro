@@ -1,7 +1,9 @@
 // ============================================================================
-// ⚙️ خريطة مسارات النظام (System Actions Router) - Enterprise V14.8 💎
+// ⚙️ خريطة مسارات النظام (System Actions Router) - Enterprise V15.5 💎
 // 🎯 الوظيفة: الأحداث المشتركة، النوافذ، الملاحة، التقويم، وإعدادات النظام العامة
-// 🚀 التحديثات: ربط مسار (force-sync) لإنقاذ الكتالوج.
+// 🚀 التحديثات:
+// 1. Social Links Route: ربط زر حفظ قنوات التواصل الاجتماعي.
+// 2. Smart Complaint Routing: مسار ذكي لنقل الإدمن من لوحة القيادة لتبويب الشكاوى مباشرة.
 // ============================================================================
 
 import { AdminUI, AdminCalendar } from '../adminUI.js';
@@ -15,17 +17,22 @@ export const SystemActions = {
     'nav': (data) => EventBus.emit('req-navigate', { page: data.target, btnEl: data.element }),
     'nav-with-filter': (data) => EventBus.emit('req-navigate-filter', { section: data.section, status: data.status }),
     
-    // 🛡️ تفعيل مسار العودة
+    // 🚀 [الإصلاح الذكي للـ UX]: التوجيه المباشر من لوحة القيادة لتبويب الشكاوى
+    'nav-to-complaints': () => {
+        EventBus.emit('req-navigate', { page: 'notifs' });
+        setTimeout(() => EventBus.emit('switch-notifs-tab', { tab: 'complaints' }), 100);
+    },
+
     'go-back': () => EventBus.emit('req-go-back'),
-    
     'toggle-sidebar': () => AdminUI?.toggleSidebar?.(),
     'toggle-theme': () => AdminUI?.toggleTheme?.(),
     'refresh': (data) => EventBus.emit('req-refresh', { type: data.type || data.target }),
     'refresh-dash': () => EventBus.emit('req-refresh', { type: 'dash' }),
     'render-users': () => EventBus.emit('req-refresh', { type: 'users' }),
     
-    // 🚀 [الجسر السحري]: مسار زر إنقاذ الكتالوج والمزامنة الجبرية
+    // 🚀 [مفاتيح الطوارئ والإنقاذ السحابي]:
     'force-sync': () => EventBus.emit('req-force-sync'),
+    'force-sync-pricing': () => EventBus.emit('req-force-sync-pricing'), 
     
     // --- 2. إعدادات النظام والهوية ---
     'save-system': () => EventBus.emit('req-save-system'),
@@ -35,13 +42,16 @@ export const SystemActions = {
     'add-term-card': () => AdminUI?.addTermCardUI?.(),
     'select-term-icon': (data) => AdminUI?.selectTermIconUI?.(data.element, data.val),
     'save-admin-profile': () => EventBus.emit('req-save-admin-profile'),
-    
     'auto-save-settings': () => EventBus.emit('req-auto-save-settings'),
+
+    // 🚀 [أحداث الـ CRM والتواصل]:
+    'save-about-us': () => EventBus.emit('save-about-us'),
+    'save-social-links': () => EventBus.emit('save-social-links'), // 👈 تم تأمين الزر!
+    'switch-notifs-tab': (data) => EventBus.emit('switch-notifs-tab', { tab: data.tab }),
+    'filter-reviews': () => EventBus.emit('filter-reviews'),
     
     // --- 3. النوافذ المشتركة ---
     'open-modal': (data) => AdminUI?.openModal?.(data.target),
-    
-    // 🛡️ إغلاق نافذة محددة
     'close-modal': (data) => AdminUI?.closeModal?.(data.target || data.id || null),
     
     'close-drawer': (data) => {

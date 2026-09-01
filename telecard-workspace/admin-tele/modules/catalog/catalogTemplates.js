@@ -1,9 +1,10 @@
 // ============================================================================
-// 📦 قوالب المنتجات والكتالوج (modules/catalog/catalogTemplates.js) - Enterprise V14.8 💎
+// 📦 قوالب المنتجات والكتالوج (modules/catalog/catalogTemplates.js) - Enterprise V15.0 💎
 // 🎯 الوظيفة: توليد الـ HTML المتقدم للأقسام، المنتجات، الخزنة، والبلدان
 // 🌟 التحديث الأقصى: 
-// 1. Data Mapping Fix: قراءة `codeText` لتطابق هيكل بيانات السيرفر الجديد.
-// 2. XSS Prevention: عزل الرموز المزدوجة (Double-Escaping) بأمان تام.
+// 1. Regex Evasion: حقن كلاسات الـ Drag برمجياً في دوال التوليد لحماية الواجهة.
+// 2. Data Mapping Fix: قراءة `codeText` لتطابق هيكل بيانات السيرفر الجديد.
+// 3. XSS Prevention: عزل الرموز المزدوجة (Double-Escaping) بأمان تام.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -13,10 +14,7 @@ const _esc = Utils.escapeHTML;
 const _enNum = Utils.enNum;
 
 export const CatalogTemplates = {
-
-    /**
-     * 1. حقول المحاكاة (Mockups) لمعاينة شكل المدخلات في صفحة المنتج
-     */
+    
     mockInput: (num, label) => `
         <div class="mock-input cursor-pointer click-shrink" data-action="toggle-mock-edit" data-val="${num}" title="اضغط لتعديل التسمية">
             <span id="mock-txt-${num}" class="mock-label">${_esc(label)}</span>
@@ -25,10 +23,7 @@ export const CatalogTemplates = {
             </div>
         </div>
     `,
-
-    /**
-     * 2. أشرطة الأدوات (Toolbar Actions) للأقسام الرئيسية والفرعية
-     */
+    
     catRootActions: (layoutCols = 2) => `
         <div class="flex-center-gap">
             <select class="form-input select-micro" data-action="change-grid-layout" title="تخطيط الشبكة">
@@ -45,7 +40,7 @@ export const CatalogTemplates = {
             </button>
         </div>
     `,
-
+    
     catSubActions: (layoutCols = 2) => `
         <div class="flex-center-gap">
             <select class="form-input select-micro" data-action="change-grid-layout">
@@ -68,17 +63,15 @@ export const CatalogTemplates = {
             </button>
         </div>
     `,
-
-    /**
-     * 3. كروت العناصر (Cards)
-     */
-    catCard: (c, index, currCatId) => {
+    
+    // 🛡️ استقبال dragClass ودمجه مباشرة
+    catCard: (c, index, currCatId, dragClass = '') => {
         const orderValue = (c.order !== undefined) ? Number(c.order) : index;
         const iconClass = currCatId === null ? 'root' : 'sub';
         const iconName = currCatId === null ? 'fa-folder' : 'fa-folder-open';
         
         return `
-        <div id="cat-card-${_esc(c.id)}" class="item-box click-shrink" data-action="enter-folder" data-type="cat" data-id="${_esc(c.id)}" data-order="${orderValue}" data-enter="${_esc(c.id)}">
+        <div id="cat-card-${_esc(c.id)}" class="item-box click-shrink ${dragClass}" data-action="enter-folder" data-type="cat" data-id="${_esc(c.id)}" data-order="${orderValue}" data-enter="${_esc(c.id)}">
             <div class="item-actions">
                 <div class="action-mini btn-edit-mini" data-action="open-cat-modal" data-id="${_esc(c.id)}"><i class="fa-solid fa-pen"></i></div>
                 <div class="action-mini btn-del-mini" data-action="delete-item" data-type="cat" data-id="${_esc(c.id)}"><i class="fa-solid fa-trash"></i></div>
@@ -90,8 +83,9 @@ export const CatalogTemplates = {
             <div class="order-indicator num-en">${_enNum(index + 1)}</div>
         </div>`;
     },
-
-    prodCard: (p, index) => {
+    
+    // 🛡️ استقبال dragClass
+    prodCard: (p, index, dragClass = '') => {
         const orderValue = (p.order !== undefined) ? Number(p.order) : index;
         
         let safePrice = '0.00 $';
@@ -108,7 +102,7 @@ export const CatalogTemplates = {
         }
         
         return `
-        <div id="prod-card-${_esc(p.id)}" class="item-box click-shrink" data-action="open-prod-modal" data-type="prod" data-id="${_esc(p.id)}" data-order="${orderValue}">
+        <div id="prod-card-${_esc(p.id)}" class="item-box click-shrink ${dragClass}" data-action="open-prod-modal" data-type="prod" data-id="${_esc(p.id)}" data-order="${orderValue}">
             <div class="item-actions">
                 <div class="action-mini btn-edit-mini" data-action="open-prod-modal" data-id="${_esc(p.id)}"><i class="fa-solid fa-pen"></i></div>
                 <div class="action-mini btn-del-mini" data-action="delete-item" data-type="prod" data-id="${_esc(p.id)}"><i class="fa-solid fa-trash"></i></div>
@@ -123,15 +117,12 @@ export const CatalogTemplates = {
             <div class="order-indicator num-en">${_enNum(index + 1)}</div>
         </div>`;
     },
-
-    /**
-     * 4. الخزنة المركزية (Central Vault)
-     */
+    
     vaultCard: (pool, availCount, soldCount, linkedProdsCount, defectiveCount, healthPercent) => {
         let status = 'active';
         if (availCount === 0) status = 'empty';
         else if (availCount <= Number(pool.alertLimit || 5)) status = 'low';
-
+        
         return `
         <div class="vault-pro-card vault-${status} click-shrink" data-id="${_esc(pool.id)}" data-status="${status}">
             <div class="vault-actions">
@@ -166,19 +157,15 @@ export const CatalogTemplates = {
         </div>`;
     },
     
-    /**
-     * حاوية الشبكة المدمجة
-     */
     gridContainer: (catsHtml, prodsHtml) => `
         ${catsHtml ? `<div class="items-grid cats-grid sortable-container ignore-elements mb-15">${catsHtml}</div>` : ''}
         ${prodsHtml ? `<div class="items-grid prods-grid sortable-container ignore-elements">${prodsHtml}</div>` : ''}
     `,
-
+    
     defectiveModal: (poolName, codes) => {
-        // 🛡️ [إصلاح الثغرة]: استخدام c.codeText كخيار أول لتتطابق مع السيرفر تماماً
         const codesHtml = codes.map(c => {
             const rawText = c.codeText || c.text || '';
-            const safeTextForHtml = rawText.replace(/"/g, '&quot;'); 
+            const safeTextForHtml = rawText.replace(/"/g, '&quot;');
             return `
             <div class="copy-row success-copy-row" data-action="copy-text" data-copy-text="${safeTextForHtml}" title="اضغط للنسخ">
                 <div class="cr-content cr-content-center w-100">
@@ -186,8 +173,9 @@ export const CatalogTemplates = {
                 </div>
                 <div class="cr-icon text-danger"><i class="fa-solid fa-copy"></i></div>
             </div>
-        `}).join('');
-
+        `
+        }).join('');
+        
         return `
         <div id="defective-codes-overlay" class="modal-overlay">
             <div class="modal-content modal-md">
@@ -209,10 +197,7 @@ export const CatalogTemplates = {
             </div>
         </div>`;
     },
-
-    /**
-     * 5. شجرة المنتجات الذكية (Smart Tree)
-     */
+    
     smartTreeParent: (catId, catName, childrenHtml, isExpanded) => `
         <div class="tree-node ${isExpanded ? 'is-expanded' : ''}" id="tree-node-${catId}">
             <div class="tree-parent-row click-shrink">
@@ -224,7 +209,7 @@ export const CatalogTemplates = {
             </div>
             <div class="tree-children">${childrenHtml}</div>
         </div>`,
-
+    
     smartTreeChild: (prodId, prodName, imgSrc, isChecked, shortId) => `
         <label class="tree-item-row click-shrink">
             <input type="checkbox" class="tree-checkbox tree-child-cb" value="${prodId}" ${isChecked ? 'checked' : ''} data-action="tree-child-check">
@@ -234,7 +219,7 @@ export const CatalogTemplates = {
                 <span class="fs-10 text-muted">ID: <span class="num-en text-warning">#${shortId}</span></span>
             </div>
         </label>`,
-
+    
     smartTreeTier: (tierId, tierName, icon, isChecked) => `
         <label class="tree-item-row click-shrink">
             <input type="checkbox" class="tree-checkbox tree-tier-cb" value="${tierId}" ${isChecked ? 'checked' : ''}>
@@ -243,10 +228,7 @@ export const CatalogTemplates = {
             </div>
             <span class="fs-12 fw-bold text-main">${tierName}</span>
         </label>`,
-
-    /**
-     * 6. القوالب الإضافية والحالات الفارغة
-     */
+    
     pkgItem: (p, i) => `
         <div class="pkg-item animate__animated animate__fadeIn">
             <div class="flex-1"><span class="fw-bold">${_esc(p.name)}</span></div>
@@ -255,7 +237,7 @@ export const CatalogTemplates = {
                 <i class="fa-solid fa-trash-can"></i>
             </button>
         </div>`,
-
+    
     bannerItem: (b, index) => `
         <div id="banner-card-${_esc(b.id)}" class="item-box banner-item click-shrink" data-id="${_esc(b.id)}" data-order="${b.order ?? index}">
             <div class="item-actions">
@@ -266,8 +248,8 @@ export const CatalogTemplates = {
             </div>
             <div class="banner-order-badge num-en">${_enNum(index + 1)}</div>
         </div>`,
-
-        countryCard: (c) => `
+    
+    countryCard: (c) => `
         <div class="country-card-item">
             <div class="country-header">
                 <div class="country-info-group">
@@ -289,13 +271,13 @@ export const CatalogTemplates = {
                 </div>
             </div>
         </div>`,
-        
+    
     emptyFolder: () => `<div class="empty-state"><i class="fa-solid fa-folder-open"></i><span>القسم فارغ.. ابدأ بإضافة منتجاتك الآن</span></div>`,
     emptyCountries: () => `<div class="empty-state"><i class="fa-solid fa-flag-checkered"></i><span>لم يتم تفعيل أي دول بعد.</span></div>`,
     emptyVault: () => `<div class="empty-state"><i class="fa-solid fa-vault"></i><span>الخزنة لا تحتوي على صناديق.</span></div>`,
     emptyCoupons: () => `<div class="empty-state"><i class="fa-solid fa-ticket"></i><span>لا توجد كوبونات فعالة حالياً.</span></div>`,
-
+    
     dragEditBtnContent: (active) => active ? `<i class="fa-solid fa-unlock text-success"></i> حفظ الترتيب` : `<i class="fa-solid fa-lock"></i> ترتيب العناصر`,
-
+    
     mockEditInput: (num, val) => `<input type="text" id="mock-input-${num}" class="inline-edit-input num-en" value="${_esc(val)}" spellcheck="false" dir="rtl">`
 };

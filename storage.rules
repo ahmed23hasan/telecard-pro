@@ -1,4 +1,4 @@
-rules_version = '2';
+Rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
@@ -48,13 +48,13 @@ service firebase.storage {
     // 🧾 إيصالات الدفع (Receipts Sandboxing)
     // ==========================================
     match /receipts/{fileName} {
-      // 🛡️ تم الإصلاح: مطابقة 'deposit_' بدلاً من 'dep_' والسماح بالطابع الزمني
+      // 🛡️ متطابق 100% مع DataManager.js: deposit_UID_Timestamp_UUID.webp
       allow read: if isAuthenticated() && fileName.matches('^deposit_' + request.auth.uid + '_.*\\.(jpg|jpeg|png|webp|pdf)$');
       
       allow create: if isAuthenticated()
                    && fileName.matches('^deposit_' + request.auth.uid + '_.*\\.(jpg|jpeg|png|webp|pdf)$')
                    && isImageOrPdf()
-                   && isValidSize(10); // رفعنا المساحة لـ 10 ميجا تحسباً للـ PDF
+                   && isValidSize(10);
                    
       allow delete: if isAuthenticated() && fileName.matches('^deposit_' + request.auth.uid + '_.*\\.(jpg|jpeg|png|webp|pdf)$');
     }
@@ -65,11 +65,11 @@ service firebase.storage {
     match /avatars/{fileName} {
       allow read: if true;
       
-      // 🛡️ تم الإصلاح: السماح بوجود الطابع الزمني Date.now() بعد الـ UID
+      // 🛡️ متطابق 100% مع uiAuth.js: avatar_UID_Timestamp_UUID.webp
       allow create, update: if isAuthenticated() 
                    && fileName.matches('^avatar_' + request.auth.uid + '_.*\\.(jpg|jpeg|png|webp)$')
                    && isImage() 
-                   && isValidSize(5); // 5 ميجا كافية جداً للأفاتار
+                   && isValidSize(5); 
                    
       allow delete: if isAuthenticated() 
                    && fileName.matches('^avatar_' + request.auth.uid + '_.*\\.(jpg|jpeg|png|webp)$');
@@ -79,15 +79,15 @@ service firebase.storage {
     // 🛡️ التوثيق الأمني KYC (مضاد للاستنزاف 100%)
     // ==========================================
     match /kyc_docs/{fileName} {
-      // 🛡️ تم الإصلاح: مطابقة front, back, selfie مع الطابع الزمني 
-      allow read: if isAuthenticated() && fileName.matches('^' + request.auth.uid + '_(front|back|selfie)_.*\\.(jpg|jpeg|png|webp)$');
+      // 🚀 الإصلاح الجذري: إضافة 'kyc_' للـ Regex ليتطابق مع ما ترسله الواجهة
+      allow read: if isAuthenticated() && fileName.matches('^kyc_' + request.auth.uid + '_(front|back|selfie)_.*\\.(jpg|jpeg|png|webp)$');
       
       allow create, update: if isAuthenticated() 
-                   && fileName.matches('^' + request.auth.uid + '_(front|back|selfie)_.*\\.(jpg|jpeg|png|webp)$')
+                   && fileName.matches('^kyc_' + request.auth.uid + '_(front|back|selfie)_.*\\.(jpg|jpeg|png|webp)$')
                    && isImage()
                    && isValidSize(8);
                    
-      allow delete: if isAuthenticated() && fileName.matches('^' + request.auth.uid + '_(front|back|selfie)_.*\\.(jpg|jpeg|png|webp)$');
+      allow delete: if isAuthenticated() && fileName.matches('^kyc_' + request.auth.uid + '_(front|back|selfie)_.*\\.(jpg|jpeg|png|webp)$');
     }
 
     // ==========================================
@@ -99,7 +99,6 @@ service firebase.storage {
     match /banners/{allPaths=**} { allow read: if true; }
     match /brand/{allPaths=**} { allow read: if true; }
     match /admin/{allPaths=**} { allow read: if true; }
-    // مجلد المدفوعات لم يكن مسجلاً، تمت إضافته للعرض
     match /payments/{allPaths=**} { allow read: if true; } 
   }
 }

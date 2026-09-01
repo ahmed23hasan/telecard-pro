@@ -1,6 +1,7 @@
 // ============================================================================
 // 📢 وحدة التسويق والعروض (modules/marketing/marketingUI.js)
 // 🎯 الوظيفة: إدارة الكوبونات، العروض المركزية، ومحرك البناء المرئي (Visual Engine)
+// 🚀 التحديث: إضافة انتقال سلس (Smooth Transition) عند تغيير الهوية البصرية.
 // ============================================================================
 
 import { Utils, EventBus } from '../../adminUtils.js';
@@ -216,7 +217,6 @@ export const MarketingUI = {
         const posMap = { 'pos-tl': 'top-left', 'pos-tc': 'top-center', 'pos-tr': 'top-right', 'pos-bl': 'bottom-left', 'pos-bc': 'bottom-center', 'pos-br': 'bottom-right' };
         const mB = posMap[v.badgePos] || v.badgePos, mT = posMap[v.timerPos] || v.timerPos;
         
-        // 🌟 المترجم اللوني المحدث والكامل
         const colorClass = String(v.badgeColor).replace('theme-ruby', 'badge-red')
                                                .replace('theme-sapphire', 'badge-blue')
                                                .replace('theme-emerald', 'badge-green')
@@ -247,7 +247,6 @@ export const MarketingUI = {
         const posMap = { 'pos-tl': 'top-left', 'pos-tc': 'top-center', 'pos-tr': 'top-right', 'pos-bl': 'bottom-left', 'pos-bc': 'bottom-center', 'pos-br': 'bottom-right' };
         const mB = posMap[this.visualConfig.grid.badgePos] || this.visualConfig.grid.badgePos, mT = posMap[this.visualConfig.grid.timerPos] || this.visualConfig.grid.timerPos;
         
-        // 🌟 المترجم اللوني المحدث والكامل
         const colorClass = String(this.visualConfig.grid.badgeColor).replace('theme-ruby', 'badge-red')
                                                                     .replace('theme-sapphire', 'badge-blue')
                                                                     .replace('theme-emerald', 'badge-green')

@@ -1,10 +1,11 @@
 // ============================================================================
-// 📦 محرك رسم المنتجات والكتالوج (modules/catalog/catalogRender.js) - Enterprise V14.6 💎
+// 📦 محرك رسم المنتجات والكتالوج (modules/catalog/catalogRender.js) - Enterprise V15.1 💎
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، إعدادات المنتجات، الخزنة المركزية، والبلدان
-// 🚀 التحديثات: 
-// 1. Navigation State Fix: إصلاح تضارب الـ State عند حذف الأقسام.
-// 2. Vault Math Correction: مطابقة رياضيات الصناديق مع بنية السيرفر الماسية (V17).
-// 3. Flicker Free Drag: إضافة كلاسات السحب برمجياً أثناء الرسم لمنع الارتعاش البصري.
+// 🚀 التحديثات المعمارية: 
+// 1. Defective Codes Sync: ربط عداد الأكواد التالفة بحقل (burnedCount) القادم من السيرفر.
+// 2. Empty States UX: تحسين واجهة الباقات (الخيارات) برسالة مساعدة عند الإفراغ.
+// 3. Phantom Sales Fix: إيقاف استنتاج الأكواد المباعة رياضياً لمنع تضارب مبيعات الموردين.
+// 4. Brittle Regex Fix: تمرير كلاسات السحب برمجياً للـ Templates لحماية الواجهة من الانهيار.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -26,7 +27,6 @@ export const CatalogRender = {
         const grid = document.getElementById('prod-grid');
         if (!grid) return;
         
-        // 🌟 استقرار بصري: لا نُعيد الرسم إذا كان الأدمن يقوم بالترتيب (إلا إذا فرضنا الرسم بقوة)
         if (this.state.dragEditMode && !forceRender) return;
         
         const act = document.getElementById('prod-actions');
@@ -43,7 +43,6 @@ export const CatalogRender = {
         
         grid.style.setProperty('--layout-cols', currentLayout);
         
-        // 🛡️ [تحديث ماسي 3]: تجهيز كلاسات السحب مسبقاً لمنع الارتعاش البصري
         const dragClass = this.state.dragEditMode ? 'drag-enabled' : '';
 
         if (currCatId === null) {
@@ -54,20 +53,15 @@ export const CatalogRender = {
             const mainCats = (AdminData.data.cats || []).filter(c => !c.parentId || String(c.parentId) === 'null' || String(c.parentId) === '')
                 .sort((a, b) => (Number(a.order || 9999)) - (Number(b.order || 9999)));
             
-            // حقن كلاس السحب داخل الكرت نفسه (نحتاج لتعديل في الـ Template، لكن سنعوضه هنا بالاستبدال السريع)
-            let rawHtml = mainCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
-            if (dragClass) rawHtml = rawHtml.replace(/class="item-box/g, `class="item-box ${dragClass}`);
-            
-            grid.innerHTML = rawHtml;
+            grid.innerHTML = mainCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId, dragClass)).join('');
             
             EventBus.emit('req-init-sortable', { container: grid, type: 'cat' });
         } else {
             const parent = AdminData.data.catsMap?.[currCatId];
             
-            // 🛡️ [إصلاح ماسي 1]: في حال تم حذف القسم، نرسل تحديثاً جذرياً للـ State لضمان التزامن الملاحي
             if (!parent) {
                 this.state.currFolder = null;
-                EventBus.emit('req-update-state', { currFolder: null }); // إشعار كل المتنصتين (Controllers) بالخروج!
+                EventBus.emit('req-update-state', { currFolder: null }); 
                 return this.renderProds(true); 
             }
             
@@ -83,19 +77,13 @@ export const CatalogRender = {
             if (!childCats.length && !prods.length) {
                 grid.innerHTML = AdminTemplates.emptyFolder();
             } else {
-                let catsHtml = childCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId)).join('');
+                let catsHtml = childCats.map((c, i) => AdminTemplates.catCard(c, i, currCatId, dragClass)).join('');
                 
                 let prodsHtml = prods.map((p, i) => {
-                    const baseCard = AdminTemplates.prodCard(p, i);
+                    const baseCard = AdminTemplates.prodCard(p, i, dragClass);
                     const offerBadge = RenderHelpers._getActiveOfferBadge(p.id);
                     return offerBadge ? baseCard.replace('<div class="item-info">', `<div class="item-info">${offerBadge}`) : baseCard;
                 }).join('');
-                
-                // حقن كلاس السحب المسبق
-                if (dragClass) {
-                    catsHtml = catsHtml.replace(/class="item-box/g, `class="item-box ${dragClass}`);
-                    prodsHtml = prodsHtml.replace(/class="item-box/g, `class="item-box ${dragClass}`);
-                }
                 
                 grid.innerHTML = AdminTemplates.gridContainer(catsHtml, prodsHtml);
             }
@@ -153,11 +141,18 @@ export const CatalogRender = {
     renderPkgList: function() {
         const list = document.getElementById('pkg-list'); 
         if(!list) return;
-        list.innerHTML = (this.state.tempPackages || []).map((p, i) => AdminTemplates.pkgItem(p, i)).join('');
+        
+        const pkgs = this.state.tempPackages || [];
+        if (pkgs.length === 0) {
+            list.innerHTML = '<div class="text-center p-15 text-muted fs-11" style="background: rgba(0,0,0,0.1); border-radius: 8px;"><i class="fa-solid fa-layer-group mb-5 fs-16 d-block"></i> لم يتم إضافة أي باقات حتى الآن. استخدم النموذج أعلاه للإضافة.</div>';
+            return;
+        }
+        
+        list.innerHTML = pkgs.map((p, i) => AdminTemplates.pkgItem(p, i)).join('');
     },
 
     // =========================================================
-    // 🏦 3. رسم الخزنة المركزية (Vault) - Server-Side Matching
+    // 🏦 3. رسم الخزنة المركزية (Vault)
     // =========================================================
     renderVault: function() {
         const grid = document.getElementById('vault-grid'); 
@@ -169,7 +164,6 @@ export const CatalogRender = {
             return; 
         }
         
-        // ⚡ بناء فهرس لعد المنتجات المرتبطة بـ O(1) 
         const linkedProdsMap = {};
         (AdminData.data.prods || []).forEach(p => {
             if (p.vaultPoolId) {
@@ -178,17 +172,13 @@ export const CatalogRender = {
         });
         
         grid.innerHTML = vault.map(pool => {
-            // 🛡️ [تحديث ماسي 2]: مطابقة الرياضيات والعدادات مع السيرفر الجديد (Zero-Contention)
             const availableCount = Number(pool.stockCount || 0); 
-            const totalUploaded = Number(pool.totalAdded || pool.totalCount || 0); 
+            const soldCount = Number(pool.soldCount || 0); 
             
-            // السيرفر لم يعد يرسل soldCount. نستنتجه رياضياً: (المُضاف الكلي - المتبقي)
-            // (بشرط أن يكون totalAdded متوفراً، وإلا نجعله 0 مؤقتاً لتجنب الأرقام السالبة)
-            const soldCount = totalUploaded > 0 ? Math.max(0, totalUploaded - availableCount) : 0; 
-            const defectCount = 0; // تم إيقاف نظام الأكواد التالفة مؤقتاً لتخفيف الحمل السحابي
+            // 🚀 [التصحيح المعماري]: قراءة عداد الأكواد التالفة مباشرة من السيرفر
+            const defectCount = Number(pool.burnedCount || 0); 
             
             const totalCountForHealth = availableCount + soldCount;
-            // حساب نسبة توفر الأكواد (المتبقي مقارنة بالمُباع) لمعرفة هل الصندوق بحاجة لشحن جديد؟
             const healthPercent = totalCountForHealth > 0 ? Math.round((availableCount / totalCountForHealth) * 100) : (availableCount > 0 ? 100 : 0);
             const linkedProds = linkedProdsMap[String(pool.id)] || 0;
             
@@ -220,5 +210,4 @@ export const CatalogRender = {
             return AdminTemplates.countryCard(displayCountry);
         }).join('');
     }
-
 };

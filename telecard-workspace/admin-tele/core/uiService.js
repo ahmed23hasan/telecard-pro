@@ -1,9 +1,10 @@
 // ============================================================================
-// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V14.9 💎
+// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.0 💎
 // 🎯 الوظيفة: أدوات الواجهة المشتركة (الإشعارات، التحميل، النوافذ) بدون منطق عمل
 // 🌟 التحديثات:
-// 1. حماية الـ GIF/SVG من التدمير أثناء ضغط الـ Canvas.
-// 2. التنظيف الفوري العنيف (Immediate Memory Wipe) للباسورد.
+// 1. Memory Hang Fix: تحرير الـ Callback عند فشل ضغط الصورة لمنع تجميد الشاشة.
+// 2. حماية الـ GIF/SVG من التدمير أثناء ضغط الـ Canvas.
+// 3. التنظيف الفوري العنيف (Immediate Memory Wipe) للباسورد.
 // ============================================================================
 
 import { Utils, EventBus } from '../adminUtils.js';
@@ -131,17 +132,16 @@ export const UIService = {
             cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
             
             const closeDialog = (isOk) => {
-                // حفظ القيمة في متغير معزول
                 const val = inputEl.value.trim();
                 inputEl.blur();
                 
-                // 🛡️ [تحديث ماسي]: تدمير القيمة من الـ DOM فوراً لحمايتها من المتطفلين (Memory Wipe)
+                // 🛡️ تدمير القيمة من الـ DOM فوراً (Memory Wipe)
                 inputEl.value = ''; 
                 
                 overlay.classList.add('closing');
                 setTimeout(() => {
                     overlay.classList.remove('active', 'closing');
-                    inputEl.type = 'text'; // إرجاع الحقل لحالته الطبيعية
+                    inputEl.type = 'text'; 
                     resolve(isOk ? val : null);
                 }, 400); 
             };
@@ -310,17 +310,21 @@ export const UIService = {
 
         this.processImage(file, (url) => {
             this.tempImg = url; 
-            EventBus.emit('image-uploaded', url); 
-            const prevEl = document.getElementById(previewId); const wrapEl = wrapperId ? document.getElementById(wrapperId) : null;
-            if (prevEl) { prevEl.src = url; prevEl.classList.remove('hide-element'); }
-            if (wrapEl) wrapEl.classList.add('has-img');
+            if (url) {
+                EventBus.emit('image-uploaded', url); 
+                const prevEl = document.getElementById(previewId); 
+                const wrapEl = wrapperId ? document.getElementById(wrapperId) : null;
+                if (prevEl) { prevEl.src = url; prevEl.classList.remove('hide-element'); }
+                if (wrapEl) wrapEl.classList.add('has-img');
+            } else {
+                this.clearImg(previewId, wrapperId, inputElement.id);
+            }
         });
     },
 
     processImage: async function(file, callback) {
         if(!file) return;
         
-        // 🛡️ [تحديث ماسي]: حماية الصور المتحركة والمتجهة من التخريب بواسطة הـ Canvas
         if (file.type === 'image/gif' || file.type === 'image/svg+xml') {
             const reader = new FileReader();
             reader.readAsDataURL(file);
@@ -354,6 +358,8 @@ export const UIService = {
         } catch (error) { 
             this.toggleLoader(false); 
             this.showToast('خطأ بالصورة', 'error'); 
+            // 🛡️ [Memory Hang Fix]: تحرير الواجهة من التجميد في حال فشل المعالجة
+            if(callback) callback(null); 
         }
     }
 };

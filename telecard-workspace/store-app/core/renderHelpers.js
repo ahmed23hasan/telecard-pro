@@ -1,11 +1,14 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي للمتجر (Store Render Helpers) - Enterprise V15.2 💎
+// 🛠️ مساعدات محرك الرسم العالمي للمتجر (Store Render Helpers) - Enterprise V17.5 💎
 // 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام، مخصص لراحة العميل (UX).
-// 🚀 التحديثات:
-// 1. Stripe-Like Masking: اقتطاع أنيق للمعرفات لراحة عين المستخدم.
-// 2. Pending-Write UX Fix: إرجاع Date.now() للطلبات المعلقة لكي لا يرى العميل 1970.
-// 3. Decimal Zero Fix: معالجة فخ القيمة الصفرية في الخانات العشرية.
+// 🚀 التحديثات المعمارية:
+// 1. DRY Compliance: استيراد أدوات النصوص والزمن من utils.js كمرجع وحيد (SSOT).
+// 2. Stripe-Like Masking: اقتطاع أنيق للمعرفات لراحة عين المستخدم.
+// 3. Pending-Write UX Fix: إرجاع Date.now() للطلبات المعلقة لكي لا يرى العميل 1970.
 // ============================================================================
+
+// 🛡️ المزامنة المعمارية: جلب الأدوات من المرجع الموحد لمنع تكرار الكود
+import { escapeHtml, enNum, parseSafeTime } from '../utils.js';
 
 let _injectedSource = null;
 
@@ -20,33 +23,9 @@ export const RenderHelpers = Object.freeze({
         return { settings: {}, rates: [], offers: [], isStore: true };
     },
 
-    _esc: function(str) {
-        if (str === null || str === undefined) return '';
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;')
-            .replace(/`/g, '&#x60;')
-            .replace(/=/g, '&#x3D;')
-            .replace(/\//g, '&#x2F;');
-    },
-
-    _enNum: function(num, decimals) {
-        // 🛡️ إصلاح فخ القيمة الصفرية للكميات والمخزون
-        const targetDecimals = (decimals !== undefined && decimals !== null) ? Number(decimals) : 2;
-        const safeDecimals = Math.min(20, Math.max(0, targetDecimals));
-        
-        let parsedNum = Number(num);
-        if (isNaN(parsedNum)) parsedNum = 0;
-        
-        return parsedNum.toLocaleString('en-US', {
-            minimumFractionDigits: safeDecimals,
-            maximumFractionDigits: safeDecimals,
-            useGrouping: true // تفعيل الفواصل لمبالغ العميل
-        });
-    },
+    // 🛡️ توجيه الدوال السابقة إلى مرجع utils.js الموحد لعدم كسر الأكواد القديمة
+    _esc: escapeHtml,
+    _enNum: enNum,
 
     // ============================================================================
     // 🎫 محرك معالجة وتنسيق المُعرّفات (Stripe-Like Masking for UX)
@@ -63,7 +42,7 @@ export const RenderHelpers = Object.freeze({
         }
         if (!finalId.trim()) finalId = 'UKNWN';
         const formatted = withPrefix ? `USR-${finalId}` : finalId;
-        return RenderHelpers._esc(formatted);
+        return escapeHtml(formatted);
     },
 
     // 🛡️ المتجر يقتطع المعرف ليكون أنيقاً وقصيراً للعميل (Stripe-Like)
@@ -77,7 +56,7 @@ export const RenderHelpers = Object.freeze({
         let shortId = parts.length >= 2 ? parts[parts.length - 1] : (fullId.length > 7 ? fullId.slice(-7) : fullId);
         
         const finalFormatted = withPrefix ? `ORD-${shortId.toUpperCase()}` : shortId.toUpperCase();
-        return RenderHelpers._esc(finalFormatted);
+        return escapeHtml(finalFormatted);
     },
 
     formatDepositId: function(depObj, withPrefix = true) {
@@ -90,7 +69,7 @@ export const RenderHelpers = Object.freeze({
         let shortId = parts.length >= 2 ? parts[parts.length - 1] : (fullId.length > 7 ? fullId.slice(-7) : fullId);
         
         const finalFormatted = withPrefix ? `DEP-${shortId.toUpperCase()}` : shortId.toUpperCase();
-        return RenderHelpers._esc(finalFormatted);
+        return escapeHtml(finalFormatted);
     },    
 
     // ============================================================================
@@ -136,11 +115,11 @@ export const RenderHelpers = Object.freeze({
     },
 
     formatMoney: function(amount, currencyCode = 'USD', decimals = 2) {
-        const formattedNum = RenderHelpers._enNum(amount, decimals);
+        const formattedNum = enNum(amount, decimals);
         const displayCur = RenderHelpers.getCurrencySymbolText(currencyCode);
         const isLongText = displayCur.trim().length > 1;
         const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
-        const safeCur = RenderHelpers._esc(displayCur);
+        const safeCur = escapeHtml(displayCur);
         
         return `<span class="money-pro" dir="ltr" style="display: inline-flex; align-items: baseline; gap: 4px; direction: ltr;"><span class="num-en money-val">${formattedNum}</span><span class="cur-symbol ${symbolClass}">${safeCur}</span></span>`;
     },    
@@ -155,7 +134,7 @@ export const RenderHelpers = Object.freeze({
         const l = String(u.lastName || u.last_name || '').trim();
         const combined = (f + ' ' + l).trim();
         const fullName = u.fullName || combined || u.username || 'مستخدم جديد';
-        return RenderHelpers._esc(fullName);
+        return escapeHtml(fullName);
     },
 
     _getExplicitName: function(u) {
@@ -164,7 +143,7 @@ export const RenderHelpers = Object.freeze({
         const l = String(u.lastName || u.last_name || '').trim();
         const combined = (f + ' ' + l).trim();
         const fullName = u.fullName || combined || u.username || 'مستخدم غير معروف';
-        return RenderHelpers._esc(fullName);
+        return escapeHtml(fullName);
     },
 
     _getActiveOfferBadge: function(prodId) {
@@ -178,7 +157,7 @@ export const RenderHelpers = Object.freeze({
         );
 
         if (!activeOffer) return '';
-        const safeName = RenderHelpers._esc(activeOffer.name);
+        const safeName = escapeHtml(activeOffer.name);
         return `<span class="promo-badge b-success icon-ms-2 badge-micro" title="مشمول في عرض: ${safeName}"><i class="fa-solid fa-bolt"></i> عرض نشط</span>`;
     },
 
@@ -187,32 +166,16 @@ export const RenderHelpers = Object.freeze({
     // ============================================================================
 
     parseUnifiedTime: function(item) {
-        if (!item) return 0;
+        if (!item) return Date.now();
         const t = item.time ?? item.createdAt ?? item.actionTime ?? null;
-        return RenderHelpers.parseTime(t);
+        return parseSafeTime(t);
     },
 
-    parseTime: function(ts) {
-        // 🛡️ حماية العميل (UX): إذا كان التاريخ مفقوداً (Pending Write من فايربيز)، نعطيه وقت "الآن" لكي لا يرى 1970
-        if (ts === null || ts === undefined || ts === '') return Date.now();
-        if (typeof ts === 'number') return ts;
-        if (ts instanceof Date) return ts.getTime();
-        
-        if (typeof ts.toDate === 'function') return ts.toDate().getTime(); 
-        if (ts.seconds !== undefined) return ts.seconds * 1000; 
-        if (ts._seconds !== undefined) return ts._seconds * 1000; 
-        
-        if (typeof ts === 'string') {
-            let safeString = ts;
-            if (!ts.includes('T')) safeString = ts.replace(/-/g, '/');
-            const parsed = new Date(safeString).getTime();
-            return isNaN(parsed) ? Date.now() : parsed;
-        }
-        return Date.now(); 
-    },
+    // 🛡️ توجيه تحليل الوقت إلى المرجع الموحد في utils.js
+    parseTime: parseSafeTime,
 
     formatSafeDate: function(ts) {
-        const timeMs = RenderHelpers.parseTime(ts);
+        const timeMs = parseSafeTime(ts);
         const dateObj = new Date(timeMs);
         if (isNaN(dateObj.getTime())) return '---';
         

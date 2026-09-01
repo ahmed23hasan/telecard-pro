@@ -1,12 +1,9 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار الماسي الخارق V16.9.5 💎
-// 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع السريع، إدارة الكاش الذكي، والتوافقية
-// 🚀 التحديثات المعمارية (V16.9.5 - Master Sync & Stability):
-// 1. Biometric Deadlock Fix: تفعيل مستمعات الواجهة قبل قفل البصمة لمنع تجميد النظام.
-// 2. SSOT Cache Versioning: فصل مفتاح كاش التطبيق عن المنتجات لمنع حلقة التحديث اللانهائية.
-// 3. WebAuthn Base64URL Fix: معالجة فك تشفير البصمة الآمنة ومنع انهيار المتصفح.
-// 4. Ghost Session Protection: توحيد المصادقة مع المحول الداخلي.
-// 5. Smart Greeting Engine: دمج الترحيب النفسي المخصص للعملاء الجدد والعائدين.
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي المنظف V17.2.0 💎
+// 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع الآمن، عزل الحالة، وإدارة الجلسات
+// 🚀 التحديثات المعمارية الصارمة:
+// 1. Biometric Fallback: طرد صريح (Hard Logout) عند فشل البصمة لمنع تجميد الجلسة.
+// 2. Loop Fix: توحيد نوع بيانات إصدار السيرفر لمنع حلقة التحديث اللانهائية.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -22,7 +19,7 @@ window.cancelIdleCallback = window.cancelIdleCallback || (isNativeIdle ? window.
 import { auth } from './core/firebaseAdapter.js';
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-import { DB_KEYS, CACHE_KEYS, APP_VERSION, ACTIVE_USER_KEY } from './config.js'; 
+import { DB_KEYS, CACHE_KEYS, APP_VERSION } from './config.js'; 
 import * as Utils from './utils.js'; 
 import { DataManager, LiveStoreData, StoreDB } from './dataManager.js';
 import { UIManager } from './ui/uiManager.js'; 
@@ -30,7 +27,6 @@ import { RenderManager } from './renderManager.js';
 import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 
-// 🛡️ أدوات التحديث الآمن للذاكرة (لمنع كسر مراجع الـ UI)
 const _updateLiveArray = (arr, newData) => { if (arr) { arr.length = 0; if (Array.isArray(newData)) arr.push(...newData); } };
 const _updateLiveObject = (obj, newData) => { if (obj) { Object.keys(obj).forEach(k => delete obj[k]); if (newData) Object.assign(obj, newData); } };
 
@@ -44,9 +40,7 @@ const _normalizeDataTime = (dataArray) => {
     }));
 };
 
-const ClientSystem = UIManager; 
-
-Object.assign(ClientSystem, {
+const AppController = {
     activeListeners: [], 
     userAuthListeners: [],
     _networkSensorsBound: false, 
@@ -74,10 +68,11 @@ Object.assign(ClientSystem, {
         
         if (lockScreen) lockScreen.classList.add('active'); 
         
+        // 🛡️ Fallback Fix: طرد المستخدم لجبره على إدخال كلمة المرور (Hard Logout)
         if (!window.PublicKeyCredential || !savedRawId) {
             if (lockScreen) lockScreen.classList.remove('active');
-            this.showToast?.('مفتاح البصمة مفقود. يرجى تسجيل الدخول مجدداً.', 'error');
-            if (DataManager.logout) DataManager.logout();
+            UIManager.showToast?.('البصمة غير مدعومة في هذا المتصفح. يرجى تسجيل الدخول.', 'warning');
+            if (DataManager.logout) DataManager.logout(true); // يجب أن يكون True
             return false;
         }
         
@@ -91,11 +86,8 @@ Object.assign(ClientSystem, {
             const challenge = new Uint8Array(32);
             window.crypto.getRandomValues(challenge);
             
-            // 🛡️ تحويل Base64URL إلى Base64 قياسي لتجنب انهيار دالة atob
             let base64 = savedRawId.replace(/-/g, '+').replace(/_/g, '/');
-            while (base64.length % 4) {
-                base64 += '=';
-            }
+            while (base64.length % 4) { base64 += '='; }
             const binaryString = atob(base64);
             const rawIdBytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
@@ -133,261 +125,253 @@ Object.assign(ClientSystem, {
         
         window.addEventListener('offline', () => {
             if (networkCooldownTimer) clearTimeout(networkCooldownTimer);
-            this.showToast?.('انقطع الاتصال بالإنترنت. أنت تتصفح البيانات المحفوظة.', 'warning');
+            UIManager.showToast?.('انقطع الاتصال بالإنترنت. أنت تتصفح البيانات المحفوظة.', 'warning');
             document.body.classList.add('is-offline');
         });
         
         window.addEventListener('online', () => {
             document.body.classList.remove('is-offline');
-            this.showToast?.('عاد الاتصال بالإنترنت! جاري المزامنة...', 'success');
+            UIManager.showToast?.('عاد الاتصال بالإنترنت! جاري المزامنة...', 'success');
             
-            if (this.isReady) {
+            if (UIManager.isReady) {
                 if (networkCooldownTimer) clearTimeout(networkCooldownTimer);
                 networkCooldownTimer = setTimeout(() => {
                     try { this.initFirebaseListeners(); } catch(e){}
                 }, 3000); 
             }
         });
-    }
-});
+    },
 
-ClientSystem.initFirebaseListeners = function() {
-    console.log("📡 جاري تشغيل مستمعات السحابة الحية...");
-    this.clearFirebaseListeners(); 
-    
-    if (DB_KEYS.SETTINGS) {
-        this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.SETTINGS, 'singleton', (incoming) => {
-            if (!incoming) return;            
-            const serverVersion = String(incoming.appVersion || '0');
-            // 🛡️ الإصلاح: فصل مفتاح كاش التطبيق (tc_app_version) عن مفتاح الكتالوج
-            const localAppVersion = localStorage.getItem('tc_app_version') || '0';
-            
-            if (serverVersion !== '0' && serverVersion !== localAppVersion) {
-                if (this._isUpdatingServer) return; 
-                this._isUpdatingServer = true;
+    initFirebaseListeners: function() {
+        console.log("📡 جاري تشغيل مستمعات السحابة الحية...");
+        this.clearFirebaseListeners(); 
+        
+        if (DB_KEYS.SETTINGS) {
+            this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.SETTINGS, 'singleton', (incoming) => {
+                if (!incoming) return;            
                 
-                const reloadCount = parseInt(sessionStorage.getItem('tc_update_reloads') || '0');
-                if (reloadCount > 2) {
-                    console.error("🚨 تم إيقاف حلقة التحديث اللانهائية للحماية.");
-                    return;
-                }
-                sessionStorage.setItem('tc_update_reloads', String(reloadCount + 1));
+                const serverVersion = String(incoming.appVersion || '0').trim();
+                const localAppVersion = String(localStorage.getItem('tc_app_version') || '0').trim();
                 
-                console.warn(`🔄 الإدارة أصدرت تحديثاً إجبارياً! (إلى الإصدار ${serverVersion})`);
-                if(this.showToast) this.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل...', 'success');
-                
-                setTimeout(async () => {
-                    // 🛡️ الإصلاح: حفظ مفتاح التطبيق الصحيح لمنع حلقة التحديث
-                    localStorage.setItem('tc_app_version', serverVersion);
-                    const clearPromises = [];
+                if (serverVersion !== '0' && serverVersion !== localAppVersion) {
+                    if (this._isUpdatingServer) return; 
+                    this._isUpdatingServer = true;
                     
-                    const keysToRemove = [];
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const k = localStorage.key(i);
-                        if (k && (k.startsWith('telecard_store_cache') || k === CACHE_KEYS.SMART_CATALOG || k === CACHE_KEYS.CATALOG_VERSION)) {
-                            keysToRemove.push(k);
-                        }
-                    }
-                    keysToRemove.forEach(k => localStorage.removeItem(k));
-                    
-                    if ('caches' in window) {
-                        clearPromises.push(caches.keys().then(names => Promise.all(names.map(name => caches.delete(name)))).catch(()=>[]));
-                    }
-                    if ('serviceWorker' in navigator) { 
-                        clearPromises.push(navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).catch(()=>[])); 
-                    }
-                    
-                    await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
-                    window.location.replace(window.location.href.split('#')[0]);
-                }, 2000);
-                return;
-            }
-
-            _updateLiveObject(LiveStoreData.settings, incoming);
-            RenderHelpers.init({ settings: LiveStoreData.settings, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
-            
-            if(DataManager.syncUser) DataManager.syncUser().then(() => {
-                if(this.updateDisplayCurrencyUI) this.updateDisplayCurrencyUI(DataManager.selectedCurr); 
-            }); 
-            
-            if(this.applyStoreIdentity) this.applyStoreIdentity();
-        }));
-    }
-    
-    if (DB_KEYS.ALERTS) {
-        this.activeListeners.push(StoreDB.listenQuery(DB_KEYS.ALERTS, [], 'createdAt', 50, (data) => {
-            _updateLiveArray(LiveStoreData.alerts, _normalizeDataTime(Array.isArray(data) ? data : []));
-            requestAnimationFrame(() => {
-                if (this.processAndDisplayAlerts) this.processAndDisplayAlerts();
-                if (this.updateNotifBadges) this.updateNotifBadges();
-            });
-        }));
-    }    
-    
-    if (!auth) return; 
-    
-    if (this._authUnsubscribe) this._authUnsubscribe();
-    
-        this._authUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => { // 🛡️ التعديل: إضافة async
-        this.userAuthListeners.forEach(unsub => { if (typeof unsub === 'function') unsub(); });
-        this.userAuthListeners = [];
-
-        if (firebaseUser) {
-            const uidStr = firebaseUser.uid;
-            
-            // =================================================================
-            // 🛡️ جسر التشافي الذاتي للجلسات الشبحية (Ghost Session Self-Healing)
-            // =================================================================
-            const localUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
-            
-            // إذا كان المستخدم موجوداً في فايربيز، لكن الكاش المحلي (DataManager) فارغ أو مفقود
-            if (!localUid || !DataManager.user) {
-                console.warn("👻 [Ghost Session Detected]: فايربيز متصل لكن الكاش فارغ. جاري التشافي الذاتي...");
-                
-                // إصلاح مبدئي: حفظ المفتاح في الكاش
-                localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
-                
-                try {
-                    // جلب بيانات الحساب (الرصيد، الاسم، إلخ) من السيرفر بصمت وإعادة إحياء DataManager
-                    const userDoc = await StoreDB.getById(DB_KEYS.USERS, uidStr);
-                    if (userDoc) {
-                        DataManager.user = { ...userDoc, uid: uidStr, id: uidStr };
-                        DataManager.saveUserLocal(); 
-                        console.log("✅ [Self-Healing Complete]: تم استعادة الجلسة بنجاح!");
-                        
-                        // إغلاق أي نافذة تسجيل دخول قد تكون مفتوحة بالخطأ
-                        if (this.closeModal) this.closeModal('login');
-                    } else {
-                        // الحساب مسجل بفايربيز لكن بياناته محذوفة من الإدارة
-                        if (DataManager.logout) DataManager.logout();
+                    const reloadCount = parseInt(sessionStorage.getItem('tc_update_reloads') || '0');
+                    if (reloadCount > 2) {
+                        console.error("🚨 تم إيقاف حلقة التحديث اللانهائية للحماية.");
                         return;
                     }
-                } catch (e) {
-                    console.error("🚨 فشل استعادة الجلسة الشبحية:", e);
-                }
-            } else {
-                // الوضع الطبيعي: تأكيد حفظ الـ UID في الكاش
-                localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
-            }
-            // =================================================================
-
-            if (DataManager && typeof DataManager.listenToUserNotifications === 'function') {
-                const notifUnsub = DataManager.listenToUserNotifications(() => requestAnimationFrame(() => {
-                    if (this.processAndDisplayAlerts) this.processAndDisplayAlerts();
-                    if (this.updateNotifBadges) this.updateNotifBadges();
-                    if (RenderManager && RenderManager.renderNotifCenterList) RenderManager.renderNotifCenterList();
-                }));
-                if (notifUnsub) this.userAuthListeners.push(notifUnsub);
-            }
-            
-            if (StoreDB.listenDoc) {
-                this.userAuthListeners.push(StoreDB.listenDoc(DB_KEYS.USERS, uidStr, (userData) => {
-                    if (userData) {
-                        if (userData.isBanned || userData.isIpBanned) {
-                            this.clearFirebaseListeners();
-                            if (this.triggerLiveBanAlert) {
-                                this.triggerLiveBanAlert(userData.banReason || 'نعتذر، تم حظر حسابك.');
-                            } else if (DataManager.logout) {
-                                DataManager.logout(); 
-                            } else {
-                                signOut(auth).catch(()=>{}); 
+                    sessionStorage.setItem('tc_update_reloads', String(reloadCount + 1));
+                    
+                    console.warn(`🔄 الإدارة أصدرت تحديثاً إجبارياً! (إلى الإصدار ${serverVersion})`);
+                    if(UIManager.showToast) UIManager.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل...', 'success');
+                    
+                    setTimeout(async () => {
+                        localStorage.setItem('tc_app_version', serverVersion);
+                        const clearPromises = [];
+                        
+                        const keysToRemove = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const k = localStorage.key(i);
+                            if (k && (k.startsWith('telecard_store_cache') || k === CACHE_KEYS.SMART_CATALOG || k === CACHE_KEYS.CATALOG_VERSION)) {
+                                keysToRemove.push(k);
                             }
-                            return; 
+                        }
+                        keysToRemove.forEach(k => localStorage.removeItem(k));
+                        
+                        if ('caches' in window) {
+                            clearPromises.push(caches.keys().then(names => Promise.all(names.map(name => caches.delete(name)))).catch(()=>[]));
+                        }
+                        if ('serviceWorker' in navigator) { 
+                            clearPromises.push(navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).catch(()=>[])); 
                         }
                         
-                        _updateLiveArray(LiveStoreData.users, [userData]);
+                        await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
+                        window.location.replace(window.location.href.split('#')[0]);
+                    }, 2000);
+                    return;
+                }
+
+                _updateLiveObject(LiveStoreData.settings, incoming);
+                RenderHelpers.init({ settings: LiveStoreData.settings, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
+                
+                if(DataManager.syncUser) DataManager.syncUser().then(() => {
+                    if(UIManager.updateDisplayCurrencyUI) UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr); 
+                }); 
+                
+                if(UIManager.applyStoreIdentity) UIManager.applyStoreIdentity();
+            }));
+        }
+        
+        if (DB_KEYS.ALERTS) {
+            this.activeListeners.push(StoreDB.listenQuery(DB_KEYS.ALERTS, [], 'createdAt', 50, (data) => {
+                _updateLiveArray(LiveStoreData.alerts, _normalizeDataTime(Array.isArray(data) ? data : []));
+                requestAnimationFrame(() => {
+                    if (UIManager.processAndDisplayAlerts) UIManager.processAndDisplayAlerts();
+                    if (UIManager.updateNotifBadges) UIManager.updateNotifBadges();
+                });
+            }));
+        }    
+        
+        if (!auth) return; 
+        
+        if (this._authUnsubscribe) this._authUnsubscribe();
+        
+        this._authUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+            this.userAuthListeners.forEach(unsub => { if (typeof unsub === 'function') unsub(); });
+            this.userAuthListeners = [];
+
+            if (firebaseUser) {
+                const uidStr = firebaseUser.uid;
+                const localUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
+                
+                if (!localUid || !DataManager.user) {
+                    console.warn("👻 [Ghost Session Detected]: فايربيز متصل لكن الكاش فارغ. جاري التشافي...");
+                    localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
+                    try {
+                        const userDoc = await StoreDB.getById(DB_KEYS.USERS, uidStr);
+                        if (userDoc) {
+                            DataManager.user = { ...userDoc, uid: uidStr, id: uidStr };
+                            DataManager.saveUserLocal(); 
+                            if (UIManager.closeModal) UIManager.closeModal('login');
+                        } else {
+                            if (DataManager.logout) DataManager.logout();
+                            return;
+                        }
+                    } catch (e) {
+                        console.error("🚨 فشل استعادة الجلسة الشبحية:", e);
+                    }
+                } else {
+                    localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
+                }
+
+                if (DataManager && typeof DataManager.listenToUserNotifications === 'function') {
+                    const notifUnsub = DataManager.listenToUserNotifications(() => requestAnimationFrame(() => {
+                        if (UIManager.processAndDisplayAlerts) UIManager.processAndDisplayAlerts();
+                        if (UIManager.updateNotifBadges) UIManager.updateNotifBadges();
+                        if (RenderManager && RenderManager.renderNotifCenterList) RenderManager.renderNotifCenterList();
+                    }));
+                    if (notifUnsub) this.userAuthListeners.push(notifUnsub);
+                }
+                
+                if (StoreDB.listenDoc) {
+                    this.userAuthListeners.push(StoreDB.listenDoc(DB_KEYS.USERS, uidStr, (userData) => {
+                        if (userData) {
+                            if (userData.isBanned || userData.isIpBanned) {
+                                this.clearFirebaseListeners();
+                                if (UIManager.triggerLiveBanAlert) {
+                                    UIManager.triggerLiveBanAlert(userData.banReason || 'نعتذر، تم حظر حسابك.');
+                                } else if (DataManager.logout) {
+                                    DataManager.logout(); 
+                                } else {
+                                    signOut(auth).catch(()=>{}); 
+                                }
+                                return; 
+                            }
+                            
+                            _updateLiveArray(LiveStoreData.users, [userData]);
+                            
+                            requestAnimationFrame(() => { 
+                                if(DataManager.syncUser) DataManager.syncUser(); 
+                                
+                                const activeCurr = DataManager.user?.baseCurrency || 'USD';
+                                const uiCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || 'USD'; 
+                                
+                                if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance(); 
+                                if (UIManager.updateNotifBadges) UIManager.updateNotifBadges(); 
+                                
+                                if (activeCurr !== uiCurr && typeof RenderManager !== 'undefined') {
+                                    if (UIManager.updateDisplayCurrencyUI) UIManager.updateDisplayCurrencyUI(activeCurr);
+                                    if (document.body.classList.contains('is-home')) {
+                                        if (RenderManager.renderHome) RenderManager.renderHome(true);
+                                    } else if (UIManager.currentCategoryId) {
+                                        if (RenderManager._renderContent) RenderManager._renderContent(UIManager.currentCategoryId);
+                                    }
+                                }
+                            });
+                        }
+                    }));
+                }
+                
+                if (StoreDB.listenQuery) {
+                    this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, [['userId', '==', uidStr]], 'time', 30, (data) => {
+                        const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
+                        _updateLiveArray(LiveStoreData.orders, normData); 
+                        
+                        try { 
+                            const minifiedOrders = normData.map(o => ({ 
+                                id: o.id, displayId: o.displayId, product: o.product, price: o.price, 
+                                priceCurrency: o.priceCurrency, status: o.status, time: o.time, 
+                                createdAt: o.createdAt, pricingSnapshot: o.pricingSnapshot 
+                            }));
+                            localStorage.setItem(`tc_orders_cache_${uidStr}`, JSON.stringify(minifiedOrders)); 
+                        } catch(e) {}
+                        
+                        if (DataManager.cursors && DataManager.cursors.orders === undefined) DataManager.cursors.orders = null;
                         
                         requestAnimationFrame(() => { 
-                            if(DataManager.syncUser) DataManager.syncUser(); 
-                            
-                            const activeCurr = DataManager.user?.baseCurrency || 'USD';
-                            const uiCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || 'USD'; 
-                            
-                            if (this.updateDisplayBalance) this.updateDisplayBalance(); 
-                            if (this.updateNotifBadges) this.updateNotifBadges(); 
-                            
-                            if (activeCurr !== uiCurr && typeof RenderManager !== 'undefined') {
-                                if (this.updateDisplayCurrencyUI) this.updateDisplayCurrencyUI(activeCurr);
-                                if (document.body.classList.contains('is-home')) {
-                                    if (RenderManager.renderHome) RenderManager.renderHome(true);
-                                } else if (this.currentCategoryId) {
-                                    if (RenderManager._renderContent) RenderManager._renderContent(this.currentCategoryId);
-                                }
+                            if (RenderManager.renderOrders && document.getElementById('orders-modal')?.classList.contains('active')) {
+                                RenderManager.renderOrders(true); 
                             }
                         });
-                    }
-                }));
-            }
-            
-            if (StoreDB.listenQuery) {
-                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, [['userId', '==', uidStr]], 'time', 30, (data) => {
-                    const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
-                    _updateLiveArray(LiveStoreData.orders, normData); 
-                    
-                    try { 
-                        const minifiedOrders = normData.map(o => ({ 
-                            id: o.id, 
-                            displayId: o.displayId, 
-                            product: o.product, 
-                            price: o.price, 
-                            priceCurrency: o.priceCurrency, 
-                            status: o.status, 
-                            time: o.time, 
-                            createdAt: o.createdAt, 
-                            pricingSnapshot: o.pricingSnapshot 
-                        }));
-                        localStorage.setItem(`tc_orders_cache_${uidStr}`, JSON.stringify(minifiedOrders)); 
-                    } catch(e) {}
-                    
-                    if (DataManager.cursors && DataManager.cursors.orders === undefined) {
-                        DataManager.cursors.orders = null;
-                    }
-                    
-                    requestAnimationFrame(() => { 
-                        if (RenderManager.renderOrders && document.getElementById('orders-modal')?.classList.contains('active')) {
-                            RenderManager.renderOrders(true); 
-                        }
-                    });
-                }));               
-                this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.DEPOSITS, [['userId', '==', uidStr]], 'time', 30, (data) => {
-                    const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
-                    _updateLiveArray(LiveStoreData.deposits, normData); 
-                    
-                    try { 
-                        const minifiedDeposits = normData.map(d => ({ id: d.id, displayId: d.displayId, amount: d.amount, creditedAmount: d.creditedAmount, targetCurrency: d.targetCurrency, method: d.method, status: d.status, time: d.time, createdAt: d.createdAt }));
-                        localStorage.setItem(`tc_deposits_cache_${uidStr}`, JSON.stringify(minifiedDeposits)); 
-                    } catch(e){}
-                    
-                    if (DataManager.cursors && DataManager.cursors.deposits === undefined) DataManager.cursors.deposits = null;
-                    
-                    requestAnimationFrame(() => { 
-                        const isWalletOpen = document.getElementById('wallet-modal')?.classList.contains('active');
-                        const isMyPayOpen = document.getElementById('mypay-modal')?.classList.contains('active');
-                        if (isWalletOpen && RenderManager.renderWallet) RenderManager.renderWallet(true); 
-                        if (isMyPayOpen && RenderManager.renderPayments) RenderManager.renderPayments(true); 
-                    });
-                }));
-            }
-        } else {
-            console.log("👤 العميل زائر. تم تنظيف المستمعات.");
-                   // 🛡️ جسر حماية الزوار: التأكد من مسح الكاش المحلي إذا كان فايربيز فارغاً (Stale Session)
-            const staleLocalUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
-            if (staleLocalUid || DataManager.user) {
-                console.warn("🧹 [Stale Session]: فايربيز غير متصل لكن الكاش موجود. جاري التنظيف...");
-                if (DataManager.logout) DataManager.logout();
+                    }));               
+                    this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.DEPOSITS, [['userId', '==', uidStr]], 'time', 30, (data) => {
+                        const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
+                        _updateLiveArray(LiveStoreData.deposits, normData); 
+                        
+                        try { 
+                            const minifiedDeposits = normData.map(d => ({ 
+                                id: d.id, displayId: d.displayId, amount: d.amount, creditedAmount: d.creditedAmount, 
+                                targetCurrency: d.targetCurrency, method: d.method, status: d.status, 
+                                time: d.time, createdAt: d.createdAt 
+                            }));
+                            localStorage.setItem(`tc_deposits_cache_${uidStr}`, JSON.stringify(minifiedDeposits)); 
+                        } catch(e){}
+                        
+                        if (DataManager.cursors && DataManager.cursors.deposits === undefined) DataManager.cursors.deposits = null;
+                        
+                        requestAnimationFrame(() => { 
+                            const isWalletOpen = document.getElementById('wallet-modal')?.classList.contains('active');
+                            const isMyPayOpen = document.getElementById('mypay-modal')?.classList.contains('active');
+                            if (isWalletOpen && RenderManager.renderWallet) RenderManager.renderWallet(true); 
+                            if (isMyPayOpen && RenderManager.renderPayments) RenderManager.renderPayments(true); 
+                        });
+                    }));
+                }
             } else {
-                localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
-                LiveStoreData.users.length = 0; LiveStoreData.orders.length = 0; LiveStoreData.deposits.length = 0;
-                DataManager.cursors = {}; 
-                if(DataManager.syncUser) DataManager.syncUser(); 
-                if(this.updateDisplayBalance) this.updateDisplayBalance();
+                console.log("👤 العميل زائر. تم تنظيف المستمعات.");
+                const staleLocalUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
+                if (staleLocalUid || DataManager.user) {
+                    console.warn("🧹 [Stale Session]: فايربيز غير متصل لكن الكاش موجود. جاري التنظيف...");
+                    if (DataManager.logout) DataManager.logout();
+                } else {
+                    localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
+                    LiveStoreData.users.length = 0; LiveStoreData.orders.length = 0; LiveStoreData.deposits.length = 0;
+                    DataManager.cursors = {}; 
+                    if(DataManager.syncUser) DataManager.syncUser(); 
+                    if(UIManager.updateDisplayBalance) UIManager.updateDisplayBalance();
+                }
             }
-        }
-    }); // <-- إغلاق onAuthStateChanged
-}; // <-- إغلاق ClientSystem.initFirebaseListeners
+        }); 
+    }
+}; 
 
-ClientSystem.init = async function() {
+AppController.init = async function() {
     console.log(`🚀 جاري إقلاع المتجر (نسخة المحرك الماسي ${APP_VERSION})...`);
+    
+    // ========================================================================
+    // 🌟 اللمسة الاحترافية: مراقب التبويبات المفتوحة (Cross-Tab Sync)
+    // يقوم بتسجيل خروج المستخدم فوراً من كل النوافذ إذا سجل خروجه من إحداها
+    // ========================================================================
+    window.addEventListener('storage', (event) => {
+        if (event.key === CACHE_KEYS.ACTIVE_UID && event.newValue === null) {
+            console.warn("🔒 تم تسجيل الخروج من نافذة أخرى. جاري تأمين هذه الجلسة...");
+            window.location.replace(window.location.pathname);
+        }
+    });
+    // ========================================================================
+
     if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
         RenderHelpers.init({ settings: {}, rates: [], offers: [], isStore: true });
     }
@@ -400,7 +384,6 @@ ClientSystem.init = async function() {
             console.warn(`🔄 تم اكتشاف تحديث محلي للمتجر! جاري التحديث من ${savedVersion} إلى ${currentVersion}...`);
             
             const clearPromises = [];
-            
             if ('serviceWorker' in navigator) {
                 clearPromises.push(navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).catch(() => []));
             }
@@ -442,21 +425,15 @@ ClientSystem.init = async function() {
                 if (document.getElementById('wallet-modal')?.classList.contains('active') && RenderManager.renderWallet) RenderManager.renderWallet(true);
             }
         }
-    } catch (e) {
-        console.warn("⚠️ [Cache Hydration] تعذر جلب السجلات المؤقتة.");
-    }
+    } catch (e) { console.warn("⚠️ [Cache Hydration] تعذر جلب السجلات المؤقتة."); }
     
     try {
         if (DataManager.loadPrefs) DataManager.loadPrefs();
         if (DataManager.syncUser) await DataManager.syncUser().catch(() => {});
         
-        // ✅ [إصلاح فخ البصمة]: تشغيل مستمعات الواجهة أولاً لضمان عمل أزرار شاشة القفل
-        if (this.initGlobalListeners) this.initGlobalListeners();
+        if (UIManager.initGlobalListeners) UIManager.initGlobalListeners();
         
-        // 🔒 [تفعيل قفل المتجر بالبصمة بأمان]
         if (DataManager.user && DataManager.user.biometricEnabled) {
-            // 🛡️ الإصلاح: لا نوقف الإقلاع بـ (return). 
-            // نسمح للواجهة بالرسم في الخلفية، بينما يمنع الـ Overlay التفاعل حتى ينجح الفتح.
             this.enforceBiometricLock().then(isUnlocked => {
                 if (!isUnlocked) {
                     const splash = document.getElementById('global-splash-screen');
@@ -469,25 +446,21 @@ ClientSystem.init = async function() {
             });
         }
         
-        if (this.applySavedTheme) this.applySavedTheme();
-        
-        if (this.toggleHeroSection) this.toggleHeroSection(true);
+        if (UIManager.applySavedTheme) UIManager.applySavedTheme();
+        if (UIManager.toggleHeroSection) UIManager.toggleHeroSection(true);
     } catch (e) {}
     
     try {
-        if (this.checkSystemStatus && this.checkSystemStatus()) return;
+        if (UIManager.checkSystemStatus && UIManager.checkSystemStatus()) return;
         
-        // جلب إعدادات المتجر والكتالوج من السيرفر/الكاش
         await DataManager.initStoreCatalog();
         
-        // تحديث محرك الرسم بالإعدادات الصحيحة
         if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
             RenderHelpers.init({ settings: LiveStoreData.settings || {}, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
         }
         
-        // 🛡️ [الإصلاح الجذري - Zero-Glitch UI]: رسم العملة الآن فقط بعد أن نكون قد حصلنا على الإعدادات الفعلية
         DataManager.selectedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || LiveStoreData.settings?.defaultCurrency || 'USD';
-        if (this.updateDisplayCurrencyUI) this.updateDisplayCurrencyUI(DataManager.selectedCurr);
+        if (UIManager.updateDisplayCurrencyUI) UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
         
         const removeSplashScreen = () => {
             const splash = document.getElementById('global-splash-screen');
@@ -499,25 +472,15 @@ ClientSystem.init = async function() {
         };
         requestAnimationFrame(removeSplashScreen);
 
-        // =================================================================
-        // 🛡️ محرك التنبيهات الذكي للبدء (Logout Toast OR Smart Greeting)
-        // =================================================================
         if (localStorage.getItem('tc_show_logout_toast')) {
-            // 1. إذا كان العميل قد سجل خروجه للتو، نظهر له رسالة الوداع فقط
             localStorage.removeItem('tc_show_logout_toast');
             setTimeout(() => {
-                if (window.UIManager && window.UIManager.showToast) {
-                    window.UIManager.showToast('تم تسجيل الخروج بنجاح. نراك قريباً!', 'success');
-                }
-                if (window.UIManager && window.UIManager.sfx) {
-                    window.UIManager.sfx('success');
-                }
-            }, 1200); // تأخير لضمان اختفاء شاشة الإقلاع تماماً
-            
+                if (UIManager.showToast) UIManager.showToast('تم تسجيل الخروج بنجاح. نراك قريباً!', 'success');
+                if (UIManager.sfx) UIManager.sfx('success');
+            }, 1200);
+
         } else if (!sessionStorage.getItem('tc_has_been_greeted')) {
-            // 2. إذا كانت هذه أول مرة يفتح فيها المتجر في هذه الجلسة، نظهر له التحية الذكية
             sessionStorage.setItem('tc_has_been_greeted', 'true');
-            
             setTimeout(() => {
                 const isNewUser = sessionStorage.getItem('tc_new_user_signup');
                 const storeName = localStorage.getItem('tc_splash_name') || LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'متجرنا';
@@ -526,7 +489,6 @@ ClientSystem.init = async function() {
                 let finalGreeting = '';
                 
                 if (isNewUser) {
-                    // 🌟 سيناريو 1: العميل أنشأ حسابه للتو (ترحيب حار باسم المتجر)
                     sessionStorage.removeItem('tc_new_user_signup');
                     const newWelcomePhrases = [
                         `أهلاً بك في عائلة ${storeName}${namePart} 🎉`,
@@ -535,48 +497,34 @@ ClientSystem.init = async function() {
                     ];
                     finalGreeting = newWelcomePhrases[Math.floor(Math.random() * newWelcomePhrases.length)];
                 } else {
-                    // 🌟 سيناريو 2: الزيارات المتكررة (عشوائية زمنية لكسر الروتين)
                     const hour = new Date().getHours();
                     let timePhrases = [];
                     
-                    if (hour >= 5 && hour < 12) {
-                        timePhrases = ["صباح الخير", "عمت صباحاً", "صباح النشاط", "إشراقة جديدة"];
-                    } else if (hour >= 12 && hour < 18) {
-                        timePhrases = ["طاب مساؤك", "كيف الحال", "ما الأخبار", "مرحباً بك"];
-                    } else {
-                        timePhrases = ["مساء الخير", "سهرة ممتعة", "عمت مساءً", "أهلاً بك الليلة"];
-                    }
+                    if (hour >= 5 && hour < 12) timePhrases = ["صباح الخير", "عمت صباحاً", "صباح النشاط", "إشراقة جديدة"];
+                    else if (hour >= 12 && hour < 18) timePhrases = ["طاب مساؤك", "كيف الحال", "ما الأخبار", "مرحباً بك"];
+                    else timePhrases = ["مساء الخير", "سهرة ممتعة", "عمت مساءً", "أهلاً بك الليلة"];
                     
-                    const randomPhrase = timePhrases[Math.floor(Math.random() * timePhrases.length)];
-                    finalGreeting = `${randomPhrase}${namePart} ✨`;
+                    finalGreeting = `${timePhrases[Math.floor(Math.random() * timePhrases.length)]}${namePart} ✨`;
                 }
                 
-                // 🛡️ عرض الترحيب النهائي للعميل
-                if (window.UIManager && window.UIManager.showToast) {
-                    window.UIManager.showToast(finalGreeting, 'info');
-                }
-            }, 1500); // تأخير أنيق ليظهر بعد استقرار الواجهة
+                if (UIManager.showToast) UIManager.showToast(finalGreeting, 'info');
+            }, 1500);
         }
 
-        // =================================================================
-        // 🚀 إكمال بناء الواجهة وجلب البيانات
-        // =================================================================
-        if (this.applyStoreIdentity) this.applyStoreIdentity();
-        if (this.initSlider) this.initSlider();
-        if (this.renderTicker) this.renderTicker();
-        if (this.updateProfileDisplay) this.updateProfileDisplay();
+        if (UIManager.applyStoreIdentity) UIManager.applyStoreIdentity();
+        if (UIManager.initSlider) UIManager.initSlider();
+        if (UIManager.renderTicker) UIManager.renderTicker();
+        if (UIManager.updateProfileDisplay) UIManager.updateProfileDisplay();
 
         const sName = LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'TeleCard';
         const splashName = document.getElementById('splash-store-name');
         if (splashName) splashName.innerText = sName;
         localStorage.setItem(CACHE_KEYS.SPLASH_NAME, sName);
 
-        if (this.isReady && RenderManager) {
-            // 1. جلب البيانات العامة المسموحة للجميع (الضيوف والمستخدمين)
+        if (UIManager.isReady && RenderManager) {
             const publicKeys = ['COUNTRIES', 'PAYMENTS'];
             const promises = publicKeys.map(k => StoreDB.getAll(DB_KEYS[k]).catch(() => []));
             
-            // 2. حماية أمنية: جلب الكوبونات فقط إذا كان العميل مسجل الدخول!
             if (DataManager.activeUid) {
                 promises.push(StoreDB.getAll(DB_KEYS.COUPONS).catch(() => []));
                 publicKeys.push('COUPONS');
@@ -589,8 +537,8 @@ ClientSystem.init = async function() {
                     }
                 });
                 if (RenderManager.renderHome) RenderManager.renderHome();
-                if (this.initSlider) this.initSlider();
-                if (this.updateDisplayBalance) this.updateDisplayBalance();
+                if (UIManager.initSlider) UIManager.initSlider();
+                if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance();
                 
                 if (document.getElementById('balance-modal')?.classList.contains('active')) {
                     if (RenderManager.renderPayMethods) RenderManager.renderPayMethods();
@@ -605,30 +553,21 @@ ClientSystem.init = async function() {
 
     try {
         setTimeout(() => { if (DataManager.injectSilentSensor) DataManager.injectSilentSensor(); }, 3000);
-        if (this.updateDisplayBalance) this.updateDisplayBalance();
+        if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance();
         
         requestIdleCallback(() => {
-            if (!this.isReady) return;
+            if (!UIManager.isReady) return;
             try { this.initFirebaseListeners(); } catch (e) {}
             try { if (CalendarApp?.init) CalendarApp.init(); } catch (e) {}
             
             ['updateSidebarText', 'initSupportButton', 'applyFontSettings', 'refreshCurrencyMenuFlags', 'renderSettingsUI', 'loadUserImageAutomatically', 'restoreDisplayState', 'setupMainContentClickDetector', 'initSwipeGestures']
-            .forEach(m => { try { if (this[m]) this[m](); } catch (e) {} });
+            .forEach(m => { try { if (UIManager[m]) UIManager[m](); } catch (e) {} });
             
             if (Components.initBottomNavSync) Components.initBottomNavSync();
-            if (this.checkKycCelebration) this.checkKycCelebration();
+            if (UIManager.checkKycCelebration) UIManager.checkKycCelebration();
         }, { timeout: 2000 });
         
-        // 🛡️ التجميد الذكي المرن (Flexible Selective Lock)
-        Object.keys(this).forEach(key => {
-            if (typeof this[key] === 'function') {
-                Object.defineProperty(this, key, {
-                    writable: false,
-                    configurable: false
-                });
-            }
-        });
-        console.log("🔒 تم الإغلاق الذكي المرن للنظام بشكل فوري. الدوال محصنة بالكامل.");
+        console.log("✅ اكتمل الإقلاع. الكائنات محررة والواجهة جاهزة للتفاعل.");
         
     } catch (e) {}
 };
@@ -636,7 +575,7 @@ ClientSystem.init = async function() {
 if (typeof globalThis !== 'undefined') {
     if (!globalThis.ClientSystem) {
         Object.defineProperty(globalThis, 'ClientSystem', {
-            value: ClientSystem,
+            value: UIManager,
             writable: false,
             configurable: false
         });
@@ -651,7 +590,7 @@ if (typeof globalThis !== 'undefined') {
 }
 
 (function() {
-    const startApp = () => { if (globalThis.ClientSystem?.init) globalThis.ClientSystem.init(); };
+    const startApp = () => { if (AppController.init) AppController.init(); };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startApp);
     else startApp();
 })();

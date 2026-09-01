@@ -1,11 +1,11 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - النسخة المطلقة V17.4 💎
-// 🎯 الوظيفة: نوافذ الشراء، الإيداعات، فلاتر القوائم، وتفاصيل الطلبات
-// 🚀 التحديثات المعمارية (V17.4):
-// 1. CSS Decoupling: تطهير الملف بالكامل من الـ Inline CSS ونقل التنسيقات لملفات الستايل.
-// 2. Animation Refactoring: استخدام الكلاسات لإدارة الأنيميشن (Shake) بدلاً من حقن الـ Style.
-// 3. DOM Cleansing: تنظيف أكواد كروت النسخ (Smart Copy Lines) والدرع الأمني.
-// 4. Audio Refactoring: إزالة استدعاءات الصوت اليدوية (nav) لمنع صدى الصوت (Double-Click Echo).
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - الإصدار المؤسسي V17.2 💎
+// 🎯 الوظيفة: نوافذ الشراء، الإيداعات، المعاملات المالية، وتأمين الطلبات
+// 🚀 التحديثات المعمارية:
+// 1. Race Condition Fix: إزالة Kill Switch الزمني وربط فك القفل بـ Promise.finally حصراً.
+// 2. Strict DOM Validation: إعادة التحقق البرمجي من الكميات رياضياً قبل إرسالها للسيرفر.
+// 3. Network Failsafe: دمج Promise.race لفك قفل الواجهة إجبارياً في حال انقطاع النت الصامت.
+// 4. Secure File Paths: توليد أسماء عشوائية آمنة لإيصالات الإيداع لمنع التلاعب.
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -15,20 +15,17 @@ import { RenderHelpers } from '../core/renderHelpers.js';
 import { FinancialEngine } from '../core/financialEngine.js';
 import { UIBuilders } from './uiBuilders.js';
 
+// التوجيه الآمن للموزع المركزي (UIManager)
 const getSys = () => {
-    if (window.ClientSystem) return window.ClientSystem;
     if (window.UIManager) return window.UIManager;
+    if (window.ClientSystem) return window.ClientSystem;
     return new Proxy({}, { get: (target, prop) => () => { console.error(`🚨 System not ready for: ${String(prop)}`); } });
 };
 
 export const UIFinance = {
 
-    pendingReceiptFile: null,
-    _isProcessingTx: false, 
     _watchdogTimer: null,
-    _killSwitchTimer: null,
     _offlineHandler: null,
-    _currentImageJobId: null, 
     _amountTypingTimer: null,
 
     _parseSafeAmount: function(val) {
@@ -36,18 +33,16 @@ export const UIFinance = {
         return Utils.parseSafeNumber(val);
     },
     
-    // ✅ الكود الجديد (نظيف، يثق في الـ CSS بنسبة 100%)
     _toggleButtonLoader: function(btn, isLoading) {
         if (!btn) return;
         try {
             if (isLoading) {
                 if (btn._originalHtml === undefined && !btn.querySelector('.btn-content')) {
-                    btn._originalHtml = btn.innerHTML; // حفظ المحتوى للأزرار القديمة فقط
+                    btn._originalHtml = btn.innerHTML; 
                 }
                 btn.disabled = true;
                 btn.classList.add('is-loading', 'tx-processing-safe');
                 
-                // إذا كان زراً قديماً لا يحتوي على هيكل btn-content الحديث
                 if (!btn.querySelector('.btn-content')) {
                     const currentWidth = btn.offsetWidth;
                     if (currentWidth > 0) btn.style.width = `${currentWidth}px`;
@@ -69,41 +64,36 @@ export const UIFinance = {
         }
     },
 
-    // 🛡️ CSS Decoupling: تم استبدال الستايل المدمج بالكلاس tx-shield-overlay
+    // 🛡️ Security Fix: الاعتماد على finally لفك القفل مع تحذير شبكة جانبي
     _lockUI: function(btn) {
-        this._isProcessingTx = true;
+        const sys = getSys();
+        if (sys.State) sys.State.isProcessingTx = true;
         this._toggleButtonLoader(btn, true);
 
         const shieldId = 'invisible-tx-shield';
         if (!document.getElementById(shieldId)) {
-            document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}" class="tx-shield-overlay"></div>`);
+            document.body.insertAdjacentHTML('beforeend', `<div id="${shieldId}" class="tx-shield-overlay master-overlay"></div>`);
         }
 
         if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
-        if (this._killSwitchTimer) clearTimeout(this._killSwitchTimer);
 
+        // تنبيه الشبكة البطيئة 
         this._watchdogTimer = setTimeout(() => {
-            if (this._isProcessingTx) {
-                getSys().showToast?.('الشبكة بطيئة بعض الشيء، جاري معالجة طلبك بأمان... الرجاء عدم إغلاق الصفحة.', 'warning');
+            if (sys.State?.isProcessingTx) {
+                sys.showToast?.('الشبكة بطيئة بعض الشيء، جاري معالجة طلبك بأمان... الرجاء عدم إغلاق الصفحة.', 'warning');
             }
         }, 15000); 
-
-        this._killSwitchTimer = setTimeout(() => {
-            if (this._isProcessingTx) {
-                getSys().showToast?.('انتهى وقت المعالجة وتأخر الخادم بالرد، تم تحرير الشاشة.', 'error');
-                this._unlockUI(btn);
-            }
-        }, 60000);
         
         if (this._offlineHandler) window.removeEventListener('offline', this._offlineHandler);
         this._offlineHandler = () => {
-            if (this._isProcessingTx) getSys().showToast?.('انقطع الاتصال بالإنترنت! النظام يحمي معاملتك الآن.', 'error');
+            if (sys.State?.isProcessingTx) sys.showToast?.('انقطع الاتصال بالإنترنت! النظام يحمي معاملتك الآن.', 'error');
         };
         window.addEventListener('offline', this._offlineHandler);
     },
 
     _unlockUI: function(btn) {
-        this._isProcessingTx = false;
+        const sys = getSys();
+        if (sys.State) sys.State.isProcessingTx = false;
         
         const shield = document.getElementById('invisible-tx-shield');
         if (shield) shield.remove();
@@ -111,11 +101,9 @@ export const UIFinance = {
         if (btn) this._toggleButtonLoader(btn, false);
         
         if (this._watchdogTimer) { clearTimeout(this._watchdogTimer); this._watchdogTimer = null; }
-        if (this._killSwitchTimer) { clearTimeout(this._killSwitchTimer); this._killSwitchTimer = null; }
         if (this._offlineHandler) { window.removeEventListener('offline', this._offlineHandler); this._offlineHandler = null; }
     },
 
-    // ✅ إزالة الصوت المكرر هنا
     _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
         if (element.classList.contains('active')) return;
         
@@ -133,7 +121,6 @@ export const UIFinance = {
     setWalletFilter: function(val, el) { this._applyTabFilter('wallet', val, el, 'renderWallet'); },
     setPaymentFilter: function(val, el) { this._applyTabFilter('payments', val, el, 'renderPayments'); },
 
-    // ✅ إزالة الصوت المكرر هنا
     jumpToTransaction: function(id, type) {
         getSys().closeWallet?.();
         setTimeout(() => {
@@ -198,6 +185,28 @@ export const UIFinance = {
                 return false;
             }
         }
+
+        const securityPolicy = (LiveStoreData.settings || {}).securityPolicy || {};
+        const actionNameAr = actionType === 'deposit' ? 'الإيداع' : 'الشراء';
+
+        if (securityPolicy.forceBiometrics) {
+            const isBioEnabled = u.biometricEnabled === true;
+            if (!isBioEnabled) {
+                getSys().showToast?.(`يجب تفعيل البصمة الحيوية لحماية أموالك قبل ${actionNameAr}.`, 'error');
+                setTimeout(() => { getSys().openSecurityModal?.(); }, 1200);
+                return false;
+            }
+        }
+
+        if (securityPolicy.force2FA) {
+            const is2FAEnabled = typeof DataManager.is2FAEnabled === 'function' ? DataManager.is2FAEnabled() : false;
+            if (!is2FAEnabled) {
+                getSys().showToast?.(`أمان المتجر يلزمك بتفعيل المصادقة الثنائية (2FA) قبل ${actionNameAr}.`, 'error');
+                setTimeout(() => { getSys().openSecurityModal?.(); }, 1200);
+                return false;
+            }
+        }
+
         return true;
     },
 
@@ -223,7 +232,6 @@ export const UIFinance = {
             const inputContainer = document.getElementById('pm-input-container');
             const simpleQtyBox = document.getElementById('simple-qty-wrapper');
 
-            // 🛡️ CSS Decoupling
             if (badgeContainer) {
                 const activeOffer = DataManager.getActiveOffer(DataManager.currentProd.id);
                 if (activeOffer?.visualConfig?.grid && activeOffer.visualConfig.badgeStyle !== 'none') {
@@ -316,8 +324,9 @@ export const UIFinance = {
     },
 
     closePurchaseModal: function() { 
-        if (this._isProcessingTx) return; 
-        getSys().removeCoupon?.(true); getSys().closeModal?.('purchase');
+        const sys = getSys();
+        if (sys.State?.isProcessingTx) return; 
+        sys.removeCoupon?.(true); sys.closeModal?.('purchase');
 
         if (DataManager.currentProd) {
             const targetProdName = DataManager.currentProd.name; 
@@ -359,7 +368,6 @@ export const UIFinance = {
             const result = DataManager.getPricingLocal(DataManager.currentProd, qty, optIdx, DataManager.appliedCoupon);
             if (!result || typeof result !== 'object') return;
 
-            // 🛡️ CSS Decoupling
             const unitInput = document.getElementById('pm-price-unit');
             if (unitInput) {
                 unitInput.value = result.unitText || '';
@@ -390,7 +398,8 @@ export const UIFinance = {
     },
 
     handlePurchaseSubmit: async function() { 
-        if (this._isProcessingTx || !DataManager.currentProd || !this._validateKycAndSystem('purchase')) return;
+        const sys = getSys();
+        if (sys.State?.isProcessingTx || !DataManager.currentProd || !this._validateKycAndSystem('purchase')) return;
         
         const inp1El = document.getElementById('pm-inp-1'), inp2El = document.getElementById('pm-inp-2'), qtyEl = document.getElementById('simple-qty-val');
         const keepKeyboardOpen = () => { setTimeout(() => { if (inp1El && !inp1El.disabled) inp1El.focus(); else if (qtyEl && !qtyEl.disabled) qtyEl.focus(); }, 50); };
@@ -435,21 +444,25 @@ export const UIFinance = {
             if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); }
         }
 
+        // 🛡️ Security Fix: التحقق البرمجي الرياضي 
         if (DataManager.currentProd.type === 'counter') { 
-            const minQ = parseInt(DataManager.currentProd.minQty) || 1; qty = Math.max(minQ, Utils.parseSafeNumber(document.getElementById('pm-qty')?.value)) || minQ;
+            const minQ = parseInt(DataManager.currentProd.minQty) || 1; 
+            qty = Math.max(minQ, Utils.parseSafeNumber(document.getElementById('pm-qty')?.value)) || minQ;
         } else if (DataManager.currentProd.type === 'select') { 
             optIdx = Number(document.getElementById('pm-pack')?.value || 0); 
         } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) { 
-            const minQ = parseInt(DataManager.currentProd.minQty) || 1, maxQ = parseInt(DataManager.currentProd.simpleMax) || 10;
-            qty = Utils.parseSafeNumber(qtyEl?.value); if(isNaN(qty) || qty < minQ) qty = minQ;
+            const minQ = parseInt(DataManager.currentProd.minQty) || 1;
+            const maxQ = parseInt(DataManager.currentProd.simpleMax) || 10;
+            qty = Utils.parseSafeNumber(qtyEl?.value); 
+            if(isNaN(qty) || qty < minQ) qty = minQ;
             if(qty > maxQ) { showInlineError(qtyEl.parentNode, `أقصى كمية ${maxQ}`); isValid = false; qtyEl.focus(); }
         }
 
-        if(!isValid) { getSys().sfx?.('error'); return; }
+        if(!isValid) { sys.sfx?.('error'); return; }
 
         const pricingCheck = DataManager.getPricingLocal(DataManager.currentProd, qty, optIdx, DataManager.appliedCoupon);
         if (pricingCheck && pricingCheck.pricingSnapshot && pricingCheck.pricingSnapshot.totalOriginalPrice <= 0) {
-            getSys().showToast?.('عذراً، لا يمكن الشراء بسعر صفر.', 'error'); getSys().sfx?.('error'); return;
+            sys.showToast?.('عذراً، لا يمكن الشراء بسعر صفر.', 'error'); sys.sfx?.('error'); return;
         }
 
         const submitBtn = document.getElementById('btn-confirm-buy') || document.querySelector('.pm-btn-gold');
@@ -457,28 +470,34 @@ export const UIFinance = {
         this._lockUI(submitBtn);
 
         try {
-            const result = await DataManager.confirmPurchase(DataManager.currentProd, qty, optIdx, finalInputStr, DataManager.appliedCoupon);
+            // 🛡️ Network Failsafe: فك القفل إجبارياً بعد 30 ثانية في حال انقطاع الشبكة الصامت
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("نفد وقت الاتصال بالسيرفر، يرجى التحقق من جودة الاتصال.")), 30000));
+            
+            const result = await Promise.race([
+                DataManager.confirmPurchase(DataManager.currentProd, qty, optIdx, finalInputStr, DataManager.appliedCoupon),
+                timeoutPromise
+            ]);
+
             if (result.success) {
-                getSys().sfx?.('success'); 
+                sys.sfx?.('success'); 
                 
-                if (result.isAutoDelivered && typeof getSys().updateNotifBadges === 'function') {
+                if (result.isAutoDelivered && typeof sys.updateNotifBadges === 'function') {
                     const currentBadge = document.getElementById('header-notif-badge');
                     const currentCount = currentBadge ? (parseInt(currentBadge.innerText) || 0) : 0;
-                    getSys().updateNotifBadges(currentCount + 1);
+                    sys.updateNotifBadges(currentCount + 1);
                 }
 
                 this.closePurchaseModal();
                 if(typeof DataManager.syncUser === 'function') DataManager.syncUser(); 
-                getSys().updateDisplayBalance?.();
+                sys.updateDisplayBalance?.();
 
                 setTimeout(() => {
-                    getSys().openModal?.('purchase-success');
+                    sys.openModal?.('purchase-success');
                     const titleEl = document.getElementById('purchase-success-title'), descEl = document.getElementById('purchase-success-desc'), codeDisplayContainer = document.getElementById('purchase-code-display');
 
                     if (result.isAutoDelivered && result.deliveredCodeText) {
                         if (titleEl) titleEl.innerText = 'تم تنفيذ الطلب بنجاح!';
                         if (descEl) descEl.innerHTML = 'تم إصدار الكود بنجاح، ومحفوظ في <span class="smart-link" data-action="navigate-orders-success">سجل طلباتك</span>.';
-                        // 🛡️ CSS Decoupling
                         if (codeDisplayContainer) {
                             codeDisplayContainer.innerHTML = `<div class="dc-title"><i class="fa-solid fa-key"></i> الأكواد المستلمة:</div><div class="auto-delivery-scroll">${UIBuilders.buildCodesList(result.deliveredCodeText)}</div>`;
                             codeDisplayContainer.classList.remove('d-none');
@@ -490,12 +509,13 @@ export const UIFinance = {
                     }
                 }, 150);
             } else { 
-                getSys().showToast?.(result.msg || 'فشلت العملية', 'error'); 
+                sys.showToast?.(result.msg || 'فشلت العملية', 'error'); 
                 keepKeyboardOpen(); 
             }
         } catch (err) { 
-            getSys().showToast?.('حدث خطأ في النظام', 'error'); 
+            sys.showToast?.(err.message || 'حدث خطأ في النظام', 'error'); 
         } finally { 
+            // 🛡️ Security Fix: فك القفل دائماً وبشكل قطعي 
             this._unlockUI(submitBtn); 
         }
     },    
@@ -513,12 +533,11 @@ export const UIFinance = {
                 const icon = titleEl.querySelector('i');
                 titleEl.innerHTML = (icon ? icon.outerHTML + ' ' : '') + 'إتمام الإيداع';
             }
-            // ✅ الكود الجديد (الاعتماد على الموزع المركزي 100%)
-if (headerBtn) {
-    headerBtn.innerHTML = '<i class="fa-solid fa-arrow-right"></i>';
-    headerBtn.setAttribute('data-action', 'back-balance-step');
-    // تم مسح الكود اليدوي بالكامل لكي نسمح للموزع المركزي بالتقاط النقرة وإطلاق الصوت
-}        } else {
+            if (headerBtn) {
+                headerBtn.innerHTML = '<i class="fa-solid fa-arrow-right"></i>';
+                headerBtn.setAttribute('data-action', 'back-balance-step');
+            }        
+        } else {
             modal.classList.remove('is-step-2');
             if (titleEl) {
                 const icon = titleEl.querySelector('i');
@@ -561,7 +580,6 @@ if (headerBtn) {
         });
     },
 
-    // 🛡️ CSS Decoupling + ✅ إزالة الصوت المكرر
     selectPay: function(id) {
         const payments = LiveStoreData.payments || [];
         const modal = document.getElementById('balance-modal');
@@ -615,8 +633,8 @@ if (headerBtn) {
         });
     },
 
-    // ✅ إزالة بارامتر الصوت لتصبح الدالة أنيقة
     backToPayMethods: function() {
+        const sys = getSys();
         const modal = document.getElementById('balance-modal');
         if (!modal) return;
 
@@ -624,10 +642,13 @@ if (headerBtn) {
         modal.scrollTop = 0;
         modal.querySelectorAll('.pm-scroll-content, .scrollable, .modal-content').forEach(s => s.scrollTop = 0);
 
-        this.currentReceiptData = null; this._currentImageJobId = null; 
+        if (sys.State) {
+            sys.State.pendingReceiptFile = null; 
+            sys.State.currentImageJobId = null;
+        }
+
         const preview = document.getElementById('bal-img-preview');
         if (preview && preview.src && preview.src.startsWith('blob:')) { URL.revokeObjectURL(preview.src); preview.src = ''; }
-        this.pendingReceiptFile = null;
 
         setTimeout(() => {
             const section = document.getElementById('bal-method-info-section');
@@ -635,43 +656,45 @@ if (headerBtn) {
         }, 400);
     },
 
-    // ✅ تعديل الاستدعاء للوضع الافتراضي الجديد
     closeBalanceModal: function() {
-        if (this._isProcessingTx) return; 
+        const sys = getSys();
+        if (sys.State?.isProcessingTx) return; 
         const modal = document.getElementById('balance-modal');
-        getSys().closeModal?.('balance');
+        sys.closeModal?.('balance');
         if (modal) {
             modal.addEventListener('transitionend', () => { this.backToPayMethods(); }, { once: true });
         }
     },    
     
     previewReceipt: function(inp) { 
+        const sys = getSys();
         const file = inp.files && inp.files[0];
-        this._currentImageJobId = Date.now(); const currentJobId = this._currentImageJobId;
+        
+        const currentJobId = Date.now();
+        if (sys.State) sys.State.currentImageJobId = currentJobId;
         
         const preview = document.getElementById('bal-img-preview');
         if (preview && preview.src && preview.src.startsWith('blob:')) { URL.revokeObjectURL(preview.src); preview.src = ''; }
         
         if(!file) { 
-            this.pendingReceiptFile = null; 
-            this.currentReceiptData = null; 
+            if (sys.State) sys.State.pendingReceiptFile = null; 
             if(preview) { preview.style.display = 'none'; preview.src = ''; }
             return; 
         }
 
         if (file.size > 10 * 1024 * 1024) { 
-            getSys().showToast?.('حجم الملف كبير جداً. الحد 10MB.', 'error'); 
+            sys.showToast?.('حجم الملف كبير جداً. الحد 10MB.', 'error'); 
             inp.value = ''; 
-            this.pendingReceiptFile = null;
+            if (sys.State) sys.State.pendingReceiptFile = null;
             if(preview) { preview.style.display = 'none'; preview.src = ''; }
             return; 
         }
 
         const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
         if (!allowedTypes.includes(file.type)) { 
-            getSys().showToast?.('نوع الملف غير مدعوم.', 'error'); 
+            sys.showToast?.('نوع الملف غير مدعوم.', 'error'); 
             inp.value = ''; 
-            this.pendingReceiptFile = null; 
+            if (sys.State) sys.State.pendingReceiptFile = null; 
             if(preview) { preview.style.display = 'none'; preview.src = ''; }
             return; 
         }
@@ -688,18 +711,18 @@ if (headerBtn) {
         };
 
         if(isPdf) {
-            this.pendingReceiptFile = file; this.currentReceiptData = null; 
+            if (sys.State) sys.State.pendingReceiptFile = file; 
             if(preview) preview.style.display = 'none'; setUploadSuccessUI('pdf'); 
         } else {
             if(uploadBox) uploadBox.innerHTML = `<div class="bal-upload-success-row"><i class="fa-solid fa-spinner fa-spin bal-upload-success-icon"></i><span class="bal-upload-success-text">جاري المعالجة...</span></div>`;
 
             const reader = new FileReader(); 
             reader.onload = e => { 
-                if (this._currentImageJobId !== currentJobId) return; 
+                if (sys.State?.currentImageJobId !== currentJobId) return; 
                 const img = new Image();
                 img.onload = () => {
                     requestAnimationFrame(() => {
-                        if (this._currentImageJobId !== currentJobId) return;
+                        if (sys.State?.currentImageJobId !== currentJobId) return;
                         try {
                             const canvas = document.createElement('canvas');
                             let width = img.width, height = img.height; const MAX_SIZE = 1200; 
@@ -710,16 +733,20 @@ if (headerBtn) {
                             ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height); ctx.drawImage(img, 0, 0, width, height);
                             
                             canvas.toBlob((blob) => {
-                                if (this._currentImageJobId !== currentJobId) return; 
-                                const safeName = file.name ? file.name.replace(/\.[^/.]+$/, "") : "receipt";
-                                this.pendingReceiptFile = new File([blob], `${safeName}.webp`, { type: 'image/webp' });
+                                if (sys.State?.currentImageJobId !== currentJobId) return; 
+                                
+                                // 🛡️ Security Fix: توليد مسار عشوائي للملف المضغوط 
+                                const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
+                                const safeFileName = `deposit_img_${Date.now()}_${uniqueId}.webp`;
+                                
+                                if (sys.State) sys.State.pendingReceiptFile = new File([blob], safeFileName, { type: 'image/webp' });
                                 
                                 if(preview) { preview.src = URL.createObjectURL(blob); preview.style.display = 'block'; preview.className = 'bal-receipt-preview-new'; }
                                 setUploadSuccessUI('image');
                                 canvas.width = 0; canvas.height = 0; img.src = '';
                             }, 'image/webp', 0.75);
                         } catch (err) {
-                            getSys().showToast?.('تعذر معالجة الصورة', 'error');
+                            sys.showToast?.('تعذر معالجة الصورة', 'error');
                             if (uploadBox) uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>'; inp.value = '';
                         }
                     });
@@ -730,7 +757,7 @@ if (headerBtn) {
         }
     },
     
-    calcFee: function() {
+        calcFee: function() {
         const input = document.getElementById('bal-amount');
         if (!input || !DataManager || !this.currentPayment) return;
         
@@ -738,65 +765,78 @@ if (headerBtn) {
         const payCurr = (this.currentPayCurrency || '').toUpperCase();
         if (typeof DataManager.calculateDepositFee !== 'function') return;
         
+        // جلب النتيجة من المحرك المالي
         const result = DataManager.calculateDepositFee(amount, this.currentPayment, payCurr);
         
         window.requestAnimationFrame(() => {
-            const errorBox = document.getElementById('bal-amount-error'), submitBtn = document.getElementById('btn-submit-deposit'), netDisplay = document.getElementById('calc-net'), netWrap = document.getElementById('bal-net-wrap'), limitsBar = document.getElementById('bal-limits-bar');
-            const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment;
+            const errorBox = document.getElementById('bal-amount-error');
+            const submitBtn = document.getElementById('btn-submit-deposit');
+            const netDisplay = document.getElementById('calc-net');
+            const netWrap = document.getElementById('bal-net-wrap');
+            const limitsBar = document.getElementById('bal-limits-bar');
 
-            const sysSettings = LiveStoreData.settings || {};
-            const GLOBAL_MAX_LIMIT_USD = parseFloat(sysSettings.globalMaxDepositUsd) || 5000;
-            let dynamicGlobalLimit = GLOBAL_MAX_LIMIT_USD;
-
-            try {
-                if (payCurr !== 'USD' && typeof FinancialEngine !== 'undefined') {
-                    const rates = DataManager.getRates ? DataManager.getRates() : {};
-                    dynamicGlobalLimit = FinancialEngine.convertViaUSD(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, rates, 'deposit');
-                }
-            } catch (e) {}
-            
-            const methodMaxLimit = parseFloat(s.max) || 0;
-            const finalMaxLimit = methodMaxLimit > 0 ? Math.min(methodMaxLimit, dynamicGlobalLimit) : dynamicGlobalLimit;
-
-            if (amount > 0) {
-                if (parseFloat(s.min) > 0 && amount < parseFloat(s.min)) { result.isValid = false; result.msg = `الحد الأدنى هو ${s.min}`; } 
-                else if (amount > finalMaxLimit) { result.isValid = false; result.msg = `الحد الأعلى هو ${Number(finalMaxLimit).toLocaleString('en-US')}`; }
-            }
-            
+            // رسم شريط الحدود باستخدام (adminMax) الخاص بهذه الطريقة فقط (لإبقاء الحد العام مخفياً)
             if (limitsBar) {
-                const itemsHtml = UIBuilders.buildLimitsBar(parseFloat(s.fee)||0, payCurr, s.feeUnit||s.unit||'percent', s.feeType||'fee', parseFloat(s.min)||0, parseFloat(s.max)||0);
-                if (itemsHtml.length === 0) limitsBar.style.display = 'none'; else { limitsBar.style.display = 'flex'; limitsBar.className = `compact-limits-bar count-${itemsHtml.length}`; limitsBar.innerHTML = itemsHtml.join(''); }
+                const itemsHtml = UIBuilders.buildLimitsBar(
+                    parseFloat(result.feePct)||0, 
+                    payCurr, 
+                    result.feeUnit||'percent', 
+                    result.feeType||'fee', 
+                    parseFloat(result.adminMin)||0, 
+                    parseFloat(result.adminMax)||0 // إذا كان صفر فلن يظهر شيء في واجهة المستخدم
+                );
+                
+                if (itemsHtml.length === 0) {
+                    limitsBar.style.display = 'none'; 
+                } else { 
+                    limitsBar.style.display = 'flex'; 
+                    limitsBar.className = `compact-limits-bar count-${itemsHtml.length}`; 
+                    limitsBar.innerHTML = itemsHtml.join(''); 
+                }
             }
 
+            // 🔴 إذا كان المبلغ مرفوضاً (تجاوز الحد الأدنى أو الأقصى)
             if (!result.isValid) {
                 input.classList.toggle('input-invalid', amount > 0);
-                if (errorBox) { errorBox.innerHTML = (amount > 0) ? `<i class="fa-solid fa-circle-exclamation"></i> ${result.msg}` : ''; errorBox.style.display = (amount > 0 && result.msg) ? 'block' : 'none'; errorBox.classList.remove('d-none'); }
+                if (errorBox) { 
+                    errorBox.innerHTML = (amount > 0) ? `<i class="fa-solid fa-circle-exclamation"></i> ${result.msg}` : ''; 
+                    errorBox.style.display = (amount > 0 && result.msg) ? 'block' : 'none'; 
+                    errorBox.classList.remove('d-none'); 
+                }
                 if (submitBtn) submitBtn.disabled = true; 
-                if (netDisplay) netDisplay.innerText = "0.00";
+                
+                // تصفير الصافي وتخفيف اللون لإشعار العميل بالتعطيل
+                if (netDisplay) { netDisplay.innerText = "0.00"; netDisplay.style.opacity = '0.4'; }
                 if (netWrap) netWrap.classList.remove('has-value');
-            } else {
+            } 
+            // 🟢 إذا كان المبلغ سليماً
+            else {
                 input.classList.remove('input-invalid');
                 if (errorBox) { errorBox.style.display = 'none'; errorBox.classList.add('d-none'); }
                 if (submitBtn) submitBtn.disabled = false;
-                this.pendingDepositNetBase = result.netBase;
-                if (netDisplay) netDisplay.innerText = result.netBase.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                
+                // عرض الصافي الفعلي بشكل واضح
+                if (netDisplay) { 
+                    netDisplay.innerText = result.netBase.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    netDisplay.style.opacity = '1'; 
+                }
                 if (netWrap) netWrap.classList.add('has-value'); 
             }
         });
     },
 
-    // 🛡️ Animation Refactoring
     handleBalanceSubmit: async function(currency) {
-        if (this._isProcessingTx || !this._validateKycAndSystem('deposit')) return;
+        const sys = getSys();
+        if (sys.State?.isProcessingTx || !this._validateKycAndSystem('deposit')) return;
         
         const input = document.getElementById('bal-amount');
         const amount = this._parseSafeAmount(input ? input.value : '');
-        if (isNaN(amount) || amount <= 0) { getSys().showToast?.('أدخل مبلغ إيداع صحيح', 'error'); return; }
+        if (isNaN(amount) || amount <= 0) { sys.showToast?.('أدخل مبلغ إيداع صحيح', 'error'); return; }
         
         const payCurr = currency || this.currentPayCurrency || 'USD';
 
-        if (this.currentPayment && this.currentPayment.reqProof !== false && !this.pendingReceiptFile) {
-            getSys().showToast?.('أرفق إشعار الدفع أولاً', 'error');
+        if (this.currentPayment && this.currentPayment.reqProof !== false && !sys.State?.pendingReceiptFile) {
+            sys.showToast?.('أرفق إشعار الدفع أولاً', 'error');
             const uploadBox = document.getElementById('bal-upload-box');
             if (uploadBox) {
                 uploadBox.classList.remove('shake-error-input');
@@ -807,38 +847,9 @@ if (headerBtn) {
             return; 
         }
 
-        let methodMaxLimit = 0;
-        if (this.currentPayment) { 
-            const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment; 
-            methodMaxLimit = parseFloat(s.max) || 0; 
-        }
-        
-        const sysSettings = LiveStoreData.settings || {};
-        const GLOBAL_MAX_LIMIT_USD = parseFloat(sysSettings.globalMaxDepositUsd) || 5000;
-        let dynamicGlobalLimit = GLOBAL_MAX_LIMIT_USD;
-        
-        try { 
-            if (payCurr !== 'USD' && typeof FinancialEngine !== 'undefined') { 
-                const rates = DataManager.getRates ? DataManager.getRates() : {}; 
-                dynamicGlobalLimit = FinancialEngine.convertViaUSD(GLOBAL_MAX_LIMIT_USD, 'USD', payCurr, rates, 'deposit'); 
-            } 
-        } catch (e) {}
-
-        const finalLimit = methodMaxLimit > 0 ? Math.min(methodMaxLimit, dynamicGlobalLimit) : dynamicGlobalLimit;
-        if (amount > finalLimit) { 
-            const symbol = RenderHelpers?.getCurrencySymbolText ? RenderHelpers.getCurrencySymbolText(payCurr) : payCurr; 
-            getSys().showToast?.(`الحد الأقصى هو ${Number(finalLimit).toLocaleString('en-US')} ${symbol}`, 'error'); 
-            return; 
-        }
-
-        let methodMinLimit = 0;
-        if (this.currentPayment) { 
-            const s = (this.currentPayment.currencySettings && this.currentPayment.currencySettings[payCurr]) ? this.currentPayment.currencySettings[payCurr] : this.currentPayment; 
-            methodMinLimit = parseFloat(s.min) || 0; 
-        }
-        
-        if (methodMinLimit > 0 && amount < methodMinLimit) {
-            getSys().showToast?.(`الحد الأدنى المسموح به هو ${methodMinLimit}`, 'error');
+        const validation = DataManager.calculateDepositFee(amount, this.currentPayment, payCurr);
+        if (!validation.isValid) {
+            sys.showToast?.(validation.msg, 'error');
             if (input) {
                 input.classList.remove('shake-error-input');
                 void input.offsetWidth;
@@ -853,23 +864,35 @@ if (headerBtn) {
         
         let uploadedReceiptUrl = null;
         try {
-            if (this.pendingReceiptFile) {
-                if (!StoreDB || typeof StoreDB.uploadImage !== 'function') throw new Error("نظام الرفع غير متوفر.");
-                const userId = DataManager.user?.uid || DataManager.user?.id || 'unknown';
-                const safeFileName = `deposit_${userId}_${Date.now()}.webp`;
-                uploadedReceiptUrl = await StoreDB.uploadImage(this.pendingReceiptFile, 'receipts', safeFileName, false);
-            }
+            // 🛡️ Network Failsafe: فك القفل إجبارياً بعد 45 ثانية في حال انقطاع الشبكة (نعطي وقتاً لرفع الصورة)
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("نفد وقت الاتصال بالسيرفر، يرجى التحقق من جودة الاتصال.")), 45000));
+            
+            const uploadAndSubmitRequest = async () => {
+                if (sys.State?.pendingReceiptFile) {
+                    if (!StoreDB || typeof StoreDB.uploadImage !== 'function') throw new Error("نظام الرفع غير متوفر.");
+                    const userId = DataManager.user?.uid || DataManager.user?.id || 'unknown';
+                    
+                    const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
+                    const safeFileName = `deposit_${userId}_${Date.now()}_${uniqueId}.webp`;
+                    
+                    uploadedReceiptUrl = await StoreDB.uploadImage(sys.State.pendingReceiptFile, 'receipts', safeFileName, false);
+                }
+                return await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
+            };
 
-            const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
+            const result = await Promise.race([
+                uploadAndSubmitRequest(),
+                timeoutPromise
+            ]);
             
             if (result.success) {
-                getSys().sfx?.('success'); 
+                sys.sfx?.('success'); 
                 this.closeBalanceModal();
                 if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
-                setTimeout(() => getSys().openModal?.('success'), 150);
+                setTimeout(() => sys.openModal?.('success'), 150);
             } else { 
                 if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
-                getSys().showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
+                sys.showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
             }
         } catch (error) {
             if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) {
@@ -877,21 +900,16 @@ if (headerBtn) {
             }
             
             console.error("🚨 Client-Side Deposit Exception:", error);
-            
             let errMsg = 'حدث خطأ أثناء الاتصال بالخادم.';
             const rawMsg = String(error.message || '');
+            if (/[\u0600-\u06FF]/.test(rawMsg)) errMsg = rawMsg;
+            sys.showToast?.(errMsg, 'error');
             
-            if (/[\u0600-\u06FF]/.test(rawMsg)) {
-                errMsg = rawMsg;
-            }
-            
-            getSys().showToast?.(errMsg, 'error');
         } finally {
             this._unlockUI(submitBtn);
         }
     },
     
-    // ✅ إزالة الصوت المكرر هنا
     togglePayDetail: function(headerElement) {
         if (!headerElement) return; const card = headerElement.closest('.pay-history-card'); if (!card) return;
         window.requestAnimationFrame(() => {
@@ -902,7 +920,6 @@ if (headerBtn) {
 
     toggleWalletStats: function(btn) { const drawer = document.getElementById('walletStatsDrawer'); if (drawer) drawer.classList.contains('active') ? this.closeWalletStats() : this.openWalletStats(btn); },
     
-    // ✅ إزالة الصوت المكرر هنا
     openWalletStats: function(btn) { 
         window.requestAnimationFrame(() => { 
             document.getElementById('walletStatsDrawer')?.classList.add('active'); 
@@ -914,9 +931,10 @@ if (headerBtn) {
     closeWalletStats: function() { window.requestAnimationFrame(() => { document.getElementById('walletStatsDrawer')?.classList.remove('active'); const wModal = document.getElementById('wallet-modal'); if (wModal) { wModal.classList.remove('drawer-blur-active'); wModal.querySelector('.detail-arrow')?.classList.remove('open'); } }); },
     
     openDetail: function(e, type, id) {
-        getSys().resetUI?.(); const content = document.getElementById('tx-detail-content'); if (!content) return;
+        const sys = getSys();
+        sys.resetUI?.(); const content = document.getElementById('tx-detail-content'); if (!content) return;
         const html = UIBuilders.buildTransactionDetail(type, id, LiveStoreData, DataManager);
-        if (html) { window.requestAnimationFrame(() => { content.innerHTML = html; getSys().openModal?.('tx-detail'); }); }
+        if (html) { window.requestAnimationFrame(() => { content.innerHTML = html; sys.openModal?.('tx-detail'); }); }
     },
 
     closePayReceipt: function() {

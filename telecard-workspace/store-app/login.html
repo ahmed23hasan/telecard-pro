@@ -2,11 +2,16 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>تسجيل الدخول - تيليكارد</title>
+    <title>تسجيل الدخول - المتجر</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
     <script>
-        const activeUid = localStorage.getItem('tc_active_uid') || localStorage.getItem('telecard_active_user_uid_v20');
+        // 🛡️ الإصلاح الجذري (Bounce Bug Fix): تطهير الكاش القديم قبل فحص حالة الدخول
+        const legacyKeys = ['tc_active_uid', 'telecard_active_user_uid_v20'];
+        legacyKeys.forEach(k => { if(localStorage.getItem(k)) localStorage.removeItem(k); });
+        
+        // استخدام مفتاح V21 المعتمد في المعمارية الجديدة
+        const activeUid = localStorage.getItem('telecard_active_user_uid_v21');
         if (activeUid) window.location.replace('store.html');
     </script>
 
@@ -17,7 +22,7 @@
 
 <body class="auth-page-wrapper">
 
-    <!-- 🌟 نافذة التنبيهات المركزية الذكية (للأخطاء والتوجيه فقط) -->
+    <!-- 🌟 نافذة التنبيهات المركزية الذكية -->
     <div id="customAlert" class="sys-dialog-wrapper pnl-backdrop">
         <div class="sys-dialog-card" id="alertCard">
             <div class="sys-dialog-icon danger" id="alertIconBox">
@@ -54,7 +59,7 @@
         </div>
     </div>
 
-    <!-- نافذة التحقق الثنائي -->
+    <!-- نافذة التحقق الثنائي (2FA) -->
     <div id="login2FAModal" class="sys-dialog-wrapper pnl-backdrop">
         <div class="sys-dialog-card">
             <div class="sys-dialog-icon" style="color: var(--success); border-color: var(--success); background: rgba(var(--success-rgb), 0.12);">
@@ -81,8 +86,8 @@
     <!-- الصندوق الرئيسي -->
     <div class="auth-container">
         <div class="auth-header">
-            <h1>أهلاً بك في <span class="glow-gold">تيليكارد</span></h1>
-            <p class="sub-text">سجل دخولك لمتابعة متجرك</p>
+            <h1>أهلاً بك في <span class="glow-gold">المتجر</span></h1>
+            <p class="sub-text">سجل دخولك للمتابعة</p>
         </div>
 
         <button type="button" class="btn-google-auth btn-pro" id="googleLoginBtn" onclick="handleGoogleLogin()">
@@ -95,7 +100,7 @@
 
         <div class="auth-divider"><span>أو عبر البريد الإلكتروني</span></div>
 
-        <form autocomplete="off" id="loginForm">
+        <form autocomplete="off" id="loginForm" onsubmit="event.preventDefault(); validateLogin();">
             <div class="floating-group">
                 <input type="email" class="lux-input floating-input num-en" placeholder=" " id="identifier" dir="ltr" style="text-align: right;">
                 <label class="floating-label">البريد الإلكتروني</label>
@@ -123,7 +128,7 @@
                 <a href="#" class="forgot-link" onclick="event.preventDefault(); handleForgotPassword();">نسيت كلمة المرور؟</a>
             </div>
 
-            <button type="button" class="pm-btn-gold btn-pro" style="height: 56px; width: 100%; border-radius: var(--radius-md);" id="loginBtn" onclick="validateLogin()">
+            <button type="submit" class="pm-btn-gold btn-pro" style="height: 56px; width: 100%; border-radius: var(--radius-md);" id="loginBtn">
                 <span class="btn-content">تسجيل الدخول</span>
                 <span class="btn-spinner"><i class="fa-solid fa-spinner fa-spin"></i></span>
             </button>
@@ -136,17 +141,16 @@
 
 <script type="module">
     import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES, ACTIVE_USER_KEY } from './config.js';
-    import { auth } from './core/firebaseAdapter.js';
+    // 🛡️ التحديث المعماري: استيراد محول قاعدة البيانات المباشر لتخفيف وزن الصفحة
+    import { auth, FirebaseAdapter as StoreDB } from './core/firebaseAdapter.js';
     import { 
         signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail,
         getMultiFactorResolver, TotpMultiFactorGenerator, signOut
     } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-    import { StoreDB } from './dataManager.js';
 
     const googleProvider = new GoogleAuthProvider();
     let current2FAResolver = null;
 
-    // 🛡️ الإصلاح: دالة النجاح الأنيقة والمقتضبة (تركز على الزر فقط بدون تشتيت)
     function showButtonSuccess(btn, text) {
         btn.disabled = false;
         btn.classList.remove('is-loading');
@@ -330,10 +334,11 @@
                 }
             }
             
-            localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
-            localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(activeUserObj));
-            if (activeUserObj.baseCurrency) localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', activeUserObj.baseCurrency);
-            if (activeUserObj.img) localStorage.setItem((DYNAMIC_PREFIXES?.USER_IMAGE || 'tc_uimg_') + firebaseUser.uid, activeUserObj.img);
+            // 🛡️ حفظ المفاتيح الجديدة حصراً
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
+            localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(activeUserObj));
+            if (activeUserObj.baseCurrency) localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, activeUserObj.baseCurrency);
+            if (activeUserObj.img) localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, activeUserObj.img);
             
             showButtonSuccess(btn, "تم الدخول بنجاح");
             setTimeout(() => { window.location.replace("store.html"); }, 1000);
@@ -381,10 +386,11 @@
                 showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة.", "error"); return;
             }
 
-            localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
+            // 🛡️ حفظ المفاتيح الجديدة حصراً
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
             if (userDoc) {
-                localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(userDoc));
-                if(userDoc.baseCurrency) localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', userDoc.baseCurrency);
+                localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(userDoc));
+                if(userDoc.baseCurrency) localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, userDoc.baseCurrency);
             }
 
             showButtonSuccess(btn, "تم الدخول بنجاح");
@@ -427,10 +433,10 @@
                 showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور.", "error"); return;
             }
 
-            localStorage.setItem(CACHE_KEYS?.ACTIVE_UID || 'tc_active_uid', firebaseUser.uid);
+            localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
             if (userDoc) {
-                localStorage.setItem(ACTIVE_USER_KEY || 'tc_active_user', JSON.stringify(userDoc));
-                if(userDoc.baseCurrency) localStorage.setItem(CACHE_KEYS?.DISPLAY_CURRENCY || 'tc_display_currency', userDoc.baseCurrency);
+                localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(userDoc));
+                if(userDoc.baseCurrency) localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, userDoc.baseCurrency);
             }
 
             showButtonSuccess(btn, "تم التحقق بنجاح");
@@ -493,7 +499,6 @@
     window.close2FAModal = close2FAModal;
     window.submit2FALogin = submit2FALogin;
 
-    // 🛡️ هندسة تجربة المستخدم: تعبئة الإيميل بصمت وتوجيه العميل لكلمة المرور فوراً
     window.addEventListener('DOMContentLoaded', () => {
         const prefilledEmail = sessionStorage.getItem('prefilled_email');
         if (prefilledEmail) {
@@ -502,10 +507,7 @@
 
             if (emailInput) {
                 emailInput.value = prefilledEmail;
-
-                setTimeout(() => {
-                    if(passInput) passInput.focus();
-                }, 300);
+                setTimeout(() => { if(passInput) passInput.focus(); }, 300);
             }
             sessionStorage.removeItem('prefilled_email');
         }

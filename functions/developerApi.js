@@ -1,11 +1,9 @@
 // ============================================================================
-// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية V8.0 💎
+// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية V8.1 💎
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🚀 التحديثات (V8.0 - The Diamond Gate):
-// 1. Smart Idempotency: إغلاق نزيف الداتابيز بإضافة expiresAt وفحص الـ TTL الذكي.
-// 2. Options Support: دعم تمرير optIdx للتجار لشراء منتجات متعددة الخيارات.
-// 3. Security Translator: تحويل أخطاء [SECURITY] إلى استجابات HTTP 400 دقيقة.
-// 4. Double-Check ACID: إعادة التحقق من حالة المنتج داخل الترانزكشن لضمان دقة التسعير 100%.
+// 🚀 التحديثات (V8.1 - The Diamond Gate Refined):
+// 1. Precision Sanitizer: توحيد تقريب الأرصدة لحماية أموال التجار من الكسور.
+// 2. Tier Cycle Alignment: مزامنة دورة ترقية مستويات التجار مع النظام المركزي.
 // ============================================================================
 
 const { onRequest } = require('firebase-functions/v2/https');
@@ -20,7 +18,16 @@ const db = admin.firestore();
 
 const SYSTEM_LIMITS = { MAX_QTY_PER_ORDER: 10000, MAX_VAULT_QTY_PER_ORDER: 200 };
 const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
-const safeSub = (a, b) => FinancialEngine.safeSub(a, b);
+const safeSub = (a, b) => Math.max(0, FinancialEngine.safeSub(a, b));
+
+// 🚀 تنظيف وتأمين الأرصدة (Floating-Point Fix)
+const sanitizeAmount = (amount) => Number(Math.round(amount + 'e4') + 'e-4');
+
+const getStartOfUTCDay = (timestampMs) => {
+    const d = new Date(timestampMs);
+    d.setUTCHours(0, 0, 0, 0);
+    return d.getTime();
+};
 
 function isSafeWebhookUrl(urlString) {
     try {
@@ -130,7 +137,6 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
         const userDoc = usersQuery.docs[0];
         const uid = userDoc.id;
         
-        // 🛡️ التحديث: إضافة دعم optIdx لخيارات المنتجات
         const { productId, qty, inputStr, optIdx } = req.body;
         
         if (!productId) return res.status(400).json({ success: false, error: 'Bad Request: productId is required.' });
@@ -150,14 +156,12 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
         const requestHash = crypto.createHash('sha256').update(requestPayload).digest('hex');
         const serverNow = admin.firestore.Timestamp.now().toMillis();
 
-        // 🛡️ آلية المحاولة المتكررة لتخطي اختناق المعاملات (Retry Backoff Loop)
         let attempt = 0;
         let success = false;
         
         while (attempt < 5 && !success) {
             attempt++;
             try {
-                // 1. مرحلة الجلب الاستباقي (Pre-fetch & Shuffle) - خارج الـ Transaction لتقليل وقت القفل
                 const productRef = db.collection('telecard_prods').doc(String(productId));
                 const productSnap = await productRef.get();
                 if (!productSnap.exists) throw new Error('Product not found.');
@@ -179,14 +183,12 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                     candidateKeyDocs = shuffledDocs.slice(0, finalQty);
                 }
 
-                // 2. مرحلة المعاملة والتخصيص (Transaction)
                 await db.runTransaction(async (transaction) => {
                     let idempotencyRef = null;
                     if (idempotencyKey) {
                         idempotencyRef = db.collection('telecard_idempotency_keys').doc(`${uid}_${idempotencyKey}`);
                         const existingReq = await transaction.get(idempotencyRef);
                         
-                        // 🛡️ التحديث: Smart TTL Handling لمنع نزيف مساحة التخزين
                         if (existingReq.exists) {
                             const expMs = existingReq.data().expiresAt?.toMillis ? existingReq.data().expiresAt.toMillis() : 0;
                             if (expMs > serverNow) {
@@ -201,7 +203,6 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                     const userData = latestUserSnap.data();
                     if (userData.isBanned || userData.isIpBanned) throw new Error('Unauthorized: Account Banned');
 
-                    // 🛡️ Double-Check ACID: إعادة جلب المنتج للتأكد من حالة التفعيل والسعر في هذه اللحظة
                     const liveProdSnap = await transaction.get(productRef);
                     if (!liveProdSnap.exists) throw new Error('Product not found.');
                     const liveProduct = liveProdSnap.data();
@@ -220,11 +221,21 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
 
                     const tierId = String(userData.tierId || userData.tier || 1);
                     const tierSnap = await transaction.get(db.collection('telecard_tiers').doc(tierId));
+                    const activeTierObj = tierSnap.exists ? { id: tierSnap.id, ...tierSnap.data() } : null;
                     
-                    // استخدام الـ optIdx الممرر من التاجر
+                    // 🚀 دمج منطق (دورة المستويات) لحماية حسابات التجار
+                    let currentCycleSpent = Number(userData.tierCycleSpent || 0);
+                    const cycleStartMs = userData.tierCycleStartDate?.toMillis ? userData.tierCycleStartDate.toMillis() : serverNow;
+                    const cycleStartDay = getStartOfUTCDay(cycleStartMs);
+                    const todayDay = getStartOfUTCDay(serverNow);
+                    const daysPassed = (todayDay - cycleStartDay) / (24 * 60 * 60 * 1000);
+                    const isCycleExpired = daysPassed > Number(activeTierObj?.durationDays || 30);
+
+                    if (isCycleExpired) { currentCycleSpent = 0; }
+
                     const pricingSnapshot = FinancialEngine.calculateOrderTotal({ 
                         product: liveProduct, 
-                        tier: tierSnap.exists ? { id: tierSnap.id, ...tierSnap.data() } : null,
+                        tier: activeTierObj,
                         optIdx: parsedOptIdx
                     }, finalQty); 
 
@@ -245,10 +256,14 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                         isAutoDelivered = true;
                     }
 
-                    const newBalance = safeSub(currentBalance, exactPrice);
+                    // 🚀 تطبيق Precision Sanitizer لحماية السيرفر والتاجر معاً
+                    const newBalance = sanitizeAmount(safeSub(currentBalance, exactPrice));
+                    const newTotalSpent = sanitizeAmount(safeAdd(userData.totalSpent || 0, exactPrice));
+                    const newTierCycleSpent = sanitizeAmount(safeAdd(currentCycleSpent, exactPrice));
+
                     const newOrder = {
                         id: cleanOrderId, displayId: cleanOrderId, userId: uid, prodId: productId, product: liveProduct.name,
-                        price: exactPrice, qty: finalQty, input: inputStr || 'API Request',
+                        price: sanitizeAmount(exactPrice), qty: finalQty, input: inputStr || 'API Request',
                         status: isAutoDelivered ? 'completed' : 'pending', deliveredCode: deliveredCodeText, balanceAfter: newBalance,
                         merchantData: { webhookUrl: userData.webhookUrl || null, webhookSecret: userData.webhookSecret || null },
                         pricingSnapshot: { costUsd: pricingSnapshot.totalCostUsd || 0, netProfitUsd: pricingSnapshot.totalNetProfitUsd || 0 },
@@ -257,7 +272,10 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
 
                     resultData = { orderId: cleanOrderId, status: newOrder.status, pricePaid: exactPrice, deliveredCode: deliveredCodeText };
                     
-                    transaction.update(userDoc.ref, { walletBalance: newBalance, totalSpent: safeAdd(userData.totalSpent || 0, exactPrice), tierCycleSpent: safeAdd(userData.tierCycleSpent || 0, exactPrice) });
+                    let userUpdateObj = { walletBalance: newBalance, totalSpent: newTotalSpent, tierCycleSpent: newTierCycleSpent };
+                    if (isCycleExpired) { userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); }
+
+                    transaction.update(userDoc.ref, userUpdateObj);
                     transaction.set(db.collection('telecard_orders').doc(cleanOrderId), newOrder);
                     
                     if (isAutoDelivered) {
@@ -265,7 +283,6 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                         transaction.set(userDoc.ref.collection('notifications').doc(notifId), { id: notifId, title: "🔌 تسليم API بنجاح", message: `تم تسليم ( ${liveProduct.name} ).`, type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp() });
                     }
                     if (idempotencyRef) {
-                        // 🛡️ التحديث: تأمين مساحة التخزين عبر إضافة expiresAt للـ TTL
                         transaction.set(idempotencyRef, { 
                             createdAt: admin.firestore.FieldValue.serverTimestamp(), 
                             expiresAt: admin.firestore.Timestamp.fromDate(new Date(serverNow + 48 * 60 * 60 * 1000)),
@@ -276,7 +293,6 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                 success = true;
 
             } catch (err) {
-                // 🛡️ Security Translator: تحويل أخطاء المحرك المالي ليرفضها الـ API بسلاسة
                 if (err.message && err.message.includes('[SECURITY]')) {
                     throw new Error(`SECURITY_REJECT: ${err.message.replace('[SECURITY] ', '')}`);
                 }
@@ -294,7 +310,6 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
         return res.status(200).json({ success: true, data: resultData });
 
     } catch (error) {
-        // 🛡️ Mapped Errors to HTTP Status Codes
         if (error.message.startsWith('SECURITY_REJECT:')) return res.status(400).json({ success: false, error: error.message.replace('SECURITY_REJECT: ', '') });
         if (error.message === 'Unauthorized: Account Banned') return res.status(403).json({ success: false, error: 'Account is banned.' });
         if (error.message === 'Insufficient balance.') return res.status(402).json({ success: false, error: 'Insufficient balance.' });

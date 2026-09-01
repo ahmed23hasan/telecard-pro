@@ -1,19 +1,21 @@
 // ============================================================================
-// 📦 محرك رسم الطلبات (modules/orders/ordersRender.js) - النسخة الماسية V4.4 💎
-// 🎯 الوظيفة: التكفل برسم قوائم الطلبات، الفلترة، والتحميل التدريجي وتصدير الإكسل
-// 🚀 التحديث: تصحيح العد المزدوج وتأمين التصدير للإكسل (Export Mismatch Fix)
+// 📦 محرك رسم الطلبات (modules/orders/ordersRender.js) - النسخة الماسية V15.0 💎
+// 🚀 التحديث الأقصى: 
+// 1. Intersection Filtering: دمج فلتر المصدر (API/يدوي) مع حالة الطلب بسلاسة تامة.
+// 2. DOM Injection: حقن أزرار الفلترة برمجياً أعلى قائمة الطلبات.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
-import { AdminTemplates } from '../../adminTemplates.js';
-import { Utils, EventBus } from '../../adminUtils.js';
+import { EventBus, Utils } from '../../adminUtils.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
+import { OrdersTemplates } from './ordersTemplates.js'; // 🛡️ استيراد القالب الصحيح المحدث
 
 export const OrdersRender = {
     ordersLimit: 50,
     tabState: 'all',
+    sourceState: 'all', // 🌟 متغير جديد لتتبع حالة فلتر المصدر
     filters: {},
-    _currentFilteredData: [], // 🛡️ مصفوفة لحفظ البيانات المفلترة لمنع التصدير الأعمى
+    _currentFilteredData: [], 
 
     initListeners: function() {
         EventBus.on('state-update', (newState) => {
@@ -21,8 +23,16 @@ export const OrdersRender = {
         });
         EventBus.on('req-clear-render-filters', () => {
             this.tabState = 'all';
+            this.sourceState = 'all'; // 🌟 تصفير فلتر المصدر
             this.ordersLimit = 50;
         });
+    },
+
+    // 🚀 [دالة الفلترة الجديدة للمصادر]
+    filterBySource: function(sourceVal) {
+        this.sourceState = sourceVal;
+        this.ordersLimit = 50; 
+        this.renderOrders(); // إعادة الرسم بالتقاطع الجديد
     },
 
     filterByTab: function(status, btnElement) {
@@ -45,39 +55,57 @@ export const OrdersRender = {
         const list = document.getElementById('orders-container'); 
         if(!list) return;
         
-        const f = this.filters || {};
-        let data = Array.isArray(AdminData.data.orders) ? [...AdminData.data.orders] : [];
+        let data = [];
 
-        if(f.search || f.start || f.end) {
-            const startD = f.start ? new Date(f.start).setHours(0,0,0,0) : null;
-            const endD = f.end ? new Date(f.end).setHours(23,59,59,999) : null;
-            data = data.filter(o => {
-                let mS = true, mD = true;
-                if(f.search) {
-                    const s = String(f.search).toLowerCase();
-                    
-                    // ⚡ استدعاء العميل فورا بـ O(1) من خريطة البحث السريع
-                    const userRec = AdminData.data.usersMap?.[o.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
-                    const dId = userRec && userRec.displayId ? String(userRec.displayId).toLowerCase() : '';
-                    
-                    mS = String(o.id).includes(s) || 
-                         (o.product && String(o.product).toLowerCase().includes(s)) || 
-                         (o.userName && String(o.userName).toLowerCase().includes(s)) ||
-                         dId.includes(s); 
-                }
-                
-                const itemTime = RenderHelpers.parseTime(o.time || o.createdAt);
-                if(startD && itemTime < startD) mD = false;
-                if(endD && itemTime > endD) mD = false;
-                
-                return mS && mD;
-            });
-        }
+        if (isAppend) {
+            data = this._currentFilteredData || [];
+        } else {
+            const f = this.filters || {};
+            data = Array.isArray(AdminData.data.orders) ? [...AdminData.data.orders] : [];
 
-        if (!isAppend) {
+            // 1. فلترة البحث والتاريخ (الأساس)
+            if(f.search || f.start || f.end) {
+                const startD = f.start ? Number(f.start) : null;
+                const endD = f.end ? Number(f.end) + 86399999 : null; 
+
+                data = data.filter(o => {
+                    let mS = true, mD = true;
+                    if(f.search) {
+                        const s = String(f.search).toLowerCase();
+                        const userRec = AdminData.data.usersMap?.[o.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
+                        const dId = userRec && userRec.displayId ? String(userRec.displayId).toLowerCase() : '';
+                        
+                        mS = String(o.id).includes(s) || 
+                             (o.product && String(o.product).toLowerCase().includes(s)) || 
+                             (o.userName && String(o.userName).toLowerCase().includes(s)) ||
+                             dId.includes(s); 
+                    }
+                    
+                    const itemTime = RenderHelpers.parseTime(o.time || o.createdAt);
+                    if(startD && itemTime < startD) mD = false;
+                    if(endD && itemTime > endD) mD = false;
+                    
+                    return mS && mD;
+                });
+            }
+
+            // 2. 🤖⚡🤚 فلترة المصدر (The Intersection Magic)
+            if (this.sourceState && this.sourceState !== 'all') {
+                data = data.filter(o => {
+                    const isApi = (o.isApi === true || o.source === 'api');
+                    const isAuto = (!isApi && o.deliveredCode && o.deliveredCode.length > 0);
+                    const isManual = (!isApi && !isAuto);
+
+                    if (this.sourceState === 'api') return isApi;
+                    if (this.sourceState === 'auto') return isAuto;
+                    if (this.sourceState === 'manual') return isManual;
+                    return true;
+                });
+            }
+
+            // 3. تحديث العدادات العلوية (بناءً على الفلترة السابقة)
             const counts = { all: data.length, pending: 0, completed: 0, rejected: 0, refunded: 0 };
             
-            // 🛡️ التحديث المعماري: توحيد عدادات المعالجة والانتظار بدقة ومنع التداخل
             data.forEach(o => { 
                 let st = o.status || 'pending'; 
                 if (st === 'pending' || st === 'processing') { 
@@ -91,40 +119,34 @@ export const OrdersRender = {
                 const el = document.getElementById(`count-ord-${st}`);
                 if(el) { el.innerText = Utils.enNum(counts[st]); el.setAttribute('lang', 'en'); }
             });
-        }
 
-        const currentTab = this.tabState || 'all';
-        if(currentTab !== 'all') {
-            data = data.filter(o => {
-                const s = o.status || 'pending';
-                if (currentTab === 'pending') return s === 'pending' || s === 'processing';
-                return s === currentTab;
+            // 4. فلترة حالة الطلب (تبويبات مكتمل، معلق)
+            const currentTab = this.tabState || 'all';
+            if(currentTab !== 'all') {
+                data = data.filter(o => {
+                    const s = o.status || 'pending';
+                    if (currentTab === 'pending') return s === 'pending' || s === 'processing';
+                    return s === currentTab;
+                });
+            }
+
+            data.sort((a, b) => {
+                const isA_ActionNeeded = (a.status === 'pending' || a.status === 'processing') ? 1 : 0;
+                const isB_ActionNeeded = (b.status === 'pending' || b.status === 'processing') ? 1 : 0;
+                if (isA_ActionNeeded !== isB_ActionNeeded) return isB_ActionNeeded - isA_ActionNeeded; 
+                
+                const timeA = RenderHelpers.parseTime(a.time || a.createdAt);
+                const timeB = RenderHelpers.parseTime(b.time || b.createdAt);
+                return timeB - timeA;
             });
-        }
 
-        data.sort((a, b) => {
-            const isA_ActionNeeded = (a.status === 'pending' || a.status === 'processing') ? 1 : 0;
-            const isB_ActionNeeded = (b.status === 'pending' || b.status === 'processing') ? 1 : 0;
-            if (isA_ActionNeeded !== isB_ActionNeeded) return isB_ActionNeeded - isA_ActionNeeded; 
-            
-            const timeA = RenderHelpers.parseTime(a.time || a.createdAt);
-            const timeB = RenderHelpers.parseTime(b.time || b.createdAt);
-            return timeB - timeA;
-        });
-
-        // 🛡️ حفظ البيانات المفلترة لتصديرها للإكسل بدقة
-        this._currentFilteredData = data;
-
-        if(!data.length) { 
-            if(!isAppend) list.innerHTML = AdminTemplates.emptyOrders(); 
-            return; 
+            this._currentFilteredData = data;
         }
 
         const totalFiltered = data.length;
         const paginatedOrders = isAppend ? data.slice(this.ordersLimit - 50, this.ordersLimit) : data.slice(0, this.ordersLimit);
 
         let newHtml = paginatedOrders.map(o => {
-            // ⚡ جلب العميل فورا بـ O(1)
             const userRec = AdminData.data.usersMap?.[o.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
             const userName = userRec ? RenderHelpers._getTxName(userRec) : (o.userName || 'مستخدم جديد');
             
@@ -148,7 +170,7 @@ export const OrdersRender = {
                 : `${RenderHelpers.formatMoney(exactPriceUsd, 'USD', 2)}`;
 
             const orderWithDualPrice = { ...o, dualPriceTxt: dualPriceHtml };
-            return AdminTemplates.orderCard(orderWithDualPrice, userName, cleanInput(o.input));
+            return OrdersTemplates.orderCard(orderWithDualPrice, userName, cleanInput(o.input));
         }).join('');
 
         const loadMoreHtml = (totalFiltered > this.ordersLimit) ? `
@@ -158,17 +180,23 @@ export const OrdersRender = {
                 </button>
             </div>` : '';
 
+        // 🌟 إنشاء شريط أزرار الفلترة للمصادر ليتم حقنه دائماً
+        const sourceFiltersHtml = !isAppend ? OrdersTemplates.ordersSourceFilters(this.sourceState || 'all') : '';
+
         if (isAppend) {
             const oldBtn = document.getElementById('load-more-orders-btn');
             if (oldBtn) oldBtn.remove();
             list.insertAdjacentHTML('beforeend', newHtml + loadMoreHtml);
         } else {
-            list.innerHTML = newHtml + loadMoreHtml;
+            if(!data.length) { 
+                list.innerHTML = sourceFiltersHtml + OrdersTemplates.emptyOrders(); 
+            } else {
+                list.innerHTML = sourceFiltersHtml + newHtml + loadMoreHtml;
+            }
         }
     },
 
     exportToExcel: function() {
-        // 🛡️ التحديث: التصدير يتم للبيانات المفلترة التي يراها المدير حالياً فقط
         const dataToExport = this._currentFilteredData || [];
         if (dataToExport.length === 0) { 
             EventBus.emit('req-show-toast', { message: "لا توجد طلبات تطابق الفلتر لتصديرها", type: "error" }); return; 
@@ -180,12 +208,9 @@ export const OrdersRender = {
             const dateStr = RenderHelpers.formatSafeDate(o.time || o.createdAt);
             const sanitizeCSV = (str) => { let c = String(str).replace(/,/g, " "); if (/^[=@+-]/.test(c)) c = "'" + c; return c; };
 
-            // ⚡ جلب العميل فورا بـ O(1) بدلا من التكرار المبطن البطيء
             const userRec = AdminData.data.usersMap?.[o.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(o.userId));
-            
             const displayId = RenderHelpers.formatUserId(userRec);
             const customerName = sanitizeCSV(userRec ? (userRec.fullName || userRec.name || o.userName) : (o.userName || o.userId));
-
             const product = sanitizeCSV(o.product || 'منتج غير معروف');
             const qty = Number(o.qty || 1);
             
@@ -199,7 +224,11 @@ export const OrdersRender = {
                 profit = (o.status === 'completed') ? (exactPrice - totalCost) : 0;
             }
             
-            const source = (o.isApi || o.source === 'api') ? 'API' : 'يدوي';
+            // 🤖 [تصدير المصدر بدقة للإكسل لتوافق الفلاتر الجديدة]
+            let source = 'يدوي';
+            if (o.isApi || o.source === 'api') source = 'API';
+            else if (o.deliveredCode && o.deliveredCode.length > 0) source = 'تسليم آلي';
+
             const status = o.status === 'completed' ? 'مكتمل' : (o.status === 'rejected' ? 'مرفوض' : (o.status === 'refunded' ? 'مسترجع' : o.status));
 
             csvContent += `${o.id},${dateStr},${customerName},${displayId},${product},${qty},${exactPrice.toFixed(2)},${totalCost.toFixed(2)},${profit.toFixed(2)},${source},${status}\n`;

@@ -1,11 +1,10 @@
 // ============================================================================
-// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V15.4 💎 (The Forge)
+// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V15.5 💎
 // 🎯 الوظيفة: أدوات نقية للتعامل مع النصوص، الروابط، التواريخ، وبصمة الجهاز.
-// 🚀 التحديثات المعمارية (V15.4 - Bulletproof Edition):
-// 1. Dynamic Router Fix: فك ارتباط التوجيه بأسماء المجلدات ليعمل في أي بيئة.
+// 🚀 التحديثات المعمارية:
+// 1. Unified Time Parser: التوافق الشامل مع Timestamp الخاص بـ Firebase.
 // 2. Decimal Trap Fix: معالجة ذكية للفواصل في الأرقام العربية/الأوروبية.
-// 3. Time-Travel Sync: مزامنة فلاتر البحث مع وقت السيرفر بدلاً من هاتف العميل.
-// 4. UI Clarity: تفعيل فواصل الآلاف (useGrouping) لراحة العين.
+// 3. Dynamic Router Fix: فك ارتباط التوجيه بأسماء المجلدات ليعمل في أي بيئة.
 // ============================================================================
 
 // === 1. أدوات حماية النصوص وتنسيقها (OWASP Standard) ===
@@ -42,44 +41,38 @@ export function safeUrl(url, fallback = '#') {
     }
 }
 
-// 🌟 تنسيق الأرقام كنصوص للواجهة فقط (تم تفعيل useGrouping لتسهيل القراءة)
+// 🌟 تنسيق الأرقام كنصوص للواجهة (تفعيل فواصل الآلاف لراحة العميل)
 export function enNum(val, decimals = 2) {
     const safeDecimals = Math.min(20, Math.max(0, Number(decimals) || 2));
-    
     let num = Number(val);
-    if (isNaN(num)) num = 0; // 🛡️ توحيد المخرجات
+    if (isNaN(num)) num = 0;
     
     return new Intl.NumberFormat('en-US', {
         minimumFractionDigits: safeDecimals,
         maximumFractionDigits: safeDecimals,
-        useGrouping: true // 🛡️ تم التفعيل لمنع أخطاء قراءة الأرقام الضخمة
+        useGrouping: true
     }).format(num);
 }
 
-// 🛡️ توحيد الأرقام العربية وإصلاح فخ الفواصل (Decimal Trap Fix)
+// 🛡️ توحيد الأرقام العربية وإصلاح فخ الفواصل
 export function parseSafeNumber(val) {
     if (!val) return 0;
-    // 1. تحويل الأرقام العربية إلى إنجليزية
     let englishVal = String(val).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).trim();
-    
-    // 2. المعالجة الذكية للفاصلة العشرية: إذا كانت الفاصلة قبل آخر رقم أو رقمين (مثال 10,50 تصبح 10.50)
-    englishVal = englishVal.replace(/,(\d{1,2})$/, '.$1');
-    
-    // 3. إزالة فواصل الآلاف والمسافات بأمان
-    englishVal = englishVal.replace(/[, \s]/g, '');
-    
+    englishVal = englishVal.replace(/,(\d{1,2})$/, '.$1'); // تحويل الفاصلة قبل آخر رقمين إلى نقطة
+    englishVal = englishVal.replace(/[, \s]/g, ''); // إزالة فواصل الآلاف
     return parseFloat(englishVal) || 0;
 }
 
 // === 2. أدوات التواريخ والزمن ===
 
-// 🛡️ تأمين ومعالجة التواريخ من مختلف الصيغ لضمان عدم عودة (NaN)
+// 🛡️ المرجع الشامل لتحليل الأوقات من كافة الصيغ (Single Source of Truth)
 export function parseSafeTime(val) {
     if (val === null || val === undefined || val === '') return Date.now();
     if (typeof val === 'number') return val;
     if (typeof val.toMillis === 'function') return val.toMillis();
     if (val.seconds !== undefined) return val.seconds * 1000;
     if (val._seconds !== undefined) return val._seconds * 1000;
+    if (val instanceof Date) return val.getTime();
     
     if (typeof val === 'string') {
         const parsed = new Date(val.includes('T') ? val : val.replace(/-/g, '/')).getTime();
@@ -114,7 +107,7 @@ export function calculateOrderDuration(startTime, endTime) {
 
 // === 3. أدوات الأمان والمصادقة ===
 
-// 🔑 توليد مفتاح منع تكرار الطلبات (آمن تشفيرياً مع Fallback)
+// 🔑 توليد مفتاح منع تكرار الطلبات (آمن تشفيرياً)
 export function generateIdempotencyKey() {
     if (typeof crypto !== 'undefined') {
         if (crypto.randomUUID) return crypto.randomUUID();
@@ -127,7 +120,7 @@ export function generateIdempotencyKey() {
     return Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36);
 }
 
-// 🕵️‍♂️ توليد بصمة الجهاز (محصنة بيئياً - Environment Safe)
+// 🕵️‍♂️ توليد بصمة الجهاز (مضاد للانهيار البيئي)
 export async function getDeviceFingerprint() {
     try {
         if (typeof window !== 'undefined' && window.FingerprintJS) {
@@ -156,7 +149,7 @@ export async function getDeviceFingerprint() {
 
 // === 4. أدوات الواجهة والمنوعات ===
 
-// 📄 أداة تصفية التواريخ والبحث (تستخدم وقت السيرفر لسد ثغرة Time-Travel)
+// 📄 أداة تصفية التواريخ والبحث (مزامنة وقت السيرفر)
 export function getSearchAndDateFilters(searchId, datePrefixId, serverNowTime = Date.now()) {
     if (typeof document === 'undefined') return { q: '', dStart: '', dEnd: '', tStart: null, tEnd: null, error: null };
     
@@ -169,7 +162,6 @@ export function getSearchAndDateFilters(searchId, datePrefixId, serverNowTime = 
     let dStart = dStartEl ? dStartEl.value : '';
     let dEnd = dEndEl ? dEndEl.value : '';
     
-    // 🛡️ استخدام وقت السيرفر لحساب (اليوم والأمس)
     const todayObj = new Date(serverNowTime);
     todayObj.setHours(0, 0, 0, 0);
     const yestObj = new Date(todayObj);
@@ -205,7 +197,7 @@ export function getSearchAndDateFilters(searchId, datePrefixId, serverNowTime = 
     return { q, dStart, dEnd, tStart, tEnd, error };
 }
 
-// 🧭 محرك التوجيه الآمن الديناميكي (Dynamic Environment-Aware Router)
+// 🧭 محرك التوجيه الآمن الديناميكي
 export function safeRedirect(pageName) {
     const isLocal = window.location.hostname === 'localhost' ||
         window.location.hostname === '127.0.0.1' ||
@@ -214,11 +206,9 @@ export function safeRedirect(pageName) {
     let finalPath = '/' + pageName;
     
     if (isLocal) {
-        // 🚀 الحل الديناميكي: استخراج المسار الأساسي تلقائياً دون كتابة اسم المجلد برمجياً
         const currentPath = window.location.pathname;
         const lastSlashIndex = currentPath.lastIndexOf('/');
         const safeBasePath = currentPath.substring(0, lastSlashIndex + 1);
-        
         finalPath = safeBasePath + pageName;
     }
     

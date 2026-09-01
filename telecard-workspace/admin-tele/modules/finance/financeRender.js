@@ -1,21 +1,25 @@
 // ============================================================================
-// 💰 محرك رسم المالية (modules/finance/financeRender.js) - النسخة الماسية V4.4 💎
+// 💰 محرك رسم المالية (modules/finance/financeRender.js) - النسخة الماسية V15.1 💎
 // 🎯 الوظيفة: رسم الإيداعات، بوابات الدفع، المحافظ، والعملات، وتصديرها
-// 🚀 التحديث الأقصى: تأمين التصدير المحاسبي بـ Raw IDs ومنع التصدير الأعمى
+// 🚀 التحديث الأقصى (V15.1): 
+// 1. Circular Dependency Fix: إزالة convertViaUSD الميتة واستدعاء FinancialEngine مباشرة.
+// 2. O(1) Pagination: إيقاف الفلترة والترتيب المتكرر عند طلب (عرض المزيد) لحماية المعالج.
+// 3. Timezone Strictness: ضبط فلاتر التواريخ لتعمل بنظام الـ UTC المطلق.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminTemplates } from '../../adminTemplates.js';
 import { Utils, EventBus } from '../../adminUtils.js';
-import { normalizeRates, convertViaUSD } from '../../adminConfig.js';
+import { normalizeRates } from '../../adminConfig.js'; // 🛡️ تم مسح الاستيراد الميت
 import { RenderHelpers } from '../../core/renderHelpers.js';
 import { UIService } from '../../core/uiService.js'; 
+import { FinancialEngine } from '../../core/financialEngine.js'; // 🚀 استدعاء المحرك المباشر
 
 export const FinanceRender = {
     depositsLimit: 50,
     tabState: 'all',
     filters: {},
-    _currentFilteredData: [], // 🛡️ مصفوفة حفظ الفلترة لمنع التصدير الأعمى
+    _currentFilteredData: [],
 
     initListeners: function() {
         EventBus.on('state-update', (newState) => {
@@ -47,55 +51,59 @@ export const FinanceRender = {
         const list = document.getElementById('deposits-container'); 
         if(!list) return;
         
-        const f = this.filters || {};
-        let data = Array.isArray(AdminData.data.deposits) ? [...AdminData.data.deposits] : [];
+        let data = [];
 
-        if(f.search || f.start || f.end) {
-            const startD = f.start ? new Date(f.start).setHours(0,0,0,0) : null;
-            const endD = f.end ? new Date(f.end).setHours(23,59,59,999) : null;
-            data = data.filter(d => {
-                let mS = true, mD = true;
-                if(f.search) {
-                    const s = String(f.search).toLowerCase();
-                    const userRec = AdminData.data.usersMap?.[d.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
-                    const dId = userRec && userRec.displayId ? String(userRec.displayId).toLowerCase() : '';
+        if (isAppend) {
+            data = this._currentFilteredData || [];
+        } else {
+            const f = this.filters || {};
+            data = Array.isArray(AdminData.data.deposits) ? [...AdminData.data.deposits] : [];
+
+            if(f.search || f.start || f.end) {
+                const startD = f.start ? Number(f.start) : null;
+                const endD = f.end ? Number(f.end) + 86399999 : null; 
+
+                data = data.filter(d => {
+                    let mS = true, mD = true;
+                    if(f.search) {
+                        const s = String(f.search).toLowerCase();
+                        const userRec = AdminData.data.usersMap?.[d.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
+                        const dId = userRec && userRec.displayId ? String(userRec.displayId).toLowerCase() : '';
+                        
+                        mS = String(d.id).toLowerCase().includes(s) || 
+                             String(d.userName).toLowerCase().includes(s) ||
+                             dId.includes(s); 
+                    }
                     
-                    mS = String(d.id).toLowerCase().includes(s) || 
-                         String(d.userName).toLowerCase().includes(s) ||
-                         dId.includes(s); 
-                }
-                
-                const itemTime = RenderHelpers.parseTime(d.time || d.createdAt);
-                if(startD && itemTime < startD) mD = false;
-                if(endD && itemTime > endD) mD = false;
-                
-                return mS && mD;
-            });
-        }
+                    const itemTime = RenderHelpers.parseTime(d.time || d.createdAt);
+                    if(startD && itemTime < startD) mD = false;
+                    if(endD && itemTime > endD) mD = false;
+                    
+                    return mS && mD;
+                });
+            }
 
-        if (!isAppend) {
             const counts = { all: data.length, pending: 0, approved: 0, rejected: 0, refunded: 0 };
             data.forEach(d => { let st = d.status || 'pending'; if(counts[st] !== undefined) counts[st]++; });
             ['all', 'pending', 'approved', 'rejected', 'refunded'].forEach(st => {
                 const el = document.getElementById(`count-dep-${st}`);
                 if(el) { el.innerText = Utils.enNum(counts[st]); el.setAttribute('lang', 'en'); }
             });
+
+            const currentTab = this.tabState || 'all';
+            if(currentTab !== 'all') data = data.filter(d => (d.status || 'pending') === currentTab);
+
+            data.sort((a, b) => {
+                const isA_Pending = (a.status === 'pending') ? 1 : 0;
+                const isB_Pending = (b.status === 'pending') ? 1 : 0;
+                if (isA_Pending !== isB_Pending) return isB_Pending - isA_Pending;  
+                const timeA = RenderHelpers.parseTime(a.time || a.createdAt);
+                const timeB = RenderHelpers.parseTime(b.time || b.createdAt);
+                return timeB - timeA;
+            });
+
+            this._currentFilteredData = data;
         }
-
-        const currentTab = this.tabState || 'all';
-        if(currentTab !== 'all') data = data.filter(d => (d.status || 'pending') === currentTab);
-
-        data.sort((a, b) => {
-            const isA_Pending = (a.status === 'pending') ? 1 : 0;
-            const isB_Pending = (b.status === 'pending') ? 1 : 0;
-            if (isA_Pending !== isB_Pending) return isB_Pending - isA_Pending;  
-            const timeA = RenderHelpers.parseTime(a.time || a.createdAt);
-            const timeB = RenderHelpers.parseTime(b.time || b.createdAt);
-            return timeB - timeA;
-        });
-
-        // 🛡️ حفظ البيانات المفلترة لتصديرها للإكسل بدقة
-        this._currentFilteredData = data;
 
         if(!data.length) { 
             if(!isAppend) list.innerHTML = AdminTemplates.emptyDeposits(); 
@@ -125,7 +133,10 @@ export const FinanceRender = {
             else calculatedNetPay -= feeAmount;
             
             const netPayCurr = Number(d.netPayCurr ?? calculatedNetPay);
-            const fxRate = Number(d.fxRate ?? (typeof convertViaUSD !== 'undefined' ? convertViaUSD(1, payCurr, targetCurr, AdminData.data.rates, 'deposit') : 1));
+            
+            // 🚀 استخدام المحرك המالي المباشر بدلاً من الاستيراد الميت
+            const fxRate = Number(d.fxRate ?? (typeof FinancialEngine !== 'undefined' ? FinancialEngine.convertViaUSD(1, payCurr, targetCurr, AdminData.data.rates, 'deposit') : 1));
+            
             const netBase = Number((d.creditedAmount !== undefined && d.creditedAmount !== null) ? d.creditedAmount : (netPayCurr * fxRate));
 
             return AdminTemplates.depositCard(d, userName, bankName, target, netBase);
@@ -193,7 +204,6 @@ export const FinanceRender = {
     },
 
     exportDepositsToExcel: function() {
-        // 🛡️ التحديث: التصدير يتم للبيانات المفلترة التي يراها المدير حالياً
         const dataToExport = this._currentFilteredData || [];
         if (dataToExport.length === 0) { 
             UIService.showToast("لا توجد إيداعات تطابق الفلتر لتصديرها", "error"); 
@@ -206,10 +216,7 @@ export const FinanceRender = {
             const dateStr = RenderHelpers.formatSafeDate(d.time || d.createdAt);
             const sanitizeCSV = (str) => { let c = String(str).replace(/,/g, " "); if (/^[=@+-]/.test(c)) c = "'" + c; return c; };
 
-            // ⚡ جلب العميل فورا بـ O(1) من الخريطة
             const userRec = AdminData.data.usersMap?.[d.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(d.userId));
-            
-            // 🛡️ يجب تصدير المعرف الحقيقي الخام (Raw ID) للإكسل لأغراض التتبع المحاسبي، وليس المعرف المقصوص
             const displayId = userRec ? String(userRec.uid || userRec.id) : String(d.userId);
             const customerName = sanitizeCSV(userRec ? (userRec.fullName || userRec.name || d.userName) : (d.userName || d.userId));
 

@@ -1,7 +1,10 @@
 // ============================================================================
-// 🧠 متحكم المالية (modules/finance/financeController.js) - النسخة الماسية V8.6 💎
+// 🧠 متحكم المالية (modules/finance/financeController.js) - النسخة الماسية V16.6 💎
 // الوظيفة: معالجة العمليات المنطقية للإيداعات، بوابات الدفع، والعملات.
-// 🚀 التحديث الأقصى: تأمين حسابات الاسترجاع والديون للإيداعات الإدارية
+// 🚀 التحديث الأقصى: 
+// 1. Fee Boundaries: التقاط حقول (أدنى/أعلى عمولة) الجديدة لضمان توافق المحرك المالي.
+// 2. State Isolation: تصفير الذاكرة المؤقتة بعد حفظ بوابات الدفع لمنع تداخل البيانات.
+// 3. Auto Cache Invalidation: مزامنة الكاش السحابي بالخلفية عند أي تعديل مالي.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -9,12 +12,11 @@ import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { FinancialEngine } from '../../core/financialEngine.js';
-import { normalizeRates } from '../../adminConfig.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
+import { UIService } from '../../core/uiService.js';
 
 export const FinanceController = {
 
-    // 🛡️ التحديث: استخدام Set لقفل الإيداعات الفردية بدلاً من شلل المتحكم بالكامل
     _actionLocks: new Set(),
 
     // =========================================================
@@ -30,12 +32,15 @@ export const FinanceController = {
             const fVal = parseFloat(Utils.getVal(`pay-fee-${code}`)) || 0;
             const fUnit = Utils.getVal(`pay-feeunit-${code}`) || 'percent';
             
+            // 🚀 التحديث المعماري: تضمين minFee و maxFee بجانب حدود الإيداع
             currSettings[code] = {
                 feeType: fType,
                 fee: fVal,
                 feeUnit: fUnit,
                 min: parseFloat(Utils.getVal(`pay-min-${code}`)) || 0,
-                max: parseFloat(Utils.getVal(`pay-max-${code}`)) || 0
+                max: parseFloat(Utils.getVal(`pay-max-${code}`)) || 0,
+                minFee: parseFloat(Utils.getVal(`pay-minfee-${code}`)) || 0, 
+                maxFee: parseFloat(Utils.getVal(`pay-maxfee-${code}`)) || 0
             };
 
             const displayCode = AdminRender?.getCurrencySymbolText?.(code) || code;
@@ -59,7 +64,32 @@ export const FinanceController = {
                 const fileToUpload = fileInput?.files?.[0];
 
                 if (fileToUpload) {
-                    finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'payments');
+                    EventBus.emit('req-show-toast', { message: 'جاري ضغط ومعالجة شعار البوابة...', type: 'info' });
+                    
+                    const compressedBase64 = await new Promise(resolve => {
+                        if (UIService && UIService.processImage) {
+                            UIService.processImage(fileToUpload, resolve);
+                        } else {
+                            resolve(null);
+                        }
+                    });
+
+                    let fileForUpload = fileToUpload;
+                    if (compressedBase64 && compressedBase64.startsWith('data:image')) {
+                        const mimeType = fileToUpload.type === 'image/png' ? 'image/png' : 'image/jpeg';
+                        const byteString = atob(compressedBase64.split(',')[1]);
+                        const ab = new ArrayBuffer(byteString.length);
+                        const ia = new Uint8Array(ab);
+                        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+                        const blob = new Blob([ab], { type: mimeType });
+                        fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
+                    }
+
+                    if (oldImg && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                        await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
+                    }
+
+                    finalImg = await FirebaseAdapter.uploadImage(fileForUpload, 'payments', null, true);
                 }
             }
 
@@ -88,13 +118,20 @@ export const FinanceController = {
 
             await AdminData?.savePayments?.();
             
+            // 🚀 [تأمين الكاش السحابي]: فرض مزامنة البوابة مع المتجر فوراً في الخلفية
+            FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
+            
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-payments',
-                modalId: null,
+                modalId: 'payment', 
                 logAction: isEdit ? 'EDIT_PAYMENT' : 'ADD_PAYMENT',
                 logDetails: `تم ${isEdit ? 'تعديل' : 'إضافة'} وسيلة الدفع: ${newPay.name}`,
                 toastMsg: 'تم حفظ طريقة الدفع بنجاح'
             });
+
+            // 🚀 [State Isolation]: تنظيف الذاكرة المؤقتة لمنع تداخل التعديل مع الإضافة
+            AdminData.tempEditId = null;
+            AdminData.tempPayDetails = [];
             
         } catch (error) {
             console.error("Save Payment Error:", error);
@@ -109,6 +146,10 @@ export const FinanceController = {
         if (p) {
             p.isActive = !!isActive;
             await AdminData?.savePayments?.();
+            
+            // 🚀 [تأمين الكاش السحابي]: إيقاف البوابة في المتجر في نفس اللحظة
+            FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
+
             AdminData?.addLog?.('TOGGLE_PAYMENT', `تم ${isActive ? 'تفعيل' : 'إيقاف'} وسيلة الدفع: ${p.name}`);
             EventBus.emit('req-render-payments');
             EventBus.emit('req-show-toast', { message: isActive ? 'تم تفعيل وسيلة الدفع للمشترين' : 'تم إيقاف وسيلة الدفع مؤقتاً', type: isActive ? 'success' : 'warning' });
@@ -144,6 +185,9 @@ export const FinanceController = {
         EventBus.emit('req-render-sales');
     },
 
+    // =========================================================
+    // 💵 2. إدارة العملات وأسعار الصرف (Currencies & Rates)
+    // =========================================================
     saveCurrency: async function() {
         const oldCode = Utils.getVal('cur-old-code');
         const code = Utils.getVal('cur-code').toUpperCase();
@@ -180,8 +224,9 @@ export const FinanceController = {
             return;
         }
 
-        let rates = normalizeRates(AdminData.data.rates);
-        if (!oldCode && rates.find(c => c.code === code)) {
+        let rates = Array.isArray(AdminData.data.rates) ? [...AdminData.data.rates] : [];
+        
+        if (!oldCode && rates.find(c => String(c.code).toUpperCase() === code)) {
             EventBus.emit('req-show-toast', { message: 'رمز العملة المُدخل مسجل مسبقاً في النظام.', type: 'info' });
             return;
         }
@@ -191,17 +236,20 @@ export const FinanceController = {
 
         if (AdminUI && await AdminUI.showConfirm(warningMsg, warningTitle)) {
             if (oldCode) {
-                const idx = rates.findIndex(c => c.code === oldCode);
+                const idx = rates.findIndex(c => String(c.code).toUpperCase() === String(oldCode).toUpperCase());
                 if (idx > -1) rates[idx] = { code, name, symbol, priceRate, depRate, isBase: false };
             } else {
                 rates.push({ code, name, symbol, priceRate, depRate, isBase: false });
             }
-            AdminData.data.rates = rates;
+            AdminData.data.rates = rates; 
             await AdminData?.saveRates?.();
+            
+            // 🚀 [تأمين الكاش السحابي]: فرض تحديث الأسعار سحابياً
+            FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
             
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-rates',
-                modalId: null,
+                modalId: 'currency',
                 logAction: oldCode ? 'EDIT_CURRENCY' : 'ADD_CURRENCY',
                 logDetails: `تحديث مالي: تعديل سعر صرف عملة ${code} (البيع: ${priceRate} | الإيداع: ${depRate})`,
                 toastMsg: `تم تحديث واعتماد أسعار الصرف بنجاح`
@@ -256,23 +304,54 @@ export const FinanceController = {
         }
 
         if (AdminUI && await AdminUI.showConfirm(confirmMsg, confirmTitle)) {
-            let rates = normalizeRates(AdminData.data.rates);
-            AdminData.data.rates = rates.filter(c => c.code !== code);
+            
+            // 🚀 1. [تنظيف البيانات اليتيمة - Orphan Cleanup]: مسح العملة من بوابات الدفع أولاً
+            let paymentsChanged = false;
+            if (AdminData.data.payments && Array.isArray(AdminData.data.payments)) {
+                AdminData.data.payments.forEach(p => {
+                    let modified = false;
+                    if (p.currencies && typeof p.currencies === 'string') {
+                        const curArr = p.currencies.split(',').map(c => c.trim());
+                        if (curArr.includes(code)) {
+                            p.currencies = curArr.filter(c => c !== code).join(',');
+                            modified = true;
+                        }
+                    }
+                    if (p.currencySettings && p.currencySettings[code]) {
+                        delete p.currencySettings[code];
+                        modified = true;
+                    }
+                    if (modified) paymentsChanged = true;
+                });
+            }
+
+            if (paymentsChanged) {
+                await AdminData.savePayments();
+                EventBus.emit('req-render-payments');
+            }
+
+            // 🚀 2. حذف العملة من نظام الأسعار الأساسي
+            let rates = Array.isArray(AdminData.data.rates) ? [...AdminData.data.rates] : [];
+            AdminData.data.rates = rates.filter(c => String(c.code).toUpperCase() !== String(code).toUpperCase());
             await AdminData?.saveRates?.();
             
+            // 🚀 3. تحديث عملة الضيوف إن لزم الأمر
             if (isDefaultDisplay) {
                 AdminData.data.settings.defaultCurrency = 'USD';
                 await AdminData?.saveSystemSettings?.();
             }
 
+            // 🚀 4. تحديث الكاش السحابي
+            FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
+
             AdminData?.addLog?.('DELETE_CURRENCY', `تم حذف عملة: ${code}`);
             EventBus.emit('req-render-rates');
-            EventBus.emit('req-show-toast', { message: 'تم حذف العملة بنجاح', type: 'success' });
+            EventBus.emit('req-show-toast', { message: 'تم حذف العملة بنجاح وتحديث المتجر', type: 'success' });
         }
     },
 
     // ==========================================
-    // 🏦 3. معالجة الإيداعات الآمنة (أمان مالي + Loader)
+    // 🏦 3. معالجة الإيداعات الآمنة 
     // ==========================================
     submitDepositReview: async function(action) {
         const reviewId = AdminUI?.FinanceUI?.currentDepositId || null;
@@ -350,7 +429,6 @@ export const FinanceController = {
             FinancialEngine.safeAdd(amount, feeAmount) :
             FinancialEngine.safeSub(amount, feeAmount);
 
-        // 🛡️ التحديث المعماري للديون (إصلاح الكارثة السالبة)
         const fxRate = FinancialEngine.extractNum(dep.fxRate, false);
         const netBase = (dep.creditedAmount != null) ?
             FinancialEngine.extractNum(dep.creditedAmount) :
@@ -364,15 +442,12 @@ export const FinanceController = {
         
         const isDeduction = netBase < 0;
         if (isDeduction) {
-            // حالة إلغاء الخصم (هنا نحن نُعيد المال للعميل، فلا مجال للديون)
             confirmTitle = "تأكيد إلغاء الخصم";
             confirmMsg = `هل أنت متأكد من إلغاء عملية الخصم هذه؟\nسوف يتم إعادة مبلغ (${Math.abs(netBase).toFixed(2)} ${safeCurrency}) إلى محفظة العميل.`;
         } else {
-            // حالة استرجاع الإيداع (هنا نحن نسحب المال من العميل)
             confirmTitle = "تأكيد استرجاع الإيداع";
             confirmMsg = "هل أنت متأكد من استرجاع هذا الإيداع وخصم المال من رصيد العميل؟";
             if (currentBalance < netBase) {
-                // 🛡️ حساب ديون دقيق (نطرح الرصيد المتاح من المبلغ المطلوب استرجاعه)
                 const debtAmount = FinancialEngine.safeSub(netBase, currentBalance);
                 const plainDebtText = `${debtAmount.toFixed(2)} ${safeCurrency}`;
                 confirmMsg += `\n\n⚠️ تنبيه هام: لا يوجد رصيد كافٍ عند العميل حالياً.\nسوف يصبح رصيد العميل بالسالب كـ (دين عليه) بمقدار: ${plainDebtText}`;

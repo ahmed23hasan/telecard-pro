@@ -1,20 +1,25 @@
 // ============================================================================
-// 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate 🚀
+// 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate V15.3 🚀
 // 🎯 الوظيفة: رسم الإحصائيات، الرادار الجنائي، سجل النشاطات، ومراقبة الأمان
-// 🌟 التحديث الأقصى: إصلاح الرسم البياني الميت، وتصحيح أسماء المدراء في السجلات 💎
+// 🚀 التحديث الأقصى: 
+// 1. Smart CRM Routing: توجيه إنذار الشكاوى مباشرة لتبويب العملاء الغاضبين بدلاً من الإشعارات العامة.
+// 2. CRM Integration: دمج رادار الشكاوى والتقييمات المنخفضة ليظهر فوراً في مركز المهام.
+// 3. Memory Freeze Fix: تحديد سقف سجلات النشاط لـ 100 حركة.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminTemplates } from '../../adminTemplates.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
-import { FinancialEngine } from '../../core/financialEngine.js'; // 🛡️ لضمان الدقة في المخطط
+import { FinancialEngine } from '../../core/financialEngine.js'; 
+import { EventBus } from '../../adminUtils.js';
 
 export const DashboardRender = {
     leaderboardFilter: 'all', 
     _mainChartInst: null, 
 
     initListeners: function() {
-        // يمكن إضافة مستمعات خاصة بلوحة القيادة هنا مستقبلاً
+        EventBus.on('req-render-dash', () => this.renderDashboard());
+        EventBus.on('req-render-logs', () => this.renderLogs());
     },
 
     changeLeaderboardFilter: function(period) {
@@ -62,59 +67,47 @@ export const DashboardRender = {
         }
 
         // =========================================================
-        // 🚨 الرادار الجنائي والتنبيهات 
+        // 🚨 الرادار الجنائي، التنبيهات، ومركز المهام (Action Center)
         // =========================================================
         const sysSettings = AdminData.data.settings || {};
         const totalBannedIps = Array.isArray(sysSettings.bannedIps) ? sysSettings.bannedIps.length : 0;
         const totalBannedDevices = Array.isArray(sysSettings.bannedDevices) ? sysSettings.bannedDevices.length : 0;
         
+        if (!stats.alerts) stats.alerts = [];
+
+        // 🌟 جلب الطلبات والمهام المعلقة
+        const pendingOrders = (AdminData.data.orders || []).filter(o => o.status === 'pending' || o.status === 'processing').length;
+        const pendingDeposits = (AdminData.data.deposits || []).filter(d => d.status === 'pending').length;
+        const pendingKYC = (AdminData.data.users || []).filter(u => u.kycStatus === 'pending').length;
+        const pendingComplaints = (AdminData.data.reviews || []).filter(r => r.status === 'pending' && r.rating <= 2).length;
+
+        // دفع التنبيهات للرادار
+        if (pendingOrders > 0) stats.alerts.unshift({ id: 'act_ord', type: 'warning', icon: 'fa-box-open', text: `بانتظارك <b class="text-white num-en" dir="ltr">${pendingOrders}</b> طلبات منتجات تحتاج للتنفيذ.`, action: `data-action="nav-with-filter" data-section="orders" data-status="pending"` });
+        if (pendingDeposits > 0) stats.alerts.unshift({ id: 'act_dep', type: 'success', icon: 'fa-money-bill-transfer', text: `بانتظارك <b class="text-white num-en" dir="ltr">${pendingDeposits}</b> طلبات إيداع للمحفظة.`, action: `data-action="nav-with-filter" data-section="deposits" data-status="pending"` });
+        if (pendingKYC > 0) stats.alerts.unshift({ id: 'act_kyc', type: 'info', icon: 'fa-id-card-clip', text: `يوجد <b class="num-en text-info" dir="ltr">${pendingKYC}</b> طلبات توثيق هوية بانتظار المراجعة.`, action: `data-action="nav" data-target="kyc-system"` });
+        
+        // 🚀 [الإصلاح الماسي]: توجيه الإنذار للمسار المباشر للشكاوى
+        if (pendingComplaints > 0) {
+            stats.alerts.unshift({ id: 'act_complaint', type: 'danger', icon: 'fa-star-half-stroke', text: `تنبيه هام: يوجد <b class="text-white num-en" dir="ltr">${pendingComplaints}</b> عميل غاضب (تقييم منخفض) بانتظار تدخلك!`, action: `data-action="nav-to-complaints"` });
+        }
+
         if (totalBannedIps > 0 || totalBannedDevices > 0) {
-            stats.alerts.unshift({ 
-                id: 'firewall_active', 
-                time: Date.now(), 
-                ips: totalBannedIps, 
-                devices: totalBannedDevices 
-            });
+            stats.alerts.unshift({ id: 'firewall_active', type: 'danger', icon: 'fa-shield-virus', text: `الجدار الناري نشط! يتصدى لـ <b class="text-white num-en" dir="ltr">${totalBannedIps}</b> IP و <b class="text-white num-en" dir="ltr">${totalBannedDevices}</b> جهاز محظور.`, action: `data-action="nav" data-target="sys"` });
         }
 
         const alertsCont = document.getElementById('dash-smart-alerts');
         if (alertsCont) {
-            if (!stats.alerts || stats.alerts.length === 0) {
+            if (stats.alerts.length === 0) {
                 alertsCont.innerHTML = AdminTemplates.dashEmptyAlerts();
             } else {
                 alertsCont.innerHTML = stats.alerts.map(a => {
-                    let type = 'info', icon = 'fa-info-circle', text = '', action = '';
+                    let type = a.type || 'info', icon = a.icon || 'fa-info-circle', text = a.text || '', action = a.action || '';
                     const timeStr = (a.time && a.time !== 0) ? RenderHelpers.formatSafeDate(a.time) : '';
 
-                    if (a.id === 'firewall_active') { 
-                        type = 'danger'; icon = 'fa-shield-virus'; 
-                        text = `الجدار الناري نشط! يتصدى لـ <b class="text-white num-en" dir="ltr">${a.ips}</b> IP و <b class="text-white num-en" dir="ltr">${a.devices}</b> جهاز محظور.`; 
-                        action = `data-action="nav" data-target="sys"`; 
-                    }
-                    else if (a.id === 'vault_empty') { 
-                        type = 'danger'; icon = 'fa-box-open'; 
-                        text = `مخزون حرج: صندوق <b class="text-danger">${RenderHelpers._esc(a.poolName)}</b> فارغ تماماً!`; 
-                        action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; 
-                    } 
-                    else if (a.id === 'vault_low') { 
-                        type = 'warning'; icon = 'fa-hourglass-half'; 
-                        text = `نقص مخزون: تبقى <b class="num-en text-warning" dir="ltr">${a.count}</b> أكواد في <b class="text-white">${RenderHelpers._esc(a.poolName)}</b>`; 
-                        action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; 
-                    } 
-                    else if (a.id === 'coupon_used') { 
-                        type = 'success'; icon = 'fa-tag'; 
-                        text = `استخدم العميل <b class="text-white">${RenderHelpers._esc(a.user)}</b> الكوبون <span class="badge-qty badge-success" dir="ltr">${RenderHelpers._esc(a.code)}</span>`; 
-                        action = `data-action="open-order-drawer" data-id="${a.orderId}"`; 
-                    } 
-                    else if (a.id === 'kyc_pending') { 
-                        type = 'info'; icon = 'fa-id-card-clip'; 
-                        text = `يوجد <b class="num-en text-info" dir="ltr">${a.count}</b> طلبات توثيق هوية بانتظار المراجعة.`; 
-                        action = `data-action="nav" data-target="kyc-system"`; 
-                    }
-                    else if (a.id === 'security_stable') { 
-                        type = 'security'; icon = 'fa-shield-check'; 
-                        text = `حالة النظام الأمنية مستقرة - لا يوجد أي نشاط مشبوه.`; 
-                    }
+                    if (a.id === 'vault_empty') { type = 'danger'; icon = 'fa-box-open'; text = `مخزون حرج: صندوق <b class="text-danger">${RenderHelpers._esc(a.poolName)}</b> فارغ تماماً!`; action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; } 
+                    else if (a.id === 'vault_low') { type = 'warning'; icon = 'fa-hourglass-half'; text = `نقص مخزون: تبقى <b class="num-en text-warning" dir="ltr">${a.count}</b> أكواد في <b class="text-white">${RenderHelpers._esc(a.poolName)}</b>`; action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; } 
+                    else if (a.id === 'coupon_used') { type = 'success'; icon = 'fa-tag'; text = `استخدم العميل <b class="text-white">${RenderHelpers._esc(a.user)}</b> الكوبون <span class="badge-qty badge-success" dir="ltr">${RenderHelpers._esc(a.code)}</span>`; action = `data-action="open-order-drawer" data-id="${a.orderId}"`; } 
+                    else if (a.id === 'security_stable') { type = 'security'; icon = 'fa-shield-check'; text = `حالة النظام الأمنية مستقرة - لا يوجد أي نشاط مشبوه.`; }
 
                     return AdminTemplates.dashAlertItem(type, icon, text, action, timeStr);
                 }).join('');
@@ -159,22 +152,30 @@ export const DashboardRender = {
         }
     },
 
-    // 🛡️ [تحديث ماسي]: حساب المبيعات اليومية ديناميكياً لإنقاذ الرسم البياني الميت
     renderMainChart: function() { 
         const chartDiv = document.querySelector("#main-revenue-chart");
         if (!chartDiv || typeof window.ApexCharts === 'undefined') return;
 
         const dailyAggregations = {};
-        const allCompletedOrders = (AdminData.data.orders || []).filter(o => o.status === 'completed');
         
-        allCompletedOrders.forEach(o => {
+        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        
+        const recentCompletedOrders = (AdminData.data.orders || []).filter(o => {
+            if (o.status !== 'completed') return false;
+            const timeMs = RenderHelpers.parseTime(o.time || o.createdAt || Date.now());
+            return timeMs >= sevenDaysAgo;
+        });
+        
+        recentCompletedOrders.forEach(o => {
             const timeMs = RenderHelpers.parseTime(o.time || o.createdAt || Date.now());
             const dateObj = new Date(timeMs);
-            const dKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+            
+            const dKey = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
             
             if (!dailyAggregations[dKey]) dailyAggregations[dKey] = { revenue: 0, profit: 0 };
             const pricing = o.pricingSnapshot;
-            const rev = Number(pricing?.finalPriceUsd || o.price || 0);
+            
+            const rev = Number(pricing?.finalPriceUsd || pricing?.finalPrice || o.baseUsd || o.price || 0);
             const prof = Number(pricing?.netProfitUsd || pricing?.profit || 0);
             
             dailyAggregations[dKey].revenue = FinancialEngine.safeAdd(dailyAggregations[dKey].revenue, rev);
@@ -183,8 +184,9 @@ export const DashboardRender = {
 
         const last7Days = [], salesData = [], profitData = [];
         for (let i = 6; i >= 0; i--) {
-            const d = new Date(); d.setDate(d.getDate() - i);
-            const dayKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            const d = new Date(); 
+            d.setUTCDate(d.getUTCDate() - i);
+            const dayKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
             last7Days.push(d);
             
             salesData.push((dailyAggregations[dayKey]?.revenue || 0).toFixed(2));
@@ -192,7 +194,7 @@ export const DashboardRender = {
         }
 
         const daysNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-        const categories = last7Days.map(d => daysNames[d.getDay()]);
+        const categories = last7Days.map(d => daysNames[d.getUTCDay()]);
 
         const isLightMode = document.body.classList.contains('light-mode');
         const themeMode = isLightMode ? 'light' : 'dark';
@@ -219,11 +221,13 @@ export const DashboardRender = {
         this._mainChartInst.render();
     },
 
-    // 🛡️ [تحديث ماسي]: قراءة adminUid من السيرفر وجلب الاسم الحقيقي للمدير عبر الخريطة
     renderLogs: function() {
         const tbody = document.getElementById('logs-table-body');
         if (!tbody) return;
-        const logs = AdminData.data.logs || [];
+        
+        const allLogs = AdminData.data.logs || [];
+        const logs = allLogs.slice(0, 100); 
+        
         if (logs.length === 0) { 
             tbody.innerHTML = `<tr><td colspan="4" class="text-center empty-table-cell"><i class="fa-solid fa-inbox fa-3x mb-10 opacity-50"></i><br>لا توجد نشاطات مسجلة</td></tr>`; 
             return; 
@@ -249,7 +253,6 @@ export const DashboardRender = {
 
             const safeDateTime = RenderHelpers.formatSafeDate(log.timestamp);
             
-            // 🛡️ استخراج اسم الأدمن الحقيقي (حتى لو كان مخفياً تحت adminUid)
             const adminUser = AdminData.data.usersMap?.[log.adminUid];
             const displayAdminName = log.admin || (adminUser ? (adminUser.fullName || adminUser.firstName || adminUser.name || adminUser.username) : 'مدير النظام');
 

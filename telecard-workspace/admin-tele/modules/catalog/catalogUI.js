@@ -1,24 +1,22 @@
 // ============================================================================
-// 📦 وحدة المنتجات والأقسام (modules/catalog/catalogUI.js) - Enterprise V14.8 💎
+// 📦 وحدة المنتجات والأقسام (modules/catalog/catalogUI.js) - Enterprise V15.1 💎
 // 🎯 الوظيفة: التعديل المباشر، شجرة الأقسام، وتهيئة نوافذ الكتالوج (DOM Isolation)
 // 🚀 التحديثات:
-// 1. Vault Sync: تصحيح قراءة أعداد الأكواد من stockCount لتتوافق مع السيرفر السحابي.
-// 2. Financial Math Fix: الاعتماد التام على FinancialEngine لضمان دقة صافي الربح.
-// 3. State Purge: تفريغ النماذج بالكامل عند الإضافة الجديدة لمنع تداخل البيانات.
+// 1. Live Price Sync: تحديث فوري (Real-time) لأسعار البيع في نافذة المعاينة أثناء إدخال التكلفة.
+// 2. Fixed Price Shield: إصلاح انهيار التسعير وعرض السعر الثابت بدقة متناهية.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js'; 
 import { Utils, EventBus } from '../../adminUtils.js';
 import { AdminTemplates } from '../../adminTemplates.js';
 import { UIService } from '../../core/uiService.js';
-// 🛡️ المحرك المالي المركزي لتسعير دقيق خالي من أخطاء الفاصلة العائمة
 import { FinancialEngine } from '../../core/financialEngine.js';
 
 export const CatalogUI = {
   dragEditMode: false,
   
   // =========================================================
-  // 🪟 1. دوال فتح النوافذ المنبثقة (Modal Triggers - O(1) Optimized)
+  // 🪟 1. دوال فتح النوافذ المنبثقة 
   // =========================================================
 
   openCategoryModal: function(id = null) {
@@ -52,7 +50,7 @@ export const CatalogUI = {
   },  
 
   // =========================================================
-  // 🎨 2. تهيئة النوافذ المنبثقة (Modal Setups) - DOM Isolation
+  // 🎨 2. تهيئة النوافذ المنبثقة 
   // =========================================================
   
   setupCategoryModal: function(cat, isSubCat) {
@@ -83,11 +81,26 @@ export const CatalogUI = {
     const titleEl = document.getElementById('prod-modal-title');
     if (titleEl) titleEl.innerText = strId ? 'تعديل المنتج' : 'إضافة منتج';
     
-    // 🛡️ تفريغ حقيقي للحقول عند الإضافة الجديدة لمنع تسرب بيانات المنتجات الأخرى
     safeSetVal('pr-name', p ? p.name : '');
     safeSetVal('pr-desc', p ? (p.description || '') : '');
     safeSetVal('pr-type', p ? p.type : 'simple');
-    safeSetVal('pr-cost', p ? (p.costPrice || p.unitCost || 0) : '');
+    
+    // 🚀 [لمسة الإبداع]: المزامنة الحية للتسعير (Live Price Tracking)
+    const costInput = document.getElementById('pr-cost');
+    if (costInput) {
+        costInput.value = p ? (p.costPrice || p.unitCost || 0) : '';
+        // استماع للتغييرات لتحديث النافذة اللحظية دون انتظار
+        costInput.addEventListener('input', () => EventBus.emit('req-update-price-preview'));
+    }
+
+    // تجهيز حقول السعر الثابت إذا كانت موجودة في الـ HTML
+    safeSetCheck('pr-fixed-price', p ? (p.isFixedPrice === true) : false);
+    safeSetVal('pr-fixed-val', p ? (p.price || 0) : '');
+    const fixedInput = document.getElementById('pr-fixed-val');
+    if (fixedInput) {
+         fixedInput.addEventListener('input', () => EventBus.emit('req-update-price-preview'));
+    }
+    
     safeSetVal('pr-min', p ? (p.minQty || 1) : 1);
     safeSetVal('pr-max', p ? (p.maxQty || 1000) : 1000);
     safeSetCheck('pr-allow-qty', p ? (p.allowQty || false) : false);
@@ -100,7 +113,6 @@ export const CatalogUI = {
     if (vaultSelect) {
       let vHtml = '<option value="">-- بدون ربط (منتج يدوي) --</option>';
       (vaultData || []).forEach(v => {
-        // 🛡️ قراءة العداد السحابي stockCount 
         const count = Number(v.stockCount || 0);
         vHtml += `<option value="${Utils.escapeHTML(v.id)}">${Utils.escapeHTML(v.name)} (${count} كود متاح)</option>`;
       });
@@ -150,7 +162,6 @@ export const CatalogUI = {
     safeSetVal('v-name', pool ? pool.name : '');
     safeSetVal('v-alert-limit', pool ? (pool.alertLimit || 5) : 5);
     
-    // الصناديق في السيرفر الجديد لم تعد تعرض أكواداً في الواجهة، نترك المربع فارغاً لإضافة الجديد
     safeSetVal('v-codes', '');
     
     const titleEl = document.getElementById('vault-modal-title');
@@ -158,7 +169,7 @@ export const CatalogUI = {
   },
   
   // =========================================================
-  // ⚙️ 3. التعديلات المباشرة وأدوات المساعدة (Helpers)
+  // ⚙️ 3. التعديلات المباشرة وأدوات المساعدة
   // =========================================================
   toggleDragEditMode: function(e) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -263,12 +274,6 @@ export const CatalogUI = {
       });
   },
 
-  toggleSimpleQty: function(isChecked) {
-    const limitBox = document.getElementById('simple-qty-limit-box');
-    if (limitBox) limitBox.classList.toggle('hide-element', !isChecked);
-  },
-
-  // 🛡️ [إصلاح ماسي 2]: تصحيح الحساب المالي للمعاينة الحية للمستويات باستخدام FinancialEngine
   renderPricePreview: function(type, cost, tiers, pkgs, EngineRef) {
       const previewContainer = document.getElementById('universal-price-preview');
       if (!previewContainer) return;
@@ -278,15 +283,22 @@ export const CatalogUI = {
       
       let html = '<div class="fs-12 fw-bold text-primary mb-10"><i class="fa-solid fa-eye"></i> المعاينة الحية لأسعار المستويات:</div>';
       
+      // 🚀 [تصحيح الانهيار]: فحص إذا كان المنتج ثابت السعر أولاً
+      const isFixed = document.getElementById('pr-fixed-price')?.checked || false;
+      const fixedVal = parseFloat(Utils.getVal('pr-fixed-val', cost)) || cost;
+
       if (type !== 'select') {
-          if (cost <= 0) { 
+          if (cost <= 0 && !isFixed) { 
               previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-calculator"></i> أدخل تكلفة المنتج لرؤية أسعار البيع للعملاء</div>'; 
               return; 
           }
           
           html += '<div class="preview-tiers-grid">';
           tiers.forEach(tier => {
-              const pricing = safeEngine.calculatePrice({ product: { costPrice: cost }, tier: tier });
+              // إرسال isFixedPrice للمحرك المالي لتخطي احتساب نسبة الربح
+              const dummyProduct = { costPrice: cost, isFixedPrice: isFixed, price: fixedVal };
+              const pricing = safeEngine.calculatePrice({ product: dummyProduct, tier: tier });
+              
               html += `
                   <div class="preview-tier-card text-center">
                       <div class="fs-11 fw-bold text-main mb-10">

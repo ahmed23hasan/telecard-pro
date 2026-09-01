@@ -1,10 +1,11 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V14.6 💎
+// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V15.0 💎
 // 🎯 الوظيفة: بوابة البيانات الآمنة للوحة الإدارة، إدارة الذاكرة، حماية الفواتير.
-// 🚀 التحديث الأقصى: 
-// 1. معالجة ثغرة "الأشباح" (Phantom Writes) لحماية عمليات الإدارة الحساسة (كقبول الإيداعات).
-// 2. دمج التشفير الآمن (Web Crypto API) للرفع.
-// 3. إصلاح الانهيار الصامت لتواريخ آبل (Safari ISO Fix) في سجلات العملاء.
+// 🚀 التحديث الأقصى (V15.0): 
+// 1. Transparent Errors: رمي الأخطاء الصريحة (Throw Errors) لعمليات الكتابة بدل ابتلاعها.
+// 2. معالجة ثغرة "الأشباح" (Phantom Writes) لحماية عمليات الإدارة الحساسة.
+// 3. دمج التشفير الآمن (Web Crypto API) للرفع.
+// 4. إصلاح الانهيار الصامت لتواريخ آبل (Safari ISO Fix) في سجلات العملاء.
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -57,9 +58,7 @@ export const FirebaseAdapter = {
         return String(id).replace(/[\/\\]/g, '_').trim(); 
     },
 
-    // 🛡️ [تحديث ماسي 1]: فصل القراءة عن الكتابة لمنع كارثة تكرار أوامر الإدارة (Phantom Writes)
     _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
-        // عمليات الكتابة (قبول طلب، حذف، إضافة) يجب ألا تُقاطع أبداً من طرف المتصفح
         if (isWriteOperation) return promise; 
         
         let timeoutId;
@@ -109,21 +108,26 @@ export const FirebaseAdapter = {
         } catch (error) { return null; }
     },
 
-    // --- عمليات الكتابة المحصنة (Writes) ---
+    // 🚀 [التصحيح المعماري]: إلغاء ابتلاع الأخطاء والسماح برميها للواجهة الأمامية
     async set(collectionName, docId, data) {
         try {
             const safeId = this._sanitizeDocId(docId);
-            // 🛡️ إبلاغ الـ Timeout بأن هذه عملية كتابة حساسة (isWriteOperation = true)
             await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, { merge: true }), 10000, 'set', true);
             return true;
-        } catch (error) { return false; }
+        } catch (error) { 
+            console.error(`🚨 [FirebaseAdapter] رفض التحديث في ${collectionName}:`, error.message);
+            throw error; // 👈 رمي الخطأ للـ Controller
+        }
     },
 
     async add(collectionName, data) {
         try {
             const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, 'add', true);
             return docRef.id;
-        } catch (error) { return null; }
+        } catch (error) { 
+            console.error(`🚨 [FirebaseAdapter] رفض الإضافة في ${collectionName}:`, error.message);
+            throw error; // 👈 رمي الخطأ
+        }
     },
 
     async delete(collectionName, docId) {
@@ -131,9 +135,11 @@ export const FirebaseAdapter = {
             const safeId = this._sanitizeDocId(docId);
             await this._withTimeout(deleteDoc(doc(db, collectionName, safeId)), 10000, 'delete', true);
             return true;
-        } catch (error) { return false; }
+        } catch (error) { 
+            console.error(`🚨 [FirebaseAdapter] رفض الحذف في ${collectionName}:`, error.message);
+            throw error; // 👈 رمي الخطأ
+        }
     },
-    // -----------------------------------------
 
     listenCollection(collectionName, callback) {
         const key = `admin_col_${collectionName}`;
@@ -204,8 +210,7 @@ export const FirebaseAdapter = {
         } catch (error) { return { data: [], newLastDoc: null }; }
     },
 
-    // 🛡️ [تحديث ماسي 2]: دمج Web Crypto API مع حماية عملية الرفع من المقاطعة
-    async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = true) {
+        async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = true) {
         if (!file) return '';
         
         const allowedTypes = isAdmin ? ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'] : ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -219,17 +224,16 @@ export const FirebaseAdapter = {
         }
 
         try {
-            const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general';
+            // 🛡️ [التصحيح]: السماح بالـ "/" لإنشاء مجلدات فرعية مع منع التلاعب بالمسارات ".."
+            const safeFolder = String(folderName).replace(/\.\./g, '').replace(/\\/g, '/').replace(/\/+/g, '/').trim() || 'general';
             const originalExt = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : 'jpg';
             const safeFileName = file.name.replace(/[^a-zA-Z0-9\-_]/g, '').replace(/^\.+/, 'file');
             
-            // التشفير الآمن للمعرفات لمنع التصادم
             const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
             const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null;
             
             const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`;
             
-            // 🛡️ isWriteOperation = true لحماية الرفع
             const snapshot = await this._withTimeout(
                 uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع الصورة", true
             );
@@ -238,11 +242,9 @@ export const FirebaseAdapter = {
             throw new Error(error.message || 'تعذر الرفع. تأكد من جودة الاتصال.'); 
         }
     },
-
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
         try { 
-            // 🛡️ isWriteOperation = true
             await this._withTimeout(deleteObject(ref(storage, url)), 10000, 'deleteImage', true);
         } catch (error) { }
     },
@@ -250,7 +252,6 @@ export const FirebaseAdapter = {
     async callFunction(functionName, payload = {}) {
         try {
             const targetFunction = httpsCallable(functions, functionName);
-            // 🛡️ دوال الإدارة خطيرة (Refund, Approve, Reject)، يجب ألا تقاطع أبداً
             const result = await this._withTimeout(targetFunction(payload), 60000, `Function -> ${functionName}`, true);
             return result.data;
         } catch (error) {
@@ -258,7 +259,7 @@ export const FirebaseAdapter = {
         }
     },
 
-    async getCustomerFullHistory(userId, limitPerCollection = 25) {
+        async getCustomerFullHistory(userId, limitPerCollection = 25) {
         if (!userId) return [];
         try {
             const safeUserId = String(userId);
@@ -273,7 +274,6 @@ export const FirebaseAdapter = {
             ordersSnap.forEach(doc => { activities.push({ id: doc.id, txType: 'order', ...doc.data() }); });
             depositsSnap.forEach(doc => { activities.push({ id: doc.id, txType: 'deposit', ...doc.data() }); });
             
-            // 🛡️ [تحديث ماسي 3]: درع حماية تواريخ آبل (Safari ISO Shield) داخل وظائف الإدارة
             const parseTimeSafe = (t) => {
                 if (!t) return 0;
                 if (typeof t.toMillis === 'function') return t.toMillis();
@@ -289,8 +289,13 @@ export const FirebaseAdapter = {
                 return isNaN(new Date(t).getTime()) ? 0 : new Date(t).getTime();
             };
             
-            activities.sort((a, b) => parseTimeSafe(b.time || b.createdAt) - parseTimeSafe(a.time || a.createdAt));
+            // 🛡️ [التصحيح]: دمج حقل الـ date تحسباً لاعتماد بعض الإيداعات القديمة عليه
+            activities.sort((a, b) => parseTimeSafe(b.time || b.date || b.createdAt) - parseTimeSafe(a.time || a.date || a.createdAt));
             return activities;
-        } catch (error) { return []; }
+        } catch (error) { 
+            // 🛡️ [التصحيح الأهم]: طباعة الخطأ لمنع التعمية على غياب الفهارس (Indexes)
+            console.error("🚨 خطأ في جلب السجل المالي (تأكد من توفر Composite Indexes في Firebase):", error.message);
+            return []; 
+        }
     }
 };

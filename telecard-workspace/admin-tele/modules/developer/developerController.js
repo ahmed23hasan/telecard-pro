@@ -1,14 +1,14 @@
 // ============================================================================
-// 🧠 متحكم المطورين والربط (modules/developer/developerController.js) - النسخة الماسية V3.2 💎
+// 🧠 متحكم المطورين والربط (modules/developer/developerController.js) - V15.1 💎
 // 🎯 الوظيفة: معالجة العمليات المنطقية للـ API و Webhooks بأعلى معايير الأمان
-// 🚀 التحديث الأقصى: القضاء على الـ O(N) بـ usersMap وفك الارتباط الدائري تماماً
+// 🚀 التحديث الأقصى: 
+// 1. Strict URL Validation: استخدام كائن (URL) لمنع حفظ روابط Webhook وهمية أو مشوهة.
+// 2. UI State Sync Fix: التراجع المرئي في الـ DOM عند فشل الحفظ السحابي للـ Webhook.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { EventBus, Utils } from '../../adminUtils.js';
 import { AdminUI } from '../../adminUI.js';
-
-// 🚀 [نقاء هندسي]: تم حذف استيراد AppController الميت تماماً لكسر الارتباط الدائري وحماية لوحة الإدارة من الانهيار عند الإقلاع
 
 export const DeveloperController = {
     
@@ -18,7 +18,6 @@ export const DeveloperController = {
     generateApiKey: async function(userId) {
         if (!userId) return;
         
-        // ⚡ التحديث الفائق O(1): جلب العميل فورا من الخريطة بدلا من find
         const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
         
@@ -53,7 +52,7 @@ export const DeveloperController = {
             
         } catch (error) {
             console.error("API Key Generation Error:", error);
-            user.apiKey = oldKey; // 🌟 تراجع آمن
+            user.apiKey = oldKey; 
             EventBus.emit('req-show-toast', { message: 'تعذر حفظ المفتاح في السحابة، يرجى المحاولة مجدداً.', type: 'error' });
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
@@ -66,7 +65,6 @@ export const DeveloperController = {
     revokeApiKey: async function(userId) {
         if (!userId) return;
         
-        // ⚡ جلب فوري بـ O(1)
         const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user || !user.apiKey) return;
         
@@ -93,7 +91,7 @@ export const DeveloperController = {
             
         } catch (error) {
             console.error("API Key Revocation Error:", error);
-            user.apiKey = oldKey; // 🌟 تراجع آمن
+            user.apiKey = oldKey; 
             EventBus.emit('req-show-toast', { message: 'تعذر إبطال المفتاح سحابياً، يرجى المحاولة مجدداً.', type: 'error' });
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
@@ -106,7 +104,6 @@ export const DeveloperController = {
     saveWebhookUrl: async function(userId) {
         if (!userId) return;
         
-        // ⚡ جلب فوري بـ O(1)
         const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
         if (!user) return;
         
@@ -114,9 +111,17 @@ export const DeveloperController = {
         const inputEl = document.getElementById(`dev-webhook-url-${userId}`);
         const newUrl = inputEl ? inputEl.value.trim() : '';
         
-        if (newUrl !== '' && !newUrl.startsWith('http')) {
-            EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: يجب أن يبدأ رابط الـ Webhook بـ http أو https', type: 'error' });
-            return;
+        // 🚀 [إصلاح الثغرة المنطقية]: فحص الرابط بشكل صارم باستخدام (URL Object)
+        if (newUrl !== '') {
+            try {
+                const parsedUrl = new URL(newUrl);
+                if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+                    throw new Error("Invalid Protocol");
+                }
+            } catch (err) {
+                EventBus.emit('req-show-toast', { message: 'الرابط غير صالح! يجب أن يكون رابطاً حقيقياً يبدأ بـ http أو https', type: 'error' });
+                return;
+            }
         }
         
         const oldUrl = user.webhookUrl || '';
@@ -139,8 +144,11 @@ export const DeveloperController = {
             
         } catch (error) {
             console.error("Webhook Save Error:", error);
-            user.webhookUrl = oldUrl; // 🌟 تراجع آمن
-            EventBus.emit('req-show-toast', { message: 'تعذر حفظ الرابط سحابياً، يرجى المحاولة مجدداً.', type: 'error' });
+            user.webhookUrl = oldUrl; 
+            
+            if (inputEl) inputEl.value = oldUrl;
+            
+            EventBus.emit('req-show-toast', { message: 'تعذر حفظ الرابط سحابياً، تم التراجع محلياً.', type: 'error' });
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }

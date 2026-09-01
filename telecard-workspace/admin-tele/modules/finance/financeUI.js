@@ -1,7 +1,9 @@
 // ============================================================================
-// 💰 وحدة المالية والإيداعات (modules/finance/financeUI.js) - النسخة الماسية V4.5 💎
+// 💰 وحدة المالية والإيداعات (modules/finance/financeUI.js) - النسخة الماسية V4.6 💎
 // 🎯 الوظيفة: إدارة واجهات الإيداعات وإعدادات العملات وبوابات الدفع
-// 🚀 التحديث الأقصى: معالجة تناسق الألوان والإشارات للإيداعات السلبية (Deductions)
+// 🚀 التحديث الأقصى: 
+// 1. Safe State Mapping: تمرير الكائنات كمعاملات لمنع تضارب المتغيرات العامة (Race Conditions).
+// 2. معالجة تناسق الألوان والإشارات للإيداعات السلبية، والاستجابة الفورية.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -80,7 +82,8 @@ export const FinanceUI = {
             }).join('');
         }
         
-        this.toggleCurrencySettings(p?.id || null, true);
+        // 🚀 [لمسة الإبداع]: تمرير كائن (p) بشكل مباشر لمنع التضاربات مع الـ Global State
+        this.toggleCurrencySettings(p?.id || null, true, p);
         
         const imgEl = document.getElementById('pay-img');
         const wrapEl = document.getElementById('pay-img-wrap');
@@ -112,7 +115,7 @@ export const FinanceUI = {
         safeSetVal('cur-dep-rate', cur ? cur.depRate : '');
     },
 
-    toggleCurrencySettings: function(paymentId, isInitialLoad = false) {
+        toggleCurrencySettings: function(paymentId, isInitialLoad = false, payObj = null) {
         if (paymentId !== undefined) this.currentEditPaymentId = paymentId;
         
         const container = document.getElementById('currency-settings-container');
@@ -134,45 +137,50 @@ export const FinanceUI = {
                     feeUnit: row.querySelector(`[id^="pay-feeunit-"]`)?.value || 'percent',
                     fee: row.querySelector(`[id^="pay-fee-"]`)?.value || '',
                     min: row.querySelector(`[id^="pay-min-"]`)?.value || '',
-                    max: row.querySelector(`[id^="pay-max-"]`)?.value || ''
+                    max: row.querySelector(`[id^="pay-max-"]`)?.value || '',
+                    minFee: row.querySelector(`[id^="pay-minfee-"]`)?.value || '', // 🚀 جديد
+                    maxFee: row.querySelector(`[id^="pay-maxfee-"]`)?.value || ''  // 🚀 جديد
                 };
             });
         }
 
         let html = '';
         chkBoxes.forEach(code => {
-            let ft = 'fee', fu = 'percent', f = '', min = '', max = '';
+            let ft = 'fee', fu = 'percent', f = '', min = '', max = '', minFee = '', maxFee = '';
             
             if (currentInputs[code]) {
                 ft = currentInputs[code].feeType; fu = currentInputs[code].feeUnit;
-                f = currentInputs[code].fee; min = currentInputs[code].min; max = currentInputs[code].max;
+                f = currentInputs[code].fee; 
+                min = currentInputs[code].min; max = currentInputs[code].max;
+                minFee = currentInputs[code].minFee; maxFee = currentInputs[code].maxFee;
             } 
-            else if (isInitialLoad && this.currentEditPaymentId && AdminData?.data?.payments) {
-                const pay = AdminData.data.payments.find(p => p && String(p.id) === String(this.currentEditPaymentId));
+            else if (isInitialLoad) {
+                const pay = payObj || (this.currentEditPaymentId && AdminData?.data?.payments ? AdminData.data.payments.find(p => p && String(p.id) === String(this.currentEditPaymentId)) : null);
+                
                 if (pay && pay.currencySettings && pay.currencySettings[code]) {
                     const s = pay.currencySettings[code];
                     ft = s.feeType || 'fee'; fu = s.feeUnit || s.unit || 'percent';
                     f = s.fee ?? ''; min = s.min ?? ''; max = s.max ?? '';
+                    minFee = s.minFee ?? ''; maxFee = s.maxFee ?? ''; // 🚀 جديد
                 } else if (pay && pay.currencies && typeof pay.currencies === 'string' && pay.currencies.includes(code)) { 
                     ft = pay.feeType || 'fee'; fu = pay.feeUnit || pay.unit || 'percent';
                     f = pay.fee ?? ''; min = pay.min ?? ''; max = pay.max ?? '';
+                    minFee = pay.minFee ?? ''; maxFee = pay.maxFee ?? ''; // 🚀 جديد
                 }
             }
             
             const displayCode = RenderHelpers.getCurrencySymbolText(code); 
             const safeDisplayCode = displayCode != null ? String(displayCode) : '';
-            const safeF = f != null ? String(f) : '';
-            const safeMin = min != null ? String(min) : '';
-            const safeMax = max != null ? String(max) : '';
-
+            
             html += AdminTemplates.currencySettingRow(
                 code, 
                 Utils.escapeHTML(safeDisplayCode), 
-                ft, 
-                fu, 
-                Utils.escapeHTML(safeF), 
-                Utils.escapeHTML(safeMin), 
-                Utils.escapeHTML(safeMax)
+                ft, fu, 
+                Utils.escapeHTML(f != null ? String(f) : ''), 
+                Utils.escapeHTML(min != null ? String(min) : ''), 
+                Utils.escapeHTML(max != null ? String(max) : ''),
+                Utils.escapeHTML(minFee != null ? String(minFee) : ''), // 🚀 جديد
+                Utils.escapeHTML(maxFee != null ? String(maxFee) : '')  // 🚀 جديد
             );
         });
         
@@ -189,12 +197,11 @@ export const FinanceUI = {
             if (unitSel && fuVal) unitSel.value = fuVal;
         });
     },
-
-    // ========================================================================
+ // ========================================================================
     // 📂 إدارة درج الإيداعات (Drawer)
     // ========================================================================
 
-        openDepositDrawer: function(depositId) {
+    openDepositDrawer: function(depositId) {
         let dep = null;
         if(AdminData && AdminData.data && AdminData.data.depositsMap) {
             dep = AdminData.data.depositsMap[depositId];
@@ -217,15 +224,19 @@ export const FinanceUI = {
 
         if(noteInput) {
             noteInput.value = ''; 
-            noteInput.onfocus = function() {
-                const drawerContainer = document.querySelector('#deposit-drawer');
-                if(drawerContainer) drawerContainer.classList.add('typing-mode');
-                setTimeout(() => { this.scrollIntoView({ behavior: 'auto', block: 'nearest' }); }, 300); 
-            };
-            noteInput.onblur = function() {
-                const drawerContainer = document.querySelector('#deposit-drawer');
-                if(drawerContainer) drawerContainer.classList.remove('typing-mode');
-            };
+            
+            if (!noteInput.hasAttribute('data-events-bound')) {
+                noteInput.setAttribute('data-events-bound', 'true');
+                noteInput.addEventListener('focus', function() {
+                    const drawerContainer = document.querySelector('#deposit-drawer');
+                    if(drawerContainer) drawerContainer.classList.add('typing-mode');
+                    setTimeout(() => { this.scrollIntoView({ behavior: 'auto', block: 'nearest' }); }, 300); 
+                });
+                noteInput.addEventListener('blur', function() {
+                    const drawerContainer = document.querySelector('#deposit-drawer');
+                    if(drawerContainer) drawerContainer.classList.remove('typing-mode');
+                });
+            }
 
             const noteWrapper = noteInput.parentElement; 
             if (dep.status === 'pending') noteWrapper.classList.remove('hide-element');
@@ -237,7 +248,10 @@ export const FinanceUI = {
             idBadge.innerText = formattedDepId;
             idBadge.classList.add('copyable-admin');
             idBadge.title = "انقر لنسخ المعرف";
-            idBadge.onclick = function(e) { UIService.copyText(formattedDepId, e, this); };
+            
+            idBadge.onclick = null; 
+            idBadge.setAttribute('data-action', 'copy-text');
+            idBadge.setAttribute('data-copy-text', formattedDepId);
         }
 
         const user = AdminData.data.usersMap?.[dep.userId] || (AdminData.data.users || []).find(u => u && String(u.id) === String(dep.userId)) || {};
@@ -252,14 +266,10 @@ export const FinanceUI = {
         const safeLogo = Utils.escapeHTML(dep.methodLogo);
         const bankImgHtml = AdminTemplates.drawerBankImg(safeLogo);
 
-        // 1. تحديد عملة الدفع
         const payCurr = (dep.currency || 'USD').toUpperCase().replace('$', 'USD');
-        
-        // 2. 🛡️ [الإصلاح الماسي]: إذا لم يرسل السيرفر targetCurrency، نستنتجها من عملة العميل
         const userBaseCurr = (user.baseCurrency || 'USD').toUpperCase().replace('$', 'USD');
         const targetCurr = (dep.targetCurrency || userBaseCurr || payCurr).toUpperCase().replace('$', 'USD');
         
-        // 3. حساب الرسوم
         const feeType = dep.feeType || 'fee'; 
         const feeUnit = dep.feeUnit || dep.unit || dep.calcMethod || 'percent';
         const feeVal = Number(dep.feePct ?? dep.fee ?? 0);
@@ -270,18 +280,15 @@ export const FinanceUI = {
         if (feeType === 'bonus') netPayCurr += feeAmount; 
         else netPayCurr -= feeAmount; 
 
-        // 4. 🛡️ [الدمج الماسي]: استنتاج سعر الصرف (مع حماية القيم السالبة وفخ الرقم 1)
         let fxRate = Number(dep.fxRate);
-        if (!fxRate || isNaN(fxRate) || fxRate === 1) { // 👈 كشف الرقم 1 الوهمي
+        if (!fxRate || isNaN(fxRate) || fxRate === 1) { 
             if (dep.creditedAmount !== undefined && dep.creditedAmount !== null && netPayCurr !== 0) {
-                // 👈 استخدام القيمة المطلقة لمنع أسعار الصرف السالبة
                 fxRate = Math.abs(Number(dep.creditedAmount)) / Math.abs(netPayCurr);
             } else {
                 fxRate = 1;
             }
         }
 
-        // 5. حساب الصافي
         const netBase = Number((dep.creditedAmount !== undefined && dep.creditedAmount !== null) ? dep.creditedAmount : (netPayCurr * fxRate));
 
         const dateTxt = RenderHelpers.formatSafeDate(dep.time || dep.createdAt);
@@ -290,7 +297,6 @@ export const FinanceUI = {
         const sText = statusDict[dep.status] || dep.status;
         const statusClass = dep.status === 'approved' ? 'completed' : dep.status; 
 
-        // 6. 🛡️ [إضافتك العبقرية]: كتابة سعر الصرف بشكل منطقي وتجاهله إذا تطابقت العملات
         const payCurrSymbol = RenderHelpers.getCurrencySymbolText(payCurr);
         const fxStr = (payCurr !== targetCurr && fxRate !== 1) 
             ? `1 ${payCurrSymbol} = ${RenderHelpers.formatMoney(fxRate, targetCurr, 4)}` 
@@ -381,7 +387,8 @@ export const FinanceUI = {
             if(drawerPanel) drawerPanel.scrollTop = 0;
             drawer.scrollTop = 0;
         }, 50);
-    },
+    },    
+
     closeDepositDrawer: function() {
         const drawer = document.getElementById('deposit-drawer-overlay');
         if (drawer) drawer.classList.remove('active');

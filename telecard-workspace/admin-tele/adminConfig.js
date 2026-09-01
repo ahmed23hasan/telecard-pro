@@ -1,12 +1,10 @@
 // ============================================================================
-// ⚙️ ملف الإعدادات والأساسيات (adminConfig.js) - Enterprise V14.8 💎
-// 🎯 الوظيفة: مصدر الحقيقة الوحيد للمفاتيح، إعدادات فايربيز، والمحرك المالي
-// 🚀 التحديثات المعمارية (V14.8):
-// 1. API Security: توثيق ضرورة تقييد الـ HTTP Referrers لمفاتيح فايربيز.
-// 2. DB Keys Isolation: استدعاء telecard_prods حصرياً لكشف بيانات الموردين للإدارة.
+// ⚙️ ملف الإعدادات والأساسيات (adminConfig.js) - Enterprise V16.5 💎
+// 🎯 الوظيفة: مصدر الحقيقة الوحيد للمفاتيح وإعدادات فايربيز.
+// 🚀 التحديث: 
+// 1. Circular Dependency Fix: إزالة استيراد FinancialEngine لفك الارتباط الدائري القاتل.
+// 2. Data Only Object: تحويل الملف إلى Pure Config Object لمنع انهيار الـ Imports.
 // ============================================================================
-
-import { FinancialEngine } from './core/financialEngine.js';
 
 const deepFreeze = (obj) => {
     Object.keys(obj).forEach(prop => {
@@ -18,9 +16,6 @@ const deepFreeze = (obj) => {
 };
 
 export const firebaseConfig = deepFreeze({
-    // 🛑 [تنبيه أمني أقصى]: هذا المفتاح مرئي (وهذا طبيعي في الويب)، 
-    // لكن يجب الدخول إلى Google Cloud Console -> APIs & Services -> Credentials
-    // وإضافة (HTTP Referrers) لتسمح فقط بنطاق موقعك (Domain) باستخدامه لمنع سرقة البيانات.
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
     projectId: "telecard-1",
@@ -55,16 +50,24 @@ export const DB_KEYS = deepFreeze({
     SYSTEM_ERRORS: 'telecard_system_errors' 
 });
 
-// ============================================================================
-// 💱 إعادة تصدير دوال المعالجة المالية (نظيفة بدون bind)
-// ============================================================================
-export const normalizeRates = (rawArray) => FinancialEngine.normalizeRates(rawArray);
-export const convertViaUSD = (amount, fromCode, toCode, ratesArray, channel) =>
-    FinancialEngine.convertViaUSD(amount, fromCode, toCode, ratesArray, channel);
+export const normalizeRates = (rawArray) => {
+    let map = {
+        'USD': { code: 'USD', name: 'دولار أمريكي', symbol: '$', priceRate: 1, depRate: 1, isBase: true }
+    };
 
-// ============================================================================
-// ⚖️ المحرك المالي المركزي (Telecard Pricing Engine)
-// ============================================================================
-export const TelecardPricingEngine = deepFreeze({
-    calculate: (params) => FinancialEngine.calculatePrice(params)
-});
+    if (Array.isArray(rawArray)) {
+        rawArray.forEach(r => {
+            if (r && r.code && String(r.code).toUpperCase() !== 'USD') {
+                map[String(r.code).toUpperCase()] = { ...r, isBase: false };
+            }
+        });
+    } else if (rawArray && typeof rawArray === 'object') {
+        Object.values(rawArray).forEach(r => {
+            if (r && r.code && String(r.code).toUpperCase() !== 'USD') {
+                map[String(r.code).toUpperCase()] = { ...r, isBase: false };
+            }
+        });
+    }
+
+    return Object.values(map);
+};

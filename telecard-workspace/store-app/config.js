@@ -1,14 +1,14 @@
 // ============================================================================
-// 📁 ملف الإعدادات المركزي (config.js) - Enterprise V20.9 💎
+// 📁 ملف الإعدادات المركزي (config.js) - الإصدار المؤسسي V21.0 💎
 // 🎯 الوظيفة: ثوابت النظام، حماية مفاتيح قواعد البيانات، ونسف الكاش القديم
-// 🚀 التحديثات المعمارية (V20.9):
-// 1. SSR & Worker Safe: تحصين استدعاء window لمنع انهيار الـ Service Workers.
-// 2. Hard Cache Wipe (_v20): تغيير مفاتيح الكاش لجبر هواتف العملاء على مسح البيانات القديمة.
-// 3. API Security: توثيق حماية مفاتيح فايربيز.
+// 🚀 التحديثات المعمارية:
+// 1. Immutable Core: الحفاظ على deepFreeze لحماية الثوابت.
+// 2. SSOT Keys: توحيد مفاتيح الجلسات والكاش لمنع الأخطاء المطبعية (Magic Strings).
 // ============================================================================
 
-export const APP_VERSION = (typeof window !== 'undefined' && window.TELECARD_VERSION) ? window.TELECARD_VERSION : 'v20.9';
+export const APP_VERSION = (typeof window !== 'undefined' && window.TELECARD_VERSION) ? window.TELECARD_VERSION : 'v21.0';
 
+// 🛡️ تجميد عميق مخصص فقط لملف الثوابت لمنع العبث بمفاتيح النظام
 const deepFreeze = (obj) => {
     Object.keys(obj).forEach(prop => {
         if (typeof obj[prop] === 'object' && obj[prop] !== null && !Object.isFrozen(obj[prop])) {
@@ -18,9 +18,8 @@ const deepFreeze = (obj) => {
     return Object.freeze(obj);
 };
 
-// ☁️ إعدادات فايربيز 
+// ☁️ إعدادات فايربيز (يجب تقييدها بنطاق موقعك عبر Google Cloud Console)
 export const firebaseConfig = deepFreeze({
-    // 🛑 [تنبيه أمني أقصى]: تذكر إضافة نطاق موقعك في (HTTP Referrers) من Google Cloud
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
     projectId: "telecard-1",
@@ -29,9 +28,10 @@ export const firebaseConfig = deepFreeze({
     appId: "1:698672838633:web:743c8809615bd8308bfd78"
 });
 
+// 🗄️ مفاتيح قاعدة البيانات (Firestore Collections)
 export const DB_KEYS = deepFreeze({
     CATS: 'telecard_cats',
-    PRODS: 'telecard_prods_public', // 👈 حماية مطلقة: المتجر يرى النسخة المفلترة فقط
+    PRODS: 'telecard_prods_public',
     SETTINGS: 'telecard_settings',
     USERS: 'telecard_users',
     BANNERS: 'telecard_banners',
@@ -50,25 +50,35 @@ export const DB_KEYS = deepFreeze({
     OFFERS: 'telecard_offers',
     ALERTS: 'telecard_alerts',
     NOTIF_READ_LIST: 'telecard_read_notifs',
-    FEEDBACKS: 'telecard_private_feedbacks'
+    FEEDBACKS: 'telecard_private_feedbacks',
+    REVIEWS: 'reviews'
 });
 
-// 🛡️ التحديث الماسي: تغيير نهايات المفاتيح لنسف الكاش القديم بالكامل
+// 🛡️ مفاتيح الكاش والجلسات المحلية (LocalStorage & SessionStorage)
 export const CACHE_KEYS = deepFreeze({
-    ACTIVE_USER: 'telecard_active_user_v20',
-    ACTIVE_UID: 'telecard_active_user_uid_v20',
-    STORE_CACHE: 'telecard_store_cache_v20',
-    STORE_CACHE_FALLBACK: 'telecard_store_cache_fallback_v20',
-    SMART_CATALOG: 'telecard_store_catalog_master_v20',
-    CATALOG_VERSION: 'telecard_catalog_version_v20',
-    TIME_SYNC: 'telecard_time_sync_ts_v20',
+    ACTIVE_USER: 'telecard_active_user_v21',
+    ACTIVE_UID: 'telecard_active_user_uid_v21',
+    STORE_CACHE: 'telecard_store_cache_v21',
+    STORE_CACHE_FALLBACK: 'telecard_store_cache_fallback_v21',
+    SMART_CATALOG: 'telecard_store_catalog_master_v21',
+    CATALOG_VERSION: 'telecard_catalog_version_v21',
+    TIME_SYNC: 'telecard_time_sync_ts_v21',
     THEME: 'telecard_theme',
     DISPLAY_CURRENCY: 'telecard_display_currency',
     DISPLAY_STATE: 'telecard_display_state',
     SPLASH_NAME: 'telecard_splash_name',
     BIOMETRIC_KEY: 'telecard_biometric_key',
     LAYOUT_COLS: 'store_layout_cols',
-    SHOWN_TOASTS: 'telecard_shown_toasts'
+    SHOWN_TOASTS: 'telecard_shown_toasts',
+    
+    // مفاتيح النظام والجلسات
+    SERVER_VERSION: 'tc_server_version',
+    LOCAL_APP_VERSION: 'tc_app_version',
+    CLIENT_IP: 'tc_client_ip',
+    UPDATE_RELOADS: 'tc_update_reloads',
+    LOGOUT_TOAST: 'tc_show_logout_toast',
+    GREETING_SHOWN: 'tc_has_been_greeted',
+    NEW_USER_SIGNUP: 'tc_new_user_signup'
 });
 
 export const DYNAMIC_PREFIXES = deepFreeze({

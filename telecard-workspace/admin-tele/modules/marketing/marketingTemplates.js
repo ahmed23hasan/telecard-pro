@@ -1,7 +1,8 @@
 // ============================================================================
 // 📢 قوالب التسويق والعروض (modules/marketing/marketingTemplates.js)
 // 🎯 الوظيفة: توليد الـ HTML بنظام المجموعات العمودية لضمان ثبات الأزرار
-// 🚀 التحديث: تطهير الملف بالكامل من دوال القص المحلية والتواريخ المباشرة (100% SSOT)
+// 🚀 التحديث: تطهير الملف بالكامل من دوال القص المحلية والتواريخ المباشرة.
+// 2. RAM Protection: استخدام Map للبحث الآني `O(1)` للإشعارات.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js'; 
@@ -160,8 +161,8 @@ export const MarketingTemplates = {
         else if (alert.targetType === 'user') { 
             targetText = `عميل مخصص`; targetIcon = 'fa-user text-info'; 
             
-            // 🌟 استخدام المنسق المركزي لجلب واستخراج هوية العميل بصيغة موحدة
-            const targetUser = (AdminData.data.users || []).find(u => String(u.id) === String(alert.targetId));
+            // 🚀 [التصحيح المعماري]: استخدام الـ Map (O(1)) بدلاً من Array.find لمنع اختناق الذاكرة في المتصفح
+            const targetUser = AdminData.data.usersMap?.[alert.targetId];
             const dId = targetUser ? RenderHelpers.formatUserId(targetUser) : RenderHelpers.formatUserId(alert.targetId);
             
             targetIdHtml = `<span class="num-en text-warning copyable-admin" data-action="copy-text" data-copy-text="${_esc(dId)}" dir="ltr" title="نسخ رقم العميل">#${_esc(dId)}</span>`;

@@ -1,7 +1,10 @@
 // ============================================================================
-// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - النسخة النهائية V4.0 🛡️
+// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Enterprise V15.1 🛡️
 // الوظيفة: الكوبونات، العروض، الإشعارات، وإعدادات البنرات (الهوية البصرية).
-// 🚀 التحديث الأقصى: استعلامات O(1)، استرجاع آمن (Safe Rollback)، فك ارتباط كامل، وحماية قسوى.
+// 🚀 التحديث الأقصى: 
+// 1. Deadlock Fix: نقل الـ Loader لما بعد قرارات (Confirm) لمنع تجميد الشاشة للأبد.
+// 2. Safe Rollback: إضافة إغلاق الـ Loader في كتل (finally) لدوال الحذف لمنع التعليق.
+// 3. O(1) Inbox Mutation: تحديث صندوق وارد العميل مباشرة من خريطة الذاكرة.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -158,14 +161,15 @@ export const MarketingController = {
         const passedShapeSync = await this._checkStoryShapeSync(offerData);
         if (!passedShapeSync) return;
 
+        // 🚀 [إصلاح ה-Deadlock]: تفعيل الـ Loader هنا فـقـط بعد عبور كافة رسائل التأكيد والأسئلة!
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحفظ سحابياً...');
+
         if (isEdit && oIdx !== -1) AdminData.data.offers[oIdx] = offerData;
         else AdminData.data.offers.push(offerData);
 
-        // 🛡️ الحماية: تحديث الـ Map فورياً محلياً لتجنب الأخطاء
         if (!AdminData.data.offersMap) AdminData.data.offersMap = {};
         AdminData.data.offersMap[offerData.id] = offerData;
 
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحفظ سحابياً...');
         try {
             await AdminData?.saveOffers?.();
             EventBus.emit('req-finish-action', {
@@ -182,25 +186,28 @@ export const MarketingController = {
         if (!AdminData.data.offers) return;
         if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من حذف العرض نهائياً؟')) return;
         
+        // 🚀 [إصلاح ה-Rollback Hang]: تفعيل الـ Loader لتجنب ضغط المستخدم المتكرر والتأكد من إغلاقه 
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحذف سحابياً...');
+        
         const offer = AdminData.data.offersMap?.[id] || AdminData.data.offers.find(o => String(o.id) === String(id));
-        const offersBackup = [...AdminData.data.offers]; // 🛡️ حفظ نسخة أصلية من المصفوفة
+        const offersBackup = [...AdminData.data.offers]; 
         
         AdminData.data.offers = AdminData.data.offers.filter(o => String(o.id) !== String(id));
-        if(AdminData.data.offersMap) delete AdminData.data.offersMap[id]; // 🛡️ الحذف من الخريطة أيضاً
+        if(AdminData.data.offersMap) delete AdminData.data.offersMap[id]; 
 
         EventBus.emit('req-render-offers'); 
-        EventBus.emit('req-show-toast', {message:'جاري الحذف...', type:'info'});
         
         try {
             await AdminData?.saveOffers?.();
             if (offer) AdminData?.addLog?.('DELETE_OFFER', `حذف حملة: ${offer.name}`);
             EventBus.emit('req-show-toast', {message:'تم الحذف بنجاح', type:'success'});
         } catch(e) { 
-            // 🛡️ استرجاع آمن للمصفوفة الأصلية بنفس الترتيب
             AdminData.data.offers = offersBackup; 
             if(offer && AdminData.data.offersMap) AdminData.data.offersMap[id] = offer;
             EventBus.emit('req-render-offers'); 
             EventBus.emit('req-show-toast', {message:'فشل الحذف، حدث خطأ سحابي', type:'error'});
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
@@ -256,10 +263,8 @@ export const MarketingController = {
         const isEdit = !!AdminData.tempEditId;
         const cIdx = isEdit ? AdminData.data.coupons.findIndex(c => String(c.id) === String(AdminData.tempEditId)) : -1;
         
-        // 🛡️ [ترقيع أمني V4.1]: التحقق الدقيق من عدم تكرار الكود لمنع التضارب
-        // النظام سيبحث إذا كان الكود موجوداً مسبقاً، وسيتجاهل الكوبون الحالي إذا كنا في وضع "التعديل"
         const isCodeDuplicate = (AdminData.data.coupons || []).some(c => 
-            c.code === code && (!isEdit || String(c.id) !== String(AdminData.tempEditId))
+            String(c.code).toUpperCase() === code && (!isEdit || String(c.id) !== String(AdminData.tempEditId))
         );
 
         if (isCodeDuplicate) {
@@ -271,7 +276,7 @@ export const MarketingController = {
         const allowedUsers = allowedUsersStr ? allowedUsersStr.split(',').map(s => Number(s.trim())).filter(n => !isNaN(n) && n > 0) : [];
 
         const couponData = {
-            id: isEdit ? AdminData.tempEditId : 'coup_' + Date.now(), // 🌟 توحيد شكل الـ ID
+            id: isEdit ? AdminData.tempEditId : 'coup_' + Date.now(), 
             code, type, value,
             minOrder: Number(Utils.getVal('coupon-min-order')) || 0,
             maxUses: Number(Utils.getVal('coupon-max-uses')) || 0,
@@ -286,7 +291,6 @@ export const MarketingController = {
         if (isEdit && cIdx !== -1) AdminData.data.coupons[cIdx] = couponData;
         else AdminData.data.coupons.push(couponData);
 
-        // 🛡️ الحماية: تحديث الـ Map فورياً محلياً (بناءً على الـ ID كما اتفقنا)
         if (!AdminData.data.couponsMap) AdminData.data.couponsMap = {};
         AdminData.data.couponsMap[couponData.id] = couponData;
 
@@ -302,28 +306,31 @@ export const MarketingController = {
             });
         } finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
     },
-        deleteCoupon: async function(id) {
+    
+    deleteCoupon: async function(id) {
         if (!AdminData.data.coupons) return;
         if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من الحذف؟')) return;
         
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحذف سحابياً...');
+        
         const coupon = AdminData.data.couponsMap?.[id] || AdminData.data.coupons.find(c => String(c.id) === String(id));
-        const couponsBackup = [...AdminData.data.coupons]; // 🛡️ حفظ نسخة
+        const couponsBackup = [...AdminData.data.coupons]; 
         
         AdminData.data.coupons = AdminData.data.coupons.filter(c => String(c.id) !== String(id));
         if(AdminData.data.couponsMap) delete AdminData.data.couponsMap[id];
 
         EventBus.emit('req-render-coupons'); 
-        EventBus.emit('req-show-toast', { message: 'جاري الحذف...', type: 'info' });
         
         try {
             await AdminData?.saveCoupons?.();
             if (coupon) AdminData?.addLog?.('DELETE_COUPON', `حذف الكوبون: ${coupon.code}`);
             EventBus.emit('req-show-toast', { message: 'تم الحذف', type: 'success' });
         } catch(e) { 
-            // 🛡️ استرجاع آمن
             AdminData.data.coupons = couponsBackup; 
             if(coupon && AdminData.data.couponsMap) AdminData.data.couponsMap[id] = coupon;
             EventBus.emit('req-render-coupons'); 
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
@@ -375,10 +382,10 @@ export const MarketingController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الإرسال...');
         try {
             if (targetType === 'user') {
-                const userIndex = (AdminData.data.users || []).findIndex(u => String(u.id) === String(targetId));
-                if (userIndex !== -1) {
-                    if (!AdminData.data.users[userIndex].inbox) AdminData.data.users[userIndex].inbox = [];
-                    AdminData.data.users[userIndex].inbox.push(newAlert);
+                const targetUser = AdminData.data.usersMap?.[targetId] || (AdminData.data.users || []).find(u => String(u.id) === String(targetId));
+                if (targetUser) {
+                    if (!targetUser.inbox) targetUser.inbox = [];
+                    targetUser.inbox.push(newAlert);
                     await AdminData.saveUsers();
                 }
             } else {
@@ -389,7 +396,7 @@ export const MarketingController = {
             
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-alerts',
-                modalId: null,
+                modalId: 'alert', // إغلاق النافذة
                 logAction: null,
                 logDetails: null,
                 toastMsg: 'تم الإرسال بنجاح!'
@@ -399,9 +406,14 @@ export const MarketingController = {
 
     deleteAlert: async function(id) {
         if (!AdminData.data.alerts) return;
+        if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من مسح الإشعار؟')) return;
+
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح الإشعار...');
+        
         const alertBackup = [...AdminData.data.alerts];
         AdminData.data.alerts = AdminData.data.alerts.filter(a => a.id !== id);
         EventBus.emit('req-render-alerts');
+        
         try {
             await AdminData.saveAlerts();
             if (AdminData.data.users) {
@@ -415,6 +427,8 @@ export const MarketingController = {
         } catch(e) { 
             AdminData.data.alerts = alertBackup; 
             EventBus.emit('req-render-alerts'); 
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
@@ -435,7 +449,7 @@ export const MarketingController = {
             
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-banners',
-                modalId: null,
+                modalId: 'banner', // إغلاق النافذة
                 logAction: 'ADD_BANNER',
                 logDetails: 'إضافة بانر جديد في المتجر',
                 toastMsg: 'تم إضافة بانر بنجاح'
@@ -445,18 +459,27 @@ export const MarketingController = {
     },
     
     deleteBanner: async function(id) {
-        const bnr = AdminData.data.banners.find(x => String(x.id) === String(id));
-        if (bnr && bnr.img && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
-            try { await FirebaseAdapter.deleteImageByUrl(bnr.img); } catch(e){ console.warn("تعذر تنظيف صورة البنر"); }
+        if (AdminUI?.showConfirm && !await AdminUI.showConfirm('حذف البانر الإعلاني؟')) return;
+
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحذف...');
+        try {
+            const bnr = AdminData.data.banners.find(x => String(x.id) === String(id));
+            if (bnr && bnr.img && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                try { await FirebaseAdapter.deleteImageByUrl(bnr.img); } catch(e){ console.warn("تعذر تنظيف صورة البنر"); }
+            }
+            AdminData.data.banners = AdminData.data.banners.filter(x => String(x.id) !== String(id));
+            await AdminData.saveBanners();
+            EventBus.emit('req-render-banners');
+            EventBus.emit('req-show-toast', {message: 'تم الحذف', type: 'success'});
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
-        AdminData.data.banners = AdminData.data.banners.filter(x => String(x.id) !== String(id));
-        await AdminData.saveBanners();
-        EventBus.emit('req-render-banners');
-        EventBus.emit('req-show-toast', {message: 'تم الحذف', type: 'success'});
     },
 
     saveStoreIdentity: async function() {
         if (!AdminData?.data?.settings) AdminData.data.settings = {};
+        
+        const settingsBackup = JSON.parse(JSON.stringify(AdminData.data.settings)); 
         const sys = AdminData.data.settings; 
         
         sys.storeName = Utils.escapeHTML(Utils.getVal('store-name-input'));
@@ -499,7 +522,11 @@ export const MarketingController = {
 
             if (AdminData?.saveSystemSettings) await AdminData.saveSystemSettings();
             EventBus.emit('req-show-toast', { message: 'تم حفظ هوية المتجر بنجاح وتحديث السحاب', type: 'success' });
-        } catch (error) { EventBus.emit('req-show-toast', {message: 'خطأ أثناء رفع الهوية', type: 'error'}); } 
+        } catch (error) { 
+            AdminData.data.settings = settingsBackup; 
+            EventBus.emit('req-update-preview'); 
+            EventBus.emit('req-show-toast', {message: 'خطأ أثناء الرفع، تم التراجع عن التغييرات', type: 'error'}); 
+        } 
         finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
     },
 

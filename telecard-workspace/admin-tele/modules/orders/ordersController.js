@@ -1,7 +1,9 @@
 // ============================================================================
-// 🧠 متحكم الطلبات (modules/orders/ordersController.js) - النسخة الماسية V4.4 💎
+// 🧠 متحكم الطلبات (modules/orders/ordersController.js) - النسخة الماسية V15.1 💎
 // 🎯 الوظيفة: معالجة الطلبات، استرجاع الأموال، وإدارة واجهة الطلبات بصرامة
-// 🚀 التحديث الأقصى: تطبيق القفل الفردي (Per-Order Lock) لمنع شلل التزامن
+// 🚀 التحديث الأقصى: 
+// 1. Per-Order Lock: تطبيق القفل الفردي لمنع شلل التزامن.
+// 2. State Desync Fix: مزامنة فلتر طلبات العميل وتحديث الواجهة برمجياً (UX Sync).
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -85,10 +87,19 @@ export const OrdersController = {
   },
   
   navToUserOrders: function(userId) {
-    if (!AdminData.filters.orders) AdminData.filters.orders = {};
-    AdminData.filters.orders.search = userId;
+    // 🛡️ [إصلاح ה-State Desync]: تحديث الفلاتر من خلال ה-EventBus لضمان استجابة النظام بالكامل
+    const currentFilters = AdminData.filters || {};
+    if (!currentFilters.orders) currentFilters.orders = {};
+    currentFilters.orders.search = userId;
     
-    // 🛡️ التحديث المعماري: كسر الارتباط الدائري الميت عبر إطلاق حدث ملاحة سحابي بدلاً من استدعاء الكنترولر مباشرة
+    EventBus.emit('req-update-state', { filters: currentFilters });
+    
+    // 🛡️ [إصلاح ה-UX]: حقن قيمة البحث في الـ Input لكي يفهم المدير أن الصفحة مفلترة
+    setTimeout(() => {
+        const searchInput = document.getElementById('search-orders');
+        if (searchInput) searchInput.value = userId;
+    }, 150);
+    
     EventBus.emit('req-navigate', { page: 'orders', btnEl: null });
     
     if (AdminUI?.closeModal) AdminUI.closeModal();

@@ -1,11 +1,10 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - Ultimate V16.1 💎
-// 🎯 الوظيفة: تحويل البيانات الخام (Data) إلى نصوص HTML جاهزة للرسم بأمان تام
-// 🚀 التحديثات المعمارية (V16.1):
-// 1. CSS Decoupling: تطهير كامل للـ Inline CSS من كروت المحفظة وتفاصيل العمليات.
-// 2. Strict XSS Shield: إزالة الـ (Fallback) الكارثي للروابط الخام وإجبار التصفية.
-// 3. Context Safety: استبدال `this` بـ `UIBuilders` لمنع انهيار الواجهة.
-// 4. Defensive Dates: تغليف التواريخ بـ `parseSafeTime` لمنع ظهور الأخطاء.
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - الإصدار المؤسسي V17.5 💎
+// 🎯 الوظيفة: تحويل البيانات الخام إلى قوالب HTML نقية وآمنة برمجياً 100%
+// 🚀 التحديثات المعمارية:
+// 1. Strict Type Casting: التغليف الإجباري بـ String() قبل .toUpperCase() لمنع انهيار الواجهة.
+// 2. Safe String Handling: حماية دوال فحص النصوص من الانهيار عند تمرير قيم غير نصية.
+// 3. Fallback Sanitization: تعقيم شامل لمسارات الصور وروابط الإيصالات ومخرجات السيرفر.
 // ============================================================================
 
 import * as Utils from '../utils.js'; 
@@ -52,7 +51,7 @@ export const UIBuilders = {
 
         let runningBalanceHtml = '';
         if (!isFilterActive && typeof tx.balanceAfter === 'number' && !isNaN(tx.balanceAfter)) {
-            runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, walletCurr)}</div>`;
+            runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, String(walletCurr).toUpperCase())}</div>`;
         }
 
         const safeTxName = Utils.escapeHtml(isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء'));
@@ -66,10 +65,10 @@ export const UIBuilders = {
                         <div class="th-row-bottom"><span class="th-date num-en">${formattedDate}</span></div>
                     </div>
                     <div class="th-amount-col">
-                        <span class="th-order num-en is-copyable" data-action="copy-text" data-text="${shortTxId}" title="اضغط لنسخ رقم العملية">
+                        <span class="th-order num-en is-copyable" data-action="copy-text" data-text="${Utils.escapeHtml(shortTxId)}" title="اضغط لنسخ رقم العملية">
                             <i class="fa-regular fa-copy" style="margin-right:4px; font-size:10px; opacity:0.7;"></i> ${shortTxId}
                         </span>
-                        <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal || 0, tx.amountCurrency)}</div>
+                        <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal || 0, String(tx.amountCurrency || 'USD').toUpperCase())}</div>
                         ${runningBalanceHtml} 
                     </div>
                 </div>
@@ -81,7 +80,7 @@ export const UIBuilders = {
         if (!o) return '';
         const getCleanInputRows = (str) => {
             if (!str || str === '---' || typeof str === 'object') return [];
-            return String(str).split('|').map(s => s.trim()).filter(s => s !== '');
+            return String(str).split('|').map(s => s.trim()).filter(Boolean);
         };
         
         const status = o.status || 'pending';
@@ -103,20 +102,19 @@ export const UIBuilders = {
         
         const safeCouponDisc = parseFloat(o.pricingSnapshot?.couponDiscount || o.couponDiscount) || 0;
         const safeSaleDisc = parseFloat(o.pricingSnapshot?.offerDiscount || o.saleDiscount) || 0;
-        
         const totalDiscLocal = Number((safeCouponDisc + safeSaleDisc).toFixed(4));
         
         let discountBadgeHtml = '';
-        // ✅ الكود الجديد
-if (totalDiscLocal > 0) {
-    const isCombo = (safeCouponDisc > 0 && safeSaleDisc > 0);
-    const isCoupon = (safeCouponDisc > 0);
-    discountBadgeHtml = `
+        if (totalDiscLocal > 0) {
+            const isCombo = (safeCouponDisc > 0 && safeSaleDisc > 0);
+            const isCoupon = (safeCouponDisc > 0);
+            discountBadgeHtml = `
                 <div class="oh-discount-badge ${isCombo ? 'badge-combo' : (isCoupon ? 'badge-coupon' : 'badge-sale')}">
                     <i class="fa-solid ${isCombo ? 'fa-gift' : (isCoupon ? 'fa-ticket' : 'fa-tag')}"></i> 
                     <span>${isCombo ? 'توفير مضاعف' : (isCoupon ? 'تم تطبيق كوبون' : 'يشمله تخفيض')}</span>
                 </div>`;
-}
+        }
+
         const isHighlighted = (highlightId && String(o.id) === String(highlightId)) ? 'jump-highlight' : '';
         const safeTimeMs = Utils.parseSafeTime(o.time || o.createdAt);
         
@@ -130,7 +128,7 @@ if (totalDiscLocal > 0) {
                 </div>
                 <div class="oh-left">
                     <div class="oh-status-box"><span class="oh-status ${statusClass}">${statusLabel}</span></div>
-                    <div class="oh-price-box" dir="ltr"><div class="oh-amount">${RenderHelpers.formatMoney(Number(o.price || 0), displayCurr)}</div>${qtyHtml}</div>
+                    <div class="oh-price-box" dir="ltr"><div class="oh-amount">${RenderHelpers.formatMoney(Number(o.price || 0), String(displayCurr).toUpperCase())}</div>${qtyHtml}</div>
                     <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${RenderHelpers.formatOrderId(o)}</span></div>
                 </div>
             </div>`;
@@ -148,9 +146,11 @@ if (totalDiscLocal > 0) {
         } else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
         else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
 
-        const currency = (d.currency || 'USD').toUpperCase();
-        const safeBaseCurrency = (baseCurrency || 'USD').toUpperCase();
-        const targetCurr = (d.targetCurrency || safeBaseCurrency).toUpperCase();
+        // 🛡️ Strict Type Casting: حماية من البيانات المشوهة
+        const currency = String(d.currency || 'USD').toUpperCase();
+        const safeBaseCurrency = String(baseCurrency || 'USD').toUpperCase();
+        const targetCurr = String(d.targetCurrency || safeBaseCurrency).toUpperCase();
+        
         const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
         const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
         const feeVal = parseFloat(d.fees || d.fee || 0); 
@@ -173,7 +173,7 @@ if (totalDiscLocal > 0) {
             </div>`;
         }
 
-        const finalUserName = (!userDisplayName || userDisplayName.trim() === '') ? 'العميل' : userDisplayName;
+        const finalUserName = (!userDisplayName || String(userDisplayName).trim() === '') ? 'العميل' : userDisplayName;
         let balAfter = d.balanceAfter !== undefined ? d.balanceAfter : (d.postBalance !== undefined ? d.postBalance : d.newBalance); 
         
         let balanceAfterHtml = '';
@@ -225,10 +225,9 @@ if (totalDiscLocal > 0) {
                 <div class="ph-details-body">
                     <div class="ph-sep-line"></div>
                     <div class="ph-data-list">
-                        
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-hashtag"></i> رقم العملية</div>
-                            <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${shortDepositId}">${shortDepositId}</div>
+                            <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${Utils.escapeHtml(shortDepositId)}">${shortDepositId}</div>
                         </div>
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-regular fa-calendar-check"></i> الوقت والتاريخ</div>
@@ -262,7 +261,7 @@ if (totalDiscLocal > 0) {
                         ${receiptHtml}
                     </div>
                     
-                    ${d.adminNote ? `
+                    ${d.adminNote && String(d.adminNote).trim() !== '' ? `
                         <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'} ph-margin-top">
                             <i class="fa-solid fa-headset"></i>
                             <div class="ph-admin-note-content"><span class="ph-admin-note-title">رسالة الإدارة:</span><div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div></div>
@@ -286,7 +285,7 @@ if (totalDiscLocal > 0) {
             </div>`;
     },
 
-    /** 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية) */
+    /** 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية المجهزة للطباعة) */
     buildPDFReceipt: function(config, brandHTML) {
         const storeNameText = Utils.escapeHtml(config.storeName || 'المتجر');
         let contentHTML = '';
@@ -294,17 +293,18 @@ if (totalDiscLocal > 0) {
         if (config.type === 'deposit') {
             const isBonus = config.data.feeType === 'bonus';
             const feeValNum = Number(config.data.feeVal) || 0;
+            const safeCurrency = String(config.data.currency || 'USD').toUpperCase();
             
             let feeDisplayLabel = isBonus ? 'بونص إضافي' : 'رسوم مخصومة';
             if (config.data.feePercent) feeDisplayLabel += ` (${Utils.escapeHtml(config.data.feePercent)}%)`;
             
             let feeValueHtml = '';
             if (feeValNum === 0) {
-                feeValueHtml = `<span class="r-value" style="color: #64748b;">${RenderHelpers.formatMoney(0, config.data.currency)}</span>`;
+                feeValueHtml = `<span class="r-value" style="color: #64748b;">${RenderHelpers.formatMoney(0, safeCurrency)}</span>`;
             } else if (isBonus) {
-                feeValueHtml = `<span class="r-value num-en" dir="ltr" style="color: #16a34a;">+${RenderHelpers.formatMoney(feeValNum, config.data.currency)}</span>`;
+                feeValueHtml = `<span class="r-value num-en" dir="ltr" style="color: #16a34a;">+${RenderHelpers.formatMoney(feeValNum, safeCurrency)}</span>`;
             } else {
-                feeValueHtml = `<span class="r-value num-en" dir="ltr" style="color: #ef4444;">-${RenderHelpers.formatMoney(feeValNum, config.data.currency)}</span>`;
+                feeValueHtml = `<span class="r-value num-en" dir="ltr" style="color: #ef4444;">-${RenderHelpers.formatMoney(feeValNum, safeCurrency)}</span>`;
             }
 
             contentHTML = `
@@ -318,20 +318,22 @@ if (totalDiscLocal > 0) {
                     <div class="r-item"><span class="r-label">معرف الحساب (ID)</span><span class="r-value num-en">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
                     <div class="r-item"><span class="r-label">طريقة الدفع</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
                     <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(config.data.dateTime).replace('|', '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
-                    <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.amount, config.data.currency)}</span></div>
+                    <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.amount, safeCurrency)}</span></div>
                     <div class="r-item"><span class="r-label">${feeDisplayLabel}</span>${feeValueHtml}</div>
                 </div>
                 <div class="r-total-box">
                     <div class="r-total-label">صافي الرصيد المضاف</div>
-                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.netVal, config.data.targetCurrency)}</div>
+                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.netVal, String(config.data.targetCurrency || 'USD').toUpperCase())}</div>
                 </div>
             `;
         } else {
+            const safeCurrency = String(config.data.priceCurrency || 'USD').toUpperCase();
             const originalPriceHtml = config.data.originalPrice > config.data.price ? 
-                `<div class="r-item"><span class="r-label">السعر الأساسي (قبل الخصم)</span><span class="r-value num-en" dir="ltr" style="text-decoration: line-through; color: #94a3b8;">${RenderHelpers.formatMoney(config.data.originalPrice, config.data.priceCurrency)}</span></div>` : '';
+                `<div class="r-item"><span class="r-label">السعر الأساسي (قبل الخصم)</span><span class="r-value num-en" dir="ltr" style="text-decoration: line-through; color: #94a3b8;">${RenderHelpers.formatMoney(config.data.originalPrice, safeCurrency)}</span></div>` : '';
             
-            const formattedInput = Utils.escapeHtml(config.data.input).replace(/\|/g, '<br>');
-            const formattedCode = config.data.code ? Utils.escapeHtml(config.data.code).replace(/\||\n/g, '<br>') : '';
+            const safeInputStr = String(config.data.input || '---');
+            const formattedInput = Utils.escapeHtml(safeInputStr).replace(/\|/g, '<br>');
+            const formattedCode = config.data.code ? Utils.escapeHtml(String(config.data.code)).replace(/\||\n/g, '<br>') : '';
 
             contentHTML = `
                 ${brandHTML}
@@ -351,12 +353,11 @@ if (totalDiscLocal > 0) {
                 ${formattedCode ? `<div class="r-item-full" style="background: #eff6ff; border: 1px dashed #3b82f6;"><span class="r-label" style="color: #1d4ed8;">بيانات التسليم / الأكواد المستلمة</span><span class="r-value r-code-val num-en" dir="ltr" style="line-height: 1.8;">${formattedCode}</span></div>` : ''}
                 <div class="r-total-box">
                     <div class="r-total-label">إجمالي المبلغ المدفوع</div>
-                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.price, config.data.priceCurrency)}</div>
+                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.price, safeCurrency)}</div>
                 </div>
             `;
         }
 
-        // إبقاء الـ CSS المدمج هنا هو القرار الصحيح معمارياً لضمان توافق مكتبة الطباعة html2canvas
         return `
             <!DOCTYPE html>
             <html lang="ar" dir="rtl">
@@ -364,7 +365,6 @@ if (totalDiscLocal > 0) {
                 <meta charset="UTF-8">
                 <title>${Utils.escapeHtml(config.filename)}</title>
                 <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
                     @page { size: A4 portrait; margin: 15mm; }
                     body { 
                         font-family: 'Cairo', system-ui, -apple-system, sans-serif; 
@@ -418,8 +418,8 @@ if (totalDiscLocal > 0) {
 
     /** 6️⃣ بناء قائمة الأكواد المستلمة */
     buildCodesList: function(codeString) {
-        if (!codeString) return '';
-        return codeString.split(/\||\n/).map(c => c.trim()).filter(Boolean).map(code => {
+        if (!codeString || codeString === 'null') return '';
+        return String(codeString).split(/\||\n/).map(c => c.trim()).filter(Boolean).map(code => {
             return `<div class="copyable-code-box lux-code-box success-lux-box" data-action="copy-text" data-text="${Utils.escapeHtml(code)}" style="margin-bottom: 8px;"><span class="num-en">${Utils.escapeHtml(code)}</span><i class="fa-regular fa-copy"></i></div>`;
         }).join('');
     },
@@ -427,19 +427,22 @@ if (totalDiscLocal > 0) {
     /** 7️⃣ بناء شريط حدود الإيداع */
     buildLimitsBar: function(feeVal, payCurr, feeUnit, feeType, minVal, maxVal) {
         let itemsHtml = [];
+        const safeCurr = String(payCurr || 'USD').toUpperCase();
+        
         if (feeVal > 0) {
             const isBonus = (feeType === 'bonus');
-            itemsHtml.push(`<div class="bar-item ${isBonus ? 'bonus' : 'commission'}"><span class="item-label"><i class="fa-solid ${isBonus ? 'fa-gift' : 'fa-coins'}"></i> ${isBonus ? 'بونص' : 'عمولة'}</span><span class="item-value"><span class="math-sign">${isBonus ? '+' : '-'}</span>${(feeUnit === 'fixed' || feeUnit === 'amount') ? RenderHelpers.formatMoney(feeVal, payCurr) : `<span class="money-pro"><span class="num-en">${feeVal.toFixed(1)}%</span></span>`}</span></div>`);
+            itemsHtml.push(`<div class="bar-item ${isBonus ? 'bonus' : 'commission'}"><span class="item-label"><i class="fa-solid ${isBonus ? 'fa-gift' : 'fa-coins'}"></i> ${isBonus ? 'بونص' : 'عمولة'}</span><span class="item-value"><span class="math-sign">${isBonus ? '+' : '-'}</span>${(feeUnit === 'fixed' || feeUnit === 'amount') ? RenderHelpers.formatMoney(feeVal, safeCurr) : `<span class="money-pro"><span class="num-en">${feeVal.toFixed(1)}%</span></span>`}</span></div>`);
         }
-        if (minVal > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-down"></i> أدنى حد</span><span class="item-value">${RenderHelpers.formatMoney(minVal, payCurr)}</span></div>`);
-        if (maxVal > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-up"></i> أعلى حد</span><span class="item-value">${RenderHelpers.formatMoney(maxVal, payCurr)}</span></div>`);
+        if (minVal > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-down"></i> أدنى حد</span><span class="item-value">${RenderHelpers.formatMoney(minVal, safeCurr)}</span></div>`);
+        if (maxVal > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-up"></i> أعلى حد</span><span class="item-value">${RenderHelpers.formatMoney(maxVal, safeCurr)}</span></div>`);
         return itemsHtml;
     },
 
     /** 8️⃣ بناء نموذج الإيداع (Deposit Form) */
     buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrency, currItemsHtml, baseCurr) {
         if (!p) return '';
-        const safeBaseCurr = (baseCurr || 'USD').toUpperCase(); 
+        const safeBaseCurr = String(baseCurr || 'USD').toUpperCase(); 
+        const safePayCurr = String(currentPayCurrency || 'USD').toUpperCase();
         
         return `
             <div class="bal-modal-container-new">
@@ -451,14 +454,14 @@ if (totalDiscLocal > 0) {
                         <div class="micro-currency-label"><i class="fa-solid fa-wallet"></i> عملة الإيداع</div>
                         <div class="split-dropdown" id="bal-currency-dropdown">
                             <div class="micro-currency-trigger" style="${isSingleCurrency ? 'cursor: default;' : ''}">
-                                <span id="bal-selected-currency" class="num-en">${Utils.escapeHtml(currentPayCurrency)}</span>
+                                <span id="bal-selected-currency" class="num-en">${Utils.escapeHtml(safePayCurr)}</span>
                                 ${isSingleCurrency ? '' : '<i class="fa-solid fa-chevron-down" style="font-size: 11px;"></i>'}
                             </div>
                             <div class="dropdown-menu" id="bal-currency-list" style="${isSingleCurrency ? 'display:none;' : ''}">${currItemsHtml}</div>
                         </div>
                     </div>
                 <div class="bal-input-field-new" id="bal-amount-wrap">
-                    <span class="bal-input-currency-new" id="bal-amount-curr">${Utils.escapeHtml(currentPayCurrency)}</span>
+                    <span class="bal-input-currency-new" id="bal-amount-curr">${Utils.escapeHtml(safePayCurr)}</span>
                     <input type="text" id="bal-amount" class="bal-input-new num-en" dir="ltr" placeholder="0.00" inputmode="decimal" autocomplete="one-time-code" spellcheck="false" autocorrect="off">
                     <label class="bal-floating-label">أدخل مبلغ للإيداع</label>
                 </div>
@@ -482,6 +485,7 @@ if (totalDiscLocal > 0) {
                 </button>         
             </div>`;
     },
+
     /** بناء عنصر دولة واحدة للقائمة المنسدلة */
     buildCountryItem: function(c) {
         if (!c) return '';
@@ -502,10 +506,13 @@ if (totalDiscLocal > 0) {
 
     /** 9️⃣ بناء تفاصيل العملية (Transaction Detail - Order/Deposit) */
     buildTransactionDetail: function(type, id, LiveStoreData, DataManager) {
-        const formatInputData = (str) => { 
-            if(!str || str === '---') return '<span class="num-en">---</span>'; 
-            if(str.includes('|')) { 
-                const parts = str.split('|').map(s => s.trim());
+        const formatInputData = (rawVal) => { 
+            if (rawVal === null || rawVal === undefined || rawVal === '' || rawVal === '---') {
+                return '<span class="num-en">---</span>';
+            }
+            const str = String(rawVal).trim();
+            if (str.includes('|')) { 
+                const parts = str.split('|').map(s => s.trim()).filter(Boolean);
                 return `<div class="nm-input-stack">${parts.map(p => `<span class="num-en nm-input-capsule">${Utils.escapeHtml(p)}</span>`).join('')}</div>`;
             } 
             return `<span class="num-en nm-input-capsule">${Utils.escapeHtml(str)}</span>`; 
@@ -523,15 +530,23 @@ if (totalDiscLocal > 0) {
             else if(d.status === 'rejected') { stClass = 'rejected'; stTxt = 'مرفوض'; stIcon = 'fa-times-circle'; }
             
             let replyHtml = '';
-            if (d.adminNote && d.adminNote.trim() !== '') {
+            if (d.adminNote && String(d.adminNote).trim() !== '' && d.adminNote !== 'null') {
                 const safeResponse = Utils.escapeHtml(d.adminNote);
-                const copySafeText = safeResponse.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, '\\n').replace(/\r/g, '');
-                replyHtml = `<div class="nm-reply-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-headset"></i> ملاحظات الإدارة</span><div class="nm-reply-body admin-reply-text">${safeResponse}</div></div><button class="reply-copy-btn" data-action="copy-text" data-text="${copySafeText}" title="نسخ الرد"><i class="fa-regular fa-copy"></i></button></div>`;
+                replyHtml = `
+                <div class="nm-reply-box">
+                    <div class="nm-reply-content">
+                        <span class="nm-reply-head"><i class="fa-solid fa-headset"></i> ملاحظات الإدارة</span>
+                        <div class="nm-reply-body admin-reply-text">${safeResponse}</div>
+                    </div>
+                    <button class="reply-copy-btn" data-action="copy-text" data-text="${Utils.escapeHtml(d.adminNote)}" title="نسخ الرد">
+                        <i class="fa-regular fa-copy"></i>
+                    </button>
+                </div>`;
             }
 
             let creditedRow = '';
             if (d.creditedAmount !== undefined) {
-                creditedRow = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</span><div class="nm-val">${RenderHelpers.formatMoney(d.creditedAmount, d.targetCurrency || 'USD')}</div></div>`;
+                creditedRow = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</span><div class="nm-val">${RenderHelpers.formatMoney(d.creditedAmount, String(d.targetCurrency || 'USD').toUpperCase())}</div></div>`;
             }
 
             const safeReceiptUrl = d.receipt ? Utils.safeUrl(d.receipt) : '';
@@ -544,11 +559,11 @@ if (totalDiscLocal > 0) {
                 <div class="nm-universal-card">
                     <div class="nm-title-frame"><div class="nm-prod-title">تفاصيل الإيداع</div></div>
                     <div class="nm-card-body">
-                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-coins"></i> المبلغ المودع</span><div class="nm-val">${RenderHelpers.formatMoney(d.amount, d.currency || 'USD')}</div></div>
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-coins"></i> المبلغ المودع</span><div class="nm-val">${RenderHelpers.formatMoney(d.amount, String(d.currency || 'USD').toUpperCase())}</div></div>
                         ${creditedRow}
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-building-columns"></i> طريقة الدفع</span><div class="nm-val"><span class="num-en">${Utils.escapeHtml(d.method || 'غير محدد')}</span></div></div>
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-circle-info"></i> الحالة</span><div class="nm-status-badge-lux ${stClass}"><i class="fa-solid ${stIcon}"></i> ${stTxt}</div></div>
-                        <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${shortDepositId}">
+                        <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${Utils.escapeHtml(shortDepositId)}">
                             <span class="nm-label nm-pointer-none"><i class="fa-solid fa-hashtag"></i> رقم العملية</span>
                             <div class="uid-capsule nm-pointer-none"><i class="fa-solid fa-id-card"></i><span class="num-en">${shortDepositId}</span></div>
                         </div>
@@ -580,11 +595,11 @@ if (totalDiscLocal > 0) {
             }
 
             let replyHtml = '';
-            if (o.response && o.response !== 'null') {
+            if (o.response && String(o.response).trim() !== '' && o.response !== 'null') {
                 const safeResponse = Utils.escapeHtml(o.response);
                 replyHtml += `<div class="nm-reply-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-headset"></i> رد المتجر</span><div class="nm-reply-body admin-reply-text">${safeResponse}</div></div></div>`;
             }
-            if (o.status === 'completed' && o.deliveredCode && o.deliveredCode !== 'null') {
+            if (o.status === 'completed' && o.deliveredCode && String(o.deliveredCode).trim() !== '' && o.deliveredCode !== 'null') {
                 replyHtml += `<div class="nm-reply-box auto-delivery-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم فوري</span><div class="nm-reply-body nm-auto-delivery-scroll">${UIBuilders.buildCodesList(o.deliveredCode)}</div></div></div>`;
             }
 
@@ -593,7 +608,8 @@ if (totalDiscLocal > 0) {
             const origLocal = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
             const finalLocal = Number(o.pricingSnapshot?.finalPrice || o.price || 0);
             
-            const displayCurr = (o.currency || o.priceCurrency || 'USD').toUpperCase();
+            // 🛡️ Strict Type Casting: حماية من البيانات المشوهة
+            const displayCurr = String(o.currency || o.priceCurrency || 'USD').toUpperCase();
             const formatFn = (amt) => RenderHelpers.formatMoney(amt, displayCurr);
             
             let priceSectionHtml = '';
@@ -614,7 +630,7 @@ if (totalDiscLocal > 0) {
                 <div class="nm-universal-card">
                     <div class="nm-title-frame"><div class="nm-prod-title">${Utils.escapeHtml(o.product || 'منتج')}</div></div>
                     <div class="nm-card-body">
-                        <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${shortOrderId}">
+                        <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${Utils.escapeHtml(shortOrderId)}">
                             <span class="nm-label nm-pointer-none"><i class="fa-solid fa-hashtag"></i> رقم الطلب</span>
                             <div class="nm-val scl-text nm-pointer-none" dir="ltr"><span class="num-en">${shortOrderId}</span><i class="fa-regular fa-copy scl-icon"></i></div>
                         </div>

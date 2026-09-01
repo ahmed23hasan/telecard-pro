@@ -1,6 +1,8 @@
 // ============================================================================
-// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - النسخة الماسية V4.4 💎
-// 🚀 التحديث: سد ثغرة الانهيار الحرج لدرج الإيداع (drawerBankImg) وسحق التكرار لـ O(1)
+// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - النسخة الماسية V4.5 💎
+// 🚀 التحديث: 
+// 1. إضافة حقول (minFee / maxFee) لفصل حدود العمولة عن حدود الإيداع.
+// 2. سد ثغرة الانهيار الحرج لدرج الإيداع (drawerBankImg) وسحق التكرار لـ O(1).
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -79,11 +81,16 @@ export const FinanceTemplates = {
                 </div>`;
     },
 
-    walletCard: (cc, d, rateInfo) => `<div class="wallet-card">
-                    <div class="wc-title">${_esc(rateInfo ? `محفظة ${rateInfo.name} (${cc})` : `محفظة ${cc} (محذوفة)`)}</div>
+    walletCard: (cc, d, rateInfo) => {
+        const displayName = rateInfo ? (rateInfo.name || rateInfo.code || cc) : cc;
+        const titleText = rateInfo ? `محفظة ${displayName} (${cc})` : `محفظة ${cc} (محذوفة)`;
+        
+        return `<div class="wallet-card">
+                    <div class="wc-title">${_esc(titleText)}</div>
                     <div class="wc-amount num-en" dir="ltr" lang="en">${RenderHelpers.formatMoney(d.sum, cc, 2)}</div>
                     <div class="wc-meta"><i class="fa-solid fa-users"></i> عدد المستخدمين: <span class="num-en" dir="ltr" lang="en">${_enNum(d.count)}</span></div>
-                </div>`,
+                </div>`;
+    },
 
     walletTotal: (totalUsd) => `<div class="wallet-card total-liability">
                     <div class="wc-title">إجمالي التزامات المحافظ (محوّل للدولار)</div>
@@ -91,7 +98,8 @@ export const FinanceTemplates = {
                     <div class="wc-meta"><i class="fa-solid fa-shield-halved"></i> إجمالي السيولة المطلوبة لتغطية أرصدة العملاء</div>
                 </div>`,
 
-    currencySettingRow: (code, displayCode, oldFeeType, oldFeeUnit, oldFee, oldMin, oldMax) => {
+    // 🚀 التحديث: إضافة حقول (minFee/maxFee) وفصلها عن حدود الإيداع
+    currencySettingRow: (code, displayCode, oldFeeType, oldFeeUnit, oldFee, oldMin, oldMax, oldMinFee, oldMaxFee) => {
         return `
         <div class="curr-setting-row" id="curr-setting-${_esc(code)}">
             <div class="curr-setting-title">إعدادات عملة ${_esc(code)} <span class="text-muted fs-11 num-en" dir="ltr">(${_esc(displayCode)})</span></div>
@@ -118,13 +126,25 @@ export const FinanceTemplates = {
                     <input type="text" inputmode="decimal" id="pay-fee-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldFee)}" placeholder="0.0">
                 </div>
 
+                <!-- 🚀 حقول حدود العمولة الجديدة -->
                 <div class="form-group mb-0">
-                    <label class="form-label curr-setting-lbl">حد أدنى</label>
-                    <input type="text" inputmode="decimal" id="pay-min-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldMin)}" placeholder="0.00">
+                    <label class="form-label curr-setting-lbl text-danger">أدنى عمولة/بونص</label>
+                    <input type="text" inputmode="decimal" id="pay-minfee-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldMinFee)}" placeholder="0.00">
                 </div>
                 
                 <div class="form-group mb-0">
-                    <label class="form-label curr-setting-lbl">حد أعلى</label>
+                    <label class="form-label curr-setting-lbl text-danger">أعلى عمولة/بونص</label>
+                    <input type="text" inputmode="decimal" id="pay-maxfee-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldMaxFee)}" placeholder="0.00">
+                </div>
+
+                <!-- حقول حدود الإيداع -->
+                <div class="form-group mb-0" style="grid-column: span 1.5;">
+                    <label class="form-label curr-setting-lbl text-success">أدنى حد للإيداع</label>
+                    <input type="text" inputmode="decimal" id="pay-min-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldMin)}" placeholder="0.00">
+                </div>
+                
+                <div class="form-group mb-0" style="grid-column: span 1.5;">
+                    <label class="form-label curr-setting-lbl text-success">أعلى حد للإيداع</label>
                     <input type="text" inputmode="decimal" id="pay-max-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldMax)}" placeholder="0.00">
                 </div>
             </div>
@@ -215,12 +235,10 @@ export const FinanceTemplates = {
             </div>`;
     },
 
-    // 🛡️ [الترقيع الماسي]: إضافة زر عرض صورة الإيصال للبنك
     drawerBankImg: (imgSrc) => imgSrc 
         ? `<img src="${_esc(imgSrc)}" class="dr-prod-img zoomable-img" data-action="open-img-viewer" data-src="${_esc(imgSrc)}">` 
         : `<div class="dr-prod-placeholder"><i class="fa-solid fa-building-columns"></i></div>`,
 
-    // 🛡️ الترقيع: تحويل الكارد لزر لمنع انهيار النموذج
     depositReceiptCard: (receiptSrc) => `
         <button type="button" class="dr-card dr-receipt-container" data-action="open-img-viewer" data-src="${_esc(receiptSrc)}" style="background: transparent; border: none; width: 100%; padding: 0;">
             <div class="dr-receipt-label"><i class="fa-solid fa-file-invoice-dollar text-success"></i> إيصال التحويل المرفق</div>

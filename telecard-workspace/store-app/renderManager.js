@@ -1,11 +1,10 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - Enterprise V15.7 💎
-// 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه
-// 🚀 التحديثات المعمارية الصارمة (V15.7):
-// 1. Clean Architecture: فصل كامل للـ CSS عن الـ JS باستخدام Classes.
-// 2. Batch Cache Clearing: تفريغ الذاكرة المؤقتة للصور كمجموعات لتقليل الضغط.
-// 3. Class Injection Shield: تعقيم أسماء الفئات لتجنب كسر تصميم الـ HTML.
-// 4. Double-Click Protection: حماية دوال استخراج الصور من تكرار الاستدعاء.
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - الإصدار المؤسسي V17.2 💎
+// 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه المرئي
+// 🚀 التحديثات المعمارية الصارمة:
+// 1. SRP Pagination Fix: الاعتماد الكلي على DataManager لجلب السجلات.
+// 2. CORS Fallback: حماية تصدير الإيصالات من التلوث (Tainted Canvas).
+// 3. Layout Shift Guard: تأجيل تحديث متغيرات الـ CSS لتتزامن مع رسم الـ DOM.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS } from './config.js'; 
@@ -30,28 +29,29 @@ window.StoreRenderApp = window.StoreRenderApp || {
         }
     },
 
-  onImgLoad: function(img) {
-    if (!img) return;
-    const key = img.getAttribute('data-key');
-    if (key) {
-        if (this.imgCache.has(key)) {
-            this.imgCache.delete(key);
-        } else if (this.imgCache.size > 500) {
-            // 🛡️ الإصلاح: تفريغ الذاكرة العشوائية (RAM) فعلياً لمنع انهيار متصفحات الجوال
-            let i = 0;
-            for (const k of this.imgCache) {
-                if (k.startsWith('blob:')) URL.revokeObjectURL(k); // تحرير الذاكرة
-                this.imgCache.delete(k);
-                if (++i >= 50) break;
+    onImgLoad: function(img) {
+        if (!img) return;
+        const key = img.getAttribute('data-key');
+        if (key) {
+            if (this.imgCache.has(key)) {
+                this.imgCache.delete(key);
+            } else if (this.imgCache.size > 500) {
+                let i = 0;
+                for (const k of this.imgCache) {
+                    if (k.startsWith('blob:')) URL.revokeObjectURL(k); 
+                    this.imgCache.delete(k);
+                    if (++i >= 50) break;
+                }
             }
+            this.imgCache.add(key);
         }
-        this.imgCache.add(key);
-    }
-    
-    if (img.complete && img.naturalHeight > 0) { this.revealImg(img); return; }
-    if ('decode' in img) img.decode().then(() => this.revealImg(img)).catch(() => this.revealImg(img));
-    else this.revealImg(img);
-},    handleImgError: function(img, type) {
+        
+        if (img.complete && img.naturalHeight > 0) { this.revealImg(img); return; }
+        if ('decode' in img) img.decode().then(() => this.revealImg(img)).catch(() => this.revealImg(img));
+        else this.revealImg(img);
+    },    
+
+    handleImgError: function(img, type) {
         if (!img) return;
         img.classList.add('img-error-hidden');
         img.alt = ''; 
@@ -63,7 +63,7 @@ window.StoreRenderApp = window.StoreRenderApp || {
         
         let fallback = wrapper.querySelector('.fallback-icon-ready');
         if (fallback) {
-            fallback.style.display = 'flex'; // يمكن نقلها أيضاً كـ class، لكن الـ inline هنا مقبول للإظهار فقط
+            fallback.style.display = 'flex'; 
         } else {
             let iconClass = type === 'cat' ? 'fa-layer-group' : (type === 'pay' ? 'fa-building-columns' : 'fa-box-open');
             let divClass = type === 'pay' ? 'pay-icon-default' : 'default-prod-icon';
@@ -81,6 +81,7 @@ export const RenderManager = {
     _highlightTimer: null, 
     limits: { wallet: 15, orders: 15, payments: 15 },
     _historicalData: { orders: [], deposits: [] },
+    _priceCache: new Map(), 
     
     _debounceTimers: {},
     _debounce: function(key, fn, delay = 150) {
@@ -90,7 +91,6 @@ export const RenderManager = {
         };
     },
 
-    // دالة مساعدة لضمان عدم وجود رموز خبيثة في أسماء الفئات
     _safeClass: function(str) {
         return typeof str === 'string' ? str.replace(/[^a-zA-Z0-9-_%]/g, '') : '';
     },
@@ -119,7 +119,10 @@ export const RenderManager = {
         let adminGlobalLayout = gridType === 'cats' ? settings.rootLayout : null;
         const finalCols = String(overrideCols || adminGlobalLayout || defaultCols);
         
-        gridElement.style.setProperty('--layout-cols', finalCols); 
+        // 🛡️ Layout Shift Guard: تأجيل تعديل المتغير ليتزامن مع الرسم النظيف للـ DOM
+        requestAnimationFrame(() => {
+            gridElement.style.setProperty('--layout-cols', finalCols); 
+        });
     },
 
     _getImgLoadVars: function(rawUrl) {
@@ -156,25 +159,27 @@ export const RenderManager = {
 
     _generateProductCardHTML: function(p, idx) {
         let pricingInfo = null;
-        
-        // 🛡️ التحسين الماسي 1: جلب العرض النشط مرة واحدة فقط لتوفير عمليات البحث المتكررة
         const activeOffer = DataManager.getActiveOffer(p.id);
         
         try { 
-            // 🛡️ التحسين الماسي 2: نظام كاش لحظي للسعر لتخفيف الضغط بنسبة 90% على المعالج (CPU)
             const tierId = DataManager.user?.tierId || '1';
             const displayCurr = DataManager.selectedCurr || 'USD';
             const offerKey = activeOffer ? activeOffer.id : 'none';
             
-            // مفتاح ذكي يتغير تلقائياً إذا تغير مستوى العميل، أو العملة، أو العرض النشط
-            const cacheKey = `_cached_price_${tierId}_${displayCurr}_${offerKey}`;
+            const cacheKey = `${p.id}_${tierId}_${displayCurr}_${offerKey}`;
             
-            if (p[cacheKey]) {
-                pricingInfo = p[cacheKey];
+            if (this._priceCache.has(cacheKey)) {
+                pricingInfo = this._priceCache.get(cacheKey);
+                this._priceCache.delete(cacheKey);
+                this._priceCache.set(cacheKey, pricingInfo);
             } else {
                 pricingInfo = DataManager.getPricingLocal(p, 1, null, null); 
-                // حفظ السعر بشكل مخفي (غير قابل للعد) لمنع أي مشاكل مع قواعد البيانات
-                Object.defineProperty(p, cacheKey, { value: pricingInfo, configurable: true }); 
+                this._priceCache.set(cacheKey, pricingInfo);
+                
+                if (this._priceCache.size > 2000) {
+                    const oldestKey = this._priceCache.keys().next().value;
+                    this._priceCache.delete(oldestKey);
+                }
             }
         } catch(e) { 
             console.error("🚨 Pricing Error:", p.name, e.message); 
@@ -214,6 +219,7 @@ export const RenderManager = {
         
         return `<div class="product-card" data-action="open-product" data-id="${p.id}" style="--anim-idx: ${idx}">${UIBuilders.buildProductCardInner(safeName, priceSectionHtml, imgObj, visualElementsHtml, nameExpandedClass)}</div>`;
     },
+
     _appendLoadMoreButton: function(container, type, uid, totalCount, limitKey) {
         const hasMoreData = DataManager.cursors && DataManager.cursors[type];
         if (totalCount > this.limits[limitKey] || hasMoreData) {
@@ -247,25 +253,23 @@ export const RenderManager = {
                         setTimeout(() => { if (btn.dataset.locked === 'false') btn.innerHTML = originalHtml; }, 3000);
                     }, 12000); 
                     
-                    const dbKey = type === 'orders' ? DB_KEYS.ORDERS : DB_KEYS.DEPOSITS;
                     try {
-                        const res = await StoreDB.fetchMoreWithCursor(dbKey, ['userId', '==', String(uid)], 'time', DataManager.cursors[type], 15);
+                        // 🛡️ SRP Pagination Fix: الاعتماد التام على DataManager لجلب ومعالجة البيانات والمؤشرات
+                        const res = await DataManager.loadMoreHistoricalData(type, uid, 15);
+                        
                         if (!btn.isConnected || isTimeout) return;
                         clearTimeout(watchdog);
                         
-                        if (res.data && res.data.length > 0) {
-                            const normData = res.data.map(item => ({...item, time: Utils.parseSafeTime(item.time), createdAt: Utils.parseSafeTime(item.createdAt)}));
-                            const mergedData = [...this._historicalData[type], ...normData];
+                        if (res.success && res.data && res.data.length > 0) {
+                            const mergedData = [...this._historicalData[type], ...res.data];
                             this._historicalData[type] = mergedData.length > 500 ? mergedData.slice(-500) : mergedData;
                             
-                            DataManager.cursors[type] = res.newLastDoc;
                             this.limits[limitKey] += 15;
                             
                             if (type === 'orders') this.renderOrders(true);
                             else if (type === 'deposits') this.renderPayments(true);
                             else if (type === 'wallet') this.renderWallet(true);
                         } else {
-                            DataManager.cursors[type] = null;
                             btn.innerHTML = `لا توجد بيانات أقدم`;
                             setTimeout(() => loadMoreBtn.remove(), 2000);
                         }
@@ -293,12 +297,12 @@ export const RenderManager = {
         const layoutConfig = (LiveStoreData.settings?.rootLayout || 'default');
         const currentCatHash = JSON.stringify(rootCats.map(c => c.id + (c.img || ''))) + "_" + layoutConfig;
         const isAlreadyHome = document.body.classList.contains('is-home');
-        const isCategoryView = (typeof UIManager !== 'undefined' && UIManager.currentCategoryId === null);
+        const isCategoryView = (UIManager.currentCategoryId === null);
         const hasContent = grid && grid.innerHTML.includes('cat-card');
         
         if (!isBackAction && isAlreadyHome && isCategoryView && hasContent) {
             if (this._lastHomeHash === currentCatHash) {
-                if (typeof UIManager !== 'undefined' && UIManager.closeSidebar) UIManager.closeSidebar();
+                UIManager.closeSidebar?.();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
                 return;
             }
@@ -311,15 +315,17 @@ export const RenderManager = {
         if (titleEl) { titleEl.classList.remove('show-correct-title'); titleEl.innerText = 'الأقسام الرئيسية'; }
         
         const performRender = () => {
-            if (typeof UIManager !== 'undefined') {
-                UIManager.toggleHeroSection(true); UIManager.navHistory = []; UIManager.currentCategoryId = null; UIManager.resetGridScroll(); 
-                UIManager.resetUI(true); // 🛡️ الإصلاح: نحترم ما فتحه العميل أثناء التحميل
-                UIManager.renderTicker();
-            }
+            UIManager.toggleHeroSection?.(true); 
+            UIManager.navHistory = []; 
+            UIManager.currentCategoryId = null; 
+            UIManager.resetGridScroll?.(); 
+            UIManager.resetUI?.(true); 
+            UIManager.renderTicker?.();
+            
             if (!isBackAction && window.history.replaceState) window.history.replaceState(null, '', ' ');
             
             if (grid) {
-                if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-cats');
+                UIManager.setGridMode?.('grid-cats');
                 this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
             }
             
@@ -342,12 +348,10 @@ export const RenderManager = {
                 if (typeof this.renderHomeSkeletons === 'function') this.renderHomeSkeletons();
             }
             else {
-                // ✅ تمت إزالة التأخير الزمني (1000ms) المزعج لعرض النتيجة فوراً (Zero-Latency Rendering)
                 const finalCats = LiveStoreData.cats || [];
                 if (finalCats.length === 0 && grid) {
                     grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-store-slash"></i><h3>المتجر قيد التحديث</h3><p>يرجى العودة بعد قليل.</p></div>`;
                 } else if (finalCats.length > 0) {
-                    // إذا ظهرت الأقسام لاحقاً، نعيد رسمها فوراً بدون إعادة استدعاء الدالة
                     const combinedHtml = finalCats.map(c => {
                         const safeName = Utils.safeText(c.name);
                         const imgObj = this._generateImageHTML(c.img, safeName, 'cat', true);
@@ -357,7 +361,7 @@ export const RenderManager = {
                 }
             }
             
-            if (typeof UIManager !== 'undefined' && UIManager.initSlider) UIManager.initSlider();
+            UIManager.initSlider?.();
         };
         performRender();
     },
@@ -366,7 +370,7 @@ export const RenderManager = {
         const grid = document.getElementById('store-grid');
         if (!grid) return;
         
-        if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-cats');
+        UIManager.setGridMode?.('grid-cats');
         this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
         
         let skeletonCount = 3;
@@ -393,10 +397,10 @@ export const RenderManager = {
         const container = document.getElementById(containerId);
         if (!container) return;
         
-        if (typeof UIManager !== 'undefined' && UIManager.setGridMode) UIManager.setGridMode('grid-prods');
+        UIManager.setGridMode?.('grid-prods');
 
         let activeCols = null;
-        if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId && LiveStoreData.cats) {
+        if (UIManager.currentCategoryId && LiveStoreData.cats) {
             const cat = LiveStoreData.cats.find(c => String(c.id) === String(UIManager.currentCategoryId));
             if (cat && cat.layout) activeCols = cat.layout;
         }
@@ -517,14 +521,13 @@ export const RenderManager = {
         const renderId = ++this.currentRenderId;
         UIManager.currentCategoryId = id;
         document.body.classList.remove('is-home', 'is-favorites'); 
-        UIManager.toggleHeroSection(false);
+        UIManager.toggleHeroSection?.(false);
 
         const grid = document.getElementById('store-grid');
         
-        UIManager.resetGridScroll(); 
-        UIManager.resetUI(true); // 🛡️ الإصلاح: نحافظ على حالة الواجهة بدون إغلاق النوافذ المفتوحة
+        UIManager.resetGridScroll?.(); 
+        UIManager.resetUI?.(true); 
         
-        // 👇 تم إنزال المتغير لسطر جديد لكي لا يعلق داخل التعليق
         const titleEl = document.getElementById('grid-title');
         
         if(titleEl) { 
@@ -545,7 +548,7 @@ export const RenderManager = {
         if(backBtn) {
             backBtn.style.display = 'flex'; setTimeout(() => backBtn.classList.add('show'), 10);
             backBtn.setAttribute('data-action', 'go-back');
-            backBtn.onclick = (e) => { e.preventDefault(); UIManager._manualGoBack(); };
+            backBtn.onclick = (e) => { e.preventDefault(); UIManager._manualGoBack?.(); };
         }
 
         if(grid) {
@@ -555,7 +558,7 @@ export const RenderManager = {
 
             let combinedHtml = '';
             if(subs.length > 0) {
-                UIManager.setGridMode('grid-cats');
+                UIManager.setGridMode?.('grid-cats');
                 combinedHtml += subs.map(c => {
                     const safeName = Utils.safeText(c.name);
                     const imgObj = this._generateImageHTML(c.img, safeName, 'cat');
@@ -563,7 +566,7 @@ export const RenderManager = {
                 }).join('');
             }
             if(items.length > 0) {
-                UIManager.setGridMode('grid-prods');
+                UIManager.setGridMode?.('grid-prods');
                 combinedHtml += items.map((p, idx) => this._generateProductCardHTML(p, idx)).join('');
             }
             
@@ -579,11 +582,12 @@ export const RenderManager = {
             });
         }
     },
+    
     searchStoreTerm: function(q) {
         if(!q || !q.trim()) { this.renderHome(); return; }
         const renderId = ++this.currentRenderId;
         
-        UIManager.toggleHeroSection(false);
+        UIManager.toggleHeroSection?.(false);
         document.body.classList.remove('is-home', 'is-favorites'); 
 
         const term = q.trim().toLowerCase();
@@ -608,7 +612,7 @@ export const RenderManager = {
         if(!grid) return;
         
         let activeCols = null;
-        if (typeof UIManager !== 'undefined' && UIManager.currentCategoryId) {
+        if (UIManager.currentCategoryId) {
             const currentCat = (LiveStoreData.cats || []).find(c => String(c.id) === String(UIManager.currentCategoryId));
             if (currentCat && currentCat.layout) activeCols = currentCat.layout;
         }
@@ -616,7 +620,7 @@ export const RenderManager = {
         const gridType = matchedProds.length > 0 ? 'prods' : 'cats';
         this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols, gridType);
 
-        UIManager.resetGridScroll(); UIManager.setGridMode(null);
+        UIManager.resetGridScroll?.(); UIManager.setGridMode?.(null);
 
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if(backBtn) {
@@ -647,7 +651,7 @@ export const RenderManager = {
         requestAnimationFrame(() => {
             if (renderId !== this.currentRenderId) return;
             grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
-            UIManager.setGridMode(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
+            UIManager.setGridMode?.(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
             if(Components?.initProductShine) Components.initProductShine();
             this.initTimersEngine(); 
         });
@@ -656,7 +660,7 @@ export const RenderManager = {
     renderFavorites: function() {
         const renderId = ++this.currentRenderId;
         document.body.classList.remove('is-home'); document.body.classList.add('is-favorites'); 
-        UIManager.toggleHeroSection(false);
+        UIManager.toggleHeroSection?.(false);
         
         const favIds = DataManager.favs ? Array.from(DataManager.favs).map(String) : [];
         const favProds = (LiveStoreData.prods || []).filter(p => favIds.includes(String(p.id)));
@@ -664,13 +668,13 @@ export const RenderManager = {
         const grid = document.getElementById('store-grid');
         if (!grid) return;
         
-        UIManager.setGridMode(null); UIManager.resetGridScroll();
+        UIManager.setGridMode?.(null); UIManager.resetGridScroll?.();
         
         const backBtn = document.getElementById('smart-back-btn') || document.querySelector('.modern-back-btn');
         if (backBtn) {
             backBtn.style.display = 'flex'; setTimeout(() => backBtn.classList.add('show'), 10);
             backBtn.setAttribute('data-action', 'go-back');
-            backBtn.onclick = (e) => { e.preventDefault(); UIManager.closeFavorites(); };
+            backBtn.onclick = (e) => { e.preventDefault(); UIManager.closeFavorites?.(); };
         }
         
         const gridTitle = document.getElementById('grid-title');
@@ -678,7 +682,7 @@ export const RenderManager = {
         
         if (favProds.length === 0) {
             grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-heart-circle-plus"></i><h3>لا توجد منتجات مفضلة بعد</h3></div>`;
-            UIManager.setGridMode('grid-prods'); return;
+            UIManager.setGridMode?.('grid-prods'); return;
         }
         
         const combinedHtml = favProds.map((p, idx) => this._generateProductCardHTML(p, idx)).join('');
@@ -686,7 +690,7 @@ export const RenderManager = {
         requestAnimationFrame(() => {
             if (renderId !== this.currentRenderId) return; 
             grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
-            UIManager.setGridMode('grid-prods');
+            UIManager.setGridMode?.('grid-prods');
             
             let activeCols = null;
             if (favProds.length > 0 && LiveStoreData.cats) {
@@ -707,7 +711,7 @@ export const RenderManager = {
         }
 
         const filterData = Utils.getSearchAndDateFilters('wallet', 'wallet');
-        if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
+        if (filterData.error) { UIManager.showToast?.(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
 
         const list = document.getElementById('wallet-list'); 
@@ -788,35 +792,72 @@ export const RenderManager = {
         });
     },
 
+    
     renderPayMethods: function() {
-        const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container') || document.querySelector('.bal-methods-grid') || document.getElementById('pay-methods-list');
+        const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container');
         if (!container) return;
         
         const validPayments = (LiveStoreData.payments || []).filter(p => p?.name?.trim() && p.isActive !== false && p.is_active !== false).sort((a,b) => (a.order || 0) - (b.order || 0));
 
         if (validPayments.length === 0) {
-            container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-building-columns"></i><h3>لا توجد طرق دفع متاحة</h3></div>`; return;
+            if (container.dataset.syncDone === 'true') {
+                container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-building-columns"></i><h3>لا توجد طرق دفع متاحة حالياً</h3></div>`; 
+                return;
+            }
+
+            if (!container.querySelector('.fa-circle-notch')) {
+                container.innerHTML = `
+                    <div class="empty-state-v2" style="min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: none; background: transparent;">
+                        <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 32px; color: var(--gold-main); margin-bottom: 15px;"></i>
+                        <h3 style="color: var(--text-muted); font-size: 14px; font-weight: 600;">جاري تجهيز بوابات الدفع...</h3>
+                    </div>`;
+            }
+            
+            if (!container.dataset.fallbackTimer) {
+                const timerId = setTimeout(() => {
+                    container.dataset.syncDone = 'true';
+                    delete container.dataset.fallbackTimer;
+                    if (window.RenderManager && window.RenderManager.renderPayMethods) window.RenderManager.renderPayMethods();
+                    else if (this.renderPayMethods) this.renderPayMethods();
+                }, 3500);
+                container.dataset.fallbackTimer = timerId; 
+            }
+            return;
         }
 
-        const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (DataManager.user ? String(DataManager.user.id) : null);
+        if (container.dataset.fallbackTimer) {
+            clearTimeout(Number(container.dataset.fallbackTimer));
+            delete container.dataset.fallbackTimer;
+        }
+        
+        container.dataset.syncDone = 'true';
+        
+        let html = '';
+        const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (window.DataManager?.user ? String(window.DataManager.user.id) : null);
         const pendingMethodKeys = (LiveStoreData.deposits || []).filter(d => String(d.userId) === String(uid) && d.status === 'pending').map(d => String(d.methodId || d.method).toLowerCase());
 
-        let html = '';
         validPayments.forEach(p => {
             try {
                 const safeName = Utils.escapeHtml(p.name);
                 const isLocked = pendingMethodKeys.includes(String(p.id).toLowerCase()) || pendingMethodKeys.includes(String(p.name).toLowerCase());
-                const imgObj = this._generateImageHTML(p.img, safeName, 'pay');
+                
+                let imgHtml = '';
+                if (this._generateImageHTML) {
+                    const imgObj = this._generateImageHTML(p.img, safeName, 'pay');
+                    imgHtml = `<div class="pay-icon-wrapper ${imgObj.wrapperClass}">${imgObj.html}</div>`;
+                } else {
+                    imgHtml = `<div class="pay-icon-wrapper"><img src="${p.img || ''}" alt="${safeName}"></div>`;
+                }
 
                 if (isLocked) {
-                    html += `<div class="pay-card-select method-locked" onclick="window.UIManager?.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة.', 'warning')"><div class="pay-icon-wrapper ${imgObj.wrapperClass}">${imgObj.html}</div><div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3><span class="method-locked-warning"><i class="fa-solid fa-hourglass-half"></i> طلب قيد المعالجة</span></div><i class="fa-solid fa-lock pay-card-arrow"></i></div>`;
+                    html += `<div class="pay-card-select method-locked" onclick="window.UIManager?.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة.', 'warning')">${imgHtml}<div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3><span class="method-locked-warning"><i class="fa-solid fa-hourglass-half"></i> طلب قيد المعالجة</span></div><i class="fa-solid fa-lock pay-card-arrow"></i></div>`;
                 } else {
-                    html += `<div class="pay-card-select clickable" data-action="select-pay" data-id="${p.id}"><div class="pay-icon-wrapper ${imgObj.wrapperClass}">${imgObj.html}</div><div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3></div><i class="fa-solid fa-chevron-left pay-card-arrow"></i></div>`;
+                    html += `<div class="pay-card-select clickable" data-action="select-pay" data-id="${p.id}">${imgHtml}<div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3></div><i class="fa-solid fa-chevron-left pay-card-arrow"></i></div>`;
                 }
             } catch(e) {}
         });
         
-        requestAnimationFrame(() => container.replaceChildren(this._renderHtmlToFragment(html))); 
+        container.innerHTML = html;
     },
 
     renderPayments: function(forceRender = false) {
@@ -829,7 +870,7 @@ export const RenderManager = {
         if(!list) return;
         
         const filterData = Utils.getSearchAndDateFilters('pay', 'pay');
-        if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
+        if (filterData.error) { UIManager.showToast?.(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
 
         const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (DataManager.user ? String(DataManager.user.uid || DataManager.user.id) : null);
@@ -867,7 +908,6 @@ export const RenderManager = {
         if (visibleDeposits.length === 0) { list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد عمليات</h3></div>`; return; }
 
         const userDisplayName = Utils.escapeHtml(user.username ? `@${user.username}` : (user.fullName || 'العميل'));
-
         const userIdString = RenderHelpers.formatUserId(user);
 
         requestAnimationFrame(() => {
@@ -887,7 +927,7 @@ export const RenderManager = {
         if (typeof window.updateBottomNavState === 'function') window.updateBottomNavState('orders');
 
         const filterData = Utils.getSearchAndDateFilters('order', 'order');
-        if (filterData.error) { UIManager.showToast(filterData.error, 'error'); return; }
+        if (filterData.error) { UIManager.showToast?.(filterData.error, 'error'); return; }
         const { q, dStart, dEnd, tStart, tEnd } = filterData;
         
         const list = document.getElementById('orders-list'); 
@@ -946,12 +986,6 @@ export const RenderManager = {
         });
     },
 
-    _getSys: function() {
-        if (typeof window.ClientSystem !== 'undefined') return window.ClientSystem;
-        if (typeof window.UIManager !== 'undefined') return window.UIManager;
-        return { showToast: () => {} };
-    },
-
     generateReceiptImage: async function(config) {
         return new Promise(async (resolve) => {
             const containerId = 'receipt-render-box-' + Date.now();
@@ -976,7 +1010,6 @@ export const RenderManager = {
                 const storeName = settings.storeName || 'TeleCard';
                 const storeLogo = settings.storeLogoLight || settings.storeLogo || '';
                 
-                // تم الإبقاء على ستايل الشعار الداخلي خصيصاً لدعم توافقية html2canvas
                 let safeLogoHtml = storeLogo ? `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;" crossorigin="anonymous">` : '';
                 const brandHTML = { html: `<div class="header-section"><div class="store-name">${Utils.escapeHtml(storeName)}</div>${safeLogoHtml}</div>` };
                 
@@ -984,29 +1017,46 @@ export const RenderManager = {
                 
                 const container = document.createElement('div');
                 container.id = containerId;
-                container.className = 'receipt-render-container'; // استبدال الـ style.cssText بالفئة المخصصة
+                container.className = 'receipt-render-container'; 
                 container.innerHTML = fullHTML;
                 
-                // ✅ إجبار المتصفح على تحميل الخط قبل التقاط الصورة
                 document.body.appendChild(container);
 
-                // 🛡️ الحل السحري: انتظار جاهزية الخطوط في المتصفح
+                window.getComputedStyle(container).fontFamily;
+
                 if (document.fonts && document.fonts.ready) {
                     await document.fonts.ready;
                 }
                 
-                // انتظار إضافي لضمان رسم الـ DOM
-                await new Promise(r => setTimeout(r, 600));
+                await new Promise(res => requestAnimationFrame(res));
 
                 if (typeof html2canvas === 'undefined') throw new Error("مكتبة html2canvas مفقودة!");
-                const canvas = await html2canvas(container, {
-                    scale: 2,
-                    useCORS: true,
-                    backgroundColor: '#ffffff',
-                    logging: false, 
-                    allowTaint: true,
-                    windowWidth: 420 
-                });
+                
+                let canvas;
+                try {
+                    // 🛡️ المحاولة الأولى: التصدير المثالي (مع اللوجو)
+                    canvas = await html2canvas(container, {
+                        scale: 2,
+                        useCORS: true,
+                        backgroundColor: '#ffffff',
+                        logging: false, 
+                        allowTaint: false, // يجب أن يكون false للتصدير الناجح 
+                        windowWidth: 420 
+                    });
+                } catch (canvasErr) {
+                    console.warn("⚠️ [Receipt Engine] CORS Image Issue Detected. Retrying with fallback...");
+                    // 🛡️ CORS Fallback: إزالة الصور المعطوبة (التي تلوث الـ Canvas) وإعادة الرسم بصمت
+                    const imgs = container.querySelectorAll('img');
+                    imgs.forEach(img => img.style.display = 'none');
+                    canvas = await html2canvas(container, {
+                        scale: 2,
+                        useCORS: false,
+                        backgroundColor: '#ffffff',
+                        logging: false,
+                        windowWidth: 420
+                    });
+                }
+                
                 const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.95));
                 
                 canvas.width = 0; canvas.height = 0;
@@ -1032,7 +1082,7 @@ export const RenderManager = {
     },
 
     exportReceipt: async function(orderId, btnElement = null) {
-        if (btnElement && btnElement.disabled) return; // حماية ضد الدبل كليك
+        if (btnElement && btnElement.disabled) return; 
         
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
         if (!o) return;
@@ -1065,7 +1115,7 @@ export const RenderManager = {
                 }
             });
             
-            if (!success) this._getSys().showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
+            if (!success) UIManager.showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
         } finally {
             if (btnElement) { 
                 btnElement.disabled = false; 
@@ -1075,7 +1125,7 @@ export const RenderManager = {
     },
     
     exportPaymentReceipt: async function(depositId, btnElement = null) {
-        if (btnElement && btnElement.disabled) return; // حماية ضد الدبل كليك
+        if (btnElement && btnElement.disabled) return; 
 
         const d = (LiveStoreData.deposits || []).find(x => String(x.id) === String(depositId));
         if (!d) return;
@@ -1109,7 +1159,7 @@ export const RenderManager = {
                 }
             });
             
-            if (!success) this._getSys().showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
+            if (!success) UIManager.showToast?.('تعذر تصدير الإيصال، يرجى المحاولة لاحقاً', 'error');
         } finally {
             if (btnElement) { 
                 btnElement.disabled = false; 
@@ -1131,11 +1181,9 @@ export const RenderManager = {
             return;
         }
         
-        // ✅ الكود الجديد (الاعتماد على مصدر الحقيقة للمستخدم النشط)
         const serverLastReadTime = DataManager.user?.lastReadAlertTime ? Utils.parseSafeTime(DataManager.user.lastReadAlertTime) : 0;
         let readIds = [];
         
-        // قراءة المقروء من كائن المستخدم مباشرة لضمان عدم اختلاط الحسابات
         if (DataManager.user && Array.isArray(DataManager.user.readAlerts)) {
             readIds = DataManager.user.readAlerts.map(String);
         } else {
@@ -1169,7 +1217,6 @@ export const RenderManager = {
         const active = (countries || []).filter(c => c.isActive !== false && !c.isBanned);
         if (active.length === 0) { listTarget.innerHTML = '<div class="dropdown-item">لا توجد دول متاحة</div>'; return; }
         
-        // 🛡️ المعمارية النظيفة: المايسترو يطلب الـ HTML من المصنع (UIBuilders)
         const rawHtml = active.map(c => {
             try {
                 return UIBuilders.buildCountryItem(c);
@@ -1194,3 +1241,4 @@ export const RenderManager = {
         requestAnimationFrame(() => container.replaceChildren(this._renderHtmlToFragment(rawHtml)));
     }
 };
+

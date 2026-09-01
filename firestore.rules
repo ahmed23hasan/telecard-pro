@@ -1,4 +1,4 @@
-rules_version = '2';
+Rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -21,7 +21,8 @@ service cloud.firestore {
     // 🛡️ دروع حماية ملف المستخدم (Profile Firewalls)
     // ==========================================
     function isStandardProfileUpdate() {
-      let allowedKeys = ['name', 'firstName', 'lastName', 'fullName', 'username', 'img', 'phone', 'country', 'theme', 'devicePrints', 'passwordChangeHistory', 'biometricEnabled', 'readAlerts', 'baseCurrency', 'base_currency'];
+      // 🚀 الإصلاح: إضافة 'adminMessage' ليتمكن العميل من إخفاء الرسالة بعد قراءتها
+      let allowedKeys = ['name', 'firstName', 'lastName', 'fullName', 'username', 'img', 'phone', 'country', 'theme', 'devicePrints', 'passwordChangeHistory', 'biometricEnabled', 'readAlerts', 'baseCurrency', 'base_currency', 'adminMessage'];
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
     }
 
@@ -36,7 +37,6 @@ service cloud.firestore {
     function isSafeUserCreation() {
       let data = request.resource.data;
       
-      // 🛡️ التحقق الصارم من عدم تلاعب العميل بالأرصدة والصلاحيات عند الإنشاء
       let safeValues = data.get('walletBalance', 0) == 0 &&
                        data.get('balance', 0) == 0 &&
                        data.get('totalSpent', 0) == 0 &&
@@ -45,7 +45,6 @@ service cloud.firestore {
                        data.get('isBanned', false) == false &&
                        data.get('isIpBanned', false) == false;
       
-      // 🛡️ القائمة الماسية: السماح بجميع الحقول المعمارية الجديدة لمنع خطأ (Permission Denied)
       let allowedCreationKeys = [
         'id', 'uid', 'displayId', 
         'firstName', 'lastName', 'fullName', 'name', 'username', 'email', 'img',
@@ -86,8 +85,6 @@ service cloud.firestore {
     match /telecard_rates/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     match /telecard_countries/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     match /telecard_offers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    
-    // 🛡️ المنتجات العامة مسموحة للقراءة فقط من قبل الزوار والعملاء
     match /telecard_prods_public/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     
     match /telecard_coupons/{docId} { 
@@ -97,7 +94,7 @@ service cloud.firestore {
     // ==========================================
     // 🔒 البيانات المحمية - كتابة السيرفر فقط (Server-Only Writes)
     // ==========================================
-    match /telecard_prods/{docId} { allow read, write: if isMasterAdmin(); } // 👈 عادت مغلقة للمدير فقط
+    match /telecard_prods/{docId} { allow read, write: if isMasterAdmin(); } 
     
     match /telecard_orders/{docId} {
       allow read: if (isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
@@ -112,12 +109,17 @@ service cloud.firestore {
     // ==========================================
     // 💬 التقييمات والـ KYC
     // ==========================================
-    match /telecard_private_feedbacks/{docId} {
-      allow create: if isNotBanned() && request.resource.data.userId == request.auth.uid
-                    && request.resource.data.keys().hasOnly(['userId', 'username', 'rating', 'feedback', 'time'])
-                    && request.resource.data.rating is int && request.resource.data.rating >= 0 && request.resource.data.rating <= 5
-                    && request.resource.data.feedback is string && request.resource.data.feedback.size() < 1000;
-      allow read, update, delete: if isMasterAdmin();
+    
+    // 🚀 الإصلاح الجذري: توجيه التقييمات للقسم الجديد (reviews) وتفعيل حماية الإغراق (Anti-Spam Upsert)
+    match /reviews/{reviewId} {
+      allow read, delete: if isMasterAdmin();
+      // السماح بإنشاء أو تحديث التقييم فقط إذا كان الـ ID للمستند يطابق ID العميل (لا يمكنه إنشاء مستندات عشوائية)
+      allow create, update: if isNotBanned() 
+                            && request.auth.uid == reviewId 
+                            && request.resource.data.userId == request.auth.uid
+                            && request.resource.data.rating is int 
+                            && request.resource.data.rating >= 0 
+                            && request.resource.data.rating <= 5;
     }
 
     match /telecard_kyc/{docId} {

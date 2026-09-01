@@ -1,50 +1,56 @@
 // ============================================================================
-// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V1.0 💎
+// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V2.0 💎
 // 🎯 الوظيفة: تفعيل التثبيت كـ App، تشغيل المتجر Offline، وحماية الواجهة.
-// 🚀 التحذير الهندسي: هذا الملف يتجاهل عمليات Firebase عمداً لعدم كسر الـ DataManager.
+// 🚀 التحديثات المعمارية:
+// 1. Fault-Tolerant Caching: حماية التثبيت من الانهيار إذا كان أحد الملفات مفقوداً.
+// 2. Firebase Offline Boot: كَيش مكتبات gstatic لضمان إقلاع محرك JS بدون إنترنت.
+// 3. Firestore Bypass: استثناء استدعاءات قاعدة البيانات لتركها لـ IndexedDB الخاص بفايربيز.
 // ============================================================================
 
-const CACHE_NAME = 'telecard-static-v1.1'; // تم تحديث رقم الإصدار لضمان تجديد الكاش
+const CACHE_NAME = 'telecard-static-v2.0'; // تم تحديث الإصدار لتطبيق التغييرات فوراً
 
-// 📦 الملفات الثابتة التي نريد تخزينها ليفتح المتجر بدون إنترنت (Zero-Latency UI)
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/store.html',  // ✅ واجهة المتجر الرئيسية
-  '/login.html',  // ✅ صفحة تسجيل الدخول
-  '/signup.html', // ✅ صفحة إنشاء الحساب
-  // أضف هنا مسار ملفات الستايل والصور الأساسية مستقبلاً، مثلاً:
-  // '/assets/css/style.css',
-  // '/assets/images/logo.png' 
+// 📦 الملفات الثابتة النواة (تم إزالة الملفات الوهمية لتفادي الأخطاء)
+const CORE_ASSETS = [
+  './',
+  './index.html',
+  './style.css',
+  './script.js',
+  './manifest.json'
 ];
 
 // =========================================================
-// 1️⃣ حدث التثبيت (Install) - يحدث مرة واحدة عند فتح المتجر لأول مرة
+// 1️⃣ حدث التثبيت (Install) - آمن ضد الأخطاء الفردية للملفات
 // =========================================================
 self.addEventListener('install', (event) => {
-  // إجبار المتصفح على تفعيل الخادم الجديد فوراً دون انتظار إغلاق التبويبة
+  // إجبار المتصفح على تفعيل الخادم الجديد فوراً
   self.skipWaiting();
   
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
+    caches.open(CACHE_NAME).then(async (cache) => {
       console.log('📦 [Service Worker] جاري تخزين واجهة المتجر والصفحات الأساسية...');
-      return cache.addAll(STATIC_ASSETS);
-    }).catch(err => console.warn('SW Pre-cache Warning:', err))
+      
+      // 🛡️ التخزين الآمن: تحميل الملفات فرادى لمنع انهيار العملية (All-or-Nothing Fix)
+      for (const asset of CORE_ASSETS) {
+        try {
+          await cache.add(asset);
+        } catch (error) {
+          console.warn(`⚠️ [Service Worker] تعذر تخزين الملف (قد يكون مفقوداً): ${asset}`);
+        }
+      }
+    })
   );
 });
 
 // =========================================================
-// 2️⃣ حدث التفعيل (Activate) - تنظيف الكاش القديم إذا تغير رقم الإصدار
+// 2️⃣ حدث التفعيل (Activate) - تنظيف الكاش القديم
 // =========================================================
 self.addEventListener('activate', (event) => {
-  // السيطرة على كل النوافذ المفتوحة فوراً
   self.clients.claim();
   
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          // إذا وجد كاش قديم يخصنا، نقوم بتدميره
           if (cacheName !== CACHE_NAME && cacheName.startsWith('telecard-static-')) {
             console.log(`🧹 [Service Worker] تنظيف كاش قديم: ${cacheName}`);
             return caches.delete(cacheName);
@@ -62,61 +68,54 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
   
-  // 🛡️ الاستثناء الأول: تجاهل روابط API وفايربيس تماماً! (لأن DataManager يديرها)
-  if (url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('firebase') ||
-    url.hostname.includes('gstatic.com') ||
-    url.pathname.startsWith('/_/')) {
-    return; // ندع المتصفح وفايربيس يتعاملان معها بشكل طبيعي
+  // 🛡️ استثناء استدعاءات Firestore و Cloud Functions الصريحة
+  // نتركها لمدير بيانات فايربيز الداخلي (IndexedDB) لكي لا تفسد البيانات
+  if (url.hostname.includes('firestore.googleapis.com') ||
+      url.hostname.includes('cloudfunctions.net') ||
+      url.pathname.startsWith('/_/')) {
+    return;
   }
   
-  // 🛡️ الاستثناء الثاني: تجاهل أي طلب ليس GET (مثل POST أو PUT لرفع الصور)
+  // تجاهل أي طلب ليس GET (مثل POST أو PUT لرفع الصور)
   if (request.method !== 'GET') return;
   
-  // 🌟 استراتيجية 1: ملفات الـ HTML (نجلب من السيرفر أولاً، وإذا انقطع النت نجلب الكاش)
-  // هذا يضمن أن العميل دائماً لديه أحدث نسخة من واجهة المستخدم.
+  // 🌟 استراتيجية 1: ملفات الـ HTML (التنقل)
+  // Network-First with Offline Fallback
   if (request.mode === 'navigate' || request.headers.get('accept').includes('text/html')) {
     event.respondWith(
       fetch(request)
-      .then((response) => {
-        // تحديث الكاش بالنسخة الجديدة في الخلفية
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-        return response;
-      })
-      .catch(() => {
-        // إذا انقطع النت، نعرض آخر نسخة HTML محفوظة!
-        return caches.match(request);
-      })
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          return response;
+        })
+        .catch(() => {
+          // إذا انقطع النت، نرجع الصفحة الأساسية للمتجر دائماً
+          return caches.match('./index.html');
+        })
     );
     return;
   }
   
-  // 🌟 استراتيجية 2: ملفات الـ CSS والـ JS والصور العادية 
-  // استراتيجية (Stale-While-Revalidate): نعرض الكاش فوراً للسرعة، ونحدث في الخلفية
+  // 🌟 استراتيجية 2: الستايلات، السكريبتات، الصور، ومكتبات فايربيز (gstatic)
+  // Stale-While-Revalidate: يعرض الكاش فوراً للسرعة، ويحدّث في الخلفية
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // جلب أحدث نسخة من السيرفر بصمت وتحديث الكاش للمرة القادمة
-        fetch(request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, networkResponse.clone()));
-          }
-        }).catch(() => {}); // تجاهل الخطأ إذا كان أوفلاين
-        
-        return cachedResponse; // إرجاع النسخة السريعة للعميل فوراً
-      }
       
-      // إذا لم يكن في الكاش، نجلبه من الإنترنت ونحفظه
-      return fetch(request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+      const fetchPromise = fetch(request).then((networkResponse) => {
+        // تخزين الاستجابات السليمة أو المبهمة (Opaque) القادمة من CDNs مثل gstatic
+        if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
           const clone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }
         return networkResponse;
-      }).catch(() => {
-        // يمكن هنا إرجاع صورة "انقطع الاتصال" إذا أردت
+      }).catch((err) => {
+        // الفشل صامت هنا لأننا سنعرض النسخة المخزنة
+        // console.warn('[Service Worker] فشل الجلب الشبكي، تم الاعتماد على الكاش.', err);
       });
+
+      // إرجاع الكاش إن وُجد فوراً، وإلا انتظار نتيجة الجلب الشبكي
+      return cachedResponse || fetchPromise;
     })
   );
 });

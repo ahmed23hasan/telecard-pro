@@ -1,7 +1,9 @@
 // ============================================================================
-// 📦 وحدة الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V4.5 💎
+// 📦 وحدة الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V16.2 💎
 // 🎯 الوظيفة: إدارة واجهات ونوافذ الطلبات (معزولة بالكامل عن باقي النظام)
-// 🚀 التحديث الأقصى: تأمين الواجهة بـ Fallbacks للكوبونات المحذوفة والدوال
+// 🚀 التحديث: 
+// 1. Wrong Drawer Fix: استخدام المعرف (ID) المباشر لمنع تحريك درج الإيداعات بالخطأ.
+// 2. Forensic Tracing: ضخ بيانات التتبع العميقة وحماية كيبورد الجوال.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -9,7 +11,7 @@ import { AdminTemplates } from '../../adminTemplates.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { UIService } from '../../core/uiService.js'; 
 import { RenderHelpers } from '../../core/renderHelpers.js'; 
-import { FinancialEngine } from '../../core/financialEngine.js'; // 🛡️ استيراد المحرك المالي
+import { FinancialEngine } from '../../core/financialEngine.js'; 
 
 export const OrdersUI = {
     currentOrderId: null,
@@ -19,7 +21,6 @@ export const OrdersUI = {
             UIService.closeSidebar();
         }
 
-        // ⚡ 1. جلب الطلب فورا بـ O(1)
         const order = AdminData.data.ordersMap?.[orderId] || (AdminData.data.orders || []).find(o => String(o.id) === String(orderId));
         if(!order) return;
 
@@ -34,42 +35,48 @@ export const OrdersUI = {
 
         if(!drawer || !bodyContent || !headerContent) return;
         
-        // تصفير شريط التمرير
         const scrollArea = drawer.querySelector('.drawer-scroll-area');
         if(scrollArea) scrollArea.scrollTop = 0;
 
-        // تهيئة حقل الملاحظات
         if(noteInput) {
             noteInput.value = ''; 
-            noteInput.onfocus = function() {
-                const drawerContainer = document.querySelector('.order-drawer');
-                if(drawerContainer) drawerContainer.classList.add('typing-mode');
-            };
-            noteInput.onblur = function() {
-                const drawerContainer = document.querySelector('.order-drawer');
-                if(drawerContainer) drawerContainer.classList.remove('typing-mode');
-            };
+            
+            if (!noteInput.hasAttribute('data-events-bound')) {
+                noteInput.setAttribute('data-events-bound', 'true');
+                
+                noteInput.addEventListener('focus', function() {
+                    // 🛡️ [إصلاح ה-Wrong Drawer]: استخدام المعرف الدقيق لدرج الطلبات
+                    const drawerContainer = document.getElementById('order-drawer');
+                    if(drawerContainer) drawerContainer.classList.add('typing-mode');
+                });
+                
+                noteInput.addEventListener('blur', function() {
+                    // 🛡️ [إصلاح ה-Wrong Drawer]: استخدام المعرف الدقيق لدرج الطلبات
+                    const drawerContainer = document.getElementById('order-drawer');
+                    if(drawerContainer) drawerContainer.classList.remove('typing-mode');
+                });
+            }
 
             const noteWrapper = noteInput.parentElement; 
-            if (order.status === 'pending' || order.status === 'processing') noteWrapper.classList.remove('hide-element');
-            else noteWrapper.classList.add('hide-element');
+            if (order.status === 'pending' || order.status === 'processing') {
+                noteWrapper.classList.remove('hide-element');
+            } else {
+                noteWrapper.classList.add('hide-element');
+            }
         }
 
         headerContent.innerHTML = AdminTemplates.orderDrawerHeader(order.id);
         
-        // ⚡ 2. جلب العميل فورا بـ O(1)
         const user = AdminData.data.usersMap?.[order.userId] || {};
         const displayUser = Utils.escapeHTML(user.fullName || user.name || user.username || 'مستخدم جديد');
         const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
         const avatarHtml = AdminTemplates.drawerAvatar(user.img ? Utils.escapeHTML(user.img) : null, firstLetter);
 
-        // ⚡ 3. جلب المنتج فورا بـ O(1)
         const prod = AdminData.data.prodsMap?.[order.prodId] || {};
         const prodName = Utils.escapeHTML(order.product || prod.name || 'منتج غير معرف');
         const qty = order.qty || 1;
         
         const cCode = (order.priceCurrency || 'USD').toUpperCase().replace('$', 'USD');
-        const isUSD = (cCode === 'USD');
 
         let financialSnapshotHtml = '';
         let priceTxt = '';
@@ -81,7 +88,6 @@ export const OrdersUI = {
         if (order.pricingSnapshot && AdminTemplates.financialSnapshotBlock) {
             financialSnapshotHtml = AdminTemplates.financialSnapshotBlock(order.pricingSnapshot, order.status);
         } else {
-            // 🛡️ حسابات Fallback للطلبات القديمة باستخدام المحرك المالي
             const exactPriceUsd = FinancialEngine.extractNum(order.baseUsd || order.price);
             priceTxt = RenderHelpers.formatMoney(exactPriceUsd, 'USD', 2);
             
@@ -90,10 +96,8 @@ export const OrdersUI = {
 
             if (order.couponCode) {
                 let originalUsd = exactPriceUsd;
-                // ⚡ 4. [إصلاح جراحي]: البحث عن الكوبون بالرمز (Code) وليس الـ ID من المصفوفة مباشرة
                 const coupon = (AdminData.data.coupons || []).find(c => String(c.code).toUpperCase() === String(order.couponCode).toUpperCase());
                 
-                // 🛡️ حماية الواجهة إذا كان الكوبون محذوفاً
                 if (coupon) {
                     if (coupon.type === 'percentage') {
                         const ratio = FinancialEngine.safeSub(1, FinancialEngine.safeDiv(coupon.value, 100));
@@ -117,24 +121,53 @@ export const OrdersUI = {
         const statusDict = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع' };
         const sText = statusDict[order.status] || order.status;
 
-        // حساب مدة التنفيذ
+        const isApi = (order.isApi === true || order.source === 'api');
+        const isAuto = (!isApi && order.deliveredCode && order.deliveredCode.length > 0);
+        
+        let sourceBadgeHtml = '';
+        if (isApi) {
+            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2" style="background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 6px; border-radius: 4px;"><i class="fa-solid fa-robot"></i> طلب API</span>`;
+        } else if (isAuto) {
+            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 6px; border-radius: 4px;"><i class="fa-solid fa-bolt"></i> تسليم آلي</span>`;
+        } else {
+            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 6px; border-radius: 4px;"><i class="fa-solid fa-hand-paper"></i> تنفيذ يدوي</span>`;
+        }
+
+        let apiTrackingRowHtml = '';
+        const externalId = order.externalOrderId || order.referenceId || order.apiOrderId || (order.apiData && order.apiData.orderId);
+        if (isApi && externalId) {
+            apiTrackingRowHtml = `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-link text-info"></i> رقم الطلب بمتجر العميل</span><span class="dr-receipt-val num-en text-info copyable-admin" dir="ltr" data-action="copy-text" data-copy-text="${Utils.escapeHTML(externalId)}">${Utils.escapeHTML(externalId)}</span></div>`;
+        }
+
+        let executionTimeRowHtml = '';
         let durationHtml = '';
         const startTime = RenderHelpers.parseTime(order.time || order.createdAt);
         const endTime = RenderHelpers.parseTime(order.actionTime || order.updatedAt); 
 
-        if (startTime && endTime && startTime < endTime) {
+        if (endTime && order.status !== 'pending' && order.status !== 'processing') {
+            const execDateTxt = RenderHelpers.formatSafeDate(endTime);
+            executionTimeRowHtml = `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-calendar-check text-success"></i> وقت التنفيذ / الإغلاق</span><span class="dr-receipt-val num-en text-success" dir="ltr">${execDateTxt}</span></div>`;
+        }
+
+        if (startTime && endTime && startTime < endTime && order.status !== 'pending') {
             const diffMs = endTime - startTime;
             const diffMins = Math.floor(diffMs / 60000);
             let dTxt = diffMins > 60 ? `${Math.floor(diffMins/60)} Hr & ${diffMins%60} Min` : `${diffMins} Min`;
             if (diffMins === 0) dTxt = "لحظي ⚡";
             
-            // 🛡️ التحديث المعماري: التأكد من وجود الدالة قبل استدعائها لمنع انهيار الشاشة
             if (AdminTemplates && typeof AdminTemplates.orderDurationRow === 'function') {
                 durationHtml = AdminTemplates.orderDurationRow(dTxt);
             }
         }
 
-        // معالجة المدخلات (Labels & Values)
+        let extraMetaHtml = '';
+        if (order.ip || order.clientIp) {
+            extraMetaHtml += `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-network-wired text-muted"></i> عنوان IP للمشتري</span><span class="dr-receipt-val num-en text-muted copyable-admin" dir="ltr" data-action="copy-text" data-copy-text="${Utils.escapeHTML(order.ip || order.clientIp)}">${Utils.escapeHTML(order.ip || order.clientIp)}</span></div>`;
+        }
+        if (order.supplierName || order.supplierId) {
+            extraMetaHtml += `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-truck-fast text-primary"></i> المورد (التنفيذ الخارجي)</span><span class="dr-receipt-val fw-bold text-primary">${Utils.escapeHTML(order.supplierName || order.supplierId)}</span></div>`;
+        }
+
         const rawInputs = (order.input || '').trim().split('|').map(p=>p.trim()).filter(Boolean);
         let inputsCardHtml = ''; 
         if (rawInputs.length > 0) {
@@ -152,7 +185,6 @@ export const OrdersUI = {
         const replyHtml = (order.adminNote) ? AdminTemplates.adminReplyCard(Utils.escapeHTML(order.adminNote)) : '';
         const imgHtml = AdminTemplates.drawerProdImg(prod.img ? Utils.escapeHTML(prod.img) : null);
         
-        // جلب الرقم القصير للعميل
         const shortId = RenderHelpers.formatUserId(user) || '--';
 
         bodyContent.innerHTML = AdminTemplates.orderDrawerBody({
@@ -161,13 +193,19 @@ export const OrdersUI = {
             displayUser, avatarHtml, imgHtml, prodName, 
             qty: Utils.enNum(qty), priceTxt, exactPriceTxt, unitCostTxt, 
             statusClass: order.status, sText, dateTxt,
-            durationHtml, fxRateStr: order.fxRate ? `1 USD = ${order.fxRate} ${cCode}` : null, 
+            sourceBadgeHtml,
+            apiTrackingRowHtml,
+            executionTimeRowHtml,
+            durationHtml,
+            extraMetaHtml,
+            fxRateStr: order.fxRate ? `1 USD = ${order.fxRate} ${cCode}` : null, 
             inputsCardHtml, codeHtml, replyHtml,
             couponRowHtml, originalPriceRowHtml,
             financialSnapshotHtml 
         });
 
-        footerActions.innerHTML = AdminTemplates.orderDrawerFooter(order.status, order.id);
+        // 🛡️ [إصلاح ה-API Override Shield]: إرسال حالة ה-API לקالب الأزرار لمنع التخطي الخاطئ
+        footerActions.innerHTML = AdminTemplates.orderDrawerFooter(order.status, order.id, isApi);
         drawer.classList.add('active');
     },
 

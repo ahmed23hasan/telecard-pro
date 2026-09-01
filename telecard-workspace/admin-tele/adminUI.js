@@ -1,7 +1,7 @@
 // ============================================================================
-// 🎨 واجهة التوجيه المركزية للـ UI (adminUI.js) - Facade Pattern
+// 🎨 واجهة التوجيه المركزية للـ UI (adminUI.js) - Facade Pattern V15.1 💎
 // 🎯 الوظيفة: نقطة عبور (Router) لربط دوال الواجهة بوحدات النظام المعزولة
-// 🌟 التحديث: ربط التعبئة التلقائية للدول + منشئ الشروط التفاعلي (Interactive Terms Builder)
+// 🌟 التحديثات (V15.1): إغلاق ثغرة XSS وتكسر التصميم في منشئ الشروط والأحكام.
 // ============================================================================
 
 import { UIService } from './core/uiService.js';
@@ -194,15 +194,13 @@ export const AdminUI = {
             safeSetVal('sys-freeze-msg', s.freezeMsg || '');
         }
         else if (id === 'terms') { 
-            // 🌟 رسم الكروت الذكية الخاصة بالشروط
             const container = document.getElementById('dynamic-terms-container');
             if (!container) return;
             
-            container.innerHTML = ''; // تفريغ الحاوية
+            container.innerHTML = ''; 
             
             let termsData = data?.settings?.terms || [];
             
-            // حل توافقي (Backward compatibility) إذا كانت الشروط القديمة نصية فقط
             if (typeof termsData === 'string') {
                 if (termsData.trim() !== '') {
                     termsData = [{ title: "الشروط العامة", text: termsData, icon: "fa-shield-halved" }];
@@ -212,12 +210,11 @@ export const AdminUI = {
             }
             
             if (termsData.length === 0) {
-                this.addTermCardUI(); // كارت افتراضي في حال كانت الشروط فارغة
+                this.addTermCardUI(); 
             } else {
                 termsData.forEach(term => this.addTermCardUI(term));
             }
 
-            // تفعيل السحب والإفلات لترتيب الكروت (إن وجدت مكتبة Sortable)
             if (typeof Sortable !== 'undefined') {
                 new Sortable(container, {
                     animation: 150,
@@ -396,6 +393,7 @@ export const AdminUI = {
         }
         
         if (nameText) {
+            // استخدام innerText آمن جداً ضد الـ XSS
             nameText.innerText = name; 
             nameText.style.fontWeight = weight; 
             nameText.style.fontSize = Math.max(16, (logoSize * 0.6)) + 'px'; 
@@ -413,63 +411,69 @@ export const AdminUI = {
         }
     },
 
-// =========================================================
-// 📝 7. منشئ الشروط والأحكام التفاعلي (Interactive Terms Builder)
-// =========================================================
-// دالة إنشاء وإضافة كارت الشروط للواجهة
-addTermCardUI: function(termData = {}) {
-    const container = document.getElementById('dynamic-terms-container');
-    if (!container) return;
-    
-    const cardId = 'term_' + Date.now() + Math.floor(Math.random() * 1000);
-    
-    // 🌟 تحديد الأيقونة الافتراضية
-    const currentIcon = termData.icon || 'fa-check';
-    const iconsList = ['fa-user', 'fa-wallet', 'fa-box', 'fa-shield-halved', 'fa-lock', 'fa-headset', 'fa-gem', 'fa-check', 'fa-handshake', 'fa-scale-balanced'];
-    
-    let iconsHTML = iconsList.map(icon => `
-            <div class="is-opt ${currentIcon === icon ? 'active' : ''}" data-action="select-term-icon" data-val="${icon}">
-                <i class="fa-solid ${icon}"></i>
-            </div>
-        `).join('');
-    
-    // 🌟 كود HTML نظيف وخالي تماماً من الـ Inline Styles!
-    const html = `
-            <div class="panel-card term-builder-card mb-15 p-15" id="${cardId}">
-                
-                <div class="term-card-header">
-                    <div class="term-drag-handle">
-                        <i class="fa-solid fa-grip-vertical"></i>
-                        <span>سحب للترتيب</span>
+    // =========================================================
+    // 📝 7. منشئ الشروط والأحكام التفاعلي (Interactive Terms Builder)
+    // =========================================================
+    addTermCardUI: function(termData = {}) {
+        const container = document.getElementById('dynamic-terms-container');
+        if (!container) return;
+        
+        const cardId = 'term_' + Date.now() + Math.floor(Math.random() * 1000);
+        
+        const currentIcon = termData.icon || 'fa-check';
+        const iconsList = ['fa-user', 'fa-wallet', 'fa-box', 'fa-shield-halved', 'fa-lock', 'fa-headset', 'fa-gem', 'fa-check', 'fa-handshake', 'fa-scale-balanced'];
+        
+        // 🚀 [التحديث الأمني]: تعقيم البيانات لمنع ثغرات XSS وكسر القوالب
+        const safeTitle = UIService._esc(termData.title || '');
+        const safeText = UIService._esc(termData.text || '');
+        const safeIcon = UIService._esc(currentIcon);
+        
+        let iconsHTML = iconsList.map(icon => `
+                <div class="is-opt ${safeIcon === icon ? 'active' : ''}" data-action="select-term-icon" data-val="${icon}">
+                    <i class="fa-solid ${icon}"></i>
+                </div>
+            `).join('');
+        
+        const html = `
+                <div class="panel-card term-builder-card mb-15 p-15" id="${cardId}">
+                    
+                    <div class="term-card-header">
+                        <div class="term-drag-handle">
+                            <i class="fa-solid fa-grip-vertical"></i>
+                            <span>سحب للترتيب</span>
+                        </div>
+                        <button type="button" class="btn-micro btn-red" onclick="document.getElementById('${cardId}').remove()">
+                            <i class="fa-solid fa-trash"></i>
+                            <span>إزالة</span>
+                        </button>
                     </div>
-                    <button type="button" class="btn-micro btn-red" onclick="document.getElementById('${cardId}').remove()">
-                        <i class="fa-solid fa-trash"></i>
-                        <span>إزالة</span>
-                    </button>
-                </div>
-                
-                <div class="form-group mb-10">
-                    <label class="form-label fs-12 text-primary">عنوان البند</label>
-                    <input type="text" class="form-input term-title-input" value="${termData.title || ''}" placeholder="مثال: الشروط العامة لحساب المستخدم">
-                </div>
+                    
+                    <div class="form-group mb-10">
+                        <label class="form-label fs-12 text-primary">عنوان البند</label>
+                        <!-- تم تأمين الـ value -->
+                        <input type="text" class="form-input term-title-input" value="${safeTitle}" placeholder="مثال: الشروط العامة لحساب المستخدم">
+                    </div>
 
-                <div class="form-group mb-10">
-                    <label class="form-label fs-12">أيقونة البند</label>
-                    <div class="icon-selector term-icon-grid">
-                        ${iconsHTML}
+                    <div class="form-group mb-10">
+                        <label class="form-label fs-12">أيقونة البند</label>
+                        <div class="icon-selector term-icon-grid">
+                            ${iconsHTML}
+                        </div>
+                        <!-- تم تأمين الـ value -->
+                        <input type="hidden" class="term-icon-input" value="${safeIcon}">
                     </div>
-                    <input type="hidden" class="term-icon-input" value="${currentIcon}">
+                    
+                    <div class="form-group mb-0">
+                        <label class="form-label fs-12 text-warning">تفاصيل البند</label>
+                        <!-- تم تأمين النص -->
+                        <textarea class="form-input term-text-input" rows="2" placeholder="اكتب الشرح التفصيلي هنا...">${safeText}</textarea>
+                    </div>
                 </div>
-                
-                <div class="form-group mb-0">
-                    <label class="form-label fs-12 text-warning">تفاصيل البند</label>
-                    <textarea class="form-input term-text-input" rows="2" placeholder="اكتب الشرح التفصيلي هنا...">${termData.text || ''}</textarea>
-                </div>
-            </div>
-        `;
-    
-    container.insertAdjacentHTML('beforeend', html);
-},    // دالة مساعدة لجمع البيانات من الكروت للتحضير لحفظها (مهمة جداً لعملية الحفظ)
+            `;
+        
+        container.insertAdjacentHTML('beforeend', html);
+    },    
+
     getTermsDataFromUI: function() {
         const cards = document.querySelectorAll('.term-builder-card');
         const termsArray = [];
@@ -479,7 +483,6 @@ addTermCardUI: function(termData = {}) {
             const text = card.querySelector('.term-text-input').value.trim();
             const icon = card.querySelector('.term-icon-input').value;
             
-            // تجاهل الكروت الفارغة بالكامل
             if (title || text) {
                 termsArray.push({ title, text, icon });
             }
@@ -488,16 +491,12 @@ addTermCardUI: function(termData = {}) {
         return termsArray;
     },
     
-    // 🌟 دالة للتعامل مع النقر على الأيقونات داخل الكروت
     selectTermIconUI: function(element, val) {
         if (!element) return;
         const parent = element.closest('.icon-selector');
         if (parent) {
-            // إزالة اللون من جميع الأيقونات في هذا الكارت فقط
             parent.querySelectorAll('.is-opt').forEach(el => el.classList.remove('active'));
-            // تلوين الأيقونة المضغوطة
             element.classList.add('active');
-            // تحديث الحقل المخفي الخاص بهذا الكارت
             const hiddenInput = parent.nextElementSibling;
             if (hiddenInput && hiddenInput.classList.contains('term-icon-input')) {
                 hiddenInput.value = val;

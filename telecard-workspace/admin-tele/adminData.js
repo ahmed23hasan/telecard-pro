@@ -1,12 +1,11 @@
 // ============================================================================
-// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V14.8 💎 (Bank-Grade)
+// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V16.7 💎 (The Purified Edition)
 // 🎯 الوظيفة: SSOT (المصدر الوحيد للحقيقة)، معالجة البيانات الضخمة، والبحث اللحظي
-// 🚀 التحديثات المعمارية (V14.8):
-// 1. Delta/Patch Save: منع طمس بيانات السيرفر (Data Wipeout) بتحديث الحقول المتغيرة فقط.
-// 2. Removed Client-Side Cron: إزالة الترقية التلقائية من الواجهة لمنع التضارب الزمني.
-// 3. Timestamp Parsing Fix: إصلاح ثغرة ترقية الحسابات (NaN Bug) في Tiers.
-// 4. Dynamic Financials: ربط هوامش الربح بالإحصائيات ديناميكياً لتفادي الـ Hardcoding.
-// 5. Safe Map Builders: حماية اللوحة من الشاشة البيضاء عند فراغ المصفوفات (Empty Arrays).
+// 🚀 التحديثات المعمارية:
+// 1. Unified Time Engine: تضمين محرك الوقت القوي لمنع انهيار الإحصائيات والأرباح.
+// 2. Strict Type Casting: حماية دوال toUpperCase و map من كائنات null لمنع الشاشة البيضاء.
+// 3. Circular Dependency Immunity: استدعاء المحرك المالي مباشرة وفك الارتباط بإعدادات النظام.
+// 4. Safe Maps: فلترة المصفوفات برمجياً قبل بناء الـ Dictionaries لحماية عملية الحفظ.
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -15,13 +14,19 @@ import { FirebaseAdapter } from './core/firebaseAdapter.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 import { FinancialEngine } from './core/financialEngine.js';
 
-// 🛡️ دالة مساعدة لفك تشفير تواريخ فايربيز بأمان مطلق
+// 🚀 التحديث 1: محرك وقت محصن بالكامل (متزامن مع واجهة العميل)
 const parseSafeTime = (ts) => {
-    if (!ts) return 0;
+    if (ts === null || ts === undefined || ts === '') return Date.now();
     if (typeof ts === 'number') return ts;
     if (typeof ts.toMillis === 'function') return ts.toMillis();
-    if (ts.seconds) return ts.seconds * 1000;
-    return new Date(ts).getTime() || 0;
+    if (ts.seconds !== undefined) return ts.seconds * 1000;
+    if (ts._seconds !== undefined) return ts._seconds * 1000;
+    if (ts instanceof Date) return ts.getTime();
+    if (typeof ts === 'string') {
+        const parsed = new Date(ts.includes('T') ? ts : ts.replace(/-/g, '/')).getTime();
+        return isNaN(parsed) ? Date.now() : parsed;
+    }
+    return Date.now();
 };
 
 export const AdminData = {
@@ -47,18 +52,25 @@ export const AdminData = {
 
     _snapshots: {},
 
-    // 🛡️ حماية الدوال من الشاشة البيضاء باستخدام (|| [])
+    // 🚀 التحديث 2: حماية بناء الخرائط بـ filter(Boolean) لمنع الانهيار
     _buildSingleMap: function(prop) {
-        const arr = Array.isArray(this.data[prop]) ? this.data[prop] : [];
+        const arr = Array.isArray(this.data[prop]) ? this.data[prop].filter(Boolean) : [];
         if (prop === 'users') this.data.usersMap = Object.fromEntries(arr.map(u => [String(u.id), u]));
         else if (prop === 'prods') this.data.prodsMap = Object.fromEntries(arr.map(p => [String(p.id), p]));
         else if (prop === 'cats') this.data.catsMap = Object.fromEntries(arr.map(c => [String(c.id), c]));
         else if (prop === 'tiers') this.data.tiersMap = Object.fromEntries(arr.map(t => [String(t.id), t]));
         else if (prop === 'coupons') this.data.couponsMap = Object.fromEntries(arr.map(c => [String(c.id), c]));
-        else if (prop === 'countries') this.data.countriesMap = Object.fromEntries(arr.map(c => [String(c.id), c]));
-        else if (prop === 'rates') this.data.ratesMap = Object.fromEntries(arr.map(r => [String(r.code).toUpperCase(), r]));
         else if (prop === 'orders') this.data.ordersMap = Object.fromEntries(arr.map(o => [String(o.id), o]));
         else if (prop === 'deposits') this.data.depositsMap = Object.fromEntries(arr.map(d => [String(d.id), d]));
+        else if (prop === 'rates') {
+            this.data.ratesMap = Object.fromEntries(arr.map(r => [String(r.code).toUpperCase(), r]));
+        }
+        else if (prop === 'countries') {
+            this.data.countriesMap = Object.fromEntries(arr.map(c => {
+                if (!c.id) c.id = c.code || Utils.generateID();
+                return [String(c.id), c];
+            }));
+        }
     },    
     
     _buildMaps: function() {
@@ -75,7 +87,7 @@ export const AdminData = {
         console.log("🚀 [TeleCard Admin] جاري حقن البيانات بنظام الجداول O(1)...");
         this.isCloudSyncSuccessful = false;
 
-        const arr = v => Array.isArray(v) ? v : [];
+        const arr = v => Array.isArray(v) ? v.filter(Boolean) : [];
         const obj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
 
         const fetchRecent = async (key, limitCount = 100, orderByField = 'time') => {
@@ -112,10 +124,9 @@ export const AdminData = {
                 rCoupons, rOffers, rLogs, rAlerts
             ] = results;
 
-            const ratesMapRaw = normalizeRates(rRates);
-            const cleanRatesArray = Object.values(ratesMapRaw);
-
-            this.data.rates = cleanRatesArray;
+            const normalizedRatesMap = typeof normalizeRates === 'function' ? normalizeRates(rRates) : rRates;
+            this.data.rates = Array.isArray(normalizedRatesMap) ? normalizedRatesMap : Object.values(normalizedRatesMap || {});
+            
             this.data.settings = obj(rSettings);
             this.data.system = obj(rSystem);
             this.data.adminProfile = obj(rAdmin);
@@ -124,16 +135,17 @@ export const AdminData = {
                 ...t, 
                 threshold: Number(t.threshold || t.condition_amount || 0),
                 isDefault: !!(t.isDefault || t.is_default),
-                profit_percent: Number(t.profit_percent ?? 5),
-                min_profit_usd: Number(t.min_profit_usd ?? 0)
+                profitPercent: Number(t.profitPercent ?? t.profit_percent ?? 5),
+                minProfitUsd: Number(t.minProfitUsd ?? t.min_profit_usd ?? 0)
             }));
 
             if(this.data.tiers.length === 0 || !this.data.tiers.some(t => t.isDefault)) await this.seedDefaultTiers();
 
+            // 🚀 التحديث 3: Strict Type Casting لحماية النظام
             this.data.users = arr(rUsers).map(u => ({
                 ...u,
                 walletBalance: Number(u.walletBalance ?? u.balance ?? 0),
-                baseCurrency: (u.baseCurrency || u.base_currency || 'USD').toUpperCase()
+                baseCurrency: String(u.baseCurrency || u.base_currency || 'USD').toUpperCase()
             }));
 
             this.data.prods = arr(rProds).map(p => ({
@@ -148,10 +160,10 @@ export const AdminData = {
             this.data.cats = arr(rCats);
             
             const normalizeCurrencyList = (val) => {
-                const allowed = new Set(cleanRatesArray.map(c => c.code.toUpperCase()));
+                const allowed = new Set(this.data.rates.map(c => String(c.code).toUpperCase()));
                 const arrVal = Array.isArray(val) ? val : String(val || '').split(',');
                 const out = []; const seen = new Set();
-                arrVal.map(c => (c || '').trim().toUpperCase()).forEach(c => {
+                arrVal.map(c => String(c || '').trim().toUpperCase()).forEach(c => {
                     if(c && allowed.has(c) && !seen.has(c)) { seen.add(c); out.push(c); }
                 });
                 return out.length ? out : [];
@@ -165,17 +177,35 @@ export const AdminData = {
             this.data.banners = arr(rBanners);
             this.data.notif = obj(rNotif);
             
-            this.data.countries = arr(rCountries).map(c => ({
-                ...c, 
-                name: c.name || c.nameAr || 'دولة جديدة', 
-                flag: c.flag || c.flagEmoji || '🌍', 
-                currency: c.currency || 'USD', 
-                dialCode: c.dialCode || '+00', 
-                code: c.code || c.id || 'XX' 
-            }));
+            this.data.countries = arr(rCountries).map(c => {
+                const cId = c.id || c.code || Utils.generateID();
+                return {
+                    ...c, 
+                    id: cId,
+                    name: String(c.name || c.nameAr || 'دولة جديدة'), 
+                    flag: String(c.flag || c.flagEmoji || '🌍'), 
+                    currency: String(c.currency || 'USD').toUpperCase(), 
+                    dialCode: String(c.dialCode || '+00'), 
+                    code: String(c.code || cId || 'XX').toUpperCase() 
+                };
+            });
 
             if (this.data.countries.length === 0) {
-                await this.seedDefaultCountries();
+                if (this.data.settings && Array.isArray(this.data.settings.countries) && this.data.settings.countries.length > 0) {
+                    this.data.countries = this.data.settings.countries.map(c => ({
+                        ...c, id: c.id || c.code || Utils.generateID()
+                    }));
+                    await this.saveCountries(); 
+                } 
+                else if (this.data.system && Array.isArray(this.data.system.countries) && this.data.system.countries.length > 0) {
+                    this.data.countries = this.data.system.countries.map(c => ({
+                        ...c, id: c.id || c.code || Utils.generateID()
+                    }));
+                    await this.saveCountries(); 
+                } 
+                else {
+                    await this.seedDefaultCountries();
+                }
             }
 
             this.data.vault = arr(rVault);
@@ -212,8 +242,6 @@ export const AdminData = {
 
             this.isCloudSyncSuccessful = true;
             
-            // ❌ تم إزالة استدعاء autoAdvanceSweep من هنا لمنع تشغيل Cron Job عشوائي من متصفح الأدمن
-            
             return true;
 
         } catch (error) {
@@ -227,7 +255,7 @@ export const AdminData = {
         
         this.data.users.forEach(u => {
             const bal = Number(u.walletBalance || 0);
-            const curr = (u.baseCurrency || 'USD').toUpperCase();
+            const curr = String(u.baseCurrency || 'USD').toUpperCase();
             if (!liquidity.details[curr]) liquidity.details[curr] = { sum: 0, count: 0 };
             
             liquidity.details[curr].sum = FinancialEngine.safeAdd(liquidity.details[curr].sum, bal);
@@ -256,7 +284,6 @@ export const AdminData = {
         let revenue = 0, profit = 0, cost = 0;
         let cats = {}, prods = {};
         
-        // 🛡️ جلب هوامش الربح ديناميكياً من محرك المال لمنع الـ Hardcoding
         const minMargin = FinancialEngine.CONFIG?.MIN_MARGIN_PERCENT || 5;
         const costMultiplier = (100 - minMargin) / 100;
         const profitMultiplier = minMargin / 100;
@@ -268,7 +295,6 @@ export const AdminData = {
             let prof = Number(snap?.netProfitUsd || 0);
             let cst = Number(snap?.costUsd || 0);
             
-            // التشخيص الذاتي (Self-Healing) بالاعتماد على الهوامش الديناميكية
             if (cst === 0 && prof === 0 && rev > 0) {
                 cst = FinancialEngine.safeMul(rev, costMultiplier);
                 prof = FinancialEngine.safeMul(rev, profitMultiplier);
@@ -281,7 +307,7 @@ export const AdminData = {
             cost = FinancialEngine.safeAdd(cost, cst);
             
             const pData = this.data.prodsMap[o.prodId];
-            const catId = pData?.catId || o.catId || 'root';
+            const catId = String(pData?.catId || o.catId || 'root');
             
             if (!cats[catId]) {
                 const catObj = this.data.catsMap[catId];
@@ -291,12 +317,13 @@ export const AdminData = {
             cats[catId].profit = FinancialEngine.safeAdd(cats[catId].profit, prof);
             cats[catId].count++;
             
-            if (!prods[o.prodId]) {
-                prods[o.prodId] = { name: pData?.name || o.product || 'منتج غير متوفر', revenue: 0, profit: 0, count: 0 };
+            const prodKey = String(o.prodId || 'unknown');
+            if (!prods[prodKey]) {
+                prods[prodKey] = { name: pData?.name || o.product || 'منتج غير متوفر', revenue: 0, profit: 0, count: 0 };
             }
-            prods[o.prodId].revenue = FinancialEngine.safeAdd(prods[o.prodId].revenue, rev);
-            prods[o.prodId].profit = FinancialEngine.safeAdd(prods[o.prodId].profit, prof);
-            prods[o.prodId].count++;
+            prods[prodKey].revenue = FinancialEngine.safeAdd(prods[prodKey].revenue, rev);
+            prods[prodKey].profit = FinancialEngine.safeAdd(prods[prodKey].profit, prof);
+            prods[prodKey].count++;
         });
         
         return { revenue, profit, cost, count: filteredOrders.length, categories: cats, products: prods };
@@ -312,12 +339,13 @@ export const AdminData = {
         const nowObj = new Date(nowTime);
         
         if (leaderboardPeriod === 'this_month') {
-            startTime = new Date(nowObj.getFullYear(), nowObj.getMonth(), 1).getTime();
+            startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1);
         } else if (leaderboardPeriod === 'last_month') {
-            startTime = new Date(nowObj.getFullYear(), nowObj.getMonth() - 1, 1).getTime();
-            endTime = new Date(nowObj.getFullYear(), nowObj.getMonth(), 0, 23, 59, 59, 999).getTime();
+            startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth() - 1, 1);
+            const nextMonthFirstDay = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1);
+            endTime = nextMonthFirstDay - 1; 
         }
-        
+  
         const userSpendingMap = {};
         
         if (leaderboardPeriod === 'all') {
@@ -331,7 +359,7 @@ export const AdminData = {
                 if (o.status === 'completed') {
                     const oTime = parseSafeTime(o.time || o.createdAt);
                     if (oTime >= startTime && oTime <= endTime) {
-                        const uid = o.userId;
+                        const uid = String(o.userId);
                         const u = d.usersMap[uid];
                         if (u && !u.isBanned) {
                             const price = Number(o.price || 0);
@@ -386,9 +414,6 @@ export const AdminData = {
         return stats;
     },
 
-    // ==========================================
-    // 💾 نظام الحفظ الذكي (Delta/Patch Save)
-    // ==========================================
     saveCollection: async function(key, prop) {
         if (!this.isCloudSyncSuccessful) return false;
         
@@ -397,35 +422,34 @@ export const AdminData = {
         const currentArr = this.data[prop] || [];
         const snapArr = this._snapshots[prop] || [];
         
-        const currentMap = new Map(currentArr.map(i => [String(i.id || Utils.generateID()), i]));
-        const snapMap = new Map(snapArr.map(i => [String(i.id), i]));
+        // 🚀 التحديث 4: فلترة العناصر التالفة (null/undefined) قبل محاولة قراءة id منها لتفادي خطأ TypeError
+        const validCurrentArr = currentArr.filter(Boolean);
+        const currentMap = new Map(validCurrentArr.map(i => {
+            if (!i.id) i.id = i.code || Utils.generateID(); 
+            return [String(i.id), i];
+        }));
+        
+        const validSnapArr = snapArr.filter(Boolean);
+        const snapMap = new Map(validSnapArr.map(i => [String(i.id), i]));
         const promises = [];
         
         currentMap.forEach((item, id) => {
             const old = snapMap.get(id);
             if (!old) {
-                // 🟢 عنصر جديد تماماً
                 if (prop === 'prods' && item.isActive === undefined) item.isActive = true;
                 promises.push(FirebaseAdapter.set(targetCollectionKey, id, item));
             } else {
-                // 🟡 عنصر موجود: استخراج التغييرات فقط (Delta) لحماية بيانات السيرفر
-                const updates = {};
                 let hasChanges = false;
                 
                 Object.keys(item).forEach(k => {
                     if (JSON.stringify(item[k]) !== JSON.stringify(old[k])) {
-                        updates[k] = item[k];
                         hasChanges = true;
                     }
                 });
                 
                 if (hasChanges) {
-                    updates.updatedAt = Date.now();
-                    // استخدام update بدلاً من set لمنع مسح الحقول التي حدثها السيرفر (كالمخزون اللحظي)
-                    promises.push(FirebaseAdapter.update(targetCollectionKey, id, updates).catch(e => {
-                        // كخطة بديلة (Fallback) لو لم يكن المستند موجوداً في الداتابيز
-                        return FirebaseAdapter.set(targetCollectionKey, id, item, { merge: true });
-                    }));
+                    item.updatedAt = Date.now();
+                    promises.push(FirebaseAdapter.set(targetCollectionKey, id, item));
                 }
             }
         });
@@ -466,6 +490,7 @@ export const AdminData = {
     },
 
     saveCountries: function() { return this.saveCollection(DB_KEYS.COUNTRIES, 'countries'); },
+    saveRates: function() { return this.saveCollection(DB_KEYS.RATES, 'rates'); },
     saveCoupons: function() { return this.saveCollection(DB_KEYS.COUPONS, 'coupons'); },
     saveTiers: function() { return this.saveCollection(DB_KEYS.TIERS, 'tiers'); },
     saveProducts: function() { return this.saveCollection(DB_KEYS.PRODS, 'prods'); },
@@ -494,7 +519,6 @@ export const AdminData = {
         } catch (e) { console.error("خطأ في حفظ بروفايل الأدمن:", e); return false; }
     },
 
-    // دالة התرقية (تم إزالة استدعائها من loadData لحماية السيرفر)
     autoAdvanceSweep: async function() {
         const tiers = [...this.data.tiers].sort((a,b) => b.threshold - a.threshold);
         let changed = false;
@@ -506,7 +530,9 @@ export const AdminData = {
             if (!currentTier) return;
 
             const cycleStart = parseSafeTime(u.tierCycleStartDate) || now;
-            const durationMs = Number(currentTier.duration_days || 30) * 86400000;
+            
+            const activeDuration = Number(currentTier.durationDays || currentTier.duration_days || 30);
+            const durationMs = activeDuration * 86400000;
 
             if (now - cycleStart > durationMs) {
                 u.tierCycleSpent = 0; u.tierCycleStartDate = now; changed = true;
@@ -526,7 +552,7 @@ export const AdminData = {
             const defaultTierId = 'TIER_DEFAULT_INITIAL';
             if (this.data.tiers.some(t => t.id === defaultTierId || t.isDefault)) return;
             
-            const defaultTier = { id: defaultTierId, name: 'عضو جديد', isDefault: true, threshold: 0, duration_days: 3650, profit_percent: 5, autoAdvance: true, createdAt: Date.now() };
+            const defaultTier = { id: defaultTierId, name: 'عضو جديد', isDefault: true, threshold: 0, durationDays: 3650, profitPercent: 5, autoAdvance: true, createdAt: Date.now() };
             if (!Array.isArray(this.data.tiers)) this.data.tiers = [];
             this.data.tiers.push(defaultTier);
             await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);

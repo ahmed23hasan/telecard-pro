@@ -1,7 +1,8 @@
 // ============================================================================
-// 👥 قوالب بوابة المطورين والـ API (modules/developer/developerTemplates.js) - النسخة V4.2 💎
+// 👥 قوالب بوابة المطورين والـ API (modules/developer/developerTemplates.js) - النسخة V4.3 💎
 // 🎯 الوظيفة: توليد الـ HTML النقي المدمج بالبيانات (Data Binding) للمطورين
-// 🚀 التحديث الأقصى: إصلاح تعارض الـ IDs لمنع مسح روابط الـ Webhooks الصامت
+// 🚀 التحديث الأقصى: 
+// 1. Visual Security: إخفاء مفتاح الـ API داخل حقل مشفر لمنع التصوير العرضي للشاشة.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -27,8 +28,14 @@ export const DeveloperTemplates = {
                     <div class="ud-info-row highlight-primary">
                         <span class="ud-info-lbl text-primary"><i class="fa-solid fa-lock"></i> المفتاح النشط حالياً</span>
                         <div class="flex-center-gap w-100 mt-5">
-                            <input type="text" class="form-input num-en flex-1" dir="ltr" readonly value="${_esc(apiKey)}">
-                            <button class="btn btn-ghost" data-action="copy-text" data-copy-text="${_esc(apiKey)}" title="نسخ المفتاح">
+                            <!-- 🚀 إخفاء المفتاح بصرياً للحماية من اختلاس النظر -->
+                            <input type="password" id="dev-api-key-${_esc(user.id)}" class="form-input num-en flex-1" dir="ltr" readonly value="${_esc(apiKey)}">
+                            
+                            <button class="btn btn-ghost" onclick="const inp = document.getElementById('dev-api-key-${_esc(user.id)}'); inp.type = inp.type === 'password' ? 'text' : 'password';" title="إظهار/إخفاء المفتاح">
+                                <i class="fa-solid fa-eye"></i>
+                            </button>
+
+                            <button class="btn btn-ghost" data-action="copy-text" data-copy-text="${_esc(apiKey)}" title="نسخ المفتاح بالكامل">
                                 <i class="fa-solid fa-copy"></i>
                             </button>
                         </div>
@@ -68,7 +75,6 @@ export const DeveloperTemplates = {
                 
                 <div class="form-group">
                     <label class="form-label">رابط الـ Webhook الخاص بالعميل (URL)</label>
-                    <!-- 🛡️ [إصلاح حرج]: جعل الـ ID ديناميكياً ومطابقاً للكنترولر لمنع مسح الرابط بالخطأ -->
                     <input type="url" id="dev-webhook-url-${_esc(user.id)}" class="form-input num-en" dir="ltr" lang="en" placeholder="https://client-store.com/api/telecard-webhook" value="${_esc(webhookUrl)}">
                 </div>
                 

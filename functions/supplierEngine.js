@@ -1,11 +1,11 @@
 // ============================================================================
-// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة الماسية V9.0 💎
-// 🎯 الوظيفة: استيراد المنتجات، وبناء الجداول المركزية بأمان
-// 🚀 التحديثات (V9.0 - Cloud Native Edition):
-// 1. Sequential Batching: إرسال الدفعات بالتسلسل (await commit) لمنع خنق السيرفر (429 Error).
-// 2. Zero-Cost Stock: حساب المخزون في الذاكرة (In-Memory) لحذف تكلفة قراءات count() نهائياً.
-// 3. API Sanitization: جدار حماية يرفض المنتجات المعطوبة (بدون ID) من واجهات الموردين.
-// 4. Session-Based Upsert: إلغاء الـ Master Hash والاعتماد على syncSessionId لحذف الأكواد المباعة.
+// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة الماسية V10.2.0 💎
+// 🎯 الوظيفة: استيراد المنتجات، وبناء الجداول المركزية بأمان تام.
+// 🚀 التحديثات المعمارية:
+// 1. Fallback Pricing: تأمين حساب الأرباح في حال غياب الكاش.
+// 2. Strict Circuit Breaker: تجميد المنتجات ذات التكلفة الصفرية لحماية الأرباح.
+// 3. Batch Safe-Lock: تأمين الـ commitAndReset لمنع تداخل عمليات الدفعات.
+// 4. Hash Sync: ضمان توافق توليد أسعار المورد مع نظام الخزنة في index.js.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -18,27 +18,20 @@ if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
 // ==========================================
-// 🛡️ دوال المساعدة، الأمان، وسجل الأخطاء السحابي
+// 🛡️ دوال المساعدة والأمان
 // ==========================================
-// نستخدم الـ Hash فقط لتوليد ID آمن لوثائق الأكواد (Document ID) لتجنب الحروف الممنوعة في Firestore
 const generateCodeHash = (codeString) => crypto.createHash('sha256').update(String(codeString).trim()).digest('hex');
 const isMasterAdmin = (request) => request.auth?.token?.admin === true;
 
 const logAdminAction = async (adminUid, action, details) => {
-    try { 
-        await db.collection('telecard_audit_logs').add({ 
-            adminUid, action, details, timestamp: admin.firestore.FieldValue.serverTimestamp() 
-        }); 
-    } catch (e) {}
+    try { await db.collection('telecard_audit_logs').add({ adminUid, action, details, timestamp: admin.firestore.FieldValue.serverTimestamp() }); } 
+    catch (e) {}
 };
 
 const logCloudError = async (action, error, supplierId = 'system') => {
     console.error(`🚨 [${action}] Supplier: ${supplierId}`, error);
-    try { 
-        await db.collection('telecard_system_errors').add({ 
-            action, supplierId, errorMsg: error.message, time: admin.firestore.FieldValue.serverTimestamp() 
-        }); 
-    } catch(e) {}
+    try { await db.collection('telecard_system_errors').add({ action, supplierId, errorMsg: error.message, time: admin.firestore.FieldValue.serverTimestamp() }); } 
+    catch(e) {}
 };
 
 const fetchWithTimeout = async (url, options, timeout = 15000) => {
@@ -58,25 +51,18 @@ const fetchWithTimeout = async (url, options, timeout = 15000) => {
 // ==========================================
 // 🔌 محولات المنصات (Provider Adapters)
 // ==========================================
-// ============================================================================
-// 🔌 محولات المنصات (Provider Adapters)
-// ==========================================
 const ProviderAdapters = {
-    salla: async (baseUrl, token) => { return []; }, // محول سلة (للمستقبل)
-    zid: async (baseUrl, token) => { return []; },   // محول زد (للمستقبل)
+    salla: async (baseUrl, token) => { return []; }, 
+    zid: async (baseUrl, token) => { return []; },   
     
-    // 🌐 المحول العام (Standard API) - يدعم Star Store وأي متجر يستخدم نفس نظامهم
     standard_api: async (baseUrl, token) => {
-        // 1. تنظيف الرابط لتجنب الأخطاء المطبعية من الأدمن (مثل وضع / في النهاية)
-        const cleanUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+        const cleanUrl = baseUrl.trim(); 
         
-        // 2. طلب البيانات (مع افتراض أن مسار المنتجات هو /api/products أو المشابه له)
-        // ملاحظة: تأكد من المسار النهائي من توثيقهم (API Docs)
-        const response = await fetchWithTimeout(`${cleanUrl}/products`, { 
+        const response = await fetchWithTimeout(cleanUrl, { 
             method: 'GET',
             headers: { 
-                'Authorization': `Bearer ${token}`, // بعض المتاجر تستخدم Bearer
-                'x-api-key': token,                 // والبعض يستخدم x-api-key (نرسل الاثنين للأمان)
+                'Authorization': `Bearer ${token}`, 
+                'x-api-key': token,                 
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
             } 
@@ -87,11 +73,9 @@ const ProviderAdapters = {
         let data;
         try { data = await response.json(); } catch (e) { throw new Error('استجابة المورد ليست بصيغة JSON صحيحة.'); }
         
-        // 3. مرونة قراءة المصفوفة (بعض المتاجر تضعها داخل data وبعضها داخل products)
         const rawProducts = data.data || data.products || data;
         if (!Array.isArray(rawProducts)) throw new Error('البيانات المستلمة من المورد لا تحتوي على قائمة منتجات.');
 
-        // 4. التوحيد المعياري (Data Normalization) - مرونة عالية في أسماء الحقول
         return rawProducts.map(item => ({ 
             externalId: String(item.id || item.prodId || item.product_id || ''), 
             name: String(item.name || item.product || item.title || 'منتج بدون اسم'), 
@@ -101,13 +85,13 @@ const ProviderAdapters = {
         }));
     }
 };
+
 // ==========================================
-// 🧠 النواة المركزية للمزامنة (Core Sync Engine - Zero Cost & Sequential) 
+// 🧠 النواة المركزية للمزامنة (Core Sync Engine) 
 // ==========================================
 const coreSyncLogic = async (supplierId) => {
     const suppRef = db.collection('telecard_suppliers').doc(String(supplierId));
     
-    // 🛡️ Mutex Lock لمنع تكرار التنفيذ في نفس اللحظة
     const supplier = await db.runTransaction(async (transaction) => {
         const suppSnap = await transaction.get(suppRef);
         if (!suppSnap.exists) throw new Error('المورد غير موجود.');
@@ -132,14 +116,26 @@ const coreSyncLogic = async (supplierId) => {
         const normalizedProducts = await fetchAdapter(supplier.baseUrl, token);
         if (!normalizedProducts || normalizedProducts.length === 0) throw new Error('API المورد أرجع قائمة فارغة.');
 
-        const existingProdsSnap = await db.collection('telecard_prods').where('supplierId', '==', supplierId).get();
+        const [existingProdsSnap, pricingCacheSnap] = await Promise.all([
+            db.collection('telecard_prods').where('supplierId', '==', supplierId).get(),
+            db.collection('telecard_system').doc('active_pricing').get()
+        ]);
+        
         const existingProdsMap = new Map();
         existingProdsSnap.forEach(doc => existingProdsMap.set(doc.id, doc.data()));
+
+        // 🚀 Fallback لتأمين جلب المستويات لو كان الكاش مفقوداً
+        let systemTiers = [];
+        if (pricingCacheSnap.exists && Array.isArray(pricingCacheSnap.data().tiers)) {
+            systemTiers = pricingCacheSnap.data().tiers;
+        } else {
+            const tiersSnap = await db.collection('telecard_tiers').get();
+            systemTiers = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
 
         const syncSessionId = Date.now();
         const defaultMargin = FinancialEngine.extractNum(supplier.defaultMargin || 0);
         
-        // 🚀 معمارية (Sequential Batching) لحماية الذاكرة والهروب من خطأ 429
         let currentBatch = db.batch();
         let operationCount = 0;
         let importedCount = 0;
@@ -147,80 +143,95 @@ const coreSyncLogic = async (supplierId) => {
         
         const commitAndReset = async () => {
             if (operationCount > 0) { 
-                await currentBatch.commit(); // 👈 التنفيذ المتسلسل المباشر
+                await currentBatch.commit(); 
                 currentBatch = db.batch(); 
                 operationCount = 0; 
+                // إعطاء فرصة للنظام لالتقاط الأنفاس ومنع التداخل
+                await new Promise(resolve => setTimeout(resolve, 50));
             }
         };
 
         for (const prod of normalizedProducts) {
-            // 🛑 1. جدار الحماية (Sanitization): رفض البيانات الفاسدة من المورد
-            if (!prod.externalId || String(prod.externalId).trim() === '') {
-                console.warn(`[API WARNING] تخطي منتج بدون معرف خارجي (ID) من المورد: ${supplierId}`);
-                continue; 
-            }
+            if (!prod.externalId || String(prod.externalId).trim() === '') continue; 
             const rawName = String(prod.name || '').trim();
             if (!rawName) continue;
 
             const safeId = `ext_${supplierId}_${prod.externalId}`;
             const vaultId = `vault_${safeId}`;
+            const existingData = existingProdsMap.get(safeId);
             
-            // 🧮 2. المعالجة المالية
-            let rawCost = Math.min(FinancialEngine.extractNum(prod.cost), FinancialEngine.CONFIG.MAX_PRICE_LIMIT);
+            let rawCost = FinancialEngine.extractNum(prod.cost);
+            let isFreezeRequired = false;
+
+            // 🛑 قاطع الدائرة المتقدم (Strict Circuit Breaker)
+            if (rawCost === 0 || (existingData && existingData.costPrice && rawCost < (existingData.costPrice * 0.2))) {
+                console.warn(`[CIRCUIT BREAKER] سعر غير منطقي أو صفري للمنتج ${safeId}. تم تجميد المنتج.`);
+                rawCost = existingData ? FinancialEngine.extractNum(existingData.costPrice) : 0;
+                isFreezeRequired = true; // تعليق المنتج لحمايته
+            }
+            rawCost = Math.min(rawCost, FinancialEngine.CONFIG.MAX_PRICE_LIMIT);
+
             const profitAdded = FinancialEngine.safeMul(rawCost, FinancialEngine.safeDiv(defaultMargin, 100));
             let calculatedFinalPrice = Math.min(FinancialEngine.safeAdd(rawCost, profitAdded), FinancialEngine.CONFIG.MAX_PRICE_LIMIT);
             
-            const existingData = existingProdsMap.get(safeId);
             const isFixed = existingData ? (String(existingData.isFixedPrice).toLowerCase() === 'true') : false;
             let finalPrice = isFixed ? FinancialEngine.extractNum(existingData.price) : calculatedFinalPrice;
 
-            // 📦 3. تنظيف الأكواد وحساب المخزون في الذاكرة (In-Memory Stock)
+            let tierPrices = {};
+            if (!isFixed && systemTiers.length > 0) {
+                systemTiers.forEach(tier => {
+                    const profitPercent = FinancialEngine.extractNum(tier.profitPercent || tier.profit_percent);
+                    const minProfitUsd = FinancialEngine.extractNum(tier.minProfitUsd || tier.min_profit_usd);
+                    let pAdded = FinancialEngine.safeMul(rawCost, FinancialEngine.safeDiv(profitPercent, 100));
+                    tierPrices[tier.id] = FinancialEngine.safeAdd(rawCost, Math.max(pAdded, minProfitUsd));
+                });
+            }
+
             const safeCodesArray = Array.isArray(prod.codes) ? prod.codes.slice(0, 5000) : [];
             const cleanCodes = [...new Set(safeCodesArray.map(c => (typeof c === 'object' ? (c.text || c.code || '') : String(c)).replace(/\s+/g, '')).filter(c => c !== ''))];
             
-            // حساب المخزون فورياً بدون استعلامات Database!
-            let inMemoryStockCount = cleanCodes.length > 0 ? cleanCodes.length : FinancialEngine.extractNum(prod.stock);
-            const hasStock = inMemoryStockCount > 0;
+            let inMemoryStockCount = FinancialEngine.extractNum(prod.stock); 
             
-            // حفظ المنتج
-            const prodRef = db.collection('telecard_prods').doc(safeId);
-            currentBatch.set(prodRef, {
-                id: safeId, name: rawName, costPrice: rawCost, price: finalPrice, supplierId: supplierId, 
-                vaultPoolId: cleanCodes.length > 0 ? vaultId : null, 
-                isExternal: true, isAvailable: hasStock, 
-                syncSessionId: syncSessionId, lastSync: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-            
-            operationCount++;
-            if (operationCount >= 400) await commitAndReset(); 
-
-            // 🔐 4. معالجة الخزنة بطريقة (Upsert & Prune) الموفرة
             if (cleanCodes.length > 0) {
                 const vaultRef = db.collection('telecard_vault').doc(vaultId);
                 const keysCollectionRef = vaultRef.collection('keys');
                 
-                // إدخال الأكواد الواردة وتحديث جلستها
+                const allExistingKeysSnap = await keysCollectionRef.select('isSold').get();
+                const keysMap = new Map();
+                allExistingKeysSnap.docs.forEach(doc => keysMap.set(doc.id, doc.data().isSold));
+
+                let actualAvailableCodesCount = 0; 
+
                 for (const code of cleanCodes) {
-                    const hash = generateCodeHash(code); // معرف وثيقة آمن
-                    const keyDocRef = keysCollectionRef.doc(`key_${hash}`); 
-                    currentBatch.set(keyDocRef, {
-                        codeText: code, isSold: false, supplierId: supplierId, 
-                        syncSessionId: syncSessionId, importedAt: admin.firestore.FieldValue.serverTimestamp()
-                    }, { merge: true }); 
-                    
+                    const hash = generateCodeHash(code);
+                    const docId = `key_${hash}`; // 🚀 توحيد Hash الأكواد
+
+                    if (keysMap.has(docId)) {
+                        const isAlreadySold = keysMap.get(docId);
+                        currentBatch.update(keysCollectionRef.doc(docId), { syncSessionId: syncSessionId });
+                        if (!isAlreadySold) actualAvailableCodesCount++;
+                        keysMap.delete(docId); 
+                    } else {
+                        currentBatch.set(keysCollectionRef.doc(docId), {
+                            codeText: code, isSold: false, supplierId: supplierId,
+                            syncSessionId: syncSessionId, importedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        actualAvailableCodesCount++;
+                    }
                     operationCount++;
                     if (operationCount >= 400) await commitAndReset(); 
                 }
 
-                // سحب الأكواد القديمة (التي لم يرسلها المورد في هذه الجلسة لأنها بيعت)
-                const staleKeysSnap = await keysCollectionRef.where('isSold', '==', false).where('syncSessionId', '<', syncSessionId).get();
-                for (const doc of staleKeysSnap.docs) {
-                    currentBatch.update(doc.ref, { isSold: true, isRevoked: true, syncNote: 'تم سحبه من المورد' });
-                    operationCount++; revokedCount++;
-                    if (operationCount >= 400) await commitAndReset(); 
+                for (const [docId, isSold] of keysMap.entries()) {
+                    if (isSold === false) {
+                        currentBatch.update(keysCollectionRef.doc(docId), { isSold: true, isRevoked: true, syncNote: 'تم سحبه من المورد' });
+                        operationCount++; revokedCount++;
+                        if (operationCount >= 400) await commitAndReset(); 
+                    }
                 }
 
-                // تحديث الخزنة بالرقم المحسوب في الذاكرة (0 تكلفة قراءة!)
+                inMemoryStockCount = actualAvailableCodesCount; 
+
                 currentBatch.set(vaultRef, {
                     id: vaultId, supplierId: supplierId, name: `أكواد: ${rawName}`,
                     stockCount: inMemoryStockCount, lastSync: admin.firestore.FieldValue.serverTimestamp()
@@ -229,10 +240,24 @@ const coreSyncLogic = async (supplierId) => {
                 operationCount++;
                 if (operationCount >= 400) await commitAndReset(); 
             }
-            importedCount++;
+
+            // إذا فُعّل قاطع الدائرة، يتم جعل المتوفر = 0 
+            const hasStock = isFreezeRequired ? false : (inMemoryStockCount > 0);
+            const statusNote = isFreezeRequired ? 'مجمد آلياً بسبب خطأ بالتسعير' : '';
+
+            const prodRef = db.collection('telecard_prods').doc(safeId);
+            currentBatch.set(prodRef, {
+                id: safeId, name: rawName, costPrice: rawCost, price: finalPrice, 
+                tierPrices: Object.keys(tierPrices).length > 0 ? tierPrices : null, 
+                supplierId: supplierId, vaultPoolId: cleanCodes.length > 0 ? vaultId : null, 
+                isExternal: true, isAvailable: hasStock, syncNote: statusNote,
+                syncSessionId: syncSessionId, lastSync: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            
+            operationCount++; importedCount++;
+            if (operationCount >= 400) await commitAndReset(); 
         }
         
-        // 🗑️ مرحلة التنظيف العالمي للمنتجات المحذوفة من المورد
         let deletedCount = 0;
         const staleProdsSnap = await db.collection('telecard_prods')
             .where('supplierId', '==', supplierId)
@@ -245,7 +270,6 @@ const coreSyncLogic = async (supplierId) => {
             if (operationCount >= 400) await commitAndReset();
         }
         
-        // تنفيذ الدفعة الأخيرة
         await commitAndReset(); 
 
         await suppRef.update({ lastSync: admin.firestore.FieldValue.serverTimestamp(), importedCount: importedCount });
@@ -260,7 +284,7 @@ const coreSyncLogic = async (supplierId) => {
 };
 
 // ==========================================
-// 🚀 1. المزامنة اليدوية (من لوحة تحكم الإدارة)
+// 🚀 1. المزامنة اليدوية (من لوحة الإدارة)
 // ==========================================
 exports.syncSupplierData = onCall({ memory: '1GiB', timeoutSeconds: 540, enforceAppCheck: false }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
@@ -329,3 +353,4 @@ exports.secureSaveSupplier = onCall({ enforceAppCheck: false }, async (request) 
         throw new HttpsError('internal', 'فشل حفظ بيانات المورد.'); 
     }
 });
+ 
