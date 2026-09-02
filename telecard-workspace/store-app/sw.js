@@ -1,21 +1,38 @@
 // ============================================================================
-// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V2.0 💎
+// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V3.0 💎
 // 🎯 الوظيفة: تفعيل التثبيت كـ App، تشغيل المتجر Offline، وحماية الواجهة.
-// 🚀 التحديثات المعمارية:
-// 1. Fault-Tolerant Caching: حماية التثبيت من الانهيار إذا كان أحد الملفات مفقوداً.
-// 2. Firebase Offline Boot: كَيش مكتبات gstatic لضمان إقلاع محرك JS بدون إنترنت.
-// 3. Firestore Bypass: استثناء استدعاءات قاعدة البيانات لتركها لـ IndexedDB الخاص بفايربيز.
+// 🚀 التحديثات المعمارية الصارمة:
+// 1. ES Modules Offline Fix 🛡️: إدراج كافة الملفات الفرعية (Imports) لضمان الإقلاع الأوفلاين.
+// 2. Fault-Tolerant Caching: حماية التثبيت من الانهيار إذا كان أحد الملفات مفقوداً.
+// 3. Firebase Offline Boot: كَيش مكتبات gstatic لضمان إقلاع محرك JS بدون إنترنت.
+// 4. Cache Busting: تحديث اسم الكاش لإجبار المتصفحات على سحب الهيكلة الجديدة.
 // ============================================================================
 
-const CACHE_NAME = 'telecard-static-v2.0'; // تم تحديث الإصدار لتطبيق التغييرات فوراً
+const CACHE_NAME = 'telecard-static-v3.0'; // 🚀 تم رفع الإصدار لكسر الكاش القديم
 
-// 📦 الملفات الثابتة النواة (تم إزالة الملفات الوهمية لتفادي الأخطاء)
+// 📦 الملفات الثابتة النواة (تم إدراج كافة الـ Modules والصفحات لمنع انهيار النظام في الأوفلاين)
 const CORE_ASSETS = [
   './',
   './index.html',
+  './store.html',
+  './login.html',
+  './signup.html',
   './style.css',
+  './manifest.json',
   './script.js',
-  './manifest.json'
+  './config.js',
+  './utils.js',
+  './dataManager.js',
+  './renderManager.js',
+  './components.js',
+  './core/firebaseAdapter.js',
+  './core/financialEngine.js',
+  './core/renderHelpers.js',
+  './ui/uiManager.js',
+  './ui/uiCore.js',
+  './ui/uiFinance.js',
+  './ui/uiAuth.js',
+  './ui/uiBuilders.js'
 ];
 
 // =========================================================
@@ -51,6 +68,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
+          // مسح أي كاش يحمل اسماً قديماً لتفريغ مساحة هاتف العميل
           if (cacheName !== CACHE_NAME && cacheName.startsWith('telecard-static-')) {
             console.log(`🧹 [Service Worker] تنظيف كاش قديم: ${cacheName}`);
             return caches.delete(cacheName);
@@ -90,8 +108,10 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          // إذا انقطع النت، نرجع الصفحة الأساسية للمتجر دائماً
-          return caches.match('./index.html');
+          // 🚀 التوجيه الذكي في الأوفلاين: إذا انقطع النت، نرجع الصفحة التي طلبها من الكاش، وإلا نرجعه للمتجر
+          return caches.match(request).then(cachedResponse => {
+              return cachedResponse || caches.match('./store.html') || caches.match('./index.html');
+          });
         })
     );
     return;
@@ -110,8 +130,7 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       }).catch((err) => {
-        // الفشل صامت هنا لأننا سنعرض النسخة المخزنة
-        // console.warn('[Service Worker] فشل الجلب الشبكي، تم الاعتماد على الكاش.', err);
+        // الفشل صامت هنا لأننا سنعرض النسخة المخزنة للعميل
       });
 
       // إرجاع الكاش إن وُجد فوراً، وإلا انتظار نتيجة الجلب الشبكي

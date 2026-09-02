@@ -4449,24 +4449,43 @@ body.light-mode .auth-container {
 .auth-divider span { padding: 0 15px; }
 
 /* 🛡️ 3. تثبيت أيقونة العين وحماية النص من التداخل (تم حلها نهائياً) */
+/* 🛡️ 3. حماية أيقونات العين في حقول كلمة المرور (Password Eye Icons) */
 .auth-eye-icon { 
-    position: absolute; 
-    left: 15px !important; right: auto !important; 
-    top: 50%; transform: translateY(-50%); 
-    cursor: pointer; color: var(--text-muted); z-index: 10; 
-    transition: color var(--trans-speed); display: flex; align-items: center; 
+    position: absolute !important; 
+    left: 15px !important;  /* تثبيت إجباري على اليسار */
+    right: auto !important; /* منع المتصفح من عكس الاتجاه */
+    top: 50% !important; 
+    transform: translateY(-50%) !important; 
+    cursor: pointer; 
+    color: var(--text-muted); 
+    z-index: 100; 
+    display: flex !important; 
+    align-items: center; 
+    justify-content: center;
 }
-.auth-eye-icon:hover, .auth-eye-icon.active { color: var(--primary); }
-.auth-eye-icon svg { width: 20px; height: 20px; }
-.eye-closed { display: block; } .eye-open { display: none; }
-.auth-eye-icon.active .eye-closed { display: none; } .auth-eye-icon.active .eye-open { display: block; }
 
-.auth-container .floating-group.has-eye .lux-input,
-.auth-container .floating-group.has-eye .floating-input { 
-    padding-left: 45px !important; 
+.auth-eye-icon:hover, .auth-eye-icon.active { color: var(--primary); }
+
+/* منع انضغاط الأيقونة */
+.auth-eye-icon svg { 
+    width: 22px !important; 
+    height: 22px !important; 
+    transition: transform var(--trans-speed); 
+    flex-shrink: 0 !important; 
+}
+.auth-eye-icon:active svg { transform: scale(0.85); }
+
+/* 🌟 منع ظهور الأيقونتين معاً (علاج الشكل الغريب) */
+.auth-eye-icon svg.eye-closed { display: block !important; } 
+.auth-eye-icon svg.eye-open { display: none !important; }
+.auth-eye-icon.active svg.eye-closed { display: none !important; } 
+.auth-eye-icon.active svg.eye-open { display: block !important; }
+
+/* 🌟 إزاحة مساحة الكتابة لمنع مرور النص تحت الأيقونة */
+.floating-group.has-eye .lux-input,
+.floating-group.has-eye .floating-input { 
+    padding-left: 45px !important; /* ترك مساحة واسعة للأيقونة على اليسار */
     padding-right: 15px !important;
-    text-align: left !important;
-    direction: ltr !important;
 }
 
 /* التحذيرات والخيارات */

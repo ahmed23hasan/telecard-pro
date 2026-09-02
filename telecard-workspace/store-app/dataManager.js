@@ -1,11 +1,12 @@
 // ============================================================================
-// ⚙️ مدير البيانات الرئيسي (dataManager.js) - الإصدار المؤسسي V17.5 💎
+// ⚙️ مدير البيانات الرئيسي (dataManager.js) - الإصدار المؤسسي V18.0 💎
 // 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات، الاتصال المالي، والإشعارات.
 // 🚀 التحديثات المعمارية الصارمة: 
 // 1. Storage Quota Shield: تنظيف آلي وعميق لكاشات الحسابات السابقة لمنع انهيار الـ LocalStorage.
 // 2. Time Manipulation Guard: تحصين دالة الوقت لمنع تجاوز صلاحية الكوبونات.
 // 3. FCM Push Notifications: محرك صامت لربط أجهزة العميل بالإشعارات الفورية.
 // 4. Memory Leak Fix: تصفير حدود العرض (Pagination) ومحرك الرسم عند تسجيل الخروج.
+// 5. Offline Logout Block Fix 🛡️: إجهاض فحص الإشعارات عند ضعف الشبكة لضمان سلاسة تسجيل الخروج.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -408,17 +409,15 @@ export const DataManager = {
     // =========================================================
     // 🔔 محرك مزامنة الإشعارات الفورية (FCM Token Manager)
     // =========================================================
-        setupPushNotifications: async function(forcePrompt = false) {
+    setupPushNotifications: async function(forcePrompt = false) {
         if (!this.activeUid || typeof window === 'undefined' || !window.Notification || LiveStoreData.isOfflineMode) return;
         
         try {
-            // إذا ضغط العميل "تفعيل" من النافذة الأنيقة، نطلب منه الصلاحية من المتصفح
             if (forcePrompt && Notification.permission === 'default') {
                 const permission = await Notification.requestPermission();
                 if (permission !== 'granted') return;
             }
 
-            // نعمل فقط إذا كان العميل قد أعطانا الصلاحية
             if (Notification.permission === 'granted') {
                 const token = await StoreDB.requestFCMToken();
                 if (!token) return;
@@ -436,6 +435,7 @@ export const DataManager = {
             console.warn('⚠️ [FCM] فشل فحص الإشعارات الصامت:', e);
         }
     },
+
     // =========================================================
     // 📡 مستمعات وجلب البيانات التاريخية
     // =========================================================
@@ -509,7 +509,7 @@ export const DataManager = {
     // 🚪 إدارة الجلسات (Session Management)
     // =========================================================
 
-        logout: async function(hardRedirect = true) {
+    logout: async function(hardRedirect = true) {
         if (typeof window !== 'undefined' && window.UIManager && typeof window.UIManager.closeSidebar === 'function') {
             window.UIManager.closeSidebar();
         }
@@ -518,17 +518,22 @@ export const DataManager = {
             // 🛡️ لمسة الخصوصية والأمان: إزالة توكن الإشعارات للجهاز الحالي قبل الخروج (Privacy Shield)
             try {
                 if (this.activeUid && typeof window !== 'undefined' && window.Notification && Notification.permission === 'granted') {
-                    const currentToken = await StoreDB.requestFCMToken();
-                    if (currentToken) {
-                        let currentTokens = Array.isArray(this.user?.fcmTokens) ? [...this.user.fcmTokens] : [];
-                        const updatedTokens = currentTokens.filter(t => t !== currentToken);
-                        
-                        // تحديث السيرفر بصمت لحذف الجهاز الحالي من قائمة الإشعارات
-                        if (currentTokens.length !== updatedTokens.length) {
-                            await StoreDB.set(DB_KEYS.USERS, this.activeUid, { fcmTokens: updatedTokens }, { merge: true });
-                            console.log('🔒 [FCM] تم إلغاء ربط هذا الجهاز بالإشعارات بنجاح لحماية الخصوصية.');
+                    // 🚀 الإصلاح الاحترافي: Fire-and-Forget مع Timeout لمنع تعليق الخروج في وضع الأوفلاين
+                    Promise.race([
+                        StoreDB.requestFCMToken(),
+                        new Promise(r => setTimeout(r, 3000))
+                    ]).then(currentToken => {
+                        if (currentToken && typeof currentToken === 'string') {
+                            let currentTokens = Array.isArray(this.user?.fcmTokens) ? [...this.user.fcmTokens] : [];
+                            const updatedTokens = currentTokens.filter(t => t !== currentToken);
+                            
+                            // تحديث السيرفر بصمت لحذف الجهاز الحالي من قائمة الإشعارات
+                            if (currentTokens.length !== updatedTokens.length) {
+                                StoreDB.set(DB_KEYS.USERS, this.activeUid, { fcmTokens: updatedTokens }, { merge: true }).catch(()=>{});
+                                console.log('🔒 [FCM] تم إلغاء ربط هذا الجهاز بالإشعارات بنجاح لحماية الخصوصية.');
+                            }
                         }
-                    }
+                    }).catch(()=>{});
                 }
             } catch (fcmErr) {
                 console.warn('⚠️ [Logout] تعذر إلغاء ربط توكن الإشعارات:', fcmErr);

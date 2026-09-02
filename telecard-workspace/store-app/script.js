@@ -1,11 +1,13 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V17.6.0 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V18.0.0 💎
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع الآمن، عزل الحالة، وإدارة الجلسات
 // 🚀 التحديثات المعمارية الصارمة:
-// 1. Push Prompt Trigger: استدعاء نافذة الإشعارات الأنيقة بذكاء بعد الترحيب بالعميل.
-// 2. Biometric Fallback: طرد صريح (Hard Logout) عند فشل البصمة لمنع تجميد الجلسة.
-// 3. Loop Fix: حماية حلقة التحديث اللانهائية عبر ختم زمني (Timestamp) في الجلسة.
-// 4. Cross-Tab Sync: مزامنة فورية لتسجيل الخروج بين النوافذ المفتوحة.
+// 1. Zero-Billing Leak: تحويل جلب (الدول، بوابات الدفع، الكوبونات) إلى queryCacheFirst.
+// 2. Deadlock & Splash Guard: ضمان إزالة شاشة الإقلاع حتى في حال تعثر الشبكة.
+// 3. Push Prompt Trigger: استدعاء نافذة الإشعارات الأنيقة بذكاء بعد الترحيب بالعميل.
+// 4. Biometric Fallback: طرد صريح (Hard Logout) عند فشل البصمة لمنع تجميد الجلسة.
+// 5. Loop Fix: حماية حلقة التحديث اللانهائية عبر ختم زمني (Timestamp) في الجلسة.
+// 6. Cross-Tab Sync: مزامنة فورية لتسجيل الخروج بين النوافذ المفتوحة.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -520,7 +522,6 @@ AppController.init = async function() {
                 
                 if (UIManager.showToast) UIManager.showToast(finalGreeting, 'info');
                 
-                // 🔔 الإضافة الجديدة هنا: استدعاء نافذة الإشعارات الأنيقة
                 setTimeout(() => {
                     if (UIManager.showPushNotificationPrompt) {
                         UIManager.showPushNotificationPrompt();
@@ -540,12 +541,13 @@ AppController.init = async function() {
         if (splashName) splashName.innerText = sName;
         localStorage.setItem(CACHE_KEYS.SPLASH_NAME, sName);
 
+        // 🛡️ التحديث المعماري الصارم: استبدال getAll بالكاش وحماية سعة الاستعلام (Zero-Billing Leak)
         if (UIManager.isReady && RenderManager) {
             const publicKeys = ['COUNTRIES', 'PAYMENTS'];
-            const promises = publicKeys.map(k => StoreDB.getAll(DB_KEYS[k]).catch(() => []));
+            const promises = publicKeys.map(k => StoreDB.queryCacheFirst(DB_KEYS[k], [], null, 500).catch(() => []));
             
             if (DataManager.activeUid) {
-                promises.push(StoreDB.getAll(DB_KEYS.COUPONS).catch(() => []));
+                promises.push(StoreDB.queryCacheFirst(DB_KEYS.COUPONS, [], null, 200).catch(() => []));
                 publicKeys.push('COUPONS');
             }
             

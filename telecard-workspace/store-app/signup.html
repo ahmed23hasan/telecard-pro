@@ -15,9 +15,12 @@
         if (activeUid) window.location.replace('store.html');
     </script>
 
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
+    <!-- 🚀 روابط محصنة ضد حظر المتصفحات وعامل الخدمة (CORS/PWA Safe) -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+<!-- 🚀 كسر الكاش الإجباري عبر تمرير متغير إصدار (Version Query) -->
+<link rel="stylesheet" href="style.css?v=22.0.0">
+
 </head>
 
 <body class="auth-page-wrapper">
@@ -115,12 +118,26 @@
 
 <script type="module">
     import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES, ACTIVE_USER_KEY } from './config.js'; 
-    // 🛡️ التحديث المعماري: استيراد محول قاعدة البيانات المباشر لتخفيف وزن الصفحة
     import { auth, FirebaseAdapter as StoreDB } from './core/firebaseAdapter.js';
     import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const googleProvider = new GoogleAuthProvider();
     let preFetchedCurrency = 'USD'; 
+
+    // 🛡️ دالة ذكية لتنظيف الجلسة للمحظورين بدون تدمير تفضيلات المستخدم (الوضع الليلي والصوت)
+    const safeWipeSession = async () => {
+        await signOut(auth).catch(()=>{});
+        localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
+        localStorage.removeItem(ACTIVE_USER_KEY);
+        localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
+        
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith('tc_orders_cache_') || key.startsWith('tc_deposits_cache_'))) {
+                localStorage.removeItem(key);
+            }
+        }
+    };
 
     function showButtonSuccess(btn, text) {
         btn.disabled = false;
@@ -334,7 +351,7 @@
                 if (StoreDB && typeof StoreDB.set === 'function') await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
             } else {
                 if (activeUserObj.isBanned || activeUserObj.isIpBanned) {
-                    await signOut(auth); localStorage.clear();
+                    await safeWipeSession(); // 🛡️ تم الإصلاح: استخدام دالة التنظيف الآمنة
                     btn.classList.remove('is-loading');
                     btn.disabled = false; 
                     showCustomAlert("حساب محظور", "عذراً، هذا الحساب تم حظره مسبقاً ولا يمكن استخدامه.");

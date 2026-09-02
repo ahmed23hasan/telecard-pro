@@ -16,8 +16,8 @@
     </script>
 
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Inter:wght@500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 </head>
 
 <body class="auth-page-wrapper">
@@ -110,21 +110,14 @@
             <div class="floating-group has-eye">
                 <input type="password" class="lux-input floating-input num-en" placeholder=" " id="password" dir="ltr">
                 <label class="floating-label">كلمة المرور</label>
-                <div class="auth-eye-icon" onclick="togglePass('password', this)">
-                    <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2.5-4 5.5-6 9-6 3.5 0 6.5 2 9 6-2.5 4-5.5 6-9 6-3.5 0-6.5-2-9-6z" /><path d="M5 5l14 14" stroke-width="1.6" /></svg>
+                                <div class="auth-eye-icon" onclick="togglePass('password', this)">
+                    <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2.5-4 5.5-6 9-6 3.5 0 6.5-2-9 6-2.5 4-5.5 6-9 6-3.5 0-6.5-2-9-6z" /><path d="M5 5l14 14" stroke-width="1.6" /></svg>
                     <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3.2" /></svg>
                 </div>
                 <div class="input-error-text" id="passwordError" style="display:none; text-align: start;"></div>
             </div>
 
-            <div class="form-options">
-                <label class="checkbox-container">
-                    <input type="checkbox" id="rememberMe" checked>
-                    <span class="custom-checkbox">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    </span>
-                    تذكرني
-                </label>
+            <div class="form-options" style="justify-content: flex-end;">
                 <a href="#" class="forgot-link" onclick="event.preventDefault(); handleForgotPassword();">نسيت كلمة المرور؟</a>
             </div>
 
@@ -141,7 +134,6 @@
 
 <script type="module">
     import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES, ACTIVE_USER_KEY } from './config.js';
-    // 🛡️ التحديث المعماري: استيراد محول قاعدة البيانات المباشر لتخفيف وزن الصفحة
     import { auth, FirebaseAdapter as StoreDB } from './core/firebaseAdapter.js';
     import { 
         signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail,
@@ -150,6 +142,22 @@
 
     const googleProvider = new GoogleAuthProvider();
     let current2FAResolver = null;
+
+    // 🛡️ دالة ذكية لتنظيف الجلسة بدون تدمير إعدادات (الوضع الليلي والصوت)
+    const safeWipeSession = async () => {
+        await signOut(auth).catch(()=>{});
+        localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
+        localStorage.removeItem(ACTIVE_USER_KEY);
+        localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
+        
+        // مسح كاشات الأوامر الديناميكية فقط
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith('tc_orders_cache_') || key.startsWith('tc_deposits_cache_'))) {
+                localStorage.removeItem(key);
+            }
+        }
+    };
 
     function showButtonSuccess(btn, text) {
         btn.disabled = false;
@@ -319,9 +327,12 @@
                 };
                 
                 if (StoreDB && typeof StoreDB.set === 'function') await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
+                
+                // 🚀 الإصلاح: تفعيل رسالة الترحيب للعملاء الجدد عبر جوجل
+                sessionStorage.setItem('tc_new_user_signup', 'true');
             } else {
                 if (activeUserObj.isBanned || activeUserObj.isIpBanned) {
-                    await signOut(auth); localStorage.clear();
+                    await safeWipeSession();
                     btn.disabled = false; 
                     btn.classList.remove('is-loading');
                     showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة.", "error");
@@ -334,7 +345,7 @@
                 }
             }
             
-            // 🛡️ حفظ المفاتيح الجديدة حصراً
+            // 🛡️ حفظ المفاتيح
             localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
             localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(activeUserObj));
             if (activeUserObj.baseCurrency) localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, activeUserObj.baseCurrency);
@@ -380,17 +391,18 @@
             }
 
             if (userDoc && (userDoc.isBanned || userDoc.isIpBanned)) {
-                await signOut(auth); localStorage.clear();
+                await safeWipeSession();
                 btn.disabled = false; 
                 btn.classList.remove('is-loading');
                 showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة.", "error"); return;
             }
 
-            // 🛡️ حفظ المفاتيح الجديدة حصراً
+            // 🛡️ الإصلاح: حفظ المفاتيح + مزامنة الأفاتار فوراً
             localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
             if (userDoc) {
                 localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(userDoc));
                 if(userDoc.baseCurrency) localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, userDoc.baseCurrency);
+                if(userDoc.img) localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, userDoc.img);
             }
 
             showButtonSuccess(btn, "تم الدخول بنجاح");
@@ -427,7 +439,7 @@
             }
 
             if (userDoc && (userDoc.isBanned || userDoc.isIpBanned)) {
-                await signOut(auth); localStorage.clear();
+                await safeWipeSession();
                 btn.disabled = false; 
                 btn.classList.remove('is-loading'); close2FAModal();
                 showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور.", "error"); return;
@@ -437,6 +449,7 @@
             if (userDoc) {
                 localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(userDoc));
                 if(userDoc.baseCurrency) localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, userDoc.baseCurrency);
+                if(userDoc.img) localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, userDoc.img); // 🛡️ تم الإصلاح
             }
 
             showButtonSuccess(btn, "تم التحقق بنجاح");
