@@ -1,11 +1,12 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.0 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.5 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت، والإشعارات الفورية
 // 🚀 التحديثات المعمارية:
 // 1. Push Notifications: دمج Firebase Cloud Messaging مع مفتاح الـ VAPID السري.
 // 2. Upload Sync Fix: توحيد حجم الملفات المرفوعة (10MB) ليتطابق مع الواجهة لمنع التضارب.
 // 3. Zero-Leak Listeners: إغلاق ثغرة القراءة المزدوجة في onSnapshot لتقليل الفاتورة.
 // 4. Error Masking: إخفاء الأخطاء الحساسة (Cost/Profit) عن العملاء لحماية أسرار المتجر.
+// 5. PWA Deadlock Shield 🛡️: كسر تعليق الكاش المحلي (IndexedDB) عبر المهلة الزمنية لضمان إقلاع المتجر.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -215,7 +216,8 @@ export const FirebaseAdapter = {
             
             let cachedData = null;
             try {
-                const cachedSnap = await getDocFromCache(docRef);
+                // 🚀 التحديث الاحترافي: تغليف الكاش بمهلة 3 ثوانٍ لكسر التعليق الصامت في بيئة الـ PWA
+                const cachedSnap = await this._withTimeout(getDocFromCache(docRef), 3000, 'getDocFromCache');
                 if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
             } catch (e) {}
             
@@ -252,7 +254,8 @@ export const FirebaseAdapter = {
             
             if (!needsServer || isOffline) {
                 try {
-                    const cachedSnapshot = await getDocsFromCache(q);
+                    // 🚀 التحديث الاحترافي: تغليف استعلام الكاش بمهلة 4 ثوانٍ لضمان عدم تجميد الشاشة الافتتاحية
+                    const cachedSnapshot = await this._withTimeout(getDocsFromCache(q), 4000, 'getDocsFromCache');
                     if (!cachedSnapshot.empty) {
                         return cachedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: true }));
                     }

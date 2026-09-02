@@ -1644,9 +1644,13 @@ export const UICore = {
         } catch (e) {}
     },
     
-    applyFontSettings: function() {
+        applyFontSettings: function() {
         const s = LiveStoreData.settings || {};
-        const family = s.fontFamily || "'Cairo', sans-serif";
+        
+        // 🚀 الإصلاح: تنظيف اسم الخط وإجبار المتصفح على استخدام Cairo كدرع احتياطي دائم
+        const customFont = s.fontFamily ? s.fontFamily.replace(/['"]/g, '').trim() : 'Cairo';
+        const family = `'${customFont}', 'Cairo', 'Inter', sans-serif`;
+        
         const root = document.documentElement;
         
         requestAnimationFrame(() => {
@@ -1660,7 +1664,6 @@ export const UICore = {
             document.body.style.fontFamily = family;
         });
     },
-    
     updateDisplayBalance: function() {
         if (!DataManager.user) return; 
 
