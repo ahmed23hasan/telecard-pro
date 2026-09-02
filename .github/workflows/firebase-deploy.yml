@@ -44,6 +44,10 @@ jobs:
               "system")
                 DEPLOY_TARGET="functions:getServerTime,functions:autoUpdateGlobalStats,functions:cleanupOrphanedKycDocs"
                 ;;
+              "radar")
+                # 🚀 [التحديث المعماري]: مجموعة الرادار للإشعارات الفورية والمراقبة الذكية
+                DEPLOY_TARGET="functions:autoNotifyOrderStatus,functions:autoNotifyDepositStatus,functions:autoNotifyVaultStatus,functions:autoNotifyComplaints"
+                ;;
               *)
                 # 🎯 هنا يكمن السحر الجديد: استبدال الفاصلة وإضافة الكلمة المطلوبة ليفهمها فايربيز
                 FORMATTED_TARGET=$(echo "$TARGET" | sed 's/,/,functions:/g')

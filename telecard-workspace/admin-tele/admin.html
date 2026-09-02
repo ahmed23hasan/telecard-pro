@@ -181,6 +181,11 @@
                     <i id="theme-toggle-icon" class="fa-solid fa-moon"></i>
                 </div>
 
+                <!-- 🚀 زر الرادار المضاف هنا -->
+                <div class="header-bell" data-action="open-modal" data-target="admin-prefs" title="إعدادات الرادار">
+                    <i class="fa-solid fa-satellite-dish"></i>
+                </div>
+
                 <div class="header-bell" data-action="scroll-to-alerts" title="الرادار والتنبيهات">
                     <i class="fa-solid fa-bell"></i>
                     <span class="bell-badge hide-element" id="global-alert-badge">0</span>
@@ -1251,6 +1256,46 @@
             </div>
         </div>
     </div>
+
+    <!-- 🚀 نافذة غرفة العمليات وتفضيلات الإشعارات (Admin Radar) -->
+    <div class="modal-overlay" id="m-admin-prefs">
+        <div class="modal-content modal-md">
+            <div class="modal-close-btn" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title text-primary"><i class="fa-solid fa-satellite-dish"></i> رادار غرفة العمليات (الإشعارات)</h2>
+            
+            <div class="alert-info mb-20 text-center">
+                حدد الإشعارات التي ترغب بتلقيها كـ (إنذارات فورية Push) على جهازك الحالي لتجنب الإزعاج.
+            </div>
+
+            <div class="push-settings-grid mt-15">
+                <div class="toggle-box mb-15">
+                    <span class="toggle-lbl"><i class="fa-solid fa-box-open text-warning"></i> إشعارات الطلبات المعلقة</span>
+                    <label class="switch"><input type="checkbox" id="pref-orders"><span class="slider"></span></label>
+                </div>
+                <div class="toggle-box mb-15">
+                    <span class="toggle-lbl"><i class="fa-solid fa-money-bill-transfer text-success"></i> إشعارات الإيداعات الجديدة</span>
+                    <label class="switch"><input type="checkbox" id="pref-deposits"><span class="slider"></span></label>
+                </div>
+                <div class="toggle-box mb-15">
+                    <span class="toggle-lbl"><i class="fa-solid fa-star-half-stroke text-danger"></i> شكاوى وتقييمات العملاء الغاضبين</span>
+                    <label class="switch"><input type="checkbox" id="pref-complaints"><span class="slider"></span></label>
+                </div>
+                <div class="toggle-box mb-15">
+                    <span class="toggle-lbl"><i class="fa-solid fa-vault text-info"></i> تحذيرات نقص المخزون (صناديق الأكواد)</span>
+                    <label class="switch"><input type="checkbox" id="pref-vault"><span class="slider"></span></label>
+                </div>
+                <div class="toggle-box mb-15">
+                    <span class="toggle-lbl"><i class="fa-solid fa-id-card-clip text-purple"></i> طلبات توثيق الهوية (KYC)</span>
+                    <label class="switch"><input type="checkbox" id="pref-kyc"><span class="slider"></span></label>
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-primary btn-full mt-20" data-action="save-admin-prefs">
+                <i class="fa-solid fa-floppy-disk"></i> حفظ الإعدادات وربط الجهاز
+            </button>
+        </div>
+    </div>
+
         <div class="modal-overlay" id="m-user-detail">
         <div class="modal-content ud-modal-pro">
             <div class="ud-modal-header">

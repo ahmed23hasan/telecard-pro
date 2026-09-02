@@ -1,10 +1,8 @@
 // ============================================================================
-// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.0 💎
+// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.1 💎
 // 🎯 الوظيفة: أدوات الواجهة المشتركة (الإشعارات، التحميل، النوافذ) بدون منطق عمل
 // 🌟 التحديثات:
-// 1. Memory Hang Fix: تحرير الـ Callback عند فشل ضغط الصورة لمنع تجميد الشاشة.
-// 2. حماية الـ GIF/SVG من التدمير أثناء ضغط الـ Canvas.
-// 3. التنظيف الفوري العنيف (Immediate Memory Wipe) للباسورد.
+// 1. Radar Prompt: نافذة تفاعلية منبثقة لطلب صلاحية الإشعارات للمدير بطريقة احترافية.
 // ============================================================================
 
 import { Utils, EventBus } from '../adminUtils.js';
@@ -39,6 +37,40 @@ export const UIService = {
         }
         localStorage.setItem('telecard_theme', isLight ? 'light' : 'dark');
         this.showToast(isLight ? 'تم تفعيل الوضع النهاري ☀️' : 'تم تفعيل الوضع الليلي 🌙', 'info', 1500);
+    },
+
+    // 🚀 [الرادار المعماري]: نافذة طلب الإشعارات الخاصة بالمدير
+    showAdminPushPrompt: function() {
+        if (typeof window === 'undefined' || !window.Notification) return;
+        if (Notification.permission === 'granted' || Notification.permission === 'denied') return;
+        
+        const lastPrompt = localStorage.getItem('tc_admin_push_prompt');
+        if (lastPrompt && (Date.now() - parseInt(lastPrompt)) < 7 * 24 * 60 * 60 * 1000) return;
+
+        if (document.getElementById('admin-push-prompt')) return;
+
+        const html = `
+            <div id="admin-push-prompt" class="sys-overlay active" style="z-index: 99999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6);">
+                <div class="modal-content modal-md" style="animation: slideIn 0.3s ease; text-align: center;">
+                    <div class="mb-15">
+                        <i class="fa-solid fa-satellite-dish text-primary fa-3x mb-10 fa-beat-fade"></i>
+                        <h2 class="main-title text-primary">رادار غرفة العمليات</h2>
+                    </div>
+                    <div class="alert-info mb-20 text-center">
+                        هل ترغب بربط هذا الجهاز بغرفة العمليات لتلقي إنذارات فورية (Push Notifications) عند وصول طلبات، إيداعات، أو شكاوى جديدة؟
+                    </div>
+                    <div class="d-flex gap-10">
+                        <button class="btn btn-primary flex-1" data-action="enable-admin-notifs">
+                            <i class="fa-solid fa-check"></i> تفعيل الرادار
+                        </button>
+                        <button class="btn btn-ghost flex-1" data-action="dismiss-admin-notifs">
+                            ليس الآن
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        
+        document.body.insertAdjacentHTML('beforeend', html);
     },
 
     showToast: function(message, type='success', duration=3000) {
@@ -134,8 +166,6 @@ export const UIService = {
             const closeDialog = (isOk) => {
                 const val = inputEl.value.trim();
                 inputEl.blur();
-                
-                // 🛡️ تدمير القيمة من الـ DOM فوراً (Memory Wipe)
                 inputEl.value = ''; 
                 
                 overlay.classList.add('closing');
@@ -232,6 +262,8 @@ export const UIService = {
 
         if (id === 'prod') EventBus.emit('req-render-prod-config');
         if (id === 'profile') EventBus.emit('req-update-profile-ui');
+        // إطلاق حدث لتهيئة بيانات نافذة الرادار في حال تم فتحها
+        if (id === 'admin-prefs') EventBus.emit('req-update-prefs-ui');
     },
 
     closeModal: function(specificId = null) {
@@ -358,7 +390,6 @@ export const UIService = {
         } catch (error) { 
             this.toggleLoader(false); 
             this.showToast('خطأ بالصورة', 'error'); 
-            // 🛡️ [Memory Hang Fix]: تحرير الواجهة من التجميد في حال فشل المعالجة
             if(callback) callback(null); 
         }
     }

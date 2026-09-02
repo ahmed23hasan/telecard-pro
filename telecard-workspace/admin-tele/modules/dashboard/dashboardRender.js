@@ -1,17 +1,17 @@
 // ============================================================================
-// 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate V15.3 🚀
+// 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate V15.4 🚀
 // 🎯 الوظيفة: رسم الإحصائيات، الرادار الجنائي، سجل النشاطات، ومراقبة الأمان
-// 🚀 التحديث الأقصى: 
-// 1. Smart CRM Routing: توجيه إنذار الشكاوى مباشرة لتبويب العملاء الغاضبين بدلاً من الإشعارات العامة.
-// 2. CRM Integration: دمج رادار الشكاوى والتقييمات المنخفضة ليظهر فوراً في مركز المهام.
-// 3. Memory Freeze Fix: تحديد سقف سجلات النشاط لـ 100 حركة.
+// 🚀 التحديثات المعمارية: 
+// 1. Stale Closure Fix: إصلاح ثغرة الذاكرة في عداد جرس الإشعارات لتحديث الأرقام حياً.
+// 2. Event Binding Fix: تفعيل قائمة فلترة (لوحة الشرف) بربطها بمحرك الأحداث.
+// 3. Methods Sanitization: توحيد دوال التشفير باستخدام Utils بدلاً من اختصارات مفقودة.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminTemplates } from '../../adminTemplates.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
 import { FinancialEngine } from '../../core/financialEngine.js'; 
-import { EventBus } from '../../adminUtils.js';
+import { EventBus, Utils } from '../../adminUtils.js';
 
 export const DashboardRender = {
     leaderboardFilter: 'all', 
@@ -20,6 +20,11 @@ export const DashboardRender = {
     initListeners: function() {
         EventBus.on('req-render-dash', () => this.renderDashboard());
         EventBus.on('req-render-logs', () => this.renderLogs());
+        
+        // 🚀 الإصلاح: ربط فلتر لوحة الشرف بمحرك الأحداث
+        EventBus.on('change-leaderboard-filter', (data) => {
+            this.changeLeaderboardFilter(data.val || data);
+        });
     },
 
     changeLeaderboardFilter: function(period) {
@@ -66,27 +71,21 @@ export const DashboardRender = {
             capsGrid.innerHTML = AdminTemplates.dashGrid(stats, walletsCapsules, couponsHtml, communityHtml); 
         }
 
-        // =========================================================
-        // 🚨 الرادار الجنائي، التنبيهات، ومركز المهام (Action Center)
-        // =========================================================
         const sysSettings = AdminData.data.settings || {};
         const totalBannedIps = Array.isArray(sysSettings.bannedIps) ? sysSettings.bannedIps.length : 0;
         const totalBannedDevices = Array.isArray(sysSettings.bannedDevices) ? sysSettings.bannedDevices.length : 0;
         
         if (!stats.alerts) stats.alerts = [];
 
-        // 🌟 جلب الطلبات والمهام المعلقة
         const pendingOrders = (AdminData.data.orders || []).filter(o => o.status === 'pending' || o.status === 'processing').length;
         const pendingDeposits = (AdminData.data.deposits || []).filter(d => d.status === 'pending').length;
         const pendingKYC = (AdminData.data.users || []).filter(u => u.kycStatus === 'pending').length;
         const pendingComplaints = (AdminData.data.reviews || []).filter(r => r.status === 'pending' && r.rating <= 2).length;
 
-        // دفع التنبيهات للرادار
         if (pendingOrders > 0) stats.alerts.unshift({ id: 'act_ord', type: 'warning', icon: 'fa-box-open', text: `بانتظارك <b class="text-white num-en" dir="ltr">${pendingOrders}</b> طلبات منتجات تحتاج للتنفيذ.`, action: `data-action="nav-with-filter" data-section="orders" data-status="pending"` });
         if (pendingDeposits > 0) stats.alerts.unshift({ id: 'act_dep', type: 'success', icon: 'fa-money-bill-transfer', text: `بانتظارك <b class="text-white num-en" dir="ltr">${pendingDeposits}</b> طلبات إيداع للمحفظة.`, action: `data-action="nav-with-filter" data-section="deposits" data-status="pending"` });
         if (pendingKYC > 0) stats.alerts.unshift({ id: 'act_kyc', type: 'info', icon: 'fa-id-card-clip', text: `يوجد <b class="num-en text-info" dir="ltr">${pendingKYC}</b> طلبات توثيق هوية بانتظار المراجعة.`, action: `data-action="nav" data-target="kyc-system"` });
         
-        // 🚀 [الإصلاح الماسي]: توجيه الإنذار للمسار المباشر للشكاوى
         if (pendingComplaints > 0) {
             stats.alerts.unshift({ id: 'act_complaint', type: 'danger', icon: 'fa-star-half-stroke', text: `تنبيه هام: يوجد <b class="text-white num-en" dir="ltr">${pendingComplaints}</b> عميل غاضب (تقييم منخفض) بانتظار تدخلك!`, action: `data-action="nav-to-complaints"` });
         }
@@ -104,9 +103,10 @@ export const DashboardRender = {
                     let type = a.type || 'info', icon = a.icon || 'fa-info-circle', text = a.text || '', action = a.action || '';
                     const timeStr = (a.time && a.time !== 0) ? RenderHelpers.formatSafeDate(a.time) : '';
 
-                    if (a.id === 'vault_empty') { type = 'danger'; icon = 'fa-box-open'; text = `مخزون حرج: صندوق <b class="text-danger">${RenderHelpers._esc(a.poolName)}</b> فارغ تماماً!`; action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; } 
-                    else if (a.id === 'vault_low') { type = 'warning'; icon = 'fa-hourglass-half'; text = `نقص مخزون: تبقى <b class="num-en text-warning" dir="ltr">${a.count}</b> أكواد في <b class="text-white">${RenderHelpers._esc(a.poolName)}</b>`; action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; } 
-                    else if (a.id === 'coupon_used') { type = 'success'; icon = 'fa-tag'; text = `استخدم العميل <b class="text-white">${RenderHelpers._esc(a.user)}</b> الكوبون <span class="badge-qty badge-success" dir="ltr">${RenderHelpers._esc(a.code)}</span>`; action = `data-action="open-order-drawer" data-id="${a.orderId}"`; } 
+                    // 🚀 الإصلاح: استخدام Utils.escapeHTML و Utils.enNum لحماية الواجهة من الانهيار
+                    if (a.id === 'vault_empty') { type = 'danger'; icon = 'fa-box-open'; text = `مخزون حرج: صندوق <b class="text-danger">${Utils.escapeHTML(a.poolName)}</b> فارغ تماماً!`; action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; } 
+                    else if (a.id === 'vault_low') { type = 'warning'; icon = 'fa-hourglass-half'; text = `نقص مخزون: تبقى <b class="num-en text-warning" dir="ltr">${a.count}</b> أكواد في <b class="text-white">${Utils.escapeHTML(a.poolName)}</b>`; action = `data-action="edit-item" data-type="vault" data-id="${a.poolId}"`; } 
+                    else if (a.id === 'coupon_used') { type = 'success'; icon = 'fa-tag'; text = `استخدم العميل <b class="text-white">${Utils.escapeHTML(a.user)}</b> الكوبون <span class="badge-qty badge-success" dir="ltr">${Utils.escapeHTML(a.code)}</span>`; action = `data-action="open-order-drawer" data-id="${a.orderId}"`; } 
                     else if (a.id === 'security_stable') { type = 'security'; icon = 'fa-shield-check'; text = `حالة النظام الأمنية مستقرة - لا يوجد أي نشاط مشبوه.`; }
 
                     return AdminTemplates.dashAlertItem(type, icon, text, action, timeStr);
@@ -133,7 +133,7 @@ export const DashboardRender = {
         const unreadCount = currentCount - seenCount;
 
         if (unreadCount > 0) { 
-            topBellBadge.innerText = RenderHelpers._enNum(unreadCount); 
+            topBellBadge.innerText = Utils.enNum(unreadCount); 
             topBellBadge.classList.remove('hide-element'); 
             topBellBadge.classList.add('active'); 
         } else { 
@@ -142,13 +142,20 @@ export const DashboardRender = {
         }
 
         const bellContainer = topBellBadge.parentElement; 
-        if (bellContainer && !bellContainer.hasAttribute('data-alert-bound')) {
-            bellContainer.setAttribute('data-alert-bound', 'true');
-            bellContainer.addEventListener('click', () => { 
-                localStorage.setItem('telecard_seen_alerts', currentCount); 
-                topBellBadge.classList.add('hide-element'); 
-                topBellBadge.classList.remove('active'); 
-            });
+        
+        // 🚀 الإصلاح: تخزين العدد الفعلي في Data Attribute لتفادي الـ Stale Closure
+        if (bellContainer) {
+            bellContainer.setAttribute('data-current-count', currentCount);
+            
+            if (!bellContainer.hasAttribute('data-alert-bound')) {
+                bellContainer.setAttribute('data-alert-bound', 'true');
+                bellContainer.addEventListener('click', function() { 
+                    const liveCount = Number(this.getAttribute('data-current-count')) || 0;
+                    localStorage.setItem('telecard_seen_alerts', liveCount); 
+                    topBellBadge.classList.add('hide-element'); 
+                    topBellBadge.classList.remove('active'); 
+                });
+            }
         }
     },
 
@@ -207,7 +214,7 @@ export const DashboardRender = {
             fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.05, stops: [0, 100] } },
             dataLabels: { enabled: false }, stroke: { curve: 'smooth', width: 2 },
             xaxis: { categories: categories, axisBorder: { show: false }, axisTicks: { show: false } },
-            yaxis: { labels: { formatter: (value) => RenderHelpers._enNum(value) + ' ' + currText } },
+            yaxis: { labels: { formatter: (value) => Utils.enNum(value) + ' ' + currText } },
             grid: { borderColor: isLightMode ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)', strokeDashArray: 4 },
             theme: { mode: themeMode }, tooltip: { theme: themeMode }
         };
@@ -257,11 +264,12 @@ export const DashboardRender = {
             const displayAdminName = log.admin || (adminUser ? (adminUser.fullName || adminUser.firstName || adminUser.name || adminUser.username) : 'مدير النظام');
 
 
+            // 🚀 الإصلاح: استخدام Utils.escapeHTML لمنع انهيار السجل
             html += `<tr>
                 <td><div class="log-date-cell"><span class="d-date num-en" dir="ltr">${safeDateTime}</span></div></td>
-                <td><div class="log-user-cell"><i class="fa-solid fa-user-shield text-primary"></i> <span>${RenderHelpers._esc(displayAdminName)}</span></div></td>
-                <td><span class="log-action-badge num-en ${badgeClass}" dir="ltr" style="padding: 4px 10px; border-radius: 6px; border-width: 1px; border-style: solid; font-size: 11px;">${RenderHelpers._esc(action)}</span></td>
-                <td class="log-details-cell">${RenderHelpers._esc(log.details)}</td>
+                <td><div class="log-user-cell"><i class="fa-solid fa-user-shield text-primary"></i> <span>${Utils.escapeHTML(displayAdminName)}</span></div></td>
+                <td><span class="log-action-badge num-en ${badgeClass}" dir="ltr" style="padding: 4px 10px; border-radius: 6px; border-width: 1px; border-style: solid; font-size: 11px;">${Utils.escapeHTML(action)}</span></td>
+                <td class="log-details-cell">${Utils.escapeHTML(log.details)}</td>
             </tr>`;
         });
         tbody.innerHTML = html;

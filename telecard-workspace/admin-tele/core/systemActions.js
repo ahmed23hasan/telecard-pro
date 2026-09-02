@@ -1,9 +1,8 @@
 // ============================================================================
-// ⚙️ خريطة مسارات النظام (System Actions Router) - Enterprise V15.5 💎
+// ⚙️ خريطة مسارات النظام (System Actions Router) - Enterprise V15.6 💎
 // 🎯 الوظيفة: الأحداث المشتركة، النوافذ، الملاحة، التقويم، وإعدادات النظام العامة
 // 🚀 التحديثات:
-// 1. Social Links Route: ربط زر حفظ قنوات التواصل الاجتماعي.
-// 2. Smart Complaint Routing: مسار ذكي لنقل الإدمن من لوحة القيادة لتبويب الشكاوى مباشرة.
+// 1. Radar Routing: إضافة مسارات تفعيل الإشعارات وتفضيلات غرفة العمليات.
 // ============================================================================
 
 import { AdminUI, AdminCalendar } from '../adminUI.js';
@@ -17,7 +16,6 @@ export const SystemActions = {
     'nav': (data) => EventBus.emit('req-navigate', { page: data.target, btnEl: data.element }),
     'nav-with-filter': (data) => EventBus.emit('req-navigate-filter', { section: data.section, status: data.status }),
     
-    // 🚀 [الإصلاح الذكي للـ UX]: التوجيه المباشر من لوحة القيادة لتبويب الشكاوى
     'nav-to-complaints': () => {
         EventBus.emit('req-navigate', { page: 'notifs' });
         setTimeout(() => EventBus.emit('switch-notifs-tab', { tab: 'complaints' }), 100);
@@ -30,11 +28,7 @@ export const SystemActions = {
     'refresh-dash': () => EventBus.emit('req-refresh', { type: 'dash' }),
     'render-users': () => EventBus.emit('req-refresh', { type: 'users' }),
     
-    // 🚀 [مفاتيح الطوارئ والإنقاذ السحابي]:
-    'force-sync': () => EventBus.emit('req-force-sync'),
-    'force-sync-pricing': () => EventBus.emit('req-force-sync-pricing'), 
-    
-    // --- 2. إعدادات النظام والهوية ---
+    // --- 2. إعدادات النظام والهوية والرادار ---
     'save-system': () => EventBus.emit('req-save-system'),
     'toggle-system': (data) => EventBus.emit('req-toggle-system', { type: data.type, element: data.element }),
     'save-support': () => EventBus.emit('req-save-support'),
@@ -44,12 +38,19 @@ export const SystemActions = {
     'save-admin-profile': () => EventBus.emit('req-save-admin-profile'),
     'auto-save-settings': () => EventBus.emit('req-auto-save-settings'),
 
-    // 🚀 [أحداث الـ CRM والتواصل]:
+    // 🚀 [مسارات الرادار وغرفة العمليات]:
+    'enable-admin-notifs': () => EventBus.emit('req-enable-notifs'),
+    'dismiss-admin-notifs': () => EventBus.emit('req-dismiss-notifs'),
+    'save-admin-prefs': () => EventBus.emit('req-save-admin-prefs'),
+
     'save-about-us': () => EventBus.emit('save-about-us'),
-    'save-social-links': () => EventBus.emit('save-social-links'), // 👈 تم تأمين الزر!
+    'save-social-links': () => EventBus.emit('save-social-links'),
     'switch-notifs-tab': (data) => EventBus.emit('switch-notifs-tab', { tab: data.tab }),
     'filter-reviews': () => EventBus.emit('filter-reviews'),
     
+    'force-sync': () => EventBus.emit('req-force-sync'),
+    'force-sync-pricing': () => EventBus.emit('req-force-sync-pricing'), 
+
     // --- 3. النوافذ المشتركة ---
     'open-modal': (data) => AdminUI?.openModal?.(data.target),
     'close-modal': (data) => AdminUI?.closeModal?.(data.target || data.id || null),

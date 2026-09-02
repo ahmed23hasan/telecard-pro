@@ -980,7 +980,7 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
 });
 
 // ==========================================
-// 🔗 11. المزامنة والتريجرات الخاصة بالكاش (Cache Auto-Sync & FCM)
+// 🔗 11. المزامنة والتريجرات الخاصة بالكاش (Cache Auto-Sync & FCM Radar)
 // ==========================================
 exports.onSettingsUpdate = onDocumentUpdated({ document: 'telecard_settings/singleton', memory: "256MiB", concurrency: 1 }, async () => { await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); });
 
@@ -1035,79 +1035,109 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
     return { success: true, updatedProductsCount: totalUpdated };
 });
 
-// 🚀 [جديد] محرك إرسال الإشعارات الفورية (FCM Engine) مع تنظيف التوكنز الميتة
+// 🚀 [الرادار 1] محرك إرسال الإشعارات الفورية للعميل (Client FCM)
 const sendFCMToUser = async (userId, title, body, payloadData = {}) => {
     try {
         const userDoc = await db.collection('telecard_users').doc(String(userId)).get();
         if (!userDoc.exists) return;
 
         const tokens = userDoc.data().fcmTokens || [];
-        if (!Array.isArray(tokens) || tokens.length === 0) return; // لا يوجد أجهزة مسجلة
+        if (!Array.isArray(tokens) || tokens.length === 0) return;
 
-        const payload = {
-            notification: { title, body },
-            data: payloadData,
-            tokens: tokens
-        };
-
+        const payload = { notification: { title, body }, data: payloadData, tokens: tokens };
         const response = await admin.messaging().sendEachForMulticast(payload);
 
-        // 🛡️ تنظيف الذاكرة: إذا قام العميل بمسح التطبيق أو المتصفح، نقوم بحذف التوكن الميت
         if (response.failureCount > 0) {
             const failedTokens = [];
             response.responses.forEach((resp, idx) => {
-                if (!resp.success) {
-                    const errCode = resp.error?.code;
-                    if (errCode === 'messaging/invalid-registration-token' || errCode === 'messaging/registration-token-not-registered') {
-                        failedTokens.push(tokens[idx]);
-                    }
+                if (!resp.success && ['messaging/invalid-registration-token', 'messaging/registration-token-not-registered'].includes(resp.error?.code)) {
+                    failedTokens.push(tokens[idx]);
                 }
             });
             if (failedTokens.length > 0) {
-                await db.collection('telecard_users').doc(String(userId)).update({
-                    fcmTokens: admin.firestore.FieldValue.arrayRemove(...failedTokens)
-                });
-                console.log(`[FCM] Cleaned up ${failedTokens.length} dead tokens for user ${userId}.`);
+                await db.collection('telecard_users').doc(String(userId)).update({ fcmTokens: admin.firestore.FieldValue.arrayRemove(...failedTokens) });
             }
         }
-    } catch (error) {
-        console.error(`[FCM Error] Failed to send to user ${userId}:`, error);
-    }
+    } catch (error) { console.error(`[Client FCM Error]:`, error); }
 };
 
-// 🚀 تحديث إشعارات الطلبات لدعم الـ Push Notifications
+// 🚀 [الرادار 2] محرك إرسال الإشعارات الذكي للإدارة (Admin Smart Radar)
+const sendFCMToAdmin = async (alertType, title, body, payloadData = {}) => {
+    try {
+        const adminSnap = await db.collection('telecard_admin').doc('singleton').get();
+        if (!adminSnap.exists) return;
+        const adminData = adminSnap.data();
+
+        // 🛡️ الفلترة المعمارية: السيرفر يحترم خيارات المدير المحددة في لوحة التحكم
+        const prefs = adminData.pushPrefs || { orders: true, deposits: true, kyc: true, vault: true, complaints: true };
+        if (prefs[alertType] === false) return; // خروج صامت إذا عطل المدير هذا النوع
+
+        const tokens = adminData.fcmTokens || [];
+        if (!Array.isArray(tokens) || tokens.length === 0) return;
+
+        const payload = { notification: { title, body }, data: payloadData, tokens: tokens };
+        const response = await admin.messaging().sendEachForMulticast(payload);
+
+        // 🛡️ التنظيف التلقائي للأجهزة المسجلة الخروج (Self-Healing)
+        if (response.failureCount > 0) {
+            const failedTokens = [];
+            response.responses.forEach((resp, idx) => {
+                if (!resp.success && ['messaging/invalid-registration-token', 'messaging/registration-token-not-registered'].includes(resp.error?.code)) {
+                    failedTokens.push(tokens[idx]);
+                }
+            });
+            if (failedTokens.length > 0) {
+                await db.collection('telecard_admin').doc('singleton').update({ fcmTokens: admin.firestore.FieldValue.arrayRemove(...failedTokens) });
+            }
+        }
+    } catch (error) { console.error(`[Admin FCM Error]:`, error); }
+};
+
+// ==========================================
+// 🚨 مشغلات الرادار الذكية (Smart Triggers)
+// ==========================================
+
+// 1️⃣ مراقب الطلبات
 exports.autoNotifyOrderStatus = onDocumentWritten({ document: 'telecard_orders/{orderId}', retry: true }, async (event) => {
     if (!event.data.after.exists) return null;
     const after = event.data.after.data();
     const before = event.data.before.exists ? event.data.before.data() : null;
+    
+    // إشعار للإدارة: طلب يدوي جديد يحتاج لتدخل
+    if (!before && after.status === 'pending') {
+        await sendFCMToAdmin('orders', '🛒 طلب جديد بانتظارك!', `طلب بقيمة ${after.price}$ يحتاج للتسليم اليدوي.`, { target: 'orders' });
+    }
+
     if (before && before.status === after.status) return null;
     if (!before && (after.status === 'pending' || after.status === 'processing')) return null;
 
+    // إشعار للعميل بالتحديثات
     let title = "تحديث طلب", message = `تم تغيير حالة الطلب إلى ${after.status}`;
     if (after.status === 'completed') { title = "🎉 طلبك جاهز!"; message = `تم تسليم ( ${after.product} ).`; } 
     else if (after.status === 'rejected') { title = "❌ طلب مرفوض"; message = `رفض الطلب: ${after.adminNote || 'راجع الدعم'}`; } 
     else if (after.status === 'refunded') { title = "↩️ استرجاع قيمة"; message = `تم استرجاع الرصيد بنجاح.`; }
 
     const notifId = `notif_${event.params.orderId}_${after.status}`;
-    
-    // 1. الإشعار الداخلي في قاعدة البيانات
-    await db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ 
-        id: notifId, title, message, type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp() 
-    });
-
-    // 2. إطلاق الإشعار الفوري لهاتف العميل (FCM)
+    await db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ id: notifId, title, message, type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp() });
     await sendFCMToUser(after.userId, title, message, { targetType: 'order', targetId: String(after.id) });
     return null;
 });
 
-// 🚀 تحديث إشعارات الإيداعات لدعم الـ Push Notifications
+// 2️⃣ مراقب الإيداعات
 exports.autoNotifyDepositStatus = onDocumentWritten({ document: 'telecard_deposits/{depositId}', retry: true }, async (event) => {
     if (!event.data.after.exists) return null;
     const after = event.data.after.data();
     const before = event.data.before.exists ? event.data.before.data() : null;
+
+    // إشعار للإدارة: طلب إيداع جديد
+    if (!before && after.status === 'pending') {
+        await sendFCMToAdmin('deposits', '💰 إيداع رصيد جديد', `تم استلام طلب إيداع بقيمة ${after.amount} ${after.currency}.`, { target: 'deposits' });
+    }
+
     if (before && before.status === after.status) return null;
     if (!before && after.status === 'pending') return null;
 
+    // إشعار للعميل
     let title = "تحديث الإيداع", message = `الحالة: ${after.status}`;
     const displayAmt = after.creditedAmount !== undefined ? after.creditedAmount : after.amount;
     
@@ -1116,17 +1146,39 @@ exports.autoNotifyDepositStatus = onDocumentWritten({ document: 'telecard_deposi
     else if (after.status === 'refunded') { title = "↩️ إيداع مسترجع"; message = `تم سحب ${displayAmt} من محفظتك.`; }
 
     const notifId = `notif_${event.params.depositId}_${after.status}`;
-    
-    // 1. الإشعار الداخلي في قاعدة البيانات
-    await db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ 
-        id: notifId, title, message, type: 'notification', jumpTarget: 'wallet', createdAt: admin.firestore.FieldValue.serverTimestamp() 
-    });
-
-    // 2. إطلاق الإشعار الفوري لهاتف العميل (FCM)
+    await db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ id: notifId, title, message, type: 'notification', jumpTarget: 'wallet', createdAt: admin.firestore.FieldValue.serverTimestamp() });
     await sendFCMToUser(after.userId, title, message, { targetType: 'wallet', targetId: String(after.id) });
     return null;
 });
 
+// 3️⃣ مراقب الخزنة (Vault Watchdog)
+exports.autoNotifyVaultStatus = onDocumentUpdated({ document: 'telecard_vault/{poolId}', retry: true }, async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    
+    const currentStock = Number(after.stockCount || 0);
+    const previousStock = Number(before.stockCount || 0);
+    const limit = Number(after.alertLimit || 5);
+
+    if (currentStock === 0 && previousStock > 0) {
+        await sendFCMToAdmin('vault', '📦 مخزون حرج!', `صندوق الأكواد (${after.name}) أصبح فارغاً تماماً.`, { target: 'vault' });
+    } else if (currentStock <= limit && previousStock > limit) {
+        await sendFCMToAdmin('vault', '⚠️ انخفاض المخزون', `تبقى ${currentStock} أكواد فقط في صندوق (${after.name}).`, { target: 'vault' });
+    }
+    return null;
+});
+
+// 4️⃣ مراقب الشكاوى والتقييمات السلبية (CRM Watchdog)
+exports.autoNotifyComplaints = onDocumentWritten({ document: 'telecard_reviews/{reviewId}', retry: true }, async (event) => {
+    if (!event.data.after.exists) return null;
+    const after = event.data.after.data();
+    const before = event.data.before.exists ? event.data.before.data() : null;
+
+    if (!before && Number(after.rating) <= 2) {
+        await sendFCMToAdmin('complaints', '🚨 عميل غاضب!', `تلقيت تقييماً بـ ${after.rating} نجوم يحتاج لتدخلك السريع.`, { target: 'complaints' });
+    }
+    return null;
+});
 // ==========================================
 // 🛠️ 12. دوال مساندة للوحة التحكم (المسترجعة للواجهة)
 // ==========================================

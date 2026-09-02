@@ -1,11 +1,9 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V15.0 💎
+// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V15.8 💎
 // 🎯 الوظيفة: بوابة البيانات الآمنة للوحة الإدارة، إدارة الذاكرة، حماية الفواتير.
-// 🚀 التحديث الأقصى (V15.0): 
-// 1. Transparent Errors: رمي الأخطاء الصريحة (Throw Errors) لعمليات الكتابة بدل ابتلاعها.
-// 2. معالجة ثغرة "الأشباح" (Phantom Writes) لحماية عمليات الإدارة الحساسة.
-// 3. دمج التشفير الآمن (Web Crypto API) للرفع.
-// 4. إصلاح الانهيار الصامت لتواريخ آبل (Safari ISO Fix) في سجلات العملاء.
+// 🚀 التحديث الأقصى (V15.8): 
+// 1. FCM Integration: دمج مكتبة الإشعارات وتوليد مفاتيح الربط (Tokens) لغرفة عمليات الإدارة.
+// 2. Transparent Errors: رمي الأخطاء الصريحة لعمليات الكتابة.
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -15,6 +13,9 @@ import {
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
+
+// 🚀 [إضافة معمارية]: استيراد مكتبة الإشعارات السحابية لتفعيل الرادار
+import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js";
 
 import { firebaseConfig } from '../adminConfig.js';
 
@@ -51,6 +52,21 @@ export const FirebaseAdapter = {
         });
         this._activeListeners.clear();
         console.debug("🧹 [Admin Memory] تم تنظيف كافة المستمعات الشبحية بنجاح. ذاكرة المتصفح بأمان.");
+    },
+
+    // 🚀 [الرادار السحابي]: دالة طلب صلاحية الإشعارات وتوليد مفتاح الجهاز
+    async requestFCMToken(vapidKey) {
+        try {
+            const messaging = getMessaging(app);
+            const permission = await Notification.requestPermission();
+            if (permission === 'granted') {
+                return await getToken(messaging, { vapidKey: vapidKey });
+            }
+            return null;
+        } catch (error) {
+            console.error("🚨 [FirebaseAdapter] فشل توليد توكن الإشعارات:", error.message);
+            return null;
+        }
     },
 
     _sanitizeDocId: function(id) {
@@ -108,7 +124,6 @@ export const FirebaseAdapter = {
         } catch (error) { return null; }
     },
 
-    // 🚀 [التصحيح المعماري]: إلغاء ابتلاع الأخطاء والسماح برميها للواجهة الأمامية
     async set(collectionName, docId, data) {
         try {
             const safeId = this._sanitizeDocId(docId);
@@ -116,7 +131,7 @@ export const FirebaseAdapter = {
             return true;
         } catch (error) { 
             console.error(`🚨 [FirebaseAdapter] رفض التحديث في ${collectionName}:`, error.message);
-            throw error; // 👈 رمي الخطأ للـ Controller
+            throw error; 
         }
     },
 
@@ -126,7 +141,7 @@ export const FirebaseAdapter = {
             return docRef.id;
         } catch (error) { 
             console.error(`🚨 [FirebaseAdapter] رفض الإضافة في ${collectionName}:`, error.message);
-            throw error; // 👈 رمي الخطأ
+            throw error; 
         }
     },
 
@@ -137,7 +152,7 @@ export const FirebaseAdapter = {
             return true;
         } catch (error) { 
             console.error(`🚨 [FirebaseAdapter] رفض الحذف في ${collectionName}:`, error.message);
-            throw error; // 👈 رمي الخطأ
+            throw error; 
         }
     },
 
@@ -210,7 +225,7 @@ export const FirebaseAdapter = {
         } catch (error) { return { data: [], newLastDoc: null }; }
     },
 
-        async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = true) {
+    async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = true) {
         if (!file) return '';
         
         const allowedTypes = isAdmin ? ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'] : ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -224,7 +239,6 @@ export const FirebaseAdapter = {
         }
 
         try {
-            // 🛡️ [التصحيح]: السماح بالـ "/" لإنشاء مجلدات فرعية مع منع التلاعب بالمسارات ".."
             const safeFolder = String(folderName).replace(/\.\./g, '').replace(/\\/g, '/').replace(/\/+/g, '/').trim() || 'general';
             const originalExt = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : 'jpg';
             const safeFileName = file.name.replace(/[^a-zA-Z0-9\-_]/g, '').replace(/^\.+/, 'file');
@@ -242,6 +256,7 @@ export const FirebaseAdapter = {
             throw new Error(error.message || 'تعذر الرفع. تأكد من جودة الاتصال.'); 
         }
     },
+
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
         try { 
@@ -259,7 +274,7 @@ export const FirebaseAdapter = {
         }
     },
 
-        async getCustomerFullHistory(userId, limitPerCollection = 25) {
+    async getCustomerFullHistory(userId, limitPerCollection = 25) {
         if (!userId) return [];
         try {
             const safeUserId = String(userId);
@@ -289,12 +304,10 @@ export const FirebaseAdapter = {
                 return isNaN(new Date(t).getTime()) ? 0 : new Date(t).getTime();
             };
             
-            // 🛡️ [التصحيح]: دمج حقل الـ date تحسباً لاعتماد بعض الإيداعات القديمة عليه
             activities.sort((a, b) => parseTimeSafe(b.time || b.date || b.createdAt) - parseTimeSafe(a.time || a.date || a.createdAt));
             return activities;
         } catch (error) { 
-            // 🛡️ [التصحيح الأهم]: طباعة الخطأ لمنع التعمية على غياب الفهارس (Indexes)
-            console.error("🚨 خطأ في جلب السجل المالي (تأكد من توفر Composite Indexes في Firebase):", error.message);
+            console.error("🚨 خطأ في جلب السجل المالي:", error.message);
             return []; 
         }
     }

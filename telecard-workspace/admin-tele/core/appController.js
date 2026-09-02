@@ -1,11 +1,10 @@
 // ============================================================================
-// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V15.6 💎
+// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V15.8 💎
 // 🎯 الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
 // 🚀 التحديثات المعمارية:
-// 1. Dynamic Social Links: تحويل قنوات التواصل إلى مصفوفة ديناميكية غير محدودة بدل الحقول الثابتة.
-// 2. CRM Integration: دمج نظام إدارة التقييمات والشكاوى (الرد المباشر والفلترة).
-// 3. Dynamic About Us: معالجة وحفظ النص التعريفي للمتجر ديناميكياً لتوفير القراءات السحابية.
-// 4. Ads Hydration Fix: إصلاح ثغرة اختفاء بيانات الهوية والإعلانات عند تحديث الصفحة.
+// 1. Radar Preferences: فصل إعدادات الإشعارات (غرفة العمليات) عن الملف الشخصي.
+// 2. Data-Wipe Shield: إصلاح ثغرة حفظ الملف الشخصي لمنع تدمير تفضيلات وتوكنز الرادار.
+// 3. FCM Boot Trigger: تشغيل المراقبة الذكية وصلاحيات المتصفح عند الإقلاع.
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -94,6 +93,13 @@ export const AppController = {
             });
 
             this.isInitialized = true;
+
+            // 🚀 [تفعيل الرادار الصامت أو طلب الصلاحية عند الإقلاع]
+            setTimeout(() => {
+                this.setupAdminPushNotifications();
+                if (AdminUI?.showAdminPushPrompt) AdminUI.showAdminPushPrompt();
+            }, 4000);
+
         } catch (error) { 
             const actualErrorMsg = error.message || error.toString();
             console.error("🚨 خطأ داخلي أثناء رسم الواجهات:", actualErrorMsg); 
@@ -151,6 +157,17 @@ export const AppController = {
         EventBus.on('req-go-back', () => this.back());
         EventBus.on('req-close-modal', (data) => AdminUI?.closeModal?.(data?.id || null));
         
+        // 🚀 أحداث الرادار (غرفة العمليات)
+        EventBus.on('req-enable-notifs', () => {
+            document.getElementById('admin-push-prompt')?.remove();
+            this.setupAdminPushNotifications(true);
+        });
+        EventBus.on('req-dismiss-notifs', () => {
+            document.getElementById('admin-push-prompt')?.remove();
+            localStorage.setItem('tc_admin_push_prompt', Date.now().toString());
+        });
+        EventBus.on('req-save-admin-prefs', () => this.saveAdminPreferences());
+
         EventBus.on('req-save-system', () => this.saveSystem());
         EventBus.on('req-force-sync-pricing', () => this.forceSyncPricingCache());
         EventBus.on('req-save-admin-profile', (payloadData) => this.saveAdminProfile(payloadData));
@@ -161,7 +178,7 @@ export const AppController = {
         
         EventBus.on('save-about-us', () => this.saveAboutUs());
         EventBus.on('save-social-links', () => this.saveSocialLinks()); 
-        EventBus.on('add-social-link', () => this.addSocialLinkRow()); // 👈 الحدث الجديد
+        EventBus.on('add-social-link', () => this.addSocialLinkRow());
         EventBus.on('switch-notifs-tab', (data) => this.switchNotifsTab(data.tab));
         EventBus.on('reply-complaint', (data) => this.replyToComplaint(data.id));
         EventBus.on('filter-reviews', () => this.renderComplaints());
@@ -195,7 +212,7 @@ export const AppController = {
             if (data.action === 'switch-notifs-tab') { this.switchNotifsTab(data.tab); return; }
             if (data.action === 'save-about-us') { this.saveAboutUs(); return; }
             if (data.action === 'save-social-links') { this.saveSocialLinks(); return; } 
-            if (data.action === 'add-social-link') { this.addSocialLinkRow(); return; } // 👈 توجيه الإضافة
+            if (data.action === 'add-social-link') { this.addSocialLinkRow(); return; } 
             if (data.action === 'filter-reviews') { this.renderComplaints(); return; }
 
             const routers = getSystemRouters();
@@ -322,7 +339,6 @@ export const AppController = {
         }); 
     },
 
-    // 🚀 دالة حقن بيانات الهوية والإعلانات ومن نحن في الواجهة
     hydrateAdsSection: function() {
         const settings = this.data.settings || {};
         const safeSet = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
@@ -369,12 +385,11 @@ export const AppController = {
         safeSet('slider-time', settings.sliderTime || 3);
         safeSet('slider-transition', settings.sliderTransition || 'fade');
         
-        // 🚀 استعادة الروابط الديناميكية من السيرفر (مع التوافق الرجعي القديم لحماية الداتا)
         safeSet('social-desc', settings.socialDesc || settings.socialLinks?.desc || '');
         
         const container = document.getElementById('social-links-container');
         if (container) {
-            container.innerHTML = ''; // تفريغ الحاوية أولاً
+            container.innerHTML = ''; 
             const linksList = Array.isArray(settings.socialLinksList) ? settings.socialLinksList : [];
             
             if (settings.socialLinks && !Array.isArray(settings.socialLinks) && linksList.length === 0) {
@@ -385,7 +400,7 @@ export const AppController = {
             }
 
             if (linksList.length === 0) {
-                this.addSocialLinkRow(); // إضافة حقل فارغ كافتراضي
+                this.addSocialLinkRow(); 
             } else {
                 linksList.forEach(link => this.addSocialLinkRow(link));
             }
@@ -394,7 +409,6 @@ export const AppController = {
         if (typeof EventBus !== 'undefined') EventBus.emit('action-triggered', { action: 'update-brand' });
     },
 
-    // 🚀 دالة إضافة صف ديناميكي جديد لروابط التواصل
     addSocialLinkRow: function(linkData = { icon: 'fa-link', name: '', url: '' }) {
         const container = document.getElementById('social-links-container');
         if (!container) return;
@@ -422,7 +436,6 @@ export const AppController = {
         container.appendChild(row);
     },
 
-    // 🚀 دالة حفظ الروابط الديناميكية كـ Array
     saveSocialLinks: async function() {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ الروابط...');
         try {
@@ -846,13 +859,97 @@ export const AppController = {
                 finalImg = '';
             }
             
-            this.data.adminProfile = { name, email, pass, img: finalImg };
+            // 🚀 [الترقيع المعماري]: دمج البيانات لتفادي مسح إعدادات الرادار والتوكنز
+            this.data.adminProfile = { 
+                ...this.data.adminProfile, 
+                name, 
+                email, 
+                pass, 
+                img: finalImg 
+            };
             
             await AdminData?.saveAdminProfile?.();
             EventBus.emit('req-update-profile-ui');
             AdminUI?.showToast('تم حفظ الملف الشخصي بنجاح', 'success');
         } catch (error) {
             AdminUI?.showToast(error.message || 'تعذر تحديث الملف الشخصي', 'error');
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+        }
+    },
+
+    // 🚀 [الرادار المعماري]: تفعيل الرادار، طلب الصلاحية، وجمع التفضيلات
+    setupAdminPushNotifications: async function(forcePrompt = false) {
+        if (typeof window === 'undefined' || !window.Notification) return;
+
+        if (forcePrompt && Notification.permission === 'default') {
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') return;
+        }
+
+        if (Notification.permission === 'granted') {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري ربط جهازك بغرفة العمليات...');
+            try {
+                // 🚀 تم دمج مفتاح VAPID الخاص بالمشروع
+                const VAPID_KEY = "BDdFL5sHBs1j5RXsps4TahR2UN4qCRwZR2G769OJEGR_1gTj8D2MHsTRsMeSv_Spad22N6LYFsu0x9GhdARqEFk"; 
+                const token = await FirebaseAdapter.requestFCMToken(VAPID_KEY);
+
+                if (token) {
+                    let currentTokens = Array.isArray(this.data.adminProfile?.fcmTokens) ? [...this.data.adminProfile.fcmTokens] : [];
+                    if (!currentTokens.includes(token)) {
+                        currentTokens.push(token);
+                        // حماية الذاكرة السحابية: 5 أجهزة كحد أقصى للمدير
+                        if (currentTokens.length > 5) currentTokens = currentTokens.slice(-5); 
+                        
+                        if (!this.data.adminProfile) this.data.adminProfile = {};
+                        this.data.adminProfile.fcmTokens = currentTokens;
+                        
+                        await AdminData.saveAdminProfile();
+                        AdminUI?.showToast('تم تفعيل الإنذار الفوري على هذا الجهاز بنجاح! 🚀', 'success');
+                    }
+                }
+            } catch (e) {
+                console.warn('⚠️ فشل تفعيل إشعارات الإدارة:', e);
+            } finally {
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            }
+        }
+    },
+
+    // 🚀 [الرادار المعماري]: دالة مستقلة لحفظ تفضيلات الإشعارات فقط
+    saveAdminPreferences: async function() {
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث إعدادات غرفة العمليات...');
+        try {
+            const pushPrefs = {
+                orders: Utils.getCheck('pref-orders', true),
+                deposits: Utils.getCheck('pref-deposits', true),
+                kyc: Utils.getCheck('pref-kyc', false),
+                vault: Utils.getCheck('pref-vault', true),
+                complaints: Utils.getCheck('pref-complaints', true)
+            };
+
+            let currentTokens = Array.isArray(this.data.adminProfile?.fcmTokens) ? [...this.data.adminProfile.fcmTokens] : [];
+            // 🚀 تم دمج مفتاح VAPID الخاص بالمشروع
+            const VAPID_KEY = "BDdFL5sHBs1j5RXsps4TahR2UN4qCRwZR2G769OJEGR_1gTj8D2MHsTRsMeSv_Spad22N6LYFsu0x9GhdARqEFk"; 
+            
+            if (typeof window !== 'undefined' && window.Notification && Notification.permission !== 'denied') {
+                const token = await FirebaseAdapter.requestFCMToken(VAPID_KEY);
+                if (token && !currentTokens.includes(token)) {
+                    currentTokens.push(token);
+                    if (currentTokens.length > 5) currentTokens = currentTokens.slice(-5); 
+                }
+            }
+
+            if (!this.data.adminProfile) this.data.adminProfile = {};
+            this.data.adminProfile.pushPrefs = pushPrefs;
+            this.data.adminProfile.fcmTokens = currentTokens;
+            
+            await AdminData?.saveAdminProfile?.();
+            
+            AdminUI?.showToast('تم تحديث إعدادات الرادار السحابي بنجاح 🚀', 'success');
+            AdminUI?.closeModal?.('admin-prefs'); // إغلاق نافذة التفضيلات
+        } catch (error) {
+            AdminUI?.showToast('تعذر حفظ إعدادات الإشعارات', 'error');
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }

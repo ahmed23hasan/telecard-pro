@@ -2,15 +2,14 @@
 // 🖥️ موزع محرك الرسم (adminRender.js) - نمط الواجهة النظيف (Facade) 🚀
 // 🎯 الوظيفة: المايسترو الذي يوجه طلبات الرسم للوحدات المعزولة (Micro-Frontends).
 // 🌟 التحديثات المعمارية: 
-// 1. Safe Delegation: تأمين الاستدعاءات لمنع انهيار النظام إذا تعطلت إحدى الوحدات.
-// 2. Dead-Link Purge: تنظيف الروابط الميتة وتوحيد المخططات (Charts Routing).
+// 1. Radar Hydration: إضافة دالة updatePrefsUI لمزامنة تفضيلات الإشعارات الحية.
+// 2. Event Binding: ربط حدث req-update-prefs-ui لملء نافذة الرادار عند فتحها.
 // ============================================================================
 
 import { EventBus, Utils } from './adminUtils.js'; 
 import { AdminData } from './adminData.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 
-// استيراد محركات الرسم للوحدات المعزولة
 import { OrdersRender } from './modules/orders/ordersRender.js';
 import { FinanceRender } from './modules/finance/financeRender.js';
 import { UsersRender } from './modules/users/usersRender.js';
@@ -20,7 +19,6 @@ import { SalesRender } from './modules/dashboard/salesRender.js';
 import { MarketingRender } from './modules/marketing/marketingRender.js'; 
 import { IntegrationsRender } from './modules/integrations/integrationsRender.js'; 
 
-// 🌟 تهيئة مستمعات الوحدات لسماع التحديثات فور الإقلاع
 OrdersRender?.initListeners?.();
 FinanceRender?.initListeners?.();
 UsersRender?.initListeners?.();
@@ -44,12 +42,10 @@ export const AdminRender = {
     // 📦 تفويض محركات الأقسام (Modules Routing)
     // ==========================================
     
-    // 1. الطلبات (Orders)
     loadMoreOrders: () => OrdersRender.loadMoreOrders(),
     renderOrders: (isAppend) => OrdersRender.renderOrders(isAppend),
     exportOrdersToExcel: () => OrdersRender.exportToExcel(),
     
-    // 2. المالية (Finance)
     loadMoreDeposits: () => FinanceRender.loadMoreDeposits(),
     renderDeposits: (isAppend) => FinanceRender.renderDeposits(isAppend),
     renderWalletsOverview: () => FinanceRender.renderWalletsOverview(),
@@ -58,7 +54,6 @@ export const AdminRender = {
     renderPayDetailList: (arr) => FinanceRender.renderPayDetailList(arr),
     exportDepositsToExcel: () => FinanceRender.exportDepositsToExcel(),
 
-    // 3. المستخدمين (Users, Tiers, KYC)
     updateUserSortLabel: () => UsersRender.updateUserSortLabel(),
     renderUsers: () => UsersRender.renderUsers(),
     viewUser: (id, p) => UsersRender.viewUser(id, p),
@@ -68,7 +63,6 @@ export const AdminRender = {
     renderTierUsersPage: () => UsersRender.renderTierUsersPage(),
     renderKycSystem: () => UsersRender.renderKycSystem(),
 
-    // 4. لوحة القيادة والمبيعات (Dashboard & Sales)
     changeLeaderboardFilter: (p) => DashboardRender.changeLeaderboardFilter(p),
     renderDashboard: () => DashboardRender.renderDashboard(),
     renderMainChart: () => DashboardRender.renderMainChart(),
@@ -76,21 +70,18 @@ export const AdminRender = {
     renderSales: () => SalesRender.renderSales(), 
     exportSalesToExcel: () => SalesRender.exportSalesToExcel(),
 
-    // 5. الكتالوج والمنتجات (Catalog & Vault)
     renderProds: () => CatalogRender.renderProds(),
     renderProdConfig: () => CatalogRender.renderProdConfig(),
     renderPkgList: () => CatalogRender.renderPkgList(),
     renderVault: () => CatalogRender.renderVault(),
     renderCountries: () => CatalogRender.renderCountries(),
 
-    // 6. التسويق والإعلانات (Marketing) 
     renderBanners: () => MarketingRender.renderBanners(),
     populateSmartTreeTargets: (...args) => MarketingRender.populateSmartTreeTargets(...args),
     renderCoupons: () => MarketingRender.renderCoupons(),
     renderOffers: () => MarketingRender.renderOffers(),
     renderUnifiedAlerts: () => MarketingRender.renderUnifiedAlerts(),
 
-    // 7. الربط والموردين (Integrations)
     renderSuppliers: () => IntegrationsRender.renderSuppliers(),
 
     // ==========================================
@@ -107,7 +98,6 @@ export const AdminRender = {
         else this.exportOrdersToExcel();
     },
 
-    // 💡 تحديث الإشعارات (سريع O(N) في الذاكرة لتجنب البطء)
     updateBadges: function() {
         const d = (AdminData.data.deposits || []).filter(x => x.status === 'pending').length;
         const o = (AdminData.data.orders || []).filter(x => x.status === 'pending').length;
@@ -146,6 +136,20 @@ export const AdminRender = {
         if (prev) { prev.src = imgSrc; prev.classList.remove('hide-element'); if (prev.parentElement) prev.parentElement.classList.toggle('has-img', p.img && p.img.trim() !== ''); }
     },
 
+    // 🚀 [الرادار]: حقن حالة الإشعارات السحابية في مفاتيح التبديل
+    updatePrefsUI: function() {
+        const prefs = AdminData.data.adminProfile?.pushPrefs || {
+            orders: true, deposits: true, kyc: false, vault: true, complaints: true
+        };
+        const safeCheck = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
+        
+        safeCheck('pref-orders', prefs.orders !== false);
+        safeCheck('pref-deposits', prefs.deposits !== false);
+        safeCheck('pref-kyc', prefs.kyc === true);
+        safeCheck('pref-vault', prefs.vault !== false);
+        safeCheck('pref-complaints', prefs.complaints !== false);
+    },
+
     // ==========================================
     // 🎧 تهيئة مستمعات الناقل المركزي (Event Bus Routing)
     // ==========================================
@@ -174,5 +178,8 @@ export const AdminRender = {
         EventBus.on('req-show-tier-users', (tierId) => this.showTierUsersPage(tierId));
         EventBus.on('req-render-prod-config', () => this.renderProdConfig());
         EventBus.on('req-update-profile-ui', () => this.updateProfileUI());
+        
+        // 🚀 [الرادار]: الاستماع لحدث فتح نافذة الرادار لتحديث الـ UI
+        EventBus.on('req-update-prefs-ui', () => this.updatePrefsUI());
     }
 };
