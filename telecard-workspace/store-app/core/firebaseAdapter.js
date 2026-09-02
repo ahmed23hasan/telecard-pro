@@ -1,9 +1,9 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V17.2 💎
-// 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت العميق، والاستعلامات
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.0 💎
+// 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت، والإشعارات الفورية
 // 🚀 التحديثات المعمارية:
-// 1. Upload Sync Fix: توحيد حجم الملفات المرفوعة (10MB) ليتطابق مع الواجهة لمنع التضارب.
-// 2. Single Source of Truth: ربط الختم العالمي بمفاتيح DB_KEYS و CACHE_KEYS.
+// 1. Push Notifications: دمج Firebase Cloud Messaging مع مفتاح الـ VAPID السري.
+// 2. Upload Sync Fix: توحيد حجم الملفات المرفوعة (10MB) ليتطابق مع الواجهة لمنع التضارب.
 // 3. Zero-Leak Listeners: إغلاق ثغرة القراءة المزدوجة في onSnapshot لتقليل الفاتورة.
 // 4. Error Masking: إخفاء الأخطاء الحساسة (Cost/Profit) عن العملاء لحماية أسرار المتجر.
 // ============================================================================
@@ -21,6 +21,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
+// 🛡️ استيراد مكتبة الإشعارات الفورية
+import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js";
 
 import { firebaseConfig, DB_KEYS, CACHE_KEYS } from '../config.js';
 
@@ -33,7 +35,17 @@ const auth = getAuth(app);
 const storage = getStorage(app);
 const functions = getFunctions(app);
 
-export { auth, db, storage, functions };
+// 🛡️ تهيئة الإشعارات بأمان (حماية ضد المتصفحات التي لا تدعمها مثل وضع التخفي)
+let messaging = null;
+try {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+        messaging = getMessaging(app);
+    }
+} catch (error) {
+    console.warn("[FCM] ميزة الإشعارات غير مدعومة في بيئة المتصفح الحالية.");
+}
+
+export { auth, db, storage, functions, messaging };
 
 export const FirebaseAdapter = {
     db: db,
@@ -43,7 +55,33 @@ export const FirebaseAdapter = {
     _globalForceServer: false, 
 
     // ==========================================
-    // 🧠 1. نظام الختم العالمي (Global Cache Versioning)
+    // 🔔 1. محرك الإشعارات الفورية (FCM Engine)
+    // ==========================================
+    async requestFCMToken() {
+        if (!messaging || typeof window === 'undefined' || !('Notification' in window)) return null;
+        
+        try {
+            // نطلب الصلاحية من المتصفح (هذه الدالة ستُستدعى فقط بعد أن يوافق العميل في واجهتنا الأنيقة)
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') {
+                console.warn('[FCM] العميل رفض صلاحية الإشعارات.');
+                return null;
+            }
+            
+            // توليد التوكن وربطه بالمفتاح السري (VAPID Key) الخاص بمشروعك
+            const token = await getToken(messaging, { 
+                vapidKey: 'BDdFL5sHBs1j5RXsps4TahR2UN4qCRwZR2G769OJEGR_1gTj8D2MHsTRsMeSv_Spad22N6LYFsu0x9GhdARqEFk' 
+            });
+            
+            return token;
+        } catch (error) {
+            console.warn('[FCM] تعذر جلب توكن الإشعارات:', error);
+            return null;
+        }
+    },
+
+    // ==========================================
+    // 🧠 2. نظام الختم العالمي (Global Cache Versioning)
     // ==========================================
     initGlobalCacheVersioning: async function() {
         if (typeof window === 'undefined' || !window.localStorage) return;
@@ -99,7 +137,6 @@ export const FirebaseAdapter = {
             }, ms);
         });
         
-        // ملاحظة: فايربيز لا يدعم AbortController لـ getDocs لذلك الوعد يستمر بالخلفية
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
 
@@ -347,11 +384,9 @@ export const FirebaseAdapter = {
     async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = false) { 
         if (!file) return ''; 
         
-        // 🛡️ الإصلاح: السماح بكافة أنواع الصور والـ PDF 
         const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml', 'application/pdf']; 
         if (!allowedTypes.includes(file.type)) throw new Error(`نوع الملف غير مدعوم.`); 
         
-        // 🛡️ الإصلاح الجذري: توحيد الحد الأقصى للملفات بـ 10MB ليتطابق مع الواجهة ولا ينهار
         const MAX_FILE_SIZE_MB = 10; 
         if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) throw new Error(`حجم الملف كبير جداً. الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت.`); 
         

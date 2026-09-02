@@ -1,10 +1,11 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V17.4 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V17.6 💎
 // 🎯 الوظيفة: النوافذ، التوجيه الذكي، الإشعارات، التنسيق، ومزامنة الصوت
 // 🚀 التحديثات المعمارية (Architectural Sync):
-// 1. Magic Strings Cleanup: ربط دالة الحظر (Ban) بمفاتيح CACHE_KEYS الموحدة.
-// 2. Deep Purge: تدمير كاشات الطلبات والإيداعات تلقائياً عند طرد المستخدم المحظور.
-// 3. UI Thread Protection: تغليف updateDisplayBalance بـ requestAnimationFrame.
+// 1. Soft Push Prompt: نافذة أنيقة لطلب صلاحية الإشعارات دون إزعاج المستخدم.
+// 2. Action Unlocks: شبكة أمان لفك تجميد أزرار الدفع/الإيداع عند انقطاع الإنترنت الصامت.
+// 3. Magic Strings Cleanup: ربط دالة الحظر (Ban) بمفاتيح CACHE_KEYS الموحدة.
+// 4. Deep Purge: تدمير كاشات الطلبات والإيداعات تلقائياً عند طرد المستخدم المحظور.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY, DYNAMIC_PREFIXES } from '../config.js';           
@@ -602,8 +603,19 @@ export const UICore = {
             'confirm-purchase': async (e, id, val, target) => { 
                 if (target.dataset.processing === 'true') return;
                 target.dataset.processing = 'true';
-                try { await getSys().handlePurchaseSubmit?.(); } 
-                finally { target.dataset.processing = 'false'; }
+                
+                // 🛡️ شبكة أمان: فك القفل الإجباري بعد 35 ثانية لحماية الواجهة من السقوط الصامت للإنترنت
+                const safetyUnlock = setTimeout(() => {
+                    target.dataset.processing = 'false';
+                    if (target.disabled) getSys()._unlockUI?.(target);
+                }, 35000);
+
+                try { 
+                    await getSys().handlePurchaseSubmit?.(); 
+                } finally { 
+                    clearTimeout(safetyUnlock);
+                    target.dataset.processing = 'false'; 
+                }
             },
             
             'nav-orders-from-success': () => { 
@@ -616,9 +628,21 @@ export const UICore = {
             'submit-balance': async (e, id, val, target, dataType, dataCurr) => {
                 if (target.disabled || target.dataset.processing === 'true') return;
                 target.dataset.processing = 'true';
-                try { await getSys().handleBalanceSubmit?.(dataCurr); }
-                finally { target.dataset.processing = 'false'; }
+                
+                // 🛡️ شبكة أمان: فك القفل الإجباري بعد 45 ثانية (وقت إضافي لاحتمالية رفع صورة إشعار)
+                const safetyUnlock = setTimeout(() => {
+                    target.dataset.processing = 'false';
+                    if (target.disabled) getSys()._unlockUI?.(target);
+                }, 45000);
+
+                try { 
+                    await getSys().handleBalanceSubmit?.(dataCurr); 
+                } finally { 
+                    clearTimeout(safetyUnlock);
+                    target.dataset.processing = 'false'; 
+                }
             },
+
             'toggle-accordion': (e, id, val, target) => { e.preventDefault(); getSys().togglePayDetail?.(target); },
             'jump-transaction': (e, id, val, target, dataType) => getSys().jumpToTransaction?.(id, dataType),
             'open-detail': (e, id, val, target, dataType) => getSys().openDetail?.(e, dataType, id),
@@ -719,8 +743,33 @@ export const UICore = {
                 if (tId && tId !== 'null' && tId !== 'undefined') {
                     getSys().openDetail?.(e, item.getAttribute('data-jump-type') || 'order', tId);
                 }
+            }, // ⬅️ فاصلة الأمان للمحرك
+
+            // =======================================================
+            // 🔔 أحداث نافذة الإشعارات
+            // =======================================================
+            'accept-push-prompt': async () => {
+                const promptEl = document.getElementById('push-soft-prompt');
+                if (promptEl) promptEl.remove();
+                
+                // تسجيل الموافقة لعدم إزعاجه مستقبلاً
+                localStorage.setItem(CACHE_KEYS.PUSH_PROMPT_TIME || 'tc_push_prompt_time', Date.now().toString());
+                
+                // استدعاء دالة الداتا منجر التي بنيناها
+                if (typeof DataManager !== 'undefined' && DataManager.setupPushNotifications) {
+                    await DataManager.setupPushNotifications(true); 
+                }
+            },
+            
+            'dismiss-push-prompt': () => {
+                const promptEl = document.getElementById('push-soft-prompt');
+                if (promptEl) promptEl.remove();
+                
+                // تسجيل الرفض المؤقت (سنسأله بعد 7 أيام كما برمجنا)
+                localStorage.setItem(CACHE_KEYS.PUSH_PROMPT_TIME || 'tc_push_prompt_time', Date.now().toString());
             }
-        };
+
+        }; 
 
         if (this.initNetworkSensors) this.initNetworkSensors(); 
 
@@ -1167,6 +1216,48 @@ export const UICore = {
             }
             document.getElementById('admin-direct-msg-popup').remove(); 
         });
+    },
+
+    // =========================================================
+    // 🔔 نافذة طلب الإشعارات الأنيقة (Soft Prompt)
+    // =========================================================
+    showPushNotificationPrompt: function() {
+        // 1. الفحص المعماري: هل المتصفح يدعم؟ هل نحن أوفلاين؟ هل العميل وافق/رفض مسبقاً؟
+        if (typeof window === 'undefined' || !window.Notification || typeof DataManager === 'undefined' || !DataManager.activeUid) return;
+        if (Notification.permission === 'granted' || Notification.permission === 'denied') return;
+        
+        // 2. حماية الـ UX: عدم إزعاج العميل إذا طلب تذكيره لاحقاً (Cooldown: 7 Days)
+        const lastPrompt = localStorage.getItem(CACHE_KEYS.PUSH_PROMPT_TIME || 'tc_push_prompt_time');
+        if (lastPrompt && (Date.now() - parseInt(lastPrompt)) < 7 * 24 * 60 * 60 * 1000) return;
+
+        // 3. منع التكرار في الـ DOM
+        if (document.getElementById('push-soft-prompt')) return;
+
+        // 4. بناء القالب البصري الأنيق (تصميم يتماشى مع هوية المتجر)
+        const html = `
+            <div id="push-soft-prompt" class="sys-dialog-wrapper active" style="z-index: 99999;">
+                <div class="sys-dialog-overlay" data-action="dismiss-push-prompt"></div>
+                <div class="sys-dialog-card" style="border-top: 4px solid var(--primary);">
+                    <div class="sys-dialog-header">
+                        <div class="sys-dialog-icon" style="color: var(--primary); background: rgba(var(--primary-rgb), 0.1);">
+                            <i class="fa-solid fa-bell fa-shake"></i>
+                        </div>
+                        <h3 class="sys-dialog-title" style="color: var(--text-main);">تنبيهات المتجر</h3>
+                    </div>
+                    <div class="sys-dialog-msg-container">
+                        <p class="sys-dialog-msg" style="text-align: center; margin-bottom: 20px;">
+                            هل ترغب بتفعيل الإشعارات ليصلك تحديث فوري عند اكتمال طلباتك أو توفر عروض حصرية جديدة؟
+                        </p>
+                    </div>
+                    <div class="sys-dialog-actions" style="display: flex; gap: 10px; margin-top: 15px;">
+                        <button class="btn btn-primary" data-action="accept-push-prompt" style="flex: 1;"><i class="fa-solid fa-check"></i> تفعيل الآن</button>
+                        <button class="btn btn-secondary" data-action="dismiss-push-prompt" style="flex: 1; background: var(--bg-glass-heavy); color: var(--text-muted);">ليس الآن</button>
+                    </div>
+                </div>
+            </div>`;
+        
+        document.body.insertAdjacentHTML('beforeend', html);
+        this.sfx?.('info');
     },
 
     processAndDisplayAlerts: function() {
@@ -2011,43 +2102,39 @@ export const UICore = {
     },    
 
     openCommunityModal: function() {
-        this.closeSidebar();
-        const target = document.getElementById('community-links-target');
-        if (!target) return;
+        this.closeSidebar?.();
         
-        const s = LiveStoreData.settings || {};
+        const target = document.getElementById('community-links-target');
+        
+        const s = LiveStoreData?.settings || {};
         const linksList = Array.isArray(s.socialLinksList) ? s.socialLinksList : [];
-        const communityDesc = s.socialDesc || s.socialLinks?.desc || 'انضم إلى مجتمعنا وتابع أحدث الأخبار والعروض.';
         
         let html = '';
 
         if (linksList.length > 0) {
-            html += `<div class="community-header-desc mb-15 text-center text-muted fs-13">${Utils.escapeHtml(communityDesc)}</div>`;
-
             const colorMap = {
-                'fa-whatsapp': '#25D366',
-                'fa-telegram': '#24A1DE',
-                'fa-facebook': '#1877F2',
-                'fa-instagram': '#E1306C',
-                'fa-x-twitter': '#000000',
-                'fa-youtube': '#FF0000',
-                'fa-tiktok': '#000000',
-                'fa-discord': '#5865F2',
-                'fa-link': 'var(--primary)'
+                'fa-whatsapp': '#25D366', 'fa-telegram': '#24A1DE', 'fa-facebook': '#1877F2',
+                'fa-instagram': '#E1306C', 'fa-x-twitter': '#000000', 'fa-youtube': '#FF0000',
+                'fa-tiktok': '#000000', 'fa-discord': '#5865F2', 'fa-link': 'var(--primary)'
             };
 
             linksList.forEach(link => {
-                const safeUrl = Utils.safeUrl(link.url);
+                const safeUrl = Utils.safeUrl ? Utils.safeUrl(link.url) : link.url;
                 if (!safeUrl || safeUrl === '#') return;
 
                 let iconClass = link.icon || 'fa-link';
+                
+                // 🚀 الإصلاح: إعادة فحص عائلة الخط (fa-brands / fa-solid) بدقة حتى يتعرف عليها المتصفح
                 if (!iconClass.includes('fa-solid') && !iconClass.includes('fa-brands') && !iconClass.includes('fa-regular')) {
-                    iconClass = `fa-brands ${iconClass}`; 
-                    if(link.icon === 'fa-link') iconClass = 'fa-solid fa-link';
+                    if (iconClass.includes('link') || iconClass === 'fa-link') {
+                        iconClass = `fa-solid ${iconClass}`;
+                    } else {
+                        iconClass = `fa-brands ${iconClass}`; 
+                    }
                 }
 
                 const bgColor = colorMap[link.icon] || 'var(--primary)';
-                const safeName = Utils.escapeHtml(link.name || 'رابط سريع');
+                const safeName = Utils.escapeHtml ? Utils.escapeHtml(link.name || 'رابط سريع') : (link.name || 'رابط سريع');
 
                 html += `
                 <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="community-item-card" onclick="(window.ClientSystem || window.UIManager)?.sfx?.('nav')">
@@ -2064,8 +2151,11 @@ export const UICore = {
             });
         }
         
-        target.innerHTML = html ? html : `<div class="empty-state-v2"><i class="fa-solid fa-share-nodes"></i><h3>قريباً جداً</h3><p>تعمل الإدارة حالياً على تجهيز شبكات التواصل الاجتماعي.</p></div>`;
-        getSys().openModal?.('community');
+        if (target) {
+            target.innerHTML = html ? html : `<div class="empty-state-v2"><i class="fa-solid fa-share-nodes"></i><h3>قريباً جداً</h3><p>تعمل الإدارة حالياً على تجهيز شبكات التواصل الاجتماعي.</p></div>`;
+        }
+        
+        this.openModal?.('community');
     },
 
     openRatingModal: function() {

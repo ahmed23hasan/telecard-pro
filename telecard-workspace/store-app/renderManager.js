@@ -29,27 +29,56 @@ window.StoreRenderApp = window.StoreRenderApp || {
         }
     },
 
-    onImgLoad: function(img) {
+        onImgLoad: function(img) {
         if (!img) return;
+        
         const key = img.getAttribute('data-key');
         if (key) {
+            // 1. نقل الصورة لتكون "الأحدث" في الكاش (LRU Cache logic)
             if (this.imgCache.has(key)) {
                 this.imgCache.delete(key);
             } else if (this.imgCache.size > 500) {
-                let i = 0;
+                // 2. تنظيف الكاش عند الامتلاء
+                let deletedCount = 0;
                 for (const k of this.imgCache) {
-                    if (k.startsWith('blob:')) URL.revokeObjectURL(k); 
-                    this.imgCache.delete(k);
-                    if (++i >= 50) break;
+                    if (k.startsWith('blob:')) {
+                        // 🛡️ فحص احترافي: هل الصورة معروضة حالياً في الـ DOM؟
+                        // نستخدم escape لضمان عدم حدوث خطأ في الـ querySelector
+                        const safeK = k.replace(/"/g, '\\"'); 
+                        const isInDOM = document.querySelector(`img[src="${safeK}"]`);
+                        
+                        if (!isInDOM) {
+                            // إذا لم تكن في الشاشة، ندمرها بأمان لتحرير الرام
+                            URL.revokeObjectURL(k); 
+                            this.imgCache.delete(k);
+                            deletedCount++;
+                        }
+                        // ملاحظة: إذا كانت في الشاشة، نتركها في الـ Set لكي يتم فحصها في الدورة القادمة
+                    } else {
+                        // صور الروابط العادية (HTTP) نحذفها من قائمة الكاش فقط
+                        this.imgCache.delete(k);
+                        deletedCount++;
+                    }
+                    
+                    // التوقف بعد تحرير 50 عنصر فعلياً
+                    if (deletedCount >= 50) break;
                 }
             }
-            this.imgCache.add(key);
+            this.imgCache.add(key); // إضافة المفتاح كأحدث عنصر
         }
         
-        if (img.complete && img.naturalHeight > 0) { this.revealImg(img); return; }
-        if ('decode' in img) img.decode().then(() => this.revealImg(img)).catch(() => this.revealImg(img));
-        else this.revealImg(img);
-    },    
+        // 3. العرض البصري الناعم (Smooth Reveal)
+        if (img.complete && img.naturalHeight > 0) { 
+            this.revealImg(img); 
+            return; 
+        }
+        
+        if ('decode' in img) {
+            img.decode().then(() => this.revealImg(img)).catch(() => this.revealImg(img));
+        } else {
+            this.revealImg(img);
+        }
+    },
 
     handleImgError: function(img, type) {
         if (!img) return;

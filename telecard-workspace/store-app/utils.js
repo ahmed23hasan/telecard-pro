@@ -1,15 +1,17 @@
 // ============================================================================
-// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V15.5 💎
+// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V16.0 💎 (Enterprise Edition)
 // 🎯 الوظيفة: أدوات نقية للتعامل مع النصوص، الروابط، التواريخ، وبصمة الجهاز.
 // 🚀 التحديثات المعمارية:
-// 1. Unified Time Parser: التوافق الشامل مع Timestamp الخاص بـ Firebase.
-// 2. Decimal Trap Fix: معالجة ذكية للفواصل في الأرقام العربية/الأوروبية.
-// 3. Dynamic Router Fix: فك ارتباط التوجيه بأسماء المجلدات ليعمل في أي بيئة.
+// 1. Crypto-Safe Fallback: ترقيع ثغرة Idempotency Key لضمان عدم تكرار الطلبات المالية.
+// 2. Unified Time Parser: التوافق الشامل مع Timestamp الخاص بـ Firebase.
+// 3. Decimal Trap Fix: معالجة ذكية للفواصل في الأرقام العربية/الأوروبية.
+// 4. Dynamic Router Fix: فك ارتباط التوجيه بأسماء المجلدات ليعمل في أي بيئة.
 // ============================================================================
 
 // === 1. أدوات حماية النصوص وتنسيقها (OWASP Standard) ===
 
 const htmlEntityMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#x60;', '=': '&#x3D;', '/': '&#x2F;' };
+
 export function escapeHtml(val) {
     if (val == null) return '';
     return String(val).replace(/[&<>"'`=\/]/g, s => htmlEntityMap[s]);
@@ -20,11 +22,12 @@ export function safeText(val, fallback = '---') {
     return escapeHtml(val);
 }
 
-// 🛡️ درع حماية الروابط المتقدم (يمنع ثغرات XSS)
+// 🛡️ درع حماية الروابط المتقدم (يمنع ثغرات XSS وحقن الجافاسكريبت)
 export function safeUrl(url, fallback = '#') {
     if (!url) return fallback;
     let cleaned = String(url).replace(/[\x00-\x1F\x7F\s]/g, '').trim();
     
+    // منع بروتوكولات التنفيذ الخبيثة
     if (/^(javascript|vbscript|data):/i.test(cleaned)) return fallback;
     
     const encodeUrlSafely = (u) => u.replace(/"/g, '%22').replace(/'/g, '%27').replace(/</g, '%3C').replace(/>/g, '%3E');
@@ -35,6 +38,7 @@ export function safeUrl(url, fallback = '#') {
         if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) return encodeUrlSafely(cleaned);
         return fallback;
     } catch (e) {
+        // الروابط النسبية (Relative URLs)
         if (cleaned.startsWith('//')) return fallback;
         if (/^[./#?]/.test(cleaned)) return encodeUrlSafely(cleaned);
         return fallback;
@@ -54,12 +58,15 @@ export function enNum(val, decimals = 2) {
     }).format(num);
 }
 
-// 🛡️ توحيد الأرقام العربية وإصلاح فخ الفواصل
+// 🛡️ توحيد الأرقام العربية وإصلاح فخ الفواصل (تأمين المدخلات المالية)
 export function parseSafeNumber(val) {
     if (!val) return 0;
+    // تحويل الأرقام المشرقية إلى إنجليزية
     let englishVal = String(val).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).trim();
-    englishVal = englishVal.replace(/,(\d{1,2})$/, '.$1'); // تحويل الفاصلة قبل آخر رقمين إلى نقطة
-    englishVal = englishVal.replace(/[, \s]/g, ''); // إزالة فواصل الآلاف
+    // تحويل الفاصلة قبل آخر رقمين إلى نقطة عشرية (للصيغ الأوروبية)
+    englishVal = englishVal.replace(/,(\d{1,2})$/, '.$1');
+    // إزالة فواصل الآلاف الخاطئة أو المسافات
+    englishVal = englishVal.replace(/[, \s]/g, '');
     return parseFloat(englishVal) || 0;
 }
 
@@ -68,20 +75,21 @@ export function parseSafeNumber(val) {
 // 🛡️ المرجع الشامل لتحليل الأوقات من كافة الصيغ (Single Source of Truth)
 export function parseSafeTime(val) {
     if (val === null || val === undefined || val === '') return Date.now();
-    if (typeof val === 'number') return val;
-    if (typeof val.toMillis === 'function') return val.toMillis();
-    if (val.seconds !== undefined) return val.seconds * 1000;
+    if (typeof val === 'number') return val; // جاهز كـ Milliseconds
+    if (typeof val.toMillis === 'function') return val.toMillis(); // Firebase Timestamp Object
+    if (val.seconds !== undefined) return val.seconds * 1000; // Firebase Timestamp Raw
     if (val._seconds !== undefined) return val._seconds * 1000;
-    if (val instanceof Date) return val.getTime();
+    if (val instanceof Date) return val.getTime(); // كائن Date عادي
     
     if (typeof val === 'string') {
+        // دعم صيغة ISO والصيغة العادية
         const parsed = new Date(val.includes('T') ? val : val.replace(/-/g, '/')).getTime();
         return isNaN(parsed) ? Date.now() : parsed;
     }
     return Date.now();
 }
 
-// ⏱️ محرك حساب مدة الإنجاز
+// ⏱️ محرك حساب مدة الإنجاز (لطلبات المتجر)
 export function calculateOrderDuration(startTime, endTime) {
     if (!startTime || !endTime) return "---";
     
@@ -91,8 +99,8 @@ export function calculateOrderDuration(startTime, endTime) {
     if (startMs === 0 || endMs === 0) return "---";
     
     const diffMs = endMs - startMs;
-    if (diffMs < 0) return "---";
-    if (diffMs < 2000) return "فوري ⚡";
+    if (diffMs < 0) return "---"; // حالة شاذة (تاريخ الانتهاء قبل البدء)
+    if (diffMs < 2000) return "فوري ⚡"; // أقل من ثانيتين يعتبر آلي/فوري
     
     const diffSecs = Math.floor(diffMs / 1000);
     const diffMins = Math.floor(diffSecs / 60);
@@ -107,26 +115,29 @@ export function calculateOrderDuration(startTime, endTime) {
 
 // === 3. أدوات الأمان والمصادقة ===
 
-// 🔑 توليد مفتاح منع تكرار الطلبات (آمن تشفيرياً)
+// 🔑 توليد مفتاح منع تكرار الطلبات (آمن تشفيرياً ومحصن ضد التصادم - Collision Resistant)
 export function generateIdempotencyKey() {
-    if (typeof crypto !== 'undefined') {
-        if (crypto.randomUUID) return crypto.randomUUID();
-        try {
-            const arr = new Uint32Array(4);
-            crypto.getRandomValues(arr);
-            return arr.join('-');
-        } catch (e) {}
-    }
-    return Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36);
+    // الخيار الأول والأقوى: استخدام مكتبة المتصفح المدمجة
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    
+    // الخيار الثاني: Fallback هندسي آمن للعمليات المالية يعتمد على الإنتروبيا (Entropy)
+    const time = Date.now().toString(36);
+    // دمج أداء المعالج بالمايكروثانية لضمان عدم التكرار حتى في نفس الملي ثانية
+    const perf = (typeof performance !== 'undefined' && performance.now ? Math.floor(performance.now() * 1000).toString(36) : '');
+    const rand1 = Math.random().toString(36).substring(2, 10);
+    const rand2 = Math.random().toString(36).substring(2, 10);
+    
+    return `${time}-${perf}-${rand1}-${rand2}`;
 }
 
-// 🕵️‍♂️ توليد بصمة الجهاز (مضاد للانهيار البيئي)
+// 🕵️‍♂️ توليد بصمة الجهاز (Device Fingerprint) مضاد للانهيار البيئي
 export async function getDeviceFingerprint() {
     try {
         if (typeof window !== 'undefined' && window.FingerprintJS) {
             const loadedFp = await window.FingerprintJS.load();
             return (await loadedFp.get()).visitorId;
         } else {
+            // بصمة بديلة تعتمد على خصائص المتصفح والشاشة
             const nav = typeof navigator !== 'undefined' ? navigator : {};
             const scr = typeof screen !== 'undefined' ? screen : {};
             const rawPrint = (nav.userAgent || 'unknown') + (nav.language || '') + (scr.width || 0) + (scr.height || 0);
@@ -149,7 +160,7 @@ export async function getDeviceFingerprint() {
 
 // === 4. أدوات الواجهة والمنوعات ===
 
-// 📄 أداة تصفية التواريخ والبحث (مزامنة وقت السيرفر)
+// 📄 أداة تصفية التواريخ والبحث (تستخدم وقت السيرفر المزامَن لمنع التلاعب)
 export function getSearchAndDateFilters(searchId, datePrefixId, serverNowTime = Date.now()) {
     if (typeof document === 'undefined') return { q: '', dStart: '', dEnd: '', tStart: null, tEnd: null, error: null };
     
@@ -182,6 +193,7 @@ export function getSearchAndDateFilters(searchId, datePrefixId, serverNowTime = 
     
     let tStart = null,
         tEnd = null;
+    
     if (dStart) {
         const [year, month, day] = dStart.split('-').map(Number);
         if (year && month && day) tStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
@@ -197,7 +209,7 @@ export function getSearchAndDateFilters(searchId, datePrefixId, serverNowTime = 
     return { q, dStart, dEnd, tStart, tEnd, error };
 }
 
-// 🧭 محرك التوجيه الآمن الديناميكي
+// 🧭 محرك التوجيه الآمن الديناميكي (يعمل بسلاسة على السيرفرات المحلية والحية)
 export function safeRedirect(pageName) {
     const isLocal = window.location.hostname === 'localhost' ||
         window.location.hostname === '127.0.0.1' ||
@@ -215,7 +227,7 @@ export function safeRedirect(pageName) {
     window.location.replace(finalPath);
 }
 
-// 💳 استخراج أكواد الخزنة كنص
+// 💳 استخراج أكواد الخزنة كنص جاهز للنسخ والعرض
 export function extractCodeText(dCode) {
     if (dCode == null || dCode === 'null') return '';
     let extracted = '';
@@ -229,9 +241,10 @@ export function extractCodeText(dCode) {
     return escapeHtml(extracted);
 }
 
-// 📤 محرك المشاركة الذكي (Web Share API)
+// 📤 محرك المشاركة الذكي (Web Share API) للإيصالات والصور
 export async function smartShareOrDownload(blob, fileName, shareTitle = 'مشاركة', shareText = '') {
     const file = new File([blob], fileName, { type: blob.type });
+    // تحديد الهواتف لفتح نافذة المشاركة الأصلية بدلاً من التحميل المباشر
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     
     const forceDownload = () => {
@@ -253,10 +266,12 @@ export async function smartShareOrDownload(blob, fileName, shareTitle = 'مشا�
             await navigator.share({ title: shareTitle, text: shareText, files: [file] });
             return true;
         } catch (error) {
+            // إذا ألغى المستخدم المشاركة، لا نقم بالتحميل الإجباري. إذا فشل النظام، نقوم بالتحميل
             if (error.name !== 'AbortError') forceDownload();
             return true;
         }
     } else {
+        // في أجهزة الكمبيوتر، نقوم بالتحميل المباشر
         forceDownload();
         return true;
     }

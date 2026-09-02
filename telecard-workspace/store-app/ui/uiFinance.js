@@ -1,11 +1,11 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - الإصدار المؤسسي V17.2 💎
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - الإصدار المؤسسي V17.6 💎
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، المعاملات المالية، وتأمين الطلبات
 // 🚀 التحديثات المعمارية:
-// 1. Race Condition Fix: إزالة Kill Switch الزمني وربط فك القفل بـ Promise.finally حصراً.
-// 2. Strict DOM Validation: إعادة التحقق البرمجي من الكميات رياضياً قبل إرسالها للسيرفر.
-// 3. Network Failsafe: دمج Promise.race لفك قفل الواجهة إجبارياً في حال انقطاع النت الصامت.
-// 4. Secure File Paths: توليد أسماء عشوائية آمنة لإيصالات الإيداع لمنع التلاعب.
+// 1. Image Processing Guard: حماية زر الإيداع أثناء ضغط صورة الإشعار في الهواتف البطيئة.
+// 2. Race Condition Fix: إزالة Kill Switch الزمني وربط فك القفل بـ Promise.finally حصراً.
+// 3. Strict DOM Validation: إعادة التحقق البرمجي من الكميات رياضياً قبل إرسالها للسيرفر.
+// 4. Network Failsafe: دمج Promise.race لفك قفل الواجهة إجبارياً في حال انقطاع النت الصامت.
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -509,11 +509,13 @@ export const UIFinance = {
                     }
                 }, 150);
             } else { 
-                sys.showToast?.(result.msg || 'فشلت العملية', 'error'); 
+                sys.showToast?.(result.msg || 'فشلت العملية', 'error');
+                sys.sfx?.('error'); 
                 keepKeyboardOpen(); 
             }
         } catch (err) { 
-            sys.showToast?.(err.message || 'حدث خطأ في النظام', 'error'); 
+            sys.showToast?.(err.message || 'حدث خطأ في النظام', 'error');
+            sys.sfx?.('error'); 
         } finally { 
             // 🛡️ Security Fix: فك القفل دائماً وبشكل قطعي 
             this._unlockUI(submitBtn); 
@@ -757,7 +759,7 @@ export const UIFinance = {
         }
     },
     
-        calcFee: function() {
+    calcFee: function() {
         const input = document.getElementById('bal-amount');
         if (!input || !DataManager || !this.currentPayment) return;
         
@@ -835,16 +837,25 @@ export const UIFinance = {
         
         const payCurr = currency || this.currentPayCurrency || 'USD';
 
-        if (this.currentPayment && this.currentPayment.reqProof !== false && !sys.State?.pendingReceiptFile) {
-            sys.showToast?.('أرفق إشعار الدفع أولاً', 'error');
-            const uploadBox = document.getElementById('bal-upload-box');
-            if (uploadBox) {
-                uploadBox.classList.remove('shake-error-input');
-                void uploadBox.offsetWidth;
-                uploadBox.classList.add('shake-error-input');
-                setTimeout(() => uploadBox.classList.remove('shake-error-input'), 1000);
+        if (this.currentPayment && this.currentPayment.reqProof !== false) {
+            if (!sys.State?.pendingReceiptFile) {
+                
+                // 🛡️ درع ذكي: هل الصورة قيد المعالجة (Compressing) الآن؟
+                const uploadBox = document.getElementById('bal-upload-box');
+                if (uploadBox && uploadBox.innerHTML.includes('fa-spinner')) {
+                    sys.showToast?.('جاري تجهيز الصورة، يرجى الانتظار لحظة...', 'warning');
+                    return;
+                }
+                
+                sys.showToast?.('أرفق إشعار الدفع أولاً', 'error');
+                if (uploadBox) {
+                    uploadBox.classList.remove('shake-error-input');
+                    void uploadBox.offsetWidth;
+                    uploadBox.classList.add('shake-error-input');
+                    setTimeout(() => uploadBox.classList.remove('shake-error-input'), 1000);
+                }
+                return; 
             }
-            return; 
         }
 
         const validation = DataManager.calculateDepositFee(amount, this.currentPayment, payCurr);
@@ -893,6 +904,7 @@ export const UIFinance = {
             } else { 
                 if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
                 sys.showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
+                sys.sfx?.('error');
             }
         } catch (error) {
             if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) {
@@ -903,7 +915,9 @@ export const UIFinance = {
             let errMsg = 'حدث خطأ أثناء الاتصال بالخادم.';
             const rawMsg = String(error.message || '');
             if (/[\u0600-\u06FF]/.test(rawMsg)) errMsg = rawMsg;
+            
             sys.showToast?.(errMsg, 'error');
+            sys.sfx?.('error');
             
         } finally {
             this._unlockUI(submitBtn);

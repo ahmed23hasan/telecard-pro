@@ -979,6 +979,103 @@ exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', 
     return { success: true, updatedProductsCount: totalUpdated };
 });
 
+// ==========================================
+// 🔗 11. المزامنة والتريجرات الخاصة بالكاش (Cache Auto-Sync & FCM)
+// ==========================================
+exports.onSettingsUpdate = onDocumentUpdated({ document: 'telecard_settings/singleton', memory: "256MiB", concurrency: 1 }, async () => { await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); });
+
+exports.onOfferUpdate = onDocumentWritten({ document: 'telecard_offers/{offerId}', memory: "256MiB", concurrency: 1 }, async () => { 
+    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true }); 
+    await buildPricingCache();
+});
+
+exports.onRateUpdate = onDocumentWritten({ document: 'telecard_rates/{rateId}', memory: "256MiB", concurrency: 1 }, async () => { 
+    await buildConfigCache();
+});
+exports.onPaymentUpdate = onDocumentWritten({ document: 'telecard_payments/{paymentId}', memory: "256MiB", concurrency: 1 }, async () => { 
+    await buildConfigCache();
+});
+
+exports.secureProductSync = onDocumentWritten({ document: 'telecard_prods/{productId}', retry: true }, async (event) => {
+    const publicProdRef = db.collection('telecard_prods_public').doc(event.params.productId);
+    if (!event.data.after.exists) return publicProdRef.delete(); 
+    const prodData = event.data.after.data();
+    if (prodData.isActive === false || String(prodData.isAvailable) === 'false') return publicProdRef.delete();
+    const tiersSnap = await db.collection('telecard_tiers').get();
+    const tiersData = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    return publicProdRef.set(generatePublicProductData(prodData, tiersData), { merge: true });
+});
+
+exports.onTierUpdate = onDocumentUpdated({ document: 'telecard_tiers/{tierId}', timeoutSeconds: 540 }, async (event) => {
+    await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
+    
+    const fallback = await buildPricingCache(); 
+    
+    const oldTier = event.data.before.data(); 
+    const newTier = event.data.after.data();
+    if ((oldTier.profit_percent ?? oldTier.profitPercent) === (newTier.profit_percent ?? newTier.profitPercent) && 
+        (oldTier.min_profit_usd ?? oldTier.minProfitUsd) === (newTier.min_profit_usd ?? newTier.minProfitUsd)) return null;
+    
+    const activeProdsStream = db.collection('telecard_prods').where('isActive', '==', true).stream();
+    let currentBatch = db.batch(), opCount = 0, totalUpdated = 0;
+    
+    for await (const doc of activeProdsStream) {
+        const prodData = doc.data();
+        if (String(prodData.isFixedPrice).toLowerCase() === 'true') continue;
+        currentBatch.set(db.collection('telecard_prods_public').doc(doc.id), generatePublicProductData(prodData, fallback.tiers), { merge: true });
+        totalUpdated++; opCount++;
+        
+        if (opCount >= 400) { 
+            await currentBatch.commit(); 
+            currentBatch = db.batch(); 
+            opCount = 0; 
+        }
+    }
+    if (opCount > 0) await currentBatch.commit();
+    return { success: true, updatedProductsCount: totalUpdated };
+});
+
+// 🚀 [جديد] محرك إرسال الإشعارات الفورية (FCM Engine) مع تنظيف التوكنز الميتة
+const sendFCMToUser = async (userId, title, body, payloadData = {}) => {
+    try {
+        const userDoc = await db.collection('telecard_users').doc(String(userId)).get();
+        if (!userDoc.exists) return;
+
+        const tokens = userDoc.data().fcmTokens || [];
+        if (!Array.isArray(tokens) || tokens.length === 0) return; // لا يوجد أجهزة مسجلة
+
+        const payload = {
+            notification: { title, body },
+            data: payloadData,
+            tokens: tokens
+        };
+
+        const response = await admin.messaging().sendEachForMulticast(payload);
+
+        // 🛡️ تنظيف الذاكرة: إذا قام العميل بمسح التطبيق أو المتصفح، نقوم بحذف التوكن الميت
+        if (response.failureCount > 0) {
+            const failedTokens = [];
+            response.responses.forEach((resp, idx) => {
+                if (!resp.success) {
+                    const errCode = resp.error?.code;
+                    if (errCode === 'messaging/invalid-registration-token' || errCode === 'messaging/registration-token-not-registered') {
+                        failedTokens.push(tokens[idx]);
+                    }
+                }
+            });
+            if (failedTokens.length > 0) {
+                await db.collection('telecard_users').doc(String(userId)).update({
+                    fcmTokens: admin.firestore.FieldValue.arrayRemove(...failedTokens)
+                });
+                console.log(`[FCM] Cleaned up ${failedTokens.length} dead tokens for user ${userId}.`);
+            }
+        }
+    } catch (error) {
+        console.error(`[FCM Error] Failed to send to user ${userId}:`, error);
+    }
+};
+
+// 🚀 تحديث إشعارات الطلبات لدعم الـ Push Notifications
 exports.autoNotifyOrderStatus = onDocumentWritten({ document: 'telecard_orders/{orderId}', retry: true }, async (event) => {
     if (!event.data.after.exists) return null;
     const after = event.data.after.data();
@@ -992,9 +1089,18 @@ exports.autoNotifyOrderStatus = onDocumentWritten({ document: 'telecard_orders/{
     else if (after.status === 'refunded') { title = "↩️ استرجاع قيمة"; message = `تم استرجاع الرصيد بنجاح.`; }
 
     const notifId = `notif_${event.params.orderId}_${after.status}`;
-    return db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ id: notifId, title, message, type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp() });
+    
+    // 1. الإشعار الداخلي في قاعدة البيانات
+    await db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ 
+        id: notifId, title, message, type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp() 
+    });
+
+    // 2. إطلاق الإشعار الفوري لهاتف العميل (FCM)
+    await sendFCMToUser(after.userId, title, message, { targetType: 'order', targetId: String(after.id) });
+    return null;
 });
 
+// 🚀 تحديث إشعارات الإيداعات لدعم الـ Push Notifications
 exports.autoNotifyDepositStatus = onDocumentWritten({ document: 'telecard_deposits/{depositId}', retry: true }, async (event) => {
     if (!event.data.after.exists) return null;
     const after = event.data.after.data();
@@ -1010,7 +1116,15 @@ exports.autoNotifyDepositStatus = onDocumentWritten({ document: 'telecard_deposi
     else if (after.status === 'refunded') { title = "↩️ إيداع مسترجع"; message = `تم سحب ${displayAmt} من محفظتك.`; }
 
     const notifId = `notif_${event.params.depositId}_${after.status}`;
-    return db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ id: notifId, title, message, type: 'notification', jumpTarget: 'wallet', createdAt: admin.firestore.FieldValue.serverTimestamp() });
+    
+    // 1. الإشعار الداخلي في قاعدة البيانات
+    await db.collection('telecard_users').doc(String(after.userId)).collection('notifications').doc(notifId).set({ 
+        id: notifId, title, message, type: 'notification', jumpTarget: 'wallet', createdAt: admin.firestore.FieldValue.serverTimestamp() 
+    });
+
+    // 2. إطلاق الإشعار الفوري لهاتف العميل (FCM)
+    await sendFCMToUser(after.userId, title, message, { targetType: 'wallet', targetId: String(after.id) });
+    return null;
 });
 
 // ==========================================

@@ -1,9 +1,11 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي المنظف V17.2.0 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V17.6.0 💎
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع الآمن، عزل الحالة، وإدارة الجلسات
 // 🚀 التحديثات المعمارية الصارمة:
-// 1. Biometric Fallback: طرد صريح (Hard Logout) عند فشل البصمة لمنع تجميد الجلسة.
-// 2. Loop Fix: توحيد نوع بيانات إصدار السيرفر لمنع حلقة التحديث اللانهائية.
+// 1. Push Prompt Trigger: استدعاء نافذة الإشعارات الأنيقة بذكاء بعد الترحيب بالعميل.
+// 2. Biometric Fallback: طرد صريح (Hard Logout) عند فشل البصمة لمنع تجميد الجلسة.
+// 3. Loop Fix: حماية حلقة التحديث اللانهائية عبر ختم زمني (Timestamp) في الجلسة.
+// 4. Cross-Tab Sync: مزامنة فورية لتسجيل الخروج بين النوافذ المفتوحة.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -61,18 +63,22 @@ const AppController = {
 
     enforceBiometricLock: async function() {
         const lockScreen = document.getElementById('biometric-lock-screen');
+        const mainApp = document.querySelector('.main-wrapper') || document.getElementById('app-container');
         const isBiometricRequired = DataManager.user?.biometricEnabled === true;
         const savedRawId = localStorage.getItem(CACHE_KEYS.BIOMETRIC_KEY);
         
-        if (!isBiometricRequired) return true; 
+        if (!isBiometricRequired) {
+            if (mainApp) mainApp.style.display = ''; 
+            return true; 
+        }
         
+        if (mainApp) mainApp.style.display = 'none';
         if (lockScreen) lockScreen.classList.add('active'); 
         
-        // 🛡️ Fallback Fix: طرد المستخدم لجبره على إدخال كلمة المرور (Hard Logout)
         if (!window.PublicKeyCredential || !savedRawId) {
             if (lockScreen) lockScreen.classList.remove('active');
-            UIManager.showToast?.('البصمة غير مدعومة في هذا المتصفح. يرجى تسجيل الدخول.', 'warning');
-            if (DataManager.logout) DataManager.logout(true); // يجب أن يكون True
+            UIManager.showToast?.('البصمة غير مدعومة أو تم مسحها. يرجى تسجيل الدخول.', 'warning');
+            if (DataManager.logout) DataManager.logout(true);
             return false;
         }
         
@@ -104,6 +110,10 @@ const AppController = {
             });
             
             if (lockScreen) lockScreen.classList.remove('active');
+            if (mainApp) {
+                mainApp.style.display = '';
+                window.dispatchEvent(new Event('resize')); 
+            }
             return true;
         } catch (error) {
             console.warn("فشل التحقق من البصمة:", error);
@@ -157,12 +167,18 @@ const AppController = {
                     if (this._isUpdatingServer) return; 
                     this._isUpdatingServer = true;
                     
-                    const reloadCount = parseInt(sessionStorage.getItem('tc_update_reloads') || '0');
-                    if (reloadCount > 2) {
+                    const reloadData = JSON.parse(sessionStorage.getItem('tc_update_reloads_v2') || '{"count":0, "time":0}');
+                    const now = Date.now();
+                    
+                    if (reloadData.count > 2 && (now - reloadData.time) < 60000) {
                         console.error("🚨 تم إيقاف حلقة التحديث اللانهائية للحماية.");
                         return;
                     }
-                    sessionStorage.setItem('tc_update_reloads', String(reloadCount + 1));
+                    
+                    sessionStorage.setItem('tc_update_reloads_v2', JSON.stringify({
+                        count: (now - reloadData.time) > 60000 ? 1 : reloadData.count + 1,
+                        time: now
+                    }));
                     
                     console.warn(`🔄 الإدارة أصدرت تحديثاً إجبارياً! (إلى الإصدار ${serverVersion})`);
                     if(UIManager.showToast) UIManager.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل...', 'success');
@@ -360,17 +376,12 @@ const AppController = {
 AppController.init = async function() {
     console.log(`🚀 جاري إقلاع المتجر (نسخة المحرك الماسي ${APP_VERSION})...`);
     
-    // ========================================================================
-    // 🌟 اللمسة الاحترافية: مراقب التبويبات المفتوحة (Cross-Tab Sync)
-    // يقوم بتسجيل خروج المستخدم فوراً من كل النوافذ إذا سجل خروجه من إحداها
-    // ========================================================================
     window.addEventListener('storage', (event) => {
         if (event.key === CACHE_KEYS.ACTIVE_UID && event.newValue === null) {
             console.warn("🔒 تم تسجيل الخروج من نافذة أخرى. جاري تأمين هذه الجلسة...");
             window.location.replace(window.location.pathname);
         }
     });
-    // ========================================================================
 
     if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
         RenderHelpers.init({ settings: {}, rates: [], offers: [], isStore: true });
@@ -508,6 +519,14 @@ AppController.init = async function() {
                 }
                 
                 if (UIManager.showToast) UIManager.showToast(finalGreeting, 'info');
+                
+                // 🔔 الإضافة الجديدة هنا: استدعاء نافذة الإشعارات الأنيقة
+                setTimeout(() => {
+                    if (UIManager.showPushNotificationPrompt) {
+                        UIManager.showPushNotificationPrompt();
+                    }
+                }, 3500);
+
             }, 1500);
         }
 
