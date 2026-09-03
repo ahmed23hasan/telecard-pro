@@ -30,9 +30,6 @@
     </script>
     
     <meta charset="UTF-8">
-    
-    <!-- 🚀 الإصلاح الجذري: توحيد قاعدة الروابط لتعمل مع Firebase Clean URLs بامتياز -->
-    <base href="/">
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     
@@ -44,13 +41,12 @@
     <!-- 🌟 بطاقات المشاركة على السوشيال ميديا (Open Graph) -->
     <meta property="og:title" content="TELE CARD | المتجر">
     <meta property="og:description" content="بوابتك الآمنة والسريعة لشراء البطاقات الرقمية، شدات الألعاب، وبطاقات الهدايا بأفضل الأسعار وتوصيل فوري.">
-    <!-- يمكنك لاحقاً استبدال هذا الرابط برابط اللوجو الرسمي لمتجرك -->
     <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"> 
     <meta property="og:type" content="website">
     <meta name="twitter:card" content="summary_large_image">
 
-    <!-- 🚀 مفتاح عبور تطبيق الجوال لجميع الأنظمة (Absolute Path) -->
-    <link rel="manifest" id="dynamic-manifest" href="/manifest.json">    
+    <!-- 🚀 مفتاح عبور تطبيق الجوال لجميع الأنظمة (مسار نسبي ليعمل محلياً) -->
+    <link rel="manifest" id="dynamic-manifest" href="./manifest.json">    
     
     <!-- 🛡️ توافق أيقونات التثبيت لأجهزة آبل (آيفون/آيباد) -->
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
@@ -58,15 +54,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>    
     
-    <!-- 🚀 روابط محصنة ضد حظر المتصفحات وعامل الخدمة (CORS/PWA Safe) لحل مشكلة الخط والأيقونات -->
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
     
-    <!-- 🚀 نظام التصميم المركزي النظيف (Absolute Path) -->
-    <link rel="stylesheet" href="/style.css?v=20.8.5">
+    <!-- 🚀 نظام التصميم المركزي النظيف (مسار نسبي ليعمل محلياً) -->
+    <link rel="stylesheet" href="./style.css?v=20.8.5">
 
-    <!-- 🛡️ مكتبات النظام الأساسية المحصنة -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+    <!-- 🛡️ مكتبات النظام الأساسية المحصنة (CORS Safe) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 
 <body class="is-home">
@@ -231,7 +226,6 @@
             
         <div id="sidebar-kyc-container"></div>
         
-        <!-- 🛡️ التطهير من الستايلات المدمجة والاعتماد على Classes -->
         <div id="pwa-install-container" class="pwa-banner-wrapper">
             <div class="pwa-banner-icon"><i class="fa-solid fa-mobile-screen"></i></div>
             <h4 class="pwa-banner-title">احصل على تطبيقنا</h4>
@@ -1412,7 +1406,8 @@
         </div>
     </div>
     
-    <script type="module" src="script.js"></script>
+    <!-- 🚀 استخدام المسار المطلق لضمان عمل المحرك في السيرفر المحلي والحي -->
+<script type="module" src="./script.js"></script>
 
 
 <!-- ========================================================================= -->
@@ -1489,16 +1484,14 @@
         };
         
         console.error = function(...args) {
-            origError.apply(console, args);
-            const errDiv = document.createElement('div');
-            errDiv.style.cssText = "color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);";
-            errDiv.textContent = `[ERROR] ${formatMsg(args)}`;
-            logsContainer.appendChild(errDiv);
-            devConsole.scrollTop = devConsole.scrollHeight;
-            if (!document.hidden) devConsole.style.display = 'block'; 
-        };
-        
-        window.addEventListener('error', function(e) {
+    origError.apply(console, args);
+    const errDiv = document.createElement('div');
+    errDiv.style.cssText = "color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);";
+    errDiv.textContent = `[ERROR] ${formatMsg(args)}`;
+    logsContainer.appendChild(errDiv);
+    devConsole.scrollTop = devConsole.scrollHeight;
+    if (!document.hidden) devConsole.style.display = 'block';
+};        window.addEventListener('error', function(e) {
             const target = e.target || e.srcElement;
             const isElement = target instanceof HTMLElement;
 
@@ -1568,7 +1561,7 @@
 <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/sw.js')
+            navigator.serviceWorker.register('./sw.js')
                 .then((registration) => {
                     console.log('✅ [PWA Engine] تم تشغيل محرك تطبيق الجوال بنجاح! النطاق:', registration.scope);
                 })
