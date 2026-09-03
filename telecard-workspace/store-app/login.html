@@ -4,18 +4,24 @@
     <meta charset="UTF-8">
     <title>تسجيل الدخول - المتجر</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <!-- 🚀 الإصلاح الجذري لمشكلة الروابط النظيفة في Firebase -->
+    <base href="/">
 
     <script>
-        // 🛡️ الإصلاح الجذري (Bounce Bug Fix): تطهير الكاش القديم قبل فحص حالة الدخول
+        // 🛡️ تطهير الكاش القديم قبل فحص حالة الدخول
         const legacyKeys = ['tc_active_uid', 'telecard_active_user_uid_v20'];
         legacyKeys.forEach(k => { if(localStorage.getItem(k)) localStorage.removeItem(k); });
         
         // استخدام مفتاح V21 المعتمد في المعمارية الجديدة
         const activeUid = localStorage.getItem('telecard_active_user_uid_v21');
-        if (activeUid) window.location.replace('store.html');
+        // توجيه للمسار المطلق
+        if (activeUid) window.location.replace('/');
     </script>
 
-    <link rel="stylesheet" href="style.css">
+    <!-- 🚀 استخدام المسار المطلق لملف التصميم -->
+    <link rel="stylesheet" href="/style.css">
+    
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Inter:wght@500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 </head>
@@ -110,7 +116,7 @@
             <div class="floating-group has-eye">
                 <input type="password" class="lux-input floating-input num-en" placeholder=" " id="password" dir="ltr">
                 <label class="floating-label">كلمة المرور</label>
-                                <div class="auth-eye-icon" onclick="togglePass('password', this)">
+                <div class="auth-eye-icon" onclick="togglePass('password', this)">
                     <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2.5-4 5.5-6 9-6 3.5 0 6.5-2-9 6-2.5 4-5.5 6-9 6-3.5 0-6.5-2-9-6z" /><path d="M5 5l14 14" stroke-width="1.6" /></svg>
                     <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3.2" /></svg>
                 </div>
@@ -127,14 +133,15 @@
             </button>
 
             <div class="auth-footer-link">
-                ليس لديك حساب؟ <a href="signup.html">إنشاء حساب جديد</a>
+                ليس لديك حساب؟ <a href="/signup">إنشاء حساب جديد</a>
             </div>
         </form>
     </div>
 
 <script type="module">
-    import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES, ACTIVE_USER_KEY } from './config.js';
-    import { auth, FirebaseAdapter as StoreDB } from './core/firebaseAdapter.js';
+    // 🚀 استخدام المسارات المطلقة لتفادي مشكلة الروابط النظيفة
+    import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES, ACTIVE_USER_KEY } from '/config.js';
+    import { auth, FirebaseAdapter as StoreDB } from '/core/firebaseAdapter.js';
     import { 
         signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail,
         getMultiFactorResolver, TotpMultiFactorGenerator, signOut
@@ -143,14 +150,13 @@
     const googleProvider = new GoogleAuthProvider();
     let current2FAResolver = null;
 
-    // 🛡️ دالة ذكية لتنظيف الجلسة بدون تدمير إعدادات (الوضع الليلي والصوت)
+    // 🛡️ دالة ذكية لتنظيف الجلسة
     const safeWipeSession = async () => {
         await signOut(auth).catch(()=>{});
         localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
         localStorage.removeItem(ACTIVE_USER_KEY);
         localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
         
-        // مسح كاشات الأوامر الديناميكية فقط
         for (let i = localStorage.length - 1; i >= 0; i--) {
             const key = localStorage.key(i);
             if (key && (key.startsWith('tc_orders_cache_') || key.startsWith('tc_deposits_cache_'))) {
@@ -327,8 +333,6 @@
                 };
                 
                 if (StoreDB && typeof StoreDB.set === 'function') await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
-                
-                // 🚀 الإصلاح: تفعيل رسالة الترحيب للعملاء الجدد عبر جوجل
                 sessionStorage.setItem('tc_new_user_signup', 'true');
             } else {
                 if (activeUserObj.isBanned || activeUserObj.isIpBanned) {
@@ -345,14 +349,13 @@
                 }
             }
             
-            // 🛡️ حفظ المفاتيح
             localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
             localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(activeUserObj));
             if (activeUserObj.baseCurrency) localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, activeUserObj.baseCurrency);
             if (activeUserObj.img) localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, activeUserObj.img);
             
             showButtonSuccess(btn, "تم الدخول بنجاح");
-            setTimeout(() => { window.location.replace("store.html"); }, 1000);
+            setTimeout(() => { window.location.replace("/"); }, 1000);
             
         } catch (error) {
             btn.disabled = false;
@@ -397,7 +400,6 @@
                 showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة.", "error"); return;
             }
 
-            // 🛡️ الإصلاح: حفظ المفاتيح + مزامنة الأفاتار فوراً
             localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
             if (userDoc) {
                 localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(userDoc));
@@ -406,7 +408,7 @@
             }
 
             showButtonSuccess(btn, "تم الدخول بنجاح");
-            setTimeout(() => window.location.replace("store.html"), 1000);
+            setTimeout(() => window.location.replace("/"), 1000);
             
         } catch (error) {
             btn.disabled = false; 
@@ -449,11 +451,11 @@
             if (userDoc) {
                 localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(userDoc));
                 if(userDoc.baseCurrency) localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, userDoc.baseCurrency);
-                if(userDoc.img) localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, userDoc.img); // 🛡️ تم الإصلاح
+                if(userDoc.img) localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, userDoc.img);
             }
 
             showButtonSuccess(btn, "تم التحقق بنجاح");
-            setTimeout(() => window.location.replace("store.html"), 1000);
+            setTimeout(() => window.location.replace("/"), 1000);
 
         } catch (error) {
             btn.disabled = false; 
