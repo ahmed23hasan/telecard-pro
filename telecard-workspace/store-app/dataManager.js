@@ -612,7 +612,7 @@ export const DataManager = {
             window.location.replace(window.location.pathname);
         }
     },
-    syncUser: async function() {
+    SyncUser: async function() {
         let me = null;
         
         let adminDef = 'USD';
@@ -636,12 +636,19 @@ export const DataManager = {
                 const lastSync = sessionStorage.getItem(CACHE_KEYS.TIME_SYNC);
                 if (!LiveStoreData.isOfflineMode && StoreDB.callFunction && (!lastSync || (Date.now() - Number(lastSync)) > 21600000 || this.serverTimeOffset === 0)) {
                     
-                    const res = await StoreDB.callFunction('getServerTime').catch(() => null);
+                    // 🛡️ التحديث الماسي: "الإقلاع غير المانع" (Non-Blocking Boot)
+                    // تغليف طلب الوقت بمهلة 3 ثوانٍ فقط لمنع تجميد اللودر للأبد
+                    const timeRequest = StoreDB.callFunction('getServerTime').catch(() => null);
+                    const timeoutFallback = new Promise(resolve => setTimeout(() => resolve(null), 3000));
+                    
+                    const res = await Promise.race([timeRequest, timeoutFallback]);
+                    
                     if (res && res.serverTime) {
                         this.serverTimeOffset = res.serverTime - Date.now();
                         sessionStorage.setItem(CACHE_KEYS.TIME_SYNC, Date.now().toString());
+                    } else {
+                        console.warn("⚠️ [TimeSync] تأخر السيرفر في الرد. تم إقلاع المتجر بالوقت المحلي لحماية الواجهة من التجميد.");
                     }
-                    
                 }
             } catch (e) {
                 console.warn("⚠️ تعذر جلب وقت السيرفر، تم الاعتماد على الوقت المحلي.");
@@ -683,7 +690,7 @@ export const DataManager = {
             this.saveUserLocal();
             
             this.injectSilentSensor();
-            this.setupPushNotifications(); // 🔔 تشغيل فاحص الإشعارات الصامت
+            this.setupPushNotifications(); 
             
             this.listenToUserUpdates(() => {
                 window.UIManager?.updateProfileDisplay?.();
@@ -711,8 +718,8 @@ export const DataManager = {
         
         this.selectedCurr = savedCurr;
         return true;
-    },    
-
+    },
+ 
     enforceIpBan: async function() {
         if (LiveStoreData.isOfflineMode) return false;
         try {
