@@ -1,12 +1,11 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.6 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.7 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت، والإشعارات الفورية
-// 🚀 التحديثات المعمارية (V18.6):
-// 1. PWA Deadlock Shield 🛡️: إزالة مزامنة التبويبات المتعددة لمنع تعليق IndexedDB وضمان الإقلاع.
-// 2. Query/Doc Timeout Fix 🛡️: منع انهيار المتجر عند تأخر السيرفر عبر إرجاع بيانات بديلة/فارغة.
-// 3. Zero Race Condition: تأمين تهيئة قاعدة البيانات للعمل بالذاكرة المؤقتة فوراً عند تلف التخزين.
-// 4. Zero-Leak Listeners: إغلاق ثغرة القراءة المزدوجة في onSnapshot لتقليل الفاتورة.
-// 5. Error Masking: إخفاء الأخطاء الحساسة (Cost/Profit) عن العملاء لحماية أسرار المتجر.
+// 🚀 التحديثات المعمارية (V18.7 - VAPID Sync):
+// 1. VAPID Sync 🛡️: إزالة المفتاح النصي للإشعارات وربطه بالدستور المركزي (config.js).
+// 2. PWA Deadlock Shield 🛡️: إزالة مزامنة التبويبات المتعددة لمنع تعليق IndexedDB.
+// 3. Query/Doc Timeout Fix 🛡️: منع انهيار المتجر عند تأخر السيرفر عبر إرجاع بيانات بديلة.
+// 4. Zero Race Condition: تأمين تهيئة قاعدة البيانات للعمل بالذاكرة المؤقتة فوراً.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -82,8 +81,9 @@ export const FirebaseAdapter = {
                 return null;
             }
             
+            // 🛡️ التحديث المعماري: سحب مفتاح الإشعارات من الدستور المركزي لسهولة التحديث مستقبلاً
             const token = await getToken(messaging, { 
-                vapidKey: 'BDdFL5sHBs1j5RXsps4TahR2UN4qCRwZR2G769OJEGR_1gTj8D2MHsTRsMeSv_Spad22N6LYFsu0x9GhdARqEFk' 
+                vapidKey: firebaseConfig.vapidKey 
             });
             
             return token;

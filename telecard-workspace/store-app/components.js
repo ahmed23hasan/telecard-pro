@@ -1,10 +1,11 @@
 // ============================================================================
-// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V17.4 💎
+// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V17.5 💎
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديثات المعمارية:
+// 🚀 التحديثات المعمارية (V17.5 - Master Patch):
 // 1. Context Binding Safety: توافق تام مع سياق this للموزع المركزي (UIManager).
-// 2. Animation Guards: استخدام requestAnimationFrame لنعومة الواجهة البصرية.
-// 3. Clean CSS Decoupling: فصل كامل للستايلات عن الجافاسكريبت.
+// 2. Shine Delegation Fix 🛡️: ربط أحداث اللمعان بـ Document لتستمر بعد إعادة رسم الأقسام.
+// 3. Synchronous UX Lock 🛡️: قفل حقل الكوبون لحظياً لمنع وميض الواجهة أثناء المعالجة.
+// 4. Clean CSS Decoupling: فصل كامل للستايلات عن الجافاسكريبت.
 // ============================================================================
 
 import { DataManager, LiveStoreData } from './dataManager.js';
@@ -314,10 +315,13 @@ export const Components = {
 
     initProductShine: function() {
         if (this._shineBound) return;
-        const container = document.getElementById('store-grid') || document.body;
         
-        container.addEventListener('mouseover', (e) => {
-            const card = e.target.closest('.product-card');
+        // 🛡️ الترقيع المعماري: ربط اللمعان بـ document بدلاً من store-grid لمنع تعطله عند إعادة الرسم
+        document.addEventListener('mouseover', (e) => {
+            // تجاهل الحدث إذا كنا في بيئة الهاتف المحمول لمنع تشنج التمرير
+            if ('ontouchstart' in window || navigator.maxTouchPoints > 0) return;
+
+            const card = e.target.closest('#store-grid .product-card');
             if (!card) return;
             
             const infoEl = card.querySelector('.card-info');
@@ -489,6 +493,10 @@ export const Components = {
 
         DataManager.appliedCoupon = result.coupon; 
         
+        // 🛡️ الترقيع المعماري: قفل الحقل فوراً (Synchronous) قبل بدء الرسم لمنع الـ Flicker 
+        codeInput.disabled = true; 
+        if(btnApply) { btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
+        
         if (SysUI && typeof SysUI.updatePriceDisplay === 'function') SysUI.updatePriceDisplay(); 
         if (SysUI) SysUI.sfx?.('success');
 
@@ -497,9 +505,8 @@ export const Components = {
 
         this._showCouponMessage(msgBox, `<i class="fa-solid fa-check"></i> تم تطبيق خصم ${discountText} بنجاح!`, 'success', 0);
         
+        // تأجيل التعديلات البصرية فقط
         requestAnimationFrame(() => {
-            codeInput.disabled = true; 
-            if(btnApply) { btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
             if(pasteIcon) pasteIcon.style.display = 'none'; 
             if(clearIcon) clearIcon.style.display = 'block'; 
         });

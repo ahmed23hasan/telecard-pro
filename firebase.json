@@ -1,7 +1,7 @@
 {
   "firestore": {
     "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json" 
+    "indexes": "firestore.indexes.json"
   },
   "storage": {
     "rules": "storage.rules"
@@ -32,19 +32,31 @@
           "headers": [
             { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
             { "key": "X-Content-Type-Options", "value": "nosniff" },
-            { "key": "Access-Control-Allow-Origin", "value": "*" }
+            { "key": "X-XSS-Protection", "value": "1; mode=block" }
           ]
         },
         {
-          "source": "**/*.@(js|css|html)",
+          "source": "**/*.html",
           "headers": [
-            { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+            { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+          ]
+        },
+        {
+          "source": "/sw.js",
+          "headers": [
+            { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+          ]
+        },
+        {
+          "source": "**/*.@(js|css)",
+          "headers": [
+            { "key": "Cache-Control", "value": "public, max-age=86400" }
           ]
         }
       ],
       "rewrites": [
         {
-          "source": "/",
+          "source": "**",
           "destination": "/store.html"
         }
       ]
@@ -65,19 +77,25 @@
           "headers": [
             { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
             { "key": "X-Content-Type-Options", "value": "nosniff" },
-            { "key": "Access-Control-Allow-Origin", "value": "*" }
+            { "key": "X-XSS-Protection", "value": "1; mode=block" }
           ]
         },
         {
-          "source": "**/*.@(js|css|html)",
+          "source": "**/*.html",
           "headers": [
-            { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+            { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+          ]
+        },
+        {
+          "source": "**/*.@(js|css)",
+          "headers": [
+            { "key": "Cache-Control", "value": "public, max-age=86400" }
           ]
         }
       ],
       "rewrites": [
         {
-          "source": "/",
+          "source": "**",
           "destination": "/admin.html"
         }
       ]

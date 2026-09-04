@@ -521,7 +521,6 @@ export const UICore = {
 
         window.addEventListener('touchstart', onTouchStart, { passive: true });
     },
-
     // =========================================================
     // 🎛️ إدارة الأحداث المركزية (Global Event Delegator)
     // =========================================================
@@ -536,6 +535,44 @@ export const UICore = {
                 this.closeModal(lastModal, true);
             }
         });
+
+        // 🛡️ التحديث المعماري: استماع لرسائل الـ Service Worker لفتح الطلبات فوراً (المتجر مفتوح)
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('message', (event) => {
+                if (event.data && event.data.type === 'FCM_NOTIFICATION_CLICK') {
+                    const sys = getSys();
+                    const payload = event.data.payload || {};
+                    const target = payload.jumpTarget || payload.type;
+                    const id = payload.targetId || payload.id;
+                    
+                    if (target && id) {
+                        if (target === 'order' || target === 'purchase') sys.jumpToTransaction?.(id, 'purchase');
+                        else if (target === 'deposit' || target === 'wallet') sys.jumpToTransaction?.(id, 'deposit');
+                        else sys.openDetail?.(null, target, id);
+                    }
+                }
+            });
+        }
+
+        // 🛡️ التحديث المعماري: قراءة الروابط الذكية (Deep Links) إذا تم فتح المتجر من الإشعار
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('action') === 'view') {
+            const type = urlParams.get('type');
+            const id = urlParams.get('id');
+            const sys = getSys();
+            
+            // الانتظار 1.2 ثانية لضمان اكتمال تهيئة Firebase ورسم الواجهة الأساسية
+            setTimeout(() => {
+                if (type === 'order' || type === 'purchase') sys.jumpToTransaction?.(id, 'purchase');
+                else if (type === 'deposit' || type === 'wallet') sys.jumpToTransaction?.(id, 'deposit');
+                else sys.openDetail?.(null, type, id);
+                
+                // تنظيف الرابط لمنع تكرار فتح الفاتورة إذا قام العميل بتحديث الصفحة (Refresh)
+                if (window.history && window.history.replaceState) {
+                    window.history.replaceState(null, '', window.location.pathname);
+                }
+            }, 1200); 
+        }
 
         const ActionDictionary = {
             'nav-home': () => this.navigateHome?.(),
@@ -685,7 +722,6 @@ export const UICore = {
             },
             'show-phone-toast': () => this.showToast?.('هذا الرقم مرتبط بحسابك الأساسي.', 'info'),
             
-            // 🛡️ التحديث المعماري 1: استدعاء التصدير كـ Async لالتقاط الأخطاء
             'export-receipt': async (e, id, val, target) => {
                 e.preventDefault(); e.stopPropagation();
                 if (target.closest('.nm-btn-print-magic')) return RenderManager?.exportReceipt?.(id, target);

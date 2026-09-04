@@ -1,12 +1,16 @@
 // ============================================================================
-// 📁 ملف الإعدادات المركزي (config.js) - الإصدار المؤسسي V21.0 💎
+// 📁 ملف الإعدادات المركزي (config.js) - الإصدار المؤسسي V21.1 💎
 // 🎯 الوظيفة: ثوابت النظام، حماية مفاتيح قواعد البيانات، ونسف الكاش القديم
-// 🚀 التحديثات المعمارية:
-// 1. Immutable Core: الحفاظ على deepFreeze لحماية الثوابت.
-// 2. SSOT Keys: توحيد مفاتيح الجلسات والكاش لمنع الأخطاء المطبعية (Magic Strings).
+// 🚀 التحديثات المعمارية (V21.1 - Master Patch):
+// 1. Missing Keys Alignment 🛡️: إدراج مفاتيح الإشعارات والتقييم لمنع النصوص السحرية.
+// 2. VAPID Integration 🛡️: نقل مفتاح الإشعارات (FCM) للدستور لمنع التشتت.
+// 3. Environment Safe 🛡️: دعم قراءة المتغيرات داخل Service Workers عبر (self).
+// 4. Immutable Core: الحفاظ على deepFreeze لحماية الثوابت.
 // ============================================================================
 
-export const APP_VERSION = (typeof window !== 'undefined' && window.TELECARD_VERSION) ? window.TELECARD_VERSION : 'v21.0';
+// 🛡️ دعم آمن لجلب رقم الإصدار سواء من المتصفح (window) أو عامل الخدمة (self)
+const globalEnv = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : {});
+export const APP_VERSION = globalEnv.TELECARD_VERSION ? globalEnv.TELECARD_VERSION : 'v21.1';
 
 // 🛡️ تجميد عميق مخصص فقط لملف الثوابت لمنع العبث بمفاتيح النظام
 const deepFreeze = (obj) => {
@@ -25,7 +29,10 @@ export const firebaseConfig = deepFreeze({
     projectId: "telecard-1",
     storageBucket: "telecard-1.firebasestorage.app",
     messagingSenderId: "698672838633",
-    appId: "1:698672838633:web:743c8809615bd8308bfd78"
+    appId: "1:698672838633:web:743c8809615bd8308bfd78",
+    
+    // 🛡️ مفتاح الـ FCM (VAPID) تم جلبه إلى هنا لكي نحذفه لاحقاً من ملف firebaseAdapter
+    vapidKey: "BDdFL5sHBs1j5RXsps4TahR2UN4qCRwZR2G769OJEGR_1gTj8D2MHsTRsMeSv_Spad22N6LYFsu0x9GhdARqEFk"
 });
 
 // 🗄️ مفاتيح قاعدة البيانات (Firestore Collections)
@@ -78,7 +85,12 @@ export const CACHE_KEYS = deepFreeze({
     UPDATE_RELOADS: 'tc_update_reloads',
     LOGOUT_TOAST: 'tc_show_logout_toast',
     GREETING_SHOWN: 'tc_has_been_greeted',
-    NEW_USER_SIGNUP: 'tc_new_user_signup'
+    NEW_USER_SIGNUP: 'tc_new_user_signup',
+
+    // 🛡️ مفاتيح الخصوصية وتجربة المستخدم (المضافة حديثاً لتوحيد المصدر)
+    PUSH_PROMPT_TIME: 'tc_push_prompt_time',
+    PENDING_FCM_DELETE: 'tc_pending_fcm_delete',
+    USER_RATED: 'tc_user_rated'
 });
 
 export const DYNAMIC_PREFIXES = deepFreeze({
