@@ -1,12 +1,12 @@
 // ============================================================================
-// ⚙️ مدير البيانات الرئيسي (dataManager.js) - الإصدار المؤسسي V18.0 💎
+// ⚙️ مدير البيانات الرئيسي (dataManager.js) - الإصدار المؤسسي V18.2 💎
 // 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات، الاتصال المالي، والإشعارات.
-// 🚀 التحديثات المعمارية الصارمة: 
-// 1. Storage Quota Shield: تنظيف آلي وعميق لكاشات الحسابات السابقة لمنع انهيار الـ LocalStorage.
-// 2. Time Manipulation Guard: تحصين دالة الوقت لمنع تجاوز صلاحية الكوبونات.
-// 3. FCM Push Notifications: محرك صامت لربط أجهزة العميل بالإشعارات الفورية.
-// 4. Memory Leak Fix: تصفير حدود العرض (Pagination) ومحرك الرسم عند تسجيل الخروج.
-// 5. Offline Logout Block Fix 🛡️: إجهاض فحص الإشعارات عند ضعف الشبكة لضمان سلاسة تسجيل الخروج.
+// 🚀 التحديثات المعمارية الصارمة (V18.2 - Offline Privacy Shield): 
+// 1. Offline FCM Ghosting Fix: حفظ توكنات الإشعارات محلياً عند الخروج بدون إنترنت لحذفها لاحقاً.
+// 2. Self-Healing FCM Sync: تنظيف التوكنات العالقة آلياً بمجرد عودة الاتصال لضمان خصوصية العملاء.
+// 3. Storage Quota Shield: تنظيف آلي وعميق لكاشات الحسابات السابقة لمنع انهيار الـ LocalStorage.
+// 4. Time Manipulation Guard: تحصين دالة الوقت لمنع تجاوز صلاحية الكوبونات.
+// 5. Memory Leak Fix: تصفير حدود العرض (Pagination) ومحرك الرسم عند تسجيل الخروج.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -410,6 +410,30 @@ export const DataManager = {
     // 🔔 محرك مزامنة الإشعارات الفورية (FCM Token Manager)
     // =========================================================
     setupPushNotifications: async function(forcePrompt = false) {
+        // 🛡️ التحديث الماسي: تشافي ذاتي (Self-Healing) للتوكنات العالقة
+        if (typeof window !== 'undefined' && navigator.onLine) {
+            try {
+                let pendingDeletes = JSON.parse(localStorage.getItem('tc_pending_fcm_delete') || '[]');
+                if (pendingDeletes.length > 0) {
+                    for (const req of pendingDeletes) {
+                        try {
+                            const userDoc = await StoreDB.getById(DB_KEYS.USERS, req.uid);
+                            if (userDoc && Array.isArray(userDoc.fcmTokens)) {
+                                const updatedTokens = userDoc.fcmTokens.filter(t => t !== req.token);
+                                if (updatedTokens.length !== userDoc.fcmTokens.length) {
+                                    await StoreDB.set(DB_KEYS.USERS, req.uid, { fcmTokens: updatedTokens }, { merge: true });
+                                }
+                            }
+                        } catch (e) {} // نتجاهل الأخطاء الفردية لنكمل الباقي
+                    }
+                    localStorage.removeItem('tc_pending_fcm_delete');
+                    console.log('🧹 [FCM] تم تنظيف التوكنات العالقة من الجلسات السابقة بنجاح.');
+                }
+            } catch (e) {
+                console.warn('⚠️ [FCM] تعذر معالجة قائمة التوكنات المحذوفة:', e);
+            }
+        }
+
         if (!this.activeUid || typeof window === 'undefined' || !window.Notification || LiveStoreData.isOfflineMode) return;
         
         try {
@@ -515,22 +539,30 @@ export const DataManager = {
         }
 
         try {
-            // 🛡️ لمسة الخصوصية والأمان: إزالة توكن الإشعارات للجهاز الحالي قبل الخروج (Privacy Shield)
+            // 🛡️ التحديث الماسي: حماية الخصوصية والإشعارات في وضع عدم الاتصال (Offline Privacy Shield)
             try {
                 if (this.activeUid && typeof window !== 'undefined' && window.Notification && Notification.permission === 'granted') {
-                    // 🚀 الإصلاح الاحترافي: Fire-and-Forget مع Timeout لمنع تعليق الخروج في وضع الأوفلاين
                     Promise.race([
                         StoreDB.requestFCMToken(),
                         new Promise(r => setTimeout(r, 3000))
                     ]).then(currentToken => {
                         if (currentToken && typeof currentToken === 'string') {
-                            let currentTokens = Array.isArray(this.user?.fcmTokens) ? [...this.user.fcmTokens] : [];
-                            const updatedTokens = currentTokens.filter(t => t !== currentToken);
-                            
-                            // تحديث السيرفر بصمت لحذف الجهاز الحالي من قائمة الإشعارات
-                            if (currentTokens.length !== updatedTokens.length) {
-                                StoreDB.set(DB_KEYS.USERS, this.activeUid, { fcmTokens: updatedTokens }, { merge: true }).catch(()=>{});
-                                console.log('🔒 [FCM] تم إلغاء ربط هذا الجهاز بالإشعارات بنجاح لحماية الخصوصية.');
+                            if (navigator.onLine === false) {
+    // 🛡️ الإنترنت مقطوع: حفظ التوكن مع منع تضخم الذاكرة (حد أقصى 10 توكنات)
+    let pendingDeletes = JSON.parse(localStorage.getItem('tc_pending_fcm_delete') || '[]');
+    if (!pendingDeletes.some(item => item.token === currentToken)) {
+        pendingDeletes.push({ uid: this.activeUid, token: currentToken });
+        if (pendingDeletes.length > 10) pendingDeletes = pendingDeletes.slice(-10); // منع تضخم الكاش
+        localStorage.setItem('tc_pending_fcm_delete', JSON.stringify(pendingDeletes));
+        console.log('🔒 [FCM Offline] تم حفظ التوكن للإلغاء لاحقاً.');
+    }                         } else {
+                                // الإنترنت متصل: تحديث السيرفر بصمت لحذف الجهاز الحالي من قائمة الإشعارات
+                                let currentTokens = Array.isArray(this.user?.fcmTokens) ? [...this.user.fcmTokens] : [];
+                                const updatedTokens = currentTokens.filter(t => t !== currentToken);
+                                if (currentTokens.length !== updatedTokens.length) {
+                                    StoreDB.set(DB_KEYS.USERS, this.activeUid, { fcmTokens: updatedTokens }, { merge: true }).catch(()=>{});
+                                    console.log('🔒 [FCM] تم إلغاء ربط هذا الجهاز بالإشعارات بنجاح لحماية الخصوصية.');
+                                }
                             }
                         }
                     }).catch(()=>{});
@@ -612,7 +644,7 @@ export const DataManager = {
             window.location.replace(window.location.pathname);
         }
     },
-    SyncUser: async function() {
+    syncUser: async function() {
         let me = null;
         
         let adminDef = 'USD';

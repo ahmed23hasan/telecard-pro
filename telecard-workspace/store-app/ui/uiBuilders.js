@@ -1,10 +1,11 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - الإصدار المؤسسي V17.5 💎
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - الإصدار المؤسسي V17.6 💎
 // 🎯 الوظيفة: تحويل البيانات الخام إلى قوالب HTML نقية وآمنة برمجياً 100%
-// 🚀 التحديثات المعمارية:
-// 1. Strict Type Casting: التغليف الإجباري بـ String() قبل .toUpperCase() لمنع انهيار الواجهة.
-// 2. Safe String Handling: حماية دوال فحص النصوص من الانهيار عند تمرير قيم غير نصية.
-// 3. Fallback Sanitization: تعقيم شامل لمسارات الصور وروابط الإيصالات ومخرجات السيرفر.
+// 🚀 التحديثات المعمارية (V17.6 - Master Patch):
+// 1. Status CSS Injection Fix 🛡️: تعقيم حقول الحالة (status) لمنع حقن كلاسات CSS غير معروفة.
+// 2. NaN Fallback Shield 🛡️: تأمين استخراج الأرقام من قاعدة البيانات لمنع ظهور NaN في الإيصالات.
+// 3. Strict Type Casting: التغليف الإجباري بـ String() قبل .toUpperCase() لمنع انهيار الواجهة.
+// 4. Safe Order Duration: وضع حسابات مدة الطلب في try/catch لضمان عدم توقف رسم الواجهة.
 // ============================================================================
 
 import * as Utils from '../utils.js'; 
@@ -140,11 +141,15 @@ export const UIBuilders = {
         const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
         
         let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
-        if (['approved', 'completed'].includes(d.status)) { 
+        
+        // 🛡️ الترقيع 1: تحصين متغير الحالة ليكون آمناً ومقيداً بالقيم المعروفة فقط
+        const safeStatus = String(d.status || 'pending').toLowerCase();
+        
+        if (['approved', 'completed'].includes(safeStatus)) { 
             if (isDeduction) { stClass = 'st-rejected'; stText = 'مخصوم'; icon = 'fa-arrow-up-long'; } 
             else { stClass = 'st-approved'; stText = 'مقبول'; icon = 'fa-check'; }
-        } else if (d.status === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
-        else if (['refunded', 'returned'].includes(d.status)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
+        } else if (safeStatus === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
+        else if (['refunded', 'returned'].includes(safeStatus)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
 
         // 🛡️ Strict Type Casting: حماية من البيانات المشوهة
         const currency = String(d.currency || 'USD').toUpperCase();
@@ -262,7 +267,7 @@ export const UIBuilders = {
                     </div>
                     
                     ${d.adminNote && String(d.adminNote).trim() !== '' ? `
-                        <div class="ph-admin-note ${d.status === 'rejected' ? 'note-rejected' : 'note-approved'} ph-margin-top">
+                        <div class="ph-admin-note ${safeStatus === 'rejected' ? 'note-rejected' : 'note-approved'} ph-margin-top">
                             <i class="fa-solid fa-headset"></i>
                             <div class="ph-admin-note-content"><span class="ph-admin-note-title">رسالة الإدارة:</span><div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div></div>
                         </div>` : ''}
@@ -429,9 +434,12 @@ export const UIBuilders = {
         let itemsHtml = [];
         const safeCurr = String(payCurr || 'USD').toUpperCase();
         
-        if (feeVal > 0) {
+        // 🛡️ Safe Number Casting
+        const safeFeeVal = Number(feeVal) || 0;
+        
+        if (safeFeeVal > 0) {
             const isBonus = (feeType === 'bonus');
-            itemsHtml.push(`<div class="bar-item ${isBonus ? 'bonus' : 'commission'}"><span class="item-label"><i class="fa-solid ${isBonus ? 'fa-gift' : 'fa-coins'}"></i> ${isBonus ? 'بونص' : 'عمولة'}</span><span class="item-value"><span class="math-sign">${isBonus ? '+' : '-'}</span>${(feeUnit === 'fixed' || feeUnit === 'amount') ? RenderHelpers.formatMoney(feeVal, safeCurr) : `<span class="money-pro"><span class="num-en">${feeVal.toFixed(1)}%</span></span>`}</span></div>`);
+            itemsHtml.push(`<div class="bar-item ${isBonus ? 'bonus' : 'commission'}"><span class="item-label"><i class="fa-solid ${isBonus ? 'fa-gift' : 'fa-coins'}"></i> ${isBonus ? 'بونص' : 'عمولة'}</span><span class="item-value"><span class="math-sign">${isBonus ? '+' : '-'}</span>${(feeUnit === 'fixed' || feeUnit === 'amount') ? RenderHelpers.formatMoney(safeFeeVal, safeCurr) : `<span class="money-pro"><span class="num-en">${safeFeeVal.toFixed(1)}%</span></span>`}</span></div>`);
         }
         if (minVal > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-down"></i> أدنى حد</span><span class="item-value">${RenderHelpers.formatMoney(minVal, safeCurr)}</span></div>`);
         if (maxVal > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-up"></i> أعلى حد</span><span class="item-value">${RenderHelpers.formatMoney(maxVal, safeCurr)}</span></div>`);
@@ -525,9 +533,11 @@ export const UIBuilders = {
             if(!d) return `<div class="tx-error-box"><i class="fa-solid fa-triangle-exclamation"></i> عذراً، لم يتم العثور على الإيداع.</div>`;
 
             const shortDepositId = RenderHelpers.formatDepositId(d);
-            let stClass = 'pending'; let stTxt = d.status === 'pending' ? 'قيد المراجعة' : d.status; let stIcon = 'fa-clock';
-            if(d.status === 'approved' || d.status === 'completed') { stClass = 'completed'; stTxt = 'مقبول'; stIcon = 'fa-check-circle'; }
-            else if(d.status === 'rejected') { stClass = 'rejected'; stTxt = 'مرفوض'; stIcon = 'fa-times-circle'; }
+            const safeStatus = String(d.status || 'pending').toLowerCase();
+            
+            let stClass = 'pending'; let stTxt = safeStatus === 'pending' ? 'قيد المراجعة' : safeStatus; let stIcon = 'fa-clock';
+            if(safeStatus === 'approved' || safeStatus === 'completed') { stClass = 'completed'; stTxt = 'مقبول'; stIcon = 'fa-check-circle'; }
+            else if(safeStatus === 'rejected') { stClass = 'rejected'; stTxt = 'مرفوض'; stIcon = 'fa-times-circle'; }
             
             let replyHtml = '';
             if (d.adminNote && String(d.adminNote).trim() !== '' && d.adminNote !== 'null') {
@@ -578,19 +588,28 @@ export const UIBuilders = {
             if(!o) return `<div class="tx-error-box"><i class="fa-solid fa-triangle-exclamation"></i> لا يمكن العثور على الطلب.</div>`;
 
             const shortOrderId = RenderHelpers.formatOrderId(o);
-            const isRet = (o.status === 'refunded' || o.status === 'returned');
+            const safeStatus = String(o.status || 'pending').toLowerCase();
+            const isRet = (safeStatus === 'refunded' || safeStatus === 'returned');
+            
             let stTxt = 'قيد التنفيذ'; let stClass = 'pending'; let stIcon = 'fa-clock';
 
-            if (o.status === 'completed') { stTxt = 'مكتمل'; stClass = 'completed'; stIcon = 'fa-circle-check'; } 
-            else if (o.status === 'rejected') { stTxt = 'مرفوض'; stClass = 'rejected'; stIcon = 'fa-circle-xmark'; } 
+            if (safeStatus === 'completed') { stTxt = 'مكتمل'; stClass = 'completed'; stIcon = 'fa-circle-check'; } 
+            else if (safeStatus === 'rejected') { stTxt = 'مرفوض'; stClass = 'rejected'; stIcon = 'fa-circle-xmark'; } 
             else if (isRet) { stTxt = 'مسترجع'; stClass = 'returned'; stIcon = 'fa-rotate-left'; }
             
             let durationHtml = '';
-            if (o.status !== 'completed' && o.status !== 'rejected' && !isRet) {
+            if (safeStatus !== 'completed' && safeStatus !== 'rejected' && !isRet) {
                 durationHtml = `<div class="nm-duration-pill"><i class="fa-solid fa-bolt"></i><span class="mx-1">مدة انجاز الطلب: </span><i class="fa-regular fa-clock opacity-90"></i></div>`;
             } else {
                 let finalEndTime = o.actionTime || o.completedTime || o.updatedAt || o.time;
-                let durationStr = Utils.calculateOrderDuration ? Utils.calculateOrderDuration(o.time, finalEndTime) : '---';
+                let durationStr = '---';
+                if (Utils.calculateOrderDuration) {
+                    try {
+                        durationStr = Utils.calculateOrderDuration(o.time, finalEndTime) || '---';
+                    } catch (e) {
+                        console.warn("فشل حساب مدة الطلب", e);
+                    }
+                }
                 durationHtml = `<div class="nm-duration-pill"><i class="fa-solid fa-bolt"></i><span dir="ltr" class="nm-font-en-fix">مدة الانجاز: ${durationStr}</span></div>`;
             }
 
@@ -599,14 +618,21 @@ export const UIBuilders = {
                 const safeResponse = Utils.escapeHtml(o.response);
                 replyHtml += `<div class="nm-reply-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-headset"></i> رد المتجر</span><div class="nm-reply-body admin-reply-text">${safeResponse}</div></div></div>`;
             }
-            if (o.status === 'completed' && o.deliveredCode && String(o.deliveredCode).trim() !== '' && o.deliveredCode !== 'null') {
+            if (safeStatus === 'completed' && o.deliveredCode && String(o.deliveredCode).trim() !== '' && o.deliveredCode !== 'null') {
                 replyHtml += `<div class="nm-reply-box auto-delivery-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم فوري</span><div class="nm-reply-body nm-auto-delivery-scroll">${UIBuilders.buildCodesList(o.deliveredCode)}</div></div></div>`;
             }
 
-            const cDiscountLocal = Number(o.pricingSnapshot?.couponDiscount || o.couponDiscount || 0);
-            const oDiscountLocal = Number(o.pricingSnapshot?.offerDiscount || o.saleDiscount || 0);
-            const origLocal = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
-            const finalLocal = Number(o.pricingSnapshot?.finalPrice || o.price || 0);
+            // 🛡️ الترقيع 2: الحماية المطلقة من ظهور NaN في الفواتير (NaN Fallback)
+            const getSafeVal = (v1, v2) => {
+                let n = parseFloat(v1); if (!isNaN(n)) return n;
+                n = parseFloat(v2); if (!isNaN(n)) return n;
+                return 0;
+            };
+
+            const cDiscountLocal = getSafeVal(o.pricingSnapshot?.couponDiscount, o.couponDiscount);
+            const oDiscountLocal = getSafeVal(o.pricingSnapshot?.offerDiscount, o.saleDiscount);
+            const origLocal = getSafeVal(o.pricingSnapshot?.originalPrice, o.price);
+            const finalLocal = getSafeVal(o.pricingSnapshot?.finalPrice, o.price);
             
             // 🛡️ Strict Type Casting: حماية من البيانات المشوهة
             const displayCurr = String(o.currency || o.priceCurrency || 'USD').toUpperCase();

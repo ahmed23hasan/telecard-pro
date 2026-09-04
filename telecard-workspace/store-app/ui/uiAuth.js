@@ -1,11 +1,11 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V17.0 💎
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V17.1 💎
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية (V17.0 - Clean Architecture & Security):
-// 1. Path Traversal Shield: إنشاء أسماء عشوائية آمنة للصور لتجنب حقن مسارات خبيثة.
-// 2. State Isolation: الاعتماد الكامل على UIManager.State لحفظ حالات التقييم وKYC.
-// 3. Zombie Listener Wipe: ربط أحداث الإغلاق بمصفوفة الـ State لمنع تسرب الذاكرة.
-// 4. Memory Safe Uploads: تحرير الـ Blob URLs فور انتهاء عملية العرض والرفع.
+// 🚀 التحديثات المعمارية (V17.1 - Master Patch):
+// 1. Error Memory Leak Fix 🛡️: تنظيف الكائنات من الذاكرة العشوائية حتى في حالات فشل معالجة الصور.
+// 2. UX Sync Shield 🛡️: تحويل تعديل الاسم لـ Async لانتظار رد السيرفر وإيقاف التحديث الكاذب.
+// 3. Zombie Files Wipe 🛡️: تدمير كائنات الـ KYC من الذاكرة إذا ألغى العميل العملية.
+// 4. Path Traversal Shield: إنشاء أسماء عشوائية آمنة للصور لتجنب حقن مسارات خبيثة.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -30,6 +30,7 @@ export const UIAuth = {
     kycFiles: {},
     _processingImgs: new Set(), 
 
+    // 🛡️ التحديث المعماري 1: حماية الذاكرة (Memory Leak Shield) الشاملة
     _compressImage: function(file, maxWidth = 1000) {
         return new Promise((resolve, reject) => {
             const watchdog = setTimeout(() => {
@@ -57,24 +58,28 @@ export const UIAuth = {
                             clearTimeout(watchdog); 
                             if (!blob) return reject(new Error("فشل ضغط الصورة."));
                             
-                            // 🛡️ Security Fix: Path Traversal Prevention
-                            // عدم استخدام اسم الملف الأصلي نهائياً واستبداله بتوليد عشوائي آمن
                             const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
                             const safeFileName = `secure_img_${Date.now()}_${uniqueId}.webp`;
                             
                             const compressedFile = new File([blob], safeFileName, { type: 'image/webp' });
                             resolve({ file: compressedFile, previewUrl: URL.createObjectURL(blob) });
                             
+                            // تنظيف الذاكرة
                             canvas.width = 0; canvas.height = 0; 
-                            img.src = ''; 
-                            img.onload = null; img.onerror = null;
+                            img.src = ''; img.onload = null; img.onerror = null;
                         }, 'image/webp', 0.80);
                     } catch (error) { 
                         clearTimeout(watchdog);
+                        // تنظيف الذاكرة في حال الفشل
+                        img.src = ''; img.onload = null; img.onerror = null;
                         reject(error); 
                     }
                 };
-                img.onerror = () => { clearTimeout(watchdog); reject(new Error("ملف الصورة تالف أو غير صالح.")); };
+                img.onerror = () => { 
+                    clearTimeout(watchdog); 
+                    img.src = ''; img.onload = null; img.onerror = null; // تنظيف
+                    reject(new Error("ملف الصورة تالف أو غير صالح.")); 
+                };
                 img.src = e.target.result;
             };
             reader.onerror = () => { clearTimeout(watchdog); reject(new Error("تعذر قراءة الملف.")); };
@@ -244,7 +249,6 @@ export const UIAuth = {
                         }
 
                         const oldImageUrl = DataManager.user.img; 
-                        // استخدام UUID الآمن في اسم الصورة للـ Storage أيضاً
                         const secureStorageName = `avatar_${DataManager.user.id}_${Date.now()}_${Math.random().toString(36).substring(2,8)}.webp`;
                         downloadUrl = await FirebaseAdapter.uploadImage(compressed.file, 'avatars', secureStorageName);               
                         
@@ -290,7 +294,8 @@ export const UIAuth = {
         });
     },    
     
-    toggleNameEdit: function() {
+    // 🛡️ التحديث المعماري 2: تجميد الواجهة والانتظار (UX Sync Shield)
+    toggleNameEdit: async function() {
         const sys = getSys();
         const nameEl = document.getElementById('display-name');
         const inpEl = document.getElementById('edit-name-input');
@@ -306,32 +311,40 @@ export const UIAuth = {
         } else {
             let newVal = inpEl.value.trim().replace(/[<>"{}[\]\\]/g, '');
             
-            if (newVal.length < 2) { sys.showToast?.('الاسم قصير جداً أو فارغ، يرجى كتابة اسم صحيح', 'warning'); return; }
+            if (newVal.length < 2) { sys.showToast?.('الاسم قصير جداً، يرجى كتابة اسم صحيح', 'warning'); return; }
             if (newVal.length > 40) { sys.showToast?.('الاسم طويل جداً، يرجى كتابة اسم أقصر', 'warning'); return; }
             
-            const currentFullName = DataManager.user.fullName || DataManager.user.name || '';
+            const currentFullName = DataManager.user?.fullName || DataManager.user?.name || '';
             if (DataManager.user && newVal !== currentFullName) {
-                
                 const nameParts = newVal.split(' ');
                 const newFirstName = nameParts[0];
                 const newLastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
                 
-                DataManager.updateUserProfile({ 
+                sys.toggleLoader?.(true, 'جاري تحديث الاسم...');
+                const success = await DataManager.updateUserProfile({ 
                     firstName: newFirstName, 
                     lastName: newLastName, 
                     fullName: newVal 
-                }).then(success => {
-                    if (success) {
-                        nameEl.textContent = newVal; 
-                        sys.showToast?.('تم تحديث الاسم بنجاح', 'success');
-                        if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
-                    }
                 });
+                sys.toggleLoader?.(false);
+                
+                if (success) {
+                    nameEl.textContent = newVal; 
+                    sys.showToast?.('تم تحديث الاسم بنجاح', 'success');
+                    if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
+                    
+                    inpEl.value = newVal;
+                    inpEl.classList.add('d-none');
+                    nameEl.classList.remove('d-none');
+                    btn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+                } else {
+                    sys.showToast?.('تعذر تحديث الاسم، يرجى المحاولة لاحقاً', 'error');
+                }
+            } else {
+                inpEl.classList.add('d-none');
+                nameEl.classList.remove('d-none');
+                btn.innerHTML = '<i class="fa-solid fa-pen"></i>';
             }
-            inpEl.value = newVal;
-            inpEl.classList.add('d-none');
-            nameEl.classList.remove('d-none');
-            btn.innerHTML = '<i class="fa-solid fa-pen"></i>';
         }
     },    
     
@@ -351,7 +364,6 @@ export const UIAuth = {
         const sys = getSys();
         const state = sys.State || {};
         
-        // 🛡️ Architecture Fix: تنظيف المستمعات (Zombie Listeners)
         if (state.activeListeners && state.activeListeners.has('avatarMenu')) {
             document.removeEventListener('click', state.activeListeners.get('avatarMenu'));
             state.activeListeners.delete('avatarMenu');
@@ -1111,7 +1123,6 @@ export const UIAuth = {
         this._processingImgs.add(previewId);
         
         try {
-            // اللودر سيزيد العداد التلقائي في الموزع المركزي بسلاسة
             sys.toggleLoader?.(true, 'جاري معالجة الصورة...');
             const compressed = await this._compressImage(file, 1200);
             
@@ -1129,8 +1140,6 @@ export const UIAuth = {
             input.value = '';
         } finally {
             this._processingImgs.delete(previewId);
-            // 🛡️ الإصلاح: الاعتماد حصرياً على الذكاء الداخلي للموزع المركزي (UIManager) 
-            // لإغلاق اللودر، مما يمنع تعليق الشاشة عند معالجة أكثر من صورة.
             sys.toggleLoader?.(false);
         }
     },
@@ -1239,6 +1248,7 @@ export const UIAuth = {
         }
     },
 
+    // 🛡️ التحديث المعماري 3: تدمير كائنات ה-KYC في الذاكرة لتجنب الـ Memory Leak 
     closeKycModal: function() { 
         const previews = ['kyc-prev-front', 'kyc-prev-back', 'kyc-prev-selfie'];
         previews.forEach(id => {
@@ -1256,7 +1266,7 @@ export const UIAuth = {
         if (kycModal) {
             kycModal.querySelectorAll('input[type="file"]').forEach(inp => inp.value = '');
         }        
-        this.kycFiles = {}; 
+        this.kycFiles = {}; // تدمير الـ File objects المخبأة
         getSys().closeModal?.('kyc-upload'); 
     },
 
@@ -1406,7 +1416,6 @@ export const UIAuth = {
         if (btn) { btn.textContent = "جاري الإرسال..."; btn.disabled = true; }
         
         try {
-            // 🛡️ Architecture Fix: قراءة التقييم من الـ State المعزولة لمنع التصادم
             const currentRating = sys.State?.currentRating || 0;
             const res = await DataManager.submitPrivateFeedback(currentRating, feedback);
             

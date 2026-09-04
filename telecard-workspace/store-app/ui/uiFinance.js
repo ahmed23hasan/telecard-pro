@@ -1,10 +1,10 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - الإصدار المؤسسي V17.6 💎
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - الإصدار المؤسسي V17.7 💎
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، المعاملات المالية، وتأمين الطلبات
-// 🚀 التحديثات المعمارية:
-// 1. Image Processing Guard: حماية زر الإيداع أثناء ضغط صورة الإشعار في الهواتف البطيئة.
-// 2. Race Condition Fix: إزالة Kill Switch الزمني وربط فك القفل بـ Promise.finally حصراً.
-// 3. Strict DOM Validation: إعادة التحقق البرمجي من الكميات رياضياً قبل إرسالها للسيرفر.
+// 🚀 التحديثات المعمارية (V17.7 - Master Patch):
+// 1. File Input Fix: تصفير حقول رفع الملفات لمنع تجميد اختيار نفس الإشعار.
+// 2. Limits Bar DOM Thrashing Fix: رسم شريط حدود الإيداع مرة واحدة لمنع وميض الواجهة.
+// 3. Offline Listener Leak Fix: حماية الذاكرة من تراكم مستمعات أحداث انقطاع الشبكة.
 // 4. Network Failsafe: دمج Promise.race لفك قفل الواجهة إجبارياً في حال انقطاع النت الصامت.
 // ============================================================================
 
@@ -25,8 +25,15 @@ const getSys = () => {
 export const UIFinance = {
 
     _watchdogTimer: null,
-    _offlineHandler: null,
     _amountTypingTimer: null,
+    
+    // 🛡️ التحديث المعماري: تعريف المستمع مرة واحدة لحماية الذاكرة (Memory Leak Fix)
+    _offlineHandler: function() {
+        const sys = getSys();
+        if (sys.State?.isProcessingTx) {
+            sys.showToast?.('انقطع الاتصال بالإنترنت! النظام يحمي معاملتك الآن.', 'error');
+        }
+    },
 
     _parseSafeAmount: function(val) {
         if (!val) return 0;
@@ -64,7 +71,6 @@ export const UIFinance = {
         }
     },
 
-    // 🛡️ Security Fix: الاعتماد على finally لفك القفل مع تحذير شبكة جانبي
     _lockUI: function(btn) {
         const sys = getSys();
         if (sys.State) sys.State.isProcessingTx = true;
@@ -77,17 +83,14 @@ export const UIFinance = {
 
         if (this._watchdogTimer) clearTimeout(this._watchdogTimer);
 
-        // تنبيه الشبكة البطيئة 
         this._watchdogTimer = setTimeout(() => {
             if (sys.State?.isProcessingTx) {
                 sys.showToast?.('الشبكة بطيئة بعض الشيء، جاري معالجة طلبك بأمان... الرجاء عدم إغلاق الصفحة.', 'warning');
             }
         }, 15000); 
         
-        if (this._offlineHandler) window.removeEventListener('offline', this._offlineHandler);
-        this._offlineHandler = () => {
-            if (sys.State?.isProcessingTx) sys.showToast?.('انقطع الاتصال بالإنترنت! النظام يحمي معاملتك الآن.', 'error');
-        };
+        // استخدام المستمع الثابت
+        window.removeEventListener('offline', this._offlineHandler); // ضمان عدم التكرار
         window.addEventListener('offline', this._offlineHandler);
     },
 
@@ -101,7 +104,8 @@ export const UIFinance = {
         if (btn) this._toggleButtonLoader(btn, false);
         
         if (this._watchdogTimer) { clearTimeout(this._watchdogTimer); this._watchdogTimer = null; }
-        if (this._offlineHandler) { window.removeEventListener('offline', this._offlineHandler); this._offlineHandler = null; }
+        // إزالة المستمع الثابت
+        window.removeEventListener('offline', this._offlineHandler);
     },
 
     _applyTabFilter: function(filterKey, filterValue, element, renderFuncName) {
@@ -444,7 +448,6 @@ export const UIFinance = {
             if(inp1El && !inp1) { showInlineError(inp1El, 'يرجى ملء الحقل المطلوب'); isValid = false; inp1El.focus(); }
         }
 
-        // 🛡️ Security Fix: التحقق البرمجي الرياضي 
         if (DataManager.currentProd.type === 'counter') { 
             const minQ = parseInt(DataManager.currentProd.minQty) || 1; 
             qty = Math.max(minQ, Utils.parseSafeNumber(document.getElementById('pm-qty')?.value)) || minQ;
@@ -470,7 +473,6 @@ export const UIFinance = {
         this._lockUI(submitBtn);
 
         try {
-            // 🛡️ Network Failsafe: فك القفل إجبارياً بعد 30 ثانية في حال انقطاع الشبكة الصامت
             const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("نفد وقت الاتصال بالسيرفر، يرجى التحقق من جودة الاتصال.")), 30000));
             
             const result = await Promise.race([
@@ -517,7 +519,6 @@ export const UIFinance = {
             sys.showToast?.(err.message || 'حدث خطأ في النظام', 'error');
             sys.sfx?.('error'); 
         } finally { 
-            // 🛡️ Security Fix: فك القفل دائماً وبشكل قطعي 
             this._unlockUI(submitBtn); 
         }
     },    
@@ -631,10 +632,39 @@ export const UIFinance = {
         
         window.requestAnimationFrame(() => {
             section.innerHTML = UIBuilders.buildDepositForm(p, copyContainer, uniqueCurrencies.length === 1, this.currentPayCurrency, uniqueCurrencies.map((c, i) => `<div class="dropdown-item ${i === 0 ? 'active' : ''}" data-curr="${c}">${c}</div>`).join(''), (DataManager.user?.baseCurrency || 'USD').toUpperCase());
+            // 🛡️ التحديث المعماري: رسم شريط الحدود مرة واحدة عند اختيار طريقة الدفع
+            this._drawInitialLimitsBar();
             this.calcFee();
         });
     },
 
+    // 🛡️ دالة مساعدة لرسم الشريط مرة واحدة
+    _drawInitialLimitsBar: function() {
+        const limitsBar = document.getElementById('bal-limits-bar');
+        if (!limitsBar || !DataManager || !this.currentPayment) return;
+
+        const payCurr = (this.currentPayCurrency || '').toUpperCase();
+        const result = DataManager.calculateDepositFee(1, this.currentPayment, payCurr); // 1 is a dummy amount
+
+        const itemsHtml = UIBuilders.buildLimitsBar(
+            parseFloat(result.feePct)||0, 
+            payCurr, 
+            result.feeUnit||'percent', 
+            result.feeType||'fee', 
+            parseFloat(result.adminMin)||0, 
+            parseFloat(result.adminMax)||0
+        );
+        
+        if (itemsHtml.length === 0) {
+            limitsBar.style.display = 'none'; 
+        } else { 
+            limitsBar.style.display = 'flex'; 
+            limitsBar.className = `compact-limits-bar count-${itemsHtml.length}`; 
+            limitsBar.innerHTML = itemsHtml.join(''); 
+        }
+    },
+
+    // 🛡️ التحديث المعماري الخاص بك (معالجة الملفات العالقة)
     backToPayMethods: function() {
         const sys = getSys();
         const modal = document.getElementById('balance-modal');
@@ -651,6 +681,20 @@ export const UIFinance = {
 
         const preview = document.getElementById('bal-img-preview');
         if (preview && preview.src && preview.src.startsWith('blob:')) { URL.revokeObjectURL(preview.src); preview.src = ''; }
+
+        // 🛡️ تصفير حقول اختيار الملفات لمنع تجميد رفع نفس الإشعار مرة أخرى
+        const fileInputs = document.querySelectorAll('input[type="file"]');
+        fileInputs.forEach(inp => {
+            if (inp.getAttribute('data-action') === 'preview-receipt' || inp.closest('#bal-upload-box')) {
+                inp.value = '';
+            }
+        });
+        
+        const uploadBox = document.getElementById('bal-upload-box');
+        if (uploadBox) {
+            uploadBox.classList.remove('has-file');
+            uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>';
+        }
 
         setTimeout(() => {
             const section = document.getElementById('bal-method-info-section');
@@ -737,7 +781,6 @@ export const UIFinance = {
                             canvas.toBlob((blob) => {
                                 if (sys.State?.currentImageJobId !== currentJobId) return; 
                                 
-                                // 🛡️ Security Fix: توليد مسار عشوائي للملف المضغوط 
                                 const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
                                 const safeFileName = `deposit_img_${Date.now()}_${uniqueId}.webp`;
                                 
@@ -767,37 +810,15 @@ export const UIFinance = {
         const payCurr = (this.currentPayCurrency || '').toUpperCase();
         if (typeof DataManager.calculateDepositFee !== 'function') return;
         
-        // جلب النتيجة من المحرك المالي
         const result = DataManager.calculateDepositFee(amount, this.currentPayment, payCurr);
         
+        // 🛡️ التحديث المعماري: تم إزالة رسم الشريط من هنا لمنع وميض الواجهة (DOM Thrashing)
         window.requestAnimationFrame(() => {
             const errorBox = document.getElementById('bal-amount-error');
             const submitBtn = document.getElementById('btn-submit-deposit');
             const netDisplay = document.getElementById('calc-net');
             const netWrap = document.getElementById('bal-net-wrap');
-            const limitsBar = document.getElementById('bal-limits-bar');
 
-            // رسم شريط الحدود باستخدام (adminMax) الخاص بهذه الطريقة فقط (لإبقاء الحد العام مخفياً)
-            if (limitsBar) {
-                const itemsHtml = UIBuilders.buildLimitsBar(
-                    parseFloat(result.feePct)||0, 
-                    payCurr, 
-                    result.feeUnit||'percent', 
-                    result.feeType||'fee', 
-                    parseFloat(result.adminMin)||0, 
-                    parseFloat(result.adminMax)||0 // إذا كان صفر فلن يظهر شيء في واجهة المستخدم
-                );
-                
-                if (itemsHtml.length === 0) {
-                    limitsBar.style.display = 'none'; 
-                } else { 
-                    limitsBar.style.display = 'flex'; 
-                    limitsBar.className = `compact-limits-bar count-${itemsHtml.length}`; 
-                    limitsBar.innerHTML = itemsHtml.join(''); 
-                }
-            }
-
-            // 🔴 إذا كان المبلغ مرفوضاً (تجاوز الحد الأدنى أو الأقصى)
             if (!result.isValid) {
                 input.classList.toggle('input-invalid', amount > 0);
                 if (errorBox) { 
@@ -807,17 +828,14 @@ export const UIFinance = {
                 }
                 if (submitBtn) submitBtn.disabled = true; 
                 
-                // تصفير الصافي وتخفيف اللون لإشعار العميل بالتعطيل
                 if (netDisplay) { netDisplay.innerText = "0.00"; netDisplay.style.opacity = '0.4'; }
                 if (netWrap) netWrap.classList.remove('has-value');
             } 
-            // 🟢 إذا كان المبلغ سليماً
             else {
                 input.classList.remove('input-invalid');
                 if (errorBox) { errorBox.style.display = 'none'; errorBox.classList.add('d-none'); }
                 if (submitBtn) submitBtn.disabled = false;
                 
-                // عرض الصافي الفعلي بشكل واضح
                 if (netDisplay) { 
                     netDisplay.innerText = result.netBase.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     netDisplay.style.opacity = '1'; 
@@ -839,8 +857,6 @@ export const UIFinance = {
 
         if (this.currentPayment && this.currentPayment.reqProof !== false) {
             if (!sys.State?.pendingReceiptFile) {
-                
-                // 🛡️ درع ذكي: هل الصورة قيد المعالجة (Compressing) الآن؟
                 const uploadBox = document.getElementById('bal-upload-box');
                 if (uploadBox && uploadBox.innerHTML.includes('fa-spinner')) {
                     sys.showToast?.('جاري تجهيز الصورة، يرجى الانتظار لحظة...', 'warning');
@@ -875,7 +891,6 @@ export const UIFinance = {
         
         let uploadedReceiptUrl = null;
         try {
-            // 🛡️ Network Failsafe: فك القفل إجبارياً بعد 45 ثانية في حال انقطاع الشبكة (نعطي وقتاً لرفع الصورة)
             const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("نفد وقت الاتصال بالسيرفر، يرجى التحقق من جودة الاتصال.")), 45000));
             
             const uploadAndSubmitRequest = async () => {

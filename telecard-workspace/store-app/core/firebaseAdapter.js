@@ -1,17 +1,17 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.5 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.6 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت، والإشعارات الفورية
-// 🚀 التحديثات المعمارية:
-// 1. Push Notifications: دمج Firebase Cloud Messaging مع مفتاح الـ VAPID السري.
-// 2. Upload Sync Fix: توحيد حجم الملفات المرفوعة (10MB) ليتطابق مع الواجهة لمنع التضارب.
-// 3. Zero-Leak Listeners: إغلاق ثغرة القراءة المزدوجة في onSnapshot لتقليل الفاتورة.
-// 4. Error Masking: إخفاء الأخطاء الحساسة (Cost/Profit) عن العملاء لحماية أسرار المتجر.
-// 5. PWA Deadlock Shield 🛡️: كسر تعليق الكاش المحلي (IndexedDB) عبر المهلة الزمنية لضمان إقلاع المتجر.
+// 🚀 التحديثات المعمارية (V18.6):
+// 1. PWA Deadlock Shield 🛡️: إزالة مزامنة التبويبات المتعددة لمنع تعليق IndexedDB وضمان الإقلاع.
+// 2. Query/Doc Timeout Fix 🛡️: منع انهيار المتجر عند تأخر السيرفر عبر إرجاع بيانات بديلة/فارغة.
+// 3. Zero Race Condition: تأمين تهيئة قاعدة البيانات للعمل بالذاكرة المؤقتة فوراً عند تلف التخزين.
+// 4. Zero-Leak Listeners: إغلاق ثغرة القراءة المزدوجة في onSnapshot لتقليل الفاتورة.
+// 5. Error Masking: إخفاء الأخطاء الحساسة (Cost/Profit) عن العملاء لحماية أسرار المتجر.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
-    initializeFirestore, persistentLocalCache, persistentMultipleTabManager, 
+    initializeFirestore, persistentLocalCache, clearIndexedDbPersistence, 
     collection, doc, getDoc, getDocs, getDocFromCache, getDocsFromCache, 
     setDoc, addDoc, deleteDoc, onSnapshot, 
     query, where, orderBy, limit, startAfter 
@@ -22,38 +22,36 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
-// 🛡️ استيراد مكتبة الإشعارات الفورية
 import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js";
 
 import { firebaseConfig, DB_KEYS, CACHE_KEYS } from '../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-import { clearIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-
+// 🛡️ التحديث المعماري الجذري والخالي من التضارب (Zero Race Condition)
 let db;
 try {
+    // الاعتماد على التخزين المحلي الفردي المستقر
     db = initializeFirestore(app, {
-        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+        localCache: persistentLocalCache() 
     });
-} catch (e) {
-    if (e.code === 'failed-precondition' || e.code === 'unimplemented') {
-        console.warn("⚠️ تم اكتشاف تلف في قاعدة البيانات المحلية. جاري التنظيف...");
-        clearIndexedDbPersistence(app).then(() => {
-            db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
-        }).catch(() => {
-            db = initializeFirestore(app, {}); // Fallback to memory only
-        });
-    } else {
-        db = initializeFirestore(app, {}); 
-    }
+} catch (error) {
+    console.warn("⚠️ [Firestore] تعذر تفعيل التخزين المحلي بسبب قفل متراكم، جاري التشغيل الآمن عبر الذاكرة العشوائية (Memory Cache)...");
+    
+    // 1. Fallback فوري ومتزامن: لضمان أن المتغير db متاح فوراً ولا ينهار المتجر
+    db = initializeFirestore(app, {}); 
+    
+    // 2. تنظيف صامت في الخلفية للزيارة القادمة (Fire and forget)
+    clearIndexedDbPersistence(app)
+        .then(() => console.log("✅ [Firestore] تم تنظيف الكاش التالف للزيارة القادمة."))
+        .catch(() => {});
 }
 
 const auth = getAuth(app);
 const storage = getStorage(app);
 const functions = getFunctions(app);
 
-// 🛡️ تهيئة الإشعارات بأمان (حماية ضد المتصفحات التي لا تدعمها مثل وضع التخفي)
+// 🛡️ تهيئة الإشعارات بأمان
 let messaging = null;
 try {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -64,7 +62,6 @@ try {
 }
 
 export { auth, db, storage, functions, messaging };
-
 export const FirebaseAdapter = {
     db: db,
     storage: storage,
@@ -79,14 +76,12 @@ export const FirebaseAdapter = {
         if (!messaging || typeof window === 'undefined' || !('Notification' in window)) return null;
         
         try {
-            // نطلب الصلاحية من المتصفح (هذه الدالة ستُستدعى فقط بعد أن يوافق العميل في واجهتنا الأنيقة)
             const permission = await Notification.requestPermission();
             if (permission !== 'granted') {
                 console.warn('[FCM] العميل رفض صلاحية الإشعارات.');
                 return null;
             }
             
-            // توليد التوكن وربطه بالمفتاح السري (VAPID Key) الخاص بمشروعك
             const token = await getToken(messaging, { 
                 vapidKey: 'BDdFL5sHBs1j5RXsps4TahR2UN4qCRwZR2G769OJEGR_1gTj8D2MHsTRsMeSv_Spad22N6LYFsu0x9GhdARqEFk' 
             });
@@ -226,14 +221,13 @@ export const FirebaseAdapter = {
     },
     
     async getCacheFirst(collectionName, docId) {
+        let cachedData = null;
         try {
             const safeId = this._sanitizeDocId(docId);
             const docRef = doc(db, collectionName, safeId);
             const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
             
-            let cachedData = null;
             try {
-                // 🚀 التحديث الاحترافي: تغليف الكاش بمهلة 3 ثوانٍ لكسر التعليق الصامت في بيئة الـ PWA
                 const cachedSnap = await this._withTimeout(getDocFromCache(docRef), 3000, 'getDocFromCache');
                 if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
             } catch (e) {}
@@ -254,11 +248,14 @@ export const FirebaseAdapter = {
             }
         } catch (error) {
             console.error(`[DB Error] getCacheFirst (${collectionName}):`, error.message);
-            throw error;
+            // 🛡️ الترقيع الدفاعي: إرجاع الكاش إن وجد أو null لإنقاذ السلسلة وعدم رمي خطأ قاتل (Throw Error) يوقف الإقلاع
+            return cachedData || null;
         }
     },
 
+    // 🛡️ التحديث المعماري الجذري: منع انهيار الإقلاع عند حدوث Timeout
     async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limitCount = 50, forceServer = false) {
+        let cachedDocs = null;
         try {
             let constraints = [];
             filtersArray.forEach(f => constraints.push(where(f[0], f[1], f[2])));
@@ -269,22 +266,31 @@ export const FirebaseAdapter = {
             const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
             const needsServer = forceServer || this._globalForceServer;
             
-            if (!needsServer || isOffline) {
-                try {
-                    // 🚀 التحديث الاحترافي: تغليف استعلام الكاش بمهلة 4 ثوانٍ لضمان عدم تجميد الشاشة الافتتاحية
-                    const cachedSnapshot = await this._withTimeout(getDocsFromCache(q), 4000, 'getDocsFromCache');
-                    if (!cachedSnapshot.empty) {
-                        return cachedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: true }));
-                    }
-                } catch (cacheError) {}
+            // 1. محاولة القراءة من الكاش أولاً (بمهلة قصيرة لعدم تجميد الشاشة)
+            try {
+                const cachedSnapshot = await this._withTimeout(getDocsFromCache(q), 4000, 'getDocsFromCache');
+                if (!cachedSnapshot.empty) {
+                    cachedDocs = cachedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: true }));
+                    if (!needsServer || isOffline) return cachedDocs;
+                }
+            } catch (cacheError) {
+                // الكاش فارغ أو غير متاح، نستمر للسيرفر
             }
             
+            // 2. محاولة جلب أحدث البيانات من السيرفر
             const serverSnapshot = await this._withTimeout(getDocs(q), 10000, `queryCacheFirst -> ${collectionName}`);
             return serverSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: false }));
             
         } catch (error) {
-            console.error(`[DB Error] queryCacheFirst (${collectionName}):`, error.message);
-            throw error;
+            console.error(`🚨 [DB Error] فشل الاتصال بالسيرفر لـ (${collectionName}):`, error.message);
+            
+            // 🛡️ الترقيع الماسي: إذا فشل السيرفر، نستخدم الكاش إن وجد، أو نرجع مصفوفة فارغة لإنقاذ المتجر
+            if (cachedDocs && cachedDocs.length > 0) {
+                console.warn(`⚠️ تم استخدام بيانات الكاش لـ ${collectionName} لإنقاذ إقلاع المتجر.`);
+                return cachedDocs;
+            }
+            console.warn(`⚠️ إرجاع بيانات فارغة لـ ${collectionName} لضمان استمرار إقلاع المتجر وعدم التعليق.`);
+            return []; 
         }
     },
     

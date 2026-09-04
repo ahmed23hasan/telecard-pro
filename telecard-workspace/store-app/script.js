@@ -1,13 +1,12 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V18.0.0 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V18.1.0 💎
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع الآمن، عزل الحالة، وإدارة الجلسات
-// 🚀 التحديثات المعمارية الصارمة:
-// 1. Zero-Billing Leak: تحويل جلب (الدول، بوابات الدفع، الكوبونات) إلى queryCacheFirst.
-// 2. Deadlock & Splash Guard: ضمان إزالة شاشة الإقلاع حتى في حال تعثر الشبكة.
-// 3. Push Prompt Trigger: استدعاء نافذة الإشعارات الأنيقة بذكاء بعد الترحيب بالعميل.
-// 4. Biometric Fallback: طرد صريح (Hard Logout) عند فشل البصمة لمنع تجميد الجلسة.
-// 5. Loop Fix: حماية حلقة التحديث اللانهائية عبر ختم زمني (Timestamp) في الجلسة.
-// 6. Cross-Tab Sync: مزامنة فورية لتسجيل الخروج بين النوافذ المفتوحة.
+// 🚀 التحديثات المعمارية الصارمة (V18.1.0 - Master Patch):
+// 1. Array Limit Fix: منع انهيار الذاكرة (Maximum call stack) للمصفوفات الضخمة.
+// 2. Zero-Leak Listeners: تفريغ مستمعات الـ DataManager لعدم مضاعفة فاتورة فايربيس.
+// 3. Time Drift Sync: تحديث صامت للوقت عند خروج المتجر من وضع الاستعداد (Sleep Mode).
+// 4. Zero-Billing Leak: تحويل جلب (الدول، بوابات الدفع، الكوبونات) إلى queryCacheFirst.
+// 5. Deadlock & Splash Guard: ضمان إزالة شاشة الإقلاع حتى في حال تعثر الشبكة.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -31,7 +30,16 @@ import { RenderManager } from './renderManager.js';
 import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 
-const _updateLiveArray = (arr, newData) => { if (arr) { arr.length = 0; if (Array.isArray(newData)) arr.push(...newData); } };
+// 🛡️ التحديث الماسي: إصلاح انهيار الذاكرة (Maximum call stack)
+const _updateLiveArray = (arr, newData) => { 
+    if (arr) { 
+        arr.length = 0; 
+        if (Array.isArray(newData)) {
+            for(let i = 0; i < newData.length; i++) arr.push(newData[i]);
+        }
+    } 
+};
+
 const _updateLiveObject = (obj, newData) => { if (obj) { Object.keys(obj).forEach(k => delete obj[k]); if (newData) Object.assign(obj, newData); } };
 
 const _normalizeDataTime = (dataArray) => {
@@ -52,11 +60,19 @@ const AppController = {
     _isUpdatingServer: false,
 
     clearFirebaseListeners: function() {
-        [...this.activeListeners, ...this.userAuthListeners].forEach(unsub => {
+        // 🛡️ حماية ضد التكرار (Memory Leak Fix)
+        const allListeners = [...this.activeListeners, ...this.userAuthListeners];
+        allListeners.forEach(unsub => {
             if (typeof unsub === 'function') try { unsub(); } catch(e){}
         });
         this.activeListeners = [];
         this.userAuthListeners = [];
+        
+        // 🛡️ إغلاق مستمعات DataManager الصامتة لمنع تضاعف الفاتورة (Zero-Leak)
+        if (typeof DataManager !== 'undefined') {
+            if (typeof DataManager._notifUnsubscribe === 'function') { DataManager._notifUnsubscribe(); DataManager._notifUnsubscribe = null; }
+            if (typeof DataManager._userUnsubscribe === 'function') { DataManager._userUnsubscribe(); DataManager._userUnsubscribe = null; }
+        }
         
         if (StoreDB && typeof StoreDB.killAllListeners === 'function') {
             StoreDB.killAllListeners();
@@ -385,6 +401,13 @@ AppController.init = async function() {
         }
     });
 
+    // 🛡️ معالجة الانحراف الزمني عند عودة العميل من وضع الاستعداد (Sleep Mode)
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && typeof DataManager !== 'undefined' && DataManager.activeUid) {
+            if (typeof DataManager.syncUser === 'function') DataManager.syncUser().catch(()=>{}); // يفرض تحديث الوقت بصمت
+        }
+    });
+
     if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
         RenderHelpers.init({ settings: {}, rates: [], offers: [], isStore: true });
     }
@@ -416,7 +439,8 @@ AppController.init = async function() {
             localStorage.setItem('telecard_app_version', currentVersion);
             
             await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
-            window.location.replace(window.location.href.split('#')[0]);
+            // 🛡️ فرض تحديث صلب متجاهلاً كاش المتصفح لضمان رؤية الإصدار الجديد
+window.location.reload(true);
             return;
         } else if (!savedVersion) {
             localStorage.setItem('telecard_app_version', currentVersion);

@@ -1,11 +1,12 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V17.6 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V17.7 💎
 // 🎯 الوظيفة: النوافذ، التوجيه الذكي، الإشعارات، التنسيق، ومزامنة الصوت
-// 🚀 التحديثات المعمارية (Architectural Sync):
-// 1. Soft Push Prompt: نافذة أنيقة لطلب صلاحية الإشعارات دون إزعاج المستخدم.
-// 2. Action Unlocks: شبكة أمان لفك تجميد أزرار الدفع/الإيداع عند انقطاع الإنترنت الصامت.
-// 3. Magic Strings Cleanup: ربط دالة الحظر (Ban) بمفاتيح CACHE_KEYS الموحدة.
-// 4. Deep Purge: تدمير كاشات الطلبات والإيداعات تلقائياً عند طرد المستخدم المحظور.
+// 🚀 التحديثات المعمارية (V17.7 - Master Patch):
+// 1. Async Export Fix 🛡️: إرجاع الـ Promises في زر التصدير لالتقاط أخطاء الـ Canvas برمجياً.
+// 2. PWA Install UX 🛡️: إخفاء واجهة التثبيت فوراً قبل انتظار قرار العميل لتجربة أنظف.
+// 3. Toast Memory Leak Fix 🛡️: ربط مؤقت الإخفاء بعنصر الـ Toast لإلغائه عند الحذف الإجباري.
+// 4. Copy Icon State Fix 🛡️: منع تشنج أيقونة النسخ عند الضغط المزدوج السريع.
+// 5. Deep Purge: تدمير كاشات الطلبات والإيداعات تلقائياً عند طرد المستخدم المحظور.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY, DYNAMIC_PREFIXES } from '../config.js';           
@@ -66,10 +67,9 @@ export const UICore = {
         
         setTimeout(() => {
             if (DataManager && typeof DataManager.logout === 'function') {
-                DataManager.logout(true); // استخدام الطرد الآمن الخاص بـ DataManager
+                DataManager.logout(true);
             } else {
                 try {
-                    // 🛡️ المزامنة المعمارية: الاعتماد التام على مفاتيح النظام بدلاً من النصوص العشوائية
                     localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
                     localStorage.removeItem(ACTIVE_USER_KEY);
                     localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
@@ -603,19 +603,12 @@ export const UICore = {
             'confirm-purchase': async (e, id, val, target) => { 
                 if (target.dataset.processing === 'true') return;
                 target.dataset.processing = 'true';
-                
-                // 🛡️ شبكة أمان: فك القفل الإجباري بعد 35 ثانية لحماية الواجهة من السقوط الصامت للإنترنت
                 const safetyUnlock = setTimeout(() => {
                     target.dataset.processing = 'false';
                     if (target.disabled) getSys()._unlockUI?.(target);
                 }, 35000);
-
-                try { 
-                    await getSys().handlePurchaseSubmit?.(); 
-                } finally { 
-                    clearTimeout(safetyUnlock);
-                    target.dataset.processing = 'false'; 
-                }
+                try { await getSys().handlePurchaseSubmit?.(); } 
+                finally { clearTimeout(safetyUnlock); target.dataset.processing = 'false'; }
             },
             
             'nav-orders-from-success': () => { 
@@ -628,19 +621,12 @@ export const UICore = {
             'submit-balance': async (e, id, val, target, dataType, dataCurr) => {
                 if (target.disabled || target.dataset.processing === 'true') return;
                 target.dataset.processing = 'true';
-                
-                // 🛡️ شبكة أمان: فك القفل الإجباري بعد 45 ثانية (وقت إضافي لاحتمالية رفع صورة إشعار)
                 const safetyUnlock = setTimeout(() => {
                     target.dataset.processing = 'false';
                     if (target.disabled) getSys()._unlockUI?.(target);
                 }, 45000);
-
-                try { 
-                    await getSys().handleBalanceSubmit?.(dataCurr); 
-                } finally { 
-                    clearTimeout(safetyUnlock);
-                    target.dataset.processing = 'false'; 
-                }
+                try { await getSys().handleBalanceSubmit?.(dataCurr); } 
+                finally { clearTimeout(safetyUnlock); target.dataset.processing = 'false'; }
             },
 
             'toggle-accordion': (e, id, val, target) => { e.preventDefault(); getSys().togglePayDetail?.(target); },
@@ -699,11 +685,12 @@ export const UICore = {
             },
             'show-phone-toast': () => this.showToast?.('هذا الرقم مرتبط بحسابك الأساسي.', 'info'),
             
-            'export-receipt': (e, id, val, target) => {
+            // 🛡️ التحديث المعماري 1: استدعاء التصدير كـ Async لالتقاط الأخطاء
+            'export-receipt': async (e, id, val, target) => {
                 e.preventDefault(); e.stopPropagation();
-                if (target.closest('.nm-btn-print-magic')) RenderManager?.exportReceipt?.(id, target);
-                else if (target.closest('.btn-receipt-export')) RenderManager?.exportPaymentReceipt?.(id, target);
-                else getSys().exportReceipt?.(id, target);
+                if (target.closest('.nm-btn-print-magic')) return RenderManager?.exportReceipt?.(id, target);
+                else if (target.closest('.btn-receipt-export')) return RenderManager?.exportPaymentReceipt?.(id, target);
+                else return getSys().exportReceipt?.(id, target);
             },
             
             'mark-all-read': () => {
@@ -743,19 +730,12 @@ export const UICore = {
                 if (tId && tId !== 'null' && tId !== 'undefined') {
                     getSys().openDetail?.(e, item.getAttribute('data-jump-type') || 'order', tId);
                 }
-            }, // ⬅️ فاصلة الأمان للمحرك
+            },
 
-            // =======================================================
-            // 🔔 أحداث نافذة الإشعارات
-            // =======================================================
             'accept-push-prompt': async () => {
                 const promptEl = document.getElementById('push-soft-prompt');
                 if (promptEl) promptEl.remove();
-                
-                // تسجيل الموافقة لعدم إزعاجه مستقبلاً
                 localStorage.setItem(CACHE_KEYS.PUSH_PROMPT_TIME || 'tc_push_prompt_time', Date.now().toString());
-                
-                // استدعاء دالة الداتا منجر التي بنيناها
                 if (typeof DataManager !== 'undefined' && DataManager.setupPushNotifications) {
                     await DataManager.setupPushNotifications(true); 
                 }
@@ -764,11 +744,8 @@ export const UICore = {
             'dismiss-push-prompt': () => {
                 const promptEl = document.getElementById('push-soft-prompt');
                 if (promptEl) promptEl.remove();
-                
-                // تسجيل الرفض المؤقت (سنسأله بعد 7 أيام كما برمجنا)
                 localStorage.setItem(CACHE_KEYS.PUSH_PROMPT_TIME || 'tc_push_prompt_time', Date.now().toString());
             }
-
         }; 
 
         if (this.initNetworkSensors) this.initNetworkSensors(); 
@@ -937,17 +914,22 @@ export const UICore = {
         });
     },
 
+    // 🛡️ التحديث المعماري 2: إخفاء حاوية التثبيت فوراً لتحسين الـ UX
     triggerPWAInstall: async function() {
         if (!deferredInstallPrompt) return;
-        
         getSys().sfx?.('nav');
-        deferredInstallPrompt.prompt();
-        const { outcome } = await deferredInstallPrompt.userChoice;
         
         const installContainer = document.getElementById('pwa-install-container');
         if (installContainer) installContainer.style.display = 'none';
         
-        deferredInstallPrompt = null;
+        try {
+            deferredInstallPrompt.prompt();
+            await deferredInstallPrompt.userChoice;
+        } catch (err) {
+            console.warn("تم إلغاء التثبيت:", err);
+        } finally {
+            deferredInstallPrompt = null;
+        }
     },
 
     // =========================================================
@@ -1157,23 +1139,24 @@ export const UICore = {
         else if(toPage === 'favorites') { if(RenderManager.renderFavorites) RenderManager.renderFavorites(); }
     },
 
+    // 🛡️ التحديث المعماري 3: تصحيح حالة الأيقونة لمنع التشنج عند النسخ المزدوج
     copyToClipboard: function(text, element, type = 'default') {
         getSys().sfx?.('nav'); 
         
         const successVisuals = () => {
             if (element) { 
+                if (element.classList.contains('is-copied') || element.classList.contains('copy-success')) return;
+
                 element.style.transition = 'transform 0.1s ease';
                 element.style.transform = 'scale(0.92)'; 
                 setTimeout(() => { if(element) element.style.transform = 'scale(1)'; }, 100); 
 
                 let icon = type === 'smartline' ? element.querySelector('.scl-icon') : (element.querySelector('i') || (element.tagName === 'I' ? element : null));
                 
-                if (!element.classList.contains('is-copied') && !element.classList.contains('copy-success')) {
-                    element.classList.add(type === 'smartline' ? 'copy-success' : 'is-copied');
-                    if (icon) {
-                        if (!icon.dataset.origClass) icon.dataset.origClass = icon.className;
-                        icon.className = 'fa-solid fa-check-double' + (type === 'smartline' ? ' scl-icon' : '');
-                    }
+                element.classList.add(type === 'smartline' ? 'copy-success' : 'is-copied');
+                if (icon) {
+                    if (!icon.dataset.origClass) icon.dataset.origClass = icon.className;
+                    icon.className = 'fa-solid fa-check-double' + (type === 'smartline' ? ' scl-icon' : '');
                 }
                 
                 if (element.copyTimer) clearTimeout(element.copyTimer);
@@ -1218,22 +1201,15 @@ export const UICore = {
         });
     },
 
-    // =========================================================
-    // 🔔 نافذة طلب الإشعارات الأنيقة (Soft Prompt)
-    // =========================================================
     showPushNotificationPrompt: function() {
-        // 1. الفحص المعماري: هل المتصفح يدعم؟ هل نحن أوفلاين؟ هل العميل وافق/رفض مسبقاً؟
         if (typeof window === 'undefined' || !window.Notification || typeof DataManager === 'undefined' || !DataManager.activeUid) return;
         if (Notification.permission === 'granted' || Notification.permission === 'denied') return;
         
-        // 2. حماية الـ UX: عدم إزعاج العميل إذا طلب تذكيره لاحقاً (Cooldown: 7 Days)
         const lastPrompt = localStorage.getItem(CACHE_KEYS.PUSH_PROMPT_TIME || 'tc_push_prompt_time');
         if (lastPrompt && (Date.now() - parseInt(lastPrompt)) < 7 * 24 * 60 * 60 * 1000) return;
 
-        // 3. منع التكرار في الـ DOM
         if (document.getElementById('push-soft-prompt')) return;
 
-        // 4. بناء القالب البصري الأنيق (تصميم يتماشى مع هوية المتجر)
         const html = `
             <div id="push-soft-prompt" class="sys-dialog-wrapper active" style="z-index: 99999;">
                 <div class="sys-dialog-overlay" data-action="dismiss-push-prompt"></div>
@@ -1409,6 +1385,7 @@ export const UICore = {
         }, 50);
     },
 
+    // 🛡️ التحديث المعماري 4: حماية الذاكرة من مؤقتات الـ Toast المعلقة
     showToast: function(msg, type = 'info') {
         if (type === 'info') {
             if (/فشل|خطأ|عذراً|كاف|نفد|غير صالح/.test(msg)) type = 'error';
@@ -1423,11 +1400,19 @@ export const UICore = {
             container.className = 'custom-toast-container'; 
             document.body.appendChild(container);
         } else {
-            const lastToast = container.lastElementChild;
-            if (lastToast && lastToast.querySelector('.toast-msg')?.innerText === Utils.escapeHtml(msg)) {
-                lastToast.style.animation = 'none'; void lastToast.offsetWidth; lastToast.style.animation = 'shake-anim 0.3s ease-in-out'; return; 
+            if (container.children.length > 0) {
+                const lastToast = container.lastElementChild;
+                if (lastToast && lastToast.querySelector('.toast-msg')?.innerText === Utils.escapeHtml(msg)) {
+                    lastToast.style.animation = 'none'; void lastToast.offsetWidth; lastToast.style.animation = 'shake-anim 0.3s ease-in-out'; return; 
+                }
+                while (container.children.length >= 3) { 
+                    const first = container.firstChild;
+                    if(first) {
+                        if(first._hideTimer) clearTimeout(first._hideTimer);
+                        first.remove();
+                    }
+                }
             }
-            while (container.children.length >= 3) { container.firstChild?.remove(); }
         }
 
         const toast = document.createElement('div');
@@ -1442,8 +1427,7 @@ export const UICore = {
         container.appendChild(toast);
         this.sfx?.(type === 'error' ? 'error' : 'success');
         
-        // 🛡️ التعديل هنا: تغليف الـ DOM manipulations بـ requestAnimationFrame
-        setTimeout(() => {
+        toast._hideTimer = setTimeout(() => {
             if(toast.isConnected) {
                 requestAnimationFrame(() => {
                     toast.classList.add('anim-out');
@@ -1644,10 +1628,8 @@ export const UICore = {
         } catch (e) {}
     },
     
-        applyFontSettings: function() {
+    applyFontSettings: function() {
         const s = LiveStoreData.settings || {};
-        
-        // 🚀 الإصلاح: تنظيف اسم الخط وإجبار المتصفح على استخدام Cairo كدرع احتياطي دائم
         const customFont = s.fontFamily ? s.fontFamily.replace(/['"]/g, '').trim() : 'Cairo';
         const family = `'${customFont}', 'Cairo', 'Inter', sans-serif`;
         
@@ -1664,6 +1646,7 @@ export const UICore = {
             document.body.style.fontFamily = family;
         });
     },
+
     updateDisplayBalance: function() {
         if (!DataManager.user) return; 
 
@@ -2127,7 +2110,6 @@ export const UICore = {
 
                 let iconClass = link.icon || 'fa-link';
                 
-                // 🚀 الإصلاح: إعادة فحص عائلة الخط (fa-brands / fa-solid) بدقة حتى يتعرف عليها المتصفح
                 if (!iconClass.includes('fa-solid') && !iconClass.includes('fa-brands') && !iconClass.includes('fa-regular')) {
                     if (iconClass.includes('link') || iconClass === 'fa-link') {
                         iconClass = `fa-solid ${iconClass}`;

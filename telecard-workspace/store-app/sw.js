@@ -1,13 +1,13 @@
 // ============================================================================
-// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V3.2 💎
+// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V3.3 💎
 // 🎯 الوظيفة: تفعيل التثبيت كـ App، تشغيل المتجر Offline، وحماية الواجهة.
-// 🚀 التحديثات المعمارية الصارمة (V3.2):
+// 🚀 التحديثات المعمارية الصارمة (V3.3):
 // 1. Cache Poisoning Fix: كسر الكاش القديم المسموم برفع رقم الإصدار.
-// 2. Query String Ignorance: تفعيل {ignoreSearch: true} لتجاهل متغيرات الروابط (مثل ?v=22).
+// 2. Query String Ignorance: حصر {ignoreSearch: true} للملاحة (HTML) فقط لضمان تحديث الصور وملفات API.
 // 3. Robust Offline Routing: إزالة index.html والاعتماد الكلي والآمن على store.html.
 // ============================================================================
 
-const CACHE_NAME = 'telecard-static-v3.2'; 
+const CACHE_NAME = 'telecard-static-v3.3'; 
 
 const CORE_ASSETS = [
   './',
@@ -79,7 +79,12 @@ self.addEventListener('fetch', (event) => {
   
   if (request.method !== 'GET') return;
   
-  if (request.mode === 'navigate' || request.headers.get('accept').includes('text/html')) {
+  // 🛡️ الترقيع المعماري: ignoreSearch:true يُستخدم فقط لصفحات HTML (Navigate). 
+  // استخدامها للصور/API كان يسبب تقديم صور قديمة لمنتجات جديدة إذا تشابه الرابط الأساسي!
+  const isNavigate = request.mode === 'navigate' || request.headers.get('accept').includes('text/html');
+  const cacheMatchOptions = isNavigate ? { ignoreSearch: true } : {};
+  
+  if (isNavigate) {
     event.respondWith(
       fetch(request)
         .then((response) => {
@@ -88,7 +93,7 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          return caches.match(request, { ignoreSearch: true }).then(cachedResponse => {
+          return caches.match(request, cacheMatchOptions).then(cachedResponse => {
               return cachedResponse || caches.match('./store.html', { ignoreSearch: true });
           });
         })
@@ -97,7 +102,7 @@ self.addEventListener('fetch', (event) => {
   }
   
   event.respondWith(
-    caches.match(request, { ignoreSearch: true }).then((cachedResponse) => {
+    caches.match(request, cacheMatchOptions).then((cachedResponse) => {
       
       const fetchPromise = fetch(request).then((networkResponse) => {
         if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
