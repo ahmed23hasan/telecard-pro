@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <script>
-        // 🛡️ التوجيه الصحيح بناءً على شجرة الملفات (store.html)
+        // 🛡️ التوجيه الصحيح بناءً على شجرة الملفات والتنظيف المسبق للجلسات
         const legacyKeys = ['tc_active_uid', 'telecard_active_user_uid_v20'];
         legacyKeys.forEach(k => { if(localStorage.getItem(k)) localStorage.removeItem(k); });
         
@@ -277,9 +277,10 @@
     }
     document.addEventListener('DOMContentLoaded', preloadDefaultCurrency);
 
+    // 🚀 تحديث 3: تعزيز العشوائية في DisplayID لتقليل نسبة التكرار
     async function generateUniqueDisplayId() {
-        const timePart = String(Date.now()).slice(-4);
-        const randPart = Math.floor(100 + Math.random() * 900);
+        const timePart = String(Date.now()).slice(-5);
+        const randPart = Math.floor(1000 + Math.random() * 9000);
         return Number(timePart + randPart);
     }
 
@@ -307,7 +308,7 @@
                 
                 let firstName = ''; let lastName = ''; let finalFullName = '';
                 if (cleanNameForUser.trim()) {
-                    finalFullName = cleanNameForUser.trim();
+                    finalFullName = cleanNameForUser.replace(/\s+/g, ' ').trim();
                     const nameParts = finalFullName.split(' ');
                     firstName = nameParts[0];
                     lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
@@ -357,7 +358,7 @@
                 sessionStorage.setItem('tc_new_user_signup', 'true');
             }
 
-            setTimeout(() => { window.location.replace("./store.html"); }, 1500); // 🚀 توجيه صحيح
+            setTimeout(() => { window.location.replace("./store.html"); }, 1500); 
 
         } catch (error) {
             btn.classList.remove('is-loading');
@@ -413,8 +414,9 @@
             const userCredential = await createUserWithEmailAndPassword(auth, rawEmail, pass.value);
             const firebaseUser = userCredential.user;
 
-            const safeFirstName = fname.value.trim();
-            const safeLastName = lname.value.trim();
+            // 🚀 تحديث 1: تنظيف المسافات الزائدة من الأسماء للحفاظ على دقة البيانات
+            const safeFirstName = fname.value.replace(/\s+/g, ' ').trim();
+            const safeLastName = lname.value.replace(/\s+/g, ' ').trim();
             const finalFullName = `${safeFirstName} ${safeLastName}`;
             const finalUsername = finalFullName.toLowerCase().replace(/\s+/g, '') + firebaseUser.uid.substring(0, 4);
             const shortDisplayId = await generateUniqueDisplayId();
@@ -438,7 +440,7 @@
             
             sessionStorage.setItem('tc_new_user_signup', 'true');
 
-            setTimeout(() => { window.location.replace("./store.html"); }, 1500); // 🚀 توجيه صحيح
+            setTimeout(() => { window.location.replace("./store.html"); }, 1500); 
 
         } catch(error) {
             btn.classList.remove('is-loading');
@@ -447,14 +449,21 @@
             const customAlert = document.getElementById('customAlert') ? window.showCustomAlert : alert;
             const customHideError = document.getElementById('customAlert') ? window.hideError : null;
 
+            // 🚀 تحديث 2: توجيه ذكي للأخطاء. عرض أخطاء الشبكة والأخطاء العامة في النافذة المنبثقة بدلاً من حقل البريد
             if (error.code === 'auth/email-already-in-use') {
                 if (customHideError) customHideError('email', 'emailError'); 
                 customAlert("أهلاً بك من جديد!", "هذا البريد مسجل لدينا بالفعل. جاري تحويلك لصفحة تسجيل الدخول...", "info");
                 try { sessionStorage.setItem('prefilled_email', email.value.trim().toLowerCase()); } catch(e) {}
-                setTimeout(() => { window.location.replace("./login.html"); }, 2800);  // 🚀 توجيه صحيح
+                setTimeout(() => { window.location.replace("./login.html"); }, 2800);  
             }
-            else if (error.code === 'auth/network-request-failed') { if(customShowError) customShowError('email', 'emailError', 'خطأ في الاتصال بالإنترنت'); }
-            else { if(customShowError) customShowError('email', 'emailError', error.message); }
+            else if (error.code === 'auth/network-request-failed') { 
+                if(customHideError) customHideError('email', 'emailError');
+                customAlert("خطأ في الاتصال", "يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.", "error"); 
+            }
+            else { 
+                if(customHideError) customHideError('email', 'emailError');
+                customAlert("حدث خطأ", error.message, "error"); 
+            }
         }
     };
 </script>

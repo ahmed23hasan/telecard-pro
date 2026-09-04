@@ -161,51 +161,72 @@ const strictSub = (a, b) => FinancialEngine.safeSub(a, b);
 const generateUniqueId = () => `${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`; 
 
 // ==========================================
-// 🛡️ 0. إنشاء الحساب (مع حل ثغرة التزامن - Race Condition Fix)
+// 🛡️ 0. إنشاء الحساب (النسخة المعمارية المنيعة - Atomic Create Pattern)
 // ==========================================
 exports.onUserAuthCreated = functions
-    .runWith({ failurePolicy: true }) 
+    .runWith({ failurePolicy: true })
     .auth.user().onCreate(async (user) => {
-    try {
-        const userRef = db.collection('telecard_users').doc(user.uid);
-        
-        // 🚀 الحل السحري: إعطاء مهلة 3 ثوانٍ لمتصفح العميل (signup.html) ليكتب البيانات الغنية أولاً
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        // فحص ما إذا كان العميل قد نجح في كتابة البيانات المنسقة
-        const snap = await userRef.get();
-        if (snap.exists) return null; // ممتاز! العميل تفوق وكتب البيانات الصحيحة (الاسم واسم المستخدم)، السيرفر سينسحب بصمت.
-
-        // 🛡️ في حال فشل العميل (انقطاع نت أو إغلاق التطبيق فجأة)، يتدخل السيرفر كحارس احتياطي:
-        let initialTierId = '1';
-        const defaultTierSnap = await db.collection('telecard_tiers').where('isDefault', '==', true).limit(1).get();
-        if (!defaultTierSnap.empty) initialTierId = defaultTierSnap.docs[0].id;
-        
-        // 🚀 توليد اسم ذكي من البريد الإلكتروني بدلاً من العبارة المزعجة "عميل جديد"
-        const emailPrefix = user.email ? user.email.split('@')[0] : 'user';
-        const rawName = user.displayName || emailPrefix;
-        const firstName = rawName.split(' ')[0];
-        
-        // 🚀 توليد اسم مستخدم احتياطي لضمان عدم بقاء الحقل فارغاً
-        const fallbackUsername = firstName.toLowerCase().replace(/\s+/g, '') + user.uid.substring(0, 4);
-
-        const initialProfile = {
-            id: user.uid, uid: user.uid,
-            email: user.email || '', fullName: rawName, firstName: firstName, 
-            username: fallbackUsername, // تم سد ثغرة اختفاء اسم المستخدم
-            baseCurrency: 'USD', role: 'user', walletBalance: 0.0, totalSpent: 0.0, totalDeposit: 0.0,
-            tierId: initialTierId, tierCycleSpent: 0.0, tierCycleStartDate: admin.firestore.FieldValue.serverTimestamp(),
-            manualTierOverride: false, isBanned: false, isIpBanned: false, isVerified: false, kycStatus: 'none',
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-        };
-        
-        // نستخدم set بدلاً من create لضمان التغلب على أي تضارب
-        await userRef.set(initialProfile, { merge: true }); 
-    } catch (error) { 
-        console.error("Auth Trigger Error:", error);
-        return null;
-    }
-});
+        try {
+            const userRef = db.collection('telecard_users').doc(user.uid);
+            
+            let initialTierId = '1';
+            const defaultTierSnap = await db.collection('telecard_tiers').where('isDefault', '==', true).limit(1).get();
+            if (!defaultTierSnap.empty) initialTierId = defaultTierSnap.docs[0].id;
+            
+            const emailPrefix = user.email ? user.email.split('@')[0] : 'user';
+            const rawName = user.displayName || emailPrefix;
+            const firstName = rawName.split(' ')[0];
+            const fallbackUsername = firstName.toLowerCase().replace(/\s+/g, '') + user.uid.substring(0, 4);
+            
+            // البيانات الاحتياطية (في حال فشل إنترنت العميل أو إغلاقه للتطبيق فجأة)
+            const initialProfile = {
+                id: user.uid,
+                uid: user.uid,
+                email: user.email || '',
+                fullName: rawName,
+                firstName: firstName,
+                username: fallbackUsername,
+                role: 'user',
+                walletBalance: 0.0,
+                totalSpent: 0.0,
+                totalDeposit: 0.0,
+                tierId: initialTierId,
+                tierCycleSpent: 0.0,
+                manualTierOverride: false,
+                isBanned: false,
+                isIpBanned: false,
+                baseCurrency: 'USD',
+                isVerified: false,
+                kycStatus: 'none',
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                tierCycleStartDate: admin.firestore.FieldValue.serverTimestamp()
+            };
+            
+            try {
+                // 🚀 السر هنا: نستخدم create بدلاً من set
+                // إذا كان العميل قد كتب بياناته (الاسم/اليوزر) من الواجهة، هذه العملية ستفشل فوراً ولن تمسح بياناته!
+                await userRef.create(initialProfile);
+                
+            } catch (writeError) {
+                // كود 6 في Firebase يعني ALREADY_EXISTS (الوثيقة موجودة بالفعل)
+                if (writeError.code === 6 || String(writeError.message).includes('ALREADY_EXISTS')) {
+                    // ممتاز! العميل تفوق وكتب بياناته المنسقة.
+                    // كل ما سيفعله السيرفر هنا هو تأمين الحقول الحساسة فقط (لمنع ثغرات حقن الرصيد) دون المساس بالاسم.
+                    await userRef.set({
+                        role: 'user',
+                        walletBalance: 0.0,
+                        isBanned: false
+                    }, { merge: true });
+                } else {
+                    throw writeError; // خطأ آخر حقيقي نمرره للـ catch الرئيسي
+                }
+            }
+            
+        } catch (error) {
+            console.error("Auth Trigger Error:", error);
+            return null;
+        }
+    });
 // ==========================================
 // 🛒 1. إنشاء الطلبات للعملاء
 // ==========================================

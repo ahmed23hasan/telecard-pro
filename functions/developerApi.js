@@ -1,9 +1,10 @@
 // ============================================================================
-// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية V8.1 💎
+// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية V8.2 💎
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🚀 التحديثات (V8.1 - The Diamond Gate Refined):
-// 1. Precision Sanitizer: توحيد تقريب الأرصدة لحماية أموال التجار من الكسور.
-// 2. Tier Cycle Alignment: مزامنة دورة ترقية مستويات التجار مع النظام المركزي.
+// 🚀 التحديثات (V8.2 - Enterprise Integration):
+// 1. Tier Auto-Upgrade Fix: دمج الترقية التلقائية لحسابات التجار عبر الـ API.
+// 2. High-Speed Webhook Retry: تسريع معالجة طابور الإشعارات (15m / 300 req).
+// 3. Zero-Trust Security: سد ثغرة التوقيع الافتراضي (No fallback secrets).
 // ============================================================================
 
 const { onRequest } = require('firebase-functions/v2/https');
@@ -48,8 +49,9 @@ async function logFailedWebhook(payload, webhookUrl, errorMsg, userId) {
 }
 
 function generateHmacSignature(payload, secret) {
-    if (!secret) return '';
-    return crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
+    // 🛡️ التحديث 3: تم إزالة السيكريت الافتراضي لحماية التجار من تزييف الطلبات
+    if (!secret || String(secret).trim() === '') return null;
+    return crypto.createHmac('sha256', String(secret)).update(JSON.stringify(payload)).digest('hex');
 }
 
 // ==========================================
@@ -72,12 +74,21 @@ exports.orderStatusWebhook = onDocumentWritten({ document: 'telecard_orders/{ord
             status: after.status, pricePaid: after.price, qty: after.qty,
             deliveredCode: after.deliveredCode || null, timestamp: new Date().toISOString()
         };
-        const signature = generateHmacSignature(payload, webhookSecret || 'default_telecard_secret');
+        
+        const signature = generateHmacSignature(payload, webhookSecret);
+        const headers = { 
+            'Content-Type': 'application/json', 
+            'User-Agent': 'Telecard-Cloud-Engine/4.0' 
+        };
+        
+        // إرفاق التوقيع فقط إذا كان التاجر يمتلك مفتاح أمان
+        if (signature) headers['X-Telecard-Signature'] = signature;
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
 
         try {
-            const response = await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'Telecard-Cloud-Engine/4.0', 'X-Telecard-Signature': signature }, body: JSON.stringify(payload), signal: controller.signal });
+            const response = await fetch(webhookUrl, { method: 'POST', headers: headers, body: JSON.stringify(payload), signal: controller.signal });
             clearTimeout(timeoutId);
             if (!response.ok) await logFailedWebhook(payload, webhookUrl, `HTTP Error: ${response.status}`, after.userId);
             return true;
@@ -93,13 +104,16 @@ exports.orderStatusWebhook = onDocumentWritten({ document: 'telecard_orders/{ord
 // 🔄 2. نظام المحاولات الذاتي (Retry Cron)
 // ==========================================
 exports.cronRetryWebhooks = onSchedule({ 
-    schedule: 'every 1 hours', 
+    // 🚀 التحديث 2: تسريع طابور المعالجة لتفادي الاختناق
+    schedule: 'every 15 minutes', 
     timeZone: 'Asia/Riyadh',
     maxInstances: 1, 
     concurrency: 1   
 }, async (event) => {
-    const failedSnaps = await db.collection('telecard_failed_webhooks').where('status', '==', 'failed').where('attempts', '<', 5).limit(50).get();
+    // 🚀 تم رفع سقف الطلبات إلى 300 في الدفعة الواحدة لمعالجة الضغط العالي
+    const failedSnaps = await db.collection('telecard_failed_webhooks').where('status', '==', 'failed').where('attempts', '<', 5).limit(300).get();
     if (failedSnaps.empty) return null;
+    
     const promises = failedSnaps.docs.map(async (doc) => {
         const data = doc.data(); const currentAttempt = data.attempts + 1; const isLastAttempt = currentAttempt >= 5;
         const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -219,11 +233,13 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                         verifiedKeyDocs = keySnaps;
                     }
 
+                    // 🚀 التحديث 1: جلب كل المستويات لتمكين ترقية التاجر تلقائياً
+                    const allTiersSnap = await transaction.get(db.collection('telecard_tiers'));
+                    const allTiers = allTiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
                     const tierId = String(userData.tierId || userData.tier || 1);
-                    const tierSnap = await transaction.get(db.collection('telecard_tiers').doc(tierId));
-                    const activeTierObj = tierSnap.exists ? { id: tierSnap.id, ...tierSnap.data() } : null;
+                    const activeTierObj = allTiers.find(t => String(t.id) === tierId) || null;
                     
-                    // 🚀 دمج منطق (دورة المستويات) لحماية حسابات التجار
                     let currentCycleSpent = Number(userData.tierCycleSpent || 0);
                     const cycleStartMs = userData.tierCycleStartDate?.toMillis ? userData.tierCycleStartDate.toMillis() : serverNow;
                     const cycleStartDay = getStartOfUTCDay(cycleStartMs);
@@ -256,10 +272,22 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                         isAutoDelivered = true;
                     }
 
-                    // 🚀 تطبيق Precision Sanitizer لحماية السيرفر والتاجر معاً
                     const newBalance = sanitizeAmount(safeSub(currentBalance, exactPrice));
                     const newTotalSpent = sanitizeAmount(safeAdd(userData.totalSpent || 0, exactPrice));
                     const newTierCycleSpent = sanitizeAmount(safeAdd(currentCycleSpent, exactPrice));
+
+                    // 🚀 الكود المضاف: ترقية حساب التاجر آلياً في حال وصوله للحد المطلوب
+                    let finalTierId = tierId;
+                    if (userData.manualTierOverride !== true && activeTierObj?.autoAdvance !== false) {
+                        const getThreshold = (t) => Number(t.threshold || t.condition_amount || 0);
+                        const earnedTiers = allTiers
+                            .filter(t => (t.autoAdvance !== false) && getThreshold(t) <= newTierCycleSpent && getThreshold(t) > getThreshold(activeTierObj))
+                            .sort((a, b) => getThreshold(b) - getThreshold(a));
+                        
+                        if (earnedTiers.length > 0) { 
+                            finalTierId = earnedTiers[0].id; 
+                        }
+                    }
 
                     const newOrder = {
                         id: cleanOrderId, displayId: cleanOrderId, userId: uid, prodId: productId, product: liveProduct.name,
@@ -272,8 +300,16 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
 
                     resultData = { orderId: cleanOrderId, status: newOrder.status, pricePaid: exactPrice, deliveredCode: deliveredCodeText };
                     
-                    let userUpdateObj = { walletBalance: newBalance, totalSpent: newTotalSpent, tierCycleSpent: newTierCycleSpent };
-                    if (isCycleExpired) { userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); }
+                    let userUpdateObj = { 
+                        walletBalance: newBalance, 
+                        totalSpent: newTotalSpent, 
+                        tierCycleSpent: newTierCycleSpent,
+                        tierId: finalTierId 
+                    };
+                    
+                    if (isCycleExpired || finalTierId !== tierId) { 
+                        userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); 
+                    }
 
                     transaction.update(userDoc.ref, userUpdateObj);
                     transaction.set(db.collection('telecard_orders').doc(cleanOrderId), newOrder);
