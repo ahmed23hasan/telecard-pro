@@ -1,14 +1,14 @@
 // ============================================================================
-// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V3.0 💎
+// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V3.1 💎
 // 🎯 الوظيفة: تفعيل التثبيت كـ App، تشغيل المتجر Offline، وحماية الواجهة.
-// 🚀 التحديثات المعمارية الصارمة:
-// 1. ES Modules Offline Fix 🛡️: إدراج كافة الملفات الفرعية (Imports) لضمان الإقلاع الأوفلاين.
-// 2. Fault-Tolerant Caching: حماية التثبيت من الانهيار إذا كان أحد الملفات مفقوداً.
-// 3. Firebase Offline Boot: كَيش مكتبات gstatic لضمان إقلاع محرك JS بدون إنترنت.
-// 4. Cache Busting: تحديث اسم الكاش لإجبار المتصفحات على سحب الهيكلة الجديدة.
+// 🚀 التحديثات المعمارية الصارمة (V3.1):
+// 1. Cache Poisoning Fix: كسر الكاش القديم المسموم برفع رقم الإصدار.
+// 2. Query String Ignorance: تفعيل {ignoreSearch: true} لتجاهل متغيرات الروابط (مثل ?v=22).
+// 3. Robust Offline Routing: توجيه ذكي وآمن لصفحات الـ HTML المخبأة.
 // ============================================================================
 
-const CACHE_NAME = 'telecard-static-v3.0'; // 🚀 تم رفع الإصدار لكسر الكاش القديم
+// 🚀 تم رفع الإصدار لكسر الكاش القديم وإجبار المتصفح على سحب الهيكلة الجديدة
+const CACHE_NAME = 'telecard-static-v3.1'; 
 
 // 📦 الملفات الثابتة النواة (تم إدراج كافة الـ Modules والصفحات لمنع انهيار النظام في الأوفلاين)
 const CORE_ASSETS = [
@@ -68,7 +68,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          // مسح أي كاش يحمل اسماً قديماً لتفريغ مساحة هاتف العميل
+          // مسح أي كاش يحمل اسماً قديماً لتفريغ مساحة هاتف العميل والتخلص من الكاش المعطوب
           if (cacheName !== CACHE_NAME && cacheName.startsWith('telecard-static-')) {
             console.log(`🧹 [Service Worker] تنظيف كاش قديم: ${cacheName}`);
             return caches.delete(cacheName);
@@ -87,7 +87,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   
   // 🛡️ استثناء استدعاءات Firestore و Cloud Functions الصريحة
-  // نتركها لمدير بيانات فايربيز الداخلي (IndexedDB) لكي لا تفسد البيانات
+  // نتركها لمدير بيانات فايربيز الداخلي لكي لا تفسد البيانات
   if (url.hostname.includes('firestore.googleapis.com') ||
       url.hostname.includes('cloudfunctions.net') ||
       url.pathname.startsWith('/_/')) {
@@ -108,9 +108,9 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          // 🚀 التوجيه الذكي في الأوفلاين: إذا انقطع النت، نرجع الصفحة التي طلبها من الكاش، وإلا نرجعه للمتجر
-          return caches.match(request).then(cachedResponse => {
-              return cachedResponse || caches.match('./store.html') || caches.match('./index.html');
+          // 🚀 التوجيه الذكي في الأوفلاين (مع تجاهل الـ Query Parameters)
+          return caches.match(request, { ignoreSearch: true }).then(cachedResponse => {
+              return cachedResponse || caches.match('./store.html', { ignoreSearch: true }) || caches.match('./index.html', { ignoreSearch: true });
           });
         })
     );
@@ -120,7 +120,8 @@ self.addEventListener('fetch', (event) => {
   // 🌟 استراتيجية 2: الستايلات، السكريبتات، الصور، ومكتبات فايربيز (gstatic)
   // Stale-While-Revalidate: يعرض الكاش فوراً للسرعة، ويحدّث في الخلفية
   event.respondWith(
-    caches.match(request).then((cachedResponse) => {
+    // 🛡️ إضافة { ignoreSearch: true } هنا هي التي ستحل مشكلة style.css?v=22
+    caches.match(request, { ignoreSearch: true }).then((cachedResponse) => {
       
       const fetchPromise = fetch(request).then((networkResponse) => {
         // تخزين الاستجابات السليمة أو المبهمة (Opaque) القادمة من CDNs مثل gstatic

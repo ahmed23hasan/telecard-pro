@@ -19,7 +19,7 @@
     {
       "target": "store",
       "public": "telecard-workspace/store-app",
-      "cleanUrls": true,
+      "cleanUrls": false,
       "trailingSlash": false,
       "ignore": [
         "firebase.json",
@@ -48,18 +48,12 @@
             { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
           ]
         }
-      ],
-      "rewrites": [
-        {
-          "source": "**",
-          "destination": "/store.html"
-        }
       ]
     },
     {
       "target": "admin",
       "public": "telecard-workspace/admin-tele",
-      "cleanUrls": true,
+      "cleanUrls": false,
       "trailingSlash": false,
       "ignore": [
         "firebase.json",
@@ -87,12 +81,6 @@
           "headers": [
             { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
           ]
-        }
-      ],
-      "rewrites": [
-        {
-          "source": "**",
-          "destination": "/admin.html"
         }
       ]
     }
