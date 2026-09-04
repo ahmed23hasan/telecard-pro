@@ -19,7 +19,7 @@
     {
       "target": "store",
       "public": "telecard-workspace/store-app",
-      "cleanUrls": false,
+      "cleanUrls": true,
       "trailingSlash": false,
       "ignore": [
         "firebase.json",
@@ -59,7 +59,7 @@
     {
       "target": "admin",
       "public": "telecard-workspace/admin-tele",
-      "cleanUrls": false,
+      "cleanUrls": true,
       "trailingSlash": false,
       "ignore": [
         "firebase.json",
