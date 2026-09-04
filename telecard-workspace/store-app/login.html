@@ -104,7 +104,7 @@
                 <label class="floating-label">كلمة المرور</label>
                 <!-- 🛠️ العين تعمل دائماً الآن لأنها خارج الـ Module -->
                 <div class="auth-eye-icon" onclick="togglePass('password', this)">
-                    <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2.5-4 5.5-6 9-6 3.5 0 6.5-2-9 6-2.5 4-5.5 6-9 6-3.5 0-6.5-2-9-6z" /><path d="M5 5l14 14" stroke-width="1.6" /></svg>
+                    <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2.5-4 5.5-6 9-6 3.5 0 6.5 2 9 6-2.5 4-5.5 6-9 6-3.5 0-6.5-2-9-6z" /><path d="M5 5l14 14" stroke-width="1.6" /></svg>
                     <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3.2" /></svg>
                 </div>
                 <div class="input-error-text" id="passwordError" style="display:none; text-align: start;"></div>
@@ -219,8 +219,19 @@
     const googleProvider = new GoogleAuthProvider();
     window._current2FAResolver = null;
 
+    // 🛡️ درع المقاطعة الزمنية (30 ثانية لحماية الواجهة من التجمد)
+    const withAuthTimeout = (promise, ms = 30000) => {
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
+                reject(new Error("استغرق الاتصال وقتاً أطول من المعتاد بسبب ضعف الشبكة أو تعليق في المتصفح. يرجى إعادة تحميل الصفحة والمحاولة مجدداً."));
+            }, ms);
+        });
+        return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+    };
+
     const safeWipeSession = async () => {
-        await signOut(auth).catch(()=>{});
+        await withAuthTimeout(signOut(auth), 5000).catch(()=>{});
         localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
         localStorage.removeItem(ACTIVE_USER_KEY);
         localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
@@ -259,7 +270,8 @@
         btn.disabled = true; btn.classList.add('is-loading');
         
         try {
-            const result = await signInWithPopup(auth, googleProvider);
+            // 🛡️ تغليف طلب جوجل بـ Timeout
+            const result = await withAuthTimeout(signInWithPopup(auth, googleProvider));
             const firebaseUser = result.user;
             let activeUserObj = null;
             
@@ -315,7 +327,7 @@
             if (activeUserObj.img) localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, activeUserObj.img);
             
             showButtonSuccess(btn, "تم الدخول بنجاح");
-            setTimeout(() => { window.location.replace("./store.html"); }, 1000); // توجيه للمتجر
+            setTimeout(() => { window.location.replace("./store.html"); }, 1000); 
             
         } catch (error) {
             btn.disabled = false; btn.classList.remove('is-loading');
@@ -343,7 +355,8 @@
         btn.disabled = true; btn.classList.add('is-loading');
 
         try {
-            const userCredential = await signInWithEmailAndPassword(auth, identifier.value.trim().toLowerCase(), password.value);
+            // 🛡️ تغليف طلب تسجيل الدخول بالبريد بـ Timeout
+            const userCredential = await withAuthTimeout(signInWithEmailAndPassword(auth, identifier.value.trim().toLowerCase(), password.value));
             const firebaseUser = userCredential.user;
 
             let userDoc = null;
@@ -365,7 +378,7 @@
             }
 
             showButtonSuccess(btn, "تم الدخول بنجاح");
-            setTimeout(() => window.location.replace("./store.html"), 1000); // توجيه للمتجر
+            setTimeout(() => window.location.replace("./store.html"), 1000); 
             
         } catch (error) {
             btn.disabled = false; btn.classList.remove('is-loading');
@@ -377,7 +390,7 @@
             }
             if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(error.code)) showError('identifier', 'identifierError', "البريد الإلكتروني أو كلمة المرور غير صحيحة");
             else if (error.code === 'auth/too-many-requests') showError('identifier', 'identifierError', "تم حظر المحاولات مؤقتاً بسبب تكرار الدخول الخاطئ");
-            else showError('identifier', 'identifierError', "حدث خطأ غير متوقع، يرجى المحاولة لاحقاً");
+            else showError('identifier', 'identifierError', error.message || "حدث خطأ غير متوقع، يرجى المحاولة لاحقاً");
         }
     };
 
@@ -392,7 +405,8 @@
         try {
             const tfaHint = window._current2FAResolver.hints[0];
             const assertion = TotpMultiFactorGenerator.assertionForSignIn(tfaHint.uid, code);
-            const userCredential = await window._current2FAResolver.resolveSignIn(assertion);
+            // 🛡️ تغليف طلب 2FA بـ Timeout
+            const userCredential = await withAuthTimeout(window._current2FAResolver.resolveSignIn(assertion));
             const firebaseUser = userCredential.user;
 
             let userDoc = null;
@@ -414,11 +428,11 @@
             }
 
             showButtonSuccess(btn, "تم التحقق بنجاح");
-            setTimeout(() => window.location.replace("./store.html"), 1000); // توجيه للمتجر
+            setTimeout(() => window.location.replace("./store.html"), 1000); 
 
         } catch (error) {
             btn.disabled = false; btn.classList.remove('is-loading');
-            showError('loginOtpInput', 'loginOtpError', 'الكود غير صحيح أو منتهي الصلاحية');
+            showError('loginOtpInput', 'loginOtpError', error.message.includes('ضعف الشبكة') ? error.message : 'الكود غير صحيح أو منتهي الصلاحية');
         }
     };
 
@@ -432,7 +446,8 @@
         btn.disabled = true; btn.classList.add('is-loading');
         
         try {
-            await sendPasswordResetEmail(auth, email);
+            // 🛡️ تغليف طلب إعادة تعيين كلمة المرور بـ Timeout
+            await withAuthTimeout(sendPasswordResetEmail(auth, email));
             btn.disabled = false; btn.classList.remove('is-loading');
             closeForgotPasswordModal(); 
             showCustomAlert("تم إرسال الرابط", `إذا كان البريد مسجلاً، فقد أرسلنا رابط الاستعادة. يرجى فحص صندوق الوارد.`, "success");
@@ -440,7 +455,7 @@
             btn.disabled = false; btn.classList.remove('is-loading');
             if (error.code === 'auth/user-not-found') { closeForgotPasswordModal(); showCustomAlert("تم إرسال الرابط", `إذا كان البريد مسجلاً، فقد أرسلنا رابط الاستعادة.`, "success"); } 
             else if (error.code === 'auth/too-many-requests') { showError('forgotEmailInput', 'forgotEmailError', "تم حظر المحاولات مؤقتاً"); } 
-            else { showError('forgotEmailInput', 'forgotEmailError', "تعذر إرسال الإيميل، تحقق من الإنترنت"); }
+            else { showError('forgotEmailInput', 'forgotEmailError', error.message || "تعذر إرسال الإيميل، تحقق من الإنترنت"); }
         }
     };
 

@@ -29,9 +29,26 @@ import { firebaseConfig, DB_KEYS, CACHE_KEYS } from '../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-const db = initializeFirestore(app, {
-    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-});
+import { clearIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+let db;
+try {
+    db = initializeFirestore(app, {
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    });
+} catch (e) {
+    if (e.code === 'failed-precondition' || e.code === 'unimplemented') {
+        console.warn("⚠️ تم اكتشاف تلف في قاعدة البيانات المحلية. جاري التنظيف...");
+        clearIndexedDbPersistence(app).then(() => {
+            db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+        }).catch(() => {
+            db = initializeFirestore(app, {}); // Fallback to memory only
+        });
+    } else {
+        db = initializeFirestore(app, {}); 
+    }
+}
+
 const auth = getAuth(app);
 const storage = getStorage(app);
 const functions = getFunctions(app);

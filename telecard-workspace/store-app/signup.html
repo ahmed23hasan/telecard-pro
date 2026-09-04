@@ -244,8 +244,19 @@
     const googleProvider = new GoogleAuthProvider();
     let preFetchedCurrency = 'USD'; 
 
+    // 🛡️ درع المقاطعة الزمنية (30 ثانية لدعم الشبكات الضعيفة وحماية الواجهة من التجمد)
+    const withAuthTimeout = (promise, ms = 30000) => {
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
+                reject(new Error("استغرق الاتصال وقتاً أطول من المعتاد بسبب ضعف الشبكة أو تعليق في المتصفح. يرجى إعادة تحميل الصفحة والمحاولة مجدداً."));
+            }, ms);
+        });
+        return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+    };
+
     const safeWipeSession = async () => {
-        await signOut(auth).catch(()=>{});
+        await withAuthTimeout(signOut(auth), 5000).catch(()=>{});
         localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
         localStorage.removeItem(ACTIVE_USER_KEY);
         localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
@@ -277,7 +288,6 @@
     }
     document.addEventListener('DOMContentLoaded', preloadDefaultCurrency);
 
-    // 🚀 تحديث 3: تعزيز العشوائية في DisplayID لتقليل نسبة التكرار
     async function generateUniqueDisplayId() {
         const timePart = String(Date.now()).slice(-5);
         const randPart = Math.floor(1000 + Math.random() * 9000);
@@ -290,7 +300,8 @@
         btn.classList.add('is-loading');
 
         try {
-            const result = await signInWithPopup(auth, googleProvider);
+            // 🛡️ تغليف طلب جوجل بـ Timeout
+            const result = await withAuthTimeout(signInWithPopup(auth, googleProvider));
             const firebaseUser = result.user;
 
             let activeUserObj = null;
@@ -411,10 +422,10 @@
 
         try {
             const rawEmail = email.value.trim().toLowerCase();
-            const userCredential = await createUserWithEmailAndPassword(auth, rawEmail, pass.value);
+            // 🛡️ تغليف طلب إنشاء الحساب بـ Timeout 
+            const userCredential = await withAuthTimeout(createUserWithEmailAndPassword(auth, rawEmail, pass.value));
             const firebaseUser = userCredential.user;
 
-            // 🚀 تحديث 1: تنظيف المسافات الزائدة من الأسماء للحفاظ على دقة البيانات
             const safeFirstName = fname.value.replace(/\s+/g, ' ').trim();
             const safeLastName = lname.value.replace(/\s+/g, ' ').trim();
             const finalFullName = `${safeFirstName} ${safeLastName}`;
@@ -449,7 +460,6 @@
             const customAlert = document.getElementById('customAlert') ? window.showCustomAlert : alert;
             const customHideError = document.getElementById('customAlert') ? window.hideError : null;
 
-            // 🚀 تحديث 2: توجيه ذكي للأخطاء. عرض أخطاء الشبكة والأخطاء العامة في النافذة المنبثقة بدلاً من حقل البريد
             if (error.code === 'auth/email-already-in-use') {
                 if (customHideError) customHideError('email', 'emailError'); 
                 customAlert("أهلاً بك من جديد!", "هذا البريد مسجل لدينا بالفعل. جاري تحويلك لصفحة تسجيل الدخول...", "info");
