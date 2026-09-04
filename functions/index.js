@@ -178,7 +178,7 @@ exports.onUserAuthCreated = functions
             const firstName = rawName.split(' ')[0];
             const fallbackUsername = firstName.toLowerCase().replace(/\s+/g, '') + user.uid.substring(0, 4);
             
-            // البيانات الاحتياطية (فيي حال فشل إنترنت العميل أو إغلاقه للتطبيق فجأة)
+            // البيانات الاحتياطية (في حال فشل إنترنت العميل أو إغلاقه للتطبيق فجأة)
             const initialProfile = {
                 id: user.uid,
                 uid: user.uid,
