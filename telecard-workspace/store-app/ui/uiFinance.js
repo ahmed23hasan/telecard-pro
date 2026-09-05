@@ -567,7 +567,7 @@ export const UIFinance = {
         getSys().openModal?.('balance');
     },
 
-    changeDepositCurrency: function(curr) {
+        changeDepositCurrency: function(curr) {
         this.currentPayCurrency = curr;
         window.requestAnimationFrame(() => {
             const dropdown = document.getElementById('bal-currency-dropdown');
@@ -579,6 +579,9 @@ export const UIFinance = {
             if (dropdown) dropdown.classList.remove('open');
             items.forEach(item => item.classList.toggle('active', item.dataset.curr === curr));
             const amtCurr = document.getElementById('bal-amount-curr'); if (amtCurr) amtCurr.innerText = curr;
+            
+            // 🛡️ التحديث: إعادة رسم الشريط لتتحدث الأرقام بناءً على العملة الجديدة
+            this._drawInitialLimitsBar();
             this.calcFee();
         });
     },
@@ -631,39 +634,58 @@ export const UIFinance = {
         this.currentPayCurrency = uniqueCurrencies[0];
         
         window.requestAnimationFrame(() => {
-            section.innerHTML = UIBuilders.buildDepositForm(p, copyContainer, uniqueCurrencies.length === 1, this.currentPayCurrency, uniqueCurrencies.map((c, i) => `<div class="dropdown-item ${i === 0 ? 'active' : ''}" data-curr="${c}">${c}</div>`).join(''), (DataManager.user?.baseCurrency || 'USD').toUpperCase());
-            // 🛡️ التحديث المعماري: رسم شريط الحدود مرة واحدة عند اختيار طريقة الدفع
+            // 🛡️ التحديث: إضافة data-action="select-bal-curr" لكل عملة ليتم التقاطها عبر uiCore
+            section.innerHTML = UIBuilders.buildDepositForm(
+                p, 
+                copyContainer, 
+                uniqueCurrencies.length === 1, 
+                this.currentPayCurrency, 
+                uniqueCurrencies.map((c, i) => `<div class="dropdown-item ${i === 0 ? 'active' : ''}" data-action="select-bal-curr" data-curr="${c}">${c}</div>`).join(''), 
+                (DataManager.user?.baseCurrency || 'USD').toUpperCase()
+            );
+            
             this._drawInitialLimitsBar();
             this.calcFee();
         });
     },
 
-    // 🛡️ دالة مساعدة لرسم الشريط مرة واحدة
+    // 🛡️ دالة مساعدة لرسم الشريط بطريقة آمنة بعيداً عن جدار الحماية الرياضي
     _drawInitialLimitsBar: function() {
         const limitsBar = document.getElementById('bal-limits-bar');
-        if (!limitsBar || !DataManager || !this.currentPayment) return;
+        if (!limitsBar || !this.currentPayment) return;
 
-        const payCurr = (this.currentPayCurrency || '').toUpperCase();
-        const result = DataManager.calculateDepositFee(1, this.currentPayment, payCurr); // 1 is a dummy amount
+        const payCurr = (this.currentPayCurrency || 'USD').toUpperCase();
+        const method = this.currentPayment;
 
-        const itemsHtml = UIBuilders.buildLimitsBar(
-            parseFloat(result.feePct)||0, 
-            payCurr, 
-            result.feeUnit||'percent', 
-            result.feeType||'fee', 
-            parseFloat(result.adminMin)||0, 
-            parseFloat(result.adminMax)||0
-        );
-        
-        if (itemsHtml.length === 0) {
-            limitsBar.style.display = 'none'; 
-        } else { 
-            limitsBar.style.display = 'flex'; 
-            limitsBar.className = `compact-limits-bar count-${itemsHtml.length}`; 
-            limitsBar.innerHTML = itemsHtml.join(''); 
+        // القراءة المباشرة والآمنة للحدود لمنع استدعاء أخطاء المحرك المالي
+        let s = method.currencySettings?.[payCurr] 
+            ? { 
+                fee: parseFloat(method.currencySettings[payCurr].fee || method.currencySettings[payCurr].value) || 0, 
+                min: parseFloat(method.currencySettings[payCurr].min || method.currencySettings[payCurr].minVal) || 0, 
+                max: parseFloat(method.currencySettings[payCurr].max || method.currencySettings[payCurr].maxVal) || 0, 
+                feeType: method.currencySettings[payCurr].feeType || method.currencySettings[payCurr].type || 'fee', 
+                feeUnit: method.currencySettings[payCurr].feeUnit || method.currencySettings[payCurr].fee_unit || method.currencySettings[payCurr].unit || 'percent' 
+              }
+            : { 
+                fee: parseFloat(method.fee || method.value) || 0, 
+                min: parseFloat(method.min || method.minVal) || 0, 
+                max: parseFloat(method.max || method.maxVal) || 0, 
+                feeType: method.feeType || method.type || 'fee', 
+                feeUnit: method.feeUnit || method.fee_unit || method.unit || 'percent' 
+              };
+
+        if (typeof UIBuilders !== 'undefined' && UIBuilders.buildLimitsBar) {
+            const itemsHtml = UIBuilders.buildLimitsBar(s.fee, payCurr, s.feeUnit, s.feeType, s.min, s.max);
+            
+            if (!itemsHtml || itemsHtml.length === 0) {
+                limitsBar.style.display = 'none'; 
+            } else { 
+                limitsBar.style.display = 'flex'; 
+                limitsBar.className = `compact-limits-bar count-${itemsHtml.length}`; 
+                limitsBar.innerHTML = itemsHtml.join(''); 
+            }
         }
     },
-
     // 🛡️ التحديث المعماري الخاص بك (معالجة الملفات العالقة)
     backToPayMethods: function() {
         const sys = getSys();

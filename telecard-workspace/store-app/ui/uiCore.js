@@ -633,6 +633,14 @@ export const UICore = {
             'close-security-modal': () => getSys().closeSecurityModal?.(),
             'close-setup-2fa': () => this.closeModal?.('setup-2fa'),
             'toggle-currency-menu': () => this.toggleDisplayCurrencyMenu?.(),
+               'toggle-bal-curr-menu': () => {
+        const dropdown = document.getElementById('bal-currency-dropdown');
+        if (dropdown) dropdown.classList.toggle('open');
+    },
+    'select-bal-curr': (e, id, val, target) => {
+        const curr = target.getAttribute('data-curr');
+        if (getSys().changeDepositCurrency) getSys().changeDepositCurrency(curr);
+    }, 
             'toggle-theme': () => this.toggleTheme?.(),
             
             'toggle-avatar-menu': () => {

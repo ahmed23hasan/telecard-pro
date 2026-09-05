@@ -447,6 +447,7 @@ export const UIBuilders = {
     },
 
     /** 8️⃣ بناء نموذج الإيداع (Deposit Form) */
+        /** 8️⃣ بناء نموذج الإيداع (Deposit Form) */
     buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrency, currItemsHtml, baseCurr) {
         if (!p) return '';
         const safeBaseCurr = String(baseCurr || 'USD').toUpperCase(); 
@@ -461,7 +462,8 @@ export const UIBuilders = {
                     <div class="micro-currency-row">
                         <div class="micro-currency-label"><i class="fa-solid fa-wallet"></i> عملة الإيداع</div>
                         <div class="split-dropdown" id="bal-currency-dropdown">
-                            <div class="micro-currency-trigger" style="${isSingleCurrency ? 'cursor: default;' : ''}">
+                            <!-- 🛡️ تم إضافة data-action ليعمل الزر عبر الموزع المركزي -->
+                            <div class="micro-currency-trigger" ${isSingleCurrency ? '' : 'data-action="toggle-bal-curr-menu"'} style="${isSingleCurrency ? 'cursor: default;' : ''}">
                                 <span id="bal-selected-currency" class="num-en">${Utils.escapeHtml(safePayCurr)}</span>
                                 ${isSingleCurrency ? '' : '<i class="fa-solid fa-chevron-down" style="font-size: 11px;"></i>'}
                             </div>
