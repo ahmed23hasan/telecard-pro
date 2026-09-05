@@ -1,14 +1,16 @@
 // ============================================================================
-// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V3.3 💎
+// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V21.2 💎
 // 🎯 الوظيفة: تفعيل التثبيت كـ App، تشغيل المتجر Offline، وحماية الواجهة.
-// 🚀 التحديثات المعمارية الصارمة (V3.3):
-// 1. Cache Poisoning Fix: كسر الكاش القديم المسموم برفع رقم الإصدار.
-// 2. Query String Ignorance: حصر {ignoreSearch: true} للملاحة (HTML) فقط لضمان تحديث الصور وملفات API.
-// 3. Robust Offline Routing: إزالة index.html والاعتماد الكلي والآمن على store.html.
+// 🚀 التحديثات المعمارية الصارمة (V21.2 - The Absolute Shield):
+// 1. Firebase Storage Guard: إعفاء صور فايربيس وأنظمة المصادقة من الكاش لمنع امتلاء هواتف العملاء.
+// 2. Immediate Update Listener: إضافة مستمع 'message' لتفعيل التحديث الإجباري من script.js.
+// 3. Local QR Integration: إضافة مكتبة قفل الـ 2FA للكاش المحلي لتعمل بدون إنترنت.
+// 4. Cache Poisoning Fix: كسر الكاش القديم المسموم برفع رقم الإصدار.
 // ============================================================================
 
-const CACHE_NAME = 'telecard-static-v3.3'; 
+const CACHE_NAME = 'telecard-static-v21.2'; 
 
+// 🛡️ الملفات الأساسية فقط (لا تضع أي روابط ديناميكية هنا)
 const CORE_ASSETS = [
   './',
   './store.html',
@@ -22,6 +24,7 @@ const CORE_ASSETS = [
   './dataManager.js',
   './renderManager.js',
   './components.js',
+  './qrcode.min.js', // 🛡️ تمت إضافته ليعمل الأمان بدون إنترنت
   './core/firebaseAdapter.js',
   './core/financialEngine.js',
   './core/renderHelpers.js',
@@ -38,12 +41,11 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
       console.log('📦 [Service Worker] جاري تخزين واجهة المتجر والصفحات الأساسية...');
-      
       for (const asset of CORE_ASSETS) {
         try {
           await cache.add(asset);
         } catch (error) {
-          console.warn(`⚠️ [Service Worker] تعذر تخزين الملف (قد يكون مفقوداً): ${asset}`);
+          console.warn(`⚠️ [Service Worker] تعذر تخزين الملف: ${asset}`);
         }
       }
     })
@@ -67,11 +69,21 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// 🛡️ التحديث المعماري: استقبال أمر التحديث الإجباري من script.js
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+      self.skipWaiting();
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
   
+  // 🛡️ القاعدة الذهبية لسلامة التخزين: تجاهل كافة مسارات فايربيس (قاعدة بيانات + صور + مصادقة)
   if (url.hostname.includes('firestore.googleapis.com') ||
+      url.hostname.includes('firebasestorage.googleapis.com') ||
+      url.hostname.includes('identitytoolkit.googleapis.com') ||
       url.hostname.includes('cloudfunctions.net') ||
       url.pathname.startsWith('/_/')) {
     return;
@@ -79,8 +91,6 @@ self.addEventListener('fetch', (event) => {
   
   if (request.method !== 'GET') return;
   
-  // 🛡️ الترقيع المعماري: ignoreSearch:true يُستخدم فقط لصفحات HTML (Navigate). 
-  // استخدامها للصور/API كان يسبب تقديم صور قديمة لمنتجات جديدة إذا تشابه الرابط الأساسي!
   const isNavigate = request.mode === 'navigate' || request.headers.get('accept').includes('text/html');
   const cacheMatchOptions = isNavigate ? { ignoreSearch: true } : {};
   
@@ -94,7 +104,11 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => {
           return caches.match(request, cacheMatchOptions).then(cachedResponse => {
-              return cachedResponse || caches.match('./store.html', { ignoreSearch: true });
+              // 🛡️ توجيه أوفلاين ذكي: إذا طلب صفحة تسجيل الدخول وهو أوفلاين، نعطيه login، وإلا store
+              if (cachedResponse) return cachedResponse;
+              if (url.pathname.includes('login.html')) return caches.match('./login.html', { ignoreSearch: true });
+              if (url.pathname.includes('signup.html')) return caches.match('./signup.html', { ignoreSearch: true });
+              return caches.match('./store.html', { ignoreSearch: true });
           });
         })
     );
@@ -103,14 +117,14 @@ self.addEventListener('fetch', (event) => {
   
   event.respondWith(
     caches.match(request, cacheMatchOptions).then((cachedResponse) => {
-      
       const fetchPromise = fetch(request).then((networkResponse) => {
-        if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
+        // نرفض تخزين الـ opaque لكي لا تتضخم الذاكرة بملفات لا نعرف حجمها
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const clone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }
         return networkResponse;
-      }).catch((err) => {});
+      }).catch(() => {});
 
       return cachedResponse || fetchPromise;
     })

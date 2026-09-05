@@ -1,12 +1,11 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V17.8 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.4.0 💎
 // 🎯 الوظيفة: النوافذ، التوجيه الذكي، الإشعارات، التنسيق، ومزامنة الصوت
-// 🚀 التحديثات المعمارية (V17.8 - UI Sync Master Patch):
-// 1. Input ID Sync 🛡️: تطابق معرف حقل الاسم (edit-name-input) لضمان ظهور زر الحفظ.
-// 2. Avatar Menu Delegate 🛡️: دمج القائمة العائمة بشكل آمن داخل قاموس الإجراءات.
-// 3. Click-Outside Guard 🛡️: حماية ذكية لإغلاق قائمة الصورة عند النقر خارجها.
-// 4. Toast Memory Leak Fix 🛡️: ربط مؤقت الإخفاء بعنصر الـ Toast لإلغائه عند الحذف الإجباري.
-// 5. Deep Purge 🛡️: تدمير كاشات الطلبات والإيداعات تلقائياً عند طرد المستخدم المحظور.
+// 🚀 التحديثات المعمارية الصارمة (V18.4.0 - Harmony & Sync Patch):
+// 1. PopState Collision Fix 🛡️: دمج أحداث العودة لمنع التضارب بين النوافذ والأقسام.
+// 2. AudioContext Leak Guard 🛡️: إيقاف عتاد الصوت آلياً في الخلفية لحفظ البطارية.
+// 3. Event Delegation Cleanup 🛡️: إزالة تفويض البصمة والـ 2FA لمنع التنفيذ المزدوج.
+// 4. Complete Deep Purge 🛡️: تنظيف جذري لبيانات المستخدم المطرود دون ترك مخلفات.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY, DYNAMIC_PREFIXES } from '../config.js';           
@@ -28,6 +27,7 @@ const getSys = () => {
 export const UICore = {
     displayMenuTimer: null,
     audioCtx: null,
+    _audioSuspendTimer: null,
     navHistory: [],
     currentCategoryId: null,
     historyStateSet: false,
@@ -74,10 +74,13 @@ export const UICore = {
                     localStorage.removeItem(ACTIVE_USER_KEY);
                     localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
                     
+                    // 🛡️ تطهير شامل وحقيقي للكاش دون ترك مخلفات
                     Object.keys(localStorage).forEach(key => {
                         if (key.startsWith('tc_orders_cache_') || 
                             key.startsWith('tc_deposits_cache_') || 
-                            key.startsWith(DYNAMIC_PREFIXES.ALERT_VIEWS)) {
+                            key.startsWith(DYNAMIC_PREFIXES.ALERT_VIEWS) ||
+                            key.startsWith(DYNAMIC_PREFIXES.USER_IMAGE) ||
+                            key.startsWith(DYNAMIC_PREFIXES.KYC_CELEBRATION)) {
                             localStorage.removeItem(key);
                         }
                     });
@@ -528,15 +531,23 @@ export const UICore = {
         if (this._listenersBound) return;
         this._listenersBound = true;
         
+        // 🛡️ التحديث المعماري (PopState Collision Guard): دمج حدث العودة لمنع التنفيذ المزدوج المزعج
         window.addEventListener('popstate', (e) => {
             const state = getSys().State;
+            
+            // الأولوية الأولى: إغلاق النوافذ المنبثقة (Modals)
             if (state && state.activeModals && state.activeModals.length > 0) {
                 const lastModal = state.activeModals[state.activeModals.length - 1];
                 this.closeModal(lastModal, true);
+                return; // 🛑 التوقف هنا لمنع التوجيه المزدوج للقسم السابق
+            }
+            
+            // الأولوية الثانية: العودة للقسم السابق (Category History)
+            if (this.currentCategoryId !== null || this.navHistory.length > 0) {
+                this._manualGoBack(true);
             }
         });
 
-        // 🛡️ التحديث المعماري: استماع لرسائل الـ Service Worker لفتح الطلبات فوراً (المتجر مفتوح)
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.addEventListener('message', (event) => {
                 if (event.data && event.data.type === 'FCM_NOTIFICATION_CLICK') {
@@ -554,20 +565,17 @@ export const UICore = {
             });
         }
 
-        // 🛡️ التحديث المعماري: قراءة الروابط الذكية (Deep Links) إذا تم فتح المتجر من الإشعار
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('action') === 'view') {
             const type = urlParams.get('type');
             const id = urlParams.get('id');
             const sys = getSys();
             
-            // الانتظار 1.2 ثانية لضمان اكتمال تهيئة Firebase ورسم الواجهة الأساسية
             setTimeout(() => {
                 if (type === 'order' || type === 'purchase') sys.jumpToTransaction?.(id, 'purchase');
                 else if (type === 'deposit' || type === 'wallet') sys.jumpToTransaction?.(id, 'deposit');
                 else sys.openDetail?.(null, type, id);
                 
-                // تنظيف الرابط لمنع تكرار فتح الفاتورة إذا قام العميل بتحديث الصفحة (Refresh)
                 if (window.history && window.history.replaceState) {
                     window.history.replaceState(null, '', window.location.pathname);
                 }
@@ -627,13 +635,11 @@ export const UICore = {
             'toggle-currency-menu': () => this.toggleDisplayCurrencyMenu?.(),
             'toggle-theme': () => this.toggleTheme?.(),
             
-            // 🛡️ التحديث المعماري: فتح القائمة العائمة (Avatar Menu) بشكل نقي
-                        // 🛡️ استبدل الكود بهذا (غيّرنا open إلى active)
             'toggle-avatar-menu': () => {
                 const menu = document.getElementById('avatar-action-menu');
                 if (menu) menu.classList.toggle('active');
             },
-         'store-search-btn': () => this.applyStoreSearch?.(),
+            'store-search-btn': () => this.applyStoreSearch?.(),
             'open-category': (e, id) => { e.preventDefault(); this.openCategory?.(id); },
             'open-product': (e, id) => getSys().openProdModal?.(id),
             'toggle-fav-modal': () => this.toggleFavoriteFromModal?.(),
@@ -702,8 +708,6 @@ export const UICore = {
             'trigger-click': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget) => document.getElementById(dataTarget)?.click(),
             'delete-avatar': () => getSys().deleteProfileImage?.(),
             'toggle-name-edit': () => getSys().toggleNameEdit?.(),
-            'toggle-2fa': () => getSys().handle2FAToggle?.(),
-            'toggle-biometric': () => getSys().handleBiometricToggle?.(),
             'send-reset-pass': () => getSys().sendResetPasswordEmail?.(),
             'submit-password-change': () => getSys().handlePasswordSubmit?.(),
             'verify-and-enable-2fa': () => getSys().verifyAndEnable2FA?.(),
@@ -823,7 +827,6 @@ export const UICore = {
         });
 
         document.addEventListener('input', (e) => {
-            // 1. مراقبة حقل الإيداع المالي
             if (e.target.id === 'bal-amount') {
                 if (this._amountTypingTimer) clearTimeout(this._amountTypingTimer);
                 this._amountTypingTimer = setTimeout(() => { 
@@ -832,7 +835,6 @@ export const UICore = {
                 }, 150);
             }
             
-            // 🛡️ التحديث المعماري: إظهار زر (صح) لحفظ الاسم عند بدء الكتابة عبر ה-ID الجديد edit-name-input
             if (e.target.id === 'edit-name-input') {
                 const saveBtn = document.getElementById('save-name-btn');
                 if (saveBtn) {
@@ -855,8 +857,6 @@ export const UICore = {
         document.body.addEventListener('click', (e) => {
             const target = e.target;
             
-            // 🛡️ الإغلاق الذكي المعماري لقائمة الصورة (نعتمد على data-action بدلاً من الـ IDs)
-                        // 🛡️ استبدل الكود بهذا (غيّرنا open إلى active)
             const avatarMenu = document.getElementById('avatar-action-menu');
             if (avatarMenu?.classList.contains('active') && !avatarMenu.contains(target) && !target.closest('[data-action="toggle-avatar-menu"]')) {
                 avatarMenu.classList.remove('active');
@@ -920,7 +920,6 @@ export const UICore = {
         });
     },
 
-    // 🛡️ التحديث المعماري 2: إخفاء حاوية التثبيت فوراً لتحسين الـ UX
     triggerPWAInstall: async function() {
         if (!deferredInstallPrompt) return;
         getSys().sfx?.('nav');
@@ -1003,11 +1002,6 @@ export const UICore = {
     navigateSettings: function() { this.closeSidebar(); getSys().openSettings?.(); },
 
     openCategory: function(id) {
-        if (!window._tcPopStateBound) { 
-            window.addEventListener('popstate', () => { this._manualGoBack(); }); 
-            window._tcPopStateBound = true; 
-        }
-        
         this.navHistory.push(this.currentCategoryId === null ? 'HOME' : this.currentCategoryId);
         if(this.navHistory.length > 20) this.navHistory.shift(); 
         
@@ -1041,12 +1035,17 @@ export const UICore = {
         }
     },
     
-    _manualGoBack: function() {
+    // 🛡️ التحديث المعماري (PopState Collision): تمرير خيار isPopState لتفادي اضطراب مسارات الـ URL
+    _manualGoBack: function(isPopState = false) {
         if (this.navHistory.length === 0 || this.navHistory[this.navHistory.length - 1] === 'HOME') { 
-            this.currentCategoryId = null; this.navHistory.pop();
+            this.currentCategoryId = null; 
+            this.navHistory.pop();
+            if (!isPopState && window.history && window.history.length > 1) window.history.back();
             this._executePageTransition(() => { if(RenderManager.renderHome) RenderManager.renderHome(true); });
         } else { 
-            const prevId = this.navHistory.pop(); this.currentCategoryId = prevId; 
+            const prevId = this.navHistory.pop(); 
+            this.currentCategoryId = prevId; 
+            if (!isPopState && window.history && window.history.length > 1) window.history.back();
             this._executePageTransition(() => {
                 if(RenderManager.renderOfferStories) RenderManager.renderOfferStories(prevId);
                 if(RenderManager._renderContent) RenderManager._renderContent(prevId); 
@@ -1145,7 +1144,6 @@ export const UICore = {
         else if(toPage === 'favorites') { if(RenderManager.renderFavorites) RenderManager.renderFavorites(); }
     },
 
-    // 🛡️ التحديث المعماري 3: تصحيح حالة الأيقونة لمنع التشنج عند النسخ المزدوج
     copyToClipboard: function(text, element, type = 'default') {
         getSys().sfx?.('nav'); 
         
@@ -1276,7 +1274,7 @@ export const UICore = {
         try {
             localStorage.setItem(CACHE_KEYS.SHOWN_TOASTS, JSON.stringify(shownToasts));
         } catch (e) {
-            console.warn("تعذر حفظ سجل الإشعارات محلياً (الوضع الخفي أو مساحة ممتلئة).");
+            console.warn("تعذر حفظ سجل الإشعارات محلياً.");
         }
 
         this.updateNotifBadges();
@@ -1391,7 +1389,6 @@ export const UICore = {
         }, 50);
     },
 
-    // 🛡️ التحديث المعماري 4: حماية الذاكرة من مؤقتات الـ Toast المعلقة
     showToast: function(msg, type = 'info') {
         if (type === 'info') {
             if (/فشل|خطأ|عذراً|كاف|نفد|غير صالح/.test(msg)) type = 'error';
@@ -1443,6 +1440,7 @@ export const UICore = {
         }, 4000);
     },    
     
+    // 🛡️ التحديث الماسي (Audio Leak Guard): إيقاف العتاد الصوتي لتوفير البطارية
     sfx: function(type) {
         if(DataManager.prefs?.sound === false) return; 
         if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
@@ -1454,7 +1452,6 @@ export const UICore = {
                     if (AudioContextClass) this.audioCtx = new AudioContextClass();
                 } catch(ctxErr) { return; } 
             }
-            
             if(!this.audioCtx) return;
 
             const playSound = () => {
@@ -1475,6 +1472,13 @@ export const UICore = {
             if(this.audioCtx.state === 'suspended') { 
                 this.audioCtx.resume().then(() => playSound()).catch(()=>{}); 
             } else { playSound(); }
+            
+            if (this._audioSuspendTimer) clearTimeout(this._audioSuspendTimer);
+            this._audioSuspendTimer = setTimeout(() => {
+                if (this.audioCtx && this.audioCtx.state === 'running') {
+                    this.audioCtx.suspend().catch(()=>{});
+                }
+            }, 1500);
             
         } catch(e) {}
         

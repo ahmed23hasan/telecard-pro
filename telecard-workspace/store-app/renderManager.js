@@ -1,10 +1,10 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - الإصدار المؤسسي V18.1.0 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - الإصدار المؤسسي V18.2.0 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه المرئي
-// 🚀 التحديثات المعمارية الصارمة (V18.1.0 - Master Patch):
-// 1. Selector Injection Fix: استخدام Array.some لمنع تحطم الـ DOM بسبب روابط الصور المعقدة.
-// 2. CPU Hang Guard: التدمير الفوري لإطار html2canvas عند التعليق للحفاظ على البطارية.
-// 3. SRP Pagination Fix: الاعتماد الكلي على DataManager لجلب السجلات.
+// 🚀 التحديثات المعمارية الصارمة (V18.2.0 - Performance & DOM CPU Patch):
+// 1. O(1) Cache Eviction 🛡️: إزالة استعلام الصور المرهق للمعالج واستخدام خوارزمية (FIFO).
+// 2. Live DOM Engine 🛡️: استبدال querySelectorAll بـ Live HTMLCollection لمؤقتات العروض.
+// 3. CPU Hang Guard: التدمير الفوري لإطار html2canvas عند التعليق للحفاظ على البطارية.
 // 4. CORS Fallback: حماية تصدير الإيصالات من التلوث (Tainted Canvas).
 // 5. Layout Shift Guard: تأجيل تحديث متغيرات الـ CSS لتتزامن مع رسم الـ DOM.
 // ============================================================================
@@ -39,24 +39,12 @@ window.StoreRenderApp = window.StoreRenderApp || {
             if (this.imgCache.has(key)) {
                 this.imgCache.delete(key);
             } else if (this.imgCache.size > 500) {
+                // 🛡️ التحديث الماسي: إخلاء الكاش بالترتيب الزمني (FIFO) بدلاً من استنزاف شجرة الـ DOM
                 let deletedCount = 0;
-                
-                // 🛡️ الترقيع الماسي للأداء: جلب الروابط النشطة مرة واحدة فقط لمنع استنزاف المعالج (O(1) Lookup)
-                const activeImages = new Set(Array.from(document.querySelectorAll('img')).map(el => el.src));
-                
                 for (const k of this.imgCache) {
-                    if (k.startsWith('blob:')) {
-                        // التحقق السريع من الـ Set بدلاً من إرهاق الـ DOM
-                        if (!activeImages.has(k)) {
-                            URL.revokeObjectURL(k);
-                            this.imgCache.delete(k);
-                            deletedCount++;
-                        }
-                    } else {
-                        this.imgCache.delete(k);
-                        deletedCount++;
-                    }
-                    
+                    if (k.startsWith('blob:')) URL.revokeObjectURL(k);
+                    this.imgCache.delete(k);
+                    deletedCount++;
                     if (deletedCount >= 50) break;
                 }
             }
@@ -98,6 +86,7 @@ window.StoreRenderApp = window.StoreRenderApp || {
         }
     }
 };
+
 export const RenderManager = {
     currentRenderId: 0,
     highlightId: null,
@@ -142,7 +131,6 @@ export const RenderManager = {
         let adminGlobalLayout = gridType === 'cats' ? settings.rootLayout : null;
         const finalCols = String(overrideCols || adminGlobalLayout || defaultCols);
         
-        // 🛡️ Layout Shift Guard: تأجيل تعديل المتغير ليتزامن مع الرسم النظيف للـ DOM
         requestAnimationFrame(() => {
             gridElement.style.setProperty('--layout-cols', finalCols); 
         });
@@ -436,7 +424,10 @@ export const RenderManager = {
     },
 
     initTimersEngine: function() {
-        if (document.querySelectorAll('.live-countdown').length === 0) {
+        // 🛡️ التحديث المعماري: الاعتماد على Live HTMLCollection لمنع استنزاف المتصفح
+        const timers = document.getElementsByClassName('live-countdown');
+        
+        if (timers.length === 0) {
             if (window.StoreRenderApp.timerInterval) {
                 clearInterval(window.StoreRenderApp.timerInterval);
                 window.StoreRenderApp.timerInterval = null;
@@ -449,7 +440,6 @@ export const RenderManager = {
         window.StoreRenderApp.timerInterval = setInterval(() => {
             if (document.hidden) return; 
             requestAnimationFrame(() => {
-                const timers = document.querySelectorAll('.live-countdown');
                 if (timers.length === 0) {
                     clearInterval(window.StoreRenderApp.timerInterval);
                     window.StoreRenderApp.timerInterval = null;
@@ -457,7 +447,8 @@ export const RenderManager = {
                 }
                 const now = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function') ? DataManager.getNow() : Date.now();
 
-                timers.forEach(item => {
+                for (let i = 0; i < timers.length; i++) {
+                    const item = timers[i];
                     const expireTime = Number(item.dataset.expire);
                     const diff = expireTime - now;
                     
@@ -468,7 +459,7 @@ export const RenderManager = {
                         const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
                         if (item.innerText !== timeStr) item.innerText = timeStr; 
                     }
-                });
+                }
             });
         }, 1000);
     },
@@ -814,7 +805,6 @@ export const RenderManager = {
         });
     },
 
-    
     renderPayMethods: function() {
         const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container');
         if (!container) return;
@@ -1023,10 +1013,9 @@ export const RenderManager = {
             const watchdog = setTimeout(() => {
                 if(isResolved) return;
                 console.error("🚨 انقضى وقت تحضير الإيصال (Timeout). السيرفر أو المتصفح لا يستجيب.");
-                // 🛡️ تدمير الإطار الداخلي لإجبار html2canvas على التوقف وعدم استنزاف البطارية
                 const orphanedContainer = document.getElementById(containerId);
                 if (orphanedContainer) {
-                    orphanedContainer.innerHTML = ''; // تدمير المحتوى
+                    orphanedContainer.innerHTML = ''; 
                 }
                 cleanup();
                 resolve(false); 
@@ -1061,29 +1050,27 @@ export const RenderManager = {
                 
                 let canvas;
                 try {
-                    // 🛡️ المحاولة الأولى: التصدير المثالي (مع اللوجو)
                     canvas = await html2canvas(container, {
                         scale: 2,
                         useCORS: true,
                         backgroundColor: '#ffffff',
                         logging: false, 
-                        allowTaint: false, // يجب أن يكون false للتصدير الناجح 
+                        allowTaint: false,  
                         windowWidth: 420 
                     });
                 } catch (canvasErr) {
-    console.warn("⚠️ [Receipt Engine] CORS Image Issue Detected. Retrying with fallback...");
-    // 🛡️ CORS Fallback: إخفاء الصور مع الحفاظ على الأبعاد لمنع تشوه تصميم الإيصال
-    const imgs = container.querySelectorAll('img');
-    imgs.forEach(img => img.style.visibility = 'hidden');
-    
-    canvas = await html2canvas(container, {
-        scale: 2,
-        useCORS: false,
-        backgroundColor: '#ffffff',
-        logging: false,
-        windowWidth: 420
-    });
-}                
+                    console.warn("⚠️ [Receipt Engine] CORS Image Issue Detected. Retrying with fallback...");
+                    const imgs = container.querySelectorAll('img');
+                    imgs.forEach(img => img.style.visibility = 'hidden');
+                    
+                    canvas = await html2canvas(container, {
+                        scale: 2,
+                        useCORS: false,
+                        backgroundColor: '#ffffff',
+                        logging: false,
+                        windowWidth: 420
+                    });
+                }                
                 const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.95));
                 
                 canvas.width = 0; canvas.height = 0;

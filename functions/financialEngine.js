@@ -1,9 +1,9 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Server Edition) - النسخة V25.4.0 👑 (The Fortress)
+// 💰 المحرك المالي المركزي (Server Edition) - النسخة V26.2.0 👑 (The Fortress)
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، تسعير البوابات والـ VIP.
-// 🚀 التحديثات المعمارية (V25.4.0):
-// 1. Zero-Division Shield 🛡️: إرجاع القيمة الأصلية بدلاً من الانهيار لمنع توقف دوال السحابة.
-// 2. VIP Engine Restore: إضافة دوال العضويات لاعتماد أسعار الـ VIP بشكل قاطع في السيرفر.
+// 🚀 التحديثات المعمارية (V26.2.0 - Server Math Guards):
+// 1. Infinity Guard 🛡️: منع الأرقام اللانهائية من التسرب لـ Firestore لتجنب تحطم السيرفر.
+// 2. Strict Export 🛡️: الحفاظ على البيانات الحقيقية (التكلفة/الربح) مع إيقاف أي عملية خاسرة.
 // 3. بيئة التشغيل: Node.js (Firebase Cloud Functions) فقط - Strict Isolation.
 // ============================================================================
 
@@ -32,7 +32,8 @@ const FinancialEngineDef = {
 
     _preciseRound: function(num, decimals = FinancialEngineDef.CONFIG.PRECISION) {
         let n = Number(num);
-        if (isNaN(n) || n === 0) return 0;
+        // 🛡️ التحديث الماسي: حماية السيرفر من الأرقام اللانهائية
+        if (isNaN(n) || !isFinite(n) || n === 0) return 0;
         const factor = Math.pow(10, decimals);
         return Math.round((n + Number.EPSILON) * factor) / factor;
     },
@@ -41,7 +42,6 @@ const FinancialEngineDef = {
     _internalSub: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) - (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalMul: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) * (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     
-    // 🛡️ الترقيع السحابي 1: استبدال throw بـ Fallback آمن لمنع تعليق الـ Cloud Functions
     _internalDiv: function(a, b) {
         const numA = Number(a) || 0;
         const numB = Number(b) || 0;
@@ -60,12 +60,11 @@ const FinancialEngineDef = {
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '' || Array.isArray(val) || typeof val === 'object') return 0;
         const num = Number(val);
-        if (isNaN(num) || num < 0) return 0;
+        if (isNaN(num) || !isFinite(num) || num < 0) return 0;
         if (!allowZero && num === 0) return 1;
         return num;
     },
 
-    // 🚀 أداة الوقت الآمنة الخاصة ببيئة السيرفر (تعالج Firebase Timestamps بشكل حتمي)
     parseSafeTime: function(val) {
         if (val === null || val === undefined || val === '') return Date.now();
         if (typeof val === 'number') return val;
@@ -81,7 +80,7 @@ const FinancialEngineDef = {
     },
 
     // ========================================================================
-    // 🏦 القسم الثاني: معالجة الإيداعات ورسوم البوابات (Gateway Fees Engine)
+    // 🏦 القسم الثاني: معالجة الإيداعات ورسوم البوابات
     // ========================================================================
     
     calculateDepositNet: function(amount, feeSettings = {}) {
@@ -161,7 +160,7 @@ const FinancialEngineDef = {
     },
 
     // ========================================================================
-    // 💱 القسم الثالث: محول العملات المتعدد (Multi-Channel Currency Exchange)
+    // 💱 القسم الثالث: محول العملات المتعدد
     // ========================================================================
 
     normalizeRates: function(raw) {
@@ -171,7 +170,6 @@ const FinancialEngineDef = {
         const processRateObj = (code, priceR, depR) => {
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
-            // 🛡️ الترقيع السحابي 2: حماية السيرفر من العملات المعدومة
             if (numPrice === 0 || numDep === 0) {
                 console.warn(`🚨 [Server System]: سعر صرف غير صالح للعملة ${code}. سيتم اعتبارها 1 للحماية.`);
                 ratesMap[code] = { code: code, priceRate: numPrice || 1, depRate: numDep || 1 };
@@ -214,17 +212,24 @@ const FinancialEngineDef = {
         
         const fRate = channel === 'deposit' ? ratesMap[fCode].depRate : ratesMap[fCode].priceRate;
         const tRate = channel === 'deposit' ? ratesMap[tCode].depRate : ratesMap[tCode].priceRate;
-        if (fRate === 0 || tRate === 0) return amt; // حماية إضافية
+        if (fRate === 0 || tRate === 0) return amt; 
 
         return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
     },
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c);
+        // 🛡️ التحديث الماسي: حماية السيرفر من الأرقام اللانهائية للعملات الضعيفة
+        if (isNaN(v) || !isFinite(v)) return 0;
+        
         const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
-        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * factor) / factor;
-        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * factor) / factor;
-        return Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
+        let result = 0;
+        
+        if(rnd === 'floor') result = Math.floor((v + Number.EPSILON) * factor) / factor;
+        else if(rnd === 'ceil') result = Math.ceil((v - Number.EPSILON) * factor) / factor;
+        else result = Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
+        
+        return isNaN(result) ? 0 : result;
     },
 
     // ========================================================================
@@ -235,7 +240,7 @@ const FinancialEngineDef = {
         if (!code) return { valid: false, msg: 'لم يتم تقديم كود خصم' };
         
         if (offer && typeof offer === 'object' && offer.isActive !== false && offer.type !== 'fake') {
-            return { valid: false, msg: 'عذراً، لا يمكن استخدام الكوبونات مع العروض الترويجية' };
+            return { valid: false, msg: 'لا يمكن استخدام الكوبونات مع العروض' };
         }
 
         const cp = coupons.find(c => c.code.toUpperCase() === code.toUpperCase());
@@ -243,24 +248,24 @@ const FinancialEngineDef = {
         if (cp.isActive === false) return { valid: false, msg: 'الكوبون غير مفعل' };
         
         if (FinancialEngineDef.extractNum(cp.value) <= 0) {
-            return { valid: false, msg: 'الكوبون غير صالح للاستخدام (قيمة معدومة)' };
+            return { valid: false, msg: 'الكوبون غير صالح' };
         }
         
         const isCouponDisabled = (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true');
-        if (isCouponDisabled) return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم الكوبونات' }; 
+        if (isCouponDisabled) return { valid: false, msg: 'المنتج لا يدعم الكوبونات' }; 
 
         if (cp.startDate) {
             const startMs = FinancialEngineDef.parseSafeTime(cp.startDate);
-            if (startMs > 0 && now < startMs) return { valid: false, msg: 'هذا الكوبون لم تبدأ فترة صلاحيته بعد' };
+            if (startMs > 0 && now < startMs) return { valid: false, msg: 'لم تبدأ الصلاحية' };
         }
 
         if (cp.expiryDate) {
             const expiryMs = FinancialEngineDef.parseSafeTime(cp.expiryDate);
-            if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت صلاحية الكوبون' };
+            if (expiryMs > 0 && now > expiryMs) return { valid: false, msg: 'انتهت الصلاحية' };
         }
         
-        if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'استنفد الكوبون الحد الأقصى للاستخدام' };
-        if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'الكوبون غير متاح لمستوى حسابك' };
+        if (Number(cp.maxUses) > 0 && Number(cp.usedCount || 0) >= Number(cp.maxUses)) return { valid: false, msg: 'استنفد الحد الأقصى' };
+        if (cp.targetTiers?.length > 0 && !cp.targetTiers.includes(String(userTier?.id))) return { valid: false, msg: 'غير متاح للمستوى' };
         
         const isProdMatched = cp.targetProds?.length > 0 ? cp.targetProds.includes(String(prod.id)) : true;
         let isCatMatched = true;
@@ -271,16 +276,16 @@ const FinancialEngineDef = {
         }
 
         if (cp.targetProds?.length > 0 || cp.targetCategories?.length > 0) {
-            if (!isProdMatched && !isCatMatched) return { valid: false, msg: 'الكوبون غير مخصص لهذا المنتج أو القسم' };
+            if (!isProdMatched && !isCatMatched) return { valid: false, msg: 'غير مخصص لهذا المنتج' };
         }
 
         if (cp.allowedUsers?.length > 0 && !cp.allowedUsers.some(u => String(u) === String(user?.uid || user?.id))) {
-            return { valid: false, msg: 'غير مسموح لك باستخدام هذا الكوبون' };
+            return { valid: false, msg: 'غير مسموح لك باستخدامه' };
         }        
         
         if (Number(cp.minOrder) > 0) {
             const tempPrice = FinancialEngineDef.calculateOrderTotal({ product: prod, tier: userTier, optIdx, offer: null }, qty);
-            if (tempPrice.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى لاستخدام الكوبون هو ${cp.minOrder}$` };
+            if (tempPrice.totalFinalPrice < Number(cp.minOrder)) return { valid: false, msg: `الحد الأدنى ${cp.minOrder}$` };
         }
         
         return { valid: true, coupon: { code: cp.code, type: cp.type, value: cp.value, maxDiscount: cp.maxDiscount, isActive: cp.isActive } };
@@ -417,8 +422,7 @@ const FinancialEngineDef = {
     },
 
     // ========================================================================
-    // 👑 القسم الخامس: محرك مستويات العضوية والـ VIP (Tiers Engine) 
-    // 🚀 الترقيع السحابي 3: إضافة دوال الـ VIP إلى السيرفر لضمان تسعير عادل وآمن
+    // 👑 القسم الخامس: محرك مستويات العضوية
     // ========================================================================
     
     getUserTier: function(user, tiers) {
@@ -477,7 +481,6 @@ const FinancialEngineDef = {
     }
 };
 
-// التصدير بما يتوافق مع بيئة السيرفر (Node.js)
 module.exports = Object.freeze({
     ...FinancialEngineDef,
     FinancialSecurityError

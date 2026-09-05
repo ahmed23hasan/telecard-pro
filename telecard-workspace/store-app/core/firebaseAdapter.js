@@ -1,16 +1,16 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.7 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.8 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت، والإشعارات الفورية
-// 🚀 التحديثات المعمارية (V18.7 - VAPID Sync):
-// 1. VAPID Sync 🛡️: إزالة المفتاح النصي للإشعارات وربطه بالدستور المركزي (config.js).
-// 2. PWA Deadlock Shield 🛡️: إزالة مزامنة التبويبات المتعددة لمنع تعليق IndexedDB.
-// 3. Query/Doc Timeout Fix 🛡️: منع انهيار المتجر عند تأخر السيرفر عبر إرجاع بيانات بديلة.
-// 4. Zero Race Condition: تأمين تهيئة قاعدة البيانات للعمل بالذاكرة المؤقتة فوراً.
+// 🚀 التحديثات المعمارية (V18.8 - Multi-Tab & Sync Patch):
+// 1. Multi-Tab Persistence 🛡️: تفعيل مدير التبويبات المتعددة لمنع قفل IndexedDB (Error: failed-precondition).
+// 2. Safe Config Import 🛡️: التوافق التام مع كائنات التجميد العميق (deepFreeze) في config.js.
+// 3. Dynamic Global Force Server 🛡️: ربط حالة تجاوز الكاش بحالة الشبكة الفعلية (Online/Offline).
+// 4. Zero Race Condition: تأمين تهيئة قاعدة البيانات للعمل بالذاكرة المؤقتة فوراً كخطة بديلة.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
-    initializeFirestore, persistentLocalCache, clearIndexedDbPersistence, 
+    initializeFirestore, persistentLocalCache, persistentMultipleTabManager, clearIndexedDbPersistence, 
     collection, doc, getDoc, getDocs, getDocFromCache, getDocsFromCache, 
     setDoc, addDoc, deleteDoc, onSnapshot, 
     query, where, orderBy, limit, startAfter 
@@ -27,20 +27,16 @@ import { firebaseConfig, DB_KEYS, CACHE_KEYS } from '../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// 🛡️ التحديث المعماري الجذري والخالي من التضارب (Zero Race Condition)
+// 🛡️ التحديث المعماري: استخدام مدير التبويبات المتعددة لحل مشكلة قفل الـ IndexedDB الشهيرة
 let db;
 try {
-    // الاعتماد على التخزين المحلي الفردي المستقر
     db = initializeFirestore(app, {
-        localCache: persistentLocalCache() 
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
     });
 } catch (error) {
-    console.warn("⚠️ [Firestore] تعذر تفعيل التخزين المحلي بسبب قفل متراكم، جاري التشغيل الآمن عبر الذاكرة العشوائية (Memory Cache)...");
-    
-    // 1. Fallback فوري ومتزامن: لضمان أن المتغير db متاح فوراً ولا ينهار المتجر
+    console.warn("⚠️ [Firestore] تعذر تفعيل التخزين المحلي المتزامن، جاري التشغيل الآمن عبر الذاكرة العشوائية (Memory Cache)...");
     db = initializeFirestore(app, {}); 
     
-    // 2. تنظيف صامت في الخلفية للزيارة القادمة (Fire and forget)
     clearIndexedDbPersistence(app)
         .then(() => console.log("✅ [Firestore] تم تنظيف الكاش التالف للزيارة القادمة."))
         .catch(() => {});
@@ -61,6 +57,7 @@ try {
 }
 
 export { auth, db, storage, functions, messaging };
+
 export const FirebaseAdapter = {
     db: db,
     storage: storage,
@@ -97,9 +94,10 @@ export const FirebaseAdapter = {
     // 🧠 2. نظام الختم العالمي (Global Cache Versioning)
     // ==========================================
     initGlobalCacheVersioning: async function() {
-        if (typeof window === 'undefined' || !window.localStorage) return;
+        if (typeof window === 'undefined' || !window.localStorage || navigator.onLine === false) return;
         
         try {
+            // نستخدم getDoc مباشرة للسيرفر هنا للتأكد من وجود تحديث
             const versionSnap = await getDoc(doc(db, DB_KEYS.SYSTEM, 'cache_version'));
             if (versionSnap.exists()) {
                 const serverVersion = versionSnap.data().version || 0;
@@ -109,9 +107,14 @@ export const FirebaseAdapter = {
                     console.log(`🔄 تم اكتشاف تحديث جديد من الإدارة (V${serverVersion}). تجاوز الكاش مفعّل.`);
                     this._globalForceServer = true; 
                     localStorage.setItem(CACHE_KEYS.SERVER_VERSION, serverVersion);
+                } else {
+                    // 🛡️ إعادة ضبط القوة إذا كان الكاش متطابقاً
+                    this._globalForceServer = false;
                 }
             }
-        } catch (error) { console.warn("تعذر التحقق من نسخة الكاش العالمي", error); }
+        } catch (error) { 
+            console.warn("تعذر التحقق من نسخة الكاش العالمي، سيتم الاعتماد على الكاش المحلي.", error); 
+        }
     },
 
     _registerListener: function(uniqueKey, unsubscribeFn) {
@@ -248,12 +251,10 @@ export const FirebaseAdapter = {
             }
         } catch (error) {
             console.error(`[DB Error] getCacheFirst (${collectionName}):`, error.message);
-            // 🛡️ الترقيع الدفاعي: إرجاع الكاش إن وجد أو null لإنقاذ السلسلة وعدم رمي خطأ قاتل (Throw Error) يوقف الإقلاع
             return cachedData || null;
         }
     },
 
-    // 🛡️ التحديث المعماري الجذري: منع انهيار الإقلاع عند حدوث Timeout
     async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limitCount = 50, forceServer = false) {
         let cachedDocs = null;
         try {
@@ -266,7 +267,7 @@ export const FirebaseAdapter = {
             const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
             const needsServer = forceServer || this._globalForceServer;
             
-            // 1. محاولة القراءة من الكاش أولاً (بمهلة قصيرة لعدم تجميد الشاشة)
+            // 1. محاولة القراءة من الكاش أولاً
             try {
                 const cachedSnapshot = await this._withTimeout(getDocsFromCache(q), 4000, 'getDocsFromCache');
                 if (!cachedSnapshot.empty) {
@@ -284,7 +285,6 @@ export const FirebaseAdapter = {
         } catch (error) {
             console.error(`🚨 [DB Error] فشل الاتصال بالسيرفر لـ (${collectionName}):`, error.message);
             
-            // 🛡️ الترقيع الماسي: إذا فشل السيرفر، نستخدم الكاش إن وجد، أو نرجع مصفوفة فارغة لإنقاذ المتجر
             if (cachedDocs && cachedDocs.length > 0) {
                 console.warn(`⚠️ تم استخدام بيانات الكاش لـ ${collectionName} لإنقاذ إقلاع المتجر.`);
                 return cachedDocs;
@@ -500,4 +500,7 @@ export const FirebaseAdapter = {
 };
 
 // 🛡️ تشغيل فحص الختم العالمي عند تحميل المتجر
-FirebaseAdapter.initGlobalCacheVersioning();
+if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => FirebaseAdapter.initGlobalCacheVersioning());
+    FirebaseAdapter.initGlobalCacheVersioning();
+}

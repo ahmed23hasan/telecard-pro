@@ -1,10 +1,10 @@
 // ============================================================================
-// ⚙️ مدير البيانات الرئيسي (dataManager.js) - الإصدار المؤسسي V18.2 💎
+// ⚙️ مدير البيانات الرئيسي (dataManager.js) - الإصدار المؤسسي V18.3.0 💎
 // 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات، الاتصال المالي، والإشعارات.
-// 🚀 التحديثات المعمارية الصارمة (V18.2 - Offline Privacy Shield): 
-// 1. Offline FCM Ghosting Fix: حفظ توكنات الإشعارات محلياً عند الخروج بدون إنترنت لحذفها لاحقاً.
-// 2. Self-Healing FCM Sync: تنظيف التوكنات العالقة آلياً بمجرد عودة الاتصال لضمان خصوصية العملاء.
-// 3. Storage Quota Shield: تنظيف آلي وعميق لكاشات الحسابات السابقة لمنع انهيار الـ LocalStorage.
+// 🚀 التحديثات المعمارية الصارمة (V18.3.0 - Offline Privacy & Storage Shield): 
+// 1. Orphaned Storage Shield 🛡️: منع تسرب المساحة بحفظ الملفات العالقة محلياً وحذفها لاحقاً.
+// 2. Self-Healing FCM Sync 🛡️: ربط طابور التشافي بحدث 'online' لمنع استقبال إشعارات الحساب القديم.
+// 3. Storage Quota Shield: تنظيف آلي وعميق لكاشات الحسابات لمنع انهيار الـ LocalStorage.
 // 4. Time Manipulation Guard: تحصين دالة الوقت لمنع تجاوز صلاحية الكوبونات.
 // 5. Memory Leak Fix: تصفير حدود العرض (Pagination) ومحرك الرسم عند تسجيل الخروج.
 // ============================================================================
@@ -32,15 +32,83 @@ export const LiveStoreData = {
 export const DataManager = {
     _ratesCache: null,
     _actionLocks: new Set(),
+    _offlineSyncBound: false,
     cursors: { orders: null, deposits: null, wallet: null }, 
     
     get activeUid() { return this.user?.uid || this.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID); },
+
+    // =========================================================
+    // 🛡️ محرك التشافي الذاتي (Self-Healing Queue)
+    // =========================================================
+    
+    _safeDeleteFile: function(url) {
+        if (!url || typeof StoreDB.deleteImageByUrl !== 'function') return;
+        StoreDB.deleteImageByUrl(url).catch(() => {
+            try {
+                let orphaned = JSON.parse(localStorage.getItem('tc_orphaned_files') || '[]');
+                if (!orphaned.includes(url)) {
+                    orphaned.push(url);
+                    localStorage.setItem('tc_orphaned_files', JSON.stringify(orphaned));
+                }
+            } catch(e) {}
+        });
+    },
+
+    syncOfflineTasks: async function() {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        
+        // 1. تنظيف التوكنات العالقة (FCM Ghosting Fix)
+        try {
+            let pendingDeletes = JSON.parse(localStorage.getItem('tc_pending_fcm_delete') || '[]');
+            if (pendingDeletes.length > 0) {
+                let remaining = [];
+                for (const req of pendingDeletes) {
+                    try {
+                        const userDoc = await StoreDB.getById(DB_KEYS.USERS, req.uid);
+                        if (userDoc && Array.isArray(userDoc.fcmTokens)) {
+                            const updatedTokens = userDoc.fcmTokens.filter(t => t !== req.token);
+                            if (updatedTokens.length !== userDoc.fcmTokens.length) {
+                                await StoreDB.set(DB_KEYS.USERS, req.uid, { fcmTokens: updatedTokens }, { merge: true });
+                            }
+                        }
+                    } catch (e) { remaining.push(req); }
+                }
+                if (remaining.length > 0) localStorage.setItem('tc_pending_fcm_delete', JSON.stringify(remaining));
+                else localStorage.removeItem('tc_pending_fcm_delete');
+                console.log('🧹 [Offline Sync] تم التخلص من توكنات الإشعارات العالقة.');
+            }
+        } catch(e) {}
+
+        // 2. تنظيف ملفات التخزين اليتيمة (Orphaned Storage Shield)
+        try {
+            let orphanedFiles = JSON.parse(localStorage.getItem('tc_orphaned_files') || '[]');
+            if (orphanedFiles.length > 0) {
+                let remainingFiles = [];
+                for (const url of orphanedFiles) {
+                    try {
+                        if (typeof StoreDB.deleteImageByUrl === 'function') {
+                            await StoreDB.deleteImageByUrl(url);
+                        }
+                    } catch(e) { remainingFiles.push(url); }
+                }
+                if (remainingFiles.length > 0) localStorage.setItem('tc_orphaned_files', JSON.stringify(remainingFiles));
+                else localStorage.removeItem('tc_orphaned_files');
+                console.log('🧹 [Offline Sync] تم حذف صور التخزين اليتيمة بنجاح.');
+            }
+        } catch(e) {}
+    },
 
     // =========================================================
     // 🌐 إقلاع المتجر (Store Bootstrapping)
     // =========================================================
     initStoreCatalog: async function() {
         LiveStoreData.isOfflineMode = false;
+        
+        if (typeof window !== 'undefined' && !this._offlineSyncBound) {
+            window.addEventListener('online', () => { setTimeout(() => this.syncOfflineTasks(), 4000); });
+            this._offlineSyncBound = true;
+        }
+
         try {
             const [settingsSnap, systemSnap] = await Promise.allSettled([
                 StoreDB.getCacheFirst(DB_KEYS.SETTINGS, 'singleton'),
@@ -128,7 +196,6 @@ export const DataManager = {
     // ⏱️ محرك الوقت والحالة (Time & State Management)
     // =========================================================
     
-    // 🛡️ دالة الوقت المحصنة: تمنع تلاعب المستخدم بساعة جهازه لتخطي صلاحية الكوبونات والعروض
     getNow: function(strict = false) { 
         if (strict && this.serverTimeOffset === 0 && !LiveStoreData.isOfflineMode) {
             return Infinity; 
@@ -147,7 +214,6 @@ export const DataManager = {
     // 💾 مدير التخزين المحلي (Local Storage Controller)
     // =========================================================
 
-    // 🛡️ حفظ بيانات المستخدم محلياً مع حماية سعة التخزين (Advanced Quota Shield)
     saveUserLocal: function() {
         if (!this.user || !this.activeUid) return;
         
@@ -239,7 +305,7 @@ export const DataManager = {
     getTierProgress: function() { return FinancialEngine.getTierProgress(this.user, this.getTiers(), this.getNow()); },
 
     getActiveOffer: function(prodId) {
-        const now = this.getNow(true); // استخدام وضع الحماية لمنع التلاعب
+        const now = this.getNow(true); 
         return (LiveStoreData.offers || []).find(o => o.isActive && (!o.expiryDate || o.expiryDate > now) && o.targetProds?.includes(String(prodId)));
     },
 
@@ -314,7 +380,7 @@ export const DataManager = {
             
             if (failedUploads.length > 0) {
                 results.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value).forEach(url => {
-                    StoreDB.deleteImageByUrl(url).catch(() => {});
+                    this._safeDeleteFile(url);
                 });
                 throw new Error("فشل رفع إحدى الصور.");
             }
@@ -332,7 +398,7 @@ export const DataManager = {
             
             if (this.user?.kycData) {
                 [this.user.kycData.frontImg, this.user.kycData.backImg, this.user.kycData.selfieImg].filter(Boolean).forEach(url => {
-                    StoreDB.deleteImageByUrl(url).catch(() => {});
+                    this._safeDeleteFile(url);
                 });
             }
             
@@ -340,7 +406,7 @@ export const DataManager = {
             return { success: true };
             
         } catch (error) {
-            uploadedUrls.forEach(url => StoreDB.deleteImageByUrl(url).catch(() => {}));
+            uploadedUrls.forEach(url => this._safeDeleteFile(url));
             const msg = String(error.message || '');
             let finalMsg = msg;
             if (!/[\u0600-\u06FF]/.test(msg)) finalMsg = 'فشل رفع المستندات.';
@@ -410,30 +476,8 @@ export const DataManager = {
     // 🔔 محرك مزامنة الإشعارات الفورية (FCM Token Manager)
     // =========================================================
     setupPushNotifications: async function(forcePrompt = false) {
-        // 🛡️ التحديث الماسي: تشافي ذاتي (Self-Healing) للتوكنات العالقة
-        if (typeof window !== 'undefined' && navigator.onLine) {
-            try {
-                let pendingDeletes = JSON.parse(localStorage.getItem('tc_pending_fcm_delete') || '[]');
-                if (pendingDeletes.length > 0) {
-                    for (const req of pendingDeletes) {
-                        try {
-                            const userDoc = await StoreDB.getById(DB_KEYS.USERS, req.uid);
-                            if (userDoc && Array.isArray(userDoc.fcmTokens)) {
-                                const updatedTokens = userDoc.fcmTokens.filter(t => t !== req.token);
-                                if (updatedTokens.length !== userDoc.fcmTokens.length) {
-                                    await StoreDB.set(DB_KEYS.USERS, req.uid, { fcmTokens: updatedTokens }, { merge: true });
-                                }
-                            }
-                        } catch (e) {} // نتجاهل الأخطاء الفردية لنكمل الباقي
-                    }
-                    localStorage.removeItem('tc_pending_fcm_delete');
-                    console.log('🧹 [FCM] تم تنظيف التوكنات العالقة من الجلسات السابقة بنجاح.');
-                }
-            } catch (e) {
-                console.warn('⚠️ [FCM] تعذر معالجة قائمة التوكنات المحذوفة:', e);
-            }
-        }
-
+        this.syncOfflineTasks(); // استدعاء التشافي الذاتي أولاً
+        
         if (!this.activeUid || typeof window === 'undefined' || !window.Notification || LiveStoreData.isOfflineMode) return;
         
         try {
@@ -539,7 +583,6 @@ export const DataManager = {
         }
 
         try {
-            // 🛡️ التحديث الماسي: حماية الخصوصية والإشعارات في وضع عدم الاتصال (Offline Privacy Shield)
             try {
                 if (this.activeUid && typeof window !== 'undefined' && window.Notification && Notification.permission === 'granted') {
                     Promise.race([
@@ -548,15 +591,14 @@ export const DataManager = {
                     ]).then(currentToken => {
                         if (currentToken && typeof currentToken === 'string') {
                             if (navigator.onLine === false) {
-    // 🛡️ الإنترنت مقطوع: حفظ التوكن مع منع تضخم الذاكرة (حد أقصى 10 توكنات)
-    let pendingDeletes = JSON.parse(localStorage.getItem('tc_pending_fcm_delete') || '[]');
-    if (!pendingDeletes.some(item => item.token === currentToken)) {
-        pendingDeletes.push({ uid: this.activeUid, token: currentToken });
-        if (pendingDeletes.length > 10) pendingDeletes = pendingDeletes.slice(-10); // منع تضخم الكاش
-        localStorage.setItem('tc_pending_fcm_delete', JSON.stringify(pendingDeletes));
-        console.log('🔒 [FCM Offline] تم حفظ التوكن للإلغاء لاحقاً.');
-    }                         } else {
-                                // الإنترنت متصل: تحديث السيرفر بصمت لحذف الجهاز الحالي من قائمة الإشعارات
+                                let pendingDeletes = JSON.parse(localStorage.getItem('tc_pending_fcm_delete') || '[]');
+                                if (!pendingDeletes.some(item => item.token === currentToken)) {
+                                    pendingDeletes.push({ uid: this.activeUid, token: currentToken });
+                                    if (pendingDeletes.length > 10) pendingDeletes = pendingDeletes.slice(-10); 
+                                    localStorage.setItem('tc_pending_fcm_delete', JSON.stringify(pendingDeletes));
+                                    console.log('🔒 [FCM Offline] تم حفظ التوكن للإلغاء لاحقاً.');
+                                }
+                            } else {
                                 let currentTokens = Array.isArray(this.user?.fcmTokens) ? [...this.user.fcmTokens] : [];
                                 const updatedTokens = currentTokens.filter(t => t !== currentToken);
                                 if (currentTokens.length !== updatedTokens.length) {
@@ -571,7 +613,6 @@ export const DataManager = {
                 console.warn('⚠️ [Logout] تعذر إلغاء ربط توكن الإشعارات:', fcmErr);
             }
 
-            // إنهاء جلسة فايربيز (Firebase Auth) بأمان
             if (auth && typeof signOut === 'function') await signOut(auth);
             
             try {
@@ -668,8 +709,6 @@ export const DataManager = {
                 const lastSync = sessionStorage.getItem(CACHE_KEYS.TIME_SYNC);
                 if (!LiveStoreData.isOfflineMode && StoreDB.callFunction && (!lastSync || (Date.now() - Number(lastSync)) > 21600000 || this.serverTimeOffset === 0)) {
                     
-                    // 🛡️ التحديث الماسي: "الإقلاع غير المانع" (Non-Blocking Boot)
-                    // تغليف طلب الوقت بمهلة 3 ثوانٍ فقط لمنع تجميد اللودر للأبد
                     const timeRequest = StoreDB.callFunction('getServerTime').catch(() => null);
                     const timeoutFallback = new Promise(resolve => setTimeout(() => resolve(null), 3000));
                     
@@ -840,6 +879,7 @@ export const DataManager = {
             
             return { success: true, msg: res?.message || 'تم الإرسال بنجاح' };
         } catch (err) {
+            if (receipt) this._safeDeleteFile(receipt);
             const msg = String(err.message || '');
             let finalMsg = 'تعذر الإرسال، جرب لاحقاً.';
             if (/[\u0600-\u06FF]/.test(msg)) finalMsg = msg; 

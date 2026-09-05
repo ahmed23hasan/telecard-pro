@@ -1,12 +1,11 @@
 // ============================================================================
-// 🎨 الموزع المركزي للواجهات (uiManager.js) - الإصدار المؤسسي V17.6 🛡️
+// 🎨 الموزع المركزي للواجهات (uiManager.js) - الإصدار المؤسسي V18.2.0 🛡️
 // 🎯 الوظيفة: تجميع وحدات الواجهة، إدارة الحالة (State)، ومنع تضارب البيانات
-// 🚀 التحديثات المعمارية (V17.6 - Master Patch):
-// 1. Flexible Facade: إزالة التجميد القاتل (Object.freeze) لضمان تحديث المتغيرات بحرية.
-// 2. Isolated State: توفير كائن State مخصص لحفظ حالة الواجهة المؤقتة.
-// 3. CPU Spamming Fix 🛡️: استبدال حلقة rAF بـ DOMContentLoaded لمنع استنزاف المعالج.
-// 4. Split-Brain Fix 🛡️: فصل CalendarApp لمنع تكرار النسخ في الذاكرة.
-// 5. Loader Failsafe Guard 🛡️: قتل اللودر إجبارياً بعد 45 ثانية لمنع تجمد شاشة العميل للأبد.
+// 🚀 التحديثات المعمارية الصارمة (V18.2.0 - Safe Composition Patch):
+// 1. Safe Mixin Guard 🛡️: إيقاف الدمج المسطح العشوائي ومنع الكتابة الفوقية للدوال المتشابهة.
+// 2. Explicit Collision Detection: طباعة أخطاء صريحة عند تضارب أسماء الدوال بين الوحدات.
+// 3. CPU Spamming Fix 🛡️: استمرار حماية خيط المعالجة عند تشغيل اللودر.
+// 4. Loader Failsafe Guard 🛡️: حماية الواجهة من الإقفال الأبدي (45 ثانية).
 // ============================================================================
 
 import { UICore } from './uiCore.js';
@@ -24,12 +23,15 @@ const UIState = {
     activeListeners: new Map(),
     pendingReceiptFile: null,
     isProcessingTx: false,
+    isSavingIdentity: false,
+    isSubmittingKyc: false,
+    currentImageJobId: null,
     clickTimers: {},
     debounceTimers: {}
 };
 
 // ============================================================================
-// 2️⃣ بناء الموزع المركزي (UIManager) بدون قيود التجميد (Unfrozen Object)
+// 2️⃣ بناء الموزع المركزي (UIManager) 
 // ============================================================================
 export const UIManager = {
     isReady: true,
@@ -51,7 +53,7 @@ export const UIManager = {
         if (this._loaderActiveRequests > 0) {
             if (this._failsafeTimer) clearTimeout(this._failsafeTimer);
             this._failsafeTimer = setTimeout(() => {
-                console.warn("🛡️ [UI Failsafe] تم إغلاق اللودر إجبارياً لمنع تجميد الشاشة.");
+                console.error("🛡️ [UI Failsafe] تنبيه: تم إغلاق اللودر إجبارياً بعد 45 ثانية لمنع تجميد واجهة المستخدم.");
                 this.forceHideLoader();
             }, 45000);
         } else {
@@ -61,7 +63,7 @@ export const UIManager = {
             }
         }
         
-        // 🛡️ حماية الـ DOM: استخدام مستمع آمن بدلاً من إرهاق المعالج (CPU Spamming Fix)
+        // 🛡️ حماية الـ DOM: استخدام مستمع آمن بدلاً من إرهاق المعالج
         if (!document.body) {
             document.addEventListener('DOMContentLoaded', () => {
                 this.toggleLoader(show, text, force);
@@ -106,22 +108,35 @@ export const UIManager = {
 };
 
 // ============================================================================
-// 3️⃣ الدمج الآمن للوحدات (Safe Flat Merge)
+// 3️⃣ الدمج الآمن للوحدات (Safe Composition Guard)
 // ============================================================================
 
-// 🛡️ Architecture Fix: إزالة CalendarApp ليعمل كـ Standalone Object ومنع انقسام الذاكرة (Split-Brain)
-const modulesToMerge = [UICore, UIFinance, UIAuth, Components];
+// 🛡️ تعريف الوحدات مع أسمائها لتسهيل تتبع الأخطاء
+const modulesToMerge = [
+    { name: 'UICore', obj: UICore },
+    { name: 'UIFinance', obj: UIFinance },
+    { name: 'UIAuth', obj: UIAuth },
+    { name: 'Components', obj: Components }
+];
+
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 for (const mod of modulesToMerge) {
-    if (!mod) continue;
+    if (!mod.obj) continue;
     
-    const descriptors = Object.getOwnPropertyDescriptors(mod);
+    const descriptors = Object.getOwnPropertyDescriptors(mod.obj);
     for (const [key, descriptor] of Object.entries(descriptors)) {
         if (FORBIDDEN_KEYS.has(key)) continue;
         
         // منع استبدال الخصائص الأساسية التي عرفناها في UIManager
-        if (key === 'isReady' || key === 'State' || key === 'toggleLoader' || key === 'forceHideLoader' || key === '_loaderActiveRequests' || key === '_loaderTimeout' || key === '_failsafeTimer') continue;
+        if (['isReady', 'State', 'toggleLoader', 'forceHideLoader', '_loaderActiveRequests', '_loaderTimeout', '_failsafeTimer'].includes(key)) continue;
+        
+        // 🛡️ خوارزمية منع الكتابة الفوقية (Collision Detection Guard)
+        // إذا كانت الخاصية موجودة بالفعل، نوقف الدمج ونطبع خطأ صريحاً لإنهاء الفشل الصامت
+        if (key in UIManager) {
+            console.error(`🚨 [Architecture Guard] تضارب في الأسماء (Collision)! الدالة '${key}' من وحدة '${mod.name}' تحاول الكتابة فوق دالة موجودة مسبقاً في الموزع المركزي. تم إيقاف دمج هذه الدالة للحماية.`);
+            continue; 
+        }
         
         // ربط الدوال بالموزع المركزي لضمان أن `this` يشير دائماً لـ UIManager المفتوح
         if (typeof descriptor.value === 'function') {
@@ -133,7 +148,7 @@ for (const mod of modulesToMerge) {
 }
 
 // ============================================================================
-// 4️⃣ ربط الموزع بالبيئة العالمية بأمان (توفير الأسماء المستعارة للـ HTML)
+// 4️⃣ ربط الموزع بالبيئة العالمية بأمان 
 // ============================================================================
 if (typeof globalThis !== 'undefined') {
     if (!globalThis.UIManager) {

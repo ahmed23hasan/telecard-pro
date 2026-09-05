@@ -1,11 +1,11 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V17.3 💎
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V18.2.0 💎
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية (V17.3 - The Complete Build):
-// 1. Profile UX Sync 🛡️: تزامن مثالي لزر تعديل الاسم (القلم/الصح) مع الحقل الأصلي.
-// 2. Event Conflict Shield 🛡️: إزالة تضارب مستمعات الصور مع الموزع المركزي (uiCore).
-// 3. Error Memory Leak Fix 🛡️: تنظيف الكائنات من الذاكرة العشوائية أثناء ضغط الصور.
-// 4. Missing Modules Restored 🛡️: استعادة دوال الـ VIP والتقييمات التي سقطت سهواً.
+// 🚀 التحديثات المعمارية الصارمة (V18.2.0 - Non-Blocking & No-SPOF Patch):
+// 1. Web Worker Compression 🛡️: عزل ضغط الصور في خيوط خلفية لمنع تجميد واجهة المتجر (UI Freeze).
+// 2. Local 2FA Independence 🛡️: إزالة الاعتمادية على CDN الخارجي لتوليد الـ QR Code لحماية النظام.
+// 3. Profile UX Sync: تزامن مثالي لزر تعديل الاسم (القلم/الصح) مع الحقل الأصلي.
+// 4. Error Memory Leak Fix: تنظيف الكائنات من الذاكرة العشوائية أثناء ضغط الصور.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -29,57 +29,113 @@ export const UIAuth = {
     kycFiles: {},
     _processingImgs: new Set(), 
 
+    // 🛡️ التحديث المعماري: عزل ضغط الصور لعدم تجميد واجهة المستخدم
     _compressImage: function(file, maxWidth = 1000) {
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             const watchdog = setTimeout(() => {
                 reject(new Error("نفد وقت معالجة الصورة، يرجى المحاولة بصورة أصغر."));
-            }, 15000); 
+            }, 15000);
 
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const img = new Image();
-                img.onload = () => {
-                    try {
-                        const canvas = document.createElement('canvas');
-                        let width = img.width, height = img.height;
-                        if (width > height) { if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; } } 
-                        else { if (height > maxWidth) { width *= maxWidth / height; height = maxWidth; } }
-                        
-                        canvas.width = width; canvas.height = height;
-                        const ctx = canvas.getContext('2d');
-                        if (!ctx) throw new Error("تعذر إنشاء مساحة العمل للصورة.");
-                        
-                        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height);
-                        ctx.drawImage(img, 0, 0, width, height);
-                        
-                        canvas.toBlob((blob) => {
-                            clearTimeout(watchdog); 
-                            if (!blob) return reject(new Error("فشل ضغط الصورة."));
-                            
-                            const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
-                            const safeFileName = `secure_img_${Date.now()}_${uniqueId}.webp`;
-                            
-                            const compressedFile = new File([blob], safeFileName, { type: 'image/webp' });
-                            resolve({ file: compressedFile, previewUrl: URL.createObjectURL(blob) });
-                            
-                            canvas.width = 0; canvas.height = 0; 
-                            img.src = ''; img.onload = null; img.onerror = null;
-                        }, 'image/webp', 0.80);
-                    } catch (error) { 
+            // تأخير متعمد (Yield) للسماح لواجهة المستخدم (Loader) بالظهور والدوران بسلاسة
+            await new Promise(r => setTimeout(r, 50));
+
+            const handleSuccess = (blob) => {
+                if (!blob) { clearTimeout(watchdog); return reject(new Error("فشل ضغط الصورة.")); }
+                const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
+                const safeFileName = `secure_img_${Date.now()}_${uniqueId}.webp`;
+                const compressedFile = new File([blob], safeFileName, { type: 'image/webp' });
+                resolve({ file: compressedFile, previewUrl: URL.createObjectURL(blob) });
+            };
+
+            const fallbackCompression = () => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        // تأخير إضافي لكسر الجمود المتزامن في الأجهزة الضعيفة
+                        setTimeout(() => { 
+                            try {
+                                const canvas = document.createElement('canvas');
+                                let width = img.width, height = img.height;
+                                if (width > height) { if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; } }
+                                else { if (height > maxWidth) { width *= maxWidth / height; height = maxWidth; } }
+
+                                canvas.width = width; canvas.height = height;
+                                const ctx = canvas.getContext('2d');
+                                if (!ctx) throw new Error("تعذر إنشاء مساحة العمل للصورة.");
+
+                                ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height);
+                                ctx.drawImage(img, 0, 0, width, height);
+
+                                canvas.toBlob((blob) => {
+                                    clearTimeout(watchdog);
+                                    handleSuccess(blob);
+                                    canvas.width = 0; canvas.height = 0;
+                                    img.src = ''; img.onload = null; img.onerror = null;
+                                }, 'image/webp', 0.80);
+                            } catch (error) {
+                                clearTimeout(watchdog);
+                                img.src = ''; img.onload = null; img.onerror = null;
+                                reject(error);
+                            }
+                        }, 50);
+                    };
+                    img.onerror = () => {
                         clearTimeout(watchdog);
                         img.src = ''; img.onload = null; img.onerror = null;
-                        reject(error); 
-                    }
+                        reject(new Error("ملف الصورة تالف أو غير صالح."));
+                    };
+                    img.src = e.target.result;
                 };
-                img.onerror = () => { 
-                    clearTimeout(watchdog); 
-                    img.src = ''; img.onload = null; img.onerror = null;
-                    reject(new Error("ملف الصورة تالف أو غير صالح.")); 
-                };
-                img.src = e.target.result;
+                reader.onerror = () => { clearTimeout(watchdog); reject(new Error("تعذر قراءة الملف.")); };
+                reader.readAsDataURL(file);
             };
-            reader.onerror = () => { clearTimeout(watchdog); reject(new Error("تعذر قراءة الملف.")); };
-            reader.readAsDataURL(file);
+
+            try {
+                // محاولة استخدام خيوط المعالجة الخلفية Web Workers إن أمكن
+                if (window.OffscreenCanvas && window.createImageBitmap && window.Worker) {
+                    const imgBitmap = await createImageBitmap(file);
+                    const workerCode = `
+                        self.onmessage = async function(e) {
+                            try {
+                                const { imgBitmap, maxWidth } = e.data;
+                                let width = imgBitmap.width, height = imgBitmap.height;
+                                if (width > height) { if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; } }
+                                else { if (height > maxWidth) { width *= maxWidth / height; height = maxWidth; } }
+                                const canvas = new OffscreenCanvas(width, height);
+                                const ctx = canvas.getContext('2d');
+                                ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height);
+                                ctx.drawImage(imgBitmap, 0, 0, width, height);
+                                const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.80 });
+                                self.postMessage({ blob });
+                            } catch(err) { self.postMessage({ error: err.message }); }
+                        };
+                    `;
+                    const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
+                    const workerUrl = URL.createObjectURL(workerBlob);
+                    const worker = new Worker(workerUrl);
+
+                    worker.onmessage = (e) => {
+                        clearTimeout(watchdog);
+                        URL.revokeObjectURL(workerUrl);
+                        worker.terminate();
+                        if (e.data.error) fallbackCompression();
+                        else handleSuccess(e.data.blob);
+                    };
+
+                    worker.onerror = () => {
+                        URL.revokeObjectURL(workerUrl);
+                        worker.terminate();
+                        fallbackCompression();
+                    };
+
+                    worker.postMessage({ imgBitmap, maxWidth }, [imgBitmap]);
+                } else {
+                    fallbackCompression();
+                }
+            } catch (e) {
+                fallbackCompression();
+            }
         });
     },
 
@@ -672,11 +728,10 @@ export const UIAuth = {
                                 }
                             }, 100);
                         } else {
+                            // 🛡️ التحديث المعماري: جلب المكتبة محلياً لضمان عدم توقف الخدمة إذا تم حظر النطاق
                             const script = document.createElement('script');
                             script.id = 'qrcode-lib-script';
-                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.5.1/qrcode.min.js';
-                            script.integrity = 'sha512-1m3PjBwTXX71aQhL/r/118XnI2a1V7Yf5tEETqjGokHqGqI/J0Qe2OqTNDH+0n0BfK2Rbx8u0D0Wl4y1C/tN2A==';
-                            script.crossOrigin = 'anonymous';
+                            script.src = './qrcode.min.js';
                             script.onload = resolve;
                             script.onerror = reject;
                             document.head.appendChild(script);

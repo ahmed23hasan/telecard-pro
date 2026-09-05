@@ -1,9 +1,9 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - الإصدار المؤسسي V25.5.0 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - الإصدار المؤسسي V26.2.0 💎 (The Oracle)
 // 🎯 الوظيفة: محاكاة أسعار السيرفر، كشف الأرباح، وتشخيص الأخطاء بشفافية مطلقة للمدير.
-// 🚀 التحديثات المعمارية (V25.5.0 - Indestructible Admin): 
-// 1. Anti-Crash Shield 🛡️: إزالة كل أوامر throw واستبدالها بـ Graceful Fallback لمنع انهيار لوحة الإدارة.
-// 2. Ghost Currency Handling: السماح برسم فواتير العملات المحذوفة أو الصفرية بدون كسر الواجهة.
+// 🚀 التحديثات المعمارية (V26.2.0 - Admin Bridge & Infinity Guard): 
+// 1. Missing Bridge Fix 🛡️: إضافة `getPricingLocal` لدعم معاينة المنتجات في لوحة الإدارة مع كشف الأرباح.
+// 2. Infinity Guard 🛡️: منع الأرقام اللانهائية (Infinity) من كسر جداول لوحة الإدارة عند حذف عملة.
 // 3. Absolute Transparency 👁️: الحفاظ على كشف التكاليف، الأرباح، وأسباب الرفض الصريحة للإدمن.
 // ============================================================================
 
@@ -25,7 +25,8 @@ const FinancialEngineDef = {
 
     _preciseRound: function(num, decimals = FinancialEngineDef.CONFIG.PRECISION) {
         let n = Number(num);
-        if (isNaN(n) || n === 0) return 0;
+        // 🛡️ التحديث الماسي: حماية جداول الإدارة من قيم الـ NaN والـ Infinity
+        if (isNaN(n) || !isFinite(n) || n === 0) return 0;
         const factor = Math.pow(10, decimals);
         return Math.round((n + Number.EPSILON) * factor) / factor;
     },
@@ -53,7 +54,7 @@ const FinancialEngineDef = {
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '' || Array.isArray(val) || typeof val === 'object') return 0;
         const num = Number(val);
-        if (isNaN(num) || num < 0) return 0;
+        if (isNaN(num) || !isFinite(num) || num < 0) return 0;
         if (!allowZero && num === 0) return 1;
         return num;
     },
@@ -166,7 +167,6 @@ const FinancialEngineDef = {
         const processRateObj = (code, priceR, depR) => {
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
-            // 🛡️ الترقيع الأمني للإدارة: لا تقم برمي خطأ، بل ضع 1 افتراضياً لتجنب كسر الواجهة
             if (numPrice === 0 || numDep === 0) {
                 console.warn(`🚨 [Admin System]: سعر صرف غير صالح للعملة ${code}. سيتم اعتبارها 1 للحماية.`);
                 ratesMap[code] = { code: code, priceRate: numPrice || 1, depRate: numDep || 1 };
@@ -202,7 +202,6 @@ const FinancialEngineDef = {
         
         const ratesMap = FinancialEngineDef.normalizeRates(ratesRaw);
         
-        // 🛡️ الترقيع الأمني للإدارة: إذا كانت العملة محذوفة أو غير موجودة، أرجع المبلغ الأصلي بدلاً من الانهيار
         if (!ratesMap[fCode] || !ratesMap[tCode]) {
             console.error(`🚨 [Admin System]: فشل التحويل من ${fCode} إلى ${tCode}. العملة مفقودة!`);
             return amt;
@@ -211,17 +210,24 @@ const FinancialEngineDef = {
         const fRate = channel === 'deposit' ? ratesMap[fCode].depRate : ratesMap[fCode].priceRate;
         const tRate = channel === 'deposit' ? ratesMap[tCode].depRate : ratesMap[tCode].priceRate;
         
-        if (fRate === 0 || tRate === 0) return amt; // حماية إضافية
+        if (fRate === 0 || tRate === 0) return amt; 
         
         return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
     },
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c); 
+        // 🛡️ حماية جداول الإدارة من القيم اللانهائية عند حذف عملات نشطة مسبقاً
+        if (isNaN(v) || !isFinite(v)) return 0;
+
         const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
-        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * factor) / factor;
-        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * factor) / factor;
-        return Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
+        let result = 0;
+
+        if(rnd === 'floor') result = Math.floor((v + Number.EPSILON) * factor) / factor;
+        else if(rnd === 'ceil') result = Math.ceil((v - Number.EPSILON) * factor) / factor;
+        else result = Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
+
+        return isNaN(result) ? 0 : result;
     },
 
     // ========================================================================
@@ -478,6 +484,53 @@ const FinancialEngineDef = {
             remainingDays,
             isGoalReached: spent >= targetThreshold,
             isAutoAdvanceEnabled: true
+        };
+    },
+
+    // 🛡️ التحديث الماسي: دالة الـ Bridge المفقودة، مخصصة حصرياً لكشف الأسرار للوحة الإدارة
+    getPricingLocal: function(prod, user, qty, optIdx, coupon, offer, tier, rates, baseCur, displayCur) {
+        const params = {
+            product: prod,
+            tier: tier,
+            offer: offer,
+            coupon: coupon,
+            optIdx: optIdx
+        };
+
+        const result = FinancialEngineDef.calculateOrderTotal(params, qty);
+
+        const convert = (amt) => {
+            return FinancialEngineDef.convertViaUSDHelper(amt, baseCur, displayCur, rates, 'round', 'pricing');
+        };
+
+        const unitFinalLocal = convert(result.finalPrice);
+        const totalFinalLocal = convert(result.totalFinalPrice);
+        const totalOriginalLocal = convert(result.totalOriginalPrice);
+
+        return {
+            unitText: `${unitFinalLocal.toFixed(2)} ${displayCur}`,
+            totalText: `${totalFinalLocal.toFixed(2)} ${displayCur}`,
+            displayCurrency: displayCur,
+            totalDisplayNum: totalFinalLocal,
+            totalLocalBase: result.totalFinalPrice,
+            oldTotalDisplayNum: totalOriginalLocal,
+            oldTotalLocalBase: result.totalOriginalPrice,
+            hasDiscount: result.totalDiscount > 0,
+            pricingSnapshot: {
+                totalOriginalPrice: result.totalOriginalPrice,
+                finalPrice: result.totalFinalPrice,
+                couponDiscount: result.couponDiscount,
+                offerDiscount: result.offerDiscount,
+                couponCode: result.couponCode,
+                offerName: result.offerName,
+                isFirewallViolated: result.isFirewallViolated,
+                rejectionReason: result.rejectionReason,
+                
+                // 👁️ الشفافية المطلقة للإدارة: تصدير التكلفة والربح ليعرض في الـ Modal الخاص بالأدمن
+                totalCostUsd: result.totalCostUsd,
+                totalNetProfitUsd: result.totalNetProfitUsd,
+                marginPct: result.marginPct
+            }
         };
     }
 };

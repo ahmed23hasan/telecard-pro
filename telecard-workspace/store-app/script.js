@@ -1,12 +1,12 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V18.1.0 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V18.2.0 💎
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع الآمن، عزل الحالة، وإدارة الجلسات
-// 🚀 التحديثات المعمارية الصارمة (V18.1.0 - Master Patch):
-// 1. Array Limit Fix: منع انهيار الذاكرة (Maximum call stack) للمصفوفات الضخمة.
-// 2. Zero-Leak Listeners: تفريغ مستمعات الـ DataManager لعدم مضاعفة فاتورة فايربيس.
-// 3. Time Drift Sync: تحديث صامت للوقت عند خروج المتجر من وضع الاستعداد (Sleep Mode).
-// 4. Zero-Billing Leak: تحويل جلب (الدول، بوابات الدفع، الكوبونات) إلى queryCacheFirst.
-// 5. Deadlock & Splash Guard: ضمان إزالة شاشة الإقلاع حتى في حال تعثر الشبكة.
+// 🚀 التحديثات المعمارية الصارمة (V18.2.0 - Biometric & Reload Patch):
+// 1. CSS Decoupling: إزالة التلاعب المباشر بالـ style وإسناد إقفال الواجهة لملف CSS.
+// 2. WebAuthn Deadlock Guard: مؤقت أمان يحرر الواجهة إذا تجمد نظام البصمة بالجهاز.
+// 3. Deprecated Reload Fix: تصحيح دوال إعادة تحميل الصفحة لحذف الكاش بطريقة حديثة.
+// 4. Zero-Leak Listeners: تفريغ مستمعات الـ DataManager لعدم مضاعفة فاتورة فايربيس.
+// 5. Time Drift Sync: تحديث صامت للوقت عند خروج المتجر من وضع الاستعداد.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -81,16 +81,16 @@ const AppController = {
 
     enforceBiometricLock: async function() {
         const lockScreen = document.getElementById('biometric-lock-screen');
-        const mainApp = document.querySelector('.main-wrapper') || document.getElementById('app-container');
         const isBiometricRequired = DataManager.user?.biometricEnabled === true;
         const savedRawId = localStorage.getItem(CACHE_KEYS.BIOMETRIC_KEY);
         
         if (!isBiometricRequired) {
-            if (mainApp) mainApp.style.display = ''; 
+            document.body.classList.remove('biometric-locked');
             return true; 
         }
         
-        if (mainApp) mainApp.style.display = 'none';
+        // 🛡️ التحديث المعماري: الاعتماد على الكلاس فقط وتفويض المهمة للـ CSS
+        document.body.classList.add('biometric-locked');
         if (lockScreen) lockScreen.classList.add('active'); 
         
         if (!window.PublicKeyCredential || !savedRawId) {
@@ -118,29 +118,41 @@ const AppController = {
                 rawIdBytes[i] = binaryString.charCodeAt(i);
             }
             
-            await navigator.credentials.get({
-                publicKey: {
-                    challenge,
-                    timeout: 60000,
-                    userVerification: "required",
-                    allowCredentials: [{ type: "public-key", id: rawIdBytes }]
-                }
-            });
+            // 🛡️ درع الإقفال التام (Deadlock Guard): 45 ثانية كحد أقصى لاستجابة نظام البصمة
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('biometric_timeout')), 45000));
+            
+            await Promise.race([
+                navigator.credentials.get({
+                    publicKey: {
+                        challenge,
+                        timeout: 60000,
+                        userVerification: "required",
+                        allowCredentials: [{ type: "public-key", id: rawIdBytes }]
+                    }
+                }),
+                timeoutPromise
+            ]);
             
             if (lockScreen) lockScreen.classList.remove('active');
-            if (mainApp) {
-                mainApp.style.display = '';
-                window.dispatchEvent(new Event('resize')); 
-            }
+            document.body.classList.remove('biometric-locked');
+            window.dispatchEvent(new Event('resize')); 
+            
             return true;
+
         } catch (error) {
-            console.warn("فشل التحقق من البصمة:", error);
+            console.warn("فشل أو تأخر التحقق من البصمة:", error);
+            
             const retryBtn = document.getElementById('btn-biometric-retry');
             if (retryBtn) {
                 retryBtn.innerHTML = '<i class="fa-solid fa-fingerprint"></i> المحاولة مجدداً';
                 retryBtn.disabled = false;
                 retryBtn.onclick = () => this.enforceBiometricLock();
             }
+            
+            if (error.message === 'biometric_timeout') {
+                UIManager.showToast?.('تأخر النظام في الاستجابة. يمكنك المحاولة مجدداً أو تسجيل الخروج.', 'warning');
+            }
+            
             return false;
         }
     },
@@ -222,7 +234,8 @@ const AppController = {
                         }
                         
                         await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
-                        window.location.replace(window.location.href.split('#')[0]);
+                        // 🛡️ إزالة المعامل الملغى true واستخدام reload القياسي بعد التفريغ
+                        window.location.reload();
                     }, 2000);
                     return;
                 }
@@ -404,7 +417,7 @@ AppController.init = async function() {
     // 🛡️ معالجة الانحراف الزمني عند عودة العميل من وضع الاستعداد (Sleep Mode)
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden && typeof DataManager !== 'undefined' && DataManager.activeUid) {
-            if (typeof DataManager.syncUser === 'function') DataManager.syncUser().catch(()=>{}); // يفرض تحديث الوقت بصمت
+            if (typeof DataManager.syncUser === 'function') DataManager.syncUser().catch(()=>{}); 
         }
     });
 
@@ -439,8 +452,7 @@ AppController.init = async function() {
             localStorage.setItem('telecard_app_version', currentVersion);
             
             await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
-            // 🛡️ فرض تحديث صلب متجاهلاً كاش المتصفح لضمان رؤية الإصدار الجديد
-window.location.reload(true);
+            window.location.reload();
             return;
         } else if (!savedVersion) {
             localStorage.setItem('telecard_app_version', currentVersion);
@@ -565,7 +577,7 @@ window.location.reload(true);
         if (splashName) splashName.innerText = sName;
         localStorage.setItem(CACHE_KEYS.SPLASH_NAME, sName);
 
-        // 🛡️ التحديث المعماري الصارم: استبدال getAll بالكاش وحماية سعة الاستعلام (Zero-Billing Leak)
+        // 🛡️ التحديث المعماري الصارم: استبدال getAll بالكاش وحماية سعة الاستعلام
         if (UIManager.isReady && RenderManager) {
             const publicKeys = ['COUNTRIES', 'PAYMENTS'];
             const promises = publicKeys.map(k => StoreDB.queryCacheFirst(DB_KEYS[k], [], null, 500).catch(() => []));

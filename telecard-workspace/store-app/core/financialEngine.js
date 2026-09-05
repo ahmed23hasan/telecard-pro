@@ -1,15 +1,16 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Storefront Edition) - الإصدار المؤسسي V25.5.0 💎 
+// 💰 المحرك المالي المركزي (Storefront Edition) - الإصدار المؤسسي V26.2.0 💎 
 // 🎯 الوظيفة: محرك حسابات الواجهة (PWA)، مطابق رياضياً للسيرفر 100% ومحصن أمنياً.
-// 🚀 التحديثات المعمارية (V25.5.0 - Absolute Masking):
-// 1. Zero Data Leak 🛡️: تصفير (0) مخرجات التكلفة والأرباح لحماية أسرار المتجر من متصفح العميل.
-// 2. Sensitive String Masking 🛡️: تعقيم رسائل الرفض لتجنب الاصطدام مع جدار firebaseAdapter.
-// 3. VIP Engine Restore: استعادة دوال (getUserTier, getTierProgress).
+// 🚀 التحديثات المعمارية (V26.2.0 - UI Bridge Patch):
+// 1. Missing Bridge Fix 🛡️: إضافة دالة `getPricingLocal` المفقودة لربط المحرك بواجهة المتجر.
+// 2. Zero-Log Security 🛡️: كتم كافة رسائل الأخطاء الرياضية لمنع الهندسة العكسية.
+// 3. Infinity & NaN Guard 🛡️: تحصين التحويلات النقدية للعملات الضعيفة لمنع انهيار الـ UI.
+// 4. Absolute Masking 🛡️: تصفير حتمي للتكلفة والأرباح لحماية أسرار المتجر.
 // ============================================================================
 
 export class FinancialSecurityError extends Error { 
     constructor(message) {
-        super(`[SECURITY] ${message}`); 
+        super(`[SECURITY_GUARD_TRIGGERED]`); 
         this.name = "FinancialSecurityError"; 
     } 
 }
@@ -28,7 +29,7 @@ const FinancialEngineDef = {
 
     _preciseRound: function(num, decimals = FinancialEngineDef.CONFIG.PRECISION) {
         let n = Number(num);
-        if (isNaN(n) || n === 0) return 0;
+        if (isNaN(n) || !isFinite(n) || n === 0) return 0;
         const factor = Math.pow(10, decimals);
         return Math.round((n + Number.EPSILON) * factor) / factor;
     },
@@ -41,7 +42,6 @@ const FinancialEngineDef = {
         const numA = Number(a) || 0;
         const numB = Number(b) || 0;
         if (numB === 0) { 
-            console.error("🚨 [Math Guard]: Safe division enforced."); 
             return numA; 
         }
         return FinancialEngineDef._preciseRound(numA / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
@@ -55,7 +55,7 @@ const FinancialEngineDef = {
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '' || Array.isArray(val) || typeof val === 'object') return 0;
         const num = Number(val);
-        if (isNaN(num) || num < 0) return 0;
+        if (isNaN(num) || !isFinite(num) || num < 0) return 0;
         if (!allowZero && num === 0) return 1;
         return num;
     },
@@ -160,7 +160,7 @@ const FinancialEngineDef = {
         const processRateObj = (code, priceR, depR) => {
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
-            if (numPrice === 0 || numDep === 0) throw new FinancialSecurityError(`بيانات صرف غير صالحة.`);
+            if (numPrice === 0 || numDep === 0) throw new FinancialSecurityError();
             ratesMap[code] = { code: code, priceRate: numPrice, depRate: numDep };
         };
 
@@ -190,21 +190,30 @@ const FinancialEngineDef = {
         if (amt === 0 || fCode === tCode) return amt;
         
         const ratesMap = FinancialEngineDef.normalizeRates(ratesRaw);
-        if (!ratesMap[fCode] || !ratesMap[tCode]) throw new FinancialSecurityError(`بيانات صرف غير صالحة.`);
+        if (!ratesMap[fCode] || !ratesMap[tCode]) throw new FinancialSecurityError();
         
         const fRate = channel === 'deposit' ? ratesMap[fCode].depRate : ratesMap[fCode].priceRate;
         const tRate = channel === 'deposit' ? ratesMap[tCode].depRate : ratesMap[tCode].priceRate;
         
-        if (fRate === 0 || tRate === 0) throw new FinancialSecurityError("بيانات صرف غير صالحة.");
+        if (fRate === 0 || tRate === 0) throw new FinancialSecurityError();
         return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
     },
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c); 
+        if (isNaN(v) || !isFinite(v)) return 0;
+
         const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
-        if(rnd === 'floor') return Math.floor((v + Number.EPSILON) * factor) / factor;
-        if(rnd === 'ceil')  return Math.ceil((v - Number.EPSILON) * factor) / factor;
-        return Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
+        let result = 0;
+        
+        if(rnd === 'floor') {
+            result = Math.floor((v + Number.EPSILON) * factor) / factor;
+        } else if(rnd === 'ceil') {
+            result = Math.ceil((v - Number.EPSILON) * factor) / factor;
+        } else {
+            result = Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
+        }
+        return isNaN(result) ? 0 : result;
     },
 
     validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
@@ -265,7 +274,6 @@ const FinancialEngineDef = {
     calculatePrice: function(params = {}) {
         const { product = {}, costPrice = 0, fixedPrice = 0, tier = null, offer = null, coupon = null, optIdx = null } = params;
         
-        // 🛡️ الترقيع الأمني: تصفير المتغيرات الداخلية المصدرة
         const MASKED_ZERO = 0;
 
         if (!product || typeof product !== 'object' || Object.keys(product).length === 0) {
@@ -358,7 +366,6 @@ const FinancialEngineDef = {
             const safeMarginPrice = FinancialEngineDef._internalAdd(cost, FinancialEngineDef._internalMul(cost, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MIN_MARGIN_PERCENT, 100)));
             if (currentPrice < safeMarginPrice) {
                 isFirewallViolated = true;
-                // 🛡️ الترقيع الأمني: تعقيم الرسالة لإخفاء أسباب الرفض الداخلية عن العميل والمخترقين
                 rejectionReason = `عذراً، لا يمكن معالجة هذا المنتج حالياً لتحديث الأسعار. يرجى المحاولة لاحقاً.`;
             }
         }
@@ -366,7 +373,7 @@ const FinancialEngineDef = {
         const finalPrice = currentPrice;
 
         return {
-            costUsd: MASKED_ZERO, // 🛡️ Masked
+            costUsd: MASKED_ZERO, 
             tierPrice: FinancialEngineDef._preciseRound(tierPrice), 
             originalPrice: FinancialEngineDef._preciseRound(originalPrice), 
             finalPrice: FinancialEngineDef._preciseRound(finalPrice), 
@@ -375,8 +382,8 @@ const FinancialEngineDef = {
             couponCode, 
             couponDiscount: FinancialEngineDef._preciseRound(couponDiscount), 
             totalDiscount: FinancialEngineDef._preciseRound(accumulatedDiscount),
-            netProfitUsd: MASKED_ZERO, // 🛡️ Masked
-            marginPct: MASKED_ZERO, // 🛡️ Masked
+            netProfitUsd: MASKED_ZERO, 
+            marginPct: MASKED_ZERO, 
             isFirewallViolated, rejectionReason
         };
     },
@@ -385,7 +392,6 @@ const FinancialEngineDef = {
         let qty = Math.floor(FinancialEngineDef.extractNum(rawQty));
         if (qty <= 0) qty = 1;
         if (qty > FinancialEngineDef.CONFIG.MAX_QTY_LIMIT) {
-             // 🛡️ تعقيم رسائل الخطأ هنا أيضاً
              return { costUsd: 0, tierPrice: 0, originalPrice: 0, finalPrice: 0, tierName: 'خطأ', offerDiscount: 0, couponDiscount: 0, totalDiscount: 0, netProfitUsd: 0, marginPct: 0, isFirewallViolated: true, rejectionReason: "تعذر المعالجة." };
         }
 
@@ -394,10 +400,10 @@ const FinancialEngineDef = {
         return {
             ...unit,
             qty: qty,
-            totalCostUsd: 0, // 🛡️ Masked (Derived from masked unit)
+            totalCostUsd: 0, 
             totalOriginalPrice: FinancialEngineDef.safeMul(unit.originalPrice, qty),
             totalFinalPrice: FinancialEngineDef.safeMul(unit.finalPrice, qty),
-            totalNetProfitUsd: 0, // 🛡️ Masked
+            totalNetProfitUsd: 0, 
             totalDiscount: FinancialEngineDef.safeMul(unit.totalDiscount, qty)
         };
     },
@@ -454,6 +460,48 @@ const FinancialEngineDef = {
             remainingDays,
             isGoalReached: spent >= targetThreshold,
             isAutoAdvanceEnabled: true
+        };
+    },
+
+    // 🛡️ التحديث الماسي: دالة الـ Bridge المفقودة التي سببت الخلل
+    getPricingLocal: function(prod, user, qty, optIdx, coupon, offer, tier, rates, baseCur, displayCur) {
+        const params = {
+            product: prod,
+            tier: tier,
+            offer: offer,
+            coupon: coupon,
+            optIdx: optIdx
+        };
+
+        const result = FinancialEngineDef.calculateOrderTotal(params, qty);
+
+        const convert = (amt) => {
+            return FinancialEngineDef.convertViaUSDHelper(amt, baseCur, displayCur, rates, 'round', 'pricing');
+        };
+
+        const unitFinalLocal = convert(result.finalPrice);
+        const totalFinalLocal = convert(result.totalFinalPrice);
+        const totalOriginalLocal = convert(result.totalOriginalPrice);
+
+        return {
+            unitText: `${unitFinalLocal.toFixed(2)} ${displayCur}`,
+            totalText: `${totalFinalLocal.toFixed(2)} ${displayCur}`,
+            displayCurrency: displayCur,
+            totalDisplayNum: totalFinalLocal,
+            totalLocalBase: result.totalFinalPrice,
+            oldTotalDisplayNum: totalOriginalLocal,
+            oldTotalLocalBase: result.totalOriginalPrice,
+            hasDiscount: result.totalDiscount > 0,
+            pricingSnapshot: {
+                totalOriginalPrice: result.totalOriginalPrice,
+                finalPrice: result.totalFinalPrice,
+                couponDiscount: result.couponDiscount,
+                offerDiscount: result.offerDiscount,
+                couponCode: result.couponCode,
+                offerName: result.offerName,
+                isFirewallViolated: result.isFirewallViolated,
+                rejectionReason: result.rejectionReason
+            }
         };
     }
 };

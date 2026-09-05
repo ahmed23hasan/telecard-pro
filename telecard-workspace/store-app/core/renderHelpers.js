@@ -1,13 +1,13 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي للمتجر (Store Render Helpers) - Enterprise V17.5 💎
-// 🎯 الوظيفة: تنسيق احترافي دون الاعتماد على النطاق العام، مخصص لراحة العميل (UX).
-// 🚀 التحديثات المعمارية:
-// 1. DRY Compliance: استيراد أدوات النصوص والزمن من utils.js كمرجع وحيد (SSOT).
-// 2. Stripe-Like Masking: اقتطاع أنيق للمعرفات لراحة عين المستخدم.
-// 3. Pending-Write UX Fix: إرجاع Date.now() للطلبات المعلقة لكي لا يرى العميل 1970.
+// 🛠️ مساعدات محرك الرسم العالمي (Store Render Helpers) - Enterprise V18.9.0 💎
+// 🎯 الوظيفة: تنسيق احترافي للنصوص والأموال والتواريخ، مخصص لراحة العميل (UX).
+// 🚀 التحديثات المعمارية (V18.9.0 - UI Sync & Fallback Patch):
+// 1. Data Race Guard 🛡️: جلب إعدادات المتجر من الكاش كبديل لضمان تنسيق الأموال قبل اكتمال الإقلاع.
+// 2. Global Flags Expansion 🌍: توسيع قاعدة الأعلام لتشمل كافة عملات الشرق الأوسط والعالم.
+// 3. DRY Compliance: استيراد أدوات النصوص والزمن من utils.js كمرجع وحيد (SSOT).
+// 4. Stripe-Like Masking: اقتطاع أنيق للمعرفات لراحة عين المستخدم.
 // ============================================================================
 
-// 🛡️ المزامنة المعمارية: جلب الأدوات من المرجع الموحد لمنع تكرار الكود
 import { escapeHtml, enNum, parseSafeTime } from '../utils.js';
 
 let _injectedSource = null;
@@ -18,8 +18,28 @@ export const RenderHelpers = Object.freeze({
         _injectedSource = source;
     },
 
+    // 🛡️ التحديث المعماري: درع تعارض البيانات (Data Race Guard)
     _getDataSource: function() {
         if (_injectedSource) return _injectedSource;
+        
+        // في حال تم استدعاء الدالة قبل تهيئة الموزع (مثلاً أثناء الإقلاع الباكر)، 
+        // نبحث في الكاش المحلي لضمان عدم عرض العملة بشكل افتراضي خاطئ
+        try {
+            if (typeof localStorage !== 'undefined') {
+                const cachedSettings = JSON.parse(localStorage.getItem('telecard_store_cache_telecard_settings_singleton') || '{}');
+                // محاولة جلب أسعار الصرف من الكاش
+                let cachedRates = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.includes('telecard_rates')) {
+                        cachedRates = JSON.parse(localStorage.getItem(key) || '[]');
+                        break;
+                    }
+                }
+                return { settings: cachedSettings, rates: cachedRates, offers: [], isStore: true };
+            }
+        } catch(e) {}
+
         return { settings: {}, rates: [], offers: [], isStore: true };
     },
 
@@ -45,7 +65,6 @@ export const RenderHelpers = Object.freeze({
         return escapeHtml(formatted);
     },
 
-    // 🛡️ المتجر يقتطع المعرف ليكون أنيقاً وقصيراً للعميل (Stripe-Like)
     formatOrderId: function(orderObj, withPrefix = true) {
         if (!orderObj) return '---';
         let fullId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
@@ -94,12 +113,14 @@ export const RenderHelpers = Object.freeze({
         return (curObj && curObj.symbol) ? curObj.symbol : code;
     },
 
+    // 🛡️ التحديث المعماري: توسيع هائل لقاعدة بيانات الأعلام لمنع ظهور أيقونة الخطأ
     getCurrencyFlagUrl: function(currCode = 'USD') {
         const code = String(currCode).toUpperCase().trim();
         const cryptoIcons = {
             'USDT': 'https://cdn-icons-png.flaticon.com/512/825/825508.png',
             'BTC': 'https://cdn-icons-png.flaticon.com/512/5968/5968260.png',
-            'ETH': 'https://cdn-icons-png.flaticon.com/512/6001/6001368.png'
+            'ETH': 'https://cdn-icons-png.flaticon.com/512/6001/6001368.png',
+            'USDC': 'https://cdn-icons-png.flaticon.com/512/825/825508.png'
         };
         if (cryptoIcons[code]) return cryptoIcons[code];
 
@@ -107,7 +128,11 @@ export const RenderHelpers = Object.freeze({
             'USD': 'us', 'TRY': 'tr', 'SAR': 'sa', 'AED': 'ae', 
             'EUR': 'eu', 'SYP': 'sy', 'EGP': 'eg', 'JOD': 'jo',
             'KWD': 'kw', 'BHD': 'bh', 'QAR': 'qa', 'OMR': 'om',
-            'GBP': 'gb', 'DZD': 'dz', 'MAD': 'ma'
+            'GBP': 'gb', 'DZD': 'dz', 'MAD': 'ma', 'IQD': 'iq',
+            'LBP': 'lb', 'YER': 'ye', 'SDG': 'sd', 'LYD': 'ly',
+            'TND': 'tn', 'MRU': 'mr', 'SOS': 'so', 'CAD': 'ca',
+            'AUD': 'au', 'RUB': 'ru', 'CNY': 'cn', 'INR': 'in',
+            'BRL': 'br', 'JPY': 'jp', 'CHF': 'ch', 'SEK': 'ch'
         };
         const countryCode = currencyToCountry[code]; 
         if (!countryCode) return `https://cdn-icons-png.flaticon.com/512/1198/1198696.png`;
@@ -171,7 +196,6 @@ export const RenderHelpers = Object.freeze({
         return parseSafeTime(t);
     },
 
-    // 🛡️ توجيه تحليل الوقت إلى المرجع الموحد في utils.js
     parseTime: parseSafeTime,
 
     formatSafeDate: function(ts) {
