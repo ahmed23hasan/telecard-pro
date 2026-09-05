@@ -1,10 +1,10 @@
 // ============================================================================
-// 🔔 عامل خدمة الإشعارات (Firebase Messaging SW) - Enterprise V1.1 💎
+// 🔔 عامل خدمة الإشعارات (Firebase Messaging SW) - Enterprise V1.2 💎
 // 🎯 الوظيفة: العمل في خلفية النظام لاستقبال الإشعارات وتوجيه المستخدم بذكاء.
 // 🚀 التحديثات:
-// 1. Dynamic Routing: إلغاء المسارات الميتة والاعتماد على location.origin.
-// 2. Client PostMessage: تخاطب ذكي مع الواجهة لفتح الطلب المحدد عند النقر.
-// 3. Notification Tagging: تجميع الإشعارات المكررة لمنع إزعاج العميل (Spam).
+// 1. Subfolder Routing Fix 🛡️: إصلاح التوجيه ليعمل داخل المجلدات الفرعية ديناميكياً.
+// 2. Safe URL Construction 🛡️: استخدام URL Object لمنع تكسر الروابط عند دمج الـ Query Params.
+// 3. Client PostMessage: تخاطب ذكي مع الواجهة لفتح الطلب المحدد عند النقر.
 // ============================================================================
 
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
@@ -39,11 +39,11 @@ messaging.onBackgroundMessage((payload) => {
     const notificationOptions = {
         body: payload.notification?.body || dataPayload.message || 'لديك تحديث جديد، تفضل بالدخول.',
         icon: payload.notification?.image || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
-        badge: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', // أيقونة بيضاء شفافة للشريط العلوي
+        badge: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
         dir: 'rtl',
         vibrate: [200, 100, 200],
-        data: dataPayload, // 🛡️ الاحتفاظ ببيانات السيرفر (مثل رقم الطلب) لنقلها عند النقر
-        tag: dataPayload.id || 'telecard-general-alert', // لمنع تكدس الإشعارات لنفس الطلب
+        data: dataPayload, 
+        tag: dataPayload.id || 'telecard-general-alert', 
         requireInteraction: false
     };
     
@@ -54,24 +54,24 @@ messaging.onBackgroundMessage((payload) => {
 // 🖱️ 2. التوجيه الديناميكي المتقدم عند النقر على الإشعار
 // ============================================================================
 self.addEventListener('notificationclick', (event) => {
-    event.notification.close(); // إغلاق الإشعار فوراً لتجربة سريعة
+    event.notification.close(); 
     
     const notificationData = event.notification.data || {};
     
-    // 🛡️ التوجيه الآمن: استخدام الجذر الأساسي للموقع أياً كان الدومين
-    // وإذا أرسل السيرفر رابطاً معيناً (click_action) نستخدمه.
-    let targetUrl = notificationData.click_action || self.location.origin + '/';
+    // 🛡️ التحديث المعماري: بناء المسار بناءً على موقع ملف العامل الحالي لضمان دعم المجلدات الفرعية
+    const defaultStoreUrl = new URL('./store.html', self.location.href).href;
+    let targetUrl = notificationData.click_action || defaultStoreUrl;
     
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
             
-            // أ) إذا كان المتجر مفتوحاً في الخلفية، نجذبه للأمام
+            // أ) إذا كان المتجر مفتوحاً في الخلفية (نفس المسار الأساسي)
+            const basePath = new URL('./', self.location.href).href;
             for (let i = 0; i < windowClients.length; i++) {
                 const client = windowClients[i];
-                if (client.url.includes(self.location.origin) && 'focus' in client) {
+                if (client.url.includes(basePath) && 'focus' in client) {
                     client.focus();
                     
-                    // 🧠 التخاطب الذكي: إخبار الواجهة (UI) بالإشعار لتقوم بفتح تفاصيل الطلب فوراً
                     if (notificationData.targetId || notificationData.id) {
                         client.postMessage({
                             type: 'FCM_NOTIFICATION_CLICK',
@@ -82,11 +82,19 @@ self.addEventListener('notificationclick', (event) => {
                 }
             }
             
-            // ب) إذا كان المتجر مغلقاً تماماً، نفتحه في نافذة جديدة
-            // مع تمرير البيانات في الرابط (Query Params) لتقرأها الواجهة عند الإقلاع
+            // ب) إذا كان المتجر مغلقاً تماماً، نفتحه في نافذة جديدة مع دمج المتغيرات بذكاء
             if (clients.openWindow) {
                 if (notificationData.targetId && notificationData.jumpTarget) {
-                    targetUrl += `?action=view&type=${notificationData.jumpTarget}&id=${notificationData.targetId}`;
+                    try {
+                        const urlObj = new URL(targetUrl);
+                        urlObj.searchParams.set('action', 'view');
+                        urlObj.searchParams.set('type', notificationData.jumpTarget);
+                        urlObj.searchParams.set('id', notificationData.targetId);
+                        targetUrl = urlObj.href;
+                    } catch (e) {
+                        // في حال فشل التحليل، نعتمد الرابط الأساسي كأمان
+                        targetUrl = defaultStoreUrl;
+                    }
                 }
                 return clients.openWindow(targetUrl);
             }
