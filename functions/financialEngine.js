@@ -1,7 +1,10 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Server Edition) - النسخة V25.3.0 👑 (The Fortress)
-// 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، وتسعير البوابات والطلبات.
-// 🚀 بيئة التشغيل: Node.js (Firebase Cloud Functions) فقط - Strict Isolation.
+// 💰 المحرك المالي المركزي (Server Edition) - النسخة V25.4.0 👑 (The Fortress)
+// 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، تسعير البوابات والـ VIP.
+// 🚀 التحديثات المعمارية (V25.4.0):
+// 1. Zero-Division Shield 🛡️: إرجاع القيمة الأصلية بدلاً من الانهيار لمنع توقف دوال السحابة.
+// 2. VIP Engine Restore: إضافة دوال العضويات لاعتماد أسعار الـ VIP بشكل قاطع في السيرفر.
+// 3. بيئة التشغيل: Node.js (Firebase Cloud Functions) فقط - Strict Isolation.
 // ============================================================================
 
 class FinancialSecurityError extends Error {
@@ -18,7 +21,6 @@ const FinancialEngineDef = {
         MAX_PRICE_LIMIT: 1000000, 
         PRECISION: 4,          
         INTERNAL_PRECISION: 8, 
-        
         MIN_SALE_PRICE: 0.01,         
         MIN_MARGIN_PERCENT: 5,        
         MAX_GLOBAL_DISCOUNT_PCT: 95   
@@ -38,10 +40,16 @@ const FinancialEngineDef = {
     _internalAdd: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) + (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalSub: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) - (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
     _internalMul: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) * (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
+    
+    // 🛡️ الترقيع السحابي 1: استبدال throw بـ Fallback آمن لمنع تعليق الـ Cloud Functions
     _internalDiv: function(a, b) {
+        const numA = Number(a) || 0;
         const numB = Number(b) || 0;
-        if (numB === 0) throw new FinancialSecurityError("محاولة قسمة على صفر.");
-        return FinancialEngineDef._preciseRound((Number(a) || 0) / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
+        if (numB === 0) {
+            console.error("🚨 [Server Math Guard]: Division by zero prevented! يرجى مراجعة أسعار الصرف.");
+            return numA;
+        }
+        return FinancialEngineDef._preciseRound(numA / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
     },
 
     safeAdd: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalAdd(a, b)); },
@@ -94,7 +102,6 @@ const FinancialEngineDef = {
             feeAmount = FinancialEngineDef.safeMul(amt, FinancialEngineDef.safeDiv(feeVal, 100));
         }
 
-        // 🚀 الترقيع 1: استخدام المتغيرات الصحيحة للعمولة (minFee / maxFee) بدلاً من الإيداع
         const minFee = FinancialEngineDef.extractNum(feeSettings.minFee);
         const maxFee = FinancialEngineDef.extractNum(feeSettings.maxFee);
         
@@ -106,7 +113,6 @@ const FinancialEngineDef = {
             : Math.max(0, FinancialEngineDef.safeSub(amt, feeAmount));
     },
 
-    // 🚀 الترقيع 2: دالة فحص الإيداع الشاملة من السيرفر (نفس الواجهة تماماً لمنع الاختراق)
     calculateDepositFee: function(amt, method, payCurr, baseCur = 'USD', rates = [], globalSettings = {}) {
         const cleanAmt = FinancialEngineDef.extractNum(amt, true);
         const curr = String(payCurr || 'USD').toUpperCase();
@@ -165,7 +171,12 @@ const FinancialEngineDef = {
         const processRateObj = (code, priceR, depR) => {
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
-            if (numPrice === 0 || numDep === 0) throw new FinancialSecurityError(`سعر صرف معدوم للعملة: ${code}`);
+            // 🛡️ الترقيع السحابي 2: حماية السيرفر من العملات المعدومة
+            if (numPrice === 0 || numDep === 0) {
+                console.warn(`🚨 [Server System]: سعر صرف غير صالح للعملة ${code}. سيتم اعتبارها 1 للحماية.`);
+                ratesMap[code] = { code: code, priceRate: numPrice || 1, depRate: numDep || 1 };
+                return;
+            }
             ratesMap[code] = { code: code, priceRate: numPrice, depRate: numDep };
         };
 
@@ -195,11 +206,15 @@ const FinancialEngineDef = {
         if (amt === 0 || fCode === tCode) return amt;
         
         const ratesMap = FinancialEngineDef.normalizeRates(ratesRaw);
-        if (!ratesMap[fCode] || !ratesMap[tCode]) throw new FinancialSecurityError(`سعر الصرف مفقود للتحويل بين ${fCode} و ${tCode}`);
+        
+        if (!ratesMap[fCode] || !ratesMap[tCode]) {
+            console.error(`🚨 [Server System]: فشل التحويل من ${fCode} إلى ${tCode}. العملة مفقودة!`);
+            return amt;
+        }
         
         const fRate = channel === 'deposit' ? ratesMap[fCode].depRate : ratesMap[fCode].priceRate;
         const tRate = channel === 'deposit' ? ratesMap[tCode].depRate : ratesMap[tCode].priceRate;
-        if (fRate === 0 || tRate === 0) throw new FinancialSecurityError("تم اكتشاف سعر صرف بقيمة صفر أثناء التحويل.");
+        if (fRate === 0 || tRate === 0) return amt; // حماية إضافية
 
         return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
     },
@@ -234,7 +249,6 @@ const FinancialEngineDef = {
         const isCouponDisabled = (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true');
         if (isCouponDisabled) return { valid: false, msg: 'عذراً، هذا المنتج لا يدعم الكوبونات' }; 
 
-        // 🚀 الترقيع 3: استخدام أداة الوقت المخصصة للسيرفر لحماية فحص الكوبونات
         if (cp.startDate) {
             const startMs = FinancialEngineDef.parseSafeTime(cp.startDate);
             if (startMs > 0 && now < startMs) return { valid: false, msg: 'هذا الكوبون لم تبدأ فترة صلاحيته بعد' };
@@ -400,9 +414,70 @@ const FinancialEngineDef = {
             totalNetProfitUsd: FinancialEngineDef.safeMul(unit.netProfitUsd, qty),
             totalDiscount: FinancialEngineDef.safeMul(unit.totalDiscount, qty)
         };
+    },
+
+    // ========================================================================
+    // 👑 القسم الخامس: محرك مستويات العضوية والـ VIP (Tiers Engine) 
+    // 🚀 الترقيع السحابي 3: إضافة دوال الـ VIP إلى السيرفر لضمان تسعير عادل وآمن
+    // ========================================================================
+    
+    getUserTier: function(user, tiers) {
+        if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
+        const safeUser = user || {};
+        const userTierId = String(safeUser.tierId || '1');
+        
+        const foundTier = tiers.find(t => String(t.id) === userTierId);
+        return foundTier || tiers[0];
+    },
+
+    getTierProgress: function(user, tiers, nowTime) {
+        if (!user || !tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
+        
+        const sortedTiers = [...tiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
+        const currentTier = FinancialEngineDef.getUserTier(user, sortedTiers);
+        
+        const spent = Number(user.tierCycleSpent || 0);
+        const now = nowTime || Date.now();
+        const cycleStart = FinancialEngineDef.parseSafeTime(user.tierCycleStartDate || now);
+        
+        const CYCLE_DAYS = 30;
+        const msPerDay = 1000 * 60 * 60 * 24;
+        const daysPassed = Math.floor(Math.max(0, now - cycleStart) / msPerDay);
+        const remainingDays = Math.max(0, CYCLE_DAYS - daysPassed);
+
+        let nextTier = null;
+        for (const t of sortedTiers) {
+            if (Number(t.threshold || 0) > Number(currentTier.threshold || 0)) {
+                nextTier = t;
+                break;
+            }
+        }
+        
+        const isMaxTier = !nextTier;
+        const targetThreshold = isMaxTier ? Number(currentTier.threshold || 0) : Number(nextTier.threshold || 0);
+        const targetNameDisplay = isMaxTier ? (currentTier.nameAr || currentTier.name) : (nextTier.nameAr || nextTier.name);
+        
+        let remainingAmt = Math.max(0, targetThreshold - spent);
+        let percent = targetThreshold > 0 ? Math.min(100, (spent / targetThreshold) * 100) : 100;
+        if (isMaxTier) { percent = 100; remainingAmt = 0; }
+
+        return {
+            currentTier,
+            nextTier,
+            isMaxTier,
+            targetNameDisplay,
+            targetThreshold,
+            spent,
+            remainingAmt,
+            percent,
+            remainingDays,
+            isGoalReached: spent >= targetThreshold,
+            isAutoAdvanceEnabled: true
+        };
     }
 };
 
+// التصدير بما يتوافق مع بيئة السيرفر (Node.js)
 module.exports = Object.freeze({
     ...FinancialEngineDef,
     FinancialSecurityError

@@ -1,11 +1,11 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V17.1 💎
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V17.3 💎
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية (V17.1 - Master Patch):
-// 1. Error Memory Leak Fix 🛡️: تنظيف الكائنات من الذاكرة العشوائية حتى في حالات فشل معالجة الصور.
-// 2. UX Sync Shield 🛡️: تحويل تعديل الاسم لـ Async لانتظار رد السيرفر وإيقاف التحديث الكاذب.
-// 3. Zombie Files Wipe 🛡️: تدمير كائنات الـ KYC من الذاكرة إذا ألغى العميل العملية.
-// 4. Path Traversal Shield: إنشاء أسماء عشوائية آمنة للصور لتجنب حقن مسارات خبيثة.
+// 🚀 التحديثات المعمارية (V17.3 - The Complete Build):
+// 1. Profile UX Sync 🛡️: تزامن مثالي لزر تعديل الاسم (القلم/الصح) مع الحقل الأصلي.
+// 2. Event Conflict Shield 🛡️: إزالة تضارب مستمعات الصور مع الموزع المركزي (uiCore).
+// 3. Error Memory Leak Fix 🛡️: تنظيف الكائنات من الذاكرة العشوائية أثناء ضغط الصور.
+// 4. Missing Modules Restored 🛡️: استعادة دوال الـ VIP والتقييمات التي سقطت سهواً.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -16,7 +16,6 @@ import { RenderHelpers } from '../core/renderHelpers.js';
 
 const DEFAULT_AVATAR_URL = 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png';
 
-// توجيه ذكي وآمن للواجهة لضمان التوافق مع بنية V17 الجديدة
 const getSys = () => {
     if (typeof window !== 'undefined') {
         if (window.UIManager) return window.UIManager;
@@ -30,7 +29,6 @@ export const UIAuth = {
     kycFiles: {},
     _processingImgs: new Set(), 
 
-    // 🛡️ التحديث المعماري 1: حماية الذاكرة (Memory Leak Shield) الشاملة
     _compressImage: function(file, maxWidth = 1000) {
         return new Promise((resolve, reject) => {
             const watchdog = setTimeout(() => {
@@ -64,20 +62,18 @@ export const UIAuth = {
                             const compressedFile = new File([blob], safeFileName, { type: 'image/webp' });
                             resolve({ file: compressedFile, previewUrl: URL.createObjectURL(blob) });
                             
-                            // تنظيف الذاكرة
                             canvas.width = 0; canvas.height = 0; 
                             img.src = ''; img.onload = null; img.onerror = null;
                         }, 'image/webp', 0.80);
                     } catch (error) { 
                         clearTimeout(watchdog);
-                        // تنظيف الذاكرة في حال الفشل
                         img.src = ''; img.onload = null; img.onerror = null;
                         reject(error); 
                     }
                 };
                 img.onerror = () => { 
                     clearTimeout(watchdog); 
-                    img.src = ''; img.onload = null; img.onerror = null; // تنظيف
+                    img.src = ''; img.onload = null; img.onerror = null;
                     reject(new Error("ملف الصورة تالف أو غير صالح.")); 
                 };
                 img.src = e.target.result;
@@ -123,11 +119,14 @@ export const UIAuth = {
             if (sidebarName) sidebarName.textContent = fullName;
 
             const editBtnToggle = document.getElementById('profile-edit-toggle');
+            const saveBtnToggle = document.getElementById('save-name-btn');
+
             if (editBtnToggle) {
-                editBtnToggle.style.display = isVerified ? 'none' : 'flex';
-                const icon = editBtnToggle.querySelector('i'); 
-                if (icon) icon.className = 'fa-solid fa-pen'; 
-                editBtnToggle.setAttribute('data-action', 'toggle-name-edit');
+                editBtnToggle.style.display = isVerified ? 'none' : 'inline-flex';
+                editBtnToggle.classList.remove('d-none');
+            }
+            if (saveBtnToggle) {
+                saveBtnToggle.classList.add('d-none');
             }
             
             if (displayNameEl && editNameEl) { 
@@ -189,18 +188,11 @@ export const UIAuth = {
             const currentAvatar = user.img || DEFAULT_AVATAR_URL;
             const imgEl = document.getElementById('profile-img');
             const sidebarAvatar = document.getElementById('cs-avatar');
-            const cameraBtn = document.getElementById('avatar-menu-trigger');
             const fileInput = document.getElementById('avatar-upload-input');
             
-            if(imgEl) {
-                imgEl.src = currentAvatar;
-                imgEl.classList.add('clickable');
-                imgEl.setAttribute('data-action', 'handle-avatar-click');
-            }
-            if(sidebarAvatar) sidebarAvatar.src = currentAvatar;
+            if(imgEl) { imgEl.src = currentAvatar; }
+            if(sidebarAvatar) { sidebarAvatar.src = currentAvatar; }
             
-            if(cameraBtn) { cameraBtn.setAttribute('data-action', 'handle-avatar-click'); }
-
             const deleteAvatarBtn = document.getElementById('inline-delete-avatar-btn');
             if (deleteAvatarBtn) {
                 const hasCustomImage = user.img && user.img.trim() !== '' && user.img !== DEFAULT_AVATAR_URL;
@@ -225,6 +217,7 @@ export const UIAuth = {
                     const liveImgEl = document.getElementById('profile-img');
                     const liveSidebarAvatar = document.getElementById('cs-avatar');
                     const liveDeleteBtn = document.getElementById('inline-delete-avatar-btn');
+                    const avatarMenu = document.getElementById('avatar-action-menu');
 
                     const avatarWrapper = document.querySelector('.profile-container .avatar-wrapper');
                     if (avatarWrapper) avatarWrapper.classList.add('is-loading');
@@ -263,6 +256,7 @@ export const UIAuth = {
                             }
 
                             if (liveDeleteBtn) liveDeleteBtn.classList.add('active');
+                            if (avatarMenu) avatarMenu.classList.remove('open'); 
 
                             sys.showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
                             sys.sfx?.('success');
@@ -294,20 +288,25 @@ export const UIAuth = {
         });
     },    
     
-    // 🛡️ التحديث المعماري 2: تجميد الواجهة والانتظار (UX Sync Shield)
     toggleNameEdit: async function() {
         const sys = getSys();
         const nameEl = document.getElementById('display-name');
         const inpEl = document.getElementById('edit-name-input');
-        const btn = document.getElementById('profile-edit-toggle');
+        const editBtn = document.getElementById('profile-edit-toggle');
+        const saveBtn = document.getElementById('save-name-btn');
         
-        if (!nameEl || !inpEl || !btn) return;
+        if (!nameEl || !inpEl) return;
         
         if (inpEl.classList.contains('d-none')) {
             nameEl.classList.add('d-none');
             inpEl.classList.remove('d-none');
             inpEl.focus();
-            btn.innerHTML = '<i class="fa-solid fa-check"></i>';
+            
+            if (editBtn) editBtn.classList.add('d-none');
+            if (saveBtn) {
+                saveBtn.classList.remove('d-none');
+                saveBtn.style.display = 'inline-flex';
+            }
         } else {
             let newVal = inpEl.value.trim().replace(/[<>"{}[\]\\]/g, '');
             
@@ -315,6 +314,7 @@ export const UIAuth = {
             if (newVal.length > 40) { sys.showToast?.('الاسم طويل جداً، يرجى كتابة اسم أقصر', 'warning'); return; }
             
             const currentFullName = DataManager.user?.fullName || DataManager.user?.name || '';
+            
             if (DataManager.user && newVal !== currentFullName) {
                 const nameParts = newVal.split(' ');
                 const newFirstName = nameParts[0];
@@ -336,53 +336,20 @@ export const UIAuth = {
                     inpEl.value = newVal;
                     inpEl.classList.add('d-none');
                     nameEl.classList.remove('d-none');
-                    btn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+                    
+                    if (saveBtn) saveBtn.classList.add('d-none');
+                    if (editBtn) editBtn.classList.remove('d-none');
                 } else {
                     sys.showToast?.('تعذر تحديث الاسم، يرجى المحاولة لاحقاً', 'error');
                 }
             } else {
                 inpEl.classList.add('d-none');
                 nameEl.classList.remove('d-none');
-                btn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+                if (saveBtn) saveBtn.classList.add('d-none');
+                if (editBtn) editBtn.classList.remove('d-none');
             }
         }
     },    
-    
-    handleAvatarClick: function(e) {
-        if (DataManager.user && DataManager.user.img && DataManager.user.img !== DEFAULT_AVATAR_URL) {
-            this.toggleAvatarMenu(e);
-        } else {
-            const fileInput = document.getElementById('avatar-upload-input');
-            if (fileInput) fileInput.click();
-        }
-    },
-    
-    toggleAvatarMenu: function(event) {
-        const menu = document.getElementById('avatar-action-menu');
-        if (!menu) return;
-        
-        const sys = getSys();
-        const state = sys.State || {};
-        
-        if (state.activeListeners && state.activeListeners.has('avatarMenu')) {
-            document.removeEventListener('click', state.activeListeners.get('avatarMenu'));
-            state.activeListeners.delete('avatarMenu');
-        }
-        
-        menu.classList.toggle('active');
-        
-        if (menu.classList.contains('active')) {
-            const listener = (e) => {
-                if (!menu.contains(e.target) && !e.target.closest('#avatar-menu-trigger') && !e.target.closest('#profile-img')) {
-                    menu.classList.remove('active');
-                    document.removeEventListener('click', listener);
-                    if (state.activeListeners) state.activeListeners.delete('avatarMenu');
-                }
-            };
-            if (state.activeListeners) state.activeListeners.set('avatarMenu', listener);
-            setTimeout(() => document.addEventListener('click', listener), 10);
-        }
-    },
     
     closeProfileInfo: function() { 
         getSys().closeModal?.('profile-info'); 
@@ -487,7 +454,7 @@ export const UIAuth = {
         if(deleteBtn) deleteBtn.classList.remove('active');
         
         const menu = document.getElementById('avatar-action-menu');
-        if (menu) menu.classList.remove('active');
+        if (menu) menu.classList.remove('open');
         
         try {
             if (DataManager.updateUserProfile) {
@@ -1086,7 +1053,7 @@ export const UIAuth = {
         listTarget.innerHTML = html;
     },
     
-        handleKycImage: async function(input, previewId) {
+    handleKycImage: async function(input, previewId) {
         const sys = getSys();
         if (this._processingImgs.has(previewId)) return;
         
@@ -1248,7 +1215,6 @@ export const UIAuth = {
         }
     },
 
-    // 🛡️ التحديث المعماري 3: تدمير كائنات ה-KYC في الذاكرة لتجنب الـ Memory Leak 
     closeKycModal: function() { 
         const previews = ['kyc-prev-front', 'kyc-prev-back', 'kyc-prev-selfie'];
         previews.forEach(id => {
@@ -1266,7 +1232,7 @@ export const UIAuth = {
         if (kycModal) {
             kycModal.querySelectorAll('input[type="file"]').forEach(inp => inp.value = '');
         }        
-        this.kycFiles = {}; // تدمير الـ File objects المخبأة
+        this.kycFiles = {}; 
         getSys().closeModal?.('kyc-upload'); 
     },
 

@@ -1,12 +1,12 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V17.7 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V17.8 💎
 // 🎯 الوظيفة: النوافذ، التوجيه الذكي، الإشعارات، التنسيق، ومزامنة الصوت
-// 🚀 التحديثات المعمارية (V17.7 - Master Patch):
-// 1. Async Export Fix 🛡️: إرجاع الـ Promises في زر التصدير لالتقاط أخطاء الـ Canvas برمجياً.
-// 2. PWA Install UX 🛡️: إخفاء واجهة التثبيت فوراً قبل انتظار قرار العميل لتجربة أنظف.
-// 3. Toast Memory Leak Fix 🛡️: ربط مؤقت الإخفاء بعنصر الـ Toast لإلغائه عند الحذف الإجباري.
-// 4. Copy Icon State Fix 🛡️: منع تشنج أيقونة النسخ عند الضغط المزدوج السريع.
-// 5. Deep Purge: تدمير كاشات الطلبات والإيداعات تلقائياً عند طرد المستخدم المحظور.
+// 🚀 التحديثات المعمارية (V17.8 - UI Sync Master Patch):
+// 1. Input ID Sync 🛡️: تطابق معرف حقل الاسم (edit-name-input) لضمان ظهور زر الحفظ.
+// 2. Avatar Menu Delegate 🛡️: دمج القائمة العائمة بشكل آمن داخل قاموس الإجراءات.
+// 3. Click-Outside Guard 🛡️: حماية ذكية لإغلاق قائمة الصورة عند النقر خارجها.
+// 4. Toast Memory Leak Fix 🛡️: ربط مؤقت الإخفاء بعنصر الـ Toast لإلغائه عند الحذف الإجباري.
+// 5. Deep Purge 🛡️: تدمير كاشات الطلبات والإيداعات تلقائياً عند طرد المستخدم المحظور.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY, DYNAMIC_PREFIXES } from '../config.js';           
@@ -626,7 +626,14 @@ export const UICore = {
             'close-setup-2fa': () => this.closeModal?.('setup-2fa'),
             'toggle-currency-menu': () => this.toggleDisplayCurrencyMenu?.(),
             'toggle-theme': () => this.toggleTheme?.(),
-            'store-search-btn': () => this.applyStoreSearch?.(),
+            
+            // 🛡️ التحديث المعماري: فتح القائمة العائمة (Avatar Menu) بشكل نقي
+                        // 🛡️ استبدل الكود بهذا (غيّرنا open إلى active)
+            'toggle-avatar-menu': () => {
+                const menu = document.getElementById('avatar-action-menu');
+                if (menu) menu.classList.toggle('active');
+            },
+         'store-search-btn': () => this.applyStoreSearch?.(),
             'open-category': (e, id) => { e.preventDefault(); this.openCategory?.(id); },
             'open-product': (e, id) => getSys().openProdModal?.(id),
             'toggle-fav-modal': () => this.toggleFavoriteFromModal?.(),
@@ -816,12 +823,22 @@ export const UICore = {
         });
 
         document.addEventListener('input', (e) => {
+            // 1. مراقبة حقل الإيداع المالي
             if (e.target.id === 'bal-amount') {
                 if (this._amountTypingTimer) clearTimeout(this._amountTypingTimer);
                 this._amountTypingTimer = setTimeout(() => { 
                     getSys().calcFee?.(); 
                     if (e.target.parentElement) e.target.parentElement.classList.toggle('has-value', e.target.value !== ''); 
                 }, 150);
+            }
+            
+            // 🛡️ التحديث المعماري: إظهار زر (صح) لحفظ الاسم عند بدء الكتابة عبر ה-ID الجديد edit-name-input
+            if (e.target.id === 'edit-name-input') {
+                const saveBtn = document.getElementById('save-name-btn');
+                if (saveBtn) {
+                    saveBtn.classList.remove('d-none');
+                    saveBtn.style.display = 'inline-flex';
+                }
             }
         });
 
@@ -835,63 +852,16 @@ export const UICore = {
             if (e.target.id === 'bal-file') getSys().previewReceipt?.(e.target); 
         });
 
-        document.addEventListener('click', (e) => {
-            const pkgItem = e.target.closest('#pkg-custom-menu .dropdown-item');
-            if (pkgItem) {
-                const pkgSel = document.getElementById('pm-pack'), pkgTxt = document.getElementById('pkg-selected-text'), dropCont = document.getElementById('pkg-custom-dropdown');
-                if (pkgSel) pkgSel.value = pkgItem.dataset.idx; 
-                if (pkgTxt) pkgTxt.textContent = pkgItem.dataset.name; 
-                if (dropCont) dropCont.classList.remove('open');
-                pkgItem.parentNode.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active')); 
-                pkgItem.classList.add('active');
-                getSys().updatePriceDisplay?.(); getSys().revalidateAppliedCoupon?.(); this.sfx?.('nav');
-            }
-
-            if (e.target.closest('#bal-upload-box')) { document.getElementById('bal-file')?.click(); }
-            
-            const currTrigger = e.target.closest('.micro-currency-trigger');
-            if (currTrigger) { 
-                const list = currTrigger.parentElement.querySelector('.dropdown-menu'); 
-                if (list && list.style.display !== 'none') currTrigger.parentElement.classList.toggle('open'); 
-            }
-            
-            const currItem = e.target.closest('.split-dropdown .dropdown-item');
-            if (currItem) { 
-                getSys().changeDepositCurrency?.(currItem.dataset.curr); 
-                e.target.closest('.split-dropdown')?.classList.remove('open'); 
-            }
-
-            const packageWrapper = document.getElementById('pkg-custom-dropdown');
-            if (packageWrapper?.classList.contains('open') && !packageWrapper.contains(e.target) && !e.target.closest('.dropdown-trigger')) {
-                packageWrapper.classList.remove('open');
-            }
-            
-            const walletDrawer = document.getElementById('walletStatsDrawer');
-            if (walletDrawer?.classList.contains('active')) {
-                if (!walletDrawer.contains(e.target) && !e.target.closest('.detail-arrow') && !e.target.closest('.wallet-toggle-btn') && !e.target.closest('[data-action="toggle-wallet-stats"]')) {
-                    getSys().closeWalletStats?.(); 
-                }
-            }
-            
-            const avatarMenu = document.getElementById('avatar-action-menu');
-            if (avatarMenu?.classList.contains('open') && !avatarMenu.contains(e.target) && !e.target.closest('#avatar-menu-trigger') && !e.target.closest('#profile-img')) {
-                avatarMenu.classList.remove('open');
-            }
-        }, true); 
-
         document.body.addEventListener('click', (e) => {
             const target = e.target;
             
-            const avatarTrigger = target.closest('#avatar-menu-trigger, #profile-img');
-            if (avatarTrigger) {
-                e.preventDefault(); e.stopPropagation();
-                this.sfx?.('nav');
-                const menu = document.getElementById('avatar-action-menu');
-                if (menu) menu.classList.toggle('open');
-                return;
+            // 🛡️ الإغلاق الذكي المعماري لقائمة الصورة (نعتمد على data-action بدلاً من الـ IDs)
+                        // 🛡️ استبدل الكود بهذا (غيّرنا open إلى active)
+            const avatarMenu = document.getElementById('avatar-action-menu');
+            if (avatarMenu?.classList.contains('active') && !avatarMenu.contains(target) && !target.closest('[data-action="toggle-avatar-menu"]')) {
+                avatarMenu.classList.remove('active');
             }
-            
-            if (target.classList.contains('master-overlay') || target.classList.contains('pm-overlay')) {
+          if (target.classList.contains('master-overlay') || target.classList.contains('pm-overlay')) {
                 e.preventDefault();
                 if (target.id === 'global-security-alert' || target.id === 'biometric-lock-screen') {
                     this.sfx?.('error'); return; 

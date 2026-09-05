@@ -793,9 +793,7 @@
             <div class="pm-header-spacer"></div>
         </div>
         <div class="pm-scroll-content hide-scrollbar" id="tx-detail-content"></div>
-    </div>
-
-    <!-- نافذة الملف الشخصي -->
+    </div>    <!-- نافذة الملف الشخصي -->
     <div class="pm-overlay master-overlay" id="profile-info-overlay" data-action="close-profile"></div>
     <div class="modal-sheet bottom-sheet" id="profile-info-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
@@ -808,10 +806,12 @@
 
         <div class="profile-container hide-scrollbar" id="profile-card">
             <div class="hero-section">                
-                <div class="avatar-wrapper">
-                    <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" alt="Profile" class="profile-pic" id="profile-img">
+                              <div class="avatar-wrapper">
+                    <!-- 🛡️ الإصلاح: إضافة data-action و cursor: pointer للصورة -->
+                    <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" alt="Profile" class="profile-pic" id="profile-img" data-action="toggle-avatar-menu" style="cursor: pointer;" onerror="this.onerror=null; this.src='https://cdn-icons-png.flaticon.com/512/3135/3135715.png';">
                     
-                    <div class="camera-btn" id="avatar-menu-trigger">
+                    <!-- 🛡️ الإصلاح: إضافة data-action و cursor: pointer لزر الكاميرا -->
+                    <div class="camera-btn" id="avatar-menu-trigger" data-action="toggle-avatar-menu" style="cursor: pointer;">
                         <i class="fa-solid fa-camera" style="pointer-events: none;"></i>
                     </div>
                     
@@ -827,10 +827,18 @@
                 </div>
 
                 <div class="profile-header-row">
-                    <div class="name-wrapper" dir="auto">
+                    <div class="name-wrapper" dir="auto" style="position: relative; z-index: 10;">
                         <h1 class="user-name" id="display-name" data-action="trigger-click" data-target="profile-edit-toggle">--</h1>
-                        <input type="text" id="edit-name-input" class="name-edit-input d-none" value="" placeholder="أدخل اسمك" autocomplete="name">
-                        <button class="edit-icon-btn" id="profile-edit-toggle" title="تعديل" data-action="toggle-name-edit" aria-label="تعديل الاسم">
+                        
+                        <!-- حقل تعديل الاسم بالـ ID الأصلي (edit-name-input) مدمج معه فك التجميد القسري -->
+                        <input type="text" id="edit-name-input" class="name-edit-input d-none" value="" placeholder="أدخل اسمك" autocomplete="name" style="pointer-events: auto !important; user-select: text !important; position: relative; z-index: 50;">
+                        
+                        <!-- زر حفظ الاسم (صح) -->
+                        <button class="edit-icon-btn d-none" id="save-name-btn" title="حفظ" data-action="toggle-name-edit" aria-label="حفظ الاسم" style="color: var(--primary); position: relative; z-index: 60;">
+                            <i class="fa-solid fa-check"></i>
+                        </button>
+
+                        <button class="edit-icon-btn" id="profile-edit-toggle" title="تعديل" data-action="toggle-name-edit" aria-label="تعديل الاسم" style="position: relative; z-index: 60;">
                             <i class="fa-solid fa-pen"></i>
                         </button>
                     </div>
@@ -839,7 +847,6 @@
                         <span class="num-en" id="profile-client-id">--</span>
                     </div>
                 </div>
-            </div>
 
             <div class="info-list">
                 <div class="info-card-item">
@@ -902,7 +909,6 @@
             </button>
         </div>
     </div>
-
     <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav">
         <div class="nav-icon active" data-action="nav-home" role="button" tabindex="0"><i class="fa-solid fa-house"></i><span>الرئيسية</span></div>
