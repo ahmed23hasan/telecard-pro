@@ -1,10 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - الإصدار المؤسسي V26.2.0 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - الإصدار المؤسسي V26.3.0 💎 (The Oracle)
 // 🎯 الوظيفة: محاكاة أسعار السيرفر، كشف الأرباح، وتشخيص الأخطاء بشفافية مطلقة للمدير.
-// 🚀 التحديثات المعمارية (V26.2.0 - Admin Bridge & Infinity Guard): 
-// 1. Missing Bridge Fix 🛡️: إضافة `getPricingLocal` لدعم معاينة المنتجات في لوحة الإدارة مع كشف الأرباح.
-// 2. Infinity Guard 🛡️: منع الأرقام اللانهائية (Infinity) من كسر جداول لوحة الإدارة عند حذف عملة.
-// 3. Absolute Transparency 👁️: الحفاظ على كشف التكاليف، الأرباح، وأسباب الرفض الصريحة للإدمن.
+// 🚀 التحديثات المعمارية (V26.3.0 - Smart Fallback Guard): 
+// 1. Smart Fallback Guard 🛡️: دمج نظام التعافي الذكي لاستخراج المستوى الافتراضي الخالد (isDefault) بدلاً من الفهرس العشوائي.
+// 2. Missing Bridge Fix 🛡️: إضافة `getPricingLocal` لدعم معاينة المنتجات في لوحة الإدارة مع كشف الأرباح.
+// 3. Infinity Guard 🛡️: منع الأرقام اللانهائية (Infinity) من كسر جداول لوحة الإدارة عند حذف عملة.
+// 4. Absolute Transparency 👁️: الحفاظ على كشف التكاليف، الأرباح، وأسباب الرفض الصريحة للإدمن.
 // ============================================================================
 
 const FinancialEngineDef = { 
@@ -435,10 +436,16 @@ const FinancialEngineDef = {
     getUserTier: function(user, tiers) {
         if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
         const safeUser = user || {};
-        const userTierId = String(safeUser.tierId || '1');
+        const userTierId = String(safeUser.tierId || 'TIER_DEFAULT');
         
-        const foundTier = tiers.find(t => String(t.id) === userTierId);
-        return foundTier || tiers[0];
+        let foundTier = tiers.find(t => String(t.id) === userTierId);
+
+        // 🛡️ التوافق المعماري: إذا كان مستوى العميل غير موجود، استخرج المستوى الافتراضي الخالد
+        if (!foundTier) {
+            foundTier = tiers.find(t => t.isDefault === true) || tiers.find(t => String(t.id) === 'TIER_DEFAULT') || tiers[0];
+        }
+
+        return foundTier;
     },
 
     getTierProgress: function(user, tiers, nowTime) {

@@ -1,10 +1,10 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Storefront Edition) - الإصدار المؤسسي V26.2.0 💎 
+// 💰 المحرك المالي المركزي (Storefront Edition) - الإصدار المؤسسي V26.3.0 💎 
 // 🎯 الوظيفة: محرك حسابات الواجهة (PWA)، مطابق رياضياً للسيرفر 100% ومحصن أمنياً.
-// 🚀 التحديثات المعمارية (V26.2.0 - UI Bridge Patch):
-// 1. Missing Bridge Fix 🛡️: إضافة دالة `getPricingLocal` المفقودة لربط المحرك بواجهة المتجر.
-// 2. Zero-Log Security 🛡️: كتم كافة رسائل الأخطاء الرياضية لمنع الهندسة العكسية.
-// 3. Infinity & NaN Guard 🛡️: تحصين التحويلات النقدية للعملات الضعيفة لمنع انهيار الـ UI.
+// 🚀 التحديثات المعمارية (V26.3.0 - Smart Fallback Guard):
+// 1. Smart Fallback Guard 🛡️: اكتشاف الحسابات المعلقة وتعيين المستوى الافتراضي الخالد (TIER_DEFAULT) لتوحيد التسعير مع السيرفر.
+// 2. Missing Bridge Fix 🛡️: إضافة دالة `getPricingLocal` المفقودة لربط المحرك بواجهة المتجر.
+// 3. Zero-Log Security 🛡️: كتم كافة رسائل الأخطاء الرياضية لمنع الهندسة العكسية.
 // 4. Absolute Masking 🛡️: تصفير حتمي للتكلفة والأرباح لحماية أسرار المتجر.
 // ============================================================================
 
@@ -411,10 +411,17 @@ const FinancialEngineDef = {
     getUserTier: function(user, tiers) {
         if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
         const safeUser = user || {};
-        const userTierId = String(safeUser.tierId || '1');
+        // 🛡️ الاعتماد على المعرف الخالد كقيمة افتراضية
+        const userTierId = String(safeUser.tierId || 'TIER_DEFAULT');
         
-        const foundTier = tiers.find(t => String(t.id) === userTierId);
-        return foundTier || tiers[0];
+        let foundTier = tiers.find(t => String(t.id) === userTierId);
+
+        // 🛡️ التوافق المعماري: استخراج المستوى الافتراضي الفعلي بدلاً من الفهرس العشوائي
+        if (!foundTier) {
+            foundTier = tiers.find(t => t.isDefault === true) || tiers.find(t => String(t.id) === 'TIER_DEFAULT') || tiers[0];
+        }
+
+        return foundTier;
     },
 
     getTierProgress: function(user, tiers, nowTime) {
@@ -463,7 +470,6 @@ const FinancialEngineDef = {
         };
     },
 
-    // 🛡️ التحديث الماسي: دالة الـ Bridge المفقودة التي سببت الخلل
     getPricingLocal: function(prod, user, qty, optIdx, coupon, offer, tier, rates, baseCur, displayCur) {
         const params = {
             product: prod,

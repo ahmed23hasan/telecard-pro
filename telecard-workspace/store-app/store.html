@@ -601,32 +601,44 @@
             </div>
             <div class="pm-header-spacer"></div>
         </div>
-        <div class="settings-body">
-            <div class="settings-group-title">التخصيص البصري والسمعي</div>
-            
-            <div class="modern-setting-row">
-                <div class="setting-info">
-                    <div class="setting-title"><i class="fa-solid fa-palette"></i> مظهر المتجر</div>
-                    <div class="setting-sub">تبديل بين الوضع الليلي والنهاري.</div>
-                </div>
-                <button type="button" class="modern-switch-btn global-theme-toggle" data-action="toggle-theme-pref" aria-label="تبديل المظهر">
-                    <div class="switch-knob"><i class="fa-solid fa-moon theme-icn"></i></div>
-                    <span class="switch-bg-text theme-lbl">ليلي</span>
-                </button>
+    <div class="settings-body">
+        <div class="settings-group-title">التخصيص البصري والسمعي</div>
+        
+        <div class="modern-setting-row">
+            <div class="setting-info">
+                <div class="setting-title"><i class="fa-solid fa-palette"></i> مظهر المتجر</div>
+                <div class="setting-sub">تبديل بين الوضع الليلي والنهاري.</div>
             </div>
-            
-            <div class="modern-setting-row">
-                <div class="setting-info">
-                    <div class="setting-title"><i class="fa-solid fa-volume-high"></i> أصوات الواجهة</div>
-                    <div class="setting-sub">تشغيل/إيقاف نغمات التنقل والتنبيهات.</div>
-                </div>
-                <button type="button" class="modern-switch-btn global-sound-toggle" data-action="toggle-sound-pref" aria-label="تبديل الصوت">
-                    <div class="switch-knob"><i class="fa-solid fa-volume-xmark sound-icn"></i></div>
-                    <span class="switch-bg-text sound-lbl">صامت</span>
-                </button>
-            </div>
+            <button type="button" class="modern-switch-btn global-theme-toggle" data-action="toggle-theme-pref" aria-label="تبديل المظهر">
+                <div class="switch-knob"><i class="fa-solid fa-moon theme-icn"></i></div>
+                <span class="switch-bg-text theme-lbl">ليلي</span>
+            </button>
         </div>
+        
+        <div class="modern-setting-row">
+            <div class="setting-info">
+                <div class="setting-title"><i class="fa-solid fa-volume-high"></i> أصوات الواجهة</div>
+                <div class="setting-sub">تشغيل/إيقاف نغمات التنقل والتنبيهات.</div>
+            </div>
+            <button type="button" class="modern-switch-btn global-sound-toggle" data-action="toggle-sound-pref" aria-label="تبديل الصوت">
+                <div class="switch-knob"><i class="fa-solid fa-volume-xmark sound-icn"></i></div>
+                <span class="switch-bg-text sound-lbl">صامت</span>
+            </button>
+        </div>
+
+        <!-- 🛡️ زر إدارة الإشعارات الفورية (متوافق مع التصميم الحديث) -->
+              <div class="modern-setting-row">
+            <div class="setting-info">
+                <div class="setting-title"><i class="fa-solid fa-bell"></i> الإشعارات الفورية</div>
+                <div class="setting-sub">إدارة التنبيهات وتلقي تحديثات طلباتك.</div>
+            </div>
+            <button type="button" data-action="manage-push-notif" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff; border-radius: 20px; padding: 0 16px; height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all 0.2s ease;">
+                إدارة <i class="fa-solid fa-gear"></i>
+            </button>
+        </div>
+
     </div>
+</div>
 
     <!-- نافذة الإيداع المالي -->
     <div class="pm-overlay master-overlay" id="balance-overlay" data-action="close-balance"></div>

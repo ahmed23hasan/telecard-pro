@@ -1,10 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Server Edition) - النسخة V26.2.0 👑 (The Fortress)
+// 💰 المحرك المالي المركزي (Server Edition) - النسخة V26.3.0 👑 (The Fortress)
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، تسعير البوابات والـ VIP.
-// 🚀 التحديثات المعمارية (V26.2.0 - Server Math Guards):
-// 1. Infinity Guard 🛡️: منع الأرقام اللانهائية من التسرب لـ Firestore لتجنب تحطم السيرفر.
-// 2. Strict Export 🛡️: الحفاظ على البيانات الحقيقية (التكلفة/الربح) مع إيقاف أي عملية خاسرة.
-// 3. بيئة التشغيل: Node.js (Firebase Cloud Functions) فقط - Strict Isolation.
+// 🚀 التحديثات المعمارية (V26.3.0 - Smart Fallback Guard):
+// 1. Smart Fallback Guard 🛡️: اكتشاف الحسابات المعلقة وتعيين المستوى الافتراضي الفعلي (isDefault) بدلاً من الفهرس [0] العشوائي.
+// 2. Infinity Guard 🛡️: منع الأرقام اللانهائية من التسرب لـ Firestore لتجنب تحطم السيرفر.
+// 3. Strict Export 🛡️: الحفاظ على البيانات الحقيقية (التكلفة/الربح) مع إيقاف أي عملية خاسرة.
+// 4. بيئة التشغيل: Node.js (Firebase Cloud Functions) فقط - Strict Isolation.
 // ============================================================================
 
 class FinancialSecurityError extends Error {
@@ -219,7 +220,6 @@ const FinancialEngineDef = {
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c);
-        // 🛡️ التحديث الماسي: حماية السيرفر من الأرقام اللانهائية للعملات الضعيفة
         if (isNaN(v) || !isFinite(v)) return 0;
         
         const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
@@ -430,8 +430,14 @@ const FinancialEngineDef = {
         const safeUser = user || {};
         const userTierId = String(safeUser.tierId || '1');
         
-        const foundTier = tiers.find(t => String(t.id) === userTierId);
-        return foundTier || tiers[0];
+        let foundTier = tiers.find(t => String(t.id) === userTierId);
+
+        // 🛡️ التوافق المعماري: إذا كان مستوى العميل غير موجود (محذوف)، استخرج المستوى الافتراضي
+        if (!foundTier) {
+            foundTier = tiers.find(t => t.isDefault === true) || tiers.find(t => String(t.id) === '1') || tiers[0];
+        }
+
+        return foundTier;
     },
 
     getTierProgress: function(user, tiers, nowTime) {

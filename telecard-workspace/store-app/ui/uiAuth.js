@@ -1330,6 +1330,9 @@ export const UIAuth = {
     // =========================================================
     // 👑 مستويات وعضويات הـ VIP
     // =========================================================
+        // =========================================================
+    // 👑 مستويات وعضويات הـ VIP
+    // =========================================================
     openTierInfoModal: async function() {
         const sys = getSys();
         sys.resetUI?.();
@@ -1366,12 +1369,20 @@ export const UIAuth = {
         if (isAutoAdvanceEnabled) {
             let targetPhraseHtml = isMaxTier ? `للحفاظ على باقتك ومميزاتك الحالية.` : `للوصول لـ <span class="tm-text-highlight text-main">${Utils.escapeHtml(targetNameDisplay)}</span>.`;
             
-            if (isGoalReached) {
+            // 🛡️ التحديث الماسي: تصحيح الخلل المنطقي (UI Logic Bug) بين isMaxTier و isGoalReached
+            if (isMaxTier && isGoalReached) {
                 html += `
                         <div class="tm-top-tier-card" style="border-top-color: ${tierColor};">
                             <div class="tm-top-icon" style="color: ${tierColor};"><i class="${finalIconClass}"></i></div>
                             <div class="tm-top-title" style="color: ${tierColor};">تهانينا، أنت في القمة!</div>
                             <div class="tm-top-desc">لقد حققت الهدف وتصل الآن لأعلى مستوى متاح في المتجر لتتمتع بأفضل الأسعار. استمر في نشاطك للحفاظ على هذه المكانة الحصرية.</div>
+                        </div>`;
+            } else if (!isMaxTier && isGoalReached) {
+                html += `
+                        <div class="tm-top-tier-card" style="border-top-color: var(--success); background: rgba(16, 185, 129, 0.05);">
+                            <div class="tm-top-icon" style="color: var(--success);"><i class="fa-solid fa-check-double"></i></div>
+                            <div class="tm-top-title" style="color: var(--success);">تم تحقيق الهدف بنجاح!</div>
+                            <div class="tm-top-desc">تهانينا! لقد حققت شرط المبيعات المطلوب. سيتم ترقية حسابك لـ <span class="tm-text-highlight text-main">${Utils.escapeHtml(targetNameDisplay)}</span> في أقرب دورة تحديث أو بموافقة الإدارة.</div>
                         </div>`;
             } else {
                 html += `
@@ -1401,6 +1412,10 @@ export const UIAuth = {
                     const badgeHtml = isUserCurrent ? `<span class="tm-badge-active" style="background: ${tierColor};">مستواك الحالي</span>` : `<span class="tm-badge-locked">مغلق</span>`;
                     const stateClass = isUserCurrent ? 'active' : 'locked';
                     
+                    // 🛡️ إخفاء شرط المبيعات للمستوى الصفري (الافتراضي) لمنع الارتباك البصري
+                    const isZeroThreshold = Number(t.threshold || 0) === 0;
+                    const reqHtml = isZeroThreshold ? `<span class="tm-item-req text-success">مستوى الدخول الافتراضي</span>` : `<span class="tm-item-req" style="${isUserCurrent ? 'color: var(--gold-main); font-weight:700;' : ''}">هدف المبيعات: <bdi class="num-en">${Number(t.threshold || 0).toFixed(0)} ${currencySymbol}</bdi></span>`;
+
                     html += `
                             <div class="tm-roadmap-item ${stateClass}">
                                 <div class="tm-item-left">
@@ -1409,7 +1424,7 @@ export const UIAuth = {
                                     </div>
                                     <div class="tm-item-info">
                                         <span class="tm-item-name">${Utils.escapeHtml(t.nameAr || t.name)}</span>
-                                        <span class="tm-item-req" style="${isUserCurrent ? 'color: var(--gold-main); font-weight:700;' : ''}">هدف المبيعات: <bdi class="num-en">${Number(t.threshold || 0).toFixed(0)} ${currencySymbol}</bdi></span>
+                                        ${reqHtml}
                                     </div>
                                 </div>
                                 <div class="tm-item-right">${badgeHtml}</div>

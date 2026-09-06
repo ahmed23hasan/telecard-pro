@@ -1,11 +1,11 @@
 // ============================================================================
-// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V16.7 💎 (The Purified Edition)
+// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V16.8 💎 (The Purified Edition)
 // 🎯 الوظيفة: SSOT (المصدر الوحيد للحقيقة)، معالجة البيانات الضخمة، والبحث اللحظي
-// 🚀 التحديثات المعمارية:
-// 1. Unified Time Engine: تضمين محرك الوقت القوي لمنع انهيار الإحصائيات والأرباح.
-// 2. Strict Type Casting: حماية دوال toUpperCase و map من كائنات null لمنع الشاشة البيضاء.
-// 3. Circular Dependency Immunity: استدعاء المحرك المالي مباشرة وفك الارتباط بإعدادات النظام.
-// 4. Safe Maps: فلترة المصفوفات برمجياً قبل بناء الـ Dictionaries لحماية عملية الحفظ.
+// 🚀 التحديثات المعمارية (V16.8 - Immortal Tier Sync):
+// 1. Smart Account Rescue 🛡️: إنقاذ الحسابات المعلقة في دالة الترقية (autoAdvanceSweep) وإلباسها المستوى الافتراضي.
+// 2. Immortal Tier ID 🛡️: توحيد معرف المستوى الافتراضي (TIER_DEFAULT) ليتطابق مع السيرفر ويمنع توليد الأشباح.
+// 3. Unified Time Engine: تضمين محرك الوقت القوي لمنع انهيار الإحصائيات والأرباح.
+// 4. Strict Type Casting: حماية دوال toUpperCase و map من كائنات null لمنع الشاشة البيضاء.
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -14,7 +14,7 @@ import { FirebaseAdapter } from './core/firebaseAdapter.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 import { FinancialEngine } from './core/financialEngine.js';
 
-// 🚀 التحديث 1: محرك وقت محصن بالكامل (متزامن مع واجهة العميل)
+// 🚀 محرك وقت محصن بالكامل (متزامن مع واجهة العميل)
 const parseSafeTime = (ts) => {
     if (ts === null || ts === undefined || ts === '') return Date.now();
     if (typeof ts === 'number') return ts;
@@ -52,7 +52,7 @@ export const AdminData = {
 
     _snapshots: {},
 
-    // 🚀 التحديث 2: حماية بناء الخرائط بـ filter(Boolean) لمنع الانهيار
+    // 🚀 حماية بناء الخرائط بـ filter(Boolean) لمنع الانهيار
     _buildSingleMap: function(prop) {
         const arr = Array.isArray(this.data[prop]) ? this.data[prop].filter(Boolean) : [];
         if (prop === 'users') this.data.usersMap = Object.fromEntries(arr.map(u => [String(u.id), u]));
@@ -141,7 +141,7 @@ export const AdminData = {
 
             if(this.data.tiers.length === 0 || !this.data.tiers.some(t => t.isDefault)) await this.seedDefaultTiers();
 
-            // 🚀 التحديث 3: Strict Type Casting لحماية النظام
+            // 🚀 Strict Type Casting لحماية النظام
             this.data.users = arr(rUsers).map(u => ({
                 ...u,
                 walletBalance: Number(u.walletBalance ?? u.balance ?? 0),
@@ -422,7 +422,6 @@ export const AdminData = {
         const currentArr = this.data[prop] || [];
         const snapArr = this._snapshots[prop] || [];
         
-        // 🚀 التحديث 4: فلترة العناصر التالفة (null/undefined) قبل محاولة قراءة id منها لتفادي خطأ TypeError
         const validCurrentArr = currentArr.filter(Boolean);
         const currentMap = new Map(validCurrentArr.map(i => {
             if (!i.id) i.id = i.code || Utils.generateID(); 
@@ -519,38 +518,61 @@ export const AdminData = {
         } catch (e) { console.error("خطأ في حفظ بروفايل الأدمن:", e); return false; }
     },
 
+    // 🛡️ التحديث المعماري: إنقاذ الحسابات المعلقة ومنحها المستوى الخالد
     autoAdvanceSweep: async function() {
         const tiers = [...this.data.tiers].sort((a,b) => b.threshold - a.threshold);
+        
+        // جلب المستوى الافتراضي الخالد لاستخدامه كطوق نجاة للحسابات المعلقة
+        const defaultTier = tiers.find(t => t.isDefault) || tiers.find(t => String(t.id) === 'TIER_DEFAULT') || tiers[tiers.length - 1]; 
+        
         let changed = false;
         const now = Date.now();
 
         this.data.users.forEach(u => {
             if (u.manualTierOverride) return;
-            const currentTier = this.data.tiersMap[u.tierId];
-            if (!currentTier) return;
+            
+            let currentTier = this.data.tiersMap[u.tierId];
+            
+            // 🛡️ إنقاذ الحسابات المعلقة: إذا كان المستوى مفقوداً، نمنحه المستوى الافتراضي الخالد فوراً
+            if (!currentTier) {
+                if (defaultTier) {
+                    u.tierId = String(defaultTier.id);
+                    currentTier = defaultTier;
+                    changed = true;
+                } else {
+                    return; // خروج آمن في حال عدم وجود أي مستوى بالنظام
+                }
+            }
 
             const cycleStart = parseSafeTime(u.tierCycleStartDate) || now;
-            
             const activeDuration = Number(currentTier.durationDays || currentTier.duration_days || 30);
             const durationMs = activeDuration * 86400000;
 
             if (now - cycleStart > durationMs) {
-                u.tierCycleSpent = 0; u.tierCycleStartDate = now; changed = true;
+                u.tierCycleSpent = 0; 
+                u.tierCycleStartDate = now; 
+                changed = true;
             }
 
+            // فحص الترقية
             const earned = tiers.find(t => t.autoAdvance && u.tierCycleSpent >= t.threshold && t.threshold > currentTier.threshold);
-            if (earned) { u.tierId = earned.id; changed = true; }
+            if (earned) { 
+                u.tierId = String(earned.id); 
+                u.tierCycleStartDate = now; // تصفير عداد الدورة عند الترقية لمستوى جديد
+                changed = true; 
+            }
         });
 
         if (changed) await this.saveUsers();
     },
 
+    // 🛡️ التحديث المعماري: توحيد معرف المستوى الخالد ليتطابق مع السيرفر
     seedDefaultTiers: async function() {
         if (this.isSeedingTiers) return;
         this.isSeedingTiers = true;
         try {
-            const defaultTierId = 'TIER_DEFAULT_INITIAL';
-            if (this.data.tiers.some(t => t.id === defaultTierId || t.isDefault)) return;
+            const defaultTierId = 'TIER_DEFAULT'; 
+            if (this.data.tiers.some(t => String(t.id) === defaultTierId || t.isDefault)) return;
             
             const defaultTier = { id: defaultTierId, name: 'عضو جديد', isDefault: true, threshold: 0, durationDays: 3650, profitPercent: 5, autoAdvance: true, createdAt: Date.now() };
             if (!Array.isArray(this.data.tiers)) this.data.tiers = [];

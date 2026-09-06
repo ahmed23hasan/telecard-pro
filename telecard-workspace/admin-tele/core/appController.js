@@ -955,8 +955,11 @@ export const AppController = {
         }
     },
 
-    delItem: async function(type, id) {
+        delItem: async function(type, id) {
         const strId = String(id);
+        
+        // 🚀 إضافة التوجيه المفقود للمستويات وربطه بالمتحكم المحصن
+        if (type === 'tier') return import('../modules/users/usersController.js').then(m => m.UsersController.deleteTier(strId));
         
         if (type === 'vault') return CatalogController.deleteVaultPool(strId);
         if (type === 'country') return CatalogController.deleteCountry(strId);

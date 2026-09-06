@@ -1,10 +1,11 @@
 // ============================================================================
-// 🔔 عامل خدمة الإشعارات (Firebase Messaging SW) - Enterprise V1.2 💎
+// 🔔 عامل خدمة الإشعارات (Firebase Messaging SW) - Enterprise V1.3 💎
 // 🎯 الوظيفة: العمل في خلفية النظام لاستقبال الإشعارات وتوجيه المستخدم بذكاء.
 // 🚀 التحديثات:
 // 1. Subfolder Routing Fix 🛡️: إصلاح التوجيه ليعمل داخل المجلدات الفرعية ديناميكياً.
 // 2. Safe URL Construction 🛡️: استخدام URL Object لمنع تكسر الروابط عند دمج الـ Query Params.
 // 3. Client PostMessage: تخاطب ذكي مع الواجهة لفتح الطلب المحدد عند النقر.
+// 4. Payload Universal Mapping 🛡️: توحيد لغة التخاطب مع السيرفر لضمان عدم ضياع التوجيه (targetType).
 // ============================================================================
 
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
@@ -58,7 +59,11 @@ self.addEventListener('notificationclick', (event) => {
     
     const notificationData = event.notification.data || {};
     
-    // 🛡️ التحديث المعماري: بناء المسار بناءً على موقع ملف العامل الحالي لضمان دعم المجلدات الفرعية
+    // 🛡️ التحديث المعماري الأهم (V1.3): استخراج متغيرات التوجيه بذكاء لتتطابق مع السيرفر والواجهة
+    const actionType = notificationData.targetType || notificationData.jumpTarget || notificationData.type;
+    const actionId = notificationData.targetId || notificationData.id;
+    
+    // بناء المسار بناءً على موقع ملف العامل الحالي لضمان دعم المجلدات الفرعية
     const defaultStoreUrl = new URL('./store.html', self.location.href).href;
     let targetUrl = notificationData.click_action || defaultStoreUrl;
     
@@ -72,10 +77,11 @@ self.addEventListener('notificationclick', (event) => {
                 if (client.url.includes(basePath) && 'focus' in client) {
                     client.focus();
                     
-                    if (notificationData.targetId || notificationData.id) {
+                    // التخاطب الذكي مع الواجهة بمتغيرات موحدة
+                    if (actionType && actionId) {
                         client.postMessage({
                             type: 'FCM_NOTIFICATION_CLICK',
-                            payload: notificationData
+                            payload: { type: actionType, id: actionId }
                         });
                     }
                     return;
@@ -84,12 +90,12 @@ self.addEventListener('notificationclick', (event) => {
             
             // ب) إذا كان المتجر مغلقاً تماماً، نفتحه في نافذة جديدة مع دمج المتغيرات بذكاء
             if (clients.openWindow) {
-                if (notificationData.targetId && notificationData.jumpTarget) {
+                if (actionType && actionId) {
                     try {
                         const urlObj = new URL(targetUrl);
                         urlObj.searchParams.set('action', 'view');
-                        urlObj.searchParams.set('type', notificationData.jumpTarget);
-                        urlObj.searchParams.set('id', notificationData.targetId);
+                        urlObj.searchParams.set('type', actionType);
+                        urlObj.searchParams.set('id', actionId);
                         targetUrl = urlObj.href;
                     } catch (e) {
                         // في حال فشل التحليل، نعتمد الرابط الأساسي كأمان

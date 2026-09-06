@@ -548,7 +548,8 @@ export const UICore = {
             navigator.serviceWorker.addEventListener('message', (event) => {
                 if (event.data && event.data.type === 'FCM_NOTIFICATION_CLICK') {
                     const sys = getSys(), payload = event.data.payload || {};
-                    const target = payload.jumpTarget || payload.type, id = payload.targetId || payload.id;
+                    // 🛡️ التحديث هنا: إضافة payload.targetType ليفهم الواجهة لغة السيرفر
+                    const target = payload.targetType || payload.jumpTarget || payload.type, id = payload.targetId || payload.id;
                     if (target && id) {
                         if (target === 'order' || target === 'purchase') sys.jumpToTransaction?.(id, 'purchase');
                         else if (target === 'deposit' || target === 'wallet') sys.jumpToTransaction?.(id, 'deposit');
@@ -568,7 +569,6 @@ export const UICore = {
                 if (window.history && window.history.replaceState) window.history.replaceState(null, '', window.location.pathname);
             }, 1200); 
         }
-
         // =========================================================
         // 🗂️ 1. قسم أحداث التنقل والقوائم (Navigation & Menus)
         // =========================================================
@@ -695,7 +695,7 @@ export const UICore = {
             'toggle-coupon-ui': (e, id, val, target) => getSys().toggleCoupon?.(target)
         };
 
-        // =========================================================
+            // =========================================================
         // 🗂️ 5. قسم أحداث الحساب والأمان والتفضيلات (User & System)
         // =========================================================
         const SystemActions = {
@@ -703,12 +703,16 @@ export const UICore = {
             'go-login': (e) => { e.preventDefault(); window.location.href = 'login.html'; },
             'request-account-delete': () => getSys().openModal?.('account-delete'),
             'install-pwa': () => this.triggerPWAInstall(),
+            
+            // 🛡️ السطر المفقود الذي تم إضافته ليعمل الزر بنجاح
+            'manage-push-notif': () => this.managePushNotifications?.(),
+
             'copy-text': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget, dataText) => {
                 e.preventDefault(); e.stopPropagation();
                 this.copyToClipboard?.(dataText || target.innerText, target);
             },
             'show-phone-toast': () => this.showToast?.('هذا الرقم مرتبط بحسابك الأساسي.', 'info'),
-            'toggle-accordion': (e, id, val, target) => { e.preventDefault(); getSys().togglePayDetail?.(target); },
+   'toggle-accordion': (e, id, val, target) => { e.preventDefault(); getSys().togglePayDetail?.(target); },
             'toggle-wallet-stats': (e, id, val, target) => getSys().toggleWalletStats?.(target),
             'toggle-theme-pref': () => this.toggleThemePref?.(),
             'toggle-sound-pref': () => this.toggleSoundPref?.(),
@@ -1247,6 +1251,41 @@ export const UICore = {
         
         document.body.insertAdjacentHTML('beforeend', html);
         this.sfx?.('info');
+    },
+    managePushNotifications: async function() {
+        if (!('Notification' in window)) {
+            return getSys().showToast?.('متصفحك الحالي لا يدعم الإشعارات.', 'error');
+        }
+
+        if (Notification.permission === 'denied') {
+            if (typeof getSys().showAdvancedPopup === 'function') {
+                getSys().showAdvancedPopup({
+                    title: 'الإشعارات محظورة',
+                    message: 'لقد قمت بحظر الإشعارات مسبقاً. لتفعيلها، اضغط على أيقونة القفل 🔒 في شريط عنوان المتصفح بالأعلى واختر "السماح" (Allow) للإشعارات.'
+                });
+            } else {
+                getSys().showToast?.('الإشعارات محظورة. يرجى تفعيلها من القفل 🔒 أعلى المتصفح.', 'warning');
+            }
+            return;
+        }
+
+        if (Notification.permission === 'granted') {
+            getSys().showToast?.('الإشعارات مفعلة وتعمل بنجاح على هذا الجهاز.', 'success');
+            return;
+        }
+
+        getSys().showToast?.('جاري طلب التفعيل...', 'info');
+        if (DataManager && typeof DataManager.setupPushNotifications === 'function') {
+            await DataManager.setupPushNotifications(true);
+            
+            setTimeout(() => {
+                if (Notification.permission === 'granted') {
+                    getSys().showToast?.('تم تفعيل الإشعارات بنجاح!', 'success');
+                } else {
+                    getSys().showToast?.('لم يتم تفعيل الإشعارات.', 'warning');
+                }
+            }, 500);
+        }
     },
 
     processAndDisplayAlerts: function() {

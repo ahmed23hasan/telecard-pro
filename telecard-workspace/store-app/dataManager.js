@@ -1,12 +1,11 @@
 // ============================================================================
-// ⚙️ مدير البيانات الرئيسي (dataManager.js) - الإصدار المؤسسي V18.3.0 💎
+// ⚙️ مدير البيانات المركزي (dataManager.js) - الإصدار المؤسسي V18.4.0 💎
 // 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات، الاتصال المالي، والإشعارات.
-// 🚀 التحديثات المعمارية الصارمة (V18.3.0 - Offline Privacy & Storage Shield): 
-// 1. Orphaned Storage Shield 🛡️: منع تسرب المساحة بحفظ الملفات العالقة محلياً وحذفها لاحقاً.
-// 2. Self-Healing FCM Sync 🛡️: ربط طابور التشافي بحدث 'online' لمنع استقبال إشعارات الحساب القديم.
-// 3. Storage Quota Shield: تنظيف آلي وعميق لكاشات الحسابات لمنع انهيار الـ LocalStorage.
-// 4. Time Manipulation Guard: تحصين دالة الوقت لمنع تجاوز صلاحية الكوبونات.
-// 5. Memory Leak Fix: تصفير حدود العرض (Pagination) ومحرك الرسم عند تسجيل الخروج.
+// 🚀 التحديثات المعمارية الصارمة (V18.4.0 - Price Slippage Protection): 
+// 1. Price Slippage Shield 🛡️: إرفاق السعر المتوقع (expectedPrice) مع طلبات الشراء لحماية العميل من التغير المفاجئ للأسعار.
+// 2. Orphaned Storage Shield 🛡️: منع تسرب المساحة بحفظ الملفات العالقة محلياً وحذفها لاحقاً.
+// 3. Self-Healing FCM Sync 🛡️: ربط طابور التشافي بحدث 'online' لمنع استقبال إشعارات الحساب القديم.
+// 4. Storage Quota Shield: تنظيف آلي وعميق لكاشات الحسابات لمنع انهيار الـ LocalStorage.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -829,16 +828,29 @@ export const DataManager = {
         } catch (e) { return { success: false, msg: 'خطأ اتصال.' }; }
     },
 
-    confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
+        confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
         
         const lockKey = `order_${prod.id}`;
         if (this._actionLocks.has(lockKey)) return { success: false, msg: 'الطلب قيد التنفيذ، يرجى الانتظار...' };
         
+        // 🛡️ التحديث الماسي: حساب السعر الإجمالي المتوقع (expectedPrice) لحماية العميل من انزلاق الأسعار
+        // ✅ الإصلاح: استخدام (totalLocalBase) لضمان توافق الحسبة عند شراء أكثر من قطعة
+        const pricing = this.getPricingLocal(prod, qty, optIdx, appliedCoupon);
+        const expectedPrice = pricing?.totalLocalBase || 0;
+
         this._actionLocks.add(lockKey);
         try {
-            const req = { productId: String(prod.id), qty: Math.max(1, Math.floor(Number(qty)) || 1), optIdx: optIdx ?? null, finalInputStr: finalInputStr || '---', couponCode: appliedCoupon?.code || null, idempotencyKey: generateIdempotencyKey() };
+            const req = { 
+                productId: String(prod.id), 
+                qty: Math.max(1, Math.floor(Number(qty)) || 1), 
+                optIdx: optIdx ?? null, 
+                finalInputStr: finalInputStr || '---', 
+                couponCode: appliedCoupon?.code || null, 
+                expectedPrice: expectedPrice, // 🛡️ إرسال السعر الإجمالي المتوقع للسيرفر
+                idempotencyKey: generateIdempotencyKey() 
+            };
             const res = await StoreDB.callFunction('createOrder', req);
             
             return { success: true, msg: res.message || 'تم إتمام الطلب', isAutoDelivered: res.isAutoDelivered, deliveredCodeText: res.deliveredCode };
@@ -850,7 +862,7 @@ export const DataManager = {
             if (sensitiveKeywords.some(keyword => msg.includes(keyword))) {
                 finalMsg = 'عذراً، تعذر تنفيذ الطلب حالياً بسبب تحديث في أسعار المزود.';
             } else if (/[\u0600-\u06FF]/.test(msg)) {
-                finalMsg = String(err.message); 
+                finalMsg = String(err.message); // 🛡️ هذا سيلتقط رسالة "حماية انزلاق السعر" من السيرفر ويعرضها للعميل
             } else if (msg.includes('balance')) finalMsg = 'رصيدك غير كافٍ.';
             else if (msg.includes('already')) finalMsg = 'تم استلام طلبك مسبقاً.';
             else if (err.code === 'network-offline' || msg.includes('fetch')) finalMsg = 'تأكد من اتصالك بالإنترنت.';
@@ -860,8 +872,7 @@ export const DataManager = {
         } finally {
             this._actionLocks.delete(lockKey);
         }
-    },    
-    
+    },
     submitBalanceRequest: async function(amt, method, payCurr, receipt) {
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
         

@@ -1,8 +1,9 @@
 // ============================================================================
-// 🧠 متحكم المستخدمين (modules/users/usersController.js) - Enterprise V16.9 💎
+// 🧠 متحكم المستخدمين (modules/users/usersController.js) - Enterprise V16.10 💎
 // 🚀 التحديث الأقصى: 
-// 1. Smart Fetch Merge: دمج سجلات الذاكرة المحلية (Orders & Deposits) مع السيرفر لمنع اختفاء الطلبات الحية.
-// 2. Transaction Locks: درع القفل مطبق على كافة الدوال الحساسة لمنع النقر المزدوج.
+// 1. Zero-Overwrite Shield 🛡️: ربط ترقية المستوى بالسيرفر (adminUpdateUserTier) لمنع مسح أرصدة المحفظة بالخطأ.
+// 2. Immortal Tier Guard 🛡️: منع مشرفي الإدارة من حذف المستوى الافتراضي الخالد (TIER_DEFAULT).
+// 3. Smart Fetch Merge: دمج سجلات الذاكرة المحلية مع السيرفر لمنع اختفاء الطلبات الحية.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -31,7 +32,6 @@ export const UsersController = {
         EventBus.emit('req-render-users');
     },
 
-    // 🚀 [الإصلاح الماسي]: دمج الطلبات المحلية مع السحابية بأمان تام
     fetchUserHistory: async function(userId, loadMore = false) {
         if (!userId) return;
         
@@ -47,7 +47,6 @@ export const UsersController = {
         try {
             const fullHistory = await FirebaseAdapter.getCustomerFullHistory(userId, AdminData.tempUserHistoryLimit);
             if (fullHistory) {
-                // 🛡️ الدمج الذكي: نحتفظ بالبيانات الحية الموجودة في ה-RAM وندمج معها بيانات السيرفر
                 const existingLocal = AdminData.tempUserHistory.all || [];
                 const mergedMap = new Map();
                 
@@ -505,37 +504,44 @@ export const UsersController = {
         }
     },
 
+    // 🛡️ التحديث المعماري (Immortal Tier Guard)
     deleteTier: async function(id) {
         if (this._actionLocks.has('del-tier')) return;
-        
         if (!AdminData.data.tiers) return;
-        const strId = String(id).trim();
         
+        const strId = String(id).trim();
         const tierToDelete = AdminData.data.tiersMap[strId] || AdminData.data.tiers.find(t => String(t.id) === strId);
         if (!tierToDelete) return;
         
-        if (tierToDelete.isDefault) {
-            EventBus.emit('req-show-toast', { message: 'إجراء مرفوض: لا يمكن حذف المستوى الافتراضي.', type: 'error' });
+        // 🛡️ الحماية المطلقة: منع حذف المستوى الافتراضي أو المستوى الخالد نهائياً
+        if (tierToDelete.isDefault || strId === 'TIER_DEFAULT') {
+            EventBus.emit('req-show-toast', { message: 'إجراء أمني مرفوض: لا يمكن حذف المستوى الافتراضي الخالد لحماية النظام.', type: 'error' });
             return;
         }
 
-        const defaultTier = AdminData.data.tiers.find(t => t.isDefault) || AdminData.data.tiers[0];
-        if (!defaultTier) return;
+        // 🛡️ التوجيه الآمن للمستوى الخالد ليكون طوق النجاة للعملاء المنقولين
+        const defaultTier = AdminData.data.tiers.find(t => t.isDefault) || AdminData.data.tiers.find(t => String(t.id) === 'TIER_DEFAULT') || AdminData.data.tiers[0];
+        if (!defaultTier) {
+            EventBus.emit('req-show-toast', { message: 'خطأ حرج: لم يتم العثور على مستوى بديل آمن لنقل العملاء إليه.', type: 'error' });
+            return;
+        }
 
         const usersInTier = (AdminData.data.users || []).filter(u => String(u.tierId) === strId);
         const userCount = usersInTier.length;
         
         let msg = userCount > 0 
-            ? `⚠️ تنبيه أمان هام!\nهذا المستوى يضم (${userCount}) عميل حالياً.\nسيتم نقلهم جميعاً إلى (${defaultTier.name}).\nهل أنت متأكد؟` 
+            ? `⚠️ تنبيه أمان هام!\nهذا المستوى يضم (${userCount}) عميل حالياً.\nسيتم نقلهم جميعاً إلى المستوى الافتراضي (${defaultTier.name}).\nهل أنت متأكد؟` 
             : `هل أنت متأكد من حذف مستوى "${tierToDelete.name}" نهائياً؟`;
 
         if (AdminUI && await AdminUI.showConfirm(msg, 'تأكيد إزالة المستوى')) {
             this._actionLocks.add('del-tier');
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حذف المستوى وتحديث العملاء...');
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حذف المستوى وتحديث العملاء سحابياً...');
             
             try {
                 if (userCount > 0) {
-                    AdminData.data.users.forEach(u => { if (String(u.tierId) === strId) u.tierId = String(defaultTier.id); });
+                    AdminData.data.users.forEach(u => { 
+                        if (String(u.tierId) === strId) u.tierId = String(defaultTier.id); 
+                    });
                     await AdminData?.saveUsers?.();
                 }
 
@@ -544,7 +550,7 @@ export const UsersController = {
                 
                 EventBus.emit('req-render-tiers');
                 EventBus.emit('req-render-users');
-                EventBus.emit('req-show-toast', { message: `تم الحذف بنجاح`, type: 'success' });
+                EventBus.emit('req-show-toast', { message: `تم الحذف ونقل العملاء بأمان`, type: 'success' });
             } catch (error) {
                 EventBus.emit('req-show-toast', { message: `حدث خطأ أثناء الحذف`, type: 'error' });
             } finally {
@@ -554,29 +560,41 @@ export const UsersController = {
         }
     },
 
+    // 🛡️ التحديث المعماري (Zero-Overwrite Shield)
     updateUserTier: async function(userId, tierId) {
         if (this._actionLocks.has('update-tier')) return;
         this._actionLocks.add('update-tier');
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث المستوى سحابياً بأمان...');
         
         try {
-            const user = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(u => String(u.id) === String(userId));
-            if (user) {
-                user.tierId = tierId; 
-                user.manualTierOverride = true; 
-                user.tierCycleSpent = 0;
+            // 🛡️ استدعاء دالة السيرفر الآمنة لمنع اختفاء الإيداعات أو تدمير المحفظة (No Dirty Writes)
+            const result = await FirebaseAdapter.callFunction('adminUpdateUserTier', {
+                userId: String(userId),
+                newTierId: String(tierId),
+                manualOverride: true 
+            });
+
+            if (result && result.success) {
+                const user = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(u => String(u.id) === String(userId));
+                if (user) {
+                    user.tierId = tierId; 
+                    user.manualTierOverride = true; 
+                    user.tierCycleSpent = 0;
+                    user.tierCycleStartDate = Date.now();
+                }
                 
-                const serverNowMs = await FirebaseAdapter.callFunction('getServerTime').then(r => r.serverTime).catch(() => Date.now());
-                user.tierCycleStartDate = serverNowMs;
-                
-                await AdminData?.saveUsers?.();
                 if(AdminRender && typeof AdminRender.renderTierUsersPage === 'function') {
                    AdminRender.renderTierUsersPage();
                 }
                 EventBus.emit('req-render-tiers');
-                EventBus.emit('req-show-toast', { message: `تم ترقية العميل بنجاح`, type: 'success' });
+                EventBus.emit('action-triggered', { action: 'view-user', id: userId });
+                EventBus.emit('req-show-toast', { message: `تم ترقية العميل بنجاح دون المساس برصيده`, type: 'success' });
             }
+        } catch (error) {
+            EventBus.emit('req-show-toast', { message: `فشل السيرفر: ${error.message}`, type: 'error' });
         } finally {
             this._actionLocks.delete('update-tier');
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
     
