@@ -996,25 +996,28 @@ export const RenderManager = {
     },
 
     // 🛡️ التحديث المعماري (V18.6): دالة توليد الإيصال معدلة لمنع الشاشة البيضاء وتوفير جسر المشاركة
+        // 🛡️ التحديث المعماري (V18.6): دالة توليد الإيصال معدلة لمنع الشاشة البيضاء وتوفير جسر المشاركة
     generateReceiptImage: async function(config) {
         return new Promise(async (resolve) => {
             const containerId = 'receipt-render-box-' + Date.now();
             let isResolved = false;
+            let hasTimedOut = false; // 🛡️ حارس التنفيذ: لمعرفة ما إذا كان الوقت قد انقضى
             
             const cleanup = () => {
                 const orphanedContainer = document.getElementById(containerId);
                 if (orphanedContainer) {
-                    try { orphanedContainer.remove(); } catch(e){}
+                    try { orphanedContainer.remove(); } catch (e) {}
                 }
             };
-
+            
             const watchdog = setTimeout(() => {
-                if(isResolved) return;
+                if (isResolved) return;
+                hasTimedOut = true; // 🛡️ إعلان انتهاء الوقت لإيقاف أي عمليات معلقة
                 console.error("🚨 انقضى وقت تحضير الإيصال (Timeout). السيرفر أو المتصفح لا يستجيب.");
                 cleanup();
-                resolve(false); 
-            }, 15000); 
-
+                resolve(false);
+            }, 15000);
+            
             try {
                 const settings = LiveStoreData.settings || {};
                 const storeName = settings.storeName || 'TeleCard';
@@ -1027,7 +1030,7 @@ export const RenderManager = {
                 
                 const container = document.createElement('div');
                 container.id = containerId;
-                container.className = 'receipt-render-container'; 
+                container.className = 'receipt-render-container';
                 
                 // 🛡️ Blank Canvas Shield: إجبار رسم الإيصال خارج الشاشة بأبعاده الحقيقية
                 container.style.position = 'fixed';
@@ -1037,9 +1040,9 @@ export const RenderManager = {
                 container.innerHTML = fullHTML;
                 
                 document.body.appendChild(container);
-
+                
                 window.getComputedStyle(container).fontFamily;
-
+                
                 if (document.fonts && document.fonts.ready) {
                     await document.fonts.ready;
                 }
@@ -1047,11 +1050,14 @@ export const RenderManager = {
                 // 🛡️ The Bulletproof Yield: منح المعالج الرسومي 150ms لطلاء البيكسلات قبل الالتقاط
                 await new Promise(res => {
                     requestAnimationFrame(() => {
-                        setTimeout(res, 150); 
+                        setTimeout(res, 150);
                     });
                 });
-
+                
                 if (typeof html2canvas === 'undefined') throw new Error("مكتبة html2canvas مفقودة!");
+                
+                // 🛡️ التوقف الفوري إذا كان المؤقت قد انتهى
+                if (hasTimedOut) return;
                 
                 let canvas;
                 try {
@@ -1059,11 +1065,13 @@ export const RenderManager = {
                         scale: 2,
                         useCORS: true,
                         backgroundColor: '#ffffff',
-                        logging: false, 
-                        allowTaint: false,  
-                        windowWidth: 420 
+                        logging: false,
+                        allowTaint: false,
+                        windowWidth: 420,
+                        imageTimeout: 5000 // 🛡️ عدم انتظار الصور المكسورة لأكثر من 5 ثوانٍ
                     });
                 } catch (canvasErr) {
+                    if (hasTimedOut) return; // 🛡️ فحص أمني
                     console.warn("⚠️ [Receipt Engine] CORS Image Issue Detected. Retrying with fallback...");
                     const imgs = container.querySelectorAll('img');
                     imgs.forEach(img => img.style.visibility = 'hidden');
@@ -1073,73 +1081,82 @@ export const RenderManager = {
                         useCORS: false,
                         backgroundColor: '#ffffff',
                         logging: false,
-                        windowWidth: 420
+                        windowWidth: 420,
+                        imageTimeout: 5000
                     });
-                }                
+                }
+                
+                // 🛡️ Zombie Execution Guard: إيقاف بناء النافذة إذا انقضى الوقت
+                if (hasTimedOut) return;
+                
                 const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-                canvas.width = 0; canvas.height = 0;
-                cleanup(); 
-
+                canvas.width = 0;
+                canvas.height = 0;
+                cleanup();
+                
                 const safeFileName = config.filename || 'receipt.jpg';
-                const title = `إيصال - ${storeName}`;
+                const title = `إيصال إلكتروني - ${storeName}`;
                 const blobUrl = URL.createObjectURL(blob);
-
-                // 🌟 Share Sheet Bridge: إنشاء نافذة وسيطة لضمان استجابة نظام الهاتف للمشاركة
+                
+                // 🌟 Share Sheet Bridge: إنشاء نافذة وسيطة بتصميم مؤسسي
                 const dialogId = 'receipt-action-dialog';
                 let dialog = document.getElementById(dialogId);
                 if (dialog) dialog.remove();
-
+                
                 dialog = document.createElement('div');
                 dialog.id = dialogId;
                 dialog.className = 'sys-dialog-wrapper active master-overlay';
                 dialog.style.zIndex = '9999999';
-
+                
                 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
                 const canShare = isMobile && navigator.canShare && navigator.canShare({ files: [new File([blob], safeFileName, { type: blob.type })] });
-
+                
+                // الأزرار منسقة باستخدام الفئات القياسية للمتجر
                 let shareBtnHtml = canShare ? `
-                    <button id="btn-native-share" class="btn btn-primary" style="flex: 1; display:flex; gap:8px; justify-content:center; align-items:center;">
-                        <i class="fa-solid fa-share-nodes"></i> مشاركة الإيصال
+                    <button id="btn-native-share" class="btn btn-primary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                        <i class="fa-solid fa-share-nodes"></i> مشاركة الفاتورة
                     </button>
                 ` : '';
-
+                
                 dialog.innerHTML = `
                     <div class="sys-dialog-overlay"></div>
-                    <div class="sys-dialog-card" style="border-top: 4px solid var(--primary); text-align: center; max-width: 350px;">
-                        <div class="sys-dialog-header" style="justify-content: center;">
-                            <div class="sys-dialog-icon" style="color: var(--primary); background: rgba(var(--primary-rgb), 0.1);">
+                    <div class="sys-dialog-card" style="max-width: 360px; text-align: center;">
+                        <div class="sys-dialog-header" style="justify-content: center; border-bottom: none; padding-bottom: 0;">
+                            <div class="sys-dialog-icon success" style="margin-bottom: 10px;">
                                 <i class="fa-solid fa-file-invoice"></i>
                             </div>
                         </div>
-                        <h3 class="sys-dialog-title" style="margin-top: 10px;">الإيصال جاهز!</h3>
-                        <p class="sys-dialog-msg" style="margin-bottom: 20px;">تم إصدار الإيصال بنجاح. ماذا تريد أن تفعل به؟</p>
+                        <h3 class="sys-dialog-title" style="margin-bottom: 8px;">الإيصال الإلكتروني</h3>
+                        <p class="sys-dialog-msg" style="margin-bottom: 20px; font-size: 13.5px;">تم توثيق العملية وتصدير الإيصال بنجاح. يرجى تحديد الإجراء المطلوب.</p>
 
-                        <img src="${blobUrl}" style="max-width: 100%; max-height: 250px; object-fit: contain; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;" alt="Receipt Preview">
+                        <div style="background: var(--bg-body); padding: 10px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 20px;">
+                            <img src="${blobUrl}" style="max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 6px;" alt="معاينة الإيصال">
+                        </div>
 
-                        <div class="sys-dialog-actions" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <div class="sys-dialog-actions" style="display: flex; gap: 10px; flex-direction: ${canShare ? 'row' : 'column'};">
                             ${shareBtnHtml}
-                            <button id="btn-native-download" class="btn ${canShare ? 'btn-secondary' : 'btn-primary'}" style="flex: 1; display:flex; gap:8px; justify-content:center; align-items:center; ${canShare ? 'background: var(--bg-glass-heavy); color: var(--text-main);' : ''}">
-                                <i class="fa-solid fa-download"></i> حفظ كصورة
+                            <button id="btn-native-download" class="btn ${canShare ? 'btn-secondary' : 'btn-primary'}" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                <i class="fa-solid fa-download"></i> حفظ في الجهاز
                             </button>
                         </div>
-                        <button id="btn-close-receipt-dialog" class="adv-close-btn" style="margin-top: 15px; width: 100%; background: transparent; color: var(--text-muted);">إغلاق</button>
+                        <button id="btn-close-receipt-dialog" class="adv-close-btn" style="margin-top: 15px; width: 100%; background: transparent; color: var(--text-muted); border: none;">إغلاق النافذة</button>
                     </div>
                 `;
-
+                
                 document.body.appendChild(dialog);
-                if(window.UIManager?.sfx) window.UIManager.sfx('success');
-
+                if (window.UIManager?.sfx) window.UIManager.sfx('success');
+                
                 if (canShare) {
                     document.getElementById('btn-native-share').addEventListener('click', async () => {
                         try {
                             const file = new File([blob], safeFileName, { type: blob.type });
-                            await navigator.share({ title: title, text: 'مرفق تفاصيل العملية الخاصة بك.', files: [file] });
+                            await navigator.share({ title: title, text: 'مرفق الإيصال الإلكتروني لتفاصيل العملية.', files: [file] });
                         } catch (err) {
                             if (err.name !== 'AbortError') console.warn("Share failed", err);
                         }
                     });
                 }
-
+                
                 document.getElementById('btn-native-download').addEventListener('click', () => {
                     const a = document.createElement('a');
                     a.href = blobUrl;
@@ -1147,35 +1164,35 @@ export const RenderManager = {
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
+                    
+                    if (window.UIManager?.showToast) window.UIManager.showToast('تم بدء تحميل الإيصال بنجاح', 'success');
                 });
-
+                
                 const closeDialog = () => {
                     dialog.classList.remove('active');
                     setTimeout(() => {
                         dialog.remove();
-                        URL.revokeObjectURL(blobUrl);
+                        URL.revokeObjectURL(blobUrl); // تحرير الذاكرة
                     }, 300);
                 };
-
+                
                 dialog.querySelector('.sys-dialog-overlay').addEventListener('click', closeDialog);
                 document.getElementById('btn-close-receipt-dialog').addEventListener('click', closeDialog);
                 
                 isResolved = true;
-                clearTimeout(watchdog); 
+                clearTimeout(watchdog);
                 resolve(true);
-
-            } catch (err) { 
+                
+            } catch (err) {
                 console.error("🚨 Receipt Image Generation Error:", err);
                 isResolved = true;
-                clearTimeout(watchdog); 
-                resolve(false); 
+                clearTimeout(watchdog);
+                resolve(false);
             } finally {
-                cleanup(); 
+                cleanup();
             }
         });
-    },
-
-    exportReceipt: async function(orderId, btnElement = null) {
+    },    exportReceipt: async function(orderId, btnElement = null) {
         if (btnElement && btnElement.disabled) return; 
         
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
