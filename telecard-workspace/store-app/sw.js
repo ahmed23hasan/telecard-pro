@@ -1,16 +1,15 @@
 // ============================================================================
-// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V21.3 💎
+// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V21.4 💎
 // 🎯 الوظيفة: تفعيل التثبيت كـ App، تشغيل المتجر Offline، وحماية الواجهة.
-// 🚀 التحديثات المعمارية الصارمة (V21.3 - Cache Poisoning & Soft-404 Patch):
-// 1. Soft-404 Guard 🛡️: منع تخزين صفحات الخطأ (HTML) مكان ملفات (JS/CSS) لحماية المتجر من الشاشة البيضاء.
-// 2. Navigation Error Guard 🛡️: رفض تخزين الاستجابات الفاشلة (404/500) وتقديم صفحات الأوفلاين فوراً بدلاً منها.
-// 3. Firebase Storage Guard: إعفاء صور فايربيس وأنظمة المصادقة من الكاش لمنع امتلاء هواتف العملاء.
-// 4. Local QR Integration: إضافة مكتبة قفل الـ 2FA للكاش المحلي لتعمل بدون إنترنت.
+// 🚀 التحديثات المعمارية الصارمة (V21.4 - Redirect Deadlock Patch):
+// 1. Redirect Deadlock Fix 🛡️: السماح بمرور التوجيهات (301/302) من استضافة Firebase دون إجهاض الطلب.
+// 2. Soft-404 Guard 🛡️: منع تخزين صفحات الخطأ (HTML) مكان ملفات (JS/CSS).
+// 3. Firebase Storage Guard: إعفاء مسارات فايربيز من الكاش لمنع استنزاف الذاكرة.
 // ============================================================================
 
-const CACHE_NAME = 'telecard-static-v21.3'; 
+const CACHE_NAME = 'telecard-static-v21.4'; 
 
-// 🛡️ الملفات الأساسية فقط (لا تضع أي روابط ديناميكية هنا)
+// 🛡️ الملفات الأساسية فقط
 const CORE_ASSETS = [
   './',
   './store.html',
@@ -24,7 +23,7 @@ const CORE_ASSETS = [
   './dataManager.js',
   './renderManager.js',
   './components.js',
-  './qrcode.min.js', // 🛡️ تمت إضافته ليعمل الأمان بدون إنترنت
+  './qrcode.min.js', 
   './core/firebaseAdapter.js',
   './core/financialEngine.js',
   './core/renderHelpers.js',
@@ -40,7 +39,7 @@ self.addEventListener('install', (event) => {
   
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      console.log('📦 [Service Worker] جاري تخزين واجهة المتجر والصفحات الأساسية...');
+      console.log('📦 [Service Worker] جاري تخزين واجهة المتجر...');
       for (const asset of CORE_ASSETS) {
         try {
           await cache.add(asset);
@@ -69,7 +68,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// 🛡️ التحديث المعماري: استقبال أمر التحديث الإجباري من script.js
+// استقبال أمر التحديث الإجباري من الواجهة
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
       self.skipWaiting();
@@ -80,7 +79,7 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
   
-  // 🛡️ القاعدة الذهبية لسلامة التخزين: تجاهل كافة مسارات فايربيس (قاعدة بيانات + صور + مصادقة)
+  // 🛡️ القاعدة الذهبية: تجاهل كافة مسارات فايربيس (قاعدة بيانات + صور + مصادقة)
   if (url.hostname.includes('firestore.googleapis.com') ||
       url.hostname.includes('firebasestorage.googleapis.com') ||
       url.hostname.includes('identitytoolkit.googleapis.com') ||
@@ -98,21 +97,21 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          // 🛡️ Navigation Error Guard: التأكد من نجاح الطلب (200 OK) قبل التخزين
-          if (!response.ok) {
-              throw new Error('Server returned non-200 status');
+          // 🛡️ التحديث المعماري (V21.4):
+          // السماح بمرور الاستجابة دائماً للمتصفح لتنفيذ الـ Redirects،
+          // ولكننا نقوم بتخزينها في الكاش *فقط* إذا كانت 200 OK.
+          if (response.status === 200) {
+              const clone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           }
-          
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          return response;
+          return response; 
         })
         .catch(() => {
           return caches.match(request, cacheMatchOptions).then(cachedResponse => {
-              // 🛡️ توجيه أوفلاين ذكي: إذا طلب صفحة تسجيل الدخول وهو أوفلاين، نعطيه login، وإلا store
               if (cachedResponse) return cachedResponse;
-              if (url.pathname.includes('login.html')) return caches.match('./login.html', { ignoreSearch: true });
-              if (url.pathname.includes('signup.html')) return caches.match('./signup.html', { ignoreSearch: true });
+              // توجيه أوفلاين ذكي
+              if (url.pathname.includes('login')) return caches.match('./login.html', { ignoreSearch: true });
+              if (url.pathname.includes('signup')) return caches.match('./signup.html', { ignoreSearch: true });
               return caches.match('./store.html', { ignoreSearch: true });
           });
         })
@@ -122,22 +121,18 @@ self.addEventListener('fetch', (event) => {
   
   event.respondWith(
     caches.match(request, cacheMatchOptions).then((cachedResponse) => {
-      // ⚡ O(1) Cache-First للأصول الثابتة
       if (cachedResponse) return cachedResponse; 
 
       return fetch(request).then((networkResponse) => {
-        // نرفض تخزين الـ opaque لكي لا تتضخم الذاكرة بملفات لا نعرف حجمها
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           
           const contentType = networkResponse.headers.get('content-type') || '';
-          
-          // 🛡️ Soft-404 Guard: حماية الكاش من التسمم إذا أعاد السيرفر HTML بدلاً من كود برمجي
           const isJsRequest = url.pathname.endsWith('.js');
           const isCssRequest = url.pathname.endsWith('.css');
           
           if ((isJsRequest || isCssRequest) && contentType.includes('text/html')) {
-              console.warn(`🚨 [Cache Guard] تم حظر تسميم الكاش: السيرفر أعاد HTML بدلاً من ${isJsRequest ? 'JS' : 'CSS'}`);
-              return networkResponse; // نمرر الملف المعطوب لكن لا نخزنه أبداً لحماية الزيارات القادمة
+              console.warn(`🚨 [Cache Guard] تم حظر تسميم الكاش.`);
+              return networkResponse; 
           }
 
           const clone = networkResponse.clone();

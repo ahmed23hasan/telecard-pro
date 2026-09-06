@@ -416,16 +416,17 @@ export const DataManager = {
                 submittedAt: Date.now() 
             };
             
-            const success = await StoreDB.set(DB_KEYS.USERS, userId, { kycStatus: 'pending', kycData: newKycData }, { merge: true });
-            if (!success) throw new Error("فشل التحديث في السيرفر.");
-            
+            // 🛡️ حذف الصور القديمة أولاً للحفاظ على مساحة التخزين (Storage Quota Shield)
             if (this.user?.kycData) {
                 [this.user.kycData.frontImg, this.user.kycData.backImg, this.user.kycData.selfieImg].filter(Boolean).forEach(url => {
                     this._safeDeleteFile(url);
                 });
             }
             
-            await this.updateUserProfile({ fullName: kycData.fullName, kycStatus: 'pending', kycData: newKycData });
+            // 🛡️ التحديث المعماري (V18.9.0): دمج العمليات في طلب واحد (Single Payload Write) لتقليل التكلفة ومنع تعارض الحالة
+            const success = await this.updateUserProfile({ fullName: kycData.fullName, kycStatus: 'pending', kycData: newKycData });
+            if (!success) throw new Error("فشل التحديث في السيرفر.");
+            
             return { success: true };
             
         } catch (error) {
@@ -434,7 +435,9 @@ export const DataManager = {
             let finalMsg = msg;
             if (!/[\u0600-\u06FF]/.test(msg)) finalMsg = 'فشل رفع المستندات.';
             return { success: false, msg: finalMsg };
-        } finally { this._actionLocks.delete('kyc'); }
+        } finally { 
+            this._actionLocks.delete('kyc'); 
+        }
     },
 
     submitPrivateFeedback: async function(rating, feedbackText) {
@@ -690,14 +693,17 @@ export const DataManager = {
             if (typeof this._userUnsubscribe === 'function') { this._userUnsubscribe(); this._userUnsubscribe = null; } 
 
             Object.keys(LiveStoreData).forEach(k => {
-                if (Array.isArray(LiveStoreData[k])) { 
-                    LiveStoreData[k].length = 0; 
-                } else if (typeof LiveStoreData[k] === 'object' && LiveStoreData[k] !== null) {
-                    for (let subK in LiveStoreData[k]) {
-                        LiveStoreData[k][subK] = undefined; 
-                    }
-                }
-            });
+    // 🛡️ حماية الكتالوج العام من المسح لتظل الواجهة متماسكة (لا توجد شاشة بيضاء) أثناء إعادة التحميل
+    if (['cats', 'prods', 'settings', 'offers', 'banners', 'tiers'].includes(k)) return; 
+    
+    if (Array.isArray(LiveStoreData[k])) { 
+        LiveStoreData[k].length = 0; 
+    } else if (typeof LiveStoreData[k] === 'object' && LiveStoreData[k] !== null) {
+        for (let subK in LiveStoreData[k]) {
+            LiveStoreData[k][subK] = undefined; 
+        }
+    }
+});
             
             LiveStoreData.isInitialSyncDone = false; 
             LiveStoreData.isOfflineMode = typeof navigator !== 'undefined' ? !navigator.onLine : false; 
