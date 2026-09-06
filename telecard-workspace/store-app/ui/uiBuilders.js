@@ -1,11 +1,11 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - الإصدار المؤسسي V17.6 💎
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - الإصدار المؤسسي V18.5 💎
 // 🎯 الوظيفة: تحويل البيانات الخام إلى قوالب HTML نقية وآمنة برمجياً 100%
-// 🚀 التحديثات المعمارية (V17.6 - Master Patch):
-// 1. Status CSS Injection Fix 🛡️: تعقيم حقول الحالة (status) لمنع حقن كلاسات CSS غير معروفة.
-// 2. NaN Fallback Shield 🛡️: تأمين استخراج الأرقام من قاعدة البيانات لمنع ظهور NaN في الإيصالات.
-// 3. Strict Type Casting: التغليف الإجباري بـ String() قبل .toUpperCase() لمنع انهيار الواجهة.
-// 4. Safe Order Duration: وضع حسابات مدة الطلب في try/catch لضمان عدم توقف رسم الواجهة.
+// 🚀 التحديثات المعمارية الصارمة (V18.5 - Ultimate XSS & NaN Shield):
+// 1. Strict Attribute Escaping 🛡️: تعقيم فائق للسمات (data-id, class) لمنع كسر وسوم الـ HTML.
+// 2. Safe URL Enforcement 🛡️: منع حقن (javascript:) في أزرار الإيصالات والصور.
+// 3. Absolute NaN Shield 🛡️: تغليف كافة العمليات الحسابية بدالة أمان لضمان إرجاع 0.00 بدلاً من NaN.
+// 4. Multi-line Sanitization 🛡️: تعقيم النصوص المتعددة الأسطر قبل تحويل \n إلى <br> لمنع ثغرات XSS.
 // ============================================================================
 
 import * as Utils from '../utils.js'; 
@@ -13,7 +13,37 @@ import { RenderHelpers } from '../core/renderHelpers.js';
 
 export const UIBuilders = {
 
-    /** 1️⃣ بناء كرت حركة المحفظة (إيداع / شراء) */
+    // ============================================================================
+    // 🛡️ طبقة التعقيم الداخلية (Internal Sanitization Layer)
+    // ============================================================================
+    
+    _safeAttr: function(val) {
+        if (val === null || val === undefined) return '';
+        return String(val).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    },
+
+    _safeNum: function(val, fallback = 0) {
+        const parsed = parseFloat(val);
+        return (isNaN(parsed) || !isFinite(parsed)) ? fallback : parsed;
+    },
+
+    _safeUrlLink: function(url) {
+        if (!url) return '#';
+        const strUrl = String(url).trim();
+        // منع ثغرات javascript: أو vbscript: أو data:text/html
+        if (/^(javascript|vbscript|data(?!\:image)):/i.test(strUrl)) return '#';
+        return Utils.safeUrl ? Utils.safeUrl(strUrl) : strUrl;
+    },
+
+    _safeMultiLine: function(text) {
+        if (!text) return '';
+        // التعقيم أولاً، ثم تحويل الأسطر الجديدة إلى <br>
+        return Utils.escapeHtml(String(text)).replace(/\n/g, '<br>');
+    },
+
+    // ============================================================================
+    // 1️⃣ بناء كرت حركة المحفظة (إيداع / شراء)
+    // ============================================================================
     buildWalletCard: function(tx, walletCurr, isFilterActive) {
         if (!tx) return '';
         const isDep = tx.type === 'deposit';
@@ -22,8 +52,11 @@ export const UIBuilders = {
         const safeTimeMs = Utils.parseSafeTime(tx.time || tx.createdAt);
         const formattedDate = RenderHelpers.formatSafeDate(safeTimeMs);
 
+        // الاعتماد على قيم معروفة ومقيدة لتجنب CSS Injection
+        const safeStatus = String(tx.status || 'pending').toLowerCase();
+
         if (isDep) {
-            if (tx.status === 'approved') {
+            if (safeStatus === 'approved') {
                 amountPrefix = tx.isDeduction ? '-' : '+';
                 amountClass = tx.isDeduction ? 'amt-out' : 'amt-in';
                 cardClass = tx.isDeduction ? 'out' : 'in';
@@ -31,16 +64,16 @@ export const UIBuilders = {
                 iconColorClass = tx.isDeduction ? 'icon-out' : 'icon-green'; 
             } else {
                 amountClass = 'amt-neutral'; cardClass = 'neutral';
-                if (tx.status === 'pending') { iconName = 'fa-clock'; iconColorClass = 'icon-gold'; } 
-                else if (tx.status === 'rejected') { iconName = 'fa-circle-xmark'; iconColorClass = 'icon-red'; }
-                else if (['refunded', 'returned'].includes(tx.status)) { iconName = 'fa-rotate-left'; iconColorClass = 'icon-cyan'; }
+                if (safeStatus === 'pending') { iconName = 'fa-clock'; iconColorClass = 'icon-gold'; } 
+                else if (safeStatus === 'rejected') { iconName = 'fa-circle-xmark'; iconColorClass = 'icon-red'; }
+                else if (['refunded', 'returned'].includes(safeStatus)) { iconName = 'fa-rotate-left'; iconColorClass = 'icon-cyan'; }
             }
         } else {
-            if (['rejected', 'refunded', 'returned'].includes(tx.status)) {
+            if (['rejected', 'refunded', 'returned'].includes(safeStatus)) {
                 amountClass = 'amt-neutral'; cardClass = 'neutral';
-                iconName = ['refunded', 'returned'].includes(tx.status) ? 'fa-rotate-left' : 'fa-circle-xmark';
-                iconColorClass = ['refunded', 'returned'].includes(tx.status) ? 'icon-cyan' : 'icon-red';
-            } else if (tx.status === 'pending') {
+                iconName = ['refunded', 'returned'].includes(safeStatus) ? 'fa-rotate-left' : 'fa-circle-xmark';
+                iconColorClass = ['refunded', 'returned'].includes(safeStatus) ? 'icon-cyan' : 'icon-red';
+            } else if (safeStatus === 'pending') {
                 amountPrefix = '-'; amountClass = 'amt-neutral'; cardClass = 'neutral'; iconName = 'fa-clock'; iconColorClass = 'icon-gold';
             } else {
                 amountPrefix = '-'; amountClass = 'amt-out'; cardClass = 'out'; iconName = 'fa-arrow-up-long'; iconColorClass = 'icon-out'; 
@@ -49,16 +82,20 @@ export const UIBuilders = {
         
         const jumpType = isDep ? 'deposit' : 'purchase';
         const shortTxId = isDep ? RenderHelpers.formatDepositId(tx) : RenderHelpers.formatOrderId(tx);
+        const safeTxIdAttr = this._safeAttr(tx.id || '');
 
         let runningBalanceHtml = '';
-        if (!isFilterActive && typeof tx.balanceAfter === 'number' && !isNaN(tx.balanceAfter)) {
-            runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(tx.balanceAfter, String(walletCurr).toUpperCase())}</div>`;
+        if (!isFilterActive && typeof tx.balanceAfter !== 'undefined') {
+            const safeBalAfter = this._safeNum(tx.balanceAfter);
+            runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(safeBalAfter, String(walletCurr).toUpperCase())}</div>`;
         }
 
         const safeTxName = Utils.escapeHtml(isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء'));
+        const safeAmount = this._safeNum(tx.amountVal);
+        const safeCurrency = this._safeAttr(tx.amountCurrency || 'USD').toUpperCase();
 
         return `
-            <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${Utils.escapeHtml(tx.id || '')}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
+            <div class="th-card ${cardClass} clickable-tx-card" data-action="jump-transaction" data-id="${safeTxIdAttr}" data-type="${jumpType}" title="انقر لعرض التفاصيل">
                 <div class="th-icon ${iconColorClass}"><i class="fa-solid ${iconName}"></i></div>
                 <div class="th-body">
                     <div class="th-details-col">
@@ -66,17 +103,19 @@ export const UIBuilders = {
                         <div class="th-row-bottom"><span class="th-date num-en">${formattedDate}</span></div>
                     </div>
                     <div class="th-amount-col">
-                        <span class="th-order num-en is-copyable" data-action="copy-text" data-text="${Utils.escapeHtml(shortTxId)}" title="اضغط لنسخ رقم العملية">
+                        <span class="th-order num-en is-copyable" data-action="copy-text" data-text="${this._safeAttr(shortTxId)}" title="اضغط لنسخ رقم العملية">
                             <i class="fa-regular fa-copy" style="margin-right:4px; font-size:10px; opacity:0.7;"></i> ${shortTxId}
                         </span>
-                        <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(tx.amountVal || 0, String(tx.amountCurrency || 'USD').toUpperCase())}</div>
+                        <div class="th-amount ${amountClass}">${amountPrefix}${RenderHelpers.formatMoney(safeAmount, safeCurrency)}</div>
                         ${runningBalanceHtml} 
                     </div>
                 </div>
             </div>`;
     },
 
-    /** 2️⃣ بناء كرت الطلب (Order Card) */
+    // ============================================================================
+    // 2️⃣ بناء كرت الطلب (Order Card)
+    // ============================================================================
     buildOrderCard: function(o, idx, displayCurr, highlightId = null, productNamePassed = null) {
         if (!o) return '';
         const getCleanInputRows = (str) => {
@@ -84,25 +123,25 @@ export const UIBuilders = {
             return String(str).split('|').map(s => s.trim()).filter(Boolean);
         };
         
-        const status = o.status || 'pending';
-        const statusClass = status === 'completed' ? 'completed' :
-            (status === 'rejected' ? 'rejected' :
-                (['returned', 'refunded'].includes(status) ? 'returned' :
-                    (status === 'processing' ? 'processing' : 'pending')));
+        const safeStatus = String(o.status || 'pending').toLowerCase();
+        const statusClass = safeStatus === 'completed' ? 'completed' :
+            (safeStatus === 'rejected' ? 'rejected' :
+                (['returned', 'refunded'].includes(safeStatus) ? 'returned' :
+                    (safeStatus === 'processing' ? 'processing' : 'pending')));
         
         const productName = Utils.escapeHtml(productNamePassed || o.product || 'منتج غير معروف');
-        const qty = parseFloat(o.qty) || 1;
+        const qty = this._safeNum(o.qty, 1);
         const qtyHtml = qty > 1 ? `<span class="oh-qty-badge num-en">x${qty}</span>` : '';
         const inputRows = getCleanInputRows(o.input);
         
         let statusLabel = '<i class="fa-regular fa-clock"></i> قيد التنفيذ';
-        if (status === 'completed') statusLabel = '<i class="fa-solid fa-circle-check"></i> مكتمل';
-        else if (status === 'processing') statusLabel = '<i class="fa-solid fa-gears"></i> جاري التنفيذ';
-        else if (status === 'rejected') statusLabel = '<i class="fa-solid fa-circle-xmark"></i> مرفوض';
-        else if (['returned', 'refunded'].includes(status)) statusLabel = '<i class="fa-solid fa-rotate-left"></i> مسترجع';
+        if (safeStatus === 'completed') statusLabel = '<i class="fa-solid fa-circle-check"></i> مكتمل';
+        else if (safeStatus === 'processing') statusLabel = '<i class="fa-solid fa-gears"></i> جاري التنفيذ';
+        else if (safeStatus === 'rejected') statusLabel = '<i class="fa-solid fa-circle-xmark"></i> مرفوض';
+        else if (['returned', 'refunded'].includes(safeStatus)) statusLabel = '<i class="fa-solid fa-rotate-left"></i> مسترجع';
         
-        const safeCouponDisc = parseFloat(o.pricingSnapshot?.couponDiscount || o.couponDiscount) || 0;
-        const safeSaleDisc = parseFloat(o.pricingSnapshot?.offerDiscount || o.saleDiscount) || 0;
+        const safeCouponDisc = this._safeNum(o.pricingSnapshot?.couponDiscount || o.couponDiscount);
+        const safeSaleDisc = this._safeNum(o.pricingSnapshot?.offerDiscount || o.saleDiscount);
         const totalDiscLocal = Number((safeCouponDisc + safeSaleDisc).toFixed(4));
         
         let discountBadgeHtml = '';
@@ -116,11 +155,13 @@ export const UIBuilders = {
                 </div>`;
         }
 
+        const safeOrderIdAttr = this._safeAttr(o.id || '');
         const isHighlighted = (highlightId && String(o.id) === String(highlightId)) ? 'jump-highlight' : '';
         const safeTimeMs = Utils.parseSafeTime(o.time || o.createdAt);
+        const safePrice = this._safeNum(o.price);
         
         return `
-            <div class="oh-card ${isHighlighted}" style="--anim-idx: ${idx}" data-action="open-detail" data-type="order" data-id="${Utils.escapeHtml(o.id || '')}">
+            <div class="oh-card ${isHighlighted}" style="--anim-idx: ${this._safeAttr(idx)}" data-action="open-detail" data-type="order" data-id="${safeOrderIdAttr}">
                 <div class="oh-right">
                     ${discountBadgeHtml} 
                     <div class="oh-title">${productName}</div> 
@@ -129,20 +170,20 @@ export const UIBuilders = {
                 </div>
                 <div class="oh-left">
                     <div class="oh-status-box"><span class="oh-status ${statusClass}">${statusLabel}</span></div>
-                    <div class="oh-price-box" dir="ltr"><div class="oh-amount">${RenderHelpers.formatMoney(Number(o.price || 0), String(displayCurr).toUpperCase())}</div>${qtyHtml}</div>
+                    <div class="oh-price-box" dir="ltr"><div class="oh-amount">${RenderHelpers.formatMoney(safePrice, String(displayCurr).toUpperCase())}</div>${qtyHtml}</div>
                     <div class="oh-order-box" dir="ltr"><span class="oh-order-number num-en">${RenderHelpers.formatOrderId(o)}</span></div>
                 </div>
             </div>`;
     },
 
-    /** 3️⃣ بناء كرت عملية الدفع (Payment/Deposit Card) */
+    // ============================================================================
+    // 3️⃣ بناء كرت عملية الدفع (Payment/Deposit Card)
+    // ============================================================================
     buildPaymentCard: function(d, userDisplayName, userIdString, baseCurrency) {
         if (!d) return '';
         const isDeduction = (d.creditedAmount !== undefined && Number(d.creditedAmount) < 0) || (d.method && String(d.method).includes('خصم'));
         
         let stClass = 'st-pending', stText = 'قيد المراجعة', icon = 'fa-clock';
-        
-        // 🛡️ الترقيع 1: تحصين متغير الحالة ليكون آمناً ومقيداً بالقيم المعروفة فقط
         const safeStatus = String(d.status || 'pending').toLowerCase();
         
         if (['approved', 'completed'].includes(safeStatus)) { 
@@ -151,14 +192,12 @@ export const UIBuilders = {
         } else if (safeStatus === 'rejected') { stClass = 'st-rejected'; stText = 'مرفوض'; icon = 'fa-xmark'; } 
         else if (['refunded', 'returned'].includes(safeStatus)) { stClass = 'st-refunded'; stText = 'مسترجع'; icon = 'fa-rotate-left'; }
 
-        // 🛡️ Strict Type Casting: حماية من البيانات المشوهة
-        const currency = String(d.currency || 'USD').toUpperCase();
-        const safeBaseCurrency = String(baseCurrency || 'USD').toUpperCase();
-        const targetCurr = String(d.targetCurrency || safeBaseCurrency).toUpperCase();
+        const currency = this._safeAttr(d.currency || 'USD').toUpperCase();
+        const targetCurr = this._safeAttr(d.targetCurrency || baseCurrency || 'USD').toUpperCase();
         
-        const rawAmount = Math.abs(parseFloat(d.amount) || 0); 
-        const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(parseFloat(d.creditedAmount)) : rawAmount;
-        const feeVal = parseFloat(d.fees || d.fee || 0); 
+        const rawAmount = Math.abs(this._safeNum(d.amount)); 
+        const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(this._safeNum(d.creditedAmount)) : rawAmount;
+        const feeVal = this._safeNum(d.fees || d.fee); 
         
         let feeLabel = 'الرسوم الإضافية';
         let feeValueHtml = '<span class="text-muted">لا يوجد</span>';
@@ -171,10 +210,11 @@ export const UIBuilders = {
         
         let exchangeRateHtml = '';
         if (currency !== targetCurr && d.exchangeRate) {
+            const safeExchangeRate = this._safeNum(d.exchangeRate);
             exchangeRateHtml = `
             <div class="ph-item">
                 <div class="ph-item-label"><i class="fa-solid fa-money-bill-transfer"></i> سعر الصرف المطبق</div>
-                <div class="ph-item-val num-en ph-rate-val" dir="ltr">1 ${targetCurr} = ${Number(d.exchangeRate).toFixed(4)} ${currency}</div>
+                <div class="ph-item-val num-en ph-rate-val" dir="ltr">1 ${targetCurr} = ${safeExchangeRate.toFixed(4)} ${currency}</div>
             </div>`;
         }
 
@@ -186,11 +226,11 @@ export const UIBuilders = {
             balanceAfterHtml = `
                 <div class="ph-item ph-balance-box">
                     <div class="ph-item-label ph-balance-label"><i class="fa-solid fa-piggy-bank"></i> رصيد المحفظة الحالي</div>
-                    <div class="ph-item-val num-en ph-balance-val" dir="ltr">${RenderHelpers.formatMoney(balAfter, targetCurr)}</div>
+                    <div class="ph-item-val num-en ph-balance-val" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(balAfter), targetCurr)}</div>
                 </div>`;
         }
 
-        const safeReceiptUrl = d.receipt ? Utils.safeUrl(d.receipt) : '';
+        const safeReceiptUrl = this._safeUrlLink(d.receipt);
         let receiptHtml = '';
         if (safeReceiptUrl && safeReceiptUrl !== '#') {
             receiptHtml = `
@@ -209,6 +249,7 @@ export const UIBuilders = {
         const shortDepositId = RenderHelpers.formatDepositId(d);
         const amountColorClass = isDeduction ? 'text-danger' : (stClass === 'st-approved' ? 'text-success' : '');
         const amountPrefix = isDeduction ? '-' : (stClass === 'st-approved' ? '+' : '');
+        const safeDepositIdAttr = this._safeAttr(d.id || '');
 
         return `
             <div class="pay-history-card ${stClass}">
@@ -232,7 +273,7 @@ export const UIBuilders = {
                     <div class="ph-data-list">
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-hashtag"></i> رقم العملية</div>
-                            <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${Utils.escapeHtml(shortDepositId)}">${shortDepositId}</div>
+                            <div class="ph-item-val num-en ph-id is-copyable" data-action="copy-text" data-text="${this._safeAttr(shortDepositId)}">${shortDepositId}</div>
                         </div>
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-regular fa-calendar-check"></i> الوقت والتاريخ</div>
@@ -247,7 +288,7 @@ export const UIBuilders = {
                         </div>
                         <div class="ph-item">
                             <div class="ph-item-label"><i class="fa-solid fa-id-card"></i> معرف الحساب</div>
-                            <div class="ph-item-val num-en is-copyable" data-action="copy-text" data-text="${Utils.escapeHtml(userIdString)}">${Utils.escapeHtml(userIdString)} <i class="fa-regular fa-copy" style="font-size:11px; margin-right:4px;"></i></div>
+                            <div class="ph-item-val num-en is-copyable" data-action="copy-text" data-text="${this._safeAttr(userIdString)}">${Utils.escapeHtml(userIdString)} <i class="fa-regular fa-copy" style="font-size:11px; margin-right:4px;"></i></div>
                         </div>
                         
                         <div class="ph-sep-line" style="margin: 10px 0; opacity: 0.3;"></div>
@@ -269,36 +310,40 @@ export const UIBuilders = {
                     ${d.adminNote && String(d.adminNote).trim() !== '' ? `
                         <div class="ph-admin-note ${safeStatus === 'rejected' ? 'note-rejected' : 'note-approved'} ph-margin-top">
                             <i class="fa-solid fa-headset"></i>
-                            <div class="ph-admin-note-content"><span class="ph-admin-note-title">رسالة الإدارة:</span><div class="admin-reply-text">${Utils.escapeHtml(d.adminNote)}</div></div>
+                            <div class="ph-admin-note-content"><span class="ph-admin-note-title">رسالة الإدارة:</span><div class="admin-reply-text">${this._safeMultiLine(d.adminNote)}</div></div>
                         </div>` : ''}
                     
                     <div class="ph-footer-action ph-margin-top">
-                        <button class="btn-receipt-export" data-action="export-receipt" data-id="${Utils.escapeHtml(d.id || '')}"><i class="fa-solid fa-file-export"></i> تصدير الإيصال PDF</button>
+                        <button class="btn-receipt-export" data-action="export-receipt" data-id="${safeDepositIdAttr}"><i class="fa-solid fa-file-export"></i> تصدير الإيصال PDF</button>
                     </div>
                 </div>
             </div>`;
     },
 
-    /** 4️⃣ بناء محتوى كارت المنتج */
+    // ============================================================================
+    // 4️⃣ بناء محتوى كارت المنتج
+    // ============================================================================
     buildProductCardInner: function(safeName, priceSectionHtml, imgObj, visualElementsHtml, nameExpandedStyle) {
         return `
             <svg class="snake-border" viewBox="0 0 120 165" preserveAspectRatio="none"><rect x="0.7" y="0.7" width="118.6" height="163.6"></rect></svg>
-            <div class="card-image ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${visualElementsHtml} ${imgObj.html}</div>
+            <div class="card-image ${this._safeAttr(imgObj.wrapperClass)}" style="${this._safeAttr(imgObj.wrapperStyle)}">${visualElementsHtml} ${imgObj.html}</div>
             <div class="card-info">
-                <div class="product-name" style="${nameExpandedStyle}">${safeName}</div>
+                <div class="product-name" style="${this._safeAttr(nameExpandedStyle)}">${safeName}</div>
                 ${priceSectionHtml}
             </div>`;
     },
 
-    /** 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية المجهزة للطباعة) */
+    // ============================================================================
+    // 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية المجهزة للطباعة)
+    // ============================================================================
     buildPDFReceipt: function(config, brandHTML) {
         const storeNameText = Utils.escapeHtml(config.storeName || 'المتجر');
         let contentHTML = '';
 
         if (config.type === 'deposit') {
             const isBonus = config.data.feeType === 'bonus';
-            const feeValNum = Number(config.data.feeVal) || 0;
-            const safeCurrency = String(config.data.currency || 'USD').toUpperCase();
+            const feeValNum = this._safeNum(config.data.feeVal);
+            const safeCurrency = this._safeAttr(config.data.currency || 'USD').toUpperCase();
             
             let feeDisplayLabel = isBonus ? 'بونص إضافي' : 'رسوم مخصومة';
             if (config.data.feePercent) feeDisplayLabel += ` (${Utils.escapeHtml(config.data.feePercent)}%)`;
@@ -322,23 +367,25 @@ export const UIBuilders = {
                     <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
                     <div class="r-item"><span class="r-label">معرف الحساب (ID)</span><span class="r-value num-en">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
                     <div class="r-item"><span class="r-label">طريقة الدفع</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
-                    <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(config.data.dateTime).replace('|', '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
-                    <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.amount, safeCurrency)}</span></div>
+                    <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(config.data.dateTime).replace(/\|/g, '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
+                    <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value num-en" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(config.data.amount), safeCurrency)}</span></div>
                     <div class="r-item"><span class="r-label">${feeDisplayLabel}</span>${feeValueHtml}</div>
                 </div>
                 <div class="r-total-box">
                     <div class="r-total-label">صافي الرصيد المضاف</div>
-                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.netVal, String(config.data.targetCurrency || 'USD').toUpperCase())}</div>
+                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(config.data.netVal), String(config.data.targetCurrency || 'USD').toUpperCase())}</div>
                 </div>
             `;
         } else {
-            const safeCurrency = String(config.data.priceCurrency || 'USD').toUpperCase();
-            const originalPriceHtml = config.data.originalPrice > config.data.price ? 
-                `<div class="r-item"><span class="r-label">السعر الأساسي (قبل الخصم)</span><span class="r-value num-en" dir="ltr" style="text-decoration: line-through; color: #94a3b8;">${RenderHelpers.formatMoney(config.data.originalPrice, safeCurrency)}</span></div>` : '';
+            const safeCurrency = this._safeAttr(config.data.priceCurrency || 'USD').toUpperCase();
+            const safeOrigPrice = this._safeNum(config.data.originalPrice);
+            const safeFinalPrice = this._safeNum(config.data.price);
             
-            const safeInputStr = String(config.data.input || '---');
-            const formattedInput = Utils.escapeHtml(safeInputStr).replace(/\|/g, '<br>');
-            const formattedCode = config.data.code ? Utils.escapeHtml(String(config.data.code)).replace(/\||\n/g, '<br>') : '';
+            const originalPriceHtml = safeOrigPrice > safeFinalPrice ? 
+                `<div class="r-item"><span class="r-label">السعر الأساسي (قبل الخصم)</span><span class="r-value num-en" dir="ltr" style="text-decoration: line-through; color: #94a3b8;">${RenderHelpers.formatMoney(safeOrigPrice, safeCurrency)}</span></div>` : '';
+            
+            const formattedInput = this._safeMultiLine(config.data.input || '---').replace(/\|/g, '<br>');
+            const formattedCode = config.data.code ? this._safeMultiLine(config.data.code).replace(/\|/g, '<br>') : '';
 
             contentHTML = `
                 ${brandHTML}
@@ -349,16 +396,16 @@ export const UIBuilders = {
                 <div class="r-grid">
                     <div class="r-item r-item-full" style="border-right: 4px solid #3b82f6;"><span class="r-label">المنتج</span><span class="r-value" style="font-size: 18px;">${Utils.escapeHtml(config.data.product)}</span></div>
                     <div class="r-item"><span class="r-label">حالة الطلب</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
-                    <div class="r-item"><span class="r-label">الكمية</span><span class="r-value num-en">${Utils.escapeHtml(config.data.qty)}</span></div>
+                    <div class="r-item"><span class="r-label">الكمية</span><span class="r-value num-en">${this._safeNum(config.data.qty, 1)}</span></div>
                     <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                    <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(config.data.dateTime).replace('|', '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
+                    <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(config.data.dateTime).replace(/\|/g, '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
                     <div class="r-item r-item-full" style="background: #f1f5f9; border-color: #cbd5e1;"><span class="r-label">بيانات الحساب / المدخلات</span><span class="r-value num-en" dir="ltr" style="line-height: 1.8;">${formattedInput}</span></div>
                     ${originalPriceHtml}
                 </div>
                 ${formattedCode ? `<div class="r-item-full" style="background: #eff6ff; border: 1px dashed #3b82f6;"><span class="r-label" style="color: #1d4ed8;">بيانات التسليم / الأكواد المستلمة</span><span class="r-value r-code-val num-en" dir="ltr" style="line-height: 1.8;">${formattedCode}</span></div>` : ''}
                 <div class="r-total-box">
                     <div class="r-total-label">إجمالي المبلغ المدفوع</div>
-                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(config.data.price, safeCurrency)}</div>
+                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(safeFinalPrice, safeCurrency)}</div>
                 </div>
             `;
         }
@@ -421,37 +468,43 @@ export const UIBuilders = {
         `;
     },
 
-    /** 6️⃣ بناء قائمة الأكواد المستلمة */
+    // ============================================================================
+    // 6️⃣ بناء قائمة الأكواد المستلمة
+    // ============================================================================
     buildCodesList: function(codeString) {
         if (!codeString || codeString === 'null') return '';
         return String(codeString).split(/\||\n/).map(c => c.trim()).filter(Boolean).map(code => {
-            return `<div class="copyable-code-box lux-code-box success-lux-box" data-action="copy-text" data-text="${Utils.escapeHtml(code)}" style="margin-bottom: 8px;"><span class="num-en">${Utils.escapeHtml(code)}</span><i class="fa-regular fa-copy"></i></div>`;
+            const safeCode = Utils.escapeHtml(code);
+            return `<div class="copyable-code-box lux-code-box success-lux-box" data-action="copy-text" data-text="${this._safeAttr(code)}" style="margin-bottom: 8px;"><span class="num-en">${safeCode}</span><i class="fa-regular fa-copy"></i></div>`;
         }).join('');
     },
 
-    /** 7️⃣ بناء شريط حدود الإيداع */
+    // ============================================================================
+    // 7️⃣ بناء شريط حدود الإيداع
+    // ============================================================================
     buildLimitsBar: function(feeVal, payCurr, feeUnit, feeType, minVal, maxVal) {
         let itemsHtml = [];
-        const safeCurr = String(payCurr || 'USD').toUpperCase();
-        
-        // 🛡️ Safe Number Casting
-        const safeFeeVal = Number(feeVal) || 0;
+        const safeCurr = this._safeAttr(payCurr || 'USD').toUpperCase();
+        const safeFeeVal = this._safeNum(feeVal);
+        const safeMin = this._safeNum(minVal);
+        const safeMax = this._safeNum(maxVal);
         
         if (safeFeeVal > 0) {
             const isBonus = (feeType === 'bonus');
             itemsHtml.push(`<div class="bar-item ${isBonus ? 'bonus' : 'commission'}"><span class="item-label"><i class="fa-solid ${isBonus ? 'fa-gift' : 'fa-coins'}"></i> ${isBonus ? 'بونص' : 'عمولة'}</span><span class="item-value"><span class="math-sign">${isBonus ? '+' : '-'}</span>${(feeUnit === 'fixed' || feeUnit === 'amount') ? RenderHelpers.formatMoney(safeFeeVal, safeCurr) : `<span class="money-pro"><span class="num-en">${safeFeeVal.toFixed(1)}%</span></span>`}</span></div>`);
         }
-        if (minVal > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-down"></i> أدنى حد</span><span class="item-value">${RenderHelpers.formatMoney(minVal, safeCurr)}</span></div>`);
-        if (maxVal > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-up"></i> أعلى حد</span><span class="item-value">${RenderHelpers.formatMoney(maxVal, safeCurr)}</span></div>`);
+        if (safeMin > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-down"></i> أدنى حد</span><span class="item-value">${RenderHelpers.formatMoney(safeMin, safeCurr)}</span></div>`);
+        if (safeMax > 0) itemsHtml.push(`<div class="bar-item"><span class="item-label"><i class="fa-solid fa-arrow-up"></i> أعلى حد</span><span class="item-value">${RenderHelpers.formatMoney(safeMax, safeCurr)}</span></div>`);
         return itemsHtml;
     },
 
-    /** 8️⃣ بناء نموذج الإيداع (Deposit Form) */
-        /** 8️⃣ بناء نموذج الإيداع (Deposit Form) */
+    // ============================================================================
+    // 8️⃣ بناء نموذج الإيداع (Deposit Form)
+    // ============================================================================
     buildDepositForm: function(p, copyContainer, isSingleCurrency, currentPayCurrency, currItemsHtml, baseCurr) {
         if (!p) return '';
-        const safeBaseCurr = String(baseCurr || 'USD').toUpperCase(); 
-        const safePayCurr = String(currentPayCurrency || 'USD').toUpperCase();
+        const safeBaseCurr = this._safeAttr(baseCurr || 'USD').toUpperCase(); 
+        const safePayCurr = this._safeAttr(currentPayCurrency || 'USD').toUpperCase();
         
         return `
             <div class="bal-modal-container-new">
@@ -462,33 +515,40 @@ export const UIBuilders = {
                     <div class="micro-currency-row">
                         <div class="micro-currency-label"><i class="fa-solid fa-wallet"></i> عملة الإيداع</div>
                         <div class="split-dropdown" id="bal-currency-dropdown">
-                            <!-- 🛡️ تم إضافة data-action ليعمل الزر عبر الموزع المركزي -->
                             <div class="micro-currency-trigger" ${isSingleCurrency ? '' : 'data-action="toggle-bal-curr-menu"'} style="${isSingleCurrency ? 'cursor: default;' : ''}">
-                                <span id="bal-selected-currency" class="num-en">${Utils.escapeHtml(safePayCurr)}</span>
+                                <span id="bal-selected-currency" class="num-en">${safePayCurr}</span>
                                 ${isSingleCurrency ? '' : '<i class="fa-solid fa-chevron-down" style="font-size: 11px;"></i>'}
                             </div>
                             <div class="dropdown-menu" id="bal-currency-list" style="${isSingleCurrency ? 'display:none;' : ''}">${currItemsHtml}</div>
                         </div>
                     </div>
                 <div class="bal-input-field-new" id="bal-amount-wrap">
-                    <span class="bal-input-currency-new" id="bal-amount-curr">${Utils.escapeHtml(safePayCurr)}</span>
+                    <span class="bal-input-currency-new" id="bal-amount-curr">${safePayCurr}</span>
                     <input type="text" id="bal-amount" class="bal-input-new num-en" dir="ltr" placeholder="0.00" inputmode="decimal" autocomplete="one-time-code" spellcheck="false" autocorrect="off">
                     <label class="bal-floating-label">أدخل مبلغ للإيداع</label>
                 </div>
                 <span id="bal-amount-error" class="bal-error-text-new d-none"></span>
                     <div class="bal-input-field-new" id="bal-net-wrap">
-                        <span class="bal-input-currency-new" id="bal-net-curr">${Utils.escapeHtml(safeBaseCurr)}</span>
+                        <span class="bal-input-currency-new" id="bal-net-curr">${safeBaseCurr}</span>
                         <div class="bal-input-new bal-result-field-new num-en" id="calc-net" dir="ltr">0.00</div>
                         <label class="bal-floating-label">سيضاف لمحفظتك</label>
                     </div>
                 </div>
-                <div id="bal-upload-container" style="display: ${p.reqProof !== false ? 'block' : 'none'}; margin-top: 10px;">
-                    <button class="bal-upload-btn-new" id="bal-upload-box">
-                        <i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>
-                    </button>
-                    <input type="file" id="bal-file" accept="image/*,application/pdf" style="display:none;">
-                    <img id="bal-img-preview" class="bal-receipt-preview-new" style="display:none;">
-                </div>
+
+<div id="bal-upload-container" style="display: ${p.reqProof !== false ? 'block' : 'none'}; margin-top: 10px;">
+    <button type="button" class="bal-upload-btn-new" id="bal-upload-box" data-action="trigger-click" data-target="bal-file">
+        <i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>
+    </button>
+    <input type="file" id="bal-file" accept="image/*,application/pdf" style="display:none;">
+    
+    <!-- 🛡️ زر الحذف الجديد -->
+    <div id="bal-file-clear" class="hide-element" data-action="clear-bal-file" style="cursor:pointer; color: #ef4444; text-align:center; margin-top:10px; font-size:13px; font-weight:600;">
+        <i class="fa-solid fa-trash-can"></i> حذف المرفق وإعادة الرفع
+    </div>
+    
+    <img id="bal-img-preview" class="bal-receipt-preview-new" style="display:none;">
+</div>
+
                 <button id="btn-submit-deposit" class="bal-submit-btn-new btn-pro" data-action="submit-balance" disabled>
                     <span class="btn-content"><i class="fa-solid fa-paper-plane"></i> إرسال الطلب</span>
                     <span class="btn-spinner"><i class="fa-solid fa-spinner fa-spin"></i></span>
@@ -496,16 +556,18 @@ export const UIBuilders = {
             </div>`;
     },
 
-    /** بناء عنصر دولة واحدة للقائمة المنسدلة */
+    // ============================================================================
+    // 🌍 بناء عنصر دولة واحدة للقائمة المنسدلة
+    // ============================================================================
     buildCountryItem: function(c) {
         if (!c) return '';
         const safeName = Utils.escapeHtml(c.name || c.nameAr || 'غير محددة');
         const safeFlag = Utils.escapeHtml(c.flag || c.flagEmoji || '🌍');
         const safeCode = Utils.escapeHtml(c.dialCode || '');
-        const safeLen = parseInt(c.phoneLen) || 10;
+        const safeLen = this._safeNum(c.phoneLen, 10);
         
         return `
-        <div class="dropdown-item" data-action="select-country" data-name="${safeName}" data-code="${safeCode}" data-len="${safeLen}">
+        <div class="dropdown-item" data-action="select-country" data-name="${this._safeAttr(safeName)}" data-code="${this._safeAttr(safeCode)}" data-len="${safeLen}">
             <div style="display: flex; align-items: center; gap: 10px;">
                 <span class="country-flag" style="font-size: 16px;">${safeFlag}</span>
                 <span class="country-name">${safeName}</span>
@@ -514,7 +576,9 @@ export const UIBuilders = {
         </div>`;
     },
 
-    /** 9️⃣ بناء تفاصيل العملية (Transaction Detail - Order/Deposit) */
+    // ============================================================================
+    // 9️⃣ بناء تفاصيل العملية (Transaction Detail - Order/Deposit)
+    // ============================================================================
     buildTransactionDetail: function(type, id, LiveStoreData, DataManager) {
         const formatInputData = (rawVal) => { 
             if (rawVal === null || rawVal === undefined || rawVal === '' || rawVal === '---') {
@@ -536,6 +600,7 @@ export const UIBuilders = {
 
             const shortDepositId = RenderHelpers.formatDepositId(d);
             const safeStatus = String(d.status || 'pending').toLowerCase();
+            const safeDepositIdAttr = this._safeAttr(id);
             
             let stClass = 'pending'; let stTxt = safeStatus === 'pending' ? 'قيد المراجعة' : safeStatus; let stIcon = 'fa-clock';
             if(safeStatus === 'approved' || safeStatus === 'completed') { stClass = 'completed'; stTxt = 'مقبول'; stIcon = 'fa-check-circle'; }
@@ -543,14 +608,14 @@ export const UIBuilders = {
             
             let replyHtml = '';
             if (d.adminNote && String(d.adminNote).trim() !== '' && d.adminNote !== 'null') {
-                const safeResponse = Utils.escapeHtml(d.adminNote);
+                const safeResponse = this._safeMultiLine(d.adminNote);
                 replyHtml = `
                 <div class="nm-reply-box">
                     <div class="nm-reply-content">
                         <span class="nm-reply-head"><i class="fa-solid fa-headset"></i> ملاحظات الإدارة</span>
                         <div class="nm-reply-body admin-reply-text">${safeResponse}</div>
                     </div>
-                    <button class="reply-copy-btn" data-action="copy-text" data-text="${Utils.escapeHtml(d.adminNote)}" title="نسخ الرد">
+                    <button class="reply-copy-btn" data-action="copy-text" data-text="${this._safeAttr(d.adminNote)}" title="نسخ الرد">
                         <i class="fa-regular fa-copy"></i>
                     </button>
                 </div>`;
@@ -558,24 +623,26 @@ export const UIBuilders = {
 
             let creditedRow = '';
             if (d.creditedAmount !== undefined) {
-                creditedRow = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</span><div class="nm-val">${RenderHelpers.formatMoney(d.creditedAmount, String(d.targetCurrency || 'USD').toUpperCase())}</div></div>`;
+                const safeCredited = this._safeNum(d.creditedAmount);
+                creditedRow = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</span><div class="nm-val">${RenderHelpers.formatMoney(safeCredited, this._safeAttr(d.targetCurrency || 'USD').toUpperCase())}</div></div>`;
             }
 
-            const safeReceiptUrl = d.receipt ? Utils.safeUrl(d.receipt) : '';
+            const safeReceiptUrl = this._safeUrlLink(d.receipt);
             const receiptHtml = (safeReceiptUrl && safeReceiptUrl !== '#') ? `<a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><div class="nm-universal-card nm-receipt-card cursor-zoom-in" data-url="${safeReceiptUrl}"><img src="${safeReceiptUrl}" class="nm-receipt-img hover-scale" alt="Receipt"><div class="nm-receipt-card-info"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً</div></div></a>` : '';
 
             const safeTimeMs = Utils.parseSafeTime(d.time || d.createdAt);
+            const safeAmount = this._safeNum(d.amount);
 
             html = `
             <div class="nm-container">
                 <div class="nm-universal-card">
                     <div class="nm-title-frame"><div class="nm-prod-title">تفاصيل الإيداع</div></div>
                     <div class="nm-card-body">
-                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-coins"></i> المبلغ المودع</span><div class="nm-val">${RenderHelpers.formatMoney(d.amount, String(d.currency || 'USD').toUpperCase())}</div></div>
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-coins"></i> المبلغ المودع</span><div class="nm-val">${RenderHelpers.formatMoney(safeAmount, this._safeAttr(d.currency || 'USD').toUpperCase())}</div></div>
                         ${creditedRow}
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-building-columns"></i> طريقة الدفع</span><div class="nm-val"><span class="num-en">${Utils.escapeHtml(d.method || 'غير محدد')}</span></div></div>
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-circle-info"></i> الحالة</span><div class="nm-status-badge-lux ${stClass}"><i class="fa-solid ${stIcon}"></i> ${stTxt}</div></div>
-                        <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${Utils.escapeHtml(shortDepositId)}">
+                        <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${this._safeAttr(shortDepositId)}">
                             <span class="nm-label nm-pointer-none"><i class="fa-solid fa-hashtag"></i> رقم العملية</span>
                             <div class="uid-capsule nm-pointer-none"><i class="fa-solid fa-id-card"></i><span class="num-en">${shortDepositId}</span></div>
                         </div>
@@ -592,6 +659,7 @@ export const UIBuilders = {
             const shortOrderId = RenderHelpers.formatOrderId(o);
             const safeStatus = String(o.status || 'pending').toLowerCase();
             const isRet = (safeStatus === 'refunded' || safeStatus === 'returned');
+            const safeOrderIdAttr = this._safeAttr(id);
             
             let stTxt = 'قيد التنفيذ'; let stClass = 'pending'; let stIcon = 'fa-clock';
 
@@ -612,33 +680,26 @@ export const UIBuilders = {
                         console.warn("فشل حساب مدة الطلب", e);
                     }
                 }
-                durationHtml = `<div class="nm-duration-pill"><i class="fa-solid fa-bolt"></i><span dir="ltr" class="nm-font-en-fix">مدة الانجاز: ${durationStr}</span></div>`;
+                durationHtml = `<div class="nm-duration-pill"><i class="fa-solid fa-bolt"></i><span dir="ltr" class="nm-font-en-fix">مدة الانجاز: ${Utils.escapeHtml(durationStr)}</span></div>`;
             }
 
             let replyHtml = '';
             if (o.response && String(o.response).trim() !== '' && o.response !== 'null') {
-                const safeResponse = Utils.escapeHtml(o.response);
+                const safeResponse = this._safeMultiLine(o.response);
                 replyHtml += `<div class="nm-reply-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-headset"></i> رد المتجر</span><div class="nm-reply-body admin-reply-text">${safeResponse}</div></div></div>`;
             }
             if (safeStatus === 'completed' && o.deliveredCode && String(o.deliveredCode).trim() !== '' && o.deliveredCode !== 'null') {
-                replyHtml += `<div class="nm-reply-box auto-delivery-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم فوري</span><div class="nm-reply-body nm-auto-delivery-scroll">${UIBuilders.buildCodesList(o.deliveredCode)}</div></div></div>`;
+                replyHtml += `<div class="nm-reply-box auto-delivery-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم فوري</span><div class="nm-reply-body nm-auto-delivery-scroll">${this.buildCodesList(o.deliveredCode)}</div></div></div>`;
             }
 
-            // 🛡️ الترقيع 2: الحماية المطلقة من ظهور NaN في الفواتير (NaN Fallback)
-            const getSafeVal = (v1, v2) => {
-                let n = parseFloat(v1); if (!isNaN(n)) return n;
-                n = parseFloat(v2); if (!isNaN(n)) return n;
-                return 0;
-            };
-
-            const cDiscountLocal = getSafeVal(o.pricingSnapshot?.couponDiscount, o.couponDiscount);
-            const oDiscountLocal = getSafeVal(o.pricingSnapshot?.offerDiscount, o.saleDiscount);
-            const origLocal = getSafeVal(o.pricingSnapshot?.originalPrice, o.price);
-            const finalLocal = getSafeVal(o.pricingSnapshot?.finalPrice, o.price);
+            // 🛡️ الحماية المطلقة من ظهور NaN في الفواتير
+            const cDiscountLocal = this._safeNum(o.pricingSnapshot?.couponDiscount, o.couponDiscount);
+            const oDiscountLocal = this._safeNum(o.pricingSnapshot?.offerDiscount, o.saleDiscount);
+            const origLocal = this._safeNum(o.pricingSnapshot?.originalPrice, o.price);
+            const finalLocal = this._safeNum(o.pricingSnapshot?.finalPrice, o.price);
             
-            // 🛡️ Strict Type Casting: حماية من البيانات المشوهة
-            const displayCurr = String(o.currency || o.priceCurrency || 'USD').toUpperCase();
-            const formatFn = (amt) => RenderHelpers.formatMoney(amt, displayCurr);
+            const displayCurr = this._safeAttr(o.currency || o.priceCurrency || 'USD').toUpperCase();
+            const formatFn = (amt) => RenderHelpers.formatMoney(this._safeNum(amt), displayCurr);
             
             let priceSectionHtml = '';
             if (cDiscountLocal > 0 || oDiscountLocal > 0) {
@@ -651,6 +712,7 @@ export const UIBuilders = {
             }
 
             const safeTimeMs = Utils.parseSafeTime(o.time || o.createdAt);
+            const safeQty = this._safeNum(o.qty, 1);
 
             html = `
             <div class="nm-container">
@@ -658,18 +720,18 @@ export const UIBuilders = {
                 <div class="nm-universal-card">
                     <div class="nm-title-frame"><div class="nm-prod-title">${Utils.escapeHtml(o.product || 'منتج')}</div></div>
                     <div class="nm-card-body">
-                        <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${Utils.escapeHtml(shortOrderId)}">
+                        <div class="nm-row-compact smart-copy-line is-copyable" data-action="copy-text" data-text="${this._safeAttr(shortOrderId)}">
                             <span class="nm-label nm-pointer-none"><i class="fa-solid fa-hashtag"></i> رقم الطلب</span>
                             <div class="nm-val scl-text nm-pointer-none" dir="ltr"><span class="num-en">${shortOrderId}</span><i class="fa-regular fa-copy scl-icon"></i></div>
                         </div>
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-circle-info"></i> الحالة</span><div class="nm-status-badge-lux ${stClass}"><i class="fa-solid ${stIcon}"></i> ${stTxt}</div></div>
                         ${priceSectionHtml} 
-                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-layer-group"></i> الكمية</span><div class="nm-val" dir="ltr"><span class="num-en">${o.qty || 1}</span></div></div>
+                        <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-layer-group"></i> الكمية</span><div class="nm-val" dir="ltr"><span class="num-en">${safeQty}</span></div></div>
                         <div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-clock"></i> التاريخ</span><div class="nm-val" dir="ltr"><span class="num-en">${RenderHelpers.formatSafeDate(safeTimeMs)}</span></div></div>
                         <div class="nm-row-compact align-start"><span class="nm-label"><i class="fa-solid fa-bullseye"></i> الحساب</span><div class="nm-val" dir="ltr">${formatInputData(o.input)}</div></div>
                     </div>
                 </div>
-                <div class="nm-data-box"><div class="nm-btn-print-magic" data-action="export-receipt" data-id="${Utils.escapeHtml(id)}"><i class="fa-solid fa-file-pdf"></i> تصدير الإيصال</div></div>
+                <div class="nm-data-box"><div class="nm-btn-print-magic" data-action="export-receipt" data-id="${safeOrderIdAttr}"><i class="fa-solid fa-file-pdf"></i> تصدير الإيصال</div></div>
                 ${replyHtml}
             </div>`;
         }        

@@ -1,12 +1,11 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V18.2.0 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V18.6 💎
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع الآمن، عزل الحالة، وإدارة الجلسات
-// 🚀 التحديثات المعمارية الصارمة (V18.2.0 - Biometric & Reload Patch):
-// 1. CSS Decoupling: إزالة التلاعب المباشر بالـ style وإسناد إقفال الواجهة لملف CSS.
-// 2. WebAuthn Deadlock Guard: مؤقت أمان يحرر الواجهة إذا تجمد نظام البصمة بالجهاز.
-// 3. Deprecated Reload Fix: تصحيح دوال إعادة تحميل الصفحة لحذف الكاش بطريقة حديثة.
-// 4. Zero-Leak Listeners: تفريغ مستمعات الـ DataManager لعدم مضاعفة فاتورة فايربيس.
-// 5. Time Drift Sync: تحديث صامت للوقت عند خروج المتجر من وضع الاستعداد.
+// 🚀 التحديثات المعمارية الصارمة (V18.6 - Zero-Flicker Boot Patch):
+// 1. Zero-Flicker Boot 🛡️: تزامن إخفاء الـ Splash Screen مع اكتمال رسم الواجهة لمنع الوميض.
+// 2. Async Greeting Sync: تأجيل رسائل الترحيب لتعمل حصرياً بعد ظهور الواجهة للمستخدم.
+// 3. WebAuthn Deadlock Guard: مؤقت أمان يحرر الواجهة إذا تجمد نظام البصمة بالجهاز.
+// 4. Time Drift Sync: تحديث صامت للوقت عند خروج المتجر من وضع الاستعداد.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -30,7 +29,6 @@ import { RenderManager } from './renderManager.js';
 import { Components, CalendarApp } from './components.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 
-// 🛡️ التحديث الماسي: إصلاح انهيار الذاكرة (Maximum call stack)
 const _updateLiveArray = (arr, newData) => { 
     if (arr) { 
         arr.length = 0; 
@@ -60,7 +58,6 @@ const AppController = {
     _isUpdatingServer: false,
 
     clearFirebaseListeners: function() {
-        // 🛡️ حماية ضد التكرار (Memory Leak Fix)
         const allListeners = [...this.activeListeners, ...this.userAuthListeners];
         allListeners.forEach(unsub => {
             if (typeof unsub === 'function') try { unsub(); } catch(e){}
@@ -68,7 +65,6 @@ const AppController = {
         this.activeListeners = [];
         this.userAuthListeners = [];
         
-        // 🛡️ إغلاق مستمعات DataManager الصامتة لمنع تضاعف الفاتورة (Zero-Leak)
         if (typeof DataManager !== 'undefined') {
             if (typeof DataManager._notifUnsubscribe === 'function') { DataManager._notifUnsubscribe(); DataManager._notifUnsubscribe = null; }
             if (typeof DataManager._userUnsubscribe === 'function') { DataManager._userUnsubscribe(); DataManager._userUnsubscribe = null; }
@@ -89,7 +85,6 @@ const AppController = {
             return true; 
         }
         
-        // 🛡️ التحديث المعماري: الاعتماد على الكلاس فقط وتفويض المهمة للـ CSS
         document.body.classList.add('biometric-locked');
         if (lockScreen) lockScreen.classList.add('active'); 
         
@@ -118,7 +113,7 @@ const AppController = {
                 rawIdBytes[i] = binaryString.charCodeAt(i);
             }
             
-            // 🛡️ درع الإقفال التام (Deadlock Guard): 45 ثانية كحد أقصى لاستجابة نظام البصمة
+            // 🛡️ درع الإقفال التام: 45 ثانية كحد أقصى
             const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('biometric_timeout')), 45000));
             
             await Promise.race([
@@ -234,7 +229,6 @@ const AppController = {
                         }
                         
                         await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
-                        // 🛡️ إزالة المعامل الملغى true واستخدام reload القياسي بعد التفريغ
                         window.location.reload();
                     }, 2000);
                     return;
@@ -274,7 +268,6 @@ const AppController = {
                 const localUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
                 
                 if (!localUid || !DataManager.user) {
-                    console.warn("👻 [Ghost Session Detected]: فايربيز متصل لكن الكاش فارغ. جاري التشافي...");
                     localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
                     try {
                         const userDoc = await StoreDB.getById(DB_KEYS.USERS, uidStr);
@@ -286,9 +279,7 @@ const AppController = {
                             if (DataManager.logout) DataManager.logout();
                             return;
                         }
-                    } catch (e) {
-                        console.error("🚨 فشل استعادة الجلسة الشبحية:", e);
-                    }
+                    } catch (e) { }
                 } else {
                     localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
                 }
@@ -387,10 +378,8 @@ const AppController = {
                     }));
                 }
             } else {
-                console.log("👤 العميل زائر. تم تنظيف المستمعات.");
                 const staleLocalUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
                 if (staleLocalUid || DataManager.user) {
-                    console.warn("🧹 [Stale Session]: فايربيز غير متصل لكن الكاش موجود. جاري التنظيف...");
                     if (DataManager.logout) DataManager.logout();
                 } else {
                     localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
@@ -414,7 +403,6 @@ AppController.init = async function() {
         }
     });
 
-    // 🛡️ معالجة الانحراف الزمني عند عودة العميل من وضع الاستعداد (Sleep Mode)
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden && typeof DataManager !== 'undefined' && DataManager.activeUid) {
             if (typeof DataManager.syncUser === 'function') DataManager.syncUser().catch(()=>{}); 
@@ -430,8 +418,6 @@ AppController.init = async function() {
         const savedVersion = localStorage.getItem('telecard_app_version');
         
         if (savedVersion && savedVersion !== currentVersion) {
-            console.warn(`🔄 تم اكتشاف تحديث محلي للمتجر! جاري التحديث من ${savedVersion} إلى ${currentVersion}...`);
-            
             const clearPromises = [];
             if ('serviceWorker' in navigator) {
                 clearPromises.push(navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).catch(() => []));
@@ -467,14 +453,12 @@ AppController.init = async function() {
             
             if (cachedOrders.length > 0) {
                 _updateLiveArray(LiveStoreData.orders, cachedOrders);
-                if (document.getElementById('orders-modal')?.classList.contains('active') && RenderManager.renderOrders) RenderManager.renderOrders(true);
             }
             if (cachedDeposits.length > 0) {
                 _updateLiveArray(LiveStoreData.deposits, cachedDeposits);
-                if (document.getElementById('wallet-modal')?.classList.contains('active') && RenderManager.renderWallet) RenderManager.renderWallet(true);
             }
         }
-    } catch (e) { console.warn("⚠️ [Cache Hydration] تعذر جلب السجلات المؤقتة."); }
+    } catch (e) { }
     
     try {
         if (DataManager.loadPrefs) DataManager.loadPrefs();
@@ -502,6 +486,7 @@ AppController.init = async function() {
     try {
         if (UIManager.checkSystemStatus && UIManager.checkSystemStatus()) return;
         
+        // 1. جلب الكتالوج الأساسي أولاً
         await DataManager.initStoreCatalog();
         
         if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
@@ -519,57 +504,56 @@ AppController.init = async function() {
                 setTimeout(() => { if (splash) splash.remove(); }, 400);
             }
         };
-        requestAnimationFrame(removeSplashScreen);
 
-        if (localStorage.getItem('tc_show_logout_toast')) {
-            localStorage.removeItem('tc_show_logout_toast');
-            setTimeout(() => {
-                if (UIManager.showToast) UIManager.showToast('تم تسجيل الخروج بنجاح. نراك قريباً!', 'success');
-                if (UIManager.sfx) UIManager.sfx('success');
-            }, 1200);
-
-        } else if (!sessionStorage.getItem('tc_has_been_greeted')) {
-            sessionStorage.setItem('tc_has_been_greeted', 'true');
-            setTimeout(() => {
-                const isNewUser = sessionStorage.getItem('tc_new_user_signup');
-                const storeName = localStorage.getItem('tc_splash_name') || LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'متجرنا';
-                const firstName = DataManager.user?.firstName || DataManager.user?.name || '';
-                const namePart = firstName ? ` يا ${firstName}` : '';
-                let finalGreeting = '';
-                
-                if (isNewUser) {
-                    sessionStorage.removeItem('tc_new_user_signup');
-                    const newWelcomePhrases = [
-                        `أهلاً بك في عائلة ${storeName}${namePart} 🎉`,
-                        `بداية موفقة معنا في ${storeName}${namePart} 🚀`,
-                        `سعيدون بانضمامك لـ ${storeName}${namePart} ✨`
-                    ];
-                    finalGreeting = newWelcomePhrases[Math.floor(Math.random() * newWelcomePhrases.length)];
-                } else {
-                    const hour = new Date().getHours();
-                    let timePhrases = [];
-                    
-                    if (hour >= 5 && hour < 12) timePhrases = ["صباح الخير", "عمت صباحاً", "صباح النشاط", "إشراقة جديدة"];
-                    else if (hour >= 12 && hour < 18) timePhrases = ["طاب مساؤك", "كيف الحال", "ما الأخبار", "مرحباً بك"];
-                    else timePhrases = ["مساء الخير", "سهرة ممتعة", "عمت مساءً", "أهلاً بك الليلة"];
-                    
-                    finalGreeting = `${timePhrases[Math.floor(Math.random() * timePhrases.length)]}${namePart} ✨`;
-                }
-                
-                if (UIManager.showToast) UIManager.showToast(finalGreeting, 'info');
-                
+        const handleWelcomeMessages = () => {
+            if (localStorage.getItem('tc_show_logout_toast')) {
+                localStorage.removeItem('tc_show_logout_toast');
                 setTimeout(() => {
-                    if (UIManager.showPushNotificationPrompt) {
-                        UIManager.showPushNotificationPrompt();
-                    }
-                }, 3500);
+                    if (UIManager.showToast) UIManager.showToast('تم تسجيل الخروج بنجاح. نراك قريباً!', 'success');
+                    if (UIManager.sfx) UIManager.sfx('success');
+                }, 1200);
 
-            }, 1500);
-        }
+            } else if (!sessionStorage.getItem('tc_has_been_greeted')) {
+                sessionStorage.setItem('tc_has_been_greeted', 'true');
+                setTimeout(() => {
+                    const isNewUser = sessionStorage.getItem('tc_new_user_signup');
+                    const storeName = localStorage.getItem('tc_splash_name') || LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'متجرنا';
+                    const firstName = DataManager.user?.firstName || DataManager.user?.name || '';
+                    const namePart = firstName ? ` يا ${firstName}` : '';
+                    let finalGreeting = '';
+                    
+                    if (isNewUser) {
+                        sessionStorage.removeItem('tc_new_user_signup');
+                        const newWelcomePhrases = [
+                            `أهلاً بك في عائلة ${storeName}${namePart} 🎉`,
+                            `بداية موفقة معنا في ${storeName}${namePart} 🚀`,
+                            `سعيدون بانضمامك لـ ${storeName}${namePart} ✨`
+                        ];
+                        finalGreeting = newWelcomePhrases[Math.floor(Math.random() * newWelcomePhrases.length)];
+                    } else {
+                        const hour = new Date().getHours();
+                        let timePhrases = [];
+                        
+                        if (hour >= 5 && hour < 12) timePhrases = ["صباح الخير", "عمت صباحاً", "صباح النشاط", "إشراقة جديدة"];
+                        else if (hour >= 12 && hour < 18) timePhrases = ["طاب مساؤك", "كيف الحال", "ما الأخبار", "مرحباً بك"];
+                        else timePhrases = ["مساء الخير", "سهرة ممتعة", "عمت مساءً", "أهلاً بك الليلة"];
+                        
+                        finalGreeting = `${timePhrases[Math.floor(Math.random() * timePhrases.length)]}${namePart} ✨`;
+                    }
+                    
+                    if (UIManager.showToast) UIManager.showToast(finalGreeting, 'info');
+                    
+                    setTimeout(() => {
+                        if (UIManager.showPushNotificationPrompt) {
+                            UIManager.showPushNotificationPrompt();
+                        }
+                    }, 3500);
+
+                }, 1500);
+            }
+        };
 
         if (UIManager.applyStoreIdentity) UIManager.applyStoreIdentity();
-        if (UIManager.initSlider) UIManager.initSlider();
-        if (UIManager.renderTicker) UIManager.renderTicker();
         if (UIManager.updateProfileDisplay) UIManager.updateProfileDisplay();
 
         const sName = LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'TeleCard';
@@ -577,7 +561,7 @@ AppController.init = async function() {
         if (splashName) splashName.innerText = sName;
         localStorage.setItem(CACHE_KEYS.SPLASH_NAME, sName);
 
-        // 🛡️ التحديث المعماري الصارم: استبدال getAll بالكاش وحماية سعة الاستعلام
+        // 🛡️ التحديث المعماري الصارم: دمج جلب البيانات الإضافية مع دورة الرسم المبدئية (Zero-Flicker Boot)
         if (UIManager.isReady && RenderManager) {
             const publicKeys = ['COUNTRIES', 'PAYMENTS'];
             const promises = publicKeys.map(k => StoreDB.queryCacheFirst(DB_KEYS[k], [], null, 500).catch(() => []));
@@ -593,14 +577,24 @@ AppController.init = async function() {
                         _updateLiveArray(LiveStoreData[key.toLowerCase()], results[i]);
                     }
                 });
+                
+                // 1. رسم الواجهة بالكامل
                 if (RenderManager.renderHome) RenderManager.renderHome();
                 if (UIManager.initSlider) UIManager.initSlider();
                 if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance();
-                
                 if (document.getElementById('balance-modal')?.classList.contains('active')) {
                     if (RenderManager.renderPayMethods) RenderManager.renderPayMethods();
                 }
+                
+                // 2. إزالة شاشة الإقلاع (Splash Screen) بعد انتهاء الرسم الموازي لمنع الوميض
+                requestAnimationFrame(removeSplashScreen);
+                
+                // 3. عرض رسائل الترحيب
+                handleWelcomeMessages();
             });
+        } else {
+            requestAnimationFrame(removeSplashScreen);
+            handleWelcomeMessages();
         }
     } catch (e) {
         console.error("🚨 خطأ أثناء محاولة إقلاع الواجهة:", e);

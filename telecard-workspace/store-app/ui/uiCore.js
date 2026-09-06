@@ -1,11 +1,11 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.5.0 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.6 💎
 // 🎯 الوظيفة: النوافذ، التوجيه الذكي، الإشعارات، التنسيق، ومزامنة الصوت
-// 🚀 التحديثات المعمارية الصارمة (V18.5.0 - Clean Code Refactor):
-// 1. Dictionary Decomposition 🛡️: تفكيك قاموس الأحداث المركزي إلى 6 أقسام مقروءة بصرياً.
-// 2. Spread Operator Integration 🛡️: دمج الأحداث برمجياً للحفاظ على أداء (O(1)) وعدم استنزاف الذاكرة.
-// 3. PopState Collision Fix 🛡️: دمج أحداث العودة لمنع التضارب بين النوافذ والأقسام.
-// 4. AudioContext Leak Guard 🛡️: إيقاف عتاد الصوت آلياً في الخلفية لحفظ البطارية.
+// 🚀 التحديثات المعمارية الصارمة (V18.6 - UX & Audio Sync Patch):
+// 1. History API Bloat Fix 🛡️: استخدام replaceState للنوافذ المتراكبة لمنع تضخم سجل المتصفح.
+// 2. iOS Audio Deadlock Shield 🛡️: إزالة الإيقاف الإجباري لمحرك الصوت للسماح بنغمات الإشعارات في Safari.
+// 3. Dictionary Decomposition 🛡️: تفكيك قاموس الأحداث المركزي إلى 6 أقسام مقروءة بصرياً.
+// 4. Spread Operator Integration 🛡️: دمج الأحداث برمجياً للحفاظ على أداء (O(1)).
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY, DYNAMIC_PREFIXES } from '../config.js';           
@@ -27,7 +27,6 @@ const getSys = () => {
 export const UICore = {
     displayMenuTimer: null,
     audioCtx: null,
-    _audioSuspendTimer: null,
     navHistory: [],
     currentCategoryId: null,
     historyStateSet: false,
@@ -74,7 +73,6 @@ export const UICore = {
                     localStorage.removeItem(ACTIVE_USER_KEY);
                     localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
                     
-                    // 🛡️ تطهير شامل وحقيقي للكاش دون ترك مخلفات
                     Object.keys(localStorage).forEach(key => {
                         if (key.startsWith('tc_orders_cache_') || 
                             key.startsWith('tc_deposits_cache_') || 
@@ -198,11 +196,12 @@ export const UICore = {
         if (scrollable) scrollable.scrollTop = 0;
         
         requestAnimationFrame(() => modal.classList.add('active'));
-        if (!state.activeModals.includes(modalId)) state.activeModals.push(modalId);
-
+           // 🛡️ History API Collision Fix: دفع حالة جديدة دائماً لضمان عمل زر الرجوع بالترتيب
         if (window.history && window.history.pushState) {
             window.history.pushState({ modal: modalId }, '', `#${modalId}`);
         }
+
+        if (!state.activeModals.includes(modalId)) state.activeModals.push(modalId);
 
         if (modalId === 'identity') {
             const listTarget = document.getElementById('countries-list-target');
@@ -548,7 +547,6 @@ export const UICore = {
             navigator.serviceWorker.addEventListener('message', (event) => {
                 if (event.data && event.data.type === 'FCM_NOTIFICATION_CLICK') {
                     const sys = getSys(), payload = event.data.payload || {};
-                    // 🛡️ التحديث هنا: إضافة payload.targetType ليفهم الواجهة لغة السيرفر
                     const target = payload.targetType || payload.jumpTarget || payload.type, id = payload.targetId || payload.id;
                     if (target && id) {
                         if (target === 'order' || target === 'purchase') sys.jumpToTransaction?.(id, 'purchase');
@@ -695,27 +693,26 @@ export const UICore = {
             'toggle-coupon-ui': (e, id, val, target) => getSys().toggleCoupon?.(target)
         };
 
-            // =========================================================
+        // =========================================================
         // 🗂️ 5. قسم أحداث الحساب والأمان والتفضيلات (User & System)
         // =========================================================
         const SystemActions = {
-            'logout': () => DataManager.logout?.(),
+                      'logout': () => DataManager.logout?.(),
             'go-login': (e) => { e.preventDefault(); window.location.href = 'login.html'; },
-            'request-account-delete': () => getSys().openModal?.('account-delete'),
+            'request-account-delete': () => this.showToast?.('يرجى التواصل مع الدعم الفني لحذف حسابك نهائياً', 'warning'),
             'install-pwa': () => this.triggerPWAInstall(),
-            
-            // 🛡️ السطر المفقود الذي تم إضافته ليعمل الزر بنجاح
             'manage-push-notif': () => this.managePushNotifications?.(),
+            'enforce-biometric': () => window.location.reload(),
 
             'copy-text': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget, dataText) => {
                 e.preventDefault(); e.stopPropagation();
                 this.copyToClipboard?.(dataText || target.innerText, target);
             },
             'show-phone-toast': () => this.showToast?.('هذا الرقم مرتبط بحسابك الأساسي.', 'info'),
-   'toggle-accordion': (e, id, val, target) => { e.preventDefault(); getSys().togglePayDetail?.(target); },
+            'toggle-accordion': (e, id, val, target) => { e.preventDefault(); getSys().togglePayDetail?.(target); },
             'toggle-wallet-stats': (e, id, val, target) => getSys().toggleWalletStats?.(target),
-            'toggle-theme-pref': () => this.toggleThemePref?.(),
-            'toggle-sound-pref': () => this.toggleSoundPref?.(),
+            'toggle-theme-pref': () => this.toggleTheme?.(),
+         'toggle-sound-pref': () => this.toggleSoundPref?.(),
             'open-profile-sidebar': () => setTimeout(() => { this.closeSidebar?.(); getSys().openProfileInfo?.(); }, 150),
             'open-wallet-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.navigateWallet?.(); }, 150),
             'open-identity-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.openModal?.('identity'); }, 150),
@@ -737,9 +734,16 @@ export const UICore = {
             'submit-kyc': () => getSys().submitKycData?.(),
             'select-rating': (e, id, val) => this.selectRatingStar?.(parseInt(val)),
             'submit-rating-step': () => this.submitRatingStep?.(),
-            'submit-private-feedback': () => getSys().submitPrivateFeedback?.()
-        };
+            'submit-private-feedback': () => getSys().submitPrivateFeedback?.(),
 
+            // 🛡️ الأزرار الجديدة لمسح المرفقات والصور بسهولة (V18.6 Patch)
+            'clear-bal-file': () => getSys().clearDepositFile?.(),
+            'clear-kyc-file': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget) => {
+                e.preventDefault(); 
+                e.stopPropagation();
+                getSys().clearKycImage?.(dataTarget);
+            }
+        };
         // =========================================================
         // 🗂️ 6. قسم الفلترة، التقويم، والإشعارات (Filters, Calendar & Notifications)
         // =========================================================
@@ -847,20 +851,34 @@ export const UICore = {
             if (action === 'pay-search-enter') { this.sfx?.('nav'); RenderManager.renderPayments?.(true); }
         });
 
-        document.addEventListener('input', (e) => {
+                document.addEventListener('input', (e) => {
             if (e.target.id === 'bal-amount') {
                 if (this._amountTypingTimer) clearTimeout(this._amountTypingTimer);
-                this._amountTypingTimer = setTimeout(() => { 
-                    getSys().calcFee?.(); 
-                    if (e.target.parentElement) e.target.parentElement.classList.toggle('has-value', e.target.value !== ''); 
+                this._amountTypingTimer = setTimeout(() => {
+                    getSys().calcFee?.();
+                    if (e.target.parentElement) e.target.parentElement.classList.toggle('has-value', e.target.value !== '');
                 }, 150);
             }
             if (e.target.id === 'edit-name-input') {
                 const saveBtn = document.getElementById('save-name-btn');
-                if (saveBtn) { saveBtn.classList.remove('d-none'); saveBtn.style.display = 'inline-flex'; }
+                if (saveBtn) { saveBtn.classList.remove('d-none');
+                    saveBtn.style.display = 'inline-flex'; }
+            }
+            
+            // 🛡️ تحديث لحظي لحالة أيقونات الكوبون
+            if (e.target.id === 'couponCode') {
+                Components?.checkInputState?.();
+            }
+            
+            // 🛡️ تفعيل حقل البحث المباشر عن الدول
+            if (e.target.getAttribute('data-action') === 'filter-countries') {
+                const term = e.target.value.toLowerCase().trim();
+                document.querySelectorAll('#countries-list-target .dropdown-item').forEach(item => {
+                    const name = item.querySelector('.country-name')?.textContent.toLowerCase() || '';
+                    item.style.display = name.includes(term) ? 'flex' : 'none';
+                });
             }
         });
-
         document.addEventListener('change', (e) => {
             const action = e.target.getAttribute('data-action');
             if (action === 'change-currency') this.setDisplayCurrency?.(e.target.value);
@@ -1048,7 +1066,6 @@ export const UICore = {
         }
     },
     
-    // 🛡️ التحديث المعماري (PopState Collision): تمرير خيار isPopState لتفادي اضطراب مسارات الـ URL
     _manualGoBack: function(isPopState = false) {
         if (this.navHistory.length === 0 || this.navHistory[this.navHistory.length - 1] === 'HOME') { 
             this.currentCategoryId = null; 
@@ -1520,13 +1537,6 @@ export const UICore = {
             if(this.audioCtx.state === 'suspended') { 
                 this.audioCtx.resume().then(() => playSound()).catch(()=>{}); 
             } else { playSound(); }
-            
-            if (this._audioSuspendTimer) clearTimeout(this._audioSuspendTimer);
-            this._audioSuspendTimer = setTimeout(() => {
-                if (this.audioCtx && this.audioCtx.state === 'running') {
-                    this.audioCtx.suspend().catch(()=>{});
-                }
-            }, 1500);
             
         } catch(e) {}
         

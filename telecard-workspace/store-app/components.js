@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V17.5 💎
+// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V18.5 💎
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديثات المعمارية (V17.5 - Master Patch):
-// 1. Context Binding Safety: توافق تام مع سياق this للموزع المركزي (UIManager).
-// 2. Shine Delegation Fix 🛡️: ربط أحداث اللمعان بـ Document لتستمر بعد إعادة رسم الأقسام.
-// 3. Synchronous UX Lock 🛡️: قفل حقل الكوبون لحظياً لمنع وميض الواجهة أثناء المعالجة.
+// 🚀 التحديثات المعمارية الصارمة (V18.5 - Memory & Animation Patch):
+// 1. Animation Leak Shield 🛡️: إيقاف عداد السعر برمجياً فور إغلاق النافذة لمنع استنزاف الـ CPU.
+// 2. Closure Memory Guard 🛡️: تفريغ مؤقتات اللمعان (Shine) آلياً إذا تم تدمير العنصر من الـ DOM.
+// 3. Safe Clipboard Access 🛡️: التعامل الآمن مع رفض صلاحيات اللصق لمنع أخطاء الوعود (Promise Rejections).
 // 4. Clean CSS Decoupling: فصل كامل للستايلات عن الجافاسكريبت.
 // ============================================================================
 
@@ -316,9 +316,7 @@ export const Components = {
     initProductShine: function() {
         if (this._shineBound) return;
         
-        // 🛡️ الترقيع المعماري: ربط اللمعان بـ document بدلاً من store-grid لمنع تعطله عند إعادة الرسم
         document.addEventListener('mouseover', (e) => {
-            // تجاهل الحدث إذا كنا في بيئة الهاتف المحمول لمنع تشنج التمرير
             if ('ontouchstart' in window || navigator.maxTouchPoints > 0) return;
 
             const card = e.target.closest('#store-grid .product-card');
@@ -330,14 +328,15 @@ export const Components = {
             if (infoEl._shineTimer) clearTimeout(infoEl._shineTimer);
 
             window.requestAnimationFrame(() => {
+                if (!infoEl.isConnected) return;
                 infoEl.classList.remove('shine-soft');
                 infoEl.classList.add('shine-strong');
             });
             
             infoEl._shineTimer = setTimeout(() => {
-                if (infoEl.isConnected) {
-                    window.requestAnimationFrame(() => infoEl.classList.remove('shine-strong'));
-                }
+                // 🛡️ Closure Memory Guard: تجاهل التعديل إذا تم حذف الكرت من الشاشة
+                if (!infoEl || !infoEl.isConnected) return;
+                window.requestAnimationFrame(() => infoEl.classList.remove('shine-strong'));
             }, 2000);
         });
         
@@ -347,6 +346,7 @@ export const Components = {
     animatePriceChange: function(startVal, endVal, currency) {
         const el = document.getElementById('pm-price');
         if (!el) return;
+        
         if (this.priceTicker) cancelAnimationFrame(this.priceTicker);
         
         el.innerHTML = RenderHelpers.formatMoney(startVal, currency);
@@ -362,6 +362,12 @@ export const Components = {
         let startTimestamp = null;
         
         const step = (timestamp) => {
+            // 🛡️ Animation Leak Shield: إيقاف الحلقة فوراً إذا أغلق المستخدم النافذة
+            if (!el.isConnected) {
+                this.priceTicker = null;
+                return; 
+            }
+
             if (!startTimestamp) startTimestamp = timestamp;
             const progress = Math.min((timestamp - startTimestamp) / duration, 1);
             const easeProgress = 1 - Math.pow(1 - progress, 3);
@@ -373,7 +379,9 @@ export const Components = {
                 this.priceTicker = requestAnimationFrame(step);
             } else {
                 this.priceTicker = null;
-                el.innerHTML = RenderHelpers.formatMoney(endVal, currency);
+                if (el.isConnected) {
+                    el.innerHTML = RenderHelpers.formatMoney(endVal, currency);
+                }
             }
         };
         this.priceTicker = requestAnimationFrame(step);
@@ -409,6 +417,9 @@ export const Components = {
         const codeInput = document.getElementById('couponCode');
         if (!codeInput) return;
         try {
+            // 🛡️ Safe Clipboard Access: التعامل مع رفض الصلاحية أو المتصفحات غير الداعمة
+            if (!navigator.clipboard || !navigator.clipboard.readText) throw new Error("Clipboard API not supported");
+            
             const text = await navigator.clipboard.readText();
             if (text) {
                 codeInput.value = String(text).replace(/[<>'"/;`%]/g, '').trim().toUpperCase();
@@ -417,7 +428,7 @@ export const Components = {
                 if (typeof UIManager !== 'undefined') UIManager.showToast('تم إدراج الكوبون', 'success');
             }
         } catch (err) { 
-            if (typeof UIManager !== 'undefined') UIManager.showToast('يرجى السماح باللصق', 'error'); 
+            if (typeof UIManager !== 'undefined') UIManager.showToast('تعذر اللصق تلقائياً، يرجى كتابة الكود', 'error'); 
         }
     },
 
@@ -426,6 +437,7 @@ export const Components = {
         if (this._couponMsgTimer) clearTimeout(this._couponMsgTimer);
         
         requestAnimationFrame(() => {
+            if (!msgBox.isConnected) return;
             msgBox.innerHTML = htmlContent;
             msgBox.className = `coupon-msg-box ${className} coupon-msg-visible`;
         });
@@ -493,7 +505,7 @@ export const Components = {
 
         DataManager.appliedCoupon = result.coupon; 
         
-        // 🛡️ الترقيع المعماري: قفل الحقل فوراً (Synchronous) قبل بدء الرسم لمنع الـ Flicker 
+        // قفل الحقل فوراً (Synchronous)
         codeInput.disabled = true; 
         if(btnApply) { btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
         
@@ -505,7 +517,6 @@ export const Components = {
 
         this._showCouponMessage(msgBox, `<i class="fa-solid fa-check"></i> تم تطبيق خصم ${discountText} بنجاح!`, 'success', 0);
         
-        // تأجيل التعديلات البصرية فقط
         requestAnimationFrame(() => {
             if(pasteIcon) pasteIcon.style.display = 'none'; 
             if(clearIcon) clearIcon.style.display = 'block'; 

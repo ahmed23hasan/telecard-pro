@@ -1434,15 +1434,13 @@
 <!-- ========================================================================= -->
 <script>
     (function initMobileDevTools() {
-        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('github.dev');
-        const isDebugUrl = window.location.search.includes('debug=1');
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('github.dev') || window.location.hostname.includes('192.168.');
+        const isSecretDev = sessionStorage.getItem('telecard_admin_dev_mode') === 'true'; 
 
-        // 🛡️ كتم الكونسول في بيئة الإنتاج لمنع المتطفلين (إن لم يكن المطور)
-        const isDevMode = sessionStorage.getItem('dev_mode') === '1';
-        if (!isLocal && !isDebugUrl && !isDevMode) {
+        // 🛡️ Security Patch: Removed ?debug=1 URL parameter check to prevent Self-XSS.
+        if (!isLocal && !isSecretDev) {
             console.log = function() {}; 
             console.warn = function() {};
-            // نترك console.error تعمل بصمت لالتقاطها عبر أنظمة التتبع إن وجدت
             return;
         }
 

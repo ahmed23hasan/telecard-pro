@@ -1,11 +1,11 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - الإصدار المؤسسي V17.7 💎
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - الإصدار المؤسسي V18.6 💎
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، المعاملات المالية، وتأمين الطلبات
-// 🚀 التحديثات المعمارية (V17.7 - Master Patch):
-// 1. File Input Fix: تصفير حقول رفع الملفات لمنع تجميد اختيار نفس الإشعار.
-// 2. Limits Bar DOM Thrashing Fix: رسم شريط حدود الإيداع مرة واحدة لمنع وميض الواجهة.
-// 3. Offline Listener Leak Fix: حماية الذاكرة من تراكم مستمعات أحداث انقطاع الشبكة.
-// 4. Network Failsafe: دمج Promise.race لفك قفل الواجهة إجبارياً في حال انقطاع النت الصامت.
+// 🚀 التحديثات المعمارية الصارمة (V18.6 - UX & Transaction Integrity Patch):
+// 1. Ghost Transaction Shield 🛡️: إزالة (Promise.race) من الواجهة لمنع تكرار عمليات الدفع بالخلفية.
+// 2. DOM Detachment Guard 🛡️: منع تسرب الذاكرة عند محاولة تلميع كروت منتجات تم إخفاؤها.
+// 3. Receipt Clear Button 🛡️: إضافة دالة تفريغ الإشعار بأمان وتدمير الـ Blob من الذاكرة العشوائية.
+// 4. Limits Bar DOM Thrashing Fix: رسم شريط حدود الإيداع مرة واحدة لمنع وميض الواجهة.
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -27,7 +27,6 @@ export const UIFinance = {
     _watchdogTimer: null,
     _amountTypingTimer: null,
     
-    // 🛡️ التحديث المعماري: تعريف المستمع مرة واحدة لحماية الذاكرة (Memory Leak Fix)
     _offlineHandler: function() {
         const sys = getSys();
         if (sys.State?.isProcessingTx) {
@@ -89,8 +88,7 @@ export const UIFinance = {
             }
         }, 15000); 
         
-        // استخدام المستمع الثابت
-        window.removeEventListener('offline', this._offlineHandler); // ضمان عدم التكرار
+        window.removeEventListener('offline', this._offlineHandler); 
         window.addEventListener('offline', this._offlineHandler);
     },
 
@@ -104,7 +102,6 @@ export const UIFinance = {
         if (btn) this._toggleButtonLoader(btn, false);
         
         if (this._watchdogTimer) { clearTimeout(this._watchdogTimer); this._watchdogTimer = null; }
-        // إزالة المستمع الثابت
         window.removeEventListener('offline', this._offlineHandler);
     },
 
@@ -338,7 +335,15 @@ export const UIFinance = {
                 document.querySelectorAll('.product-card').forEach(card => {
                     if (card.querySelector('.product-name')?.innerText.trim() === targetProdName) {
                         const infoEl = card.querySelector('.card-info');
-                        if (infoEl) { requestAnimationFrame(() => { infoEl.classList.add('shine-strong'); setTimeout(() => infoEl.classList.remove('shine-strong'), 2000); }); }
+                        // 🛡️ DOM Detachment Guard
+                        if (infoEl && infoEl.isConnected) { 
+                            requestAnimationFrame(() => { 
+                                infoEl.classList.add('shine-strong'); 
+                                setTimeout(() => {
+                                    if (infoEl && infoEl.isConnected) infoEl.classList.remove('shine-strong');
+                                }, 2000); 
+                            }); 
+                        }
                     }
                 });
             }, 300);
@@ -473,12 +478,8 @@ export const UIFinance = {
         this._lockUI(submitBtn);
 
         try {
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("نفد وقت الاتصال بالسيرفر، يرجى التحقق من جودة الاتصال.")), 30000));
-            
-            const result = await Promise.race([
-                DataManager.confirmPurchase(DataManager.currentProd, qty, optIdx, finalInputStr, DataManager.appliedCoupon),
-                timeoutPromise
-            ]);
+            // 🛡️ Transaction Ghosting Shield: تم إزالة Promise.race. הסيرفر هو من يقرر نجاح/فشل/انقضاء وقت العملية عبر محول FirebaseAdapter.
+            const result = await DataManager.confirmPurchase(DataManager.currentProd, qty, optIdx, finalInputStr, DataManager.appliedCoupon);
 
             if (result.success) {
                 sys.sfx?.('success'); 
@@ -567,7 +568,7 @@ export const UIFinance = {
         getSys().openModal?.('balance');
     },
 
-        changeDepositCurrency: function(curr) {
+    changeDepositCurrency: function(curr) {
         this.currentPayCurrency = curr;
         window.requestAnimationFrame(() => {
             const dropdown = document.getElementById('bal-currency-dropdown');
@@ -580,7 +581,6 @@ export const UIFinance = {
             items.forEach(item => item.classList.toggle('active', item.dataset.curr === curr));
             const amtCurr = document.getElementById('bal-amount-curr'); if (amtCurr) amtCurr.innerText = curr;
             
-            // 🛡️ التحديث: إعادة رسم الشريط لتتحدث الأرقام بناءً على العملة الجديدة
             this._drawInitialLimitsBar();
             this.calcFee();
         });
@@ -634,7 +634,6 @@ export const UIFinance = {
         this.currentPayCurrency = uniqueCurrencies[0];
         
         window.requestAnimationFrame(() => {
-            // 🛡️ التحديث: إضافة data-action="select-bal-curr" لكل عملة ليتم التقاطها عبر uiCore
             section.innerHTML = UIBuilders.buildDepositForm(
                 p, 
                 copyContainer, 
@@ -649,7 +648,6 @@ export const UIFinance = {
         });
     },
 
-    // 🛡️ دالة مساعدة لرسم الشريط بطريقة آمنة بعيداً عن جدار الحماية الرياضي
     _drawInitialLimitsBar: function() {
         const limitsBar = document.getElementById('bal-limits-bar');
         if (!limitsBar || !this.currentPayment) return;
@@ -657,7 +655,6 @@ export const UIFinance = {
         const payCurr = (this.currentPayCurrency || 'USD').toUpperCase();
         const method = this.currentPayment;
 
-        // القراءة المباشرة والآمنة للحدود لمنع استدعاء أخطاء المحرك المالي
         let s = method.currencySettings?.[payCurr] 
             ? { 
                 fee: parseFloat(method.currencySettings[payCurr].fee || method.currencySettings[payCurr].value) || 0, 
@@ -686,7 +683,29 @@ export const UIFinance = {
             }
         }
     },
-    // 🛡️ التحديث المعماري الخاص بك (معالجة الملفات العالقة)
+    
+    // 🛡️ زر مسح إشعار الدفع (Clear Deposit File)
+    clearDepositFile: function() {
+        const sys = getSys();
+        const input = document.getElementById('bal-file');
+        const preview = document.getElementById('bal-img-preview');
+        const uploadBox = document.getElementById('bal-upload-box');
+        const clearBtn = document.getElementById('bal-file-clear');
+
+        if (input) input.value = '';
+        if (sys.State) { sys.State.pendingReceiptFile = null; sys.State.currentImageJobId = null; }
+        if (preview) {
+            if (preview.src && preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
+            preview.src = ''; preview.style.display = 'none';
+        }
+        if (uploadBox) {
+            uploadBox.classList.remove('has-file');
+            uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>';
+        }
+        if (clearBtn) clearBtn.classList.add('hide-element');
+        sys.showToast?.('تم إزالة المرفق لتتمكن من إعادة الرفع', 'info');
+    },
+
     backToPayMethods: function() {
         const sys = getSys();
         const modal = document.getElementById('balance-modal');
@@ -704,7 +723,6 @@ export const UIFinance = {
         const preview = document.getElementById('bal-img-preview');
         if (preview && preview.src && preview.src.startsWith('blob:')) { URL.revokeObjectURL(preview.src); preview.src = ''; }
 
-        // 🛡️ تصفير حقول اختيار الملفات لمنع تجميد رفع نفس الإشعار مرة أخرى
         const fileInputs = document.querySelectorAll('input[type="file"]');
         fileInputs.forEach(inp => {
             if (inp.getAttribute('data-action') === 'preview-receipt' || inp.closest('#bal-upload-box')) {
@@ -717,6 +735,9 @@ export const UIFinance = {
             uploadBox.classList.remove('has-file');
             uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>';
         }
+        
+        const clearBtn = document.getElementById('bal-file-clear');
+        if (clearBtn) clearBtn.classList.add('hide-element');
 
         setTimeout(() => {
             const section = document.getElementById('bal-method-info-section');
@@ -747,6 +768,8 @@ export const UIFinance = {
         if(!file) { 
             if (sys.State) sys.State.pendingReceiptFile = null; 
             if(preview) { preview.style.display = 'none'; preview.src = ''; }
+            const clearBtn = document.getElementById('bal-file-clear');
+            if(clearBtn) clearBtn.classList.add('hide-element');
             return; 
         }
 
@@ -755,6 +778,8 @@ export const UIFinance = {
             inp.value = ''; 
             if (sys.State) sys.State.pendingReceiptFile = null;
             if(preview) { preview.style.display = 'none'; preview.src = ''; }
+            const clearBtn = document.getElementById('bal-file-clear');
+            if(clearBtn) clearBtn.classList.add('hide-element');
             return; 
         }
 
@@ -764,6 +789,8 @@ export const UIFinance = {
             inp.value = ''; 
             if (sys.State) sys.State.pendingReceiptFile = null; 
             if(preview) { preview.style.display = 'none'; preview.src = ''; }
+            const clearBtn = document.getElementById('bal-file-clear');
+            if(clearBtn) clearBtn.classList.add('hide-element');
             return; 
         }
 
@@ -776,6 +803,8 @@ export const UIFinance = {
                 const iconClass = type === 'pdf' ? 'fa-file-pdf' : 'fa-check-circle';
                 uploadBox.innerHTML = `<div class="bal-upload-success-row"><i class="fa-solid ${iconClass} bal-upload-success-icon"></i><span class="bal-upload-success-text">${type === 'pdf' ? 'تم الإرفاق (PDF)' : 'تمت معالجة الصورة'}</span></div>`;
             }
+            const clearBtn = document.getElementById('bal-file-clear');
+            if (clearBtn) clearBtn.classList.remove('hide-element');
         };
 
         if(isPdf) {
@@ -815,6 +844,8 @@ export const UIFinance = {
                         } catch (err) {
                             sys.showToast?.('تعذر معالجة الصورة', 'error');
                             if (uploadBox) uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>'; inp.value = '';
+                            const clearBtn = document.getElementById('bal-file-clear');
+                            if(clearBtn) clearBtn.classList.add('hide-element');
                         }
                     });
                 };
@@ -834,7 +865,6 @@ export const UIFinance = {
         
         const result = DataManager.calculateDepositFee(amount, this.currentPayment, payCurr);
         
-        // 🛡️ التحديث المعماري: تم إزالة رسم الشريط من هنا لمنع وميض الواجهة (DOM Thrashing)
         window.requestAnimationFrame(() => {
             const errorBox = document.getElementById('bal-amount-error');
             const submitBtn = document.getElementById('btn-submit-deposit');
@@ -913,25 +943,17 @@ export const UIFinance = {
         
         let uploadedReceiptUrl = null;
         try {
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("نفد وقت الاتصال بالسيرفر، يرجى التحقق من جودة الاتصال.")), 45000));
-            
-            const uploadAndSubmitRequest = async () => {
-                if (sys.State?.pendingReceiptFile) {
-                    if (!StoreDB || typeof StoreDB.uploadImage !== 'function') throw new Error("نظام الرفع غير متوفر.");
-                    const userId = DataManager.user?.uid || DataManager.user?.id || 'unknown';
-                    
-                    const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
-                    const safeFileName = `deposit_${userId}_${Date.now()}_${uniqueId}.webp`;
-                    
-                    uploadedReceiptUrl = await StoreDB.uploadImage(sys.State.pendingReceiptFile, 'receipts', safeFileName, false);
-                }
-                return await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
-            };
-
-            const result = await Promise.race([
-                uploadAndSubmitRequest(),
-                timeoutPromise
-            ]);
+            // 🛡️ Transaction Ghosting Shield: تم إزالة Promise.race.
+            if (sys.State?.pendingReceiptFile) {
+                if (!StoreDB || typeof StoreDB.uploadImage !== 'function') throw new Error("نظام الرفع غير متوفر.");
+                const userId = DataManager.user?.uid || DataManager.user?.id || 'unknown';
+                
+                const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
+                const safeFileName = `deposit_${userId}_${Date.now()}_${uniqueId}.webp`;
+                
+                uploadedReceiptUrl = await StoreDB.uploadImage(sys.State.pendingReceiptFile, 'receipts', safeFileName, false);
+            }
+            const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
             
             if (result.success) {
                 sys.sfx?.('success'); 

@@ -1,12 +1,11 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - الإصدار المؤسسي V18.2.0 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - الإصدار المؤسسي V18.6 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه المرئي
-// 🚀 التحديثات المعمارية الصارمة (V18.2.0 - Performance & DOM CPU Patch):
-// 1. O(1) Cache Eviction 🛡️: إزالة استعلام الصور المرهق للمعالج واستخدام خوارزمية (FIFO).
-// 2. Live DOM Engine 🛡️: استبدال querySelectorAll بـ Live HTMLCollection لمؤقتات العروض.
-// 3. CPU Hang Guard: التدمير الفوري لإطار html2canvas عند التعليق للحفاظ على البطارية.
-// 4. CORS Fallback: حماية تصدير الإيصالات من التلوث (Tainted Canvas).
-// 5. Layout Shift Guard: تأجيل تحديث متغيرات الـ CSS لتتزامن مع رسم الـ DOM.
+// 🚀 التحديثات المعمارية الصارمة (V18.6 - Ultimate Performance & UX Patch):
+// 1. Paint Starvation Fix 🛡️: إعطاء مهلة للمتصفح لرسم اللودر قبل تجميد المعالج في تصدير الفواتير.
+// 2. Blank Canvas Shield 🛡️: إجبار رسم الإيصال خارج الشاشة ومنح المتصفح مهلة 150ms لطلاء البيكسلات لمنع الإيصال الأبيض.
+// 3. Native Share Bridge 🛡️: نافذة وسيطة لضمان استجابة نظام المشاركة الأصلي (Share Sheet) في الجوال.
+// 4. O(1) Cache Eviction 🛡️: إخلاء الكاش بالترتيب الزمني (FIFO) بدلاً من استنزاف شجرة الـ DOM.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS } from './config.js'; 
@@ -39,7 +38,6 @@ window.StoreRenderApp = window.StoreRenderApp || {
             if (this.imgCache.has(key)) {
                 this.imgCache.delete(key);
             } else if (this.imgCache.size > 500) {
-                // 🛡️ التحديث الماسي: إخلاء الكاش بالترتيب الزمني (FIFO) بدلاً من استنزاف شجرة الـ DOM
                 let deletedCount = 0;
                 for (const k of this.imgCache) {
                     if (k.startsWith('blob:')) URL.revokeObjectURL(k);
@@ -424,7 +422,6 @@ export const RenderManager = {
     },
 
     initTimersEngine: function() {
-        // 🛡️ التحديث المعماري: الاعتماد على Live HTMLCollection لمنع استنزاف المتصفح
         const timers = document.getElementsByClassName('live-countdown');
         
         if (timers.length === 0) {
@@ -998,6 +995,7 @@ export const RenderManager = {
         });
     },
 
+    // 🛡️ التحديث المعماري (V18.6): دالة توليد الإيصال معدلة لمنع الشاشة البيضاء وتوفير جسر المشاركة
     generateReceiptImage: async function(config) {
         return new Promise(async (resolve) => {
             const containerId = 'receipt-render-box-' + Date.now();
@@ -1013,13 +1011,9 @@ export const RenderManager = {
             const watchdog = setTimeout(() => {
                 if(isResolved) return;
                 console.error("🚨 انقضى وقت تحضير الإيصال (Timeout). السيرفر أو المتصفح لا يستجيب.");
-                const orphanedContainer = document.getElementById(containerId);
-                if (orphanedContainer) {
-                    orphanedContainer.innerHTML = ''; 
-                }
                 cleanup();
                 resolve(false); 
-            }, 10000); 
+            }, 15000); 
 
             try {
                 const settings = LiveStoreData.settings || {};
@@ -1034,6 +1028,12 @@ export const RenderManager = {
                 const container = document.createElement('div');
                 container.id = containerId;
                 container.className = 'receipt-render-container'; 
+                
+                // 🛡️ Blank Canvas Shield: إجبار رسم الإيصال خارج الشاشة بأبعاده الحقيقية
+                container.style.position = 'fixed';
+                container.style.top = '-9999px';
+                container.style.left = '-9999px';
+                container.style.width = '420px';
                 container.innerHTML = fullHTML;
                 
                 document.body.appendChild(container);
@@ -1044,7 +1044,12 @@ export const RenderManager = {
                     await document.fonts.ready;
                 }
                 
-                await new Promise(res => requestAnimationFrame(res));
+                // 🛡️ The Bulletproof Yield: منح المعالج الرسومي 150ms لطلاء البيكسلات قبل الالتقاط
+                await new Promise(res => {
+                    requestAnimationFrame(() => {
+                        setTimeout(res, 150); 
+                    });
+                });
 
                 if (typeof html2canvas === 'undefined') throw new Error("مكتبة html2canvas مفقودة!");
                 
@@ -1072,13 +1077,88 @@ export const RenderManager = {
                     });
                 }                
                 const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.95));
-                
                 canvas.width = 0; canvas.height = 0;
-                
+                cleanup(); 
+
                 const safeFileName = config.filename || 'receipt.jpg';
                 const title = `إيصال - ${storeName}`;
-                
-                await Utils.smartShareOrDownload(blob, safeFileName, title, 'مرفق تفاصيل العملية الخاصة بك.');
+                const blobUrl = URL.createObjectURL(blob);
+
+                // 🌟 Share Sheet Bridge: إنشاء نافذة وسيطة لضمان استجابة نظام الهاتف للمشاركة
+                const dialogId = 'receipt-action-dialog';
+                let dialog = document.getElementById(dialogId);
+                if (dialog) dialog.remove();
+
+                dialog = document.createElement('div');
+                dialog.id = dialogId;
+                dialog.className = 'sys-dialog-wrapper active master-overlay';
+                dialog.style.zIndex = '9999999';
+
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                const canShare = isMobile && navigator.canShare && navigator.canShare({ files: [new File([blob], safeFileName, { type: blob.type })] });
+
+                let shareBtnHtml = canShare ? `
+                    <button id="btn-native-share" class="btn btn-primary" style="flex: 1; display:flex; gap:8px; justify-content:center; align-items:center;">
+                        <i class="fa-solid fa-share-nodes"></i> مشاركة الإيصال
+                    </button>
+                ` : '';
+
+                dialog.innerHTML = `
+                    <div class="sys-dialog-overlay"></div>
+                    <div class="sys-dialog-card" style="border-top: 4px solid var(--primary); text-align: center; max-width: 350px;">
+                        <div class="sys-dialog-header" style="justify-content: center;">
+                            <div class="sys-dialog-icon" style="color: var(--primary); background: rgba(var(--primary-rgb), 0.1);">
+                                <i class="fa-solid fa-file-invoice"></i>
+                            </div>
+                        </div>
+                        <h3 class="sys-dialog-title" style="margin-top: 10px;">الإيصال جاهز!</h3>
+                        <p class="sys-dialog-msg" style="margin-bottom: 20px;">تم إصدار الإيصال بنجاح. ماذا تريد أن تفعل به؟</p>
+
+                        <img src="${blobUrl}" style="max-width: 100%; max-height: 250px; object-fit: contain; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;" alt="Receipt Preview">
+
+                        <div class="sys-dialog-actions" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            ${shareBtnHtml}
+                            <button id="btn-native-download" class="btn ${canShare ? 'btn-secondary' : 'btn-primary'}" style="flex: 1; display:flex; gap:8px; justify-content:center; align-items:center; ${canShare ? 'background: var(--bg-glass-heavy); color: var(--text-main);' : ''}">
+                                <i class="fa-solid fa-download"></i> حفظ كصورة
+                            </button>
+                        </div>
+                        <button id="btn-close-receipt-dialog" class="adv-close-btn" style="margin-top: 15px; width: 100%; background: transparent; color: var(--text-muted);">إغلاق</button>
+                    </div>
+                `;
+
+                document.body.appendChild(dialog);
+                if(window.UIManager?.sfx) window.UIManager.sfx('success');
+
+                if (canShare) {
+                    document.getElementById('btn-native-share').addEventListener('click', async () => {
+                        try {
+                            const file = new File([blob], safeFileName, { type: blob.type });
+                            await navigator.share({ title: title, text: 'مرفق تفاصيل العملية الخاصة بك.', files: [file] });
+                        } catch (err) {
+                            if (err.name !== 'AbortError') console.warn("Share failed", err);
+                        }
+                    });
+                }
+
+                document.getElementById('btn-native-download').addEventListener('click', () => {
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = safeFileName;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                });
+
+                const closeDialog = () => {
+                    dialog.classList.remove('active');
+                    setTimeout(() => {
+                        dialog.remove();
+                        URL.revokeObjectURL(blobUrl);
+                    }, 300);
+                };
+
+                dialog.querySelector('.sys-dialog-overlay').addEventListener('click', closeDialog);
+                document.getElementById('btn-close-receipt-dialog').addEventListener('click', closeDialog);
                 
                 isResolved = true;
                 clearTimeout(watchdog); 
@@ -1108,11 +1188,13 @@ export const RenderManager = {
             btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`; 
         }
         
+        // 🛡️ Paint Starvation Fix: إجبار الخيط الرئيسي على الرسم لتجنب التجميد المؤقت
+        await new Promise(resolve => setTimeout(resolve, 50));
+
         try {
             const finalPrice = Number(o.pricingSnapshot?.finalPrice || o.price || 0);
             const originalPrice = Number(o.pricingSnapshot?.originalPrice || o.price || 0);
             const rawUserName = typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.fullName || 'العميل');
-
 
             const success = await this.generateReceiptImage({
                 type: 'order', 
@@ -1151,13 +1233,15 @@ export const RenderManager = {
             btnElement.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحضير...`; 
         }
         
+        // 🛡️ Paint Starvation Fix: إجبار الخيط الرئيسي على الرسم لتجنب التجميد المؤقت
+        await new Promise(resolve => setTimeout(resolve, 50));
+
         try {
             const rawAmt = Number(d.amount || 0);
             const credAmt = d.creditedAmount !== undefined ? Number(d.creditedAmount) : rawAmt;
             const calcFee = Math.abs(rawAmt - credAmt);
             const isBonus = credAmt > rawAmt;
             const rawUserName = typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.fullName || 'العميل');
-
 
             const success = await this.generateReceiptImage({
                 type: 'deposit', 

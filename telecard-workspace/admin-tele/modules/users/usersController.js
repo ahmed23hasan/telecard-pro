@@ -435,10 +435,13 @@ export const UsersController = {
         EventBus.emit('req-finish-action', { renderEvent: 'req-render-kyc', logAction: null, toastMsg: `تم إرسال قرار التوثيق` });
     },
 
-    saveTier: async function() {
+        saveTier: async function() {
         if (this._actionLocks.has('save-tier')) return;
         
-        const targetId = Utils.escapeHTML(Utils.getVal('t-id', '')); 
+        // 🛡️ 1. جلب الـ ID بذكاء وتنظيفه من أي مسافات لمنع أخطاء المطابقة
+        const rawTargetId = Utils.getVal('t-id', '').trim();
+        const targetId = Utils.escapeHTML(rawTargetId); 
+        
         const name = Utils.escapeHTML(Utils.getVal('t-name', ''));
         const icon = Utils.escapeHTML(Utils.getVal('t-icon', 'fa-user'));
         const profit = Number(Utils.getVal('t-profit', 0));
@@ -456,22 +459,29 @@ export const UsersController = {
         
         try {
             const tiers = JSON.parse(JSON.stringify(Array.isArray(AdminData.data.tiers) ? AdminData.data.tiers : []));
+            
+            // 🛡️ 2. التقييم الصارم لحالة التعديل
             const isEdit = targetId !== ''; 
             let finalTierId = targetId;
             
             if (isEdit) {
-                const idx = tiers.findIndex(x => String(x.id) === targetId);
+                // البحث الدقيق لضمان التطابق
+                const idx = tiers.findIndex(x => String(x.id).trim() === targetId);
+                
                 if (idx > -1) {
+                    // تحديث النسخة الموجودة (Overwrite) وليس الاستنساخ
                     tiers[idx] = { ...tiers[idx], name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef };
                 } else {
                     finalTierId = targetId;
                     tiers.push({ id: finalTierId, name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef, autoAdvance: true });
                 }
             } else {
+                // إنشاء مستوى جديد كلياً
                 finalTierId = 'TIER_' + Utils.generateID();
                 tiers.push({ id: finalTierId, name, icon, profit_percent: profit, min_profit_usd: minP, threshold: cond, duration_days: dur, isDefault: isDef, autoAdvance: true });
             }
             
+            // 🛡️ 3. تطبيق قاعدة Highlander للمستوى الافتراضي
             if (isDef) {
                 tiers.forEach(x => { x.isDefault = (String(x.id) === finalTierId); });
             } else {
@@ -482,7 +492,13 @@ export const UsersController = {
                 }
             }
             
+            // 🛡️ 4. تحديث المصفوفة والخريطة (Map) معاً لضمان مزامنة الواجهة
             AdminData.data.tiers = tiers;
+            if (!AdminData.data.tiersMap) AdminData.data.tiersMap = {};
+            
+            const updatedTierObj = tiers.find(t => t.id === finalTierId);
+            if (updatedTierObj) AdminData.data.tiersMap[finalTierId] = updatedTierObj;
+
             await AdminData?.saveTiers?.();
 
             const idInput = document.getElementById('t-id');
@@ -503,7 +519,6 @@ export const UsersController = {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
-
     // 🛡️ التحديث المعماري (Immortal Tier Guard)
     deleteTier: async function(id) {
         if (this._actionLocks.has('del-tier')) return;

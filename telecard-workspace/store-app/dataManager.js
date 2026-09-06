@@ -1,11 +1,10 @@
 // ============================================================================
-// ⚙️ مدير البيانات المركزي (dataManager.js) - الإصدار المؤسسي V18.4.0 💎
+// ⚙️ مدير البيانات المركزي (dataManager.js) - الإصدار المؤسسي V18.5 💎
 // 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات، الاتصال المالي، والإشعارات.
-// 🚀 التحديثات المعمارية الصارمة (V18.4.0 - Price Slippage Protection): 
-// 1. Price Slippage Shield 🛡️: إرفاق السعر المتوقع (expectedPrice) مع طلبات الشراء لحماية العميل من التغير المفاجئ للأسعار.
-// 2. Orphaned Storage Shield 🛡️: منع تسرب المساحة بحفظ الملفات العالقة محلياً وحذفها لاحقاً.
-// 3. Self-Healing FCM Sync 🛡️: ربط طابور التشافي بحدث 'online' لمنع استقبال إشعارات الحساب القديم.
-// 4. Storage Quota Shield: تنظيف آلي وعميق لكاشات الحسابات لمنع انهيار الـ LocalStorage.
+// 🚀 التحديثات المعمارية الصارمة (V18.5 - Core Engine Patch): 
+// 1. Strict Price Slippage Shield 🛡️: إرفاق (expectedCurrency) مع السعر المتوقع لمنع ثغرات تبديل العملات.
+// 2. Loop-Free Healing 🛡️: إيقاف الدوران اللانهائي للصور اليتيمة بتجاهل أخطاء (404 Not Found).
+// 3. Storage Quota Shield 🛡️: تنظيف آلي وعميق لكاشات الحسابات لمنع انهيار الـ LocalStorage.
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -42,14 +41,18 @@ export const DataManager = {
     
     _safeDeleteFile: function(url) {
         if (!url || typeof StoreDB.deleteImageByUrl !== 'function') return;
-        StoreDB.deleteImageByUrl(url).catch(() => {
+        StoreDB.deleteImageByUrl(url).catch((e) => {
+            // 🛡️ الإصلاح: عدم حفظ الملف في الطابور إذا كان محذوفاً بالفعل من السيرفر (404)
+            const isNotFound = e && (e.code === 'storage/object-not-found' || String(e.message).toLowerCase().includes('not found') || String(e.message).toLowerCase().includes('does not exist'));
+            if (isNotFound) return; 
+
             try {
                 let orphaned = JSON.parse(localStorage.getItem('tc_orphaned_files') || '[]');
                 if (!orphaned.includes(url)) {
                     orphaned.push(url);
                     localStorage.setItem('tc_orphaned_files', JSON.stringify(orphaned));
                 }
-            } catch(e) {}
+            } catch(err) {}
         });
     },
 
@@ -88,11 +91,17 @@ export const DataManager = {
                         if (typeof StoreDB.deleteImageByUrl === 'function') {
                             await StoreDB.deleteImageByUrl(url);
                         }
-                    } catch(e) { remainingFiles.push(url); }
+                    } catch(e) { 
+                        // 🛡️ الإصلاح: منع الدوران اللانهائي (Infinite Loop) وتجاهل الـ 404
+                        const isNotFound = e && (e.code === 'storage/object-not-found' || String(e.message).toLowerCase().includes('not found') || String(e.message).toLowerCase().includes('does not exist'));
+                        if (!isNotFound) {
+                            remainingFiles.push(url); 
+                        }
+                    }
                 }
                 if (remainingFiles.length > 0) localStorage.setItem('tc_orphaned_files', JSON.stringify(remainingFiles));
                 else localStorage.removeItem('tc_orphaned_files');
-                console.log('🧹 [Offline Sync] تم حذف صور التخزين اليتيمة بنجاح.');
+                console.log('🧹 [Offline Sync] تم معالجة صور التخزين اليتيمة بنجاح.');
             }
         } catch(e) {}
     },
@@ -475,7 +484,7 @@ export const DataManager = {
     // 🔔 محرك مزامنة الإشعارات الفورية (FCM Token Manager)
     // =========================================================
     setupPushNotifications: async function(forcePrompt = false) {
-        this.syncOfflineTasks(); // استدعاء التشافي الذاتي أولاً
+        this.syncOfflineTasks(); 
         
         if (!this.activeUid || typeof window === 'undefined' || !window.Notification || LiveStoreData.isOfflineMode) return;
         
@@ -828,15 +837,13 @@ export const DataManager = {
         } catch (e) { return { success: false, msg: 'خطأ اتصال.' }; }
     },
 
-        confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
+    confirmPurchase: async function(prod, qty, optIdx, finalInputStr, appliedCoupon) {
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
         if (!prod || !this.user) return { success: false, msg: 'بيانات مفقودة' };
         
         const lockKey = `order_${prod.id}`;
         if (this._actionLocks.has(lockKey)) return { success: false, msg: 'الطلب قيد التنفيذ، يرجى الانتظار...' };
         
-        // 🛡️ التحديث الماسي: حساب السعر الإجمالي المتوقع (expectedPrice) لحماية العميل من انزلاق الأسعار
-        // ✅ الإصلاح: استخدام (totalLocalBase) لضمان توافق الحسبة عند شراء أكثر من قطعة
         const pricing = this.getPricingLocal(prod, qty, optIdx, appliedCoupon);
         const expectedPrice = pricing?.totalLocalBase || 0;
 
@@ -848,7 +855,8 @@ export const DataManager = {
                 optIdx: optIdx ?? null, 
                 finalInputStr: finalInputStr || '---', 
                 couponCode: appliedCoupon?.code || null, 
-                expectedPrice: expectedPrice, // 🛡️ إرسال السعر الإجمالي المتوقع للسيرفر
+                expectedPrice: expectedPrice, 
+                expectedCurrency: this.selectedCurr || 'USD', // 🛡️ التحديث الماسي: إرفاق العملة لحماية انزلاق السعر
                 idempotencyKey: generateIdempotencyKey() 
             };
             const res = await StoreDB.callFunction('createOrder', req);
@@ -862,7 +870,7 @@ export const DataManager = {
             if (sensitiveKeywords.some(keyword => msg.includes(keyword))) {
                 finalMsg = 'عذراً، تعذر تنفيذ الطلب حالياً بسبب تحديث في أسعار المزود.';
             } else if (/[\u0600-\u06FF]/.test(msg)) {
-                finalMsg = String(err.message); // 🛡️ هذا سيلتقط رسالة "حماية انزلاق السعر" من السيرفر ويعرضها للعميل
+                finalMsg = String(err.message); 
             } else if (msg.includes('balance')) finalMsg = 'رصيدك غير كافٍ.';
             else if (msg.includes('already')) finalMsg = 'تم استلام طلبك مسبقاً.';
             else if (err.code === 'network-offline' || msg.includes('fetch')) finalMsg = 'تأكد من اتصالك بالإنترنت.';
@@ -873,6 +881,7 @@ export const DataManager = {
             this._actionLocks.delete(lockKey);
         }
     },
+    
     submitBalanceRequest: async function(amt, method, payCurr, receipt) {
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return { success: false, msg: 'أنت تتصفح بدون انترنت.' };
         

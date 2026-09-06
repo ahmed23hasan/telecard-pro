@@ -1,11 +1,11 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V18.2.0 💎
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V18.6 💎
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية الصارمة (V18.2.0 - Non-Blocking & No-SPOF Patch):
-// 1. Web Worker Compression 🛡️: عزل ضغط الصور في خيوط خلفية لمنع تجميد واجهة المتجر (UI Freeze).
-// 2. Local 2FA Independence 🛡️: إزالة الاعتمادية على CDN الخارجي لتوليد الـ QR Code لحماية النظام.
-// 3. Profile UX Sync: تزامن مثالي لزر تعديل الاسم (القلم/الصح) مع الحقل الأصلي.
-// 4. Error Memory Leak Fix: تنظيف الكائنات من الذاكرة العشوائية أثناء ضغط الصور.
+// 🚀 التحديثات المعمارية الصارمة (V18.6 - KYC UX & Memory Patch):
+// 1. Observer Logic Fix 🛡️: تصحيح مراقب كلاس النوافذ (active) لمنع تسرب ذاكرة الـ 2FA.
+// 2. KYC Stored XSS Shield 🛡️: تعقيم حقل رقم الهوية (idNumber) قبل الإرسال لحماية لوحة الإدارة.
+// 3. Biometric Deadlock Guard 🛡️: تغليف طلب البصمة بـ Promise.race لمنع تجميد الواجهة.
+// 4. KYC Image Clear 🛡️: إضافة دالة تفريغ الصور المرفوعة جزئياً وتدمير الـ Blob من الذاكرة العشوائية.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -29,14 +29,12 @@ export const UIAuth = {
     kycFiles: {},
     _processingImgs: new Set(), 
 
-    // 🛡️ التحديث المعماري: عزل ضغط الصور لعدم تجميد واجهة المستخدم
     _compressImage: function(file, maxWidth = 1000) {
         return new Promise(async (resolve, reject) => {
             const watchdog = setTimeout(() => {
                 reject(new Error("نفد وقت معالجة الصورة، يرجى المحاولة بصورة أصغر."));
             }, 15000);
 
-            // تأخير متعمد (Yield) للسماح لواجهة المستخدم (Loader) بالظهور والدوران بسلاسة
             await new Promise(r => setTimeout(r, 50));
 
             const handleSuccess = (blob) => {
@@ -52,7 +50,6 @@ export const UIAuth = {
                 reader.onload = (e) => {
                     const img = new Image();
                     img.onload = () => {
-                        // تأخير إضافي لكسر الجمود المتزامن في الأجهزة الضعيفة
                         setTimeout(() => { 
                             try {
                                 const canvas = document.createElement('canvas');
@@ -92,7 +89,6 @@ export const UIAuth = {
             };
 
             try {
-                // محاولة استخدام خيوط المعالجة الخلفية Web Workers إن أمكن
                 if (window.OffscreenCanvas && window.createImageBitmap && window.Worker) {
                     const imgBitmap = await createImageBitmap(file);
                     const workerCode = `
@@ -503,8 +499,14 @@ export const UIAuth = {
         const imgEl = document.getElementById('profile-img');
         const sidebarAvatar = document.getElementById('cs-avatar');
         
-        if(imgEl) imgEl.src = DEFAULT_AVATAR_URL; 
-        if(sidebarAvatar) sidebarAvatar.src = DEFAULT_AVATAR_URL; 
+        if(imgEl) {
+            if (imgEl.src && imgEl.src.startsWith('blob:')) URL.revokeObjectURL(imgEl.src);
+            imgEl.src = DEFAULT_AVATAR_URL; 
+        }
+        if(sidebarAvatar) {
+            if (sidebarAvatar.src && sidebarAvatar.src.startsWith('blob:')) URL.revokeObjectURL(sidebarAvatar.src);
+            sidebarAvatar.src = DEFAULT_AVATAR_URL; 
+        }
         
         const deleteBtn = document.getElementById('inline-delete-avatar-btn');
         if(deleteBtn) deleteBtn.classList.remove('active');
@@ -728,7 +730,6 @@ export const UIAuth = {
                                 }
                             }, 100);
                         } else {
-                            // 🛡️ التحديث المعماري: جلب المكتبة محلياً لضمان عدم توقف الخدمة إذا تم حظر النطاق
                             const script = document.createElement('script');
                             script.id = 'qrcode-lib-script';
                             script.src = './qrcode.min.js';
@@ -761,7 +762,7 @@ export const UIAuth = {
                 if (setupModal && !setupModal._boundCleanup) {
                     const observer = new MutationObserver((mutations) => {
                         mutations.forEach((mutation) => {
-                            if (mutation.attributeName === 'class' && !setupModal.classList.contains('show')) {
+                            if (mutation.attributeName === 'class' && !setupModal.classList.contains('active')) {
                                 this._clear2FAState();
                                 observer.disconnect();
                                 setupModal._boundCleanup = false;
@@ -863,22 +864,27 @@ export const UIAuth = {
             const userIdBytes = new TextEncoder().encode(userEmail);
             const storeName = LiveStoreData.settings?.storeName || "MaliMor Store";
             
-            const credential = await navigator.credentials.create({
-                publicKey: {
-                    challenge: challenge,
-                    rp: { name: Utils.escapeHtml(storeName) },
-                    user: { id: userIdBytes, name: userEmail, displayName: userEmail },
-                    pubKeyCredParams: [
-                        { alg: -7, type: "public-key" },
-                        { alg: -257, type: "public-key" }
-                    ],
-                    authenticatorSelection: {
-                        authenticatorAttachment: "platform",
-                        userVerification: "required"
-                    },
-                    timeout: 60000
-                }
-            });
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('biometric_timeout')), 60000));
+            
+            const credential = await Promise.race([
+                navigator.credentials.create({
+                    publicKey: {
+                        challenge: challenge,
+                        rp: { name: Utils.escapeHtml(storeName) },
+                        user: { id: userIdBytes, name: userEmail, displayName: userEmail },
+                        pubKeyCredParams: [
+                            { alg: -7, type: "public-key" },
+                            { alg: -257, type: "public-key" }
+                        ],
+                        authenticatorSelection: {
+                            authenticatorAttachment: "platform",
+                            userVerification: "required"
+                        },
+                        timeout: 60000
+                    }
+                }),
+                timeoutPromise
+            ]);
             
             const rawIdBytes = new Uint8Array(credential.rawId);
             const binaryString = Array.from(rawIdBytes).map(b => String.fromCharCode(b)).join('');
@@ -898,7 +904,9 @@ export const UIAuth = {
                 throw new Error('server_error');
             }
         } catch (error) {
-            if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
+            if (error.message === 'biometric_timeout') {
+                sys.showToast?.('تأخر استجابة مستشعر البصمة في جهازك، تم الإلغاء.', 'error');
+            } else if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
                 sys.showToast?.('تم إلغاء عملية البصمة من قبلك', 'warning');
             } else if (error.message === 'storage_full') {
                 sys.showToast?.('تعذر تفعيل البصمة (التصفح المخفي يمنع حفظ البيانات)', 'error');
@@ -1082,6 +1090,22 @@ export const UIAuth = {
         }
     },
     
+    // 🛡️ دالة مسح صور التوثيق المرفوعة
+    clearKycImage: function(previewId) {
+        const previewImg = document.getElementById(previewId);
+        const parentBox = previewImg?.closest('.kyc-upload-box');
+        const input = parentBox?.querySelector('input[type="file"]');
+
+        if (this.kycFiles) delete this.kycFiles[previewId];
+        if (input) input.value = '';
+        
+        if (previewImg) {
+            if (previewImg.src && previewImg.src.startsWith('blob:')) URL.revokeObjectURL(previewImg.src);
+            previewImg.src = '';
+        }
+        if (parentBox) parentBox.classList.remove('has-img');
+    },
+
     loadDynamicCurrenciesForModal: function() {
         const listTarget = document.getElementById('reg-currency-list-target');
         if (!listTarget) return;
@@ -1192,7 +1216,8 @@ export const UIAuth = {
         
         try {
             const safeFullName = Utils.escapeHtml(fullName);
-            const res = await DataManager.submitKycDocuments({ fullName: safeFullName, idNumber }, files);
+            const safeIdNumber = Utils.escapeHtml(idNumber);
+            const res = await DataManager.submitKycDocuments({ fullName: safeFullName, idNumber: safeIdNumber }, files);
             
             if (res.success) {
                 this.closeKycModal();
@@ -1330,9 +1355,6 @@ export const UIAuth = {
     // =========================================================
     // 👑 مستويات وعضويات הـ VIP
     // =========================================================
-        // =========================================================
-    // 👑 مستويات وعضويات הـ VIP
-    // =========================================================
     openTierInfoModal: async function() {
         const sys = getSys();
         sys.resetUI?.();
@@ -1369,7 +1391,6 @@ export const UIAuth = {
         if (isAutoAdvanceEnabled) {
             let targetPhraseHtml = isMaxTier ? `للحفاظ على باقتك ومميزاتك الحالية.` : `للوصول لـ <span class="tm-text-highlight text-main">${Utils.escapeHtml(targetNameDisplay)}</span>.`;
             
-            // 🛡️ التحديث الماسي: تصحيح الخلل المنطقي (UI Logic Bug) بين isMaxTier و isGoalReached
             if (isMaxTier && isGoalReached) {
                 html += `
                         <div class="tm-top-tier-card" style="border-top-color: ${tierColor};">
@@ -1412,7 +1433,6 @@ export const UIAuth = {
                     const badgeHtml = isUserCurrent ? `<span class="tm-badge-active" style="background: ${tierColor};">مستواك الحالي</span>` : `<span class="tm-badge-locked">مغلق</span>`;
                     const stateClass = isUserCurrent ? 'active' : 'locked';
                     
-                    // 🛡️ إخفاء شرط المبيعات للمستوى الصفري (الافتراضي) لمنع الارتباك البصري
                     const isZeroThreshold = Number(t.threshold || 0) === 0;
                     const reqHtml = isZeroThreshold ? `<span class="tm-item-req text-success">مستوى الدخول الافتراضي</span>` : `<span class="tm-item-req" style="${isUserCurrent ? 'color: var(--gold-main); font-weight:700;' : ''}">هدف المبيعات: <bdi class="num-en">${Number(t.threshold || 0).toFixed(0)} ${currencySymbol}</bdi></span>`;
 

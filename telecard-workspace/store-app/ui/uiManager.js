@@ -1,11 +1,11 @@
 // ============================================================================
-// 🎨 الموزع المركزي للواجهات (uiManager.js) - الإصدار المؤسسي V18.2.0 🛡️
+// 🎨 الموزع المركزي للواجهات (uiManager.js) - الإصدار المؤسسي V18.6 🛡️
 // 🎯 الوظيفة: تجميع وحدات الواجهة، إدارة الحالة (State)، ومنع تضارب البيانات
-// 🚀 التحديثات المعمارية الصارمة (V18.2.0 - Safe Composition Patch):
-// 1. Safe Mixin Guard 🛡️: إيقاف الدمج المسطح العشوائي ومنع الكتابة الفوقية للدوال المتشابهة.
-// 2. Explicit Collision Detection: طباعة أخطاء صريحة عند تضارب أسماء الدوال بين الوحدات.
-// 3. CPU Spamming Fix 🛡️: استمرار حماية خيط المعالجة عند تشغيل اللودر.
-// 4. Loader Failsafe Guard 🛡️: حماية الواجهة من الإقفال الأبدي (45 ثانية).
+// 🚀 التحديثات المعمارية الصارمة (V18.6 - Transaction Failsafe Patch):
+// 1. Double-Spend Shield 🛡️: إزالة الفك الإجباري للقفل لمنع العميل من تكرار عملية مالية لا تزال قيد المعالجة.
+// 2. Progressive Warning 🛡️: استبدال الإغلاق القسري بتنبيهات ذكية تتغير ديناميكياً لتطمين العميل عند بطء الشبكة.
+// 3. Safe Mixin Guard 🛡️: إيقاف الدمج المسطح العشوائي ومنع الكتابة الفوقية للدوال المتشابهة.
+// 4. Explicit Collision Detection: طباعة أخطاء صريحة عند تضارب أسماء الدوال بين الوحدات.
 // ============================================================================
 
 import { UICore } from './uiCore.js';
@@ -49,13 +49,17 @@ export const UIManager = {
             this._loaderActiveRequests = force ? 0 : Math.max(0, this._loaderActiveRequests - 1);
         }
         
-        // 🛡️ درع الأمان (Failsafe): إغلاق إجباري بعد 45 ثانية لمنع تجميد المتجر
+        // 🛡️ درع الأمان المحدث (V18.6): تحذير تصاعدي بدلاً من الإغلاق الكارثي
         if (this._loaderActiveRequests > 0) {
             if (this._failsafeTimer) clearTimeout(this._failsafeTimer);
             this._failsafeTimer = setTimeout(() => {
-                console.error("🛡️ [UI Failsafe] تنبيه: تم إغلاق اللودر إجبارياً بعد 45 ثانية لمنع تجميد واجهة المستخدم.");
-                this.forceHideLoader();
-            }, 45000);
+                const textEl = document.getElementById('dynamic-loader-text');
+                if (textEl) {
+                    textEl.innerHTML = '<span style="color: #fbbf24;"><i class="fa-solid fa-triangle-exclamation"></i> الشبكة بطيئة، يرجى الانتظار...</span>';
+                }
+                console.warn("🛡️ [UI Failsafe] الشبكة بطيئة جداً. تم تنبيه العميل مع إبقاء الواجهة مقفلة لمنع تكرار الطلب (Double-Spend).");
+                // ❌ تم إزالة this.forceHideLoader() لحماية سلامة المعاملات المالية
+            }, 15000); // عرض التحذير بعد 15 ثانية من الانتظار
         } else {
             if (this._failsafeTimer) {
                 clearTimeout(this._failsafeTimer);
@@ -91,7 +95,7 @@ export const UIManager = {
             
             requestAnimationFrame(() => {
                 if (this._loaderActiveRequests > 0) {
-                    if (textEl && textEl.textContent !== text) {
+                    if (textEl && textEl.textContent !== text && !textEl.innerHTML.includes('الشبكة بطيئة')) {
                         textEl.textContent = text;
                     }
                     loader?.classList.add('is-active');
