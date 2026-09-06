@@ -1,11 +1,11 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V18.6 💎
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V18.9.0 💎
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية الصارمة (V18.6 - KYC UX & Memory Patch):
-// 1. Observer Logic Fix 🛡️: تصحيح مراقب كلاس النوافذ (active) لمنع تسرب ذاكرة الـ 2FA.
-// 2. KYC Stored XSS Shield 🛡️: تعقيم حقل رقم الهوية (idNumber) قبل الإرسال لحماية لوحة الإدارة.
-// 3. Biometric Deadlock Guard 🛡️: تغليف طلب البصمة بـ Promise.race لمنع تجميد الواجهة.
-// 4. KYC Image Clear 🛡️: إضافة دالة تفريغ الصور المرفوعة جزئياً وتدمير الـ Blob من الذاكرة العشوائية.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - Biometric & Memory Leak Patch):
+// 1. Biometric OS Deadlock Fix 🛡️: استخدام (AbortController) لإغلاق نافذة البصمة إجبارياً من نظام التشغيل عند نفاد الوقت.
+// 2. KYC Zombie Upload Guard 🛡️: تدمير الصور المعلقة (Blobs) إذا أغلق العميل النافذة أثناء المعالجة لمنع تسرب الذاكرة.
+// 3. Strict ID Sanitization 🛡️: تعقيم فائق لحقل الهوية بمنع الحروف غير القياسية لحماية لوحة الإدارة من حقن (XSS).
+// 4. Safe Observer Detachment 🛡️: تنظيف دقيق لمراقبات الـ DOM عند إغلاق نوافذ الـ 2FA.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -28,6 +28,7 @@ export const UIAuth = {
 
     kycFiles: {},
     _processingImgs: new Set(), 
+    _kycSessionActive: false, // 🛡️ محدد حالة الجلسة لمنع تسرب الذاكرة
 
     _compressImage: function(file, maxWidth = 1000) {
         return new Promise(async (resolve, reject) => {
@@ -864,7 +865,12 @@ export const UIAuth = {
             const userIdBytes = new TextEncoder().encode(userEmail);
             const storeName = LiveStoreData.settings?.storeName || "MaliMor Store";
             
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('biometric_timeout')), 60000));
+            // 🛡️ التحديث المعماري: ربط مؤقت التوقف مع إشارة لإغلاق نافذة النظام
+            const controller = new AbortController();
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => {
+                controller.abort(); // إغلاق إجباري لنافذة البصمة من نظام التشغيل
+                reject(new Error('biometric_timeout'));
+            }, 60000));
             
             const credential = await Promise.race([
                 navigator.credentials.create({
@@ -881,7 +887,8 @@ export const UIAuth = {
                             userVerification: "required"
                         },
                         timeout: 60000
-                    }
+                    },
+                    signal: controller.signal // تمرير إشارة الإلغاء
                 }),
                 timeoutPromise
             ]);
@@ -1172,6 +1179,12 @@ export const UIAuth = {
             sys.toggleLoader?.(true, 'جاري معالجة الصورة...');
             const compressed = await this._compressImage(file, 1200);
             
+            // 🛡️ التحديث المعماري: تدمير الصورة إذا قام العميل بإغلاق النافذة أثناء المعالجة
+            if (!this._kycSessionActive) {
+                URL.revokeObjectURL(compressed.previewUrl);
+                return;
+            }
+
             this.kycFiles[previewId] = compressed.file;
             
             if (previewImg) {
@@ -1197,7 +1210,9 @@ export const UIAuth = {
         const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
         let idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
         
-        idNumber = idNumber.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+        // 🛡️ التحديث المعماري: حماية لوحة التحكم من الـ (XSS)
+        const safeFullName = Utils.escapeHtml(fullName).trim();
+        const safeIdNumber = Utils.escapeHtml(idNumber).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^a-zA-Z0-9-]/g, '').trim();
         
         this.kycFiles = this.kycFiles || {};
         const files = {
@@ -1206,7 +1221,7 @@ export const UIAuth = {
             selfie: this.kycFiles['kyc-prev-selfie']
         };
         
-        if (!fullName || !idNumber || !files.front || !files.back || !files.selfie) {
+        if (!safeFullName || !safeIdNumber || !files.front || !files.back || !files.selfie) {
             sys.showToast?.('يرجى تعبئة الاسم ورقم الهوية وإرفاق الصور الثلاث بوضوح', 'error');
             return;
         }
@@ -1215,8 +1230,6 @@ export const UIAuth = {
         sys.toggleLoader?.(true, 'جاري تشفير ورفع الملفات...');
         
         try {
-            const safeFullName = Utils.escapeHtml(fullName);
-            const safeIdNumber = Utils.escapeHtml(idNumber);
             const res = await DataManager.submitKycDocuments({ fullName: safeFullName, idNumber: safeIdNumber }, files);
             
             if (res.success) {
@@ -1276,11 +1289,13 @@ export const UIAuth = {
         if (status === 'pending') {
             kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-pending" data-action="open-kyc-status" data-state="pending"><span><i class="fa-solid fa-hourglass-half"></i> هويتك قيد المراجعة</span><i class="fa-solid fa-chevron-left"></i></div>`;
         } else {
-            kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-required" data-action="open-kyc-upload"><span><i class="fa-solid fa-shield-halved"></i> التحقق من الهوية (KYC)</span><i class="fa-solid fa-chevron-left"></i></div>`;
+            // 🛡️ التحديث المعماري: تحديد بدء الجلسة عند فتح النافذة
+            kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-required" onclick="window.ClientSystem.UIAuth._kycSessionActive = true;" data-action="open-kyc-upload"><span><i class="fa-solid fa-shield-halved"></i> التحقق من الهوية (KYC)</span><i class="fa-solid fa-chevron-left"></i></div>`;
         }
     },    
 
     prepareKycModalState: function() {
+        this._kycSessionActive = true; // 🛡️ تأكيد الجلسة
         const user = DataManager.user;
         const alertBox = document.getElementById('kyc-rejection-alert');
         const reasonText = document.getElementById('kyc-rejection-reason');
@@ -1296,6 +1311,7 @@ export const UIAuth = {
     },
 
     closeKycModal: function() { 
+        this._kycSessionActive = false; // 🛡️ إنهاء الجلسة لمنع التسرب المعماري
         const previews = ['kyc-prev-front', 'kyc-prev-back', 'kyc-prev-selfie'];
         previews.forEach(id => {
             const imgEl = document.getElementById(id);
@@ -1362,7 +1378,7 @@ export const UIAuth = {
         
         if (!DataManager || typeof DataManager.getTierProgress !== 'function') return;
         const tierData = DataManager.getTierProgress();
-        if (!tierData) return;
+        if (!tierData) return; // 🛡️ حماية إضافية من الفشل
         
         const { currentTier, targetNameDisplay, targetThreshold, spent, remainingAmt, percent, remainingDays, isGoalReached, isAutoAdvanceEnabled, isMaxTier } = tierData;
         const content = document.getElementById('tier-info-content');

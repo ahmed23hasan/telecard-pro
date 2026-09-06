@@ -1,11 +1,11 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - الإصدار المؤسسي V18.6 💎
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - الإصدار المؤسسي V18.9.1 💎
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه المرئي
-// 🚀 التحديثات المعمارية الصارمة (V18.6 - Ultimate Performance & UX Patch):
-// 1. Paint Starvation Fix 🛡️: إعطاء مهلة للمتصفح لرسم اللودر قبل تجميد المعالج في تصدير الفواتير.
-// 2. Blank Canvas Shield 🛡️: إجبار رسم الإيصال خارج الشاشة ومنح المتصفح مهلة 150ms لطلاء البيكسلات لمنع الإيصال الأبيض.
-// 3. Native Share Bridge 🛡️: نافذة وسيطة لضمان استجابة نظام المشاركة الأصلي (Share Sheet) في الجوال.
-// 4. O(1) Cache Eviction 🛡️: إخلاء الكاش بالترتيب الزمني (FIFO) بدلاً من استنزاف شجرة الـ DOM.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - Ultimate PDF Render Patch):
+// 1. White Canvas Bug Fix 🛡️: إبقاء الإيصال داخل الشاشة (0,0) وإخفائه بالخلفية لضمان التقاط html2canvas له بنجاح.
+// 2. Camera Origin Reset 🛡️: إجبار محرك التصوير على الإحداثيات (x:0, y:0) لمنع التقاط الفراغ الأبيض.
+// 3. Safari WebKit Bug Fix 🛡️: تجنب استخدام (fixed) والاعتماد على (absolute) لتسريع رندر الإيصال.
+// 4. DOM Reflow Batching 🛡️: دمج تعديلات (CSSOM) وتحديثات (DOM) في إطار رسم واحد.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS } from './config.js'; 
@@ -124,14 +124,10 @@ export const RenderManager = {
     
     _applyGridLayout: function(gridElement, settings = {}, overrideCols = null, gridType = 'prods') {
         if (!gridElement) return;
-        
         let defaultCols = gridType === 'cats' ? '2' : '3';
         let adminGlobalLayout = gridType === 'cats' ? settings.rootLayout : null;
         const finalCols = String(overrideCols || adminGlobalLayout || defaultCols);
-        
-        requestAnimationFrame(() => {
-            gridElement.style.setProperty('--layout-cols', finalCols); 
-        });
+        gridElement.style.setProperty('--layout-cols', finalCols); 
     },
 
     _getImgLoadVars: function(rawUrl) {
@@ -332,11 +328,6 @@ export const RenderManager = {
             
             if (!isBackAction && window.history.replaceState) window.history.replaceState(null, '', ' ');
             
-            if (grid) {
-                UIManager.setGridMode?.('grid-cats');
-                this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
-            }
-            
             const backBtn = document.getElementById('header-back-btn') || document.querySelector('.modern-back-btn') || document.getElementById('smart-back-btn');
             if (backBtn) { backBtn.classList.remove('show'); backBtn.style.display = 'none'; }
             
@@ -349,7 +340,11 @@ export const RenderManager = {
                 
                 requestAnimationFrame(() => {
                     if (renderId !== this.currentRenderId) return; 
-                    if (grid) grid.replaceChildren(this._renderHtmlToFragment(combinedHtml));
+                    if (grid) {
+                        UIManager.setGridMode?.('grid-cats');
+                        this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
+                        grid.replaceChildren(this._renderHtmlToFragment(combinedHtml));
+                    }
                 });
             }
             else if (!(LiveStoreData.isInitialSyncDone || false)) {
@@ -357,16 +352,23 @@ export const RenderManager = {
             }
             else {
                 const finalCats = LiveStoreData.cats || [];
-                if (finalCats.length === 0 && grid) {
-                    grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-store-slash"></i><h3>المتجر قيد التحديث</h3><p>يرجى العودة بعد قليل.</p></div>`;
-                } else if (finalCats.length > 0) {
-                    const combinedHtml = finalCats.map(c => {
-                        const safeName = Utils.safeText(c.name);
-                        const imgObj = this._generateImageHTML(c.img, safeName, 'cat', true);
-                        return `<div class="cat-card" data-action="open-category" data-id="${c.id}"><div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div></div>`;
-                    }).join('');
-                    grid.replaceChildren(this._renderHtmlToFragment(combinedHtml));
-                }
+                requestAnimationFrame(() => {
+                    if (renderId !== this.currentRenderId) return;
+                    if (finalCats.length === 0 && grid) {
+                        UIManager.setGridMode?.('grid-cats');
+                        this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
+                        grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-store-slash"></i><h3>المتجر قيد التحديث</h3><p>يرجى العودة بعد قليل.</p></div>`;
+                    } else if (finalCats.length > 0 && grid) {
+                        UIManager.setGridMode?.('grid-cats');
+                        this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
+                        const combinedHtml = finalCats.map(c => {
+                            const safeName = Utils.safeText(c.name);
+                            const imgObj = this._generateImageHTML(c.img, safeName, 'cat', true);
+                            return `<div class="cat-card" data-action="open-category" data-id="${c.id}"><div class="cat-img-box ${imgObj.wrapperClass}" style="${imgObj.wrapperStyle}">${imgObj.html}</div><div class="cat-name-box"><div class="cat-name">${safeName}</div></div></div>`;
+                        }).join('');
+                        grid.replaceChildren(this._renderHtmlToFragment(combinedHtml));
+                    }
+                });
             }
             
             UIManager.initSlider?.();
@@ -377,9 +379,6 @@ export const RenderManager = {
     renderHomeSkeletons: function() {
         const grid = document.getElementById('store-grid');
         if (!grid) return;
-        
-        UIManager.setGridMode?.('grid-cats');
-        this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
         
         let skeletonCount = 3;
         try {
@@ -398,27 +397,33 @@ export const RenderManager = {
                 </div>`;
         }
         
-        grid.replaceChildren(this._renderHtmlToFragment(catSkeletons));
+        requestAnimationFrame(() => {
+            UIManager.setGridMode?.('grid-cats');
+            this._applyGridLayout(grid, LiveStoreData.settings || {}, null, 'cats');
+            grid.replaceChildren(this._renderHtmlToFragment(catSkeletons));
+        });
     },
     
     renderProductSkeletons: function(containerId, overrideCount = null) {
         const container = document.getElementById(containerId);
         if (!container) return;
         
-        UIManager.setGridMode?.('grid-prods');
-
         let activeCols = null;
         if (UIManager.currentCategoryId && LiveStoreData.cats) {
             const cat = LiveStoreData.cats.find(c => String(c.id) === String(UIManager.currentCategoryId));
             if (cat && cat.layout) activeCols = cat.layout;
         }
-        this._applyGridLayout(container, LiveStoreData.settings || {}, activeCols, 'prods');
         
         let skeletonsHTML = '';
         for (let i = 0; i < (overrideCount || 8); i++) {
             skeletonsHTML += `<div class="product-skeleton-card skeleton-clean"><div class="prod-img-skeleton skeleton-box"></div><div class="prod-info-skeleton"><div class="product-name skeleton-box skeleton-text-name"></div><div class="product-price skeleton-box skeleton-text-price"></div></div></div>`;
         }
-        container.replaceChildren(this._renderHtmlToFragment(skeletonsHTML));
+        
+        requestAnimationFrame(() => {
+            UIManager.setGridMode?.('grid-prods');
+            this._applyGridLayout(container, LiveStoreData.settings || {}, activeCols, 'prods');
+            container.replaceChildren(this._renderHtmlToFragment(skeletonsHTML));
+        });
     },
 
     initTimersEngine: function() {
@@ -562,13 +567,8 @@ export const RenderManager = {
         }
 
         if(grid) {
-            const catCols = (LiveStoreData.cats || []).find(c => String(c.id) === String(id))?.layout || null;
-            const gridType = items.length > 0 ? 'prods' : 'cats';
-            this._applyGridLayout(grid, LiveStoreData.settings || {}, catCols, gridType);
-
             let combinedHtml = '';
             if(subs.length > 0) {
-                UIManager.setGridMode?.('grid-cats');
                 combinedHtml += subs.map(c => {
                     const safeName = Utils.safeText(c.name);
                     const imgObj = this._generateImageHTML(c.img, safeName, 'cat');
@@ -576,12 +576,18 @@ export const RenderManager = {
                 }).join('');
             }
             if(items.length > 0) {
-                UIManager.setGridMode?.('grid-prods');
                 combinedHtml += items.map((p, idx) => this._generateProductCardHTML(p, idx)).join('');
             }
             
             requestAnimationFrame(() => {
                 if (renderId !== this.currentRenderId) return; 
+                
+                const catCols = (LiveStoreData.cats || []).find(c => String(c.id) === String(id))?.layout || null;
+                const gridType = items.length > 0 ? 'prods' : 'cats';
+                
+                UIManager.setGridMode?.(gridType === 'cats' ? 'grid-cats' : 'grid-prods');
+                this._applyGridLayout(grid, LiveStoreData.settings || {}, catCols, gridType);
+                
                 if (combinedHtml) {
                     grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
                     if(items.length > 0 && Components?.initProductShine) Components.initProductShine();
@@ -620,15 +626,6 @@ export const RenderManager = {
 
         const grid = document.getElementById('store-grid'); 
         if(!grid) return;
-        
-        let activeCols = null;
-        if (UIManager.currentCategoryId) {
-            const currentCat = (LiveStoreData.cats || []).find(c => String(c.id) === String(UIManager.currentCategoryId));
-            if (currentCat && currentCat.layout) activeCols = currentCat.layout;
-        }
-        
-        const gridType = matchedProds.length > 0 ? 'prods' : 'cats';
-        this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols, gridType);
 
         UIManager.resetGridScroll?.(); UIManager.setGridMode?.(null);
 
@@ -660,8 +657,18 @@ export const RenderManager = {
         
         requestAnimationFrame(() => {
             if (renderId !== this.currentRenderId) return;
-            grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
+            
+            let activeCols = null;
+            if (UIManager.currentCategoryId) {
+                const currentCat = (LiveStoreData.cats || []).find(c => String(c.id) === String(UIManager.currentCategoryId));
+                if (currentCat && currentCat.layout) activeCols = currentCat.layout;
+            }
+            
+            const gridType = matchedProds.length > 0 ? 'prods' : 'cats';
+            this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols, gridType);
             UIManager.setGridMode?.(matchedProds.length > 0 ? 'grid-prods' : 'grid-cats');
+            
+            grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
             if(Components?.initProductShine) Components.initProductShine();
             this.initTimersEngine(); 
         });
@@ -691,16 +698,17 @@ export const RenderManager = {
         if (gridTitle) { gridTitle.innerText = 'المفضلة'; gridTitle.classList.add('show-correct-title'); }
         
         if (favProds.length === 0) {
-            grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-heart-circle-plus"></i><h3>لا توجد منتجات مفضلة بعد</h3></div>`;
-            UIManager.setGridMode?.('grid-prods'); return;
+            requestAnimationFrame(() => {
+                UIManager.setGridMode?.('grid-prods'); 
+                grid.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-heart-circle-plus"></i><h3>لا توجد منتجات مفضلة بعد</h3></div>`;
+            });
+            return;
         }
         
         const combinedHtml = favProds.map((p, idx) => this._generateProductCardHTML(p, idx)).join('');
         
         requestAnimationFrame(() => {
             if (renderId !== this.currentRenderId) return; 
-            grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
-            UIManager.setGridMode?.('grid-prods');
             
             let activeCols = null;
             if (favProds.length > 0 && LiveStoreData.cats) {
@@ -708,7 +716,11 @@ export const RenderManager = {
                 const parentCat = LiveStoreData.cats.find(c => String(c.id) === parentCatId);
                 if (parentCat && parentCat.layout) activeCols = parentCat.layout;
             }
+            
             this._applyGridLayout(grid, LiveStoreData.settings || {}, activeCols, 'prods');
+            UIManager.setGridMode?.('grid-prods');
+            grid.replaceChildren(this._renderHtmlToFragment(combinedHtml)); 
+            
             if (Components?.initProductShine) Components.initProductShine();
             this.initTimersEngine(); 
         });
@@ -995,13 +1007,12 @@ export const RenderManager = {
         });
     },
 
-    // 🛡️ التحديث المعماري (V18.6): دالة توليد الإيصال معدلة لمنع الشاشة البيضاء وتوفير جسر المشاركة
-        // 🛡️ التحديث المعماري (V18.6): دالة توليد الإيصال معدلة لمنع الشاشة البيضاء وتوفير جسر المشاركة
+    // 🛡️ التحديث المعماري (V18.9.1): دالة توليد الإيصال معدلة لمنع الشاشة البيضاء (White-on-White) في Safari
     generateReceiptImage: async function(config) {
         return new Promise(async (resolve) => {
             const containerId = 'receipt-render-box-' + Date.now();
             let isResolved = false;
-            let hasTimedOut = false; // 🛡️ حارس التنفيذ: لمعرفة ما إذا كان الوقت قد انقضى
+            let hasTimedOut = false; 
             
             const cleanup = () => {
                 const orphanedContainer = document.getElementById(containerId);
@@ -1012,7 +1023,7 @@ export const RenderManager = {
             
             const watchdog = setTimeout(() => {
                 if (isResolved) return;
-                hasTimedOut = true; // 🛡️ إعلان انتهاء الوقت لإيقاف أي عمليات معلقة
+                hasTimedOut = true; 
                 console.error("🚨 انقضى وقت تحضير الإيصال (Timeout). السيرفر أو المتصفح لا يستجيب.");
                 cleanup();
                 resolve(false);
@@ -1032,12 +1043,17 @@ export const RenderManager = {
                 container.id = containerId;
                 container.className = 'receipt-render-container';
                 
-                // 🛡️ Blank Canvas Shield: إجبار رسم الإيصال خارج الشاشة بأبعاده الحقيقية
-                container.style.position = 'fixed';
-                container.style.top = '-9999px';
-                container.style.left = '-9999px';
+                // 🛡️ 1. الخدعة الذكية لحل شاشة سفاري البيضاء: نضع الإيصال في النقطة (0, 0)
+                // بدلاً من الأسفل أو اليسار العميق، لكي نجبر WebKit على رسمه. ونخفيه خلف الواجهة بـ z-index سالب.
+                container.style.position = 'absolute'; 
+                container.style.top = '0'; 
+                container.style.left = '0';
                 container.style.width = '420px';
-                container.innerHTML = fullHTML;
+                container.style.zIndex = '-9999';
+                container.style.pointerEvents = 'none'; // لمنع تداخله مع نقرات العميل
+                
+                // 🛡️ 2. حماية النصوص من وراثة الوضع الليلي 
+                container.innerHTML = `<div style="background-color: #f8fafc !important; color: #0f172a !important; text-align: right; direction: rtl; min-height: 100vh; width: 100%; display: block; overflow: hidden;">${fullHTML}</div>`;
                 
                 document.body.appendChild(container);
                 
@@ -1047,7 +1063,7 @@ export const RenderManager = {
                     await document.fonts.ready;
                 }
                 
-                // 🛡️ The Bulletproof Yield: منح المعالج الرسومي 150ms لطلاء البيكسلات قبل الالتقاط
+                // منح المعالج الرسومي 150ms لطلاء البيكسلات قبل الالتقاط
                 await new Promise(res => {
                     requestAnimationFrame(() => {
                         setTimeout(res, 150);
@@ -1056,7 +1072,6 @@ export const RenderManager = {
                 
                 if (typeof html2canvas === 'undefined') throw new Error("مكتبة html2canvas مفقودة!");
                 
-                // 🛡️ التوقف الفوري إذا كان المؤقت قد انتهى
                 if (hasTimedOut) return;
                 
                 let canvas;
@@ -1068,10 +1083,14 @@ export const RenderManager = {
                         logging: false,
                         allowTaint: false,
                         windowWidth: 420,
-                        imageTimeout: 5000 // 🛡️ عدم انتظار الصور المكسورة لأكثر من 5 ثوانٍ
+                        x: 0, // 🛡️ إجبار الكاميرا على الالتقاط من نقطة الصفر
+                        y: 0,
+                        scrollX: 0,
+                        scrollY: 0,
+                        imageTimeout: 5000 
                     });
                 } catch (canvasErr) {
-                    if (hasTimedOut) return; // 🛡️ فحص أمني
+                    if (hasTimedOut) return;
                     console.warn("⚠️ [Receipt Engine] CORS Image Issue Detected. Retrying with fallback...");
                     const imgs = container.querySelectorAll('img');
                     imgs.forEach(img => img.style.visibility = 'hidden');
@@ -1082,11 +1101,14 @@ export const RenderManager = {
                         backgroundColor: '#ffffff',
                         logging: false,
                         windowWidth: 420,
+                        x: 0, // 🛡️ إجبار الكاميرا على الالتقاط من نقطة الصفر
+                        y: 0,
+                        scrollX: 0,
+                        scrollY: 0,
                         imageTimeout: 5000
                     });
                 }
                 
-                // 🛡️ Zombie Execution Guard: إيقاف بناء النافذة إذا انقضى الوقت
                 if (hasTimedOut) return;
                 
                 const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.95));
@@ -1098,7 +1120,6 @@ export const RenderManager = {
                 const title = `إيصال إلكتروني - ${storeName}`;
                 const blobUrl = URL.createObjectURL(blob);
                 
-                // 🌟 Share Sheet Bridge: إنشاء نافذة وسيطة بتصميم مؤسسي
                 const dialogId = 'receipt-action-dialog';
                 let dialog = document.getElementById(dialogId);
                 if (dialog) dialog.remove();
@@ -1111,37 +1132,7 @@ export const RenderManager = {
                 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
                 const canShare = isMobile && navigator.canShare && navigator.canShare({ files: [new File([blob], safeFileName, { type: blob.type })] });
                 
-                // الأزرار منسقة باستخدام الفئات القياسية للمتجر
-                let shareBtnHtml = canShare ? `
-                    <button id="btn-native-share" class="btn btn-primary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                        <i class="fa-solid fa-share-nodes"></i> مشاركة الفاتورة
-                    </button>
-                ` : '';
-                
-                dialog.innerHTML = `
-                    <div class="sys-dialog-overlay"></div>
-                    <div class="sys-dialog-card" style="max-width: 360px; text-align: center;">
-                        <div class="sys-dialog-header" style="justify-content: center; border-bottom: none; padding-bottom: 0;">
-                            <div class="sys-dialog-icon success" style="margin-bottom: 10px;">
-                                <i class="fa-solid fa-file-invoice"></i>
-                            </div>
-                        </div>
-                        <h3 class="sys-dialog-title" style="margin-bottom: 8px;">الإيصال الإلكتروني</h3>
-                        <p class="sys-dialog-msg" style="margin-bottom: 20px; font-size: 13.5px;">تم توثيق العملية وتصدير الإيصال بنجاح. يرجى تحديد الإجراء المطلوب.</p>
-
-                        <div style="background: var(--bg-body); padding: 10px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 20px;">
-                            <img src="${blobUrl}" style="max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 6px;" alt="معاينة الإيصال">
-                        </div>
-
-                        <div class="sys-dialog-actions" style="display: flex; gap: 10px; flex-direction: ${canShare ? 'row' : 'column'};">
-                            ${shareBtnHtml}
-                            <button id="btn-native-download" class="btn ${canShare ? 'btn-secondary' : 'btn-primary'}" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                                <i class="fa-solid fa-download"></i> حفظ في الجهاز
-                            </button>
-                        </div>
-                        <button id="btn-close-receipt-dialog" class="adv-close-btn" style="margin-top: 15px; width: 100%; background: transparent; color: var(--text-muted); border: none;">إغلاق النافذة</button>
-                    </div>
-                `;
+                dialog.innerHTML = UIBuilders.buildReceiptActionDialog(blobUrl, canShare);
                 
                 document.body.appendChild(dialog);
                 if (window.UIManager?.sfx) window.UIManager.sfx('success');
@@ -1172,7 +1163,7 @@ export const RenderManager = {
                     dialog.classList.remove('active');
                     setTimeout(() => {
                         dialog.remove();
-                        URL.revokeObjectURL(blobUrl); // تحرير الذاكرة
+                        URL.revokeObjectURL(blobUrl); 
                     }, 300);
                 };
                 
@@ -1192,7 +1183,9 @@ export const RenderManager = {
                 cleanup();
             }
         });
-    },    exportReceipt: async function(orderId, btnElement = null) {
+    },
+
+    exportReceipt: async function(orderId, btnElement = null) {
         if (btnElement && btnElement.disabled) return; 
         
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));

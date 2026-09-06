@@ -1,9 +1,10 @@
 {
-  "id": "telecard-pwa-v1",
+  "id": "/?id=telecard-pwa",
   "name": "TeleCard | تيليكارد",
   "short_name": "تيليكارد",
   "description": "بوابتك الآمنة والسريعة لشراء البطاقات الرقمية وشحن الألعاب بأفضل الأسعار.",
   "start_url": "./?source=pwa",
+  "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "window-controls-overlay"],
   "orientation": "portrait-primary",
@@ -11,24 +12,58 @@
   "lang": "ar",
   "background_color": "#0f172a",
   "theme_color": "#FFD700",
+  "categories": [
+    "shopping",
+    "finance",
+    "entertainment"
+  ],
   "icons": [
     {
-      "src": "./icon.png",
+      "src": "./icons/icon-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./icon.png",
+      "src": "./icons/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./icon.png",
+      "src": "./icons/icon-maskable-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "متابعة الطلبات",
+      "short_name": "الطلبات",
+      "description": "عرض سجل المشتريات والطلبات السابقة",
+      "url": "/?action=view&type=orders",
+      "icons": [
+        {
+          "src": "./icons/shortcut-orders-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "رصيد المحفظة",
+      "short_name": "المحفظة",
+      "description": "شحن الرصيد ومتابعة العمليات المالية",
+      "url": "/?action=view&type=wallet",
+      "icons": [
+        {
+          "src": "./icons/shortcut-wallet-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "prefer_related_applications": false
 }

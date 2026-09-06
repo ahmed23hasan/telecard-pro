@@ -1,11 +1,11 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.8 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.9.0 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت، والإشعارات الفورية
-// 🚀 التحديثات المعمارية (V18.8 - Multi-Tab & Sync Patch):
-// 1. Multi-Tab Persistence 🛡️: تفعيل مدير التبويبات المتعددة لمنع قفل IndexedDB (Error: failed-precondition).
-// 2. Safe Config Import 🛡️: التوافق التام مع كائنات التجميد العميق (deepFreeze) في config.js.
-// 3. Dynamic Global Force Server 🛡️: ربط حالة تجاوز الكاش بحالة الشبكة الفعلية (Online/Offline).
-// 4. Zero Race Condition: تأمين تهيئة قاعدة البيانات للعمل بالذاكرة المؤقتة فوراً كخطة بديلة.
+// 🚀 التحديثات المعمارية (V18.9.0 - Absolute Concurrency Guard):
+// 1. Persistence Lock Crash Fix 🛡️: إزالة تنظيف الكاش المتزامن لمنع تحطم إقلاع المتجر (Fatal Crash).
+// 2. Listener Overwrite Shield 🛡️: توليد مُعرّف فريد (UUID) لكل مستمع لمنع المكونات من قتل مستمعات بعضها.
+// 3. Multi-Tab Persistence 🛡️: تفعيل مدير التبويبات المتعددة لمنع قفل IndexedDB (Error: failed-precondition).
+// 4. Safe Config Import 🛡️: التوافق التام مع كائنات التجميد العميق (deepFreeze) في config.js.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -27,7 +27,9 @@ import { firebaseConfig, DB_KEYS, CACHE_KEYS } from '../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// 🛡️ التحديث المعماري: استخدام مدير التبويبات المتعددة لحل مشكلة قفل الـ IndexedDB الشهيرة
+// ==========================================
+// 🛡️ 1. تهيئة قاعدة البيانات مع السقوط الآمن (Fail-Safe Boot)
+// ==========================================
 let db;
 try {
     db = initializeFirestore(app, {
@@ -35,11 +37,15 @@ try {
     });
 } catch (error) {
     console.warn("⚠️ [Firestore] تعذر تفعيل التخزين المحلي المتزامن، جاري التشغيل الآمن عبر الذاكرة العشوائية (Memory Cache)...");
+    
+    // 🛡️ الإصلاح المعماري: لا نستدعي clearIndexedDbPersistence هنا أبداً لتجنب انهيار التطبيق.
+    // يتم تهيئة الذاكرة العشوائية فوراً لضمان إقلاع المتجر دون أخطاء قاتلة.
     db = initializeFirestore(app, {}); 
     
-    clearIndexedDbPersistence(app)
-        .then(() => console.log("✅ [Firestore] تم تنظيف الكاش التالف للزيارة القادمة."))
-        .catch(() => {});
+    // نعلم النظام بضرورة تنظيف الكاش في الزيارة القادمة (قبل التهيئة)
+    if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('TELECARD_REQUIRE_DB_CLEAR', 'true');
+    }
 }
 
 const auth = getAuth(app);
@@ -66,7 +72,7 @@ export const FirebaseAdapter = {
     _globalForceServer: false, 
 
     // ==========================================
-    // 🔔 1. محرك الإشعارات الفورية (FCM Engine)
+    // 🔔 2. محرك الإشعارات الفورية (FCM Engine)
     // ==========================================
     async requestFCMToken() {
         if (!messaging || typeof window === 'undefined' || !('Notification' in window)) return null;
@@ -78,7 +84,6 @@ export const FirebaseAdapter = {
                 return null;
             }
             
-            // 🛡️ التحديث المعماري: سحب مفتاح الإشعارات من الدستور المركزي لسهولة التحديث مستقبلاً
             const token = await getToken(messaging, { 
                 vapidKey: firebaseConfig.vapidKey 
             });
@@ -91,13 +96,12 @@ export const FirebaseAdapter = {
     },
 
     // ==========================================
-    // 🧠 2. نظام الختم العالمي (Global Cache Versioning)
+    // 🧠 3. نظام الختم العالمي (Global Cache Versioning)
     // ==========================================
     initGlobalCacheVersioning: async function() {
         if (typeof window === 'undefined' || !window.localStorage || navigator.onLine === false) return;
         
         try {
-            // نستخدم getDoc مباشرة للسيرفر هنا للتأكد من وجود تحديث
             const versionSnap = await getDoc(doc(db, DB_KEYS.SYSTEM, 'cache_version'));
             if (versionSnap.exists()) {
                 const serverVersion = versionSnap.data().version || 0;
@@ -108,15 +112,15 @@ export const FirebaseAdapter = {
                     this._globalForceServer = true; 
                     localStorage.setItem(CACHE_KEYS.SERVER_VERSION, serverVersion);
                 } else {
-                    // 🛡️ إعادة ضبط القوة إذا كان الكاش متطابقاً
                     this._globalForceServer = false;
                 }
             }
         } catch (error) { 
-            console.warn("تعذر التحقق من نسخة الكاش العالمي، سيتم الاعتماد على الكاش المحلي.", error); 
+            console.warn("تعذر التحقق من نسخة الكاش العالمي، سيتم الاعتماد على الكاش المحلي."); 
         }
     },
 
+    // 🛡️ إدارة المستمعات المركزية
     _registerListener: function(uniqueKey, unsubscribeFn) {
         if (this._activeListeners.has(uniqueKey)) {
             this._activeListeners.get(uniqueKey)(); 
@@ -142,7 +146,7 @@ export const FirebaseAdapter = {
     },
 
     _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
-        if (isWriteOperation) return promise; 
+        if (isWriteOperation) return promise; // عمليات الكتابة لا تتأثر بالـ Timeout ليقوم فايربيز بمزامنتها عند عودة النت
         
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
@@ -156,6 +160,9 @@ export const FirebaseAdapter = {
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
 
+    // ==========================================
+    // 🗄️ 4. محرك قواعد البيانات المتقدم (DB Engine)
+    // ==========================================
     async getById(collectionName, docId) {
         try {
             const safeId = this._sanitizeDocId(docId);
@@ -267,18 +274,14 @@ export const FirebaseAdapter = {
             const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
             const needsServer = forceServer || this._globalForceServer;
             
-            // 1. محاولة القراءة من الكاش أولاً
             try {
                 const cachedSnapshot = await this._withTimeout(getDocsFromCache(q), 4000, 'getDocsFromCache');
                 if (!cachedSnapshot.empty) {
                     cachedDocs = cachedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: true }));
                     if (!needsServer || isOffline) return cachedDocs;
                 }
-            } catch (cacheError) {
-                // الكاش فارغ أو غير متاح، نستمر للسيرفر
-            }
+            } catch (cacheError) {}
             
-            // 2. محاولة جلب أحدث البيانات من السيرفر
             const serverSnapshot = await this._withTimeout(getDocs(q), 10000, `queryCacheFirst -> ${collectionName}`);
             return serverSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: false }));
             
@@ -339,7 +342,10 @@ export const FirebaseAdapter = {
                 },
                 (error) => { console.warn(`Listen Error (${collectionName}):`, error?.message); }
             );
-            return this._registerListener(`doc_${collectionName}_${safeId}`, unsubscribe);
+            
+            // 🛡️ الإصلاح المعماري: إضافة UUID لضمان عدم تعارض المستمعات إذا طلبت مكونات مختلفة نفس المستند
+            const uniqueStamp = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
+            return this._registerListener(`doc_${collectionName}_${safeId}_${uniqueStamp}`, unsubscribe);
         } catch (error) {
             console.error(`[DB Error] listenDoc failed setup:`, error.message);
             return () => {};
@@ -362,11 +368,16 @@ export const FirebaseAdapter = {
         );
         
         const filterStr = JSON.stringify(filtersArray);
-        const safeKey = `query_${collectionName}_${filterStr}_${orderField||'none'}_${limitCount||'all'}`;
+        // 🛡️ الإصلاح المعماري: إضافة UUID لمنع الكتابة الفوقية (Overwrite) للمستمعات المتزامنة
+        const uniqueStamp = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
+        const safeKey = `query_${collectionName}_${filterStr}_${orderField||'none'}_${limitCount||'all'}_${uniqueStamp}`;
         
         return this._registerListener(safeKey, unsubscribe);
     },
 
+    // ==========================================
+    // ⚙️ 5. محرك الكلاود فانكشن والتخزين
+    // ==========================================
     async callFunction(functionName, payload = {}, retryCount = 1) { 
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             const err = new Error('لا يوجد اتصال بالإنترنت. يرجى التحقق من الشبكة.');
@@ -393,7 +404,7 @@ export const FirebaseAdapter = {
             }
             
             let errorMsg = error.message || 'فشل الاتصال بالخادم.';
-            const sensitiveKeywords = ['رأس المال', 'الربح', 'تكلفة', 'يكسر حاجز', 'خسارة', 'السعر النهائي', 'cost', 'profit', 'margin'];
+            const sensitiveKeywords = ['رأس المال', 'الربح', 'تكلفة', 'يكسر حاجز', 'خسارة', 'السعر النهائي', 'cost', 'profit', 'margin', 'division by zero'];
             const isSensitiveError = sensitiveKeywords.some(keyword => errorMsg.includes(keyword));
             
             if (isSensitiveError) {
@@ -418,13 +429,16 @@ export const FirebaseAdapter = {
         
         try { 
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general'; 
-            const originalExt = (file.name || '').includes('.') ? file.name.split('.').pop().toLowerCase() : (file.type === 'application/pdf' ? 'pdf' : 'jpg'); 
+            
+            // 🛡️ استخراج آمن للامتداد لمنع التحايل
+            const originalExt = (file.name || '').includes('.') ? file.name.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') : (file.type === 'application/pdf' ? 'pdf' : 'jpg'); 
+            const finalExt = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'pdf'].includes(originalExt) ? originalExt : 'bin';
+
             const safeFileName = (file.name || 'file').replace(/[^\w\s\u0600-\u06FF\-_]/g, '').trim().replace(/\s+/g, '_') || 'file';
-            
             const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9); 
-            const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null; 
             
-            const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`; 
+            const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null; 
+            const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${finalExt}`; 
             
             const snapshot = await this._withTimeout( 
                 uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع المرفق", true 
@@ -444,6 +458,9 @@ export const FirebaseAdapter = {
         }
     },
 
+    // ==========================================
+    // 🔐 6. محرك المصادقة والأمان (Auth Engine)
+    // ==========================================
     async sendResetEmail(email) {
         try {
             await sendPasswordResetEmail(auth, email);

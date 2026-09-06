@@ -1,11 +1,11 @@
 // ============================================================================
-// 🎨 الموزع المركزي للواجهات (uiManager.js) - الإصدار المؤسسي V18.6 🛡️
+// 🎨 الموزع المركزي للواجهات (uiManager.js) - الإصدار المؤسسي V18.9.1 🛡️
 // 🎯 الوظيفة: تجميع وحدات الواجهة، إدارة الحالة (State)، ومنع تضارب البيانات
-// 🚀 التحديثات المعمارية الصارمة (V18.6 - Transaction Failsafe Patch):
-// 1. Double-Spend Shield 🛡️: إزالة الفك الإجباري للقفل لمنع العميل من تكرار عملية مالية لا تزال قيد المعالجة.
-// 2. Progressive Warning 🛡️: استبدال الإغلاق القسري بتنبيهات ذكية تتغير ديناميكياً لتطمين العميل عند بطء الشبكة.
-// 3. Safe Mixin Guard 🛡️: إيقاف الدمج المسطح العشوائي ومنع الكتابة الفوقية للدوال المتشابهة.
-// 4. Explicit Collision Detection: طباعة أخطاء صريحة عند تضارب أسماء الدوال بين الوحدات.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - State Routing & Proxy Patch):
+// 1. Proxy Set Trap 🛡️: إضافة فخ الكتابة (set) لتوجيه المتغيرات إلى وحداتها الأصلية ومنع الشلل في التنقل.
+// 2. Smart Proxy Router 🛡️: استخدام (Proxy) لتوجيه الاستدعاءات للوحدات الفرعية دون تسطيحها للحفاظ على التوافق الرجعي.
+// 3. Context Preservation 🛡️: حماية الكلمة المفتاحية (this) لكل وحدة (Module) بدلاً من ربطها العشوائي بالموزع المركزي.
+// 4. Progressive Warning 🛡️: نظام تنبيهات ديناميكي يطمئن العميل عند بطء الشبكة دون إلغاء حماية المعاملة.
 // ============================================================================
 
 import { UICore } from './uiCore.js';
@@ -31,11 +31,17 @@ const UIState = {
 };
 
 // ============================================================================
-// 2️⃣ بناء الموزع المركزي (UIManager) 
+// 2️⃣ بناء الكائن الأساسي للموزع (Base UIManager)
 // ============================================================================
-export const UIManager = {
+const UIManagerBase = {
     isReady: true,
     State: UIState,
+    
+    // 🛡️ العزل الهيكلي: إرفاق الوحدات كمساحات أسماء (Namespaces) نقية
+    Core: UICore,
+    Finance: UIFinance,
+    Auth: UIAuth,
+    Components: Components,
     
     // 🚀 نظام اللودر الديناميكي مع حماية ضد الوميض ودرع التجميد
     _loaderActiveRequests: 0,
@@ -49,7 +55,7 @@ export const UIManager = {
             this._loaderActiveRequests = force ? 0 : Math.max(0, this._loaderActiveRequests - 1);
         }
         
-        // 🛡️ درع الأمان المحدث (V18.6): تحذير تصاعدي بدلاً من الإغلاق الكارثي
+        // 🛡️ درع الأمان: تحذير تصاعدي بدلاً من الإغلاق الكارثي لضمان سلامة العمليات المالية
         if (this._loaderActiveRequests > 0) {
             if (this._failsafeTimer) clearTimeout(this._failsafeTimer);
             this._failsafeTimer = setTimeout(() => {
@@ -58,8 +64,7 @@ export const UIManager = {
                     textEl.innerHTML = '<span style="color: #fbbf24;"><i class="fa-solid fa-triangle-exclamation"></i> الشبكة بطيئة، يرجى الانتظار...</span>';
                 }
                 console.warn("🛡️ [UI Failsafe] الشبكة بطيئة جداً. تم تنبيه العميل مع إبقاء الواجهة مقفلة لمنع تكرار الطلب (Double-Spend).");
-                // ❌ تم إزالة this.forceHideLoader() لحماية سلامة المعاملات المالية
-            }, 15000); // عرض التحذير بعد 15 ثانية من الانتظار
+            }, 15000); 
         } else {
             if (this._failsafeTimer) {
                 clearTimeout(this._failsafeTimer);
@@ -67,7 +72,6 @@ export const UIManager = {
             }
         }
         
-        // 🛡️ حماية الـ DOM: استخدام مستمع آمن بدلاً من إرهاق المعالج
         if (!document.body) {
             document.addEventListener('DOMContentLoaded', () => {
                 this.toggleLoader(show, text, force);
@@ -75,7 +79,7 @@ export const UIManager = {
             return;
         }
         
-        // ⏱️ تأخير 50 ملي ثانية لمنع الوميض المزعج عند الانتقال السريع بين العمليات
+        // ⏱️ تأخير 50 ملي ثانية لمنع الوميض المزعج
         clearTimeout(this._loaderTimeout);
         this._loaderTimeout = setTimeout(() => {
             let loader = document.getElementById('global-dynamic-loader');
@@ -112,44 +116,58 @@ export const UIManager = {
 };
 
 // ============================================================================
-// 3️⃣ الدمج الآمن للوحدات (Safe Composition Guard)
+// 3️⃣ محول الوكيل الذكي (The Smart Proxy Router) 
 // ============================================================================
+// هذا الوكيل يسمح باستدعاء الدوال القديمة بشكل مسطح (Flat Call) مثل UIManager.openModal()
+// مع توجيه الطلب داخلياً للوحدة المناسبة (مثلاً Core) مع الحفاظ على سياقها (this).
+export const UIManager = new Proxy(UIManagerBase, {
+    get(target, prop) {
+        // 1. إذا كانت الخاصية موجودة في الموزع الأساسي (مثل toggleLoader أو State)
+        if (prop in target) {
+            return target[prop];
+        }
 
-// 🛡️ تعريف الوحدات مع أسمائها لتسهيل تتبع الأخطاء
-const modulesToMerge = [
-    { name: 'UICore', obj: UICore },
-    { name: 'UIFinance', obj: UIFinance },
-    { name: 'UIAuth', obj: UIAuth },
-    { name: 'Components', obj: Components }
-];
-
-const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-
-for (const mod of modulesToMerge) {
-    if (!mod.obj) continue;
+        // 2. إذا لم تكن موجودة، نبحث عنها في مساحات الأسماء بالترتيب
+        const namespaces = [target.Core, target.Finance, target.Auth, target.Components];
+        
+        for (const ns of namespaces) {
+            if (ns && prop in ns) {
+                const value = ns[prop];
+                // 🛡️ الأهم: إذا كانت دالة، يجب ربطها (bind) بوحدتها الأصلية لمنع فقدان السياق (Context Loss)
+                if (typeof value === 'function') {
+                    return value.bind(ns);
+                }
+                return value;
+            }
+        }
+        
+        // إرجاع undefined إذا لم يتم العثور عليها في أي مكان
+        return undefined;
+    },
     
-    const descriptors = Object.getOwnPropertyDescriptors(mod.obj);
-    for (const [key, descriptor] of Object.entries(descriptors)) {
-        if (FORBIDDEN_KEYS.has(key)) continue;
-        
-        // منع استبدال الخصائص الأساسية التي عرفناها في UIManager
-        if (['isReady', 'State', 'toggleLoader', 'forceHideLoader', '_loaderActiveRequests', '_loaderTimeout', '_failsafeTimer'].includes(key)) continue;
-        
-        // 🛡️ خوارزمية منع الكتابة الفوقية (Collision Detection Guard)
-        // إذا كانت الخاصية موجودة بالفعل، نوقف الدمج ونطبع خطأ صريحاً لإنهاء الفشل الصامت
-        if (key in UIManager) {
-            console.error(`🚨 [Architecture Guard] تضارب في الأسماء (Collision)! الدالة '${key}' من وحدة '${mod.name}' تحاول الكتابة فوق دالة موجودة مسبقاً في الموزع المركزي. تم إيقاف دمج هذه الدالة للحماية.`);
-            continue; 
+    // 🛡️ التحديث المعماري (V18.9.1): إضافة فخ الكتابة (Set Trap) 
+    // لضمان أن تعديل المتغيرات (مثل UIManager.currentCategoryId = null) يتم حفظه في وحدته الأصلية
+    set(target, prop, value) {
+        // 1. إذا كان المتغير يخص الموزع المركزي نفسه
+        if (prop in target) { 
+            target[prop] = value; 
+            return true; 
+        }
+
+        // 2. البحث عن المتغير في مساحات الأسماء وتحديثه هناك
+        const namespaces = [target.Core, target.Finance, target.Auth, target.Components];
+        for (const ns of namespaces) {
+            if (ns && prop in ns) { 
+                ns[prop] = value; // توجيه القيمة الجديدة للوحدة الأصلية
+                return true; 
+            }
         }
         
-        // ربط الدوال بالموزع المركزي لضمان أن `this` يشير دائماً لـ UIManager المفتوح
-        if (typeof descriptor.value === 'function') {
-            UIManager[key] = descriptor.value.bind(UIManager);
-        } else {
-            UIManager[key] = descriptor.value;
-        }
+        // 3. إذا كان متغيراً جديداً تماماً (لم يتم تعريفه مسبقاً)، نحفظه في الموزع
+        target[prop] = value; 
+        return true;
     }
-}
+});
 
 // ============================================================================
 // 4️⃣ ربط الموزع بالبيئة العالمية بأمان 
@@ -163,6 +181,7 @@ if (typeof globalThis !== 'undefined') {
         });
     }
     
+    // دعم الأسماء القديمة (Legacy Support)
     if (!globalThis.ClientSystem) {
         Object.defineProperty(globalThis, 'ClientSystem', {
             value: UIManager,

@@ -1,10 +1,10 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي (Store Render Helpers) - Enterprise V18.9.0 💎
+// 🛠️ مساعدات محرك الرسم العالمي (Store Render Helpers) - Enterprise V18.9.1 💎
 // 🎯 الوظيفة: تنسيق احترافي للنصوص والأموال والتواريخ، مخصص لراحة العميل (UX).
-// 🚀 التحديثات المعمارية (V18.9.0 - UI Sync & Fallback Patch):
-// 1. Data Race Guard 🛡️: جلب إعدادات المتجر من الكاش كبديل لضمان تنسيق الأموال قبل اكتمال الإقلاع.
-// 2. Global Flags Expansion 🌍: توسيع قاعدة الأعلام لتشمل كافة عملات الشرق الأوسط والعالم.
-// 3. DRY Compliance: استيراد أدوات النصوص والزمن من utils.js كمرجع وحيد (SSOT).
+// 🚀 التحديثات المعمارية (V18.9.1 - Performance & Crypto Patch):
+// 1. Loop-Free Boot ⚡: إزالة حلقة البحث في LocalStorage (O(1)) لمنع تجميد المتصفح أثناء الإقلاع.
+// 2. Crypto Precision Guard 💎: دعم ديناميكي للفواصل العشرية للعملات الرقمية (حتى 6 أصفار).
+// 3. Strict Deterministic Cache 🛡️: قراءة الكاش عبر مفاتيح حتمية فقط لتسريع الرندر.
 // 4. Stripe-Like Masking: اقتطاع أنيق للمعرفات لراحة عين المستخدم.
 // ============================================================================
 
@@ -18,32 +18,27 @@ export const RenderHelpers = Object.freeze({
         _injectedSource = source;
     },
 
-    // 🛡️ التحديث المعماري: درع تعارض البيانات (Data Race Guard)
+    // 🛡️ التحديث المعماري: O(1) Data Race Guard (إزالة الـ Loop بالكامل)
     _getDataSource: function() {
         if (_injectedSource) return _injectedSource;
         
-        // في حال تم استدعاء الدالة قبل تهيئة الموزع (مثلاً أثناء الإقلاع الباكر)، 
-        // نبحث في الكاش المحلي لضمان عدم عرض العملة بشكل افتراضي خاطئ
+        // في حال تم استدعاء الدالة قبل تهيئة الموزع (أثناء الإقلاع الباكر)، 
+        // نبحث عبر مفاتيح حتمية (Deterministic) بدلاً من اللف على كل الذاكرة.
         try {
             if (typeof localStorage !== 'undefined') {
                 const cachedSettings = JSON.parse(localStorage.getItem('telecard_store_cache_telecard_settings_singleton') || '{}');
-                // محاولة جلب أسعار الصرف من الكاش
-                let cachedRates = [];
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && key.includes('telecard_rates')) {
-                        cachedRates = JSON.parse(localStorage.getItem(key) || '[]');
-                        break;
-                    }
-                }
+                // استدعاء مباشر وسريع بدون إجهاد المعالج
+                const cachedRates = JSON.parse(localStorage.getItem('telecard_store_cache_telecard_rates_singleton') || localStorage.getItem('telecard_rates') || '[]');
+                
                 return { settings: cachedSettings, rates: cachedRates, offers: [], isStore: true };
             }
-        } catch(e) {}
+        } catch(e) {
+            console.warn("[RenderHelpers] تعذر قراءة الكاش الاحتياطي.");
+        }
 
         return { settings: {}, rates: [], offers: [], isStore: true };
     },
 
-    // 🛡️ توجيه الدوال السابقة إلى مرجع utils.js الموحد لعدم كسر الأكواد القديمة
     _esc: escapeHtml,
     _enNum: enNum,
 
@@ -113,7 +108,6 @@ export const RenderHelpers = Object.freeze({
         return (curObj && curObj.symbol) ? curObj.symbol : code;
     },
 
-    // 🛡️ التحديث المعماري: توسيع هائل لقاعدة بيانات الأعلام لمنع ظهور أيقونة الخطأ
     getCurrencyFlagUrl: function(currCode = 'USD') {
         const code = String(currCode).toUpperCase().trim();
         const cryptoIcons = {
@@ -139,9 +133,21 @@ export const RenderHelpers = Object.freeze({
         return `https://flagcdn.com/w40/${countryCode}.png`;
     },
 
-    formatMoney: function(amount, currencyCode = 'USD', decimals = 2) {
-        const formattedNum = enNum(amount, decimals);
-        const displayCur = RenderHelpers.getCurrencySymbolText(currencyCode);
+    // 🛡️ التحديث المعماري: حماية دقة العملات الرقمية وتحديد الفواصل بذكاء
+    formatMoney: function(amount, currencyCode = 'USD', decimals = null) {
+        const code = String(currencyCode).toUpperCase().trim();
+        
+        // الاكتشاف الذكي: إذا لم يحدد المبرمج الفواصل، نحددها بناءً على نوع العملة
+        let finalDecimals = decimals !== null ? decimals : 2;
+        const cryptoCurrencies = new Set(['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL']);
+        
+        if (decimals === null && cryptoCurrencies.has(code)) {
+            // العملات المتقلبة مثل البتكوين تحتاج 6 فواصل، العملات المستقرة تحتاج 4
+            finalDecimals = (code === 'BTC' || code === 'ETH') ? 6 : 4; 
+        }
+
+        const formattedNum = enNum(amount, finalDecimals);
+        const displayCur = RenderHelpers.getCurrencySymbolText(code);
         const isLongText = displayCur.trim().length > 1;
         const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
         const safeCur = escapeHtml(displayCur);

@@ -1,10 +1,11 @@
 // ============================================================================
-// ⚙️ مدير البيانات المركزي (dataManager.js) - الإصدار المؤسسي V18.5 💎
+// ⚙️ مدير البيانات المركزي (dataManager.js) - الإصدار المؤسسي V18.9.0 💎
 // 🎯 الوظيفة: العقدة المركزية المطلقة لمعالجة البيانات، الاتصال المالي، والإشعارات.
-// 🚀 التحديثات المعمارية الصارمة (V18.5 - Core Engine Patch): 
-// 1. Strict Price Slippage Shield 🛡️: إرفاق (expectedCurrency) مع السعر المتوقع لمنع ثغرات تبديل العملات.
-// 2. Loop-Free Healing 🛡️: إيقاف الدوران اللانهائي للصور اليتيمة بتجاهل أخطاء (404 Not Found).
-// 3. Storage Quota Shield 🛡️: تنظيف آلي وعميق لكاشات الحسابات لمنع انهيار الـ LocalStorage.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - State Sync & Memory Leak Patch): 
+// 1. State Desync Shield 🛡️: قفل زمني للتحديثات المحلية (Optimistic Lock) لمنع السيرفر من مسح بيانات العميل القديمة قبل الاستقرار.
+// 2. Offline Queue Memory Leak 🛡️: إيقاف إعادة جدولة المهام الميتة (أخطاء الصلاحيات والحذف) لمنع امتلاء الـ LocalStorage.
+// 3. Strict Price Slippage Shield 🛡️: إرفاق (expectedCurrency) مع السعر المتوقع لمنع ثغرات تبديل العملات.
+// 4. Loop-Free Healing 🛡️: إيقاف الدوران اللانهائي للصور اليتيمة بتجاهل أخطاء (404 Not Found).
 // ============================================================================
 
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"; 
@@ -31,6 +32,7 @@ export const DataManager = {
     _ratesCache: null,
     _actionLocks: new Set(),
     _offlineSyncBound: false,
+    _lastLocalUpdate: 0, // 🛡️ درع تعارض الحالة الزمني
     cursors: { orders: null, deposits: null, wallet: null }, 
     
     get activeUid() { return this.user?.uid || this.user?.id || localStorage.getItem(CACHE_KEYS.ACTIVE_UID); },
@@ -42,7 +44,6 @@ export const DataManager = {
     _safeDeleteFile: function(url) {
         if (!url || typeof StoreDB.deleteImageByUrl !== 'function') return;
         StoreDB.deleteImageByUrl(url).catch((e) => {
-            // 🛡️ الإصلاح: عدم حفظ الملف في الطابور إذا كان محذوفاً بالفعل من السيرفر (404)
             const isNotFound = e && (e.code === 'storage/object-not-found' || String(e.message).toLowerCase().includes('not found') || String(e.message).toLowerCase().includes('does not exist'));
             if (isNotFound) return; 
 
@@ -59,7 +60,7 @@ export const DataManager = {
     syncOfflineTasks: async function() {
         if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
         
-        // 1. تنظيف التوكنات العالقة (FCM Ghosting Fix)
+        // 1. تنظيف التوكنات العالقة (FCM Ghosting Fix & Memory Leak Shield)
         try {
             let pendingDeletes = JSON.parse(localStorage.getItem('tc_pending_fcm_delete') || '[]');
             if (pendingDeletes.length > 0) {
@@ -73,7 +74,15 @@ export const DataManager = {
                                 await StoreDB.set(DB_KEYS.USERS, req.uid, { fcmTokens: updatedTokens }, { merge: true });
                             }
                         }
-                    } catch (e) { remaining.push(req); }
+                    } catch (e) {
+                        // 🛡️ التحديث المعماري: فلترة الأخطاء الدائمة لمنع تسرب الذاكرة (Memory Leak)
+                        const errMsg = String(e?.message || '').toLowerCase();
+                        const isPermanentError = e?.code === 'permission-denied' || errMsg.includes('permission') || errMsg.includes('not found') || errMsg.includes('missing');
+                        
+                        if (!isPermanentError) {
+                            remaining.push(req); // إعادة المحاولة فقط لأخطاء الشبكة المؤقتة
+                        }
+                    }
                 }
                 if (remaining.length > 0) localStorage.setItem('tc_pending_fcm_delete', JSON.stringify(remaining));
                 else localStorage.removeItem('tc_pending_fcm_delete');
@@ -92,7 +101,6 @@ export const DataManager = {
                             await StoreDB.deleteImageByUrl(url);
                         }
                     } catch(e) { 
-                        // 🛡️ الإصلاح: منع الدوران اللانهائي (Infinite Loop) وتجاهل الـ 404
                         const isNotFound = e && (e.code === 'storage/object-not-found' || String(e.message).toLowerCase().includes('not found') || String(e.message).toLowerCase().includes('does not exist'));
                         if (!isNotFound) {
                             remainingFiles.push(url); 
@@ -278,7 +286,12 @@ export const DataManager = {
         
         try {
             const success = await StoreDB.set(DB_KEYS.USERS, this.activeUid, sanitized, { merge: true });
-            if (success) { this.user = { ...this.user, ...sanitized }; this.saveUserLocal(); return true; }
+            if (success) { 
+                this._lastLocalUpdate = Date.now(); // 🛡️ تفعيل الدرع الزمني
+                this.user = { ...this.user, ...sanitized }; 
+                this.saveUserLocal(); 
+                return true; 
+            }
             return false;
         } catch (error) { return false; }
     },
@@ -352,6 +365,8 @@ export const DataManager = {
             if (result && result.success) {
                 const finalCurr = result.lockedCurrency || currency;
                 try { localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, finalCurr); } catch(e) {}
+                
+                this._lastLocalUpdate = Date.now(); // 🛡️ تفعيل الدرع الزمني لمنع السيرفر من مسح البيانات
                 this.selectedCurr = finalCurr;
                 this.user = { ...this.user, country, phone, baseCurrency: finalCurr, isVerified: true };
                 this.saveUserLocal();
@@ -516,25 +531,50 @@ export const DataManager = {
     // 📡 مستمعات وجلب البيانات التاريخية
     // =========================================================
 
-    listenToUserUpdates: function(renderCb) {
+        listenToUserUpdates: function(renderCb) {
         if (!this.activeUid) return;
-        if (typeof this._userUnsubscribe === 'function') { this._userUnsubscribe(); this._userUnsubscribe = null; }
+        if (typeof this._userUnsubscribe === 'function') { this._userUnsubscribe();
+            this._userUnsubscribe = null; }
         
         try {
             this._userUnsubscribe = StoreDB.listenDoc(DB_KEYS.USERS, this.activeUid, (docData) => {
                 if (docData) {
+                    // 1. الأولوية القصوى للحماية: استجابة فورية لحظر الحساب متخطية أي درع زمني
                     if (docData.isBanned || docData.isIpBanned) {
                         window.UIManager?.triggerLiveBanAlert ? window.UIManager.triggerLiveBanAlert(docData.banReason) : this.logout();
                         return;
                     }
-                    this.user = { ...this.user, ...docData, uid: this.activeUid, id: this.activeUid, walletBalance: Number(docData.walletBalance ?? docData.balance ?? 0) };
+                    
+                    // 2. 🛡️ التحديث المعماري: (Selective State Guard)
+                    // السماح بتحديث الرصيد المالي دائماً حتى أثناء القفل الزمني للتحديثات المحلية
+                    if (Date.now() - this._lastLocalUpdate < 3000) {
+                        console.log("🛡️ [State Guard] جاري تحديث الرصيد فقط وتجاهل باقي البيانات لحماية التحديث المحلي.");
+                        if (this.user) {
+                            this.user.walletBalance = Number(docData.walletBalance ?? docData.balance ?? 0);
+                            this.saveUserLocal();
+                            if (renderCb) renderCb();
+                        }
+                        return;
+                    }
+                    
+                    // 3. التحديث الشامل للبيانات في الحالة الطبيعية
+                    this.user = {
+                        ...this.user,
+                        ...docData,
+                        uid: this.activeUid,
+                        id: this.activeUid,
+                        walletBalance: Number(docData.walletBalance ?? docData.balance ?? 0)
+                    };
                     this.saveUserLocal();
                     if (renderCb) renderCb();
-                } else this.logout();
+                } else {
+                    this.logout();
+                }
             });
-        } catch (e) { }
+        } catch (e) {
+            console.warn("[DataManager] فشل في تشغيل مستمع تحديثات المستخدم:", e);
+        }
     },
-
     fetchUserHistory: async function() {
         if (!this.activeUid || !StoreDB.query) return;
         try {

@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Server Edition) - النسخة V26.3.0 👑 (The Fortress)
+// 💰 المحرك المالي المركزي (Server Edition) - النسخة V26.4.0 👑 (The Fortress)
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، تسعير البوابات والـ VIP.
-// 🚀 التحديثات المعمارية (V26.3.0 - Smart Fallback Guard):
-// 1. Smart Fallback Guard 🛡️: اكتشاف الحسابات المعلقة وتعيين المستوى الافتراضي الفعلي (isDefault) بدلاً من الفهرس [0] العشوائي.
-// 2. Infinity Guard 🛡️: منع الأرقام اللانهائية من التسرب لـ Firestore لتجنب تحطم السيرفر.
-// 3. Strict Export 🛡️: الحفاظ على البيانات الحقيقية (التكلفة/الربح) مع إيقاف أي عملية خاسرة.
-// 4. بيئة التشغيل: Node.js (Firebase Cloud Functions) فقط - Strict Isolation.
+// 🚀 التحديثات المعمارية (V26.4.0 - Absolute Math Guard & Performance):
+// 1. Absolute Math Guard 🛡️: إيقاف الإخفاق الصامت ورمي أخطاء حتمية عند القسمة على صفر.
+// 2. Base Currency Shield 🛡️: منع الكتابة الفوقية على عملة الأساس من أي مدخلات خارجية.
+// 3. Defense in Depth 🛡️: تحقق مزدوج قبل عمليات التحويل لتحديد العملة المعطوبة بدقة.
+// 4. O(1) Optimization ⚡: استخدام Set للتحقق من المفاتيح لتسريع أداء السيرفر.
 // ============================================================================
 
 class FinancialSecurityError extends Error {
@@ -33,7 +33,6 @@ const FinancialEngineDef = {
 
     _preciseRound: function(num, decimals = FinancialEngineDef.CONFIG.PRECISION) {
         let n = Number(num);
-        // 🛡️ التحديث الماسي: حماية السيرفر من الأرقام اللانهائية
         if (isNaN(n) || !isFinite(n) || n === 0) return 0;
         const factor = Math.pow(10, decimals);
         return Math.round((n + Number.EPSILON) * factor) / factor;
@@ -46,10 +45,11 @@ const FinancialEngineDef = {
     _internalDiv: function(a, b) {
         const numA = Number(a) || 0;
         const numB = Number(b) || 0;
+        
         if (numB === 0) {
-            console.error("🚨 [Server Math Guard]: Division by zero prevented! يرجى مراجعة أسعار الصرف.");
-            return numA;
+            throw new FinancialSecurityError("عملية حسابية غير صالحة (قسمة على صفر). يرجى مراجعة إعدادات أسعار الصرف ونسب الخصم لمنع تسعير خاطئ.");
         }
+        
         return FinancialEngineDef._preciseRound(numA / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
     },
 
@@ -166,35 +166,54 @@ const FinancialEngineDef = {
 
     normalizeRates: function(raw) {
         const ratesMap = {};
-        ratesMap[FinancialEngineDef.CONFIG.BASE_CURRENCY] = { code: FinancialEngineDef.CONFIG.BASE_CURRENCY, priceRate: 1, depRate: 1, isBase: true };
         
-        const processRateObj = (code, priceR, depR) => {
+        ratesMap[FinancialEngineDef.CONFIG.BASE_CURRENCY] = { 
+            code: FinancialEngineDef.CONFIG.BASE_CURRENCY, 
+            priceRate: 1, 
+            depRate: 1, 
+            isBase: true 
+        };
+        
+        const processRateObj = (rawCode, priceR, depR) => {
+            if (!rawCode) return;
+            const code = String(rawCode).trim().toUpperCase();
+            
+            if (!code || code === FinancialEngineDef.CONFIG.BASE_CURRENCY) return;
+
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
+            
             if (numPrice === 0 || numDep === 0) {
-                console.warn(`🚨 [Server System]: سعر صرف غير صالح للعملة ${code}. سيتم اعتبارها 1 للحماية.`);
-                ratesMap[code] = { code: code, priceRate: numPrice || 1, depRate: numDep || 1 };
-                return;
+                throw new FinancialSecurityError(`سعر صرف صفري أو مفقود للعملة [${code}]. تم إيقاف التسعير لحماية المتجر.`);
             }
-            ratesMap[code] = { code: code, priceRate: numPrice, depRate: numDep };
+            
+            ratesMap[code] = { code, priceRate: numPrice, depRate: numDep };
         };
+
+        if (!raw || typeof raw !== 'object') {
+            return ratesMap; 
+        }
 
         if (Array.isArray(raw)) {
             for (const rate of raw) {
-                if (rate && rate.code && rate.code !== FinancialEngineDef.CONFIG.BASE_CURRENCY) {
-                    processRateObj(String(rate.code).toUpperCase(), rate.priceRate || rate.value, rate.depRate || rate.value);
+                if (rate && typeof rate === 'object') {
+                    processRateObj(rate.code, rate.priceRate || rate.value, rate.depRate || rate.value);
                 }
             }
-        } else if (raw && typeof raw === 'object') {
-            const invalidKeys = ['ISBASE', 'PRICERATE', 'DEPRATE', 'CODE', 'VALUE', 'SYMBOL', 'NAME'];
+        } else {
+            const invalidKeys = new Set(['ISBASE', 'PRICERATE', 'DEPRATE', 'CODE', 'VALUE', 'SYMBOL', 'NAME']);
+            
             for (const [key, value] of Object.entries(raw)) {
-                if (typeof value !== 'object' && !invalidKeys.includes(key.toUpperCase())) continue;
-                const code = String(value.code || key).toUpperCase();
-                if (code && code !== FinancialEngineDef.CONFIG.BASE_CURRENCY && !invalidKeys.includes(code)) {
-                    processRateObj(code, value.priceRate || value.value, value.depRate || value.value);
-                }
+                if (!value || typeof value !== 'object') continue;
+                
+                const safeKey = String(key).trim().toUpperCase();
+                if (invalidKeys.has(safeKey)) continue;
+
+                const code = value.code || safeKey;
+                processRateObj(code, value.priceRate || value.value, value.depRate || value.value);
             }
         }
+        
         return ratesMap;
     },
     
@@ -207,13 +226,15 @@ const FinancialEngineDef = {
         const ratesMap = FinancialEngineDef.normalizeRates(ratesRaw);
         
         if (!ratesMap[fCode] || !ratesMap[tCode]) {
-            console.error(`🚨 [Server System]: فشل التحويل من ${fCode} إلى ${tCode}. العملة مفقودة!`);
-            return amt;
+            throw new FinancialSecurityError(`فشل التحويل المالي من ${fCode} إلى ${tCode}. إحدى العملات غير مسجلة في أسعار الصرف.`);
         }
         
         const fRate = channel === 'deposit' ? ratesMap[fCode].depRate : ratesMap[fCode].priceRate;
         const tRate = channel === 'deposit' ? ratesMap[tCode].depRate : ratesMap[tCode].priceRate;
-        if (fRate === 0 || tRate === 0) return amt; 
+        
+        if (fRate === 0 || tRate === 0) {
+            throw new FinancialSecurityError(`انعدام في قيمة سعر الصرف بين ${fCode} و ${tCode}. العملية مرفوضة.`);
+        }
 
         return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
     },
@@ -432,7 +453,6 @@ const FinancialEngineDef = {
         
         let foundTier = tiers.find(t => String(t.id) === userTierId);
 
-        // 🛡️ التوافق المعماري: إذا كان مستوى العميل غير موجود (محذوف)، استخرج المستوى الافتراضي
         if (!foundTier) {
             foundTier = tiers.find(t => t.isDefault === true) || tiers.find(t => String(t.id) === '1') || tiers[0];
         }

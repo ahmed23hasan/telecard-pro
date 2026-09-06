@@ -1,11 +1,11 @@
 // ============================================================================
-// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V18.5 💎
+// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V18.9.0 💎
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديثات المعمارية الصارمة (V18.5 - Memory & Animation Patch):
-// 1. Animation Leak Shield 🛡️: إيقاف عداد السعر برمجياً فور إغلاق النافذة لمنع استنزاف الـ CPU.
-// 2. Closure Memory Guard 🛡️: تفريغ مؤقتات اللمعان (Shine) آلياً إذا تم تدمير العنصر من الـ DOM.
-// 3. Safe Clipboard Access 🛡️: التعامل الآمن مع رفض صلاحيات اللصق لمنع أخطاء الوعود (Promise Rejections).
-// 4. Clean CSS Decoupling: فصل كامل للستايلات عن الجافاسكريبت.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - Firewall Integration Patch):
+// 1. Silent Success Fix 🛡️: دمج مستشعرات הגدار الناري المالي مع الكوبونات لمنع نجاح وهمي إذا رُفض السعر.
+// 2. Mobile Keyboard Glitch Fix 🛡️: إزالة (focus) بعد اللصق الآلي للكوبون لمنع انبثاق كيبورد الهاتف بشكل مزعج.
+// 3. Dynamic Revalidation 🛡️: إلغاء الكوبون المطبق تلقائياً إذا قام العميل بتغيير الكمية لسعر يكسر حماية المتجر.
+// 4. Clean Memory Release 🛡️: تفريغ مؤقتات رسائل الكوبونات عند تدمير العنصر.
 // ============================================================================
 
 import { DataManager, LiveStoreData } from './dataManager.js';
@@ -334,7 +334,6 @@ export const Components = {
             });
             
             infoEl._shineTimer = setTimeout(() => {
-                // 🛡️ Closure Memory Guard: تجاهل التعديل إذا تم حذف الكرت من الشاشة
                 if (!infoEl || !infoEl.isConnected) return;
                 window.requestAnimationFrame(() => infoEl.classList.remove('shine-strong'));
             }, 2000);
@@ -362,7 +361,6 @@ export const Components = {
         let startTimestamp = null;
         
         const step = (timestamp) => {
-            // 🛡️ Animation Leak Shield: إيقاف الحلقة فوراً إذا أغلق المستخدم النافذة
             if (!el.isConnected) {
                 this.priceTicker = null;
                 return; 
@@ -417,14 +415,16 @@ export const Components = {
         const codeInput = document.getElementById('couponCode');
         if (!codeInput) return;
         try {
-            // 🛡️ Safe Clipboard Access: التعامل مع رفض الصلاحية أو المتصفحات غير الداعمة
             if (!navigator.clipboard || !navigator.clipboard.readText) throw new Error("Clipboard API not supported");
             
             const text = await navigator.clipboard.readText();
             if (text) {
                 codeInput.value = String(text).replace(/[<>'"/;`%]/g, '').trim().toUpperCase();
                 this.checkInputState(); 
-                codeInput.focus();
+                
+                // 🛡️ Mobile Keyboard Glitch Fix: نفك التركيز (blur) بدلاً من (focus) لمنع كيبورد الجوال من القفز للعميل فجأة
+                codeInput.blur(); 
+                
                 if (typeof UIManager !== 'undefined') UIManager.showToast('تم إدراج الكوبون', 'success');
             }
         } catch (err) { 
@@ -480,7 +480,6 @@ export const Components = {
         }
 
         const selection = this._getCurrentSelection();
-        
         const result = DataManager.validateCoupon(code, DataManager.currentProd, selection.qty, selection.optIdx);
 
         if (!result.valid) {
@@ -490,8 +489,16 @@ export const Components = {
         }
 
         const pricingCheck = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, result.coupon);
-        
         if (!pricingCheck || !pricingCheck.pricingSnapshot) return;
+
+        // 🛡️ التحديث الماسي (Firewall Guard): 
+        // نتحقق من رسائل الخطأ الصادرة من المحرك المالي قبل الموافقة على الكوبون
+        if (pricingCheck.pricingSnapshot.isFirewallViolated) {
+            const reason = pricingCheck.pricingSnapshot.rejectionReason || 'عذراً، هذا الكوبون يكسر حماية التسعير.';
+            this._showCouponMessage(msgBox, `<i class="fa-solid fa-shield-halved"></i> ${Utils.escapeHtml(reason)}`, 'error', 6000);
+            if(SysUI) { SysUI.showToast('مرفوض لحماية المتجر', 'error'); SysUI.sfx?.('error'); }
+            return; 
+        }
 
         const couponVal = parseFloat(result.coupon.value) || 0;
         const originalTotal = pricingCheck.pricingSnapshot.totalOriginalPrice || 0;
@@ -499,13 +506,12 @@ export const Components = {
         
         if (couponDiscount === 0 && originalTotal > 0 && couponVal > 0) {
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-info"></i> عذراً، لا يمكن تطبيق الخصم على هذا المنتج.`, 'error', 5000);
-            if(SysUI) { SysUI.showToast('عذراً، هذا المنتج غير مشمول بالخصم الإضافي', 'warning'); SysUI.sfx?.('error'); }
+            if(SysUI) { SysUI.showToast('هذا المنتج غير مشمول بالخصم الإضافي', 'warning'); SysUI.sfx?.('error'); }
             return; 
         }
 
         DataManager.appliedCoupon = result.coupon; 
         
-        // قفل الحقل فوراً (Synchronous)
         codeInput.disabled = true; 
         if(btnApply) { btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
         
@@ -539,6 +545,7 @@ export const Components = {
             if (codeInput) {
                 codeInput.value = '';
                 codeInput.disabled = false;
+                // التركيز فقط على الكمبيوتر لمنع كيبورد الموبايل من الانبثاق التلقائي
                 if (!silent && window.innerWidth > 768) {
                     codeInput.focus();
                 }
@@ -565,13 +572,25 @@ export const Components = {
         const selection = this._getCurrentSelection();
         const result = DataManager.validateCoupon(DataManager.appliedCoupon.code, DataManager.currentProd, selection.qty, selection.optIdx);
         
-        if (!result.valid) {
+        let isValid = result.valid;
+        let rejectMsg = result.msg;
+
+        // 🛡️ Dynamic Revalidation Guard: التأكد أن تغيير الكمية لم يكسر הגدار الناري
+        if (isValid) {
+            const pricingCheck = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, DataManager.appliedCoupon);
+            if (pricingCheck && pricingCheck.pricingSnapshot?.isFirewallViolated) {
+                isValid = false;
+                rejectMsg = 'تجاوز حدود حماية التسعير للكمية المحددة.';
+            }
+        }
+        
+        if (!isValid) {
             this.removeCoupon(true); 
             const msgBox = document.getElementById('couponMsg');
-            this._showCouponMessage(msgBox, `<i class="fa-solid fa-triangle-exclamation"></i> تم إزالة الكوبون: ${Utils.escapeHtml(result.msg)}`, 'error', 5000);
+            this._showCouponMessage(msgBox, `<i class="fa-solid fa-triangle-exclamation"></i> تم إزالة الكوبون: ${Utils.escapeHtml(rejectMsg)}`, 'error', 5000);
             
             const SysUI = typeof UIManager !== 'undefined' ? UIManager : null;
-            if (SysUI) SysUI.showToast('تم إلغاء الكوبون بسبب تغير شروط الطلب', 'warning');
+            if (SysUI) SysUI.showToast('تم إلغاء الكوبون بسبب تغير الشروط', 'warning');
         }
     },
 

@@ -1,16 +1,16 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Storefront Edition) - الإصدار المؤسسي V26.3.0 💎 
+// 💰 المحرك المالي المركزي (Storefront Edition) - الإصدار المؤسسي V26.4.0 💎 
 // 🎯 الوظيفة: محرك حسابات الواجهة (PWA)، مطابق رياضياً للسيرفر 100% ومحصن أمنياً.
-// 🚀 التحديثات المعمارية (V26.3.0 - Smart Fallback Guard):
-// 1. Smart Fallback Guard 🛡️: اكتشاف الحسابات المعلقة وتعيين المستوى الافتراضي الخالد (TIER_DEFAULT) لتوحيد التسعير مع السيرفر.
-// 2. Missing Bridge Fix 🛡️: إضافة دالة `getPricingLocal` المفقودة لربط المحرك بواجهة المتجر.
-// 3. Zero-Log Security 🛡️: كتم كافة رسائل الأخطاء الرياضية لمنع الهندسة العكسية.
-// 4. Absolute Masking 🛡️: تصفير حتمي للتكلفة والأرباح لحماية أسرار المتجر.
+// 🚀 التحديثات المعمارية (V26.4.0 - Client Graceful Degradation & Math Guard):
+// 1. Math Firewall 🛡️: إيقاف القسمة على صفر ورمي أخطاء داخلية مع التقاطها لحماية الواجهة من التحطم.
+// 2. Base Currency Shield 🛡️: استخدام (Set) لمنع استبدال عملة الأساس وتسريع معالجة الأسعار بـ O(1).
+// 3. Null Reference Guard 🛡️: إصلاح ثغرة توقف التطبيق (Fatal Crash) عند غياب مستوى العميل (Tier).
+// 4. Safe UI Fallback 🛡️: إعادة كائنات مصفّرة بالكامل لتظهر "خطأ بالتسعير" عند اختلال البيانات المالية.
 // ============================================================================
 
 export class FinancialSecurityError extends Error { 
     constructor(message) {
-        super(`[SECURITY_GUARD_TRIGGERED]`); 
+        super(`[CLIENT_SECURITY_GUARD] ${message}`); 
         this.name = "FinancialSecurityError"; 
     } 
 }
@@ -27,6 +27,10 @@ const FinancialEngineDef = {
         MAX_GLOBAL_DISCOUNT_PCT: 95
     }),
 
+    // ========================================================================
+    // 🧮 القسم الأول: محرك الرياضيات الدقيق (Precision Math Core)
+    // ========================================================================
+
     _preciseRound: function(num, decimals = FinancialEngineDef.CONFIG.PRECISION) {
         let n = Number(num);
         if (isNaN(n) || !isFinite(n) || n === 0) return 0;
@@ -41,8 +45,9 @@ const FinancialEngineDef = {
     _internalDiv: function(a, b) {
         const numA = Number(a) || 0;
         const numB = Number(b) || 0;
+        // 🛡️ التحديث المعماري: رمي خطأ داخلي صريح بدلاً من الإخفاق الصامت
         if (numB === 0) { 
-            return numA; 
+            throw new FinancialSecurityError("عملية حسابية غير صالحة (قسمة على صفر)."); 
         }
         return FinancialEngineDef._preciseRound(numA / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
     },
@@ -73,6 +78,10 @@ const FinancialEngineDef = {
         }
         return Date.now();
     },
+
+    // ========================================================================
+    // 🏦 القسم الثاني: معالجة الإيداعات ورسوم البوابات
+    // ========================================================================
 
     calculateDepositNet: function(amount, feeSettings = {}) {
         const amt = FinancialEngineDef.extractNum(amount);
@@ -153,31 +162,49 @@ const FinancialEngineDef = {
         return { isValid: true, netBase: isNaN(netBase) ? 0 : netBase, feePct: s.fee, feeType: s.feeType, feeUnit: s.feeUnit, adminMax: s.max, adminMin: s.min };
     },
 
+    // ========================================================================
+    // 💱 القسم الثالث: محول العملات المتعدد
+    // ========================================================================
+
     normalizeRates: function(raw) {
         const ratesMap = {};
         ratesMap[FinancialEngineDef.CONFIG.BASE_CURRENCY] = { code: FinancialEngineDef.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
         
-        const processRateObj = (code, priceR, depR) => {
+        const processRateObj = (rawCode, priceR, depR, symbol, name) => {
+            if (!rawCode) return;
+            const code = String(rawCode).trim().toUpperCase();
+            
+            // 🛡️ الحماية المطلقة: منع تجاوز عملة الأساس
+            if (!code || code === FinancialEngineDef.CONFIG.BASE_CURRENCY) return;
+
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
-            if (numPrice === 0 || numDep === 0) throw new FinancialSecurityError();
-            ratesMap[code] = { code: code, priceRate: numPrice, depRate: numDep };
+            
+            // 🛡️ في الواجهة: يتم تجاهل العملة المعطوبة فقط، لكي يستمر المتجر بالعمل للعملات الأخرى
+            if (numPrice === 0 || numDep === 0) {
+                console.warn(`🚨 [Client Guard]: سعر صرف صفري للعملة [${code}]. تم تجاهلها.`);
+                return; 
+            }
+            ratesMap[code] = { code, symbol: symbol || code, name: name || code, priceRate: numPrice, depRate: numDep };
         };
+
+        if (!raw || typeof raw !== 'object') return ratesMap;
 
         if (Array.isArray(raw)) {
             for (const rate of raw) {
-                if (rate && rate.code && rate.code !== FinancialEngineDef.CONFIG.BASE_CURRENCY) {
-                    processRateObj(String(rate.code).toUpperCase(), rate.priceRate || rate.value, rate.depRate || rate.value);
+                if (rate && typeof rate === 'object') {
+                    processRateObj(rate.code, rate.priceRate || rate.value, rate.depRate || rate.value, rate.symbol, rate.name);
                 }
             }
-        } else if (raw && typeof raw === 'object') {
-            const invalidKeys = ['ISBASE', 'PRICERATE', 'DEPRATE', 'CODE', 'VALUE', 'SYMBOL', 'NAME'];
+        } else {
+            // 🛡️ تحسين الأداء (O(1)) عبر استخدام Set
+            const invalidKeys = new Set(['ISBASE', 'PRICERATE', 'DEPRATE', 'CODE', 'VALUE', 'SYMBOL', 'NAME']);
             for (const [key, value] of Object.entries(raw)) {
-                if (typeof value !== 'object' && !invalidKeys.includes(key.toUpperCase())) continue;
-                const code = String(value.code || key).toUpperCase();
-                if (code && code !== FinancialEngineDef.CONFIG.BASE_CURRENCY && !invalidKeys.includes(code)) {
-                    processRateObj(code, value.priceRate || value.value, value.depRate || value.value);
-                }
+                if (!value || typeof value !== 'object') continue;
+                const safeKey = String(key).trim().toUpperCase();
+                if (invalidKeys.has(safeKey)) continue;
+                const code = value.code || safeKey;
+                processRateObj(code, value.priceRate || value.value, value.depRate || value.value, value.symbol, value.name);
             }
         }
         return ratesMap;
@@ -190,31 +217,44 @@ const FinancialEngineDef = {
         if (amt === 0 || fCode === tCode) return amt;
         
         const ratesMap = FinancialEngineDef.normalizeRates(ratesRaw);
-        if (!ratesMap[fCode] || !ratesMap[tCode]) throw new FinancialSecurityError();
+        if (!ratesMap[fCode] || !ratesMap[tCode]) {
+            throw new FinancialSecurityError(`فشل التحويل. العملة [${!ratesMap[fCode] ? fCode : tCode}] غير معرفة.`);
+        }
         
         const fRate = channel === 'deposit' ? ratesMap[fCode].depRate : ratesMap[fCode].priceRate;
         const tRate = channel === 'deposit' ? ratesMap[tCode].depRate : ratesMap[tCode].priceRate;
         
-        if (fRate === 0 || tRate === 0) throw new FinancialSecurityError();
+        if (fRate === 0 || tRate === 0) throw new FinancialSecurityError("انعدام في قيمة سعر الصرف.");
+        
         return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
     },
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
-        let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c); 
-        if (isNaN(v) || !isFinite(v)) return 0;
+        // 🛡️ طبقة الحماية للواجهة (Try-Catch Wrapper)
+        try {
+            let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c); 
+            if (isNaN(v) || !isFinite(v)) return 0;
 
-        const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
-        let result = 0;
-        
-        if(rnd === 'floor') {
-            result = Math.floor((v + Number.EPSILON) * factor) / factor;
-        } else if(rnd === 'ceil') {
-            result = Math.ceil((v - Number.EPSILON) * factor) / factor;
-        } else {
-            result = Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
+            const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
+            let result = 0;
+            
+            if(rnd === 'floor') {
+                result = Math.floor((v + Number.EPSILON) * factor) / factor;
+            } else if(rnd === 'ceil') {
+                result = Math.ceil((v - Number.EPSILON) * factor) / factor;
+            } else {
+                result = Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
+            }
+            return isNaN(result) ? 0 : result;
+        } catch (e) {
+            console.warn(`[Client Currency Guard] ${e.message}`);
+            return 0; // عودة آمنة للمتصفح
         }
-        return isNaN(result) ? 0 : result;
     },
+
+    // ========================================================================
+    // 💼 القسم الرابع: محاكاة التسعير والجدار الناري (Business Logic & Firewall)
+    // ========================================================================
 
     validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
         if (!code) return { valid: false, msg: 'لم يتم تقديم كود خصم' };
@@ -408,15 +448,17 @@ const FinancialEngineDef = {
         };
     },
 
+    // ========================================================================
+    // 👑 القسم الخامس: محرك مستويات العضوية
+    // ========================================================================
+    
     getUserTier: function(user, tiers) {
         if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
         const safeUser = user || {};
-        // 🛡️ الاعتماد على المعرف الخالد كقيمة افتراضية
         const userTierId = String(safeUser.tierId || 'TIER_DEFAULT');
         
         let foundTier = tiers.find(t => String(t.id) === userTierId);
 
-        // 🛡️ التوافق المعماري: استخراج المستوى الافتراضي الفعلي بدلاً من الفهرس العشوائي
         if (!foundTier) {
             foundTier = tiers.find(t => t.isDefault === true) || tiers.find(t => String(t.id) === 'TIER_DEFAULT') || tiers[0];
         }
@@ -429,6 +471,9 @@ const FinancialEngineDef = {
         
         const sortedTiers = [...tiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
         const currentTier = FinancialEngineDef.getUserTier(user, sortedTiers);
+        
+        // 🛡️ التحديث المعماري: حماية من التوقف الكامل للتطبيق (Fatal Crash Guard)
+        if (!currentTier) return null;
         
         const spent = Number(user.tierCycleSpent || 0);
         const now = nowTime || Date.now();
@@ -471,44 +516,75 @@ const FinancialEngineDef = {
     },
 
     getPricingLocal: function(prod, user, qty, optIdx, coupon, offer, tier, rates, baseCur, displayCur) {
-        const params = {
-            product: prod,
-            tier: tier,
-            offer: offer,
-            coupon: coupon,
-            optIdx: optIdx
-        };
+        // 🛡️ طبقة الحماية للواجهة (Try-Catch Wrapper)
+        try {
+            const params = {
+                product: prod,
+                tier: tier,
+                offer: offer,
+                coupon: coupon,
+                optIdx: optIdx
+            };
 
-        const result = FinancialEngineDef.calculateOrderTotal(params, qty);
+            const result = FinancialEngineDef.calculateOrderTotal(params, qty);
 
-        const convert = (amt) => {
-            return FinancialEngineDef.convertViaUSDHelper(amt, baseCur, displayCur, rates, 'round', 'pricing');
-        };
-
-        const unitFinalLocal = convert(result.finalPrice);
-        const totalFinalLocal = convert(result.totalFinalPrice);
-        const totalOriginalLocal = convert(result.totalOriginalPrice);
-
-        return {
-            unitText: `${unitFinalLocal.toFixed(2)} ${displayCur}`,
-            totalText: `${totalFinalLocal.toFixed(2)} ${displayCur}`,
-            displayCurrency: displayCur,
-            totalDisplayNum: totalFinalLocal,
-            totalLocalBase: result.totalFinalPrice,
-            oldTotalDisplayNum: totalOriginalLocal,
-            oldTotalLocalBase: result.totalOriginalPrice,
-            hasDiscount: result.totalDiscount > 0,
-            pricingSnapshot: {
-                totalOriginalPrice: result.totalOriginalPrice,
-                finalPrice: result.totalFinalPrice,
-                couponDiscount: result.couponDiscount,
-                offerDiscount: result.offerDiscount,
-                couponCode: result.couponCode,
-                offerName: result.offerName,
-                isFirewallViolated: result.isFirewallViolated,
-                rejectionReason: result.rejectionReason
+            // نلتقط أي اختلال حاسوبي من الجدار الناري ونرميه ليتم اصطياده أسفل
+            if (result.isFirewallViolated) {
+                throw new Error(result.rejectionReason || "تم إيقاف التسعير لحماية السيرفر.");
             }
-        };
+
+            const convert = (amt) => {
+                return FinancialEngineDef.convertViaUSDHelper(amt, baseCur, displayCur, rates, 'round', 'pricing');
+            };
+
+            const unitFinalLocal = convert(result.finalPrice);
+            const totalFinalLocal = convert(result.totalFinalPrice);
+            const totalOriginalLocal = convert(result.totalOriginalPrice);
+
+            return {
+                unitText: `${unitFinalLocal.toFixed(2)} ${displayCur}`,
+                totalText: `${totalFinalLocal.toFixed(2)} ${displayCur}`,
+                displayCurrency: displayCur,
+                totalDisplayNum: totalFinalLocal,
+                totalLocalBase: result.totalFinalPrice,
+                oldTotalDisplayNum: totalOriginalLocal,
+                oldTotalLocalBase: result.totalOriginalPrice,
+                hasDiscount: result.totalDiscount > 0,
+                pricingSnapshot: {
+                    totalOriginalPrice: result.totalOriginalPrice,
+                    finalPrice: result.totalFinalPrice,
+                    couponDiscount: result.couponDiscount,
+                    offerDiscount: result.offerDiscount,
+                    couponCode: result.couponCode,
+                    offerName: result.offerName,
+                    isFirewallViolated: result.isFirewallViolated,
+                    rejectionReason: result.rejectionReason
+                }
+            };
+        } catch (error) {
+            console.error("🚨 [Client Pricing Engine]:", error.message);
+            // 🛡️ السقوط الآمن: إرجاع كائن مصفّر تماماً لمنع الواجهة من التحطم وإظهار رسالة "خطأ" للعميل
+            return {
+                unitText: `--- ${displayCur}`,
+                totalText: `--- ${displayCur}`,
+                displayCurrency: displayCur,
+                totalDisplayNum: 0,
+                totalLocalBase: 0,
+                oldTotalDisplayNum: 0,
+                oldTotalLocalBase: 0,
+                hasDiscount: false,
+                pricingSnapshot: {
+                    totalOriginalPrice: 0,
+                    finalPrice: 0,
+                    couponDiscount: 0,
+                    offerDiscount: 0,
+                    couponCode: null,
+                    offerName: null,
+                    isFirewallViolated: true,
+                    rejectionReason: error.message
+                }
+            };
+        }
     }
 };
 

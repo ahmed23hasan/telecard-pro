@@ -1,11 +1,11 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - الإصدار المؤسسي V18.5 💎
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - الإصدار المؤسسي V18.9.0 💎
 // 🎯 الوظيفة: تحويل البيانات الخام إلى قوالب HTML نقية وآمنة برمجياً 100%
-// 🚀 التحديثات المعمارية الصارمة (V18.5 - Ultimate XSS & NaN Shield):
-// 1. Strict Attribute Escaping 🛡️: تعقيم فائق للسمات (data-id, class) لمنع كسر وسوم الـ HTML.
-// 2. Safe URL Enforcement 🛡️: منع حقن (javascript:) في أزرار الإيصالات والصور.
-// 3. Absolute NaN Shield 🛡️: تغليف كافة العمليات الحسابية بدالة أمان لضمان إرجاع 0.00 بدلاً من NaN.
-// 4. Multi-line Sanitization 🛡️: تعقيم النصوص المتعددة الأسطر قبل تحويل \n إلى <br> لمنع ثغرات XSS.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - UI Engine & XSS Patch):
+// 1. PDF Crash Shield 🛡️: تأمين دوال بناء الإيصالات بكائنات احتياطية لمنع توقف التصدير عند فقدان البيانات.
+// 2. Strict Attribute Escaping 🛡️: تعقيم فائق للسمات (data-id, class) لمنع كسر وسوم الـ HTML (DOM XSS).
+// 3. Safe URL Enforcement 🛡️: منع حقن (javascript:) في أزرار الإيصالات والصور.
+// 4. Absolute NaN Shield 🛡️: تغليف كافة العمليات الحسابية بدالة أمان لضمان إرجاع 0.00 بدلاً من NaN.
 // ============================================================================
 
 import * as Utils from '../utils.js'; 
@@ -37,7 +37,6 @@ export const UIBuilders = {
 
     _safeMultiLine: function(text) {
         if (!text) return '';
-        // التعقيم أولاً، ثم تحويل الأسطر الجديدة إلى <br>
         return Utils.escapeHtml(String(text)).replace(/\n/g, '<br>');
     },
 
@@ -52,7 +51,6 @@ export const UIBuilders = {
         const safeTimeMs = Utils.parseSafeTime(tx.time || tx.createdAt);
         const formattedDate = RenderHelpers.formatSafeDate(safeTimeMs);
 
-        // الاعتماد على قيم معروفة ومقيدة لتجنب CSS Injection
         const safeStatus = String(tx.status || 'pending').toLowerCase();
 
         if (isDep) {
@@ -337,16 +335,18 @@ export const UIBuilders = {
     // 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية المجهزة للطباعة)
     // ============================================================================
     buildPDFReceipt: function(config, brandHTML) {
-        const storeNameText = Utils.escapeHtml(config.storeName || 'المتجر');
+        // 🛡️ التحديث المعماري: كائن احتياطي (Fail-Safe) لمنع توقف التصدير إذا ضاعت البيانات
+        const data = config?.data || {};
+        const storeNameText = Utils.escapeHtml(config?.storeName || 'المتجر');
         let contentHTML = '';
 
-        if (config.type === 'deposit') {
-            const isBonus = config.data.feeType === 'bonus';
-            const feeValNum = this._safeNum(config.data.feeVal);
-            const safeCurrency = this._safeAttr(config.data.currency || 'USD').toUpperCase();
+        if (config?.type === 'deposit') {
+            const isBonus = data.feeType === 'bonus';
+            const feeValNum = this._safeNum(data.feeVal);
+            const safeCurrency = this._safeAttr(data.currency || 'USD').toUpperCase();
             
             let feeDisplayLabel = isBonus ? 'بونص إضافي' : 'رسوم مخصومة';
-            if (config.data.feePercent) feeDisplayLabel += ` (${Utils.escapeHtml(config.data.feePercent)}%)`;
+            if (data.feePercent) feeDisplayLabel += ` (${Utils.escapeHtml(data.feePercent)}%)`;
             
             let feeValueHtml = '';
             if (feeValNum === 0) {
@@ -361,44 +361,44 @@ export const UIBuilders = {
                 ${brandHTML}
                 <div class="r-title-box">
                     <div class="r-title">إيصال شحن محفظة</div>
-                    <div class="r-id num-en">#${Utils.escapeHtml(config.data.displayId)}</div>
+                    <div class="r-id num-en">#${Utils.escapeHtml(data.displayId || '---')}</div>
                 </div>
                 <div class="r-grid">
-                    <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                    <div class="r-item"><span class="r-label">معرف الحساب (ID)</span><span class="r-value num-en">${Utils.escapeHtml(config.data.userDisplayId)}</span></div>
-                    <div class="r-item"><span class="r-label">طريقة الدفع</span><span class="r-value">${Utils.escapeHtml(config.data.method)}</span></div>
-                    <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(config.data.dateTime).replace(/\|/g, '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
-                    <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value num-en" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(config.data.amount), safeCurrency)}</span></div>
+                    <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(data.userName || '---')}</span></div>
+                    <div class="r-item"><span class="r-label">معرف الحساب (ID)</span><span class="r-value num-en">${Utils.escapeHtml(data.userDisplayId || '---')}</span></div>
+                    <div class="r-item"><span class="r-label">طريقة الدفع</span><span class="r-value">${Utils.escapeHtml(data.method || '---')}</span></div>
+                    <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(data.dateTime || '---').replace(/\|/g, '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
+                    <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value num-en" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(data.amount), safeCurrency)}</span></div>
                     <div class="r-item"><span class="r-label">${feeDisplayLabel}</span>${feeValueHtml}</div>
                 </div>
                 <div class="r-total-box">
                     <div class="r-total-label">صافي الرصيد المضاف</div>
-                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(config.data.netVal), String(config.data.targetCurrency || 'USD').toUpperCase())}</div>
+                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(data.netVal), String(data.targetCurrency || 'USD').toUpperCase())}</div>
                 </div>
             `;
         } else {
-            const safeCurrency = this._safeAttr(config.data.priceCurrency || 'USD').toUpperCase();
-            const safeOrigPrice = this._safeNum(config.data.originalPrice);
-            const safeFinalPrice = this._safeNum(config.data.price);
+            const safeCurrency = this._safeAttr(data.priceCurrency || 'USD').toUpperCase();
+            const safeOrigPrice = this._safeNum(data.originalPrice);
+            const safeFinalPrice = this._safeNum(data.price);
             
             const originalPriceHtml = safeOrigPrice > safeFinalPrice ? 
                 `<div class="r-item"><span class="r-label">السعر الأساسي (قبل الخصم)</span><span class="r-value num-en" dir="ltr" style="text-decoration: line-through; color: #94a3b8;">${RenderHelpers.formatMoney(safeOrigPrice, safeCurrency)}</span></div>` : '';
             
-            const formattedInput = this._safeMultiLine(config.data.input || '---').replace(/\|/g, '<br>');
-            const formattedCode = config.data.code ? this._safeMultiLine(config.data.code).replace(/\|/g, '<br>') : '';
+            const formattedInput = this._safeMultiLine(data.input || '---').replace(/\|/g, '<br>');
+            const formattedCode = data.code ? this._safeMultiLine(data.code).replace(/\|/g, '<br>') : '';
 
             contentHTML = `
                 ${brandHTML}
                 <div class="r-title-box">
                     <div class="r-title">فاتورة طلب شراء</div>
-                    <div class="r-id num-en">#${Utils.escapeHtml(config.data.displayId)}</div>
+                    <div class="r-id num-en">#${Utils.escapeHtml(data.displayId || '---')}</div>
                 </div>
                 <div class="r-grid">
-                    <div class="r-item r-item-full" style="border-right: 4px solid #3b82f6;"><span class="r-label">المنتج</span><span class="r-value" style="font-size: 18px;">${Utils.escapeHtml(config.data.product)}</span></div>
-                    <div class="r-item"><span class="r-label">حالة الطلب</span><span class="r-value">${Utils.escapeHtml(config.data.status)}</span></div>
-                    <div class="r-item"><span class="r-label">الكمية</span><span class="r-value num-en">${this._safeNum(config.data.qty, 1)}</span></div>
-                    <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(config.data.userName)}</span></div>
-                    <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(config.data.dateTime).replace(/\|/g, '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
+                    <div class="r-item r-item-full" style="border-right: 4px solid #3b82f6;"><span class="r-label">المنتج</span><span class="r-value" style="font-size: 18px;">${Utils.escapeHtml(data.product || '---')}</span></div>
+                    <div class="r-item"><span class="r-label">حالة الطلب</span><span class="r-value">${Utils.escapeHtml(data.status || '---')}</span></div>
+                    <div class="r-item"><span class="r-label">الكمية</span><span class="r-value num-en">${this._safeNum(data.qty, 1)}</span></div>
+                    <div class="r-item"><span class="r-label">اسم العميل</span><span class="r-value">${Utils.escapeHtml(data.userName || '---')}</span></div>
+                    <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(data.dateTime || '---').replace(/\|/g, '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
                     <div class="r-item r-item-full" style="background: #f1f5f9; border-color: #cbd5e1;"><span class="r-label">بيانات الحساب / المدخلات</span><span class="r-value num-en" dir="ltr" style="line-height: 1.8;">${formattedInput}</span></div>
                     ${originalPriceHtml}
                 </div>
@@ -415,7 +415,7 @@ export const UIBuilders = {
             <html lang="ar" dir="rtl">
             <head>
                 <meta charset="UTF-8">
-                <title>${Utils.escapeHtml(config.filename)}</title>
+                <title>${Utils.escapeHtml(config?.filename || 'Receipt')}</title>
                 <style>
                     @page { size: A4 portrait; margin: 15mm; }
                     body { 
@@ -541,7 +541,6 @@ export const UIBuilders = {
     </button>
     <input type="file" id="bal-file" accept="image/*,application/pdf" style="display:none;">
     
-    <!-- 🛡️ زر الحذف الجديد -->
     <div id="bal-file-clear" class="hide-element" data-action="clear-bal-file" style="cursor:pointer; color: #ef4444; text-align:center; margin-top:10px; font-size:13px; font-weight:600;">
         <i class="fa-solid fa-trash-can"></i> حذف المرفق وإعادة الرفع
     </div>
@@ -736,5 +735,47 @@ export const UIBuilders = {
             </div>`;
         }        
         return html;
+    },
+
+    // ============================================================================
+    // 10. بناء نافذة إجراءات الإيصال (Receipt Action Dialog)
+    // ============================================================================
+    buildReceiptActionDialog: function(blobUrl, canShare) {
+        let shareBtnHtml = canShare ? `
+            <button id="btn-native-share" class="alert-btn" style="margin-bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <i class="fa-solid fa-share-nodes"></i> مشاركة الفاتورة
+            </button>
+        ` : '';
+
+        // زر التحميل الثانوي
+        let downloadBtnClass = canShare ? 'btn-logout-ghost' : 'alert-btn';
+        let downloadIconColor = canShare ? '' : 'style="color: var(--gold-text);"';
+
+        return `
+            <div class="sys-dialog-overlay"></div>
+            <div class="sys-dialog-card" style="padding: 25px 20px;">
+                
+                <div class="sys-dialog-icon" style="color: var(--success); background: var(--success-bg); border: 1px solid rgba(var(--success-rgb), 0.3);">
+                    <i class="fa-solid fa-file-invoice"></i>
+                </div>
+                
+                <h3 class="sys-dialog-title">الإيصال الإلكتروني</h3>
+                <p class="sys-dialog-msg" style="margin-bottom: 20px;">تم توثيق العملية وتصدير الإيصال بنجاح. يرجى تحديد الإجراء المطلوب.</p>
+
+                <div style="background: var(--bg-glass-dark); padding: 8px; border-radius: var(--radius-md); border: var(--border-nested); margin-bottom: 20px;">
+                    <img src="${blobUrl}" style="width: 100%; max-height: 220px; object-fit: contain; border-radius: var(--radius-sm);" alt="معاينة الإيصال">
+                </div>
+
+                <div class="sys-dialog-actions" style="display: flex; flex-direction: column; width: 100%;">
+                    ${shareBtnHtml}
+                    <button id="btn-native-download" class="${downloadBtnClass}" style="display: flex; justify-content: center; align-items: center; gap: 8px; width: 100%; margin: 0;">
+                        <i class="fa-solid fa-download" ${downloadIconColor}></i> حفظ في الجهاز
+                    </button>
+                </div>
+                
+                <button id="btn-close-receipt-dialog" class="adv-close-btn">إغلاق النافذة</button>
+            </div>
+        `;
     }
+
 };

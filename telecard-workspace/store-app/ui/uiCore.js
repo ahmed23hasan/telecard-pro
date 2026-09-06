@@ -1,10 +1,10 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.6 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.9.0 💎
 // 🎯 الوظيفة: النوافذ، التوجيه الذكي، الإشعارات، التنسيق، ومزامنة الصوت
-// 🚀 التحديثات المعمارية الصارمة (V18.6 - UX & Audio Sync Patch):
-// 1. History API Bloat Fix 🛡️: استخدام replaceState للنوافذ المتراكبة لمنع تضخم سجل المتصفح.
-// 2. iOS Audio Deadlock Shield 🛡️: إزالة الإيقاف الإجباري لمحرك الصوت للسماح بنغمات الإشعارات في Safari.
-// 3. Dictionary Decomposition 🛡️: تفكيك قاموس الأحداث المركزي إلى 6 أقسام مقروءة بصرياً.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - Core Stability Patch):
+// 1. Double-Spend Shield 🛡️: إزالة المؤقت الزمني الأعمى من أزرار الدفع والاعتماد الكلي على إشارات السيرفر لمنع تكرار الطلبات.
+// 2. iOS Audio Primer 🛡️: تهيئة مبكرة (Primer) لمحرك الصوت عند أول نقرة في المستند لكسر حماية سفاري والسماح بأصوات التنبيهات.
+// 3. History API Bloat Fix 🛡️: استخدام replaceState للنوافذ المتراكبة لمنع تضخم سجل المتصفح.
 // 4. Spread Operator Integration 🛡️: دمج الأحداث برمجياً للحفاظ على أداء (O(1)).
 // ============================================================================
 
@@ -306,7 +306,7 @@ export const UICore = {
     },
 
     syncBottomNavWithBaseState: function() {
-        setTimeout(() => {
+        requestAnimationFrame(() => {
             const navIcons = document.querySelectorAll('.bottom-nav .nav-icon');
             if (!navIcons.length) return;
             navIcons.forEach(icon => icon.classList.remove('active'));
@@ -314,7 +314,7 @@ export const UICore = {
             const isFavorites = document.getElementById('grid-title')?.innerText?.trim() === 'المفضلة';
             const targetAction = isFavorites ? 'open-favorites' : 'nav-home';
             document.querySelector(`.bottom-nav .nav-icon[data-action="${targetAction}"]`)?.classList.add('active');
-        }, 350);
+        });
     },
 
     closeAllSheets: function() { this.resetUI(); },
@@ -645,22 +645,16 @@ export const UICore = {
             'confirm-purchase': async (e, id, val, target) => { 
                 if (target.dataset.processing === 'true') return;
                 target.dataset.processing = 'true';
-                const safetyUnlock = setTimeout(() => {
-                    target.dataset.processing = 'false';
-                    if (target.disabled) getSys()._unlockUI?.(target);
-                }, 35000);
+                // 🛡️ Double-Spend Shield: الاعتماد الكلي على إغلاق السيرفر بدلاً من المؤقت الأعمى
                 try { await getSys().handlePurchaseSubmit?.(); } 
-                finally { clearTimeout(safetyUnlock); target.dataset.processing = 'false'; }
+                finally { target.dataset.processing = 'false'; }
             },
             'submit-balance': async (e, id, val, target, dataType, dataCurr) => {
                 if (target.disabled || target.dataset.processing === 'true') return;
                 target.dataset.processing = 'true';
-                const safetyUnlock = setTimeout(() => {
-                    target.dataset.processing = 'false';
-                    if (target.disabled) getSys()._unlockUI?.(target);
-                }, 45000);
+                // 🛡️ Double-Spend Shield: الاعتماد الكلي على إغلاق السيرفر بدلاً من المؤقت الأعمى
                 try { await getSys().handleBalanceSubmit?.(dataCurr); } 
-                finally { clearTimeout(safetyUnlock); target.dataset.processing = 'false'; }
+                finally { target.dataset.processing = 'false'; }
             },
             'apply-coupon': () => getSys().applyCoupon?.(),
             'remove-coupon': () => getSys().removeCoupon?.(),
@@ -736,7 +730,6 @@ export const UICore = {
             'submit-rating-step': () => this.submitRatingStep?.(),
             'submit-private-feedback': () => getSys().submitPrivateFeedback?.(),
 
-            // 🛡️ الأزرار الجديدة لمسح المرفقات والصور بسهولة (V18.6 Patch)
             'clear-bal-file': () => getSys().clearDepositFile?.(),
             'clear-kyc-file': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget) => {
                 e.preventDefault(); 
@@ -851,7 +844,7 @@ export const UICore = {
             if (action === 'pay-search-enter') { this.sfx?.('nav'); RenderManager.renderPayments?.(true); }
         });
 
-                document.addEventListener('input', (e) => {
+        document.addEventListener('input', (e) => {
             if (e.target.id === 'bal-amount') {
                 if (this._amountTypingTimer) clearTimeout(this._amountTypingTimer);
                 this._amountTypingTimer = setTimeout(() => {
@@ -865,12 +858,10 @@ export const UICore = {
                     saveBtn.style.display = 'inline-flex'; }
             }
             
-            // 🛡️ تحديث لحظي لحالة أيقونات الكوبون
             if (e.target.id === 'couponCode') {
                 Components?.checkInputState?.();
             }
             
-            // 🛡️ تفعيل حقل البحث المباشر عن الدول
             if (e.target.getAttribute('data-action') === 'filter-countries') {
                 const term = e.target.value.toLowerCase().trim();
                 document.querySelectorAll('#countries-list-target .dropdown-item').forEach(item => {
@@ -891,6 +882,16 @@ export const UICore = {
 
         // 🛡️ مستمع النقرات المركزي (The Single Source of Truth)
         document.body.addEventListener('click', (e) => {
+            // 🛡️ iOS Audio Primer: تهيئة محرك الصوت فوراً لكسر حماية سفاري عند أول لمسة
+            if (this.audioCtx && this.audioCtx.state === 'suspended') {
+                this.audioCtx.resume().catch(()=>{});
+            } else if (!this.audioCtx) {
+                try {
+                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContextClass) this.audioCtx = new AudioContextClass();
+                } catch(err){}
+            }
+
             const target = e.target;
             
             const avatarMenu = document.getElementById('avatar-action-menu');

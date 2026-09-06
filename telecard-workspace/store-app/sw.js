@@ -1,14 +1,14 @@
 // ============================================================================
-// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V21.2 💎
+// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V21.3 💎
 // 🎯 الوظيفة: تفعيل التثبيت كـ App، تشغيل المتجر Offline، وحماية الواجهة.
-// 🚀 التحديثات المعمارية الصارمة (V21.2 - The Absolute Shield):
-// 1. Firebase Storage Guard: إعفاء صور فايربيس وأنظمة المصادقة من الكاش لمنع امتلاء هواتف العملاء.
-// 2. Immediate Update Listener: إضافة مستمع 'message' لتفعيل التحديث الإجباري من script.js.
-// 3. Local QR Integration: إضافة مكتبة قفل الـ 2FA للكاش المحلي لتعمل بدون إنترنت.
-// 4. Cache Poisoning Fix: كسر الكاش القديم المسموم برفع رقم الإصدار.
+// 🚀 التحديثات المعمارية الصارمة (V21.3 - Cache Poisoning & Soft-404 Patch):
+// 1. Soft-404 Guard 🛡️: منع تخزين صفحات الخطأ (HTML) مكان ملفات (JS/CSS) لحماية المتجر من الشاشة البيضاء.
+// 2. Navigation Error Guard 🛡️: رفض تخزين الاستجابات الفاشلة (404/500) وتقديم صفحات الأوفلاين فوراً بدلاً منها.
+// 3. Firebase Storage Guard: إعفاء صور فايربيس وأنظمة المصادقة من الكاش لمنع امتلاء هواتف العملاء.
+// 4. Local QR Integration: إضافة مكتبة قفل الـ 2FA للكاش المحلي لتعمل بدون إنترنت.
 // ============================================================================
 
-const CACHE_NAME = 'telecard-static-v21.2'; 
+const CACHE_NAME = 'telecard-static-v21.3'; 
 
 // 🛡️ الملفات الأساسية فقط (لا تضع أي روابط ديناميكية هنا)
 const CORE_ASSETS = [
@@ -98,6 +98,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
+          // 🛡️ Navigation Error Guard: التأكد من نجاح الطلب (200 OK) قبل التخزين
+          if (!response.ok) {
+              throw new Error('Server returned non-200 status');
+          }
+          
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           return response;
@@ -117,16 +122,29 @@ self.addEventListener('fetch', (event) => {
   
   event.respondWith(
     caches.match(request, cacheMatchOptions).then((cachedResponse) => {
-      const fetchPromise = fetch(request).then((networkResponse) => {
+      // ⚡ O(1) Cache-First للأصول الثابتة
+      if (cachedResponse) return cachedResponse; 
+
+      return fetch(request).then((networkResponse) => {
         // نرفض تخزين الـ opaque لكي لا تتضخم الذاكرة بملفات لا نعرف حجمها
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          
+          const contentType = networkResponse.headers.get('content-type') || '';
+          
+          // 🛡️ Soft-404 Guard: حماية الكاش من التسمم إذا أعاد السيرفر HTML بدلاً من كود برمجي
+          const isJsRequest = url.pathname.endsWith('.js');
+          const isCssRequest = url.pathname.endsWith('.css');
+          
+          if ((isJsRequest || isCssRequest) && contentType.includes('text/html')) {
+              console.warn(`🚨 [Cache Guard] تم حظر تسميم الكاش: السيرفر أعاد HTML بدلاً من ${isJsRequest ? 'JS' : 'CSS'}`);
+              return networkResponse; // نمرر الملف المعطوب لكن لا نخزنه أبداً لحماية الزيارات القادمة
+          }
+
           const clone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }
         return networkResponse;
       }).catch(() => {});
-
-      return cachedResponse || fetchPromise;
     })
   );
 });

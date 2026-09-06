@@ -1,17 +1,17 @@
 // ============================================================================
-// 🔔 عامل خدمة الإشعارات (Firebase Messaging SW) - Enterprise V1.3 💎
+// 🔔 عامل خدمة الإشعارات (Firebase Messaging SW) - Enterprise V18.9.0 💎
 // 🎯 الوظيفة: العمل في خلفية النظام لاستقبال الإشعارات وتوجيه المستخدم بذكاء.
-// 🚀 التحديثات:
-// 1. Subfolder Routing Fix 🛡️: إصلاح التوجيه ليعمل داخل المجلدات الفرعية ديناميكياً.
-// 2. Safe URL Construction 🛡️: استخدام URL Object لمنع تكسر الروابط عند دمج الـ Query Params.
-// 3. Client PostMessage: تخاطب ذكي مع الواجهة لفتح الطلب المحدد عند النقر.
-// 4. Payload Universal Mapping 🛡️: توحيد لغة التخاطب مع السيرفر لضمان عدم ضياع التوجيه (targetType).
+// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - FCM Integrity Patch):
+// 1. Double-Ping Shield 🛡️: إيقاف ثغرة الإشعارات المزدوجة المزعجة التي تحدث عندما يرسم المتصفح والكود نفس الإشعار.
+// 2. Data-Only Fallback 🛡️: رسم الإشعارات يدوياً حصرياً في حالة الرسائل الصامتة (Data-Only Payload).
+// 3. Stringified Payload Guard 🛡️: تأمين قراءة المتغيرات كنصوص نقية لمنع تحطم الروابط عند التوجيه.
+// 4. Subfolder Routing Fix 🛡️: إصلاح التوجيه ليعمل داخل المجلدات الفرعية ديناميكياً باستخدام URL Object.
 // ============================================================================
 
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js');
 
-// 🛡️ إعدادات قاعدة البيانات
+// 🛡️ إعدادات قاعدة البيانات الأساسية
 const firebaseConfig = {
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
@@ -32,19 +32,33 @@ self.addEventListener('activate', () => self.clients.claim());
 // 📬 1. اعتراض الإشعار ورسمه على شاشة الهاتف (والمتجر مغلق/في الخلفية)
 // ============================================================================
 messaging.onBackgroundMessage((payload) => {
-    console.log('[FCM SW] 🔔 نبضة إشعار في الخلفية:', payload);
+    console.log('[FCM SW] 🔔 نبضة إشعار في الخلفية تم استلامها.');
     
+    // 🛡️ Double-Ping Shield: حماية ضد الإشعارات المزدوجة!
+    // إذا أرسل السيرفر كائن (notification)، المتصفح سيتولى رسمه تلقائياً بصوت وصورة.
+    // لا يجب أن نتدخل يدوياً هنا لتجنب إزعاج العميل بإشعارين لنفس الطلب.
+    if (payload.notification) {
+        console.log('[FCM SW] الإشعار يحتوي على واجهة مرئية. المتصفح يتولى الرسم تلقائياً.');
+        return;
+    }
+
+    // 🛡️ Data-Only Fallback: نرسم الإشعار يدوياً فقط إذا كانت الرسالة "صامتة" (تحتوي على Data فقط)
+    // وتتطلب من العميل الانتباه لتحديث مهم.
     const dataPayload = payload.data || {};
-    const notificationTitle = payload.notification?.title || dataPayload.title || 'تنبيه من المتجر';
+    
+    // تأمين جلب النصوص (FCM Data Payloads are strictly Strings)
+    const notificationTitle = dataPayload.title || 'تنبيه من المتجر';
+    const notificationBody = dataPayload.message || 'لديك تحديث جديد، تفضل بالدخول.';
+    const notificationId = dataPayload.id ? String(dataPayload.id) : 'telecard-general-alert';
     
     const notificationOptions = {
-        body: payload.notification?.body || dataPayload.message || 'لديك تحديث جديد، تفضل بالدخول.',
-        icon: payload.notification?.image || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
+        body: notificationBody,
+        icon: dataPayload.image || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
         badge: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
         dir: 'rtl',
         vibrate: [200, 100, 200],
         data: dataPayload, 
-        tag: dataPayload.id || 'telecard-general-alert', 
+        tag: notificationId, 
         requireInteraction: false
     };
     
@@ -59,18 +73,20 @@ self.addEventListener('notificationclick', (event) => {
     
     const notificationData = event.notification.data || {};
     
-    // 🛡️ التحديث المعماري الأهم (V1.3): استخراج متغيرات التوجيه بذكاء لتتطابق مع السيرفر والواجهة
-    const actionType = notificationData.targetType || notificationData.jumpTarget || notificationData.type;
-    const actionId = notificationData.targetId || notificationData.id;
+    // 🛡️ Stringified Payload Guard: التأكد من تحويل المعرفات لنصوص صريحة
+    const actionType = String(notificationData.targetType || notificationData.jumpTarget || notificationData.type || '').trim();
+    const actionId = String(notificationData.targetId || notificationData.id || '').trim();
     
     // بناء المسار بناءً على موقع ملف العامل الحالي لضمان دعم المجلدات الفرعية
     const defaultStoreUrl = new URL('./store.html', self.location.href).href;
-    let targetUrl = notificationData.click_action || defaultStoreUrl;
+    let targetUrl = (notificationData.click_action && typeof notificationData.click_action === 'string') 
+                    ? notificationData.click_action 
+                    : defaultStoreUrl;
     
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
             
-            // أ) إذا كان المتجر مفتوحاً في الخلفية (نفس المسار الأساسي)
+            // أ) إذا كان المتجر مفتوحاً في الخلفية (في نفس النطاق)
             const basePath = new URL('./', self.location.href).href;
             for (let i = 0; i < windowClients.length; i++) {
                 const client = windowClients[i];
@@ -78,7 +94,7 @@ self.addEventListener('notificationclick', (event) => {
                     client.focus();
                     
                     // التخاطب الذكي مع الواجهة بمتغيرات موحدة
-                    if (actionType && actionId) {
+                    if (actionType && actionId && actionType !== 'undefined' && actionId !== 'undefined') {
                         client.postMessage({
                             type: 'FCM_NOTIFICATION_CLICK',
                             payload: { type: actionType, id: actionId }
@@ -90,7 +106,7 @@ self.addEventListener('notificationclick', (event) => {
             
             // ب) إذا كان المتجر مغلقاً تماماً، نفتحه في نافذة جديدة مع دمج المتغيرات بذكاء
             if (clients.openWindow) {
-                if (actionType && actionId) {
+                if (actionType && actionId && actionType !== 'undefined' && actionId !== 'undefined') {
                     try {
                         const urlObj = new URL(targetUrl);
                         urlObj.searchParams.set('action', 'view');
@@ -98,7 +114,6 @@ self.addEventListener('notificationclick', (event) => {
                         urlObj.searchParams.set('id', actionId);
                         targetUrl = urlObj.href;
                     } catch (e) {
-                        // في حال فشل التحليل، نعتمد الرابط الأساسي كأمان
                         targetUrl = defaultStoreUrl;
                     }
                 }
