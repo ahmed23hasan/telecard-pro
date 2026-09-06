@@ -503,7 +503,7 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
     }
 });
 // ==========================================
-// 💰 2. إرسال طلبات الإيداع (Server Validation Firewall)
+// 💰 2. إرساال طلبات الإيداع (Server Validation Firewall)
 // ==========================================
 exports.submitBalanceRequest = onCall({ enforceAppCheck: false }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول أولاً.');
