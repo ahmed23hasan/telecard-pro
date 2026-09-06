@@ -1,11 +1,12 @@
 // ============================================================================
-// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة الماسية V10.2.0 💎
+// ☁️ محرك الموردين السحابي (functions/supplierEngine.js) - النسخة الماسية V10.3.0 💎
 // 🎯 الوظيفة: استيراد المنتجات، وبناء الجداول المركزية بأمان تام.
-// 🚀 التحديثات المعمارية:
-// 1. Fallback Pricing: تأمين حساب الأرباح في حال غياب الكاش.
-// 2. Strict Circuit Breaker: تجميد المنتجات ذات التكلفة الصفرية لحماية الأرباح.
-// 3. Batch Safe-Lock: تأمين الـ commitAndReset لمنع تداخل عمليات الدفعات.
-// 4. Hash Sync: ضمان توافق توليد أسعار المورد مع نظام الخزنة في index.js.
+// 🚀 التحديثات المعمارية (V10.3.0 - SSOT Pricing Integration):
+// 1. Unified Pricing Engine 🛡️: إجبار التسعير على المرور عبر المحرك المالي (FinancialEngine) لضمان حماية الربح.
+// 2. Fallback Pricing: تأمين حساب الأرباح في حال غياب الكاش.
+// 3. Strict Circuit Breaker: تجميد المنتجات ذات التكلفة الصفرية لحماية الأرباح.
+// 4. Batch Safe-Lock: تأمين الـ commitAndReset لمنع تداخل عمليات الدفعات.
+// 5. Hash Sync: ضمان توافق توليد أسعار المورد مع نظام الخزنة في index.js.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -124,7 +125,6 @@ const coreSyncLogic = async (supplierId) => {
         const existingProdsMap = new Map();
         existingProdsSnap.forEach(doc => existingProdsMap.set(doc.id, doc.data()));
 
-        // 🚀 Fallback لتأمين جلب المستويات لو كان الكاش مفقوداً
         let systemTiers = [];
         if (pricingCacheSnap.exists && Array.isArray(pricingCacheSnap.data().tiers)) {
             systemTiers = pricingCacheSnap.data().tiers;
@@ -134,7 +134,10 @@ const coreSyncLogic = async (supplierId) => {
         }
 
         const syncSessionId = Date.now();
+        
+        // 🛡️ المورد السحابي يتصل بالمحرك المالي لصناعة "مستوى أولي وهمي" يعطيه هامش الربح الافتراضي
         const defaultMargin = FinancialEngine.extractNum(supplier.defaultMargin || 0);
+        const defaultVirtualTier = { id: 'virtual_default', profitPercent: defaultMargin, minProfitUsd: 0 };
         
         let currentBatch = db.batch();
         let operationCount = 0;
@@ -146,7 +149,6 @@ const coreSyncLogic = async (supplierId) => {
                 await currentBatch.commit(); 
                 currentBatch = db.batch(); 
                 operationCount = 0; 
-                // إعطاء فرصة للنظام لالتقاط الأنفاس ومنع التداخل
                 await new Promise(resolve => setTimeout(resolve, 50));
             }
         };
@@ -163,27 +165,41 @@ const coreSyncLogic = async (supplierId) => {
             let rawCost = FinancialEngine.extractNum(prod.cost);
             let isFreezeRequired = false;
 
-            // 🛑 قاطع الدائرة المتقدم (Strict Circuit Breaker)
+            // 🛑 قاطع الدائرة المتقدم
             if (rawCost === 0 || (existingData && existingData.costPrice && rawCost < (existingData.costPrice * 0.2))) {
-                console.warn(`[CIRCUIT BREAKER] سعر غير منطقي أو صفري للمنتج ${safeId}. تم تجميد المنتج.`);
+                console.warn(`[CIRCUIT BREAKER] سعر غير منطقي للمنتج ${safeId}. تم تجميد المنتج.`);
                 rawCost = existingData ? FinancialEngine.extractNum(existingData.costPrice) : 0;
-                isFreezeRequired = true; // تعليق المنتج لحمايته
+                isFreezeRequired = true;
             }
             rawCost = Math.min(rawCost, FinancialEngine.CONFIG.MAX_PRICE_LIMIT);
 
-            const profitAdded = FinancialEngine.safeMul(rawCost, FinancialEngine.safeDiv(defaultMargin, 100));
-            let calculatedFinalPrice = Math.min(FinancialEngine.safeAdd(rawCost, profitAdded), FinancialEngine.CONFIG.MAX_PRICE_LIMIT);
-            
             const isFixed = existingData ? (String(existingData.isFixedPrice).toLowerCase() === 'true') : false;
+            
+            // 🛡️ التحديث الماسي: استخدام המחرك المالي للتسعير الأساسي لحماية التكلفة
+            const virtualBaseProduct = { costPrice: rawCost, price: rawCost }; 
+            const basePricing = FinancialEngine.calculatePrice({ 
+                product: virtualBaseProduct, 
+                costPrice: rawCost, 
+                tier: defaultVirtualTier 
+            });
+            let calculatedFinalPrice = basePricing.finalPrice;
             let finalPrice = isFixed ? FinancialEngine.extractNum(existingData.price) : calculatedFinalPrice;
 
+            // 🛡️ التحديث الماسي: استخدام المحرك المالي لتوليد قائمة أسعار المستويات
             let tierPrices = {};
             if (!isFixed && systemTiers.length > 0) {
                 systemTiers.forEach(tier => {
-                    const profitPercent = FinancialEngine.extractNum(tier.profitPercent || tier.profit_percent);
-                    const minProfitUsd = FinancialEngine.extractNum(tier.minProfitUsd || tier.min_profit_usd);
-                    let pAdded = FinancialEngine.safeMul(rawCost, FinancialEngine.safeDiv(profitPercent, 100));
-                    tierPrices[tier.id] = FinancialEngine.safeAdd(rawCost, Math.max(pAdded, minProfitUsd));
+                    try {
+                        const tierPricing = FinancialEngine.calculatePrice({ 
+                            product: virtualBaseProduct, 
+                            costPrice: rawCost, 
+                            tier: tier 
+                        });
+                        tierPrices[tier.id] = tierPricing.finalPrice;
+                    } catch (e) {
+                        // إذا كسر أحد المستويات جدار الحماية، نعتمد سعر التكلفة مع هامش آمن
+                        tierPrices[tier.id] = FinancialEngine.safeAdd(rawCost, FinancialEngine.safeMul(rawCost, 0.05));
+                    }
                 });
             }
 
@@ -204,7 +220,7 @@ const coreSyncLogic = async (supplierId) => {
 
                 for (const code of cleanCodes) {
                     const hash = generateCodeHash(code);
-                    const docId = `key_${hash}`; // 🚀 توحيد Hash الأكواد
+                    const docId = `key_${hash}`; 
 
                     if (keysMap.has(docId)) {
                         const isAlreadySold = keysMap.get(docId);
@@ -241,7 +257,6 @@ const coreSyncLogic = async (supplierId) => {
                 if (operationCount >= 400) await commitAndReset(); 
             }
 
-            // إذا فُعّل قاطع الدائرة، يتم جعل المتوفر = 0 
             const hasStock = isFreezeRequired ? false : (inMemoryStockCount > 0);
             const statusNote = isFreezeRequired ? 'مجمد آلياً بسبب خطأ بالتسعير' : '';
 
@@ -353,4 +368,3 @@ exports.secureSaveSupplier = onCall({ enforceAppCheck: false }, async (request) 
         throw new HttpsError('internal', 'فشل حفظ بيانات المورد.'); 
     }
 });
- 

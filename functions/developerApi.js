@@ -1,10 +1,12 @@
 // ============================================================================
-// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية V8.2 💎
+// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية V8.3 💎
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🚀 التحديثات (V8.2 - Enterprise Integration):
-// 1. Tier Auto-Upgrade Fix: دمج الترقية التلقائية لحسابات التجار عبر الـ API.
-// 2. High-Speed Webhook Retry: تسريع معالجة طابور الإشعارات (15m / 300 req).
-// 3. Zero-Trust Security: سد ثغرة التوقيع الافتراضي (No fallback secrets).
+// 🚀 التحديثات (V8.3 - SSOT Integration & Price Slippage Shield):
+// 1. API Price Slippage Shield 🛡️: إجبار واجهة الـ API على التحقق من `expectedPrice` لحماية أموال التجار من تقلب الأسعار.
+// 2. Smart Tier Recovery 🛡️: استيراد آلية "المستوى الخالد/الافتراضي" في حال اختفاء مستوى التاجر لمنع الـ Crash.
+// 3. Tier Auto-Upgrade Fix: دمج الترقية التلقائية لحسابات التجار عبر الـ API.
+// 4. High-Speed Webhook Retry: تسريع معالجة طابور الإشعارات (15m / 300 req).
+// 5. Zero-Trust Security: سد ثغرة التوقيع الافتراضي (No fallback secrets).
 // ============================================================================
 
 const { onRequest } = require('firebase-functions/v2/https');
@@ -20,8 +22,6 @@ const db = admin.firestore();
 const SYSTEM_LIMITS = { MAX_QTY_PER_ORDER: 10000, MAX_VAULT_QTY_PER_ORDER: 200 };
 const safeAdd = (a, b) => FinancialEngine.safeAdd(a, b);
 const safeSub = (a, b) => Math.max(0, FinancialEngine.safeSub(a, b));
-
-// 🚀 تنظيف وتأمين الأرصدة (Floating-Point Fix)
 const sanitizeAmount = (amount) => Number(Math.round(amount + 'e4') + 'e-4');
 
 const getStartOfUTCDay = (timestampMs) => {
@@ -49,7 +49,6 @@ async function logFailedWebhook(payload, webhookUrl, errorMsg, userId) {
 }
 
 function generateHmacSignature(payload, secret) {
-    // 🛡️ التحديث 3: تم إزالة السيكريت الافتراضي لحماية التجار من تزييف الطلبات
     if (!secret || String(secret).trim() === '') return null;
     return crypto.createHmac('sha256', String(secret)).update(JSON.stringify(payload)).digest('hex');
 }
@@ -81,7 +80,6 @@ exports.orderStatusWebhook = onDocumentWritten({ document: 'telecard_orders/{ord
             'User-Agent': 'Telecard-Cloud-Engine/4.0' 
         };
         
-        // إرفاق التوقيع فقط إذا كان التاجر يمتلك مفتاح أمان
         if (signature) headers['X-Telecard-Signature'] = signature;
 
         const controller = new AbortController();
@@ -104,13 +102,11 @@ exports.orderStatusWebhook = onDocumentWritten({ document: 'telecard_orders/{ord
 // 🔄 2. نظام المحاولات الذاتي (Retry Cron)
 // ==========================================
 exports.cronRetryWebhooks = onSchedule({ 
-    // 🚀 التحديث 2: تسريع طابور المعالجة لتفادي الاختناق
     schedule: 'every 15 minutes', 
     timeZone: 'Asia/Riyadh',
     maxInstances: 1, 
     concurrency: 1   
 }, async (event) => {
-    // 🚀 تم رفع سقف الطلبات إلى 300 في الدفعة الواحدة لمعالجة الضغط العالي
     const failedSnaps = await db.collection('telecard_failed_webhooks').where('status', '==', 'failed').where('attempts', '<', 5).limit(300).get();
     if (failedSnaps.empty) return null;
     
@@ -153,6 +149,10 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
         
         const { productId, qty, inputStr, optIdx } = req.body;
         
+        // 🛡️ التحديث 1: استقبال السعر المتوقع لحماية التاجر
+        const expectedPriceRaw = Number(req.body.expectedPrice);
+        const expectedPrice = isNaN(expectedPriceRaw) ? null : expectedPriceRaw;
+
         if (!productId) return res.status(400).json({ success: false, error: 'Bad Request: productId is required.' });
 
         const finalQty = Math.max(1, Math.floor(Number(qty) || 1));
@@ -233,12 +233,26 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                         verifiedKeyDocs = keySnaps;
                     }
 
-                    // 🚀 التحديث 1: جلب كل المستويات لتمكين ترقية التاجر تلقائياً
                     const allTiersSnap = await transaction.get(db.collection('telecard_tiers'));
                     const allTiers = allTiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-                    const tierId = String(userData.tierId || userData.tier || 1);
-                    const activeTierObj = allTiers.find(t => String(t.id) === tierId) || null;
+                    // 🛡️ التحديث 2: الاسترداد الذكي للمستويات لضمان عدم حدوث Crash
+                    const assignedTierId = String(userData.tierId || userData.tier || '1');
+                    let activeTierObj = allTiers.find(t => String(t.id) === assignedTierId);
+                    let userUpdateObj = {};
+
+                    if (!activeTierObj) {
+                        const getThresh = (t) => Number(t.threshold || t.condition_amount || 0);
+                        const sortedTiers = [...allTiers].filter(t => t.autoAdvance !== false).sort((a, b) => getThresh(b) - getThresh(a));
+                        const spent = Number(userData.tierCycleSpent || 0);
+
+                        activeTierObj = sortedTiers.find(t => spent >= getThresh(t));
+                        if (!activeTierObj) { activeTierObj = allTiers.find(t => t.isDefault) || allTiers.find(t => String(t.id) === '1') || allTiers[0]; }
+                        if (!activeTierObj) throw new Error('System Configuration Error: No Tiers found.');
+
+                        userUpdateObj.tierId = activeTierObj.id;
+                        userData.tierId = activeTierObj.id;
+                    }
                     
                     let currentCycleSpent = Number(userData.tierCycleSpent || 0);
                     const cycleStartMs = userData.tierCycleStartDate?.toMillis ? userData.tierCycleStartDate.toMillis() : serverNow;
@@ -247,7 +261,13 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                     const daysPassed = (todayDay - cycleStartDay) / (24 * 60 * 60 * 1000);
                     const isCycleExpired = daysPassed > Number(activeTierObj?.durationDays || 30);
 
-                    if (isCycleExpired) { currentCycleSpent = 0; }
+                    if (isCycleExpired) { 
+                        currentCycleSpent = 0; 
+                        if (userData.manualTierOverride !== true) { 
+                            activeTierObj = allTiers.find(t => t.isDefault) || activeTierObj; 
+                            userUpdateObj.tierId = activeTierObj.id; 
+                        }
+                    }
 
                     const pricingSnapshot = FinancialEngine.calculateOrderTotal({ 
                         product: liveProduct, 
@@ -257,8 +277,13 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
 
                     if (pricingSnapshot.isFirewallViolated) throw new Error('Firewall Violation');
                     const exactPrice = pricingSnapshot.totalFinalPrice;
-                    const currentBalance = Number(userData.walletBalance || 0);
 
+                    // 🛡️ التحديث 3: حماية التاجر من الانزلاق السعري مع التسامح العشري
+                    if (expectedPrice !== null && exactPrice > (expectedPrice + 0.05)) {
+                        throw new Error('Price Slippage: Product price has increased. Please fetch the latest prices.');
+                    }
+
+                    const currentBalance = Number(userData.walletBalance || 0);
                     if (exactPrice < 0 || currentBalance < exactPrice) throw new Error('Insufficient balance.');
 
                     let deliveredCodeText = null, isAutoDelivered = false;
@@ -276,17 +301,14 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                     const newTotalSpent = sanitizeAmount(safeAdd(userData.totalSpent || 0, exactPrice));
                     const newTierCycleSpent = sanitizeAmount(safeAdd(currentCycleSpent, exactPrice));
 
-                    // 🚀 الكود المضاف: ترقية حساب التاجر آلياً في حال وصوله للحد المطلوب
-                    let finalTierId = tierId;
+                    let finalTierId = activeTierObj.id;
                     if (userData.manualTierOverride !== true && activeTierObj?.autoAdvance !== false) {
                         const getThreshold = (t) => Number(t.threshold || t.condition_amount || 0);
                         const earnedTiers = allTiers
                             .filter(t => (t.autoAdvance !== false) && getThreshold(t) <= newTierCycleSpent && getThreshold(t) > getThreshold(activeTierObj))
                             .sort((a, b) => getThreshold(b) - getThreshold(a));
                         
-                        if (earnedTiers.length > 0) { 
-                            finalTierId = earnedTiers[0].id; 
-                        }
+                        if (earnedTiers.length > 0) { finalTierId = earnedTiers[0].id; }
                     }
 
                     const newOrder = {
@@ -300,14 +322,12 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
 
                     resultData = { orderId: cleanOrderId, status: newOrder.status, pricePaid: exactPrice, deliveredCode: deliveredCodeText };
                     
-                    let userUpdateObj = { 
-                        walletBalance: newBalance, 
-                        totalSpent: newTotalSpent, 
-                        tierCycleSpent: newTierCycleSpent,
-                        tierId: finalTierId 
-                    };
+                    userUpdateObj.walletBalance = newBalance;
+                    userUpdateObj.totalSpent = newTotalSpent;
+                    userUpdateObj.tierCycleSpent = newTierCycleSpent;
+                    userUpdateObj.tierId = finalTierId;
                     
-                    if (isCycleExpired || finalTierId !== tierId) { 
+                    if (isCycleExpired || finalTierId !== activeTierObj.id) { 
                         userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); 
                     }
 
@@ -355,6 +375,7 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
         if (error.message.includes('Vault limit exceeded')) return res.status(400).json({ success: false, error: error.message });
         if (error.message.includes('Firewall Violation')) return res.status(400).json({ success: false, error: 'Order rejected by security policy.' });
         if (error.message.includes('Idempotency Conflict')) return res.status(409).json({ success: false, error: 'Conflict: Please retry the request with the same idempotency key.' });
+        if (error.message.includes('Price Slippage')) return res.status(409).json({ success: false, error: error.message });
         
         console.error('API Error:', error);
         return res.status(500).json({ success: false, error: 'Internal Server Error' });
