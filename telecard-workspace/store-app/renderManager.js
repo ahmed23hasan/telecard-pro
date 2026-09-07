@@ -1094,6 +1094,9 @@ export const RenderManager = {
     // ============================================================================
     // 🖨️ محرك تصدير الفواتير الاحترافي (Real Viewport Masking Technique)
     // ============================================================================
+    // ============================================================================
+    // 🖨️ محرك تصدير الفواتير الاحترافي (Real Viewport Masking Technique)
+    // ============================================================================
     generateReceiptImage: async function(config) {
         return new Promise(async (resolve) => {
             const containerId = 'receipt-render-box-' + Date.now();
@@ -1101,7 +1104,6 @@ export const RenderManager = {
             let isResolved = false;
             let isAborted = false; 
             
-            // دالة التنظيف الاحترافية
             const cleanup = () => {
                 const container = document.getElementById(containerId);
                 const mask = document.getElementById(maskId);
@@ -1109,7 +1111,6 @@ export const RenderManager = {
                 if (mask) mask.remove();
             };
             
-            // مؤقت الأمان (15 ثانية) لمنع تجميد النظام
             const watchdog = setTimeout(() => {
                 if (isResolved) return;
                 isAborted = true; 
@@ -1126,25 +1127,24 @@ export const RenderManager = {
                 let safeLogoHtml = storeLogo ? `<img src="${Utils.escapeHtml(storeLogo)}" style="max-height: 55px; max-width: 160px; object-fit: contain;" crossorigin="anonymous">` : '';
                 const brandHTML = { html: `<div class="header-section"><div class="store-name">${Utils.escapeHtml(storeName)}</div>${safeLogoHtml}</div>` };
                 
-                // جلب الـ HTML
                 const fullHTML = UIBuilders.buildPDFReceipt(config, brandHTML.html);
                 
-                // 1️⃣ إنشاء الغطاء الصلب (The Mask) الذي سيغطي الشاشة لكي لا يرى العميل عملية الرسم
+                // 1️⃣ إنشاء الغطاء الصلب
                 const maskOverlay = document.createElement('div');
                 maskOverlay.id = maskId;
                 maskOverlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: var(--bg-main, #0f172a); z-index: 999999; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff;';
                 maskOverlay.innerHTML = `<i class="fa-solid fa-file-invoice fa-bounce" style="font-size: 32px; color: var(--primary, #3b82f6); margin-bottom: 15px;"></i><h3 style="font-family: inherit; font-size: 16px;">جاري توثيق الإيصال...</h3>`;
                 document.body.appendChild(maskOverlay);
 
-                // 2️⃣ إنشاء حاوية الإيصال، ووضعها في منتصف الشاشة تماماً (تحت الغطاء)
+                // 2️⃣ حاوية الإيصال (إصلاح الإزاحة)
+                // 🛡️ وضعها في (0,0) بدون أي Transform لكي تلتقطها المكتبة بدقة متناهية
                 const container = document.createElement('div');
                 container.id = containerId;
-                // نضعه في أعلى الشاشة (لكي لا يخرب التمرير) ونعطيه z-index أقل من الغطاء بدرجة واحدة
-                container.style.cssText = 'position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 420px; z-index: 999998; background-color: #f8fafc; pointer-events: none;';
+                container.style.cssText = 'position: fixed; top: 0; left: 0; width: 420px; z-index: 999998; background-color: #f8fafc; pointer-events: none; margin: 0; transform: none;';
                 container.innerHTML = fullHTML;
                 document.body.appendChild(container);
                 
-                // 3️⃣ انتظار تحميل الصور والخطوط
+                // 3️⃣ انتظار الصور والخطوط
                 const imgs = Array.from(container.querySelectorAll('img'));
                 await Promise.all(imgs.map(img => {
                     if (img.complete) return Promise.resolve();
@@ -1152,43 +1152,39 @@ export const RenderManager = {
                 }));
                 if (document.fonts && document.fonts.ready) await document.fonts.ready;
                 
-                // إعطاء المتصفح وقتاً لتلوين الـ DOM بشكل حقيقي (Real Painting)
+                // إعطاء المتصفح وقتاً لتلوين الـ DOM
                 await new Promise(res => requestAnimationFrame(() => setTimeout(res, 150)));
                 
                 if (typeof domtoimage === 'undefined') throw new Error("مكتبة dom-to-image-more مفقودة!");
                 if (isAborted) return;
                 
                 let blob;
+                const domToImageOptions = {
+                    bgcolor: '#f8fafc',
+                    width: 420,
+                    cacheBust: true,
+                    style: { margin: '0', left: '0', top: '0', transform: 'none' } // إجبار المكتبة على تصفير الإحداثيات
+                };
+
                 try {
-                    // الالتقاط الحقيقي
-                    blob = await domtoimage.toBlob(container, {
-                        bgcolor: '#f8fafc',
-                        width: 420,
-                        cacheBust: true,
-                        style: { margin: '0' } 
-                    });
+                    blob = await domtoimage.toBlob(container, domToImageOptions);
                 } catch (canvasErr) {
                     console.warn("⚠️ [Receipt Engine] CORS Issue Detected. Retrying without images...");
                     const corruptedImgs = container.querySelectorAll('img');
                     corruptedImgs.forEach(img => img.style.display = 'none');
-                    blob = await domtoimage.toBlob(container, {
-                        bgcolor: '#f8fafc',
-                        width: 420,
-                        cacheBust: true,
-                        style: { margin: '0' }
-                    });
+                    blob = await domtoimage.toBlob(container, domToImageOptions);
                 }
                 
                 if (isAborted) return; 
                 
-                // 4️⃣ تنظيف فوري (إزالة الإيصال والغطاء معاً)
+                // 4️⃣ تنظيف
                 cleanup();
                 
                 const safeFileName = config.filename || 'receipt.jpg';
                 const title = `إيصال إلكتروني - ${storeName}`;
                 const blobUrl = URL.createObjectURL(blob);
                 
-                // 5️⃣ عرض نافذة الإجراءات
+                // 5️⃣ عرض النافذة
                 const dialogId = 'receipt-action-dialog';
                 let dialog = document.getElementById(dialogId);
                 if (dialog) dialog.remove();
@@ -1248,8 +1244,7 @@ export const RenderManager = {
                 cleanup();
             }
         });
-    },
-    exportReceipt: async function(orderId, btnElement = null) {
+    },    exportReceipt: async function(orderId, btnElement = null) {
         if (btnElement && btnElement.disabled) return; 
         
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));
