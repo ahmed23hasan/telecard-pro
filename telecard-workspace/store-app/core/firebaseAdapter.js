@@ -418,11 +418,12 @@ export const FirebaseAdapter = {
         }
     },
     
-    async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = false) { 
+        async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = false) { 
         if (!file) return ''; 
         
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml', 'application/pdf']; 
-        if (!allowedTypes.includes(file.type)) throw new Error(`نوع الملف غير مدعوم.`); 
+        // 🛡️ التحديث الأمني: إزالة image/svg+xml تماماً لمنع ثغرات حقن الأكواد (Stored XSS)
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']; 
+        if (!allowedTypes.includes(file.type)) throw new Error(`نوع الملف غير مدعوم. يرجى رفع صورة نقطية أو ملف PDF.`); 
         
         const MAX_FILE_SIZE_MB = 10; 
         if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) throw new Error(`حجم الملف كبير جداً. الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت.`); 
@@ -430,9 +431,9 @@ export const FirebaseAdapter = {
         try { 
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general'; 
             
-            // 🛡️ استخراج آمن للامتداد لمنع التحايل
+            // 🛡️ استخراج آمن للامتداد لمنع التحايل وإزالة svg من الامتدادات المعتمدة
             const originalExt = (file.name || '').includes('.') ? file.name.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') : (file.type === 'application/pdf' ? 'pdf' : 'jpg'); 
-            const finalExt = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'pdf'].includes(originalExt) ? originalExt : 'bin';
+            const finalExt = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf'].includes(originalExt) ? originalExt : 'bin';
 
             const safeFileName = (file.name || 'file').replace(/[^\w\s\u0600-\u06FF\-_]/g, '').trim().replace(/\s+/g, '_') || 'file';
             const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9); 

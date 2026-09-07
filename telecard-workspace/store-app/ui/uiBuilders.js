@@ -1,11 +1,11 @@
 // ============================================================================
-// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - الإصدار المؤسسي V18.9.0 💎
+// 🧱 مصنع قوالب الواجهات الأمامية (uiBuilders.js) - الإصدار المؤسسي V18.9.1 💎
 // 🎯 الوظيفة: تحويل البيانات الخام إلى قوالب HTML نقية وآمنة برمجياً 100%
-// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - UI Engine & XSS Patch):
-// 1. PDF Crash Shield 🛡️: تأمين دوال بناء الإيصالات بكائنات احتياطية لمنع توقف التصدير عند فقدان البيانات.
-// 2. Strict Attribute Escaping 🛡️: تعقيم فائق للسمات (data-id, class) لمنع كسر وسوم الـ HTML (DOM XSS).
-// 3. Safe URL Enforcement 🛡️: منع حقن (javascript:) في أزرار الإيصالات والصور.
-// 4. Absolute NaN Shield 🛡️: تغليف كافة العمليات الحسابية بدالة أمان لضمان إرجاع 0.00 بدلاً من NaN.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - UI Engine & Nullish Patch):
+// 1. Strict Nullish Coalescing 🛡️: استخدام (??) بدلاً من (||) لمنع تجاهل القيم الصفرية (0) كخصومات.
+// 2. Absolute NaN Shield Fix 🛡️: إصلاح تدفق القيم الاحتياطية لدالة _safeNum لضمان 0.00 دائماً.
+// 3. Fallback Property Routing 🛡️: دعم الأسماء المزدوجة للمتغيرات (amount/amountVal) في المحفظة.
+// 4. Safe URL Enforcement 🛡️: منع حقن (javascript:) في أزرار الإيصالات والصور بشكل كامل.
 // ============================================================================
 
 import * as Utils from '../utils.js'; 
@@ -30,7 +30,7 @@ export const UIBuilders = {
     _safeUrlLink: function(url) {
         if (!url) return '#';
         const strUrl = String(url).trim();
-        // منع ثغرات javascript: أو vbscript: أو data:text/html
+        // 🛡️ منع ثغرات javascript: أو vbscript: أو data:text/html
         if (/^(javascript|vbscript|data(?!\:image)):/i.test(strUrl)) return '#';
         return Utils.safeUrl ? Utils.safeUrl(strUrl) : strUrl;
     },
@@ -84,12 +84,12 @@ export const UIBuilders = {
 
         let runningBalanceHtml = '';
         if (!isFilterActive && typeof tx.balanceAfter !== 'undefined') {
-            const safeBalAfter = this._safeNum(tx.balanceAfter);
+            const safeBalAfter = this._safeNum(tx.balanceAfter, 0);
             runningBalanceHtml = `<div class="th-balance-after">${RenderHelpers.formatMoney(safeBalAfter, String(walletCurr).toUpperCase())}</div>`;
         }
 
         const safeTxName = Utils.escapeHtml(isDep ? (tx.method || 'إيداع رصيد') : (tx.product || 'طلب شراء'));
-        const safeAmount = this._safeNum(tx.amountVal);
+        const safeAmount = this._safeNum(tx.amountVal ?? tx.amount, 0);
         const safeCurrency = this._safeAttr(tx.amountCurrency || 'USD').toUpperCase();
 
         return `
@@ -138,8 +138,8 @@ export const UIBuilders = {
         else if (safeStatus === 'rejected') statusLabel = '<i class="fa-solid fa-circle-xmark"></i> مرفوض';
         else if (['returned', 'refunded'].includes(safeStatus)) statusLabel = '<i class="fa-solid fa-rotate-left"></i> مسترجع';
         
-        const safeCouponDisc = this._safeNum(o.pricingSnapshot?.couponDiscount || o.couponDiscount);
-        const safeSaleDisc = this._safeNum(o.pricingSnapshot?.offerDiscount || o.saleDiscount);
+        const safeCouponDisc = this._safeNum(o.pricingSnapshot?.couponDiscount ?? o.couponDiscount, 0);
+        const safeSaleDisc = this._safeNum(o.pricingSnapshot?.offerDiscount ?? o.saleDiscount, 0);
         const totalDiscLocal = Number((safeCouponDisc + safeSaleDisc).toFixed(4));
         
         let discountBadgeHtml = '';
@@ -156,7 +156,7 @@ export const UIBuilders = {
         const safeOrderIdAttr = this._safeAttr(o.id || '');
         const isHighlighted = (highlightId && String(o.id) === String(highlightId)) ? 'jump-highlight' : '';
         const safeTimeMs = Utils.parseSafeTime(o.time || o.createdAt);
-        const safePrice = this._safeNum(o.price);
+        const safePrice = this._safeNum(o.price, 0);
         
         return `
             <div class="oh-card ${isHighlighted}" style="--anim-idx: ${this._safeAttr(idx)}" data-action="open-detail" data-type="order" data-id="${safeOrderIdAttr}">
@@ -193,9 +193,9 @@ export const UIBuilders = {
         const currency = this._safeAttr(d.currency || 'USD').toUpperCase();
         const targetCurr = this._safeAttr(d.targetCurrency || baseCurrency || 'USD').toUpperCase();
         
-        const rawAmount = Math.abs(this._safeNum(d.amount)); 
-        const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(this._safeNum(d.creditedAmount)) : rawAmount;
-        const feeVal = this._safeNum(d.fees || d.fee); 
+        const rawAmount = Math.abs(this._safeNum(d.amount, 0)); 
+        const displayNetAmount = d.creditedAmount !== undefined ? Math.abs(this._safeNum(d.creditedAmount, 0)) : rawAmount;
+        const feeVal = this._safeNum(d.fees ?? d.fee, 0); 
         
         let feeLabel = 'الرسوم الإضافية';
         let feeValueHtml = '<span class="text-muted">لا يوجد</span>';
@@ -208,7 +208,7 @@ export const UIBuilders = {
         
         let exchangeRateHtml = '';
         if (currency !== targetCurr && d.exchangeRate) {
-            const safeExchangeRate = this._safeNum(d.exchangeRate);
+            const safeExchangeRate = this._safeNum(d.exchangeRate, 1);
             exchangeRateHtml = `
             <div class="ph-item">
                 <div class="ph-item-label"><i class="fa-solid fa-money-bill-transfer"></i> سعر الصرف المطبق</div>
@@ -224,7 +224,7 @@ export const UIBuilders = {
             balanceAfterHtml = `
                 <div class="ph-item ph-balance-box">
                     <div class="ph-item-label ph-balance-label"><i class="fa-solid fa-piggy-bank"></i> رصيد المحفظة الحالي</div>
-                    <div class="ph-item-val num-en ph-balance-val" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(balAfter), targetCurr)}</div>
+                    <div class="ph-item-val num-en ph-balance-val" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(balAfter, 0), targetCurr)}</div>
                 </div>`;
         }
 
@@ -331,33 +331,32 @@ export const UIBuilders = {
             </div>`;
     },
 
-    // ============================================================================
-    // 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية المجهزة للطباعة)
-    // ============================================================================
-    buildPDFReceipt: function(config, brandHTML) {
-        // 🛡️ التحديث المعماري: كائن احتياطي (Fail-Safe) لمنع توقف التصدير إذا ضاعت البيانات
-        const data = config?.data || {};
-        const storeNameText = Utils.escapeHtml(config?.storeName || 'المتجر');
-        let contentHTML = '';
-
-        if (config?.type === 'deposit') {
-            const isBonus = data.feeType === 'bonus';
-            const feeValNum = this._safeNum(data.feeVal);
-            const safeCurrency = this._safeAttr(data.currency || 'USD').toUpperCase();
-            
-            let feeDisplayLabel = isBonus ? 'بونص إضافي' : 'رسوم مخصومة';
-            if (data.feePercent) feeDisplayLabel += ` (${Utils.escapeHtml(data.feePercent)}%)`;
-            
-            let feeValueHtml = '';
-            if (feeValNum === 0) {
-                feeValueHtml = `<span class="r-value" style="color: #64748b;">${RenderHelpers.formatMoney(0, safeCurrency)}</span>`;
-            } else if (isBonus) {
-                feeValueHtml = `<span class="r-value num-en" dir="ltr" style="color: #16a34a;">+${RenderHelpers.formatMoney(feeValNum, safeCurrency)}</span>`;
-            } else {
-                feeValueHtml = `<span class="r-value num-en" dir="ltr" style="color: #ef4444;">-${RenderHelpers.formatMoney(feeValNum, safeCurrency)}</span>`;
-            }
-
-            contentHTML = `
+// ============================================================================
+// 5️⃣ بناء فاتورة الإيصال PDF (الديناميكية المجهزة للطباعة بدون أخطاء CORS)
+// ============================================================================
+buildPDFReceipt: function(config, brandHTML) {
+    const data = config?.data || {};
+    const storeNameText = Utils.escapeHtml(config?.storeName || 'المتجر');
+    let contentHTML = '';
+    
+    if (config?.type === 'deposit') {
+        const isBonus = data.feeType === 'bonus';
+        const feeValNum = this._safeNum(data.feeVal, 0);
+        const safeCurrency = this._safeAttr(data.currency || 'USD').toUpperCase();
+        
+        let feeDisplayLabel = isBonus ? 'بونص إضافي' : 'رسوم مخصومة';
+        if (data.feePercent) feeDisplayLabel += ` (${Utils.escapeHtml(data.feePercent)}%)`;
+        
+        let feeValueHtml = '';
+        if (feeValNum === 0) {
+            feeValueHtml = `<span class="r-value" style="color: #64748b;">${RenderHelpers.formatMoney(0, safeCurrency)}</span>`;
+        } else if (isBonus) {
+            feeValueHtml = `<span class="r-value num-en" dir="ltr" style="color: #16a34a;">+${RenderHelpers.formatMoney(feeValNum, safeCurrency)}</span>`;
+        } else {
+            feeValueHtml = `<span class="r-value num-en" dir="ltr" style="color: #ef4444;">-${RenderHelpers.formatMoney(feeValNum, safeCurrency)}</span>`;
+        }
+        
+        contentHTML = `
                 ${brandHTML}
                 <div class="r-title-box">
                     <div class="r-title">إيصال شحن محفظة</div>
@@ -368,26 +367,26 @@ export const UIBuilders = {
                     <div class="r-item"><span class="r-label">معرف الحساب (ID)</span><span class="r-value num-en">${Utils.escapeHtml(data.userDisplayId || '---')}</span></div>
                     <div class="r-item"><span class="r-label">طريقة الدفع</span><span class="r-value">${Utils.escapeHtml(data.method || '---')}</span></div>
                     <div class="r-item"><span class="r-label">تاريخ ووقت العملية</span><span class="r-value num-en" dir="ltr">${Utils.escapeHtml(data.dateTime || '---').replace(/\|/g, '&nbsp;&nbsp;|&nbsp;&nbsp;')}</span></div>
-                    <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value num-en" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(data.amount), safeCurrency)}</span></div>
+                    <div class="r-item"><span class="r-label">المبلغ الأساسي</span><span class="r-value num-en" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(data.amount, 0), safeCurrency)}</span></div>
                     <div class="r-item"><span class="r-label">${feeDisplayLabel}</span>${feeValueHtml}</div>
                 </div>
                 <div class="r-total-box">
                     <div class="r-total-label">صافي الرصيد المضاف</div>
-                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(data.netVal), String(data.targetCurrency || 'USD').toUpperCase())}</div>
+                    <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(this._safeNum(data.netVal, 0), String(data.targetCurrency || 'USD').toUpperCase())}</div>
                 </div>
             `;
-        } else {
-            const safeCurrency = this._safeAttr(data.priceCurrency || 'USD').toUpperCase();
-            const safeOrigPrice = this._safeNum(data.originalPrice);
-            const safeFinalPrice = this._safeNum(data.price);
-            
-            const originalPriceHtml = safeOrigPrice > safeFinalPrice ? 
-                `<div class="r-item"><span class="r-label">السعر الأساسي (قبل الخصم)</span><span class="r-value num-en" dir="ltr" style="text-decoration: line-through; color: #94a3b8;">${RenderHelpers.formatMoney(safeOrigPrice, safeCurrency)}</span></div>` : '';
-            
-            const formattedInput = this._safeMultiLine(data.input || '---').replace(/\|/g, '<br>');
-            const formattedCode = data.code ? this._safeMultiLine(data.code).replace(/\|/g, '<br>') : '';
-
-            contentHTML = `
+    } else {
+        const safeCurrency = this._safeAttr(data.priceCurrency || 'USD').toUpperCase();
+        const safeOrigPrice = this._safeNum(data.originalPrice, 0);
+        const safeFinalPrice = this._safeNum(data.price, 0);
+        
+        const originalPriceHtml = safeOrigPrice > safeFinalPrice ?
+            `<div class="r-item"><span class="r-label">السعر الأساسي (قبل الخصم)</span><span class="r-value num-en" dir="ltr" style="text-decoration: line-through; color: #94a3b8;">${RenderHelpers.formatMoney(safeOrigPrice, safeCurrency)}</span></div>` : '';
+        
+        const formattedInput = this._safeMultiLine(data.input || '---').replace(/\|/g, '<br>');
+        const formattedCode = data.code ? this._safeMultiLine(data.code).replace(/\|/g, '<br>') : '';
+        
+        contentHTML = `
                 ${brandHTML}
                 <div class="r-title-box">
                     <div class="r-title">فاتورة طلب شراء</div>
@@ -408,67 +407,40 @@ export const UIBuilders = {
                     <div class="r-total-val num-en" dir="ltr">${RenderHelpers.formatMoney(safeFinalPrice, safeCurrency)}</div>
                 </div>
             `;
-        }
-
-        return `
-            <!DOCTYPE html>
-            <html lang="ar" dir="rtl">
-            <head>
-                <meta charset="UTF-8">
-                <title>${Utils.escapeHtml(config?.filename || 'Receipt')}</title>
+    }
+    
+    // 🛡️ التحديث الماسي: إرجاع حاوية Div قابلة للرسم بدلاً من مستند HTML كامل
+    return `
+            <div class="receipt-capture-zone" style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 25px; width: 420px; box-sizing: border-box; direction: rtl; text-align: right;">
                 <style>
-                    @page { size: A4 portrait; margin: 15mm; }
-                    body { 
-                        font-family: 'Cairo', system-ui, -apple-system, sans-serif; 
-                        background: #f8fafc; 
-                        color: #0f172a; 
-                        margin: 0; padding: 0; 
-                        -webkit-print-color-adjust: exact; print-color-adjust: exact; 
-                    }
-                    .receipt-container { 
-                        max-width: 100%; margin: 0 auto; 
-                        background: #ffffff;
-                        border: 1px solid #e2e8f0; 
-                        border-radius: 16px; 
-                        padding: 35px; 
-                        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-                    }
+                    .receipt-inner-box { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
                     .header-section { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px dashed #cbd5e1; padding-bottom: 20px; margin-bottom: 25px; }
-                    .store-name { font-size: 28px; font-weight: 900; color: #0f172a; }
-                    
-                    .r-title-box { background: rgba(234, 179, 8, 0.1); padding: 20px; border-radius: 12px; border: 1px solid #eab308; margin-bottom: 30px; text-align: center; }
-                    .r-title { font-size: 24px; color: #ca8a04; font-weight: 900; margin-bottom: 8px; }
-                    .r-id { font-size: 18px; color: #0f172a; font-weight: 700; letter-spacing: 1px; }
-                    
-                    .r-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; }
-                    .r-item { background: #f8fafc; padding: 16px; border-radius: 10px; border-right: 4px solid #eab308; box-sizing: border-box; }
+                    .store-name { font-size: 26px; font-weight: 900; color: #0f172a; }
+                    .r-title-box { background: rgba(234, 179, 8, 0.1); padding: 15px; border-radius: 12px; border: 1px solid #eab308; margin-bottom: 25px; text-align: center; }
+                    .r-title { font-size: 22px; color: #ca8a04; font-weight: 900; margin-bottom: 5px; }
+                    .r-id { font-size: 16px; color: #0f172a; font-weight: 700; letter-spacing: 1px; }
+                    .r-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+                    .r-item { background: #f8fafc; padding: 12px; border-radius: 8px; border-right: 4px solid #eab308; box-sizing: border-box; }
                     .r-item-full { grid-column: 1 / -1; width: 100%; text-align: center; }
-                    
-                    .r-label { font-size: 14px; color: #64748b; display: block; margin-bottom: 8px; font-weight: 600; }
-                    .r-value { font-size: 16px; color: #0f172a; font-weight: 700; word-break: break-word; }
-                    .r-code-val { font-size: 20px; color: #1d4ed8; font-weight: 900; letter-spacing: 1px; }
-                    
-                    .r-total-box { background: #0f172a; padding: 25px; border-radius: 12px; margin-top: 25px; display: flex; justify-content: space-between; align-items: center; color: #fff; box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.3); }
-                    .r-total-label { font-size: 20px; font-weight: 700; color: #e2e8f0; }
-                    .r-total-val { font-size: 28px; font-weight: 900; color: #eab308; }
-                    
-                    .r-footer { text-align: center; margin-top: 40px; font-size: 14px; color: #94a3b8; font-weight: 600; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+                    .r-label { font-size: 13px; color: #64748b; display: block; margin-bottom: 6px; font-weight: 600; }
+                    .r-value { font-size: 15px; color: #0f172a; font-weight: 700; word-break: break-word; }
+                    .r-code-val { font-size: 18px; color: #1d4ed8; font-weight: 900; letter-spacing: 1px; }
+                    .r-total-box { background: #0f172a; padding: 20px; border-radius: 12px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; color: #fff; }
+                    .r-total-label { font-size: 18px; font-weight: 700; color: #e2e8f0; }
+                    .r-total-val { font-size: 24px; font-weight: 900; color: #eab308; }
+                    .r-footer { text-align: center; margin-top: 30px; font-size: 13px; color: #94a3b8; font-weight: 600; border-top: 1px solid #e2e8f0; padding-top: 15px; }
                     .num-en { font-family: system-ui, -apple-system, sans-serif; }
                 </style>
-            </head>
-            <body>
-                <div class="receipt-container">
+                <div class="receipt-inner-box">
                     ${contentHTML}
                     <div class="r-footer">
                         شكراً لثقتكم في ${storeNameText} | إيصال إلكتروني معتمد
                     </div>
                 </div>
-            </body>
-            </html>
+            </div>
         `;
-    },
-
-    // ============================================================================
+},
+// ============================================================================
     // 6️⃣ بناء قائمة الأكواد المستلمة
     // ============================================================================
     buildCodesList: function(codeString) {
@@ -485,9 +457,9 @@ export const UIBuilders = {
     buildLimitsBar: function(feeVal, payCurr, feeUnit, feeType, minVal, maxVal) {
         let itemsHtml = [];
         const safeCurr = this._safeAttr(payCurr || 'USD').toUpperCase();
-        const safeFeeVal = this._safeNum(feeVal);
-        const safeMin = this._safeNum(minVal);
-        const safeMax = this._safeNum(maxVal);
+        const safeFeeVal = this._safeNum(feeVal, 0);
+        const safeMin = this._safeNum(minVal, 0);
+        const safeMax = this._safeNum(maxVal, 0);
         
         if (safeFeeVal > 0) {
             const isBonus = (feeType === 'bonus');
@@ -622,7 +594,7 @@ export const UIBuilders = {
 
             let creditedRow = '';
             if (d.creditedAmount !== undefined) {
-                const safeCredited = this._safeNum(d.creditedAmount);
+                const safeCredited = this._safeNum(d.creditedAmount, 0);
                 creditedRow = `<div class="nm-row-compact"><span class="nm-label"><i class="fa-solid fa-wallet"></i> الرصيد المضاف</span><div class="nm-val">${RenderHelpers.formatMoney(safeCredited, this._safeAttr(d.targetCurrency || 'USD').toUpperCase())}</div></div>`;
             }
 
@@ -630,7 +602,7 @@ export const UIBuilders = {
             const receiptHtml = (safeReceiptUrl && safeReceiptUrl !== '#') ? `<a href="${safeReceiptUrl}" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><div class="nm-universal-card nm-receipt-card cursor-zoom-in" data-url="${safeReceiptUrl}"><img src="${safeReceiptUrl}" class="nm-receipt-img hover-scale" alt="Receipt"><div class="nm-receipt-card-info"><i class="fa-solid fa-magnifying-glass-plus"></i> اضغط لعرض الإيصال كاملاً</div></div></a>` : '';
 
             const safeTimeMs = Utils.parseSafeTime(d.time || d.createdAt);
-            const safeAmount = this._safeNum(d.amount);
+            const safeAmount = this._safeNum(d.amount, 0);
 
             html = `
             <div class="nm-container">
@@ -691,14 +663,14 @@ export const UIBuilders = {
                 replyHtml += `<div class="nm-reply-box auto-delivery-box"><div class="nm-reply-content"><span class="nm-reply-head"><i class="fa-solid fa-bolt"></i> تسليم فوري</span><div class="nm-reply-body nm-auto-delivery-scroll">${this.buildCodesList(o.deliveredCode)}</div></div></div>`;
             }
 
-            // 🛡️ الحماية المطلقة من ظهور NaN في الفواتير
-            const cDiscountLocal = this._safeNum(o.pricingSnapshot?.couponDiscount, o.couponDiscount);
-            const oDiscountLocal = this._safeNum(o.pricingSnapshot?.offerDiscount, o.saleDiscount);
-            const origLocal = this._safeNum(o.pricingSnapshot?.originalPrice, o.price);
-            const finalLocal = this._safeNum(o.pricingSnapshot?.finalPrice, o.price);
+            // 🛡️ الحماية المطلقة من ظهور NaN في الفواتير عبر دمج Nullish Coalescing
+            const cDiscountLocal = this._safeNum(o.pricingSnapshot?.couponDiscount ?? o.couponDiscount, 0);
+            const oDiscountLocal = this._safeNum(o.pricingSnapshot?.offerDiscount ?? o.saleDiscount, 0);
+            const origLocal = this._safeNum(o.pricingSnapshot?.originalPrice ?? o.price, 0);
+            const finalLocal = this._safeNum(o.pricingSnapshot?.finalPrice ?? o.price, 0);
             
             const displayCurr = this._safeAttr(o.currency || o.priceCurrency || 'USD').toUpperCase();
-            const formatFn = (amt) => RenderHelpers.formatMoney(this._safeNum(amt), displayCurr);
+            const formatFn = (amt) => RenderHelpers.formatMoney(this._safeNum(amt, 0), displayCurr);
             
             let priceSectionHtml = '';
             if (cDiscountLocal > 0 || oDiscountLocal > 0) {

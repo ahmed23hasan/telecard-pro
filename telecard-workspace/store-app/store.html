@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
-
 <head>
     <script>
-        // 🚀 1. تحديد الإصدار (متوافق مع محرك V20.8 الماسي الذي بنيناه)
-        window.TELECARD_VERSION = "20.8.5";
+        // 🚀 1. تحديد الإصدار (متوافق مع محرك V19.0.0 الماسي للإنتاج التجاري)
+        window.TELECARD_VERSION = "19.0.0";
     </script>
     
     <!-- 🚀 نظام المراقبة المبكر للإقلاع -->
@@ -30,40 +29,57 @@
     </script>
     
     <meta charset="UTF-8">
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     
     <!-- 🛡️ الأرشفة لتظهر في محركات البحث -->
     <meta name="robots" content="index, follow">
     <meta name="description" content="متجر تيليكارد - بوابتك الآمنة والسريعة لشراء البطاقات الرقمية، شدات الألعاب، وبطاقات الهدايا بأفضل الأسعار وتوصيل فوري.">
     <title>TELE CARD | المتجر</title>
-
+    
     <!-- 🌟 بطاقات المشاركة على السوشيال ميديا (Open Graph) -->
     <meta property="og:title" content="TELE CARD | المتجر">
     <meta property="og:description" content="بوابتك الآمنة والسريعة لشراء البطاقات الرقمية، شدات الألعاب، وبطاقات الهدايا بأفضل الأسعار وتوصيل فوري.">
-    <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"> 
+    <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
     <meta property="og:type" content="website">
     <meta name="twitter:card" content="summary_large_image">
-
-    <!-- 🚀 مفتاح عبور تطبيق الجوال لجميع الأنظمة (مسار نسبي ليعمل محلياً) -->
-    <link rel="manifest" id="dynamic-manifest" href="./manifest.json">    
     
-    <!-- 🛡️ توافق أيقونات التثبيت لأجهزة آبل (آيفون/آيباد) -->
+    <!-- 🚀 مفتاح عبور تطبيق الجوال -->
+    <link rel="manifest" id="dynamic-manifest" href="./manifest.json">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
     
+    <!-- ========================================================================= -->
+    <!-- 🔥 منطقة التسريع القصوى (Quantum Speed) - تعتمد على هندسة ملف style.css 🔥 -->
+    <!-- ========================================================================= -->
+    
+    <!-- 1. أولوية قصوى لملف الستايل المركزي لضمان رسم اللودر والخلفيات في الملي ثانية 1 -->
+    <link rel="preload" href="./style.css?v=19.0.0" as="style">
+    
+    <!-- 2. تهيئة الاتصال المبكر بسيرفرات الخطوط المكتشفة -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>    
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
     
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <!-- 3. تحميل خطوط (Cairo و Inter) بالأوزان المطلوبة بطريقة (Non-Render Blocking) -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" media="print" onload="this.media='all'">
     
-    <!-- 🚀 نظام التصميم المركزي النظيف (مسار نسبي ليعمل محلياً) -->
-    <link rel="stylesheet" href="./style.css?v=20.8.5">
-
-    <!-- 🛡️ مكتبات النظام الأساسية المحصنة (CORS Safe) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- 4. تحميل أيقونات FontAwesome 6.4.0 بطريقة (Non-Render Blocking) -->
+    <link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" media="print" onload="this.media='all'" crossorigin="anonymous" referrerpolicy="no-referrer">
+    
+    <!-- 5. شبكة حماية لمنع تشوه الخطوط إذا كان الجافاسكريبت معطلاً لدى الزائر -->
+    <noscript>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    </noscript>
+    
+    <!-- 🚀 استدعاء نظام التصميم المركزي -->
+    <link rel="stylesheet" href="./style.css?v=19.0.0">
+    
+    <!-- 🛡️ مكتبة الفواتير معزولة ومؤجلة لعدم خنق المعالج وقت الإقلاع -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dom-to-image-more/3.10.2/dom-to-image-more.min.js" defer crossorigin="anonymous"></script>
+    
 </head>
-
 <body class="is-home">
     <!-- 🛑 تنبيه تعطيل الجافاسكريبت --> 
     <noscript>
@@ -345,7 +361,7 @@
         <script>
             (function() {
                 try {
-                    let skeletonCount = 3; // الافتراضي
+                    let skeletonCount = 3; 
                     const cachedCount = localStorage.getItem('tc_cats_count');
                     if (cachedCount && parseInt(cachedCount) > 0) skeletonCount = parseInt(cachedCount);
                     

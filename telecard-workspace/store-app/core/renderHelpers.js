@@ -108,7 +108,7 @@ export const RenderHelpers = Object.freeze({
         return (curObj && curObj.symbol) ? curObj.symbol : code;
     },
 
-    getCurrencyFlagUrl: function(currCode = 'USD') {
+        getCurrencyFlagUrl: function(currCode = 'USD') {
         const code = String(currCode).toUpperCase().trim();
         const cryptoIcons = {
             'USDT': 'https://cdn-icons-png.flaticon.com/512/825/825508.png',
@@ -126,7 +126,8 @@ export const RenderHelpers = Object.freeze({
             'LBP': 'lb', 'YER': 'ye', 'SDG': 'sd', 'LYD': 'ly',
             'TND': 'tn', 'MRU': 'mr', 'SOS': 'so', 'CAD': 'ca',
             'AUD': 'au', 'RUB': 'ru', 'CNY': 'cn', 'INR': 'in',
-            'BRL': 'br', 'JPY': 'jp', 'CHF': 'ch', 'SEK': 'ch'
+            'BRL': 'br', 'JPY': 'jp', 'CHF': 'ch', 
+            'SEK': 'se' // 🛡️ تم تصحيح الرمز من ch إلى se
         };
         const countryCode = currencyToCountry[code]; 
         if (!countryCode) return `https://cdn-icons-png.flaticon.com/512/1198/1198696.png`;

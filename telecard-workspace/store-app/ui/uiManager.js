@@ -1,11 +1,11 @@
 // ============================================================================
-// 🎨 الموزع المركزي للواجهات (uiManager.js) - الإصدار المؤسسي V18.9.1 🛡️
+// 🎨 الموزع المركزي للواجهات (uiManager.js) - الإصدار المؤسسي V18.9.2 🛡️
 // 🎯 الوظيفة: تجميع وحدات الواجهة، إدارة الحالة (State)، ومنع تضارب البيانات
-// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - State Routing & Proxy Patch):
-// 1. Proxy Set Trap 🛡️: إضافة فخ الكتابة (set) لتوجيه المتغيرات إلى وحداتها الأصلية ومنع الشلل في التنقل.
-// 2. Smart Proxy Router 🛡️: استخدام (Proxy) لتوجيه الاستدعاءات للوحدات الفرعية دون تسطيحها للحفاظ على التوافق الرجعي.
-// 3. Context Preservation 🛡️: حماية الكلمة المفتاحية (this) لكل وحدة (Module) بدلاً من ربطها العشوائي بالموزع المركزي.
-// 4. Progressive Warning 🛡️: نظام تنبيهات ديناميكي يطمئن العميل عند بطء الشبكة دون إلغاء حماية المعاملة.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.2 - Advanced Routing & Integrity Patch):
+// 1. Referential Equality Cache 🛡️: تخزين الدوال المربوطة (Bound) لمنع كسر أوامر (removeEventListener).
+// 2. Ultimate Failsafe Guard 🛡️: قاطع تيار تلقائي ينهي شاشة التحميل بعد 60 ثانية لفك تجمد النظام.
+// 3. Proxy Transparency 🛡️: إضافة (has trap) لضمان استجابة الموزع لفحوصات (in operator) بشكل سليم.
+// 4. State Isolation 🛡️: فصل الحالة المركزية عن وحدات المعالجة لمنع تضارب الذاكرة.
 // ============================================================================
 
 import { UICore } from './uiCore.js';
@@ -15,7 +15,6 @@ import { Components } from '../components.js';
 
 // ============================================================================
 // 1️⃣ إعداد كائن الحالة المعزول (Isolated State Store)
-// هذا الكائن مخصص لتخزين المتغيرات الديناميكية بأمان وعزلها عن المنطق التشغيلي
 // ============================================================================
 const UIState = {
     activeModals: [],
@@ -47,6 +46,7 @@ const UIManagerBase = {
     _loaderActiveRequests: 0,
     _loaderTimeout: null,
     _failsafeTimer: null,
+    _ultimateFailsafe: null, // قاطع التيار النهائي
     
     toggleLoader: function(show, text = 'جاري المعالجة...', force = false) {
         if (show) {
@@ -55,21 +55,30 @@ const UIManagerBase = {
             this._loaderActiveRequests = force ? 0 : Math.max(0, this._loaderActiveRequests - 1);
         }
         
-        // 🛡️ درع الأمان: تحذير تصاعدي بدلاً من الإغلاق الكارثي لضمان سلامة العمليات المالية
+        // 🛡️ درع الأمان: تحذير تصاعدي و قاطع تيار مطلق
         if (this._loaderActiveRequests > 0) {
             if (this._failsafeTimer) clearTimeout(this._failsafeTimer);
+            if (this._ultimateFailsafe) clearTimeout(this._ultimateFailsafe);
+
+            // التحذير الأصفر بعد 15 ثانية
             this._failsafeTimer = setTimeout(() => {
                 const textEl = document.getElementById('dynamic-loader-text');
                 if (textEl) {
                     textEl.innerHTML = '<span style="color: #fbbf24;"><i class="fa-solid fa-triangle-exclamation"></i> الشبكة بطيئة، يرجى الانتظار...</span>';
                 }
-                console.warn("🛡️ [UI Failsafe] الشبكة بطيئة جداً. تم تنبيه العميل مع إبقاء الواجهة مقفلة لمنع تكرار الطلب (Double-Spend).");
+                console.warn("🛡️ [UI Failsafe] الشبكة بطيئة جداً. تم تنبيه العميل.");
             }, 15000); 
+
+            // قاطع التيار النهائي بعد 60 ثانية (لمنع تجمد الواجهة للأبد)
+            this._ultimateFailsafe = setTimeout(() => {
+                console.error("🚨 [Ultimate Failsafe] تم إيقاف اللودر إجبارياً بعد مرور 60 ثانية لفك تجمد الواجهة.");
+                this.forceHideLoader();
+                if (this.State) this.State.isProcessingTx = false; // تحرير قفل الدفع المزدوج
+            }, 60000);
+
         } else {
-            if (this._failsafeTimer) {
-                clearTimeout(this._failsafeTimer);
-                this._failsafeTimer = null;
-            }
+            if (this._failsafeTimer) { clearTimeout(this._failsafeTimer); this._failsafeTimer = null; }
+            if (this._ultimateFailsafe) { clearTimeout(this._ultimateFailsafe); this._ultimateFailsafe = null; }
         }
         
         if (!document.body) {
@@ -118,54 +127,61 @@ const UIManagerBase = {
 // ============================================================================
 // 3️⃣ محول الوكيل الذكي (The Smart Proxy Router) 
 // ============================================================================
-// هذا الوكيل يسمح باستدعاء الدوال القديمة بشكل مسطح (Flat Call) مثل UIManager.openModal()
-// مع توجيه الطلب داخلياً للوحدة المناسبة (مثلاً Core) مع الحفاظ على سياقها (this).
+// 🛡️ ذاكرة تخزين مؤقتة للحفاظ على تطابق مراجع الدوال (Referential Equality)
+const boundFunctionsCache = new WeakMap();
+
 export const UIManager = new Proxy(UIManagerBase, {
     get(target, prop) {
-        // 1. إذا كانت الخاصية موجودة في الموزع الأساسي (مثل toggleLoader أو State)
         if (prop in target) {
             return target[prop];
         }
 
-        // 2. إذا لم تكن موجودة، نبحث عنها في مساحات الأسماء بالترتيب
         const namespaces = [target.Core, target.Finance, target.Auth, target.Components];
         
         for (const ns of namespaces) {
             if (ns && prop in ns) {
                 const value = ns[prop];
-                // 🛡️ الأهم: إذا كانت دالة، يجب ربطها (bind) بوحدتها الأصلية لمنع فقدان السياق (Context Loss)
+                
+                // 🛡️ إصلاح تطابق المراجع: نستخدم نفس النسخة المربوطة دائماً
                 if (typeof value === 'function') {
-                    return value.bind(ns);
+                    if (!boundFunctionsCache.has(value)) {
+                        boundFunctionsCache.set(value, value.bind(ns));
+                    }
+                    return boundFunctionsCache.get(value);
                 }
                 return value;
             }
         }
         
-        // إرجاع undefined إذا لم يتم العثور عليها في أي مكان
         return undefined;
     },
     
-    // 🛡️ التحديث المعماري (V18.9.1): إضافة فخ الكتابة (Set Trap) 
-    // لضمان أن تعديل المتغيرات (مثل UIManager.currentCategoryId = null) يتم حفظه في وحدته الأصلية
     set(target, prop, value) {
-        // 1. إذا كان المتغير يخص الموزع المركزي نفسه
         if (prop in target) { 
             target[prop] = value; 
             return true; 
         }
 
-        // 2. البحث عن المتغير في مساحات الأسماء وتحديثه هناك
         const namespaces = [target.Core, target.Finance, target.Auth, target.Components];
         for (const ns of namespaces) {
             if (ns && prop in ns) { 
-                ns[prop] = value; // توجيه القيمة الجديدة للوحدة الأصلية
+                ns[prop] = value; 
                 return true; 
             }
         }
         
-        // 3. إذا كان متغيراً جديداً تماماً (لم يتم تعريفه مسبقاً)، نحفظه في الموزع
         target[prop] = value; 
         return true;
+    },
+
+    // 🛡️ إضافة شفافية الفحص: لضمان عمل عمليات مثل ('openModal' in UIManager)
+    has(target, prop) {
+        if (prop in target) return true;
+        const namespaces = [target.Core, target.Finance, target.Auth, target.Components];
+        for (const ns of namespaces) {
+            if (ns && prop in ns) return true;
+        }
+        return false;
     }
 });
 
@@ -181,7 +197,7 @@ if (typeof globalThis !== 'undefined') {
         });
     }
     
-    // دعم الأسماء القديمة (Legacy Support)
+    // دعم الأسماء القديمة (Legacy Support) لضمان التوافق الرجعي
     if (!globalThis.ClientSystem) {
         Object.defineProperty(globalThis, 'ClientSystem', {
             value: UIManager,

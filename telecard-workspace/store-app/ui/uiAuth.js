@@ -1,11 +1,11 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V18.9.0 💎
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V18.9.1 💎
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - Biometric & Memory Leak Patch):
-// 1. Biometric OS Deadlock Fix 🛡️: استخدام (AbortController) لإغلاق نافذة البصمة إجبارياً من نظام التشغيل عند نفاد الوقت.
-// 2. KYC Zombie Upload Guard 🛡️: تدمير الصور المعلقة (Blobs) إذا أغلق العميل النافذة أثناء المعالجة لمنع تسرب الذاكرة.
-// 3. Strict ID Sanitization 🛡️: تعقيم فائق لحقل الهوية بمنع الحروف غير القياسية لحماية لوحة الإدارة من حقن (XSS).
-// 4. Safe Observer Detachment 🛡️: تنظيف دقيق لمراقبات الـ DOM عند إغلاق نوافذ الـ 2FA.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - Security & Memory Patch):
+// 1. Absolute Asset Routing 🛡️: تأمين تحميل مكتبات التشفير (QR) بمسارات جذرية لحماية الروابط العميقة.
+// 2. Worker Memory Leak Fix 🛡️: تدمير (Web Worker) الخاص بالصور بشكل إجباري عند نفاد الوقت لتحرير الـ RAM.
+// 3. Biometric Timer Cleanup 🛡️: إيقاف مؤقت الموت (Deadlock Timer) فور نجاح البصمة لمنع تضارب الأحداث.
+// 4. Silent Error Auditing 🛡️: إضافة مستشعرات صامتة لاصطياد أخطاء التخزين والـ DOM المكتومة.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -32,14 +32,23 @@ export const UIAuth = {
 
     _compressImage: function(file, maxWidth = 1000) {
         return new Promise(async (resolve, reject) => {
+            let worker, workerUrl;
+            
+            // 🛡️ دالة لتنظيف الذاكرة وتدمير العامل (Worker) لمنع التسرب
+            const cleanupWorker = () => {
+                if (worker) { worker.terminate(); worker = null; }
+                if (workerUrl) { URL.revokeObjectURL(workerUrl); workerUrl = null; }
+            };
+
             const watchdog = setTimeout(() => {
+                cleanupWorker();
                 reject(new Error("نفد وقت معالجة الصورة، يرجى المحاولة بصورة أصغر."));
             }, 15000);
 
             await new Promise(r => setTimeout(r, 50));
 
             const handleSuccess = (blob) => {
-                if (!blob) { clearTimeout(watchdog); return reject(new Error("فشل ضغط الصورة.")); }
+                if (!blob) { clearTimeout(watchdog); cleanupWorker(); return reject(new Error("فشل ضغط الصورة.")); }
                 const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
                 const safeFileName = `secure_img_${Date.now()}_${uniqueId}.webp`;
                 const compressedFile = new File([blob], safeFileName, { type: 'image/webp' });
@@ -109,20 +118,19 @@ export const UIAuth = {
                         };
                     `;
                     const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
-                    const workerUrl = URL.createObjectURL(workerBlob);
-                    const worker = new Worker(workerUrl);
+                    workerUrl = URL.createObjectURL(workerBlob);
+                    worker = new Worker(workerUrl);
 
                     worker.onmessage = (e) => {
                         clearTimeout(watchdog);
-                        URL.revokeObjectURL(workerUrl);
-                        worker.terminate();
+                        cleanupWorker();
                         if (e.data.error) fallbackCompression();
                         else handleSuccess(e.data.blob);
                     };
 
                     worker.onerror = () => {
-                        URL.revokeObjectURL(workerUrl);
-                        worker.terminate();
+                        clearTimeout(watchdog);
+                        cleanupWorker();
                         fallbackCompression();
                     };
 
@@ -302,7 +310,7 @@ export const UIAuth = {
                         
                         if (dbUpdateSuccess) {
                             try { localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id, downloadUrl); } 
-                            catch(err) {}
+                            catch(err) { console.warn("Failed to update cache:", err); }
 
                             if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
                                 FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(()=>{});
@@ -319,6 +327,7 @@ export const UIAuth = {
                         }
                         
                     } catch (err) {
+                        console.error("Avatar Upload Error:", err);
                         sys.showToast?.('عذراً، تعذر حفظ الصورة، قد تكون تالفة أو الاتصال ضعيف.', 'error');
                         
                         if (downloadUrl && FirebaseAdapter.deleteImageByUrl) {
@@ -331,7 +340,8 @@ export const UIAuth = {
                     } finally {
                         if (compressed && compressed.previewUrl) URL.revokeObjectURL(compressed.previewUrl);
                         if (avatarWrapper) avatarWrapper.classList.remove('is-loading');
-                        shield.remove();
+                        const liveShield = document.getElementById('invisible-tx-shield');
+                        if (liveShield) liveShield.remove();
                         e.target.value = ''; 
                     }
                 });
@@ -519,7 +529,8 @@ export const UIAuth = {
             if (DataManager.updateUserProfile) {
                 DataManager.updateUserProfile({ img: null });
             }
-            try { localStorage.removeItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id); } catch(e) {}
+            try { localStorage.removeItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id); } 
+            catch(e) { console.warn("Failed to remove cache:", e); }
             
             if (oldImageUrl && oldImageUrl !== DEFAULT_AVATAR_URL && FirebaseAdapter.deleteImageByUrl) {
                 FirebaseAdapter.deleteImageByUrl(oldImageUrl).catch(()=>{});
@@ -528,6 +539,7 @@ export const UIAuth = {
             sys.showToast?.('تم حذف الصورة الشخصية', 'success'); 
             sys.sfx?.('success'); 
         } catch(e) { 
+            console.error("Error deleting avatar:", e);
             sys.showToast?.('تعذر حذف الصورة', 'error'); 
         }
     },
@@ -733,7 +745,8 @@ export const UIAuth = {
                         } else {
                             const script = document.createElement('script');
                             script.id = 'qrcode-lib-script';
-                            script.src = './qrcode.min.js';
+                            // 🛡️ التحديث المعماري: مسار آمن ومرن يعتمد على الموقع الأساسي
+                            script.src = window.location.origin + '/qrcode.min.js';
                             script.onload = resolve;
                             script.onerror = reject;
                             document.head.appendChild(script);
@@ -776,6 +789,7 @@ export const UIAuth = {
             }, 150);
 
         } catch (error) {
+            console.error("2FA Setup Error:", error);
             sys.toggleLoader?.(false);
             sys.showToast?.('حدث خطأ في الاتصال، يرجى المحاولة لاحقاً.', 'error');
             this._clear2FAState();
@@ -855,6 +869,7 @@ export const UIAuth = {
             return;
         }
         
+        let bioTimerId;
         try {
             sys.toggleLoader?.(true, 'يرجى تأكيد بصمتك لربط الجهاز...');
             
@@ -865,12 +880,14 @@ export const UIAuth = {
             const userIdBytes = new TextEncoder().encode(userEmail);
             const storeName = LiveStoreData.settings?.storeName || "MaliMor Store";
             
-            // 🛡️ التحديث المعماري: ربط مؤقت التوقف مع إشارة لإغلاق نافذة النظام
             const controller = new AbortController();
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => {
-                controller.abort(); // إغلاق إجباري لنافذة البصمة من نظام التشغيل
-                reject(new Error('biometric_timeout'));
-            }, 60000));
+            const timeoutPromise = new Promise((_, reject) => {
+                // 🛡️ التحديث المعماري: حفظ معرف المؤقت لتنظيفه في حال نجاح العملية
+                bioTimerId = setTimeout(() => {
+                    controller.abort(); 
+                    reject(new Error('biometric_timeout'));
+                }, 60000);
+            });
             
             const credential = await Promise.race([
                 navigator.credentials.create({
@@ -888,10 +905,12 @@ export const UIAuth = {
                         },
                         timeout: 60000
                     },
-                    signal: controller.signal // تمرير إشارة الإلغاء
+                    signal: controller.signal
                 }),
                 timeoutPromise
             ]);
+            
+            clearTimeout(bioTimerId); // 🛡️ تنظيف المؤقت
             
             const rawIdBytes = new Uint8Array(credential.rawId);
             const binaryString = Array.from(rawIdBytes).map(b => String.fromCharCode(b)).join('');
@@ -911,6 +930,9 @@ export const UIAuth = {
                 throw new Error('server_error');
             }
         } catch (error) {
+            clearTimeout(bioTimerId); // 🛡️ تنظيف المؤقت
+            console.error("Biometric Error:", error);
+            
             if (error.message === 'biometric_timeout') {
                 sys.showToast?.('تأخر استجابة مستشعر البصمة في جهازك، تم الإلغاء.', 'error');
             } else if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
@@ -989,6 +1011,7 @@ export const UIAuth = {
                 sys.sfx?.('error');
             }
         } catch (error) {
+            console.error("Password Reset Error:", error);
             sys.toggleLoader?.(false);
             sys.showToast?.('حدث خطأ أثناء إرسال الرابط، يرجى المحاولة لاحقاً', 'error');
         }
@@ -1085,6 +1108,7 @@ export const UIAuth = {
                 throw new Error(result?.msg || 'فشلت العملية، يرجى المحاولة لاحقاً.');
             }
         } catch (error) {
+            console.error("Identity Save Error:", error);
             sys.sfx?.('error');
             sys.showToast?.(error.message, 'error');
         } finally {
@@ -1097,7 +1121,6 @@ export const UIAuth = {
         }
     },
     
-    // 🛡️ دالة مسح صور التوثيق المرفوعة
     clearKycImage: function(previewId) {
         const previewImg = document.getElementById(previewId);
         const parentBox = previewImg?.closest('.kyc-upload-box');
@@ -1175,19 +1198,18 @@ export const UIAuth = {
         
         this._processingImgs.add(previewId);
         
-        try {
-            sys.toggleLoader?.(true, 'جاري معالجة الصورة...');
-            const compressed = await this._compressImage(file, 1200);
-            
-            // 🛡️ التحديث المعماري: تدمير الصورة إذا قام العميل بإغلاق النافذة أثناء المعالجة
-            if (!this._kycSessionActive) {
-                URL.revokeObjectURL(compressed.previewUrl);
-                return;
-            }
-
-            this.kycFiles[previewId] = compressed.file;
-            
-            if (previewImg) {
+  try {
+    sys.toggleLoader?.(true, 'جاري معالجة الصورة...');
+    const compressed = await this._compressImage(file, 1200);
+    
+    // 🛡️ [الإصلاح]: التحقق مما إذا كان العميل قد حذف الصورة أثناء معالجتها
+    if (!this._kycSessionActive || !input.value) {
+        URL.revokeObjectURL(compressed.previewUrl);
+        return;
+    }
+    
+    this.kycFiles[previewId] = compressed.file;
+    if (previewImg) {
                 if (previewImg.src && previewImg.src.startsWith('blob:')) {
                     URL.revokeObjectURL(previewImg.src);
                 }
@@ -1195,6 +1217,7 @@ export const UIAuth = {
             }
             if (parentBox) parentBox.classList.add('has-img');
         } catch (e) {
+            console.error("KYC Image Compress Error:", e);
             sys.showToast?.('تعذر معالجة الصورة، قد تكون غير مدعومة', 'error');
             input.value = '';
         } finally {
@@ -1210,7 +1233,6 @@ export const UIAuth = {
         const fullName = document.getElementById('kyc-full-name')?.value?.trim() || '';
         let idNumber = document.getElementById('kyc-id-number')?.value?.trim() || '';
         
-        // 🛡️ التحديث المعماري: حماية لوحة التحكم من الـ (XSS)
         const safeFullName = Utils.escapeHtml(fullName).trim();
         const safeIdNumber = Utils.escapeHtml(idNumber).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^a-zA-Z0-9-]/g, '').trim();
         
@@ -1289,13 +1311,12 @@ export const UIAuth = {
         if (status === 'pending') {
             kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-pending" data-action="open-kyc-status" data-state="pending"><span><i class="fa-solid fa-hourglass-half"></i> هويتك قيد المراجعة</span><i class="fa-solid fa-chevron-left"></i></div>`;
         } else {
-            // 🛡️ التحديث المعماري: تحديد بدء الجلسة عند فتح النافذة
             kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-required" onclick="window.ClientSystem.UIAuth._kycSessionActive = true;" data-action="open-kyc-upload"><span><i class="fa-solid fa-shield-halved"></i> التحقق من الهوية (KYC)</span><i class="fa-solid fa-chevron-left"></i></div>`;
         }
     },    
 
     prepareKycModalState: function() {
-        this._kycSessionActive = true; // 🛡️ تأكيد الجلسة
+        this._kycSessionActive = true; 
         const user = DataManager.user;
         const alertBox = document.getElementById('kyc-rejection-alert');
         const reasonText = document.getElementById('kyc-rejection-reason');
@@ -1311,7 +1332,7 @@ export const UIAuth = {
     },
 
     closeKycModal: function() { 
-        this._kycSessionActive = false; // 🛡️ إنهاء الجلسة لمنع التسرب المعماري
+        this._kycSessionActive = false; 
         const previews = ['kyc-prev-front', 'kyc-prev-back', 'kyc-prev-selfie'];
         previews.forEach(id => {
             const imgEl = document.getElementById(id);
@@ -1368,9 +1389,6 @@ export const UIAuth = {
     
     closeKycStatusModal: function() { getSys().closeModal?.('kyc-status'); },
 
-    // =========================================================
-    // 👑 مستويات وعضويات הـ VIP
-    // =========================================================
     openTierInfoModal: async function() {
         const sys = getSys();
         sys.resetUI?.();
@@ -1378,7 +1396,7 @@ export const UIAuth = {
         
         if (!DataManager || typeof DataManager.getTierProgress !== 'function') return;
         const tierData = DataManager.getTierProgress();
-        if (!tierData) return; // 🛡️ حماية إضافية من الفشل
+        if (!tierData) return; 
         
         const { currentTier, targetNameDisplay, targetThreshold, spent, remainingAmt, percent, remainingDays, isGoalReached, isAutoAdvanceEnabled, isMaxTier } = tierData;
         const content = document.getElementById('tier-info-content');
@@ -1499,6 +1517,7 @@ export const UIAuth = {
                 throw new Error("فشل الإرسال");
             }
         } catch (error) {
+            console.error("Feedback Error:", error);
             if (btn) { btn.textContent = "إرسال للإدارة"; btn.disabled = false; }
             sys.showToast?.("حدث خطأ غير متوقع، يرجى المحاولة لاحقاً.", "error");
         }

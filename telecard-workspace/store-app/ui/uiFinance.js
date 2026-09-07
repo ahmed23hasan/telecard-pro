@@ -1,11 +1,11 @@
 // ============================================================================
-// 💳 وحدة الدفع والمنتجات (uiFinance.js) - الإصدار المؤسسي V18.9.0 💎
+// 💳 وحدة الدفع والمنتجات (uiFinance.js) - الإصدار المؤسسي V18.9.1 💎
 // 🎯 الوظيفة: نوافذ الشراء، الإيداعات، المعاملات المالية، وتأمين الطلبات
-// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - UI Integrity Patch):
-// 1. Button State Leak Fix 🛡️: منع الكتابة الفوقية لحالة الأزرار عند النقرات السريعة (Double-Click Shield).
-// 2. Deterministic Image Guard 🛡️: استبدال الفحص الهش للـ HTML بفئة (Class) حتمية لحماية رفع الإيصالات.
-// 3. DOM Detachment Guard 🛡️: منع تسرب الذاكرة عند محاولة تلميع كروت منتجات تم إخفاؤها.
-// 4. Receipt Clear Button 🛡️: دالة تفريغ الإشعار بأمان وتدمير الـ Blob من الذاكرة العشوائية.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - Finance Integrity Patch):
+// 1. Context Loss Fix 🛡️: الحفاظ على سياق (this) في مراقب الشبكة (Offline Handler).
+// 2. Strict Double-Spend Shield 🛡️: الاعتماد المطلق على State لمنع تكرار الطلبات.
+// 3. Canvas Error Catch 🛡️: منع تجمد الواجهة عند محاولة ضغط صور تالفة أو غير مدعومة.
+// 4. Memory Leak Guard 🛡️: تنظيف صارم للـ Blobs من الذاكرة العشوائية لضمان استقرار الأداء.
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -17,8 +17,10 @@ import { UIBuilders } from './uiBuilders.js';
 
 // التوجيه الآمن للموزع المركزي (UIManager)
 const getSys = () => {
-    if (window.UIManager) return window.UIManager;
-    if (window.ClientSystem) return window.ClientSystem;
+    if (typeof window !== 'undefined') {
+        if (window.UIManager) return window.UIManager;
+        if (window.ClientSystem) return window.ClientSystem;
+    }
     return new Proxy({}, { get: (target, prop) => () => { console.error(`🚨 System not ready for: ${String(prop)}`); } });
 };
 
@@ -27,7 +29,8 @@ export const UIFinance = {
     _watchdogTimer: null,
     _amountTypingTimer: null,
     
-    _offlineHandler: function() {
+    // 🛡️ إصلاح سياق (this): استخدام دالة سهمية لضمان الربط الصحيح مع مستمعات نافذة المتصفح
+    _offlineHandler: () => {
         const sys = getSys();
         if (sys.State?.isProcessingTx) {
             sys.showToast?.('انقطع الاتصال بالإنترنت! النظام يحمي معاملتك الآن.', 'error');
@@ -43,7 +46,7 @@ export const UIFinance = {
         if (!btn) return;
         try {
             if (isLoading) {
-                // 🛡️ التحديث المعماري: منع تسرب حالة الزر عند النقرات المتزامنة السريعة
+                // 🛡️ منع تسرب حالة الزر عند النقرات المتزامنة السريعة
                 if (!btn.classList.contains('is-loading')) {
                     btn._originalHtml = btn.innerHTML; 
                 }
@@ -66,6 +69,7 @@ export const UIFinance = {
                 }
             }
         } catch (e) {
+            console.warn("🛡️ UI Loader recovery:", e);
             btn.disabled = false;
             btn.classList.remove('is-loading', 'tx-processing-safe');
         }
@@ -140,6 +144,7 @@ export const UIFinance = {
                     displaySearchId = RenderHelpers.formatDepositId(depObj);
                 }
             } catch (e) {
+                console.debug("Id formatting fallback:", e);
                 displaySearchId = id; 
             }
 
@@ -152,11 +157,17 @@ export const UIFinance = {
     },    
 
     _validateKycAndSystem: function(actionType = 'purchase') {
-        const sys = LiveStoreData.system || {};
-        if (sys.freeze) { getSys().showToast?.(sys.freezeMsg || 'عذراً، العمليات المالية متوقفة مؤقتاً.', 'warning'); return false; }
+        const sys = getSys();
+        const systemStatus = LiveStoreData.system || {};
+        
+        if (systemStatus.freeze) { 
+            sys.showToast?.(systemStatus.freezeMsg || 'عذراً، العمليات المالية متوقفة مؤقتاً.', 'warning'); 
+            return false; 
+        }
         if (!DataManager || !DataManager.user) {
-            getSys().showToast?.('يجب تسجيل الدخول أولاً', 'error');
-            setTimeout(() => { if (DataManager.logout) DataManager.logout(); else window.location.href = 'login.html'; }, 1500); return false;
+            sys.showToast?.('يجب تسجيل الدخول أولاً', 'error');
+            setTimeout(() => { if (DataManager.logout) DataManager.logout(); else window.location.href = 'login.html'; }, 1500); 
+            return false;
         }
         
         const u = DataManager.user;
@@ -166,8 +177,9 @@ export const UIFinance = {
              (u.baseCurrency && String(u.baseCurrency).trim() !== ''));
         
         if (!isIdentityComplete) {
-            getSys().showToast?.('يرجى إكمال بيانات الحساب', 'error');
-            setTimeout(() => { getSys().openModal?.('identity'); }, 800); return false;
+            sys.showToast?.('يرجى إكمال بيانات الحساب', 'error');
+            setTimeout(() => { sys.openModal?.('identity'); }, 800); 
+            return false;
         }
         
         const kycConfig = (LiveStoreData.settings || {}).kycConfig || { mode: 'off', targetedTiers: [] };
@@ -180,9 +192,9 @@ export const UIFinance = {
             if (status !== 'approved' && status !== 'verified') {
                 const actionName = actionType === 'deposit' ? 'الإيداع' : 'الشراء';
                 if (status === 'pending') {
-                    getSys().showToast?.(`هويتك قيد المراجعة لتتمكن من ${actionName}`, 'warning'); getSys().openKycStatusModal?.('pending');
+                    sys.showToast?.(`هويتك قيد المراجعة لتتمكن من ${actionName}`, 'warning'); sys.openKycStatusModal?.('pending');
                 } else {
-                    getSys().showToast?.(`حسابك يتطلب التوثيق لتتمكن من ${actionName}`, 'error'); setTimeout(() => { getSys().openModal?.('kyc-upload'); }, 800);
+                    sys.showToast?.(`حسابك يتطلب التوثيق لتتمكن من ${actionName}`, 'error'); setTimeout(() => { sys.openModal?.('kyc-upload'); }, 800);
                 }
                 return false;
             }
@@ -194,8 +206,8 @@ export const UIFinance = {
         if (securityPolicy.forceBiometrics) {
             const isBioEnabled = u.biometricEnabled === true;
             if (!isBioEnabled) {
-                getSys().showToast?.(`يجب تفعيل البصمة الحيوية لحماية أموالك قبل ${actionNameAr}.`, 'error');
-                setTimeout(() => { getSys().openSecurityModal?.(); }, 1200);
+                sys.showToast?.(`يجب تفعيل البصمة الحيوية لحماية أموالك قبل ${actionNameAr}.`, 'error');
+                setTimeout(() => { sys.openSecurityModal?.(); }, 1200);
                 return false;
             }
         }
@@ -203,8 +215,8 @@ export const UIFinance = {
         if (securityPolicy.force2FA) {
             const is2FAEnabled = typeof DataManager.is2FAEnabled === 'function' ? DataManager.is2FAEnabled() : false;
             if (!is2FAEnabled) {
-                getSys().showToast?.(`أمان المتجر يلزمك بتفعيل المصادقة الثنائية (2FA) قبل ${actionNameAr}.`, 'error');
-                setTimeout(() => { getSys().openSecurityModal?.(); }, 1200);
+                sys.showToast?.(`أمان المتجر يلزمك بتفعيل المصادقة الثنائية (2FA) قبل ${actionNameAr}.`, 'error');
+                setTimeout(() => { sys.openSecurityModal?.(); }, 1200);
                 return false;
             }
         }
@@ -408,7 +420,14 @@ export const UIFinance = {
 
     handlePurchaseSubmit: async function() { 
         const sys = getSys();
-        if (sys.State?.isProcessingTx || !DataManager.currentProd || !this._validateKycAndSystem('purchase')) return;
+        
+        // 🛡️ درع فولاذي لمنع الدفع المزدوج 
+        if (sys.State?.isProcessingTx) {
+            console.warn("🛡️ [Double-Spend Shield] تم حظر محاولة دفع متزامنة.");
+            return;
+        }
+        
+        if (!DataManager.currentProd || !this._validateKycAndSystem('purchase')) return;
         
         const inp1El = document.getElementById('pm-inp-1'), inp2El = document.getElementById('pm-inp-2'), qtyEl = document.getElementById('simple-qty-val');
         const keepKeyboardOpen = () => { setTimeout(() => { if (inp1El && !inp1El.disabled) inp1El.focus(); else if (qtyEl && !qtyEl.disabled) qtyEl.focus(); }, 50); };
@@ -516,6 +535,7 @@ export const UIFinance = {
                 keepKeyboardOpen(); 
             }
         } catch (err) { 
+            console.error("🚨 Transaction processing error:", err);
             sys.showToast?.(err.message || 'حدث خطأ في النظام', 'error');
             sys.sfx?.('error'); 
         } finally { 
@@ -697,7 +717,7 @@ export const UIFinance = {
             preview.src = ''; preview.style.display = 'none';
         }
         if (uploadBox) {
-            uploadBox.classList.remove('has-file', 'is-processing-img'); // 🛡️ مسح حالة المعالجة
+            uploadBox.classList.remove('has-file', 'is-processing-img');
             uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>';
         }
         if (clearBtn) clearBtn.classList.add('hide-element');
@@ -730,7 +750,7 @@ export const UIFinance = {
         
         const uploadBox = document.getElementById('bal-upload-box');
         if (uploadBox) {
-            uploadBox.classList.remove('has-file', 'is-processing-img'); // 🛡️ مسح حالة المعالجة
+            uploadBox.classList.remove('has-file', 'is-processing-img'); 
             uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>';
         }
         
@@ -809,7 +829,6 @@ export const UIFinance = {
             if (sys.State) sys.State.pendingReceiptFile = file; 
             if(preview) preview.style.display = 'none'; setUploadSuccessUI('pdf'); 
         } else {
-            // 🛡️ التحديث المعماري: إضافة class חتمية (Deterministic) لضبط دورة حياة معالجة الصورة
             if(uploadBox) {
                 uploadBox.classList.add('is-processing-img'); 
                 uploadBox.innerHTML = `<div class="bal-upload-success-row"><i class="fa-solid fa-spinner fa-spin bal-upload-success-icon"></i><span class="bal-upload-success-text">جاري المعالجة...</span></div>`;
@@ -833,6 +852,7 @@ export const UIFinance = {
                             
                             canvas.toBlob((blob) => {
                                 if (sys.State?.currentImageJobId !== currentJobId) return; 
+                                if (!blob) throw new Error("تعذر استخراج بيانات الصورة (Blob failure).");
                                 
                                 const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
                                 const safeFileName = `deposit_img_${Date.now()}_${uniqueId}.webp`;
@@ -840,12 +860,13 @@ export const UIFinance = {
                                 if (sys.State) sys.State.pendingReceiptFile = new File([blob], safeFileName, { type: 'image/webp' });
                                 
                                 if(preview) { preview.src = URL.createObjectURL(blob); preview.style.display = 'block'; preview.className = 'bal-receipt-preview-new'; }
-                                if (uploadBox) uploadBox.classList.remove('is-processing-img'); // 🛡️ إزالة حالة المعالجة
+                                if (uploadBox) uploadBox.classList.remove('is-processing-img');
                                 setUploadSuccessUI('image');
                                 canvas.width = 0; canvas.height = 0; img.src = '';
                             }, 'image/webp', 0.75);
                         } catch (err) {
-                            sys.showToast?.('تعذر معالجة الصورة', 'error');
+                            console.error("🚨 Canvas Processing Error:", err);
+                            sys.showToast?.('تعذر معالجة الصورة، يرجى المحاولة بصورة أخرى.', 'error');
                             if (uploadBox) {
                                 uploadBox.classList.remove('is-processing-img');
                                 uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>'; 
@@ -856,12 +877,22 @@ export const UIFinance = {
                         }
                     });
                 };
+                img.onerror = () => {
+                    console.error("🚨 Image Load Error: الملف تالف أو غير مدعوم.");
+                    sys.showToast?.('تعذر قراءة الصورة، الملف تالف أو امتداده غير صحيح.', 'error');
+                    if (uploadBox) {
+                        uploadBox.classList.remove('is-processing-img');
+                        uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>'; 
+                    }
+                    inp.value = '';
+                };
                 img.src = e.target.result;
             }; 
             reader.readAsDataURL(file); 
         }
     },
-        calcFee: function() {
+    
+    calcFee: function() {
         const input = document.getElementById('bal-amount');
         if (!input || !DataManager || !this.currentPayment) return;
         
@@ -875,7 +906,7 @@ export const UIFinance = {
             result = DataManager.calculateDepositFee(amount, this.currentPayment, payCurr);
             if (!result) throw new Error("استجابة فارغة من المحرك المالي");
         } catch (error) {
-            // 🛡️ 2. تنظيف رسالة الخطأ من الأكواد البرمجية وعرضها بهدوء للعميل
+            console.warn("🛡️ Financial Engine Recovery:", error);
             const cleanMsg = error.message ? error.message.replace(/\[.*?\]/g, '').trim() : 'تعذر حساب الرسوم بسبب تحديثات في أسعار الصرف.';
             result = { isValid: false, msg: cleanMsg, netBase: 0 };
         }
@@ -889,7 +920,6 @@ export const UIFinance = {
             if (!result.isValid) {
                 input.classList.toggle('input-invalid', amount > 0);
                 if (errorBox) { 
-                    // 🛡️ 3. تعقيم رسالة الخطأ ضد حقن الأكواد (XSS Shield)
                     errorBox.innerHTML = (amount > 0 && result.msg) ? `<i class="fa-solid fa-circle-exclamation"></i> ${Utils.escapeHtml(result.msg)}` : ''; 
                     errorBox.style.display = (amount > 0 && result.msg) ? 'block' : 'none'; 
                     errorBox.classList.remove('d-none'); 
@@ -905,7 +935,6 @@ export const UIFinance = {
                 if (submitBtn) submitBtn.disabled = false;
                 
                 if (netDisplay) { 
-                    // 🛡️ 4. تأمين قيمة العرض المطلق ضد تسرب الـ NaN
                     const safeNet = Number(result.netBase) || 0;
                     netDisplay.innerText = safeNet.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     netDisplay.style.opacity = '1'; 
@@ -913,11 +942,18 @@ export const UIFinance = {
                 if (netWrap) netWrap.classList.add('has-value'); 
             }
         });
-    }
+    },
 
-        handleBalanceSubmit: async function(currency) {
+    handleBalanceSubmit: async function(currency) {
         const sys = getSys();
-        if (sys.State?.isProcessingTx || !this._validateKycAndSystem('deposit')) return;
+        
+        // 🛡️ درع فولاذي لمنع الدفع المزدوج
+        if (sys.State?.isProcessingTx) {
+            console.warn("🛡️ [Double-Spend Shield] تم حظر محاولة إرسال إيداع متزامنة.");
+            return;
+        }
+
+        if (!this._validateKycAndSystem('deposit')) return;
         
         const input = document.getElementById('bal-amount');
         const amount = this._parseSafeAmount(input ? input.value : '');
@@ -928,7 +964,6 @@ export const UIFinance = {
         if (this.currentPayment && this.currentPayment.reqProof !== false) {
             const uploadBox = document.getElementById('bal-upload-box');
             
-            // 🛡️ التحديث المعماري: فحص دقيق عبر الكلاس لحماية الإرسال أثناء المعالجة
             if (uploadBox && uploadBox.classList.contains('is-processing-img')) {
                 sys.showToast?.('جاري تجهيز الصورة، يرجى الانتظار لحظة...', 'warning');
                 return;

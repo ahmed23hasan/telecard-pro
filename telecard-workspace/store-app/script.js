@@ -1,11 +1,12 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V18.9.0 💎
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار التجاري V19.0.0 🚀
 // 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع الآمن، عزل الحالة، وإدارة الجلسات
-// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - Boot Integrity & Sync Patch):
-// 1. Boot Auth-Race Fix 🛡️: مزامنة حالة المصادقة (Auth) قبل رسم الكتالوج لمنع وميض الأسعار (Price Slippage).
-// 2. Listener Memory Leak Fix 🛡️: تنظيف آمن وصارم لمستمعات فايربيز المتداخلة لتجنب تكرار التنفيذ عند تذبذب الشبكة.
-// 3. Offline-First Stabilization 🛡️: الاعتماد المطلق على الكاش أثناء انقطاع الشبكة دون تجميد الإقلاع عبر (Timeout Wrap).
-// 4. Zero-Flicker Boot 🛡️: إخفاء شاشة الإقلاع بتزامن دقيق مع اكتمال دورة الرسم (Render Cycle).
+// 🚀 التحديثات المعمارية الصارمة (V19.0.0 - Ultimate Production Release):
+// 1. Biometric Abort Controller 🛡️: إغلاق نافذة البصمة بالنظام (OS) فعلياً عند التايم آوت.
+// 2. Anti-Silent Failures 🛡️: إطلاق محرك (SysLog) لتتبع الأعطال بدلاً من التجاهل الصامت.
+// 3. Incognito Shield 🛡️: تغليف (localStorage) لمنع الانهيار التام في وضع التصفح المتخفي.
+// 4. Deadlock Fix & Background Unblocking 🛡️: وراثة أفضل الإصلاحات لضمان استقرار 100%.
+// 5. Ultimate Boot Merge 🛡️: رسم السكيليتون كبديل أمان، أو الواجهة الحقيقية من الكاش فوراً، مع إزاحة الحمل عن المعالج.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -17,6 +18,11 @@ window.requestIdleCallback = window.requestIdleCallback || function(cb) {
     }), 1);
 };
 window.cancelIdleCallback = window.cancelIdleCallback || (isNativeIdle ? window.cancelIdleCallback : window.clearTimeout);
+
+// 🛡️ محرك تسجيل الأخطاء الهندسية (SysLog) لتتبع الأعطال بدون كسر واجهة المستخدم
+const _sysLog = (context, error) => {
+    console.warn(`🚨 [Engine SysLog] ${context}:`, error?.message || error);
+};
 
 import { auth } from './core/firebaseAdapter.js';
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
@@ -44,9 +50,9 @@ const _normalizeDataTime = (dataArray) => {
     if (!Array.isArray(dataArray)) return [];
     return dataArray.map(item => ({
         ...item,
-        time: item.time && typeof item.time !== 'object' ? RenderHelpers.parseTime(item.time) : item.time,
-        createdAt: item.createdAt && typeof item.createdAt !== 'object' ? RenderHelpers.parseTime(item.createdAt) : item.createdAt,
-        actionTime: item.actionTime && typeof item.actionTime !== 'object' ? RenderHelpers.parseTime(item.actionTime) : item.actionTime
+        time: item.time ? RenderHelpers.parseTime(item.time) : null,
+        createdAt: item.createdAt ? RenderHelpers.parseTime(item.createdAt) : null,
+        actionTime: item.actionTime ? RenderHelpers.parseTime(item.actionTime) : null
     }));
 };
 
@@ -61,7 +67,9 @@ const AppController = {
     clearFirebaseListeners: function() {
         const allListeners = [...this.activeListeners, ...this.userAuthListeners];
         allListeners.forEach(unsub => {
-            if (typeof unsub === 'function') try { unsub(); } catch(e){}
+            if (typeof unsub === 'function') {
+                try { unsub(); } catch(e) { _sysLog("Clear Listeners", e); }
+            }
         });
         this.activeListeners = [];
         this.userAuthListeners = [];
@@ -79,7 +87,10 @@ const AppController = {
     enforceBiometricLock: async function() {
         const lockScreen = document.getElementById('biometric-lock-screen');
         const isBiometricRequired = DataManager.user?.biometricEnabled === true;
-        const savedRawId = localStorage.getItem(CACHE_KEYS.BIOMETRIC_KEY);
+        
+        let savedRawId = null;
+        try { savedRawId = localStorage.getItem(CACHE_KEYS.BIOMETRIC_KEY); } 
+        catch (e) { _sysLog("Read Biometric Key", e); }
         
         if (!isBiometricRequired) {
             document.body.classList.remove('biometric-locked');
@@ -95,6 +106,10 @@ const AppController = {
             if (DataManager.logout) DataManager.logout(true);
             return false;
         }
+        
+        // 🛡️ التحديث الماسي (AbortController): لإغلاق نافذة النظام للبصمة فعلياً عند تجاوز الوقت
+        const abortController = new AbortController();
+        const timeoutId = setTimeout(() => abortController.abort(), 45000); // 45 ثانية حد أقصى
         
         try {
             const retryBtn = document.getElementById('btn-biometric-retry');
@@ -114,20 +129,17 @@ const AppController = {
                 rawIdBytes[i] = binaryString.charCodeAt(i);
             }
             
-            // 🛡️ درع الإقفال التام: 45 ثانية كحد أقصى
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('biometric_timeout')), 45000));
+            await navigator.credentials.get({
+                publicKey: {
+                    challenge,
+                    timeout: 60000,
+                    userVerification: "required",
+                    allowCredentials: [{ type: "public-key", id: rawIdBytes }]
+                },
+                signal: abortController.signal
+            });
             
-            await Promise.race([
-                navigator.credentials.get({
-                    publicKey: {
-                        challenge,
-                        timeout: 60000,
-                        userVerification: "required",
-                        allowCredentials: [{ type: "public-key", id: rawIdBytes }]
-                    }
-                }),
-                timeoutPromise
-            ]);
+            clearTimeout(timeoutId);
             
             if (lockScreen) lockScreen.classList.remove('active');
             document.body.classList.remove('biometric-locked');
@@ -136,7 +148,8 @@ const AppController = {
             return true;
 
         } catch (error) {
-            console.warn("فشل أو تأخر التحقق من البصمة:", error);
+            clearTimeout(timeoutId);
+            _sysLog("Biometric Verification", error);
             
             const retryBtn = document.getElementById('btn-biometric-retry');
             if (retryBtn) {
@@ -145,8 +158,10 @@ const AppController = {
                 retryBtn.onclick = () => this.enforceBiometricLock();
             }
             
-            if (error.message === 'biometric_timeout') {
+            if (error.name === 'AbortError' || error.message === 'biometric_timeout') {
                 UIManager.showToast?.('تأخر النظام في الاستجابة. يمكنك المحاولة مجدداً أو تسجيل الخروج.', 'warning');
+            } else {
+                UIManager.showToast?.('فشل التحقق من الهوية.', 'error');
             }
             
             return false;
@@ -173,17 +188,15 @@ const AppController = {
                 if (networkCooldownTimer) clearTimeout(networkCooldownTimer);
                 networkCooldownTimer = setTimeout(() => {
                     try { 
-                        // 🛡️ إعادة تهيئة المستمعات بعد عودة الشبكة لضمان التزامن
                         this._isListenersInitialized = false; 
                         this.initFirebaseListeners(); 
-                    } catch(e){}
+                    } catch(e) { _sysLog("Online Recovery", e); }
                 }, 3000); 
             }
         });
     },
 
     initFirebaseListeners: function() {
-        // 🛡️ التحديث المعماري: تحويل التهيئة إلى وعد (Promise) لضمان التزامن أثناء الإقلاع
         return new Promise((resolve) => {
             if (this._isListenersInitialized) {
                 resolve();
@@ -207,13 +220,17 @@ const AppController = {
                     if (!incoming) return;            
                     
                     const serverVersion = String(incoming.appVersion || '0').trim();
-                    const localAppVersion = String(localStorage.getItem('tc_app_version') || '0').trim();
+                    let localServerVersion = '0';
+                    try { localServerVersion = String(localStorage.getItem('tc_server_version') || '0').trim(); }
+                    catch(e) { _sysLog("Read tc_server_version", e); }
                     
-                    if (serverVersion !== '0' && serverVersion !== localAppVersion) {
+                    if (serverVersion !== '0' && serverVersion !== localServerVersion) {
                         if (this._isUpdatingServer) return; 
                         this._isUpdatingServer = true;
                         
-                        const reloadData = JSON.parse(sessionStorage.getItem('tc_update_reloads_v2') || '{"count":0, "time":0}');
+                        let reloadData = { count: 0, time: 0 };
+                        try { reloadData = JSON.parse(sessionStorage.getItem('tc_update_reloads_v2') || '{"count":0, "time":0}'); }
+                        catch(e) {}
                         const now = Date.now();
                         
                         if (reloadData.count > 2 && (now - reloadData.time) < 60000) {
@@ -221,46 +238,52 @@ const AppController = {
                             return;
                         }
                         
-                        sessionStorage.setItem('tc_update_reloads_v2', JSON.stringify({
-                            count: (now - reloadData.time) > 60000 ? 1 : reloadData.count + 1,
-                            time: now
-                        }));
+                        try {
+                            sessionStorage.setItem('tc_update_reloads_v2', JSON.stringify({
+                                count: (now - reloadData.time) > 60000 ? 1 : reloadData.count + 1,
+                                time: now
+                            }));
+                        } catch(e){}
                         
                         console.warn(`🔄 الإدارة أصدرت تحديثاً إجبارياً! (إلى الإصدار ${serverVersion})`);
                         if(UIManager.showToast) UIManager.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل...', 'success');
                         
                         setTimeout(async () => {
-                            localStorage.setItem('tc_app_version', serverVersion);
-                            const clearPromises = [];
-                            
-                            const keysToRemove = [];
-                            for (let i = 0; i < localStorage.length; i++) {
-                                const k = localStorage.key(i);
-                                if (k && (k.startsWith('telecard_store_cache') || k === CACHE_KEYS.SMART_CATALOG || k === CACHE_KEYS.CATALOG_VERSION)) {
-                                    keysToRemove.push(k);
+                            try {
+                                localStorage.setItem('tc_server_version', serverVersion);
+                                const clearPromises = [];
+                                
+                                const keysToRemove = [];
+                                for (let i = 0; i < localStorage.length; i++) {
+                                    const k = localStorage.key(i);
+                                    if (k && (k.startsWith('telecard_store_cache') || k === CACHE_KEYS.SMART_CATALOG || k === CACHE_KEYS.CATALOG_VERSION)) {
+                                        keysToRemove.push(k);
+                                    }
                                 }
-                            }
-                            keysToRemove.forEach(k => localStorage.removeItem(k));
-                            
-                            if ('caches' in window) {
-                                clearPromises.push(caches.keys().then(names => Promise.all(names.map(name => caches.delete(name)))).catch(()=>[]));
-                            }
-                            if ('serviceWorker' in navigator) { 
-                                clearPromises.push(navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).catch(()=>[])); 
-                            }
-                            
-                            await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
+                                keysToRemove.forEach(k => localStorage.removeItem(k));
+                                
+                                if ('caches' in window) {
+                                    clearPromises.push(caches.keys().then(names => Promise.all(names.map(name => caches.delete(name)))).catch(()=>[]));
+                                }
+                                if ('serviceWorker' in navigator) { 
+                                    clearPromises.push(navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(r => r.unregister()))).catch(()=>[])); 
+                                }
+                                
+                                await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
+                            } catch(e) { _sysLog("Clear on Update", e); }
                             window.location.reload();
                         }, 2000);
                         return;
                     }
 
                     _updateLiveObject(LiveStoreData.settings, incoming);
-                    RenderHelpers.init({ settings: LiveStoreData.settings, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
+                    if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
+                        RenderHelpers.init({ settings: LiveStoreData.settings, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
+                    }
                     
                     if(DataManager.syncUser) DataManager.syncUser().then(() => {
                         if(UIManager.updateDisplayCurrencyUI) UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr); 
-                    }); 
+                    }).catch(e => _sysLog("Sync User on Settings Change", e)); 
                     
                     if(UIManager.applyStoreIdentity) UIManager.applyStoreIdentity();
                 }));
@@ -289,10 +312,8 @@ const AppController = {
 
                 if (firebaseUser) {
                     const uidStr = firebaseUser.uid;
-                    localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr);
+                    try { localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr); } catch(e) {}
                     
-                    // 🛡️ التحرير الفوري لدورة الإقلاع (Zero-Flicker Boot Sync)
-                    // نسمح للإقلاع بالاستمرار فور تحديد هوية المستخدم بدلاً من انتظار جلب كامل البيانات
                     safeResolve();
                     
                     try {
@@ -305,7 +326,7 @@ const AppController = {
                             if (DataManager.logout) DataManager.logout();
                             return;
                         }
-                    } catch (e) { }
+                    } catch (e) { _sysLog("Fetch User Doc", e); }
 
                     if (DataManager && typeof DataManager.listenToUserNotifications === 'function') {
                         const notifUnsub = DataManager.listenToUserNotifications(() => requestAnimationFrame(() => {
@@ -337,7 +358,8 @@ const AppController = {
                                     if(DataManager.syncUser) DataManager.syncUser(); 
                                     
                                     const activeCurr = DataManager.user?.baseCurrency || 'USD';
-                                    const uiCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || 'USD'; 
+                                    let uiCurr = 'USD';
+                                    try { uiCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || 'USD'; } catch(e) {}
                                     
                                     if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance(); 
                                     if (UIManager.updateNotifBadges) UIManager.updateNotifBadges(); 
@@ -401,11 +423,13 @@ const AppController = {
                         }));
                     }
                 } else {
-                    const staleLocalUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
+                    let staleLocalUid = null;
+                    try { staleLocalUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID); } catch(e){}
+                    
                     if (staleLocalUid || DataManager.user) {
                         if (DataManager.logout) DataManager.logout();
                     } else {
-                        localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
+                        try { localStorage.removeItem(CACHE_KEYS.ACTIVE_UID); } catch(e){}
                         LiveStoreData.users.length = 0; LiveStoreData.orders.length = 0; LiveStoreData.deposits.length = 0;
                         DataManager.cursors = {}; 
                         if(DataManager.syncUser) DataManager.syncUser(); 
@@ -415,16 +439,42 @@ const AppController = {
                 }
             }); 
             
-            // 🛡️ درع الأمان الأخير (Fallback Timeout): 
-            // إذا واجه نظام Firebase Auth مشكلة في الشبكة، نحرر الإقلاع بعد 1000 ملي ثانية ليعمل كزائر من الكاش.
             setTimeout(safeResolve, 1000);
         });
     }
 }; 
 
 AppController.init = async function() {
-    console.log(`🚀 جاري إقلاع المتجر (نسخة المحرك الماسي ${APP_VERSION})...`);
+    console.log(`🚀 جاري إقلاع المتجر (النسخة التجارية ${APP_VERSION})...`);
     
+    try {
+        if (localStorage.getItem('TELECARD_REQUIRE_DB_CLEAR') === 'true') {
+            console.warn("🧹 جاري تنظيف قواعد بيانات IndexedDB العالقة بناءً على طلب محول فايربيز...");
+            if (window.indexedDB && typeof window.indexedDB.databases === 'function') {
+                const dbs = await window.indexedDB.databases();
+                const deletePromises = dbs.map(db => {
+                    return new Promise((resolve) => {
+                        if (db.name.includes('firestore') || db.name.includes('firebase')) {
+                            const req = window.indexedDB.deleteDatabase(db.name);
+                            req.onsuccess = () => resolve();
+                            req.onerror = () => resolve(); 
+                            req.onblocked = () => resolve(); 
+                        } else {
+                            resolve();
+                        }
+                    });
+                });
+                await Promise.all(deletePromises);
+            }
+            localStorage.removeItem('TELECARD_REQUIRE_DB_CLEAR');
+            window.location.reload();
+            return; 
+        }
+    } catch (e) {
+        _sysLog("IndexedDB Clear Fallback", e);
+        try { localStorage.removeItem('TELECARD_REQUIRE_DB_CLEAR'); } catch(e){}
+    }
+
     window.addEventListener('storage', (event) => {
         if (event.key === CACHE_KEYS.ACTIVE_UID && event.newValue === null) {
             console.warn("🔒 تم تسجيل الخروج من نافذة أخرى. جاري تأمين هذه الجلسة...");
@@ -444,7 +494,7 @@ AppController.init = async function() {
     
     try {
         const currentVersion = APP_VERSION || "1.0.0";
-        const savedVersion = localStorage.getItem('telecard_app_version');
+        const savedVersion = localStorage.getItem('telecard_app_version'); 
         
         if (savedVersion && savedVersion !== currentVersion) {
             const clearPromises = [];
@@ -464,7 +514,7 @@ AppController.init = async function() {
             }
             keysToRemove.forEach(k => localStorage.removeItem(k));
             
-            localStorage.setItem('telecard_app_version', currentVersion);
+            localStorage.setItem('telecard_app_version', currentVersion); 
             
             await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
             window.location.reload();
@@ -472,7 +522,7 @@ AppController.init = async function() {
         } else if (!savedVersion) {
             localStorage.setItem('telecard_app_version', currentVersion);
         }
-    } catch (e) {}
+    } catch (e) { _sysLog("Version Check Cache Clear", e); }
     
     try {
         const activeUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
@@ -480,20 +530,15 @@ AppController.init = async function() {
             const cachedOrders = JSON.parse(localStorage.getItem(`tc_orders_cache_${activeUid}`) || '[]');
             const cachedDeposits = JSON.parse(localStorage.getItem(`tc_deposits_cache_${activeUid}`) || '[]');
             
-            if (cachedOrders.length > 0) {
-                _updateLiveArray(LiveStoreData.orders, cachedOrders);
-            }
-            if (cachedDeposits.length > 0) {
-                _updateLiveArray(LiveStoreData.deposits, cachedDeposits);
-            }
+            if (cachedOrders.length > 0) _updateLiveArray(LiveStoreData.orders, cachedOrders);
+            if (cachedDeposits.length > 0) _updateLiveArray(LiveStoreData.deposits, cachedDeposits);
         }
-    } catch (e) { }
+    } catch (e) { _sysLog("Load User Cache", e); }
     
     try {
         if (DataManager.loadPrefs) DataManager.loadPrefs();
         if (DataManager.syncUser) await DataManager.syncUser().catch(() => {});
         
-        // 🛡️ Boot Auth-Race Fix: ننتظر استقرار هوية العميل قبل تسعير وجلب المنتجات
         await this.initFirebaseListeners();
 
         if (UIManager.initGlobalListeners) UIManager.initGlobalListeners();
@@ -513,19 +558,20 @@ AppController.init = async function() {
         
         if (UIManager.applySavedTheme) UIManager.applySavedTheme();
         if (UIManager.toggleHeroSection) UIManager.toggleHeroSection(true);
-    } catch (e) {}
+    } catch (e) { _sysLog("Core Boot Sequence", e); }
     
     try {
         if (UIManager.checkSystemStatus && UIManager.checkSystemStatus()) return;
         
-        // 1. الكتالوج يُبنى الآن على أساس متين (هوية معروفة مسبقاً)
         await DataManager.initStoreCatalog();
         
         if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
             RenderHelpers.init({ settings: LiveStoreData.settings || {}, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
         }
         
-        DataManager.selectedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || LiveStoreData.settings?.defaultCurrency || 'USD';
+        let storedCurr = 'USD';
+        try { storedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY); } catch(e){}
+        DataManager.selectedCurr = storedCurr || LiveStoreData.settings?.defaultCurrency || 'USD';
         if (UIManager.updateDisplayCurrencyUI) UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
         
         const removeSplashScreen = () => {
@@ -533,56 +579,58 @@ AppController.init = async function() {
             if (splash) {
                 splash.style.opacity = '0';
                 splash.style.visibility = 'hidden';
-                setTimeout(() => { if (splash) splash.remove(); }, 400);
+                setTimeout(() => { if (splash) splash.remove(); }, 400); // إخفاء ناعم لا يصدم العين
             }
         };
 
         const handleWelcomeMessages = () => {
-            if (localStorage.getItem('tc_show_logout_toast')) {
-                localStorage.removeItem('tc_show_logout_toast');
-                setTimeout(() => {
-                    if (UIManager.showToast) UIManager.showToast('تم تسجيل الخروج بنجاح. نراك قريباً!', 'success');
-                    if (UIManager.sfx) UIManager.sfx('success');
-                }, 1200);
-
-            } else if (!sessionStorage.getItem('tc_has_been_greeted')) {
-                sessionStorage.setItem('tc_has_been_greeted', 'true');
-                setTimeout(() => {
-                    const isNewUser = sessionStorage.getItem('tc_new_user_signup');
-                    const storeName = localStorage.getItem('tc_splash_name') || LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'متجرنا';
-                    const firstName = DataManager.user?.firstName || DataManager.user?.name || '';
-                    const namePart = firstName ? ` يا ${firstName}` : '';
-                    let finalGreeting = '';
-                    
-                    if (isNewUser) {
-                        sessionStorage.removeItem('tc_new_user_signup');
-                        const newWelcomePhrases = [
-                            `أهلاً بك في عائلة ${storeName}${namePart} 🎉`,
-                            `بداية موفقة معنا في ${storeName}${namePart} 🚀`,
-                            `سعيدون بانضمامك لـ ${storeName}${namePart} ✨`
-                        ];
-                        finalGreeting = newWelcomePhrases[Math.floor(Math.random() * newWelcomePhrases.length)];
-                    } else {
-                        const hour = new Date().getHours();
-                        let timePhrases = [];
-                        
-                        if (hour >= 5 && hour < 12) timePhrases = ["صباح الخير", "عمت صباحاً", "صباح النشاط", "إشراقة جديدة"];
-                        else if (hour >= 12 && hour < 18) timePhrases = ["طاب مساؤك", "كيف الحال", "ما الأخبار", "مرحباً بك"];
-                        else timePhrases = ["مساء الخير", "سهرة ممتعة", "عمت مساءً", "أهلاً بك الليلة"];
-                        
-                        finalGreeting = `${timePhrases[Math.floor(Math.random() * timePhrases.length)]}${namePart} ✨`;
-                    }
-                    
-                    if (UIManager.showToast) UIManager.showToast(finalGreeting, 'info');
-                    
+            try {
+                if (localStorage.getItem('tc_show_logout_toast')) {
+                    localStorage.removeItem('tc_show_logout_toast');
                     setTimeout(() => {
-                        if (UIManager.showPushNotificationPrompt) {
-                            UIManager.showPushNotificationPrompt();
-                        }
-                    }, 3500);
+                        if (UIManager.showToast) UIManager.showToast('تم تسجيل الخروج بنجاح. نراك قريباً!', 'success');
+                        if (UIManager.sfx) UIManager.sfx('success');
+                    }, 1200);
 
-                }, 1500);
-            }
+                } else if (!sessionStorage.getItem('tc_has_been_greeted')) {
+                    sessionStorage.setItem('tc_has_been_greeted', 'true');
+                    setTimeout(() => {
+                        const isNewUser = sessionStorage.getItem('tc_new_user_signup');
+                        const storeName = localStorage.getItem('tc_splash_name') || LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'متجرنا';
+                        const firstName = DataManager.user?.firstName || DataManager.user?.name || '';
+                        const namePart = firstName ? ` يا ${firstName}` : '';
+                        let finalGreeting = '';
+                        
+                        if (isNewUser) {
+                            sessionStorage.removeItem('tc_new_user_signup');
+                            const newWelcomePhrases = [
+                                `أهلاً بك في عائلة ${storeName}${namePart} 🎉`,
+                                `بداية موفقة معنا في ${storeName}${namePart} 🚀`,
+                                `سعيدون بانضمامك لـ ${storeName}${namePart} ✨`
+                            ];
+                            finalGreeting = newWelcomePhrases[Math.floor(Math.random() * newWelcomePhrases.length)];
+                        } else {
+                            const hour = new Date().getHours();
+                            let timePhrases = [];
+                            
+                            if (hour >= 5 && hour < 12) timePhrases = ["صباح الخير", "عمت صباحاً", "صباح النشاط", "إشراقة جديدة"];
+                            else if (hour >= 12 && hour < 18) timePhrases = ["طاب مساؤك", "كيف الحال", "ما الأخبار", "مرحباً بك"];
+                            else timePhrases = ["مساء الخير", "سهرة ممتعة", "عمت مساءً", "أهلاً بك الليلة"];
+                            
+                            finalGreeting = `${timePhrases[Math.floor(Math.random() * timePhrases.length)]}${namePart} ✨`;
+                        }
+                        
+                        if (UIManager.showToast) UIManager.showToast(finalGreeting, 'info');
+                        
+                        setTimeout(() => {
+                            if (UIManager.showPushNotificationPrompt) {
+                                UIManager.showPushNotificationPrompt();
+                            }
+                        }, 3500);
+
+                    }, 1500);
+                }
+            } catch(e) { _sysLog("Welcome Messages", e); }
         };
 
         if (UIManager.applyStoreIdentity) UIManager.applyStoreIdentity();
@@ -591,45 +639,55 @@ AppController.init = async function() {
         const sName = LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'TeleCard';
         const splashName = document.getElementById('splash-store-name');
         if (splashName) splashName.innerText = sName;
-        localStorage.setItem(CACHE_KEYS.SPLASH_NAME, sName);
+        try { localStorage.setItem(CACHE_KEYS.SPLASH_NAME, sName); } catch(e){}
 
-        // 🛡️ التحديث المعماري الصارم: إخفاء الشاشة بعد الرسم التام للكتالوج الصحيح
+        // 🔥 الدمج الماسي: جلب الكاش السريع وعرضه فوراً مع إخفاء اللودر السلس
         if (UIManager.isReady && RenderManager) {
-            const publicKeys = ['COUNTRIES', 'PAYMENTS'];
-            const promises = publicKeys.map(k => StoreDB.queryCacheFirst(DB_KEYS[k], [], null, 500).catch(() => []));
             
-            if (DataManager.activeUid) {
-                promises.push(StoreDB.queryCacheFirst(DB_KEYS.COUPONS, [], null, 200).catch(() => []));
-                publicKeys.push('COUPONS');
+            // 1. إذا كان الكاش فارغاً، ارسم السكيليتون ليختفي اللودر فوراً
+            if (!LiveStoreData.cats || LiveStoreData.cats.length === 0) {
+                if (RenderManager.renderHomeSkeletons) RenderManager.renderHomeSkeletons();
+            } else {
+                // 2. إذا كان الكاش موجوداً، ارسم الواجهة الحقيقية فوراً
+                if (RenderManager.renderHome) RenderManager.renderHome();
             }
             
-            Promise.all(promises).then(results => {
-                publicKeys.forEach((key, i) => {
-                    if (results[i] && results[i].length > 0) {
-                        _updateLiveArray(LiveStoreData[key.toLowerCase()], results[i]);
-                    }
-                });
+            if (UIManager.initSlider) UIManager.initSlider();
+            if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance();
+            
+            // 3. إعطاء أمر إخفاء اللودر (يعمل فوراً دون انتظار)
+            requestAnimationFrame(removeSplashScreen);
+            handleWelcomeMessages();
+
+            // 4. تأخير البيانات الثقيلة لعدم خنق المعالج أثناء الأنيميشن
+            setTimeout(() => {
+                const publicKeys = ['COUNTRIES', 'PAYMENTS'];
+                const promises = publicKeys.map(k => StoreDB.queryCacheFirst(DB_KEYS[k], [], null, 500).catch(() => []));
                 
-                // 1. رسم الواجهة بالكامل (بدون وميض مستقبلي)
-                if (RenderManager.renderHome) RenderManager.renderHome();
-                if (UIManager.initSlider) UIManager.initSlider();
-                if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance();
-                if (document.getElementById('balance-modal')?.classList.contains('active')) {
-                    if (RenderManager.renderPayMethods) RenderManager.renderPayMethods();
+                if (DataManager.activeUid) {
+                    promises.push(StoreDB.queryCacheFirst(DB_KEYS.COUPONS, [], null, 200).catch(() => []));
+                    publicKeys.push('COUPONS');
                 }
                 
-                // 2. إزالة شاشة الإقلاع
-                requestAnimationFrame(removeSplashScreen);
-                
-                // 3. عرض رسائل الترحيب
-                handleWelcomeMessages();
-            });
+                Promise.all(promises).then(results => {
+                    publicKeys.forEach((key, i) => {
+                        if (results[i] && results[i].length > 0) {
+                            _updateLiveArray(LiveStoreData[key.toLowerCase()], results[i]);
+                        }
+                    });
+                    
+                    if (document.getElementById('balance-modal')?.classList.contains('active')) {
+                        if (RenderManager.renderPayMethods) RenderManager.renderPayMethods();
+                    }
+                }).catch(e => _sysLog("Background Data Fetch", e));
+            }, 400); 
+
         } else {
             requestAnimationFrame(removeSplashScreen);
             handleWelcomeMessages();
         }
     } catch (e) {
-        console.error("🚨 خطأ أثناء محاولة إقلاع الواجهة:", e);
+        console.error("🚨 خطأ فادح أثناء محاولة إقلاع الواجهة:", e);
         const splash = document.getElementById('global-splash-screen');
         if (splash) splash.remove();
     }
@@ -638,12 +696,13 @@ AppController.init = async function() {
         setTimeout(() => { if (DataManager.injectSilentSensor) DataManager.injectSilentSensor(); }, 3000);
         if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance();
         
+        // 🛡️ استخدام طلبات متأخرة للحفاظ على استقرار المتصفح أثناء التمرير
         requestIdleCallback(() => {
             if (!UIManager.isReady) return;
-            try { if (CalendarApp?.init) CalendarApp.init(); } catch (e) {}
+            try { if (CalendarApp?.init) CalendarApp.init(); } catch (e) { _sysLog("Calendar Init", e); }
             
             ['updateSidebarText', 'initSupportButton', 'applyFontSettings', 'refreshCurrencyMenuFlags', 'renderSettingsUI', 'loadUserImageAutomatically', 'restoreDisplayState', 'setupMainContentClickDetector', 'initSwipeGestures']
-            .forEach(m => { try { if (UIManager[m]) UIManager[m](); } catch (e) {} });
+            .forEach(m => { try { if (UIManager[m]) UIManager[m](); } catch (e) { _sysLog(`UI Action: ${m}`, e); } });
             
             if (Components.initBottomNavSync) Components.initBottomNavSync();
             if (UIManager.checkKycCelebration) UIManager.checkKycCelebration();
@@ -651,7 +710,7 @@ AppController.init = async function() {
         
         console.log("✅ اكتمل الإقلاع. الكائنات محررة والواجهة جاهزة للتفاعل.");
         
-    } catch (e) {}
+    } catch (e) { _sysLog("Post Boot Actions", e); }
 };
 
 if (typeof globalThis !== 'undefined') {

@@ -105,10 +105,11 @@ self.addEventListener('notificationclick', (event) => {
             }
             
             // ب) إذا كان المتجر مغلقاً تماماً، نفتحه في نافذة جديدة مع دمج المتغيرات بذكاء
-            if (clients.openWindow) {
+                        if (clients.openWindow) {
                 if (actionType && actionId && actionType !== 'undefined' && actionId !== 'undefined') {
                     try {
-                        const urlObj = new URL(targetUrl);
+                        // 🛡️ [الإصلاح]: توفير Base URL يمنع انهيار النظام إذا كان targetUrl مساراً نسبياً
+                        const urlObj = new URL(targetUrl, self.location.origin);
                         urlObj.searchParams.set('action', 'view');
                         urlObj.searchParams.set('type', actionType);
                         urlObj.searchParams.set('id', actionId);

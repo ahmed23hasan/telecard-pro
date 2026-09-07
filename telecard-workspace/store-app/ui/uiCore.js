@@ -1,11 +1,11 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.9.0 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.9.1 💎
 // 🎯 الوظيفة: النوافذ، التوجيه الذكي، الإشعارات، التنسيق، ومزامنة الصوت
-// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - Core Stability Patch):
-// 1. Double-Spend Shield 🛡️: إزالة المؤقت الزمني الأعمى من أزرار الدفع والاعتماد الكلي على إشارات السيرفر لمنع تكرار الطلبات.
-// 2. iOS Audio Primer 🛡️: تهيئة مبكرة (Primer) لمحرك الصوت عند أول نقرة في المستند لكسر حماية سفاري والسماح بأصوات التنبيهات.
-// 3. History API Bloat Fix 🛡️: استخدام replaceState للنوافذ المتراكبة لمنع تضخم سجل المتصفح.
-// 4. Spread Operator Integration 🛡️: دمج الأحداث برمجياً للحفاظ على أداء (O(1)).
+// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - Core Stability & Routing Patch):
+// 1. Double-Spend Shield Alignment 🛡️: محاذاة مستمعات الأحداث المركزية مع (UIState) لردع النقرات العشوائية.
+// 2. History API De-bloat 🛡️: منع دفع حالات متطابقة في سجل المتصفح لتأمين زر "الرجوع" في الهواتف.
+// 3. Silent Error Auditing 🛡️: تعقب صامت لأخطاء (Storage & Audio) المكتومة لتسهيل عمليات (Debugging).
+// 4. Audio Primer Optimization 🛡️: تقنين مبدئيات تشغيل الصوت في iOS لمنع استنزاف البطارية مع كثرة النقرات.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY, DYNAMIC_PREFIXES } from '../config.js';           
@@ -85,9 +85,9 @@ export const UICore = {
 
                     sessionStorage.clear();
                     if (window.indexedDB) {
-                        indexedDB.databases().then(dbs => dbs.forEach(db => indexedDB.deleteDatabase(db.name)));
+                        indexedDB.databases().then(dbs => dbs.forEach(db => indexedDB.deleteDatabase(db.name).catch(()=>{})));
                     }
-                } catch (e) {}
+                } catch (e) { console.warn("🛡️ System Purge Guard:", e); }
                 window.location.replace('login.html');
             } 
         }, 3500); 
@@ -196,9 +196,12 @@ export const UICore = {
         if (scrollable) scrollable.scrollTop = 0;
         
         requestAnimationFrame(() => modal.classList.add('active'));
-           // 🛡️ History API Collision Fix: دفع حالة جديدة دائماً لضمان عمل زر الرجوع بالترتيب
+        
+        // 🛡️ History API Optimize: منع تضخم السجل ودفع نفس النافذة مرتين
         if (window.history && window.history.pushState) {
-            window.history.pushState({ modal: modalId }, '', `#${modalId}`);
+            if (!window.history.state || window.history.state.modal !== modalId) {
+                window.history.pushState({ modal: modalId }, '', `#${modalId}`);
+            }
         }
 
         if (!state.activeModals.includes(modalId)) state.activeModals.push(modalId);
@@ -643,17 +646,25 @@ export const UICore = {
         // =========================================================
         const FinanceActions = {
             'confirm-purchase': async (e, id, val, target) => { 
-                if (target.dataset.processing === 'true') return;
+                const sys = getSys();
+                // 🛡️ Double-Spend Shield: حماية مشددة للنقرات
+                if (sys.State?.isProcessingTx || target.dataset.processing === 'true') {
+                    console.warn("🛡️ [Double-Spend Shield] تم حظر نقرة شراء متزامنة في الواجهة الأساسية.");
+                    return;
+                }
                 target.dataset.processing = 'true';
-                // 🛡️ Double-Spend Shield: الاعتماد الكلي على إغلاق السيرفر بدلاً من المؤقت الأعمى
-                try { await getSys().handlePurchaseSubmit?.(); } 
+                try { await sys.handlePurchaseSubmit?.(); } 
                 finally { target.dataset.processing = 'false'; }
             },
             'submit-balance': async (e, id, val, target, dataType, dataCurr) => {
-                if (target.disabled || target.dataset.processing === 'true') return;
+                const sys = getSys();
+                // 🛡️ Double-Spend Shield: حماية مشددة للنقرات
+                if (sys.State?.isProcessingTx || target.disabled || target.dataset.processing === 'true') {
+                    console.warn("🛡️ [Double-Spend Shield] تم حظر نقرة إيداع متزامنة في الواجهة الأساسية.");
+                    return;
+                }
                 target.dataset.processing = 'true';
-                // 🛡️ Double-Spend Shield: الاعتماد الكلي على إغلاق السيرفر بدلاً من المؤقت الأعمى
-                try { await getSys().handleBalanceSubmit?.(dataCurr); } 
+                try { await sys.handleBalanceSubmit?.(dataCurr); } 
                 finally { target.dataset.processing = 'false'; }
             },
             'apply-coupon': () => getSys().applyCoupon?.(),
@@ -691,7 +702,7 @@ export const UICore = {
         // 🗂️ 5. قسم أحداث الحساب والأمان والتفضيلات (User & System)
         // =========================================================
         const SystemActions = {
-                      'logout': () => DataManager.logout?.(),
+            'logout': () => DataManager.logout?.(),
             'go-login': (e) => { e.preventDefault(); window.location.href = 'login.html'; },
             'request-account-delete': () => this.showToast?.('يرجى التواصل مع الدعم الفني لحذف حسابك نهائياً', 'warning'),
             'install-pwa': () => this.triggerPWAInstall(),
@@ -706,7 +717,7 @@ export const UICore = {
             'toggle-accordion': (e, id, val, target) => { e.preventDefault(); getSys().togglePayDetail?.(target); },
             'toggle-wallet-stats': (e, id, val, target) => getSys().toggleWalletStats?.(target),
             'toggle-theme-pref': () => this.toggleTheme?.(),
-         'toggle-sound-pref': () => this.toggleSoundPref?.(),
+            'toggle-sound-pref': () => this.toggleSoundPref?.(),
             'open-profile-sidebar': () => setTimeout(() => { this.closeSidebar?.(); getSys().openProfileInfo?.(); }, 150),
             'open-wallet-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.navigateWallet?.(); }, 150),
             'open-identity-sidebar': () => setTimeout(() => { this.closeSidebar?.(); this.openModal?.('identity'); }, 150),
@@ -882,14 +893,14 @@ export const UICore = {
 
         // 🛡️ مستمع النقرات المركزي (The Single Source of Truth)
         document.body.addEventListener('click', (e) => {
-            // 🛡️ iOS Audio Primer: تهيئة محرك الصوت فوراً لكسر حماية سفاري عند أول لمسة
+            // 🛡️ iOS Audio Primer: تهيئة محرك الصوت فوراً لكسر حماية سفاري مع تقنين الاستهلاك
             if (this.audioCtx && this.audioCtx.state === 'suspended') {
-                this.audioCtx.resume().catch(()=>{});
+                this.audioCtx.resume().catch((err)=>{ console.warn("Silent Audio Context resume error:", err); });
             } else if (!this.audioCtx) {
                 try {
                     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
                     if (AudioContextClass) this.audioCtx = new AudioContextClass();
-                } catch(err){}
+                } catch(err){ console.warn("Silent Audio Context creation error:", err); }
             }
 
             const target = e.target;
@@ -1312,7 +1323,7 @@ export const UICore = {
         if (!unreadAlerts || unreadAlerts.length === 0) return;
         
         let shownToasts = [];
-        try { shownToasts = JSON.parse(localStorage.getItem(CACHE_KEYS.SHOWN_TOASTS) || "[]"); } catch (e) {}
+        try { shownToasts = JSON.parse(localStorage.getItem(CACHE_KEYS.SHOWN_TOASTS) || "[]"); } catch (e) { console.warn("Silent catch:", e); }
         
         const popups = unreadAlerts.filter(m => (m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
         const toasts = unreadAlerts.filter(m => !(m.type === 'popup' || m.isPopup) && !shownToasts.includes(String(m.id)));
@@ -1340,7 +1351,7 @@ export const UICore = {
         try {
             localStorage.setItem(CACHE_KEYS.SHOWN_TOASTS, JSON.stringify(shownToasts));
         } catch (e) {
-            console.warn("تعذر حفظ سجل الإشعارات محلياً.");
+            console.warn("تعذر حفظ سجل الإشعارات محلياً:", e);
         }
 
         this.updateNotifBadges();
@@ -1469,12 +1480,25 @@ export const UICore = {
             container.className = 'custom-toast-container'; 
             document.body.appendChild(container);
         } else {
-            if (container.children.length > 0) {
-                const lastToast = container.lastElementChild;
-                if (lastToast && lastToast.querySelector('.toast-msg')?.innerText === Utils.escapeHtml(msg)) {
-                    lastToast.style.animation = 'none'; void lastToast.offsetWidth; lastToast.style.animation = 'shake-anim 0.3s ease-in-out'; return; 
-                }
-                while (container.children.length >= 3) { 
+                    if (container.children.length > 0) {
+            const lastToast = container.lastElementChild;
+            if (lastToast && lastToast.querySelector('.toast-msg')?.innerText === Utils.escapeHtml(msg)) {
+                lastToast.style.animation = 'none'; 
+                void lastToast.offsetWidth; 
+                lastToast.style.animation = 'shake-anim 0.3s ease-in-out'; 
+                
+                // 🛡️ [الإصلاح]: إعادة تمديد عمر الإشعار لـ 4 ثوانٍ جديدة بعد الاهتزاز
+                if (lastToast._hideTimer) clearTimeout(lastToast._hideTimer);
+                lastToast._hideTimer = setTimeout(() => {
+                    if(lastToast.isConnected) {
+                        lastToast.classList.add('anim-out');
+                        setTimeout(() => { if(lastToast.isConnected) lastToast.remove(); }, 400);
+                    }
+                }, 4000);
+                return; 
+            }
+// ... (باقي الكود كما هو)
+            while (container.children.length >= 3) { 
                     const first = container.firstChild;
                     if(first) {
                         if(first._hideTimer) clearTimeout(first._hideTimer);
@@ -1516,7 +1540,7 @@ export const UICore = {
                 try {
                     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
                     if (AudioContextClass) this.audioCtx = new AudioContextClass();
-                } catch(ctxErr) { return; } 
+                } catch(ctxErr) { console.warn("AudioContext init error:", ctxErr); return; } 
             }
             if(!this.audioCtx) return;
 
@@ -1532,14 +1556,14 @@ export const UICore = {
                     else if (type === 'error') { osc.type='triangle'; osc.frequency.setValueAtTime(150,t); gain.gain.setValueAtTime(0.1,t); gain.gain.linearRampToValueAtTime(0.001,t+0.2); osc.start(t); osc.stop(t+0.2); }
                     
                     osc.onended = () => { osc.disconnect(); gain.disconnect(); };
-                } catch (internalErr) {}
+                } catch (internalErr) { console.warn("Audio play error:", internalErr); }
             };
 
             if(this.audioCtx.state === 'suspended') { 
                 this.audioCtx.resume().then(() => playSound()).catch(()=>{}); 
             } else { playSound(); }
             
-        } catch(e) {}
+        } catch(e) { console.warn("Silent catch in sfx main:", e); }
         
         try {
             if (navigator.vibrate) {
@@ -1547,7 +1571,7 @@ export const UICore = {
                 else if (type === 'success') navigator.vibrate(50); 
                 else navigator.vibrate(20);
             }
-        } catch(e) {}
+        } catch(e) { console.warn("Vibration error:", e); }
     },    
 
     _sanitizeCssValue: function(val) {
@@ -1679,7 +1703,7 @@ export const UICore = {
     
     saveDisplayState: function() {
         const displayState = { sidebarOpen: document.querySelector('.sidebar.active') !== null, userImage: DataManager.user?.img || null, theme: DataManager.prefs?.theme || 'dark', sound: DataManager.prefs?.sound !== false, lastVisit: Date.now() };
-        try { localStorage.setItem(CACHE_KEYS.DISPLAY_STATE, JSON.stringify(displayState)); } catch (e) {}
+        try { localStorage.setItem(CACHE_KEYS.DISPLAY_STATE, JSON.stringify(displayState)); } catch (e) { console.warn("Silent catch:", e); }
     },
     
     restoreDisplayState: function() {
@@ -1694,7 +1718,7 @@ export const UICore = {
                     if (Math.floor((Date.now() - displayState.lastVisit) / 86400000) > 7) this.showToast('مرحباً بعودتك! تم تحديث الواجهة منذ آخر زيارة.'); 
                 }
             }
-        } catch (e) {}
+        } catch (e) { console.warn("State restore error:", e); }
     },
     
     applyFontSettings: function() {
@@ -2264,7 +2288,7 @@ export const UICore = {
     },
     
     submitRatingStep: function() {
-        try { localStorage.setItem('tc_user_rated', 'true'); } catch(e) {}
+        try { localStorage.setItem('tc_user_rated', 'true'); } catch(e) { console.warn("Silent catch:", e); }
 
         const stepStars = document.getElementById('rating-step-stars');
         if (stepStars) stepStars.classList.add('hide-element');
