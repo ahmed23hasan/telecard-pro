@@ -1045,7 +1045,120 @@ _generateProductCardHTML: function(p, idx) {
             } 
         }); 
     },
+renderPayments: function(forceRender = false) {
+        // 1. نظام الـ Debouncing لمنع استنزاف الرام
+        if (!forceRender) {
+            if (!this._paymentsDebounced) {
+                this._paymentsDebounced = this._debounce('payments', () => this.renderPayments(true), 250);
+            }
+            return this._paymentsDebounced();
+        }
 
+        const renderId = ++this.currentRenderId;
+        
+        // 🏆 مأخوذ من دالتك: تحديث شريط التنقل السفلي
+        if (typeof window.updateBottomNavState === 'function') {
+            window.updateBottomNavState('payments');
+        }
+
+        // 2. معالجة فلاتر البحث والتاريخ
+        const filterData = Utils.getSearchAndDateFilters('pay', 'pay');
+        if (filterData.error) { UIManager.showToast?.(filterData.error, 'error'); return; }
+        const { q, dStart, dEnd, tStart, tEnd } = filterData;
+
+        // 🚨 مأخوذ من دالتي: تصحيح الـ ID ليتطابق مع الـ HTML
+        const list = document.getElementById('mypay-list'); 
+        if (!list) return;
+
+        // 3. التحقق من هوية المستخدم
+        const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (DataManager.user ? String(DataManager.user.id) : null);
+        if (!uid || uid === '0' || uid === 'undefined') {
+            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>يرجى تسجيل الدخول</h3></div>`;
+            return;
+        }
+
+        this._historicalData = this._historicalData || { deposits: [], orders: [] };
+        this.limits = this.limits || { payments: 15, wallet: 15, orders: 15 };
+
+        // 4. جلب البيانات (الحية + التاريخية)
+        const rawDeposits = [...(LiveStoreData.deposits || []), ...(this._historicalData.deposits || [])];
+        const uniqueDeposits = Array.from(new Map(rawDeposits.map(item => [String(item.id), item])).values());
+
+        // 5. فلترة إيداعات المستخدم الحالي وتوحيد وقت الفرز
+        let payments = uniqueDeposits
+            .filter(d => String(d.userId) === String(uid))
+            .map(d => ({ ...d, sortTime: Utils.parseSafeTime(d.time || d.createdAt) }));
+
+        const filters = DataManager.filters || { payments: 'all' };
+
+        // 6. 🏆 الفلترة الذكية (الدمج بين منطق الدالتين)
+        if (filters.payments !== 'all') {
+            payments = payments.filter(d => {
+                const status = String(d.status || 'pending').toLowerCase();
+                if (filters.payments === 'approved') return ['approved', 'completed'].includes(status);
+                if (filters.payments === 'rejected') return ['rejected', 'refunded', 'returned'].includes(status);
+                return status === filters.payments;
+            });
+        }
+
+        // 7. تطبيق فلتر البحث النصي والتاريخ
+        if (q) {
+            payments = payments.filter(d => 
+                String(d.id).toLowerCase().includes(q) || 
+                (d.displayId && String(d.displayId).toLowerCase().includes(q)) || 
+                RenderHelpers.formatDepositId(d).toLowerCase().includes(q) || 
+                (d.method && d.method.toLowerCase().includes(q))
+            );
+        }
+        if (tStart) payments = payments.filter(d => d.sortTime >= tStart);
+        if (tEnd) payments = payments.filter(d => d.sortTime <= tEnd);
+
+        // 8. الفرز من الأحدث للأقدم
+        payments.sort((a, b) => {
+            const timeDiff = b.sortTime - a.sortTime;
+            return timeDiff !== 0 ? timeDiff : String(b.id || '').localeCompare(String(a.id || ''));
+        });
+
+        const totalCount = payments.length;
+        const displayLimit = (!q && !dStart && !dEnd) ? this.limits.payments : Math.min(payments.length, 50);
+        const visiblePayments = payments.slice(0, displayLimit);
+
+        if (visiblePayments.length === 0) {
+            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد سجلات حالياً</h3></div>`;
+            return;
+        }
+
+        // 9. الرسم الآمن (Silent Failure Shield)
+        requestAnimationFrame(() => {
+            if (renderId !== this.currentRenderId) return;
+
+            const rawUserName = typeof UIManager !== 'undefined' && UIManager._getFullName ? UIManager._getFullName(DataManager.user) : (DataManager.user?.fullName || 'العميل');
+            const userIdString = RenderHelpers.formatUserId(DataManager.user);
+            const baseCurrency = (DataManager.user?.baseCurrency || 'USD').toUpperCase();
+
+            const rawHtml = visiblePayments.map((d) => {
+                try {
+                    return UIBuilders.buildPaymentCard(d, rawUserName, userIdString, baseCurrency);
+                } catch (e) {
+                    console.error('🚨 [Render Engine] فشل رسم عملية الدفع:', e);
+                    return '<div class="sys-error-card" style="padding:15px; margin-bottom:10px; background:var(--bg-glass); border-radius:12px; color:var(--red-main); text-align:center;"><i class="fa-solid fa-triangle-exclamation"></i> عملية تالفة</div>';
+                }
+            }).join('');
+
+            list.replaceChildren(this._renderHtmlToFragment(rawHtml));
+
+            // 10. زر التحميل المزيد (تم توجيهه للمتغير الصحيح limits.payments)
+            if (!q && !dStart && !dEnd) {
+                this._appendLoadMoreButton(list, 'deposits', uid, totalCount, 'payments');
+            }
+
+            // 11. تمييز (Highlight) العنصر المنتقل إليه
+            if (this.highlightId) {
+                if (this._highlightTimer) clearTimeout(this._highlightTimer);
+                this._highlightTimer = setTimeout(() => { this.highlightId = null; this._highlightTimer = null; }, 2000);
+            }
+        });
+    },
     // ============================================================================
     // 🖨️ محرك تصدير الفواتير الاحترافي (Real Viewport Masking Technique)
     // ============================================================================

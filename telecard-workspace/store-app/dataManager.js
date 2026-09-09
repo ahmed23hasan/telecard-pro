@@ -61,30 +61,31 @@ export const DataManager = {
     },
 
     syncOfflineTasks: async function() {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-    
-    // 1. تنظيف ملفات التخزين اليتيمة (Orphaned Storage Shield)
-    try {
-        let orphanedFiles = JSON.parse(localStorage.getItem('tc_orphaned_files') || '[]');
-        if (orphanedFiles.length > 0) {
-            let remainingFiles = [];
-            for (const url of orphanedFiles) {
-                try {
-                    if (typeof StoreDB.deleteImageByUrl === 'function') {
-                        await StoreDB.deleteImageByUrl(url);
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        
+        // 1. تنظيف ملفات التخزين اليتيمة (Orphaned Storage Shield)
+        try {
+            let orphanedFiles = JSON.parse(localStorage.getItem('tc_orphaned_files') || '[]');
+            if (orphanedFiles.length > 0) {
+                let remainingFiles = [];
+                for (const url of orphanedFiles) {
+                    try {
+                        if (typeof StoreDB.deleteImageByUrl === 'function') {
+                            await StoreDB.deleteImageByUrl(url);
+                        }
+                    } catch (e) {
+                        const isNotFound = e && (e.code === 'storage/object-not-found' || String(e.message).toLowerCase().includes('not found') || String(e.message).toLowerCase().includes('does not exist'));
+                        if (!isNotFound) remainingFiles.push(url);
                     }
-                } catch (e) {
-                    const isNotFound = e && (e.code === 'storage/object-not-found' || String(e.message).toLowerCase().includes('not found') || String(e.message).toLowerCase().includes('does not exist'));
-                    if (!isNotFound) remainingFiles.push(url);
                 }
+                if (remainingFiles.length > 0) localStorage.setItem('tc_orphaned_files', JSON.stringify(remainingFiles));
+                else localStorage.removeItem('tc_orphaned_files');
+                console.log('🧹 [Offline Sync] تم معالجة صور التخزين اليتيمة بنجاح.');
             }
-            if (remainingFiles.length > 0) localStorage.setItem('tc_orphaned_files', JSON.stringify(remainingFiles));
-            else localStorage.removeItem('tc_orphaned_files');
-            console.log('🧹 [Offline Sync] تم معالجة صور التخزين اليتيمة بنجاح.');
-        }
-    } catch (e) {}
-},
-// =========================================================
+        } catch (e) {}
+    },
+
+    // =========================================================
     // 🌐 إقلاع المتجر (Store Bootstrapping)
     // =========================================================
     initStoreCatalog: async function() {
@@ -183,8 +184,9 @@ export const DataManager = {
     // =========================================================
     
     getNow: function(strict = false) { 
+        // 🎯 الاعتماد المؤقت على وقت الجهاز لتجنب اختفاء العروض أثناء الإقلاع
         if (strict && this.serverTimeOffset === 0 && !LiveStoreData.isOfflineMode) {
-            return Infinity; 
+            return Date.now(); 
         }
         return Date.now() + this.serverTimeOffset; 
     },
@@ -209,7 +211,6 @@ export const DataManager = {
             localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser));
         } catch (e) {
             console.warn("⚠️ [Storage Quota] مساحة التخزين ممتلئة، جاري التنظيف العميق لإنقاذ الجلسة...");
-            
             const keysToRemove = [];
             try {
                 for (let i = 0; i < localStorage.length; i++) {
@@ -223,9 +224,15 @@ export const DataManager = {
                     }
                 }
                 keysToRemove.forEach(k => localStorage.removeItem(k));
-                localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser)); 
+                
+                // 🎯 التغليف النهائي: في أسوأ السيناريوهات، لن يتوقف النظام عن العمل
+                try {
+                    localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(safeUser)); 
+                } catch (fatalErr) {
+                    console.error("🚨 [Critical Error] مساحة الجهاز منعدمة تماماً (0 Bytes). سيعمل المتجر في وضع الذاكرة المؤقتة.");
+                }
             } catch (cleanupErr) {
-                console.error("🚨 [Critical Error] فشل حفظ جلسة المستخدم تماماً. الذاكرة ممتلئة ومقفلة.");
+                console.error("🚨 [Critical Error] فشل حفظ الجلسة.");
             }
         }
     },

@@ -651,7 +651,7 @@ export const UICore = {
         // =========================================================
         // 🗂️ 3. قسم الأحداث المالية والطلبات (Finance & Transactions)
         // =========================================================
-        const FinanceActions = {
+const FinanceActions = {
             'confirm-purchase': async (e, id, val, target) => { 
                 const sys = getSys();
                 // 🛡️ Double-Spend Shield: حماية مشددة للنقرات
@@ -663,20 +663,21 @@ export const UICore = {
                 try { await sys.handlePurchaseSubmit?.(); } 
                 finally { target.dataset.processing = 'false'; }
             },
-            ''submit-balance': async (e, id, val, target, dataType, dataCurr) => {
-    const sys = getSys();
-    // 🛡️ Double-Spend Shield: حماية مشددة للنقرات
-    if (sys.State?.isProcessingTx || target.disabled || target.dataset.processing === 'true') {
-        console.warn("🛡️ [Double-Spend Shield] تم حظر نقرة إيداع متزامنة في الواجهة الأساسية.");
-        return;
-    }
-    target.dataset.processing = 'true';
-    try {
-        // 🎯 التحديث هنا: تمرير الزر (target) إلى الدالة
-        await sys.handleBalanceSubmit?.(dataCurr, target);
-    }
-    finally { target.dataset.processing = 'false'; }
-},         'apply-coupon': () => getSys().applyCoupon?.(),
+            'submit-balance': async (e, id, val, target, dataType, dataCurr) => {
+                const sys = getSys();
+                // 🛡️ Double-Spend Shield: حماية مشددة للنقرات
+                if (sys.State?.isProcessingTx || target.disabled || target.dataset.processing === 'true') {
+                    console.warn("🛡️ [Double-Spend Shield] تم حظر نقرة إيداع متزامنة في الواجهة الأساسية.");
+                    return;
+                }
+                target.dataset.processing = 'true';
+                try {
+                    // 🎯 التحديث هنا: تمرير الزر (target) إلى الدالة
+                    await sys.handleBalanceSubmit?.(dataCurr, target);
+                }
+                finally { target.dataset.processing = 'false'; }
+            },
+            'apply-coupon': () => getSys().applyCoupon?.(),
             'remove-coupon': () => getSys().removeCoupon?.(),
             'paste-coupon': () => this.pasteText?.(),
             'select-pay': (e, id) => getSys().selectPay?.(id),
@@ -692,8 +693,7 @@ export const UICore = {
                 else if (target.closest('.btn-receipt-export')) return RenderManager?.exportPaymentReceipt?.(id, target);
                 else return getSys().exportReceipt?.(id, target);
             }
-        };
-
+        };       
         // =========================================================
         // 🗂️ 4. قسم أحداث المتجر والمنتجات (Store & Products)
         // =========================================================
@@ -1017,11 +1017,11 @@ export const UICore = {
         const grid = document.getElementById('store-grid');
         this._toggleNavLoader(true); 
         
-        // 🛡️ الإصلاح المعماري 1: إزالة opacity: 0 التي تدمر رسم الـ GPU للصور المأخوذة من الكاش
-        // نستخدم الـ Blur الخفيف لإعطاء إحساس الانتقال دون تجميد دورة الرسم
+        // 🛡️ التحديث المعماري: إزالة البلور (Blur) القاتل للـ GPU واستخدام الشفافية فقط
         if (grid) { 
             grid.style.transition = 'none'; 
-            grid.style.filter = 'blur(4px)'; 
+            grid.style.opacity = '0'; 
+            grid.style.transform = 'translateY(15px)'; // حركة خفيفة للأسفل
         }
         
         requestAnimationFrame(() => {
@@ -1030,22 +1030,26 @@ export const UICore = {
             } catch (err) {
                 console.error("🚨 Render Error during transition:", err);
             } finally {
-                // 🛡️ Layout Flush: إجبار المتصفح على حساب الأبعاد ورسم الصور فوراً
+                // إجبار المتصفح على حساب الأبعاد (Reflow)
                 if (grid) void grid.offsetHeight;
 
                 setTimeout(() => {
                     this._toggleNavLoader(false); 
                     if (grid) { 
-                        grid.style.transition = 'filter 0.25s ease-out'; 
-                        grid.style.filter = 'blur(0)'; 
-                        // تنظيف الـ Filter بعد انتهاء الحركة
-                        setTimeout(() => { if(grid) grid.style.filter = ''; }, 300);
+                        // إعادة الشفافية والحركة بنعومة
+                        grid.style.transition = 'opacity 0.25s ease-out, transform 0.25s ease-out'; 
+                        grid.style.opacity = '1'; 
+                        grid.style.transform = 'translateY(0)'; 
+                        
+                        // تنظيف الـ CSS بعد انتهاء الحركة
+                        setTimeout(() => { 
+                            if(grid) { grid.style.transition = ''; grid.style.transform = ''; } 
+                        }, 250);
                     }
-                }, 50); // تقليل التأخير القاتل من 250ms إلى 50ms لمنع تعليق الشاشة
+                }, 30); // وقت قصير جداً جداً لمنع تعليق الشاشة
             }
         });
-    },
-    navigateHome: function() { 
+    },    navigateHome: function() { 
         this.closeSidebar(); this.currentCategoryId = null; this.navHistory = [];
         this._executePageTransition(() => { if(RenderManager.renderHome) RenderManager.renderHome(); });
     },
