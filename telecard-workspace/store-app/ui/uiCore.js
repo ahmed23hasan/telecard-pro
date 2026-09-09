@@ -663,18 +663,20 @@ export const UICore = {
                 try { await sys.handlePurchaseSubmit?.(); } 
                 finally { target.dataset.processing = 'false'; }
             },
-            'submit-balance': async (e, id, val, target, dataType, dataCurr) => {
-                const sys = getSys();
-                // 🛡️ Double-Spend Shield: حماية مشددة للنقرات
-                if (sys.State?.isProcessingTx || target.disabled || target.dataset.processing === 'true') {
-                    console.warn("🛡️ [Double-Spend Shield] تم حظر نقرة إيداع متزامنة في الواجهة الأساسية.");
-                    return;
-                }
-                target.dataset.processing = 'true';
-                try { await sys.handleBalanceSubmit?.(dataCurr); } 
-                finally { target.dataset.processing = 'false'; }
-            },
-            'apply-coupon': () => getSys().applyCoupon?.(),
+            ''submit-balance': async (e, id, val, target, dataType, dataCurr) => {
+    const sys = getSys();
+    // 🛡️ Double-Spend Shield: حماية مشددة للنقرات
+    if (sys.State?.isProcessingTx || target.disabled || target.dataset.processing === 'true') {
+        console.warn("🛡️ [Double-Spend Shield] تم حظر نقرة إيداع متزامنة في الواجهة الأساسية.");
+        return;
+    }
+    target.dataset.processing = 'true';
+    try {
+        // 🎯 التحديث هنا: تمرير الزر (target) إلى الدالة
+        await sys.handleBalanceSubmit?.(dataCurr, target);
+    }
+    finally { target.dataset.processing = 'false'; }
+},         'apply-coupon': () => getSys().applyCoupon?.(),
             'remove-coupon': () => getSys().removeCoupon?.(),
             'paste-coupon': () => this.pasteText?.(),
             'select-pay': (e, id) => getSys().selectPay?.(id),

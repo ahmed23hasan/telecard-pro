@@ -939,99 +939,98 @@ export const UIFinance = {
         });
     },
 
-    handleBalanceSubmit: async function(currency) {
-        const sys = getSys();
-        
-        // 🛡️ درع فولاذي لمنع الدفع المزدوج
-        if (sys.State?.isProcessingTx) {
-            console.warn("🛡️ [Double-Spend Shield] تم حظر محاولة إرسال إيداع متزامنة.");
-            return;
-        }
-
-        if (!this._validateKycAndSystem('deposit')) return;
-        
-        const input = document.getElementById('bal-amount');
-        const amount = this._parseSafeAmount(input ? input.value : '');
-        if (isNaN(amount) || amount <= 0) { sys.showToast?.('أدخل مبلغ إيداع صحيح', 'error'); return; }
-        
-        const payCurr = currency || this.currentPayCurrency || 'USD';
-
-        if (this.currentPayment && this.currentPayment.reqProof !== false) {
-            const uploadBox = document.getElementById('bal-upload-box');
-            
-            if (uploadBox && uploadBox.classList.contains('is-processing-img')) {
-                sys.showToast?.('جاري تجهيز الصورة، يرجى الانتظار لحظة...', 'warning');
-                return;
-            }
-            
-            if (!sys.State?.pendingReceiptFile) {
-                sys.showToast?.('أرفق إشعار الدفع أولاً', 'error');
-                if (uploadBox) {
-                    uploadBox.classList.remove('shake-error-input');
-                    void uploadBox.offsetWidth;
-                    uploadBox.classList.add('shake-error-input');
-                    setTimeout(() => uploadBox.classList.remove('shake-error-input'), 1000);
-                }
-                return; 
-            }
-        }
-
-        const validation = DataManager.calculateDepositFee(amount, this.currentPayment, payCurr);
-        if (!validation.isValid) {
-            sys.showToast?.(validation.msg, 'error');
-            if (input) {
-                input.classList.remove('shake-error-input');
-                void input.offsetWidth;
-                input.classList.add('shake-error-input');
-                setTimeout(() => input.classList.remove('shake-error-input'), 1500);
-            }
-            return;
-        }
-        
-        const submitBtn = document.querySelector('[data-action="submit-balance"]'); 
-        this._lockUI(submitBtn);
-        
-        let uploadedReceiptUrl = null;
-        try {
-            if (sys.State?.pendingReceiptFile) {
-                if (!StoreDB || typeof StoreDB.uploadImage !== 'function') throw new Error("نظام الرفع غير متوفر.");
-                const userId = DataManager.user?.uid || DataManager.user?.id || 'unknown';
-                
-                const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
-                const safeFileName = `deposit_${userId}_${Date.now()}_${uniqueId}.webp`;
-                
-                uploadedReceiptUrl = await StoreDB.uploadImage(sys.State.pendingReceiptFile, 'receipts', safeFileName, false);
-            }
-            const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
-            
-            if (result.success) {
-                sys.sfx?.('success'); 
-                this.closeBalanceModal();
-                if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
-                setTimeout(() => sys.openModal?.('success'), 150);
-            } else { 
-                if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(()=>{});
-                sys.showToast?.(result.msg || 'تعذر إرسال الطلب', 'error'); 
-                sys.sfx?.('error');
-            }
-        } catch (error) {
-            if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) {
-                StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(() => {});
-            }
-            
-            console.error("🚨 Client-Side Deposit Exception:", error);
-            let errMsg = 'حدث خطأ أثناء الاتصال بالخادم.';
-            const rawMsg = String(error.message || '');
-            if (/[\u0600-\u06FF]/.test(rawMsg)) errMsg = rawMsg;
-            
-            sys.showToast?.(errMsg, 'error');
-            sys.sfx?.('error');
-            
-        } finally {
-            this._unlockUI(submitBtn);
-        }
-    },
+    handleBalanceSubmit: async function(currency, submitBtn) {
+    const sys = getSys();
     
+    // 🛡️ درع فولاذي لمنع الدفع المزدوج
+    if (sys.State?.isProcessingTx) {
+        console.warn("🛡️ [Double-Spend Shield] تم حظر محاولة إرسال إيداع متزامنة.");
+        return;
+    }
+    
+    if (!this._validateKycAndSystem('deposit')) return;
+    
+    const input = document.getElementById('bal-amount');
+    const amount = this._parseSafeAmount(input ? input.value : '');
+    if (isNaN(amount) || amount <= 0) { sys.showToast?.('أدخل مبلغ إيداع صحيح', 'error'); return; }
+    
+    const payCurr = currency || this.currentPayCurrency || 'USD';
+    
+    if (this.currentPayment && this.currentPayment.reqProof !== false) {
+        const uploadBox = document.getElementById('bal-upload-box');
+        
+        if (uploadBox && uploadBox.classList.contains('is-processing-img')) {
+            sys.showToast?.('جاري تجهيز الصورة، يرجى الانتظار لحظة...', 'warning');
+            return;
+        }
+        
+        if (!sys.State?.pendingReceiptFile) {
+            sys.showToast?.('أرفق إشعار الدفع أولاً', 'error');
+            if (uploadBox) {
+                uploadBox.classList.remove('shake-error-input');
+                void uploadBox.offsetWidth;
+                uploadBox.classList.add('shake-error-input');
+                setTimeout(() => uploadBox.classList.remove('shake-error-input'), 1000);
+            }
+            return;
+        }
+    }
+    
+    const validation = DataManager.calculateDepositFee(amount, this.currentPayment, payCurr);
+    if (!validation.isValid) {
+        sys.showToast?.(validation.msg, 'error');
+        if (input) {
+            input.classList.remove('shake-error-input');
+            void input.offsetWidth;
+            input.classList.add('shake-error-input');
+            setTimeout(() => input.classList.remove('shake-error-input'), 1500);
+        }
+        return;
+    }
+    
+    // 🎯 التحديث الجذري: استخدام الزر الممرر مباشرة بدلاً من البحث عنه في الـ DOM
+    this._lockUI(submitBtn);
+    
+    let uploadedReceiptUrl = null;
+    try {
+        if (sys.State?.pendingReceiptFile) {
+            if (!StoreDB || typeof StoreDB.uploadImage !== 'function') throw new Error("نظام الرفع غير متوفر.");
+            const userId = DataManager.user?.uid || DataManager.user?.id || 'unknown';
+            
+            const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
+            const safeFileName = `deposit_${userId}_${Date.now()}_${uniqueId}.webp`;
+            
+            uploadedReceiptUrl = await StoreDB.uploadImage(sys.State.pendingReceiptFile, 'receipts', safeFileName, false);
+        }
+        const result = await DataManager.submitBalanceRequest(amount, this.currentPayment, payCurr, uploadedReceiptUrl);
+        
+        if (result.success) {
+            sys.sfx?.('success');
+            this.closeBalanceModal();
+            if (typeof DataManager.syncUser === 'function') DataManager.syncUser();
+            setTimeout(() => sys.openModal?.('success'), 150);
+        } else {
+            if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(() => {});
+            sys.showToast?.(result.msg || 'تعذر إرسال الطلب', 'error');
+            sys.sfx?.('error');
+        }
+    } catch (error) {
+        if (uploadedReceiptUrl && StoreDB.deleteImageByUrl) {
+            StoreDB.deleteImageByUrl(uploadedReceiptUrl).catch(() => {});
+        }
+        
+        console.error("🚨 Client-Side Deposit Exception:", error);
+        let errMsg = 'حدث خطأ أثناء الاتصال بالخادم.';
+        const rawMsg = String(error.message || '');
+        if (/[\u0600-\u06FF]/.test(rawMsg)) errMsg = rawMsg;
+        
+        sys.showToast?.(errMsg, 'error');
+        sys.sfx?.('error');
+        
+    } finally {
+        this._unlockUI(submitBtn);
+    }
+},    
     togglePayDetail: function(headerElement) {
         if (!headerElement) return; const card = headerElement.closest('.pay-history-card'); if (!card) return;
         window.requestAnimationFrame(() => {

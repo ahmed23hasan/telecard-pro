@@ -185,61 +185,30 @@ export const RenderManager = {
     
     const safeUrl = typeof Utils !== 'undefined' && Utils.safeUrl ? Utils.safeUrl(rawUrl) : String(rawUrl).replace(/"/g, '&quot;');
     
-    const imgVars = this._getImgLoadVars(rawUrl);
-    const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
+    // 🎯 الاستراتيجية الجديدة: هل الصورة محملة مسبقاً في الذاكرة؟
+    const cacheKey = rawUrl;
+    const isCached = window.StoreRenderApp.imgCache.has(cacheKey);
     
-    // 🛡️ إبقاء كلاس التحميل (img-loading-state) كحالة افتراضية دائماً
-    const imgClass = type === 'pay' ? `pay-icon-img ${imgVars.imgClass}` : imgVars.imgClass;
+    // 1️⃣ حالة الصورة المخبأة (Cached) أو أيقونات الدفع:
+    // ظهور فوري، بدون شيمر، بدون انتظار OnLoad، بدون تحميل كسول.
+    if (isCached || type === 'pay') {
+        const imgClass = type === 'pay' ? 'pay-icon-img' : 'img-loaded-flat';
+        const imgHTML = `<img src="${safeUrl}" data-key="${cacheKey}" class="${imgClass}" loading="eager" alt="${safeName}" data-img-type="${type}" onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
+        return { html: imgHTML + fallbackHTML, wrapperClass: 'shimmer-stop-override', wrapperStyle: '' };
+    }
     
-    const placeholder = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
-    const isCached = window.StoreRenderApp.imgCache.has(imgVars.cacheKey);
-    
-    const useLazyObserver = !isCached && !isHighPriority && type !== 'pay';
-    const finalLazyAttrs = isHighPriority ? 'loading="eager" decoding="sync"' : (useLazyObserver ? '' : 'loading="lazy" decoding="async"');
-    
-    // 🛡️ الحل الاحترافي: إجبار المتصفح على الإبلاغ عن التحميل في كل الحالات (سواء كاش أو جديد)
-    // لا تقم أبداً بإزالة حدث onload، فهو الوحيد القادر على قتل الشيمر بالوقت المناسب
+    // 2️⃣ حالة الصورة الجديدة (أول مرة للمنتجات أو الأقسام):
+    // تفعيل الشيمر، ربط حدث OnLoad لإخفاء الشيمر لاحقاً، والتحميل الكسول.
+    const useLazyObserver = !isHighPriority;
     const onloadAttr = 'onload="window.StoreRenderApp.onImgLoad(this)"';
+    const imgClass = 'img-loading-state';
+    const placeholder = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
     
-    let imgHTML = `<img ${useLazyObserver ? `src="${placeholder}" data-src="${safeUrl}"` : `src="${safeUrl}"`} data-key="${imgVars.cacheKey}" class="${imgClass}" ${finalLazyAttrs} alt="${safeName}" ${priorityAttr} data-img-type="${type}" ${onloadAttr} onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
+    const imgHTML = `<img ${useLazyObserver ? `src="${placeholder}" data-src="${safeUrl}"` : `src="${safeUrl}" loading="eager"`} data-key="${cacheKey}" class="${imgClass}" alt="${safeName}" data-img-type="${type}" ${onloadAttr} onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
     
-    imgHTML += fallbackHTML;
-    
-    // 🛡️ عدم إرسال shimmer-stop-override أبداً في البداية.. الشيمر يجب أن يعمل حتى يقتله الـ onload
-    return { html: imgHTML, wrapperClass: '', wrapperStyle: imgVars.wrapperStyle };
-},
-        _generateImageHTML: function(rawUrl, safeName, type, isHighPriority = false) {
-            let defaultIcon = type === 'cat' ? 'fa-layer-group' : (type === 'pay' ? 'fa-building-columns' : 'fa-box-open');
-            let defaultClass = type === 'pay' ? 'pay-icon-default' : 'default-prod-icon';
-            let extraClass = type === 'story' ? ' story-fallback-icon' : '';
-            
-            const fallbackHTML = `<div class="${defaultClass} fallback-icon-ready${extraClass}" style="display: none;"><i class="fa-solid ${Utils.escapeHtml(defaultIcon)}"></i></div>`;
-            
-            if (!rawUrl) return { html: fallbackHTML.replace('display: none;', 'display: flex;'), wrapperClass: ' shimmer-stop-override', wrapperStyle: '' };
-            
-            const safeUrl = typeof Utils !== 'undefined' && Utils.safeUrl ? Utils.safeUrl(rawUrl) : String(rawUrl).replace(/"/g, '&quot;');
-            
-            // 🛡️ إرسال نوع الصورة والأولوية لمحرك المتغيرات
-            const imgVars = this._getImgLoadVars(rawUrl, type, isHighPriority);
-            const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
-            const imgClass = type === 'pay' ? `pay-icon-img ${imgVars.imgClass}` : imgVars.imgClass;
-            
-            const placeholder = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
-            const isCached = window.StoreRenderApp.imgCache.has(imgVars.cacheKey);
-            
-            // 🛡️ استثناء طرق الدفع من المراقبة الكسولة لأنها داخل نافذة
-            const useLazyObserver = !isCached && !isHighPriority && type !== 'pay';
-            
-            const finalLazyAttrs = isHighPriority ? 'loading="eager" decoding="sync"' : (useLazyObserver ? '' : imgVars.lazyAttrs);
-            
-            // 🛡️ إزالة حدث onload كلياً إذا تجاوزنا اللودر لمنع إعادة التنفيذ الوهمي
-            const onloadAttr = (isCached || type === 'pay') ? '' : 'onload="window.StoreRenderApp.onImgLoad(this)"';
-            
-            let imgHTML = `<img ${useLazyObserver ? `src="${placeholder}" data-src="${safeUrl}"` : `src="${safeUrl}"`} data-key="${imgVars.cacheKey}" class="${imgClass}" ${finalLazyAttrs} alt="${safeName}" ${priorityAttr} data-img-type="${type}" ${onloadAttr} onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
-            imgHTML += fallbackHTML;
-            
-            return { html: imgHTML, wrapperClass: imgVars.wrapperClass, wrapperStyle: imgVars.wrapperStyle };
-        },    _generateProductCardHTML: function(p, idx) {
+    return { html: imgHTML + fallbackHTML, wrapperClass: '', wrapperStyle: '' };
+}, 
+_generateProductCardHTML: function(p, idx) {
         let pricingInfo = null;
         const activeOffer = DataManager.getActiveOffer(p.id);
         
