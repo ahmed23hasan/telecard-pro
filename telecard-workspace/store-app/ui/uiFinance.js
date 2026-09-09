@@ -4,8 +4,8 @@
 // 🚀 التحديثات المعمارية الصارمة (V18.9.1 - Finance Integrity Patch):
 // 1. Context Loss Fix 🛡️: الحفاظ على سياق (this) في مراقب الشبكة (Offline Handler).
 // 2. Strict Double-Spend Shield 🛡️: الاعتماد المطلق على State لمنع تكرار الطلبات.
-// 3. Canvas Error Catch 🛡️: منع تجمد الواجهة عند محاولة ضغط صور تالفة أو غير مدعومة.
-// 4. Memory Leak Guard 🛡️: تنظيف صارم للـ Blobs من الذاكرة العشوائية لضمان استقرار الأداء.
+// 3. Worker Offloading 🛡️: نقل ضغط إيصالات الإيداع للـ Web Worker لمنع تجميد المتصفح.
+// 4. Ghost Errors Fix 🛡️: ربط تنبيهات حدود الكمية بنظام الإشعارات المركزي (Toast).
 // ============================================================================
 
 import * as Utils from '../utils.js';
@@ -270,7 +270,6 @@ export const UIFinance = {
             if (dynOps) { dynOps.style.display = 'none'; dynOps.innerHTML = ''; dynOps.classList.remove('pm-ops-visible'); }
             if (staOps) staOps.style.display = 'none';
             if (simpleQtyBox) simpleQtyBox.style.display = 'none';
-            getSys().hideQtyError?.();
 
             const createInput = (inpId, lbl) => `<div class="floating-group"><input type="text" id="${inpId}" class="floating-input" placeholder=" " autocomplete="off"><label class="floating-label">${Utils.escapeHtml(lbl || '')}</label></div>`;
             let inputHtml = '';
@@ -369,9 +368,18 @@ export const UIFinance = {
     updateSimpleQty: function(change) {
         let el = document.getElementById('simple-qty-val'); if (!el || !DataManager.currentProd) return;
         let val = Utils.parseSafeNumber(el.value), max = DataManager.currentProd.simpleMax || 10, min = DataManager.currentProd.minQty || 1, newVal = val + change;
-        if (newVal > max) { getSys().sfx?.('error'); getSys().showQtyError?.(`تجاوزت الحد (${max})`); return; }
+        
+        // 🛡️ Ghost Errors Fix: تفعيل الإشعار الصريح عبر التوست بدلاً من الدوال المفقودة
+        if (newVal > max) { 
+            getSys().sfx?.('error'); 
+            getSys().showToast?.(`تجاوزت الحد المسموح (${max})`, 'warning'); 
+            return; 
+        }
+        
         if (newVal < min) return; 
-        el.value = newVal; getSys().hideQtyError?.(); getSys().updatePriceDisplay?.(); getSys().revalidateAppliedCoupon?.();
+        el.value = newVal; 
+        getSys().updatePriceDisplay?.(); 
+        getSys().revalidateAppliedCoupon?.();
     },
 
     updatePriceDisplay: function() {
@@ -573,20 +581,32 @@ export const UIFinance = {
         }
     },
 
-    openAddBalance: function() {
-        if (!this._validateKycAndSystem('deposit')) return;
-        getSys().resetUI?.();
-        
-        this._manageDepositModalState(false);
-
-        const blockedView = document.getElementById('bal-blocked-view'), normalView = document.getElementById('bal-normal-view');
-        if(blockedView) blockedView.style.display = 'none'; 
-        if(normalView) normalView.style.display = ''; 
-        
-        if(RenderManager.renderPayMethods) RenderManager.renderPayMethods(); 
-        getSys().openModal?.('balance');
-    },
-
+            openAddBalance: function() {
+    if (!this._validateKycAndSystem('deposit')) return;
+    getSys().resetUI?.();
+    
+    this._manageDepositModalState(false);
+    
+    const blockedView = document.getElementById('bal-blocked-view'),
+        normalView = document.getElementById('bal-normal-view');
+    if (blockedView) blockedView.style.display = 'none';
+    if (normalView) normalView.style.display = '';
+    
+    if (RenderManager.renderPayMethods) {
+        RenderManager.renderPayMethods();
+        const container = document.getElementById('bal-pay-grid');
+        if (container) void container.offsetHeight; // إجبار المتصفح على حساب الأبعاد
+    }
+    
+    // 🛡️ الحل الاحترافي: استخدام Double requestAnimationFrame
+    // الفريم الأول: يضمن انتهاء RenderManager من حقن الـ HTML
+    // الفريم الثاني: يضمن أن المتصفح قد قام بتلوين (Paint) الأيقونات قبل فتح النافذة
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            getSys().openModal?.('balance');
+        });
+    });
+},
     changeDepositCurrency: function(curr) {
         this.currentPayCurrency = curr;
         window.requestAnimationFrame(() => {
@@ -773,7 +793,7 @@ export const UIFinance = {
         }
     },    
     
-    previewReceipt: function(inp) { 
+    previewReceipt: async function(inp) { 
         const sys = getSys();
         const file = inp.files && inp.files[0];
         
@@ -834,61 +854,36 @@ export const UIFinance = {
                 uploadBox.innerHTML = `<div class="bal-upload-success-row"><i class="fa-solid fa-spinner fa-spin bal-upload-success-icon"></i><span class="bal-upload-success-text">جاري المعالجة...</span></div>`;
             }
 
-            const reader = new FileReader(); 
-            reader.onload = e => { 
-                if (sys.State?.currentImageJobId !== currentJobId) return; 
-                const img = new Image();
-                img.onload = () => {
-                    requestAnimationFrame(() => {
-                        if (sys.State?.currentImageJobId !== currentJobId) return;
-                        try {
-                            const canvas = document.createElement('canvas');
-                            let width = img.width, height = img.height; const MAX_SIZE = 1200; 
-                            if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } 
-                            else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
-                            
-                            canvas.width = width; canvas.height = height; const ctx = canvas.getContext('2d'); 
-                            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height); ctx.drawImage(img, 0, 0, width, height);
-                            
-                            canvas.toBlob((blob) => {
-                                if (sys.State?.currentImageJobId !== currentJobId) return; 
-                                if (!blob) throw new Error("تعذر استخراج بيانات الصورة (Blob failure).");
-                                
-                                const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
-                                const safeFileName = `deposit_img_${Date.now()}_${uniqueId}.webp`;
-                                
-                                if (sys.State) sys.State.pendingReceiptFile = new File([blob], safeFileName, { type: 'image/webp' });
-                                
-                                if(preview) { preview.src = URL.createObjectURL(blob); preview.style.display = 'block'; preview.className = 'bal-receipt-preview-new'; }
-                                if (uploadBox) uploadBox.classList.remove('is-processing-img');
-                                setUploadSuccessUI('image');
-                                canvas.width = 0; canvas.height = 0; img.src = '';
-                            }, 'image/webp', 0.75);
-                        } catch (err) {
-                            console.error("🚨 Canvas Processing Error:", err);
-                            sys.showToast?.('تعذر معالجة الصورة، يرجى المحاولة بصورة أخرى.', 'error');
-                            if (uploadBox) {
-                                uploadBox.classList.remove('is-processing-img');
-                                uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>'; 
-                            }
-                            inp.value = '';
-                            const clearBtn = document.getElementById('bal-file-clear');
-                            if(clearBtn) clearBtn.classList.add('hide-element');
-                        }
-                    });
-                };
-                img.onerror = () => {
-                    console.error("🚨 Image Load Error: الملف تالف أو غير مدعوم.");
-                    sys.showToast?.('تعذر قراءة الصورة، الملف تالف أو امتداده غير صحيح.', 'error');
-                    if (uploadBox) {
-                        uploadBox.classList.remove('is-processing-img');
-                        uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>'; 
-                    }
-                    inp.value = '';
-                };
-                img.src = e.target.result;
-            }; 
-            reader.readAsDataURL(file); 
+            try {
+                // 🛡️ استخدام المحرك الخلفي لضغط الصورة دون تجميد المتصفح
+                const compressed = await sys.Auth._compressImage(file, 1200);
+                
+                if (sys.State?.currentImageJobId !== currentJobId) {
+                    URL.revokeObjectURL(compressed.previewUrl);
+                    return; 
+                }
+                
+                if (sys.State) sys.State.pendingReceiptFile = compressed.file;
+                
+                if(preview) { 
+                    preview.src = compressed.previewUrl; 
+                    preview.style.display = 'block'; 
+                    preview.className = 'bal-receipt-preview-new'; 
+                }
+                if (uploadBox) uploadBox.classList.remove('is-processing-img');
+                setUploadSuccessUI('image');
+                
+            } catch (err) {
+                console.error("🚨 Image Processing Error:", err);
+                sys.showToast?.('تعذر معالجة الصورة، الملف تالف أو غير مدعوم.', 'error');
+                if (uploadBox) {
+                    uploadBox.classList.remove('is-processing-img');
+                    uploadBox.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>أرفق إشعار الدفع</span>'; 
+                }
+                inp.value = '';
+                const clearBtn = document.getElementById('bal-file-clear');
+                if(clearBtn) clearBtn.classList.add('hide-element');
+            }
         }
     },
     

@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Server Edition) - النسخة V26.4.0 👑 (The Fortress)
+// 💰 المحرك المالي المركزي (Server Edition) - النسخة V26.5.0 👑 (The Fortress)
 // 🎯 الوظيفة: الحساب المالي السيادي، حماية الأرباح، تسعير البوابات والـ VIP.
-// 🚀 التحديثات المعمارية (V26.4.0 - Absolute Math Guard & Performance):
-// 1. Absolute Math Guard 🛡️: إيقاف الإخفاق الصامت ورمي أخطاء حتمية عند القسمة على صفر.
-// 2. Base Currency Shield 🛡️: منع الكتابة الفوقية على عملة الأساس من أي مدخلات خارجية.
-// 3. Defense in Depth 🛡️: تحقق مزدوج قبل عمليات التحويل لتحديد العملة المعطوبة بدقة.
-// 4. O(1) Optimization ⚡: استخدام Set للتحقق من المفاتيح لتسريع أداء السيرفر.
+// 🚀 التحديثات المعمارية (V26.5.0 - Absolute Zero-Drop Shield):
+// 1. Zero-Drop Shield 🛡️: السيرفر يرفض تحويلات العملة الفاشلة بخطأ قطعي بدلاً من إرجاع (0) لمنع الشراء المجاني.
+// 2. Absolute Math Guard 🛡️: إيقاف الإخفاق الصامت ورمي أخطاء حتمية عند القسمة على صفر.
+// 3. Base Currency Shield 🛡️: منع الكتابة الفوقية على عملة الأساس من أي مدخلات خارجية.
+// 4. O(1) Optimization ⚡: استخدام Set للتحقق من المفاتيح لتسريع أداء السيرفر وتقليل استهلاك المعالج.
 // ============================================================================
 
 class FinancialSecurityError extends Error {
@@ -240,17 +240,26 @@ const FinancialEngineDef = {
     },
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
-        let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c);
-        if (isNaN(v) || !isFinite(v)) return 0;
-        
-        const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
-        let result = 0;
-        
-        if(rnd === 'floor') result = Math.floor((v + Number.EPSILON) * factor) / factor;
-        else if(rnd === 'ceil') result = Math.ceil((v - Number.EPSILON) * factor) / factor;
-        else result = Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
-        
-        return isNaN(result) ? 0 : result;
+        // 🛡️ التحديث الماسي (Zero-Drop Shield): السيرفر يجب أن ينفجر ويرفض العملية إذا فشل التحويل، ولا يعيد صفر!
+        try {
+            let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c);
+            if (isNaN(v) || !isFinite(v)) {
+                throw new FinancialSecurityError(`تحويل العملة أنتج قيمة رياضية غير صالحة (NaN/Infinity).`);
+            }
+            
+            const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
+            let result = 0;
+            
+            if(rnd === 'floor') result = Math.floor((v + Number.EPSILON) * factor) / factor;
+            else if(rnd === 'ceil') result = Math.ceil((v - Number.EPSILON) * factor) / factor;
+            else result = Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
+            
+            if (isNaN(result)) throw new FinancialSecurityError(`نتيجة التقريب غير صالحة.`);
+            return result;
+        } catch (e) {
+            // 🚨 تمرير الخطأ لدالة createOrder في السيرفر لتقوم برفض الطلب وإلغاء المعاملة بالكامل
+            throw new FinancialSecurityError(`[محول العملات]: ${e.message}`);
+        }
     },
 
     // ========================================================================
@@ -443,23 +452,44 @@ const FinancialEngineDef = {
     },
 
     // ========================================================================
-    // 👑 القسسم الخامس: محرك مستويات العضوية
+    // 👑 القسم الخامس: محرك مستويات العضوية
     // ========================================================================
     
-    getUserTier: function(user, tiers) {
-        if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
-        const safeUser = user || {};
-        const userTierId = String(safeUser.tierId || '1');
+    // ========================================================================
+// 👑 القسم الخامس: محرك مستويات العضوية (المحصن أمنياً)
+// ========================================================================
+
+getUserTier: function(user, tiers) {
+    // 1. حماية فورية من البيانات المفقودة لمنع توقف التطبيق
+    if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
+    
+    const safeUser = user || {};
+    
+    // 2. التوحيد المعماري: البحث عن المعرف القياسي بدلاً من الأرقام العشوائية
+    const userTierId = String(safeUser.tierId || 'TIER_DEFAULT');
+    let foundTier = tiers.find(t => String(t.id) === userTierId);
+    
+    // 3. السقوط الآمن المطلق (Absolute Fail-Safe)
+    if (!foundTier) {
+        // المحاولة أ: البحث عن المستوى الافتراضي المحدد من الإدارة صراحةً
+        foundTier = tiers.find(t => t.isDefault === true);
         
-        let foundTier = tiers.find(t => String(t.id) === userTierId);
-
+        // المحاولة ب: البحث عن المعرف القياسي الثابت
+        if (!foundTier) foundTier = tiers.find(t => String(t.id) === 'TIER_DEFAULT');
+        
+        // المحاولة ج (الحماية القصوى من الإفلاس): 
+        // إذا حذف الإدمن كل المؤشرات، لا نختار مستوى عشوائياً (قد يكون VIP بنسبة خصم 50%)!
+        // بل نرتب المستويات تصاعدياً حسب "حجم المبيعات المطلوبة"، ونأخذ المستوى الأضعف ليعامل كـ "عضو جديد".
         if (!foundTier) {
-            foundTier = tiers.find(t => t.isDefault === true) || tiers.find(t => String(t.id) === '1') || tiers[0];
+            // استخدام دالة مساعدة لضمان قراءة الحقل الصحيح مهما كان إصدار قاعدة البيانات
+            const getThresh = (t) => Number(t.threshold || t.condition_amount || 0);
+            const sortedBySafety = [...tiers].sort((a, b) => getThresh(a) - getThresh(b));
+            foundTier = sortedBySafety[0];
         }
-
-        return foundTier;
-    },
-
+    }
+    
+    return foundTier;
+},
     getTierProgress: function(user, tiers, nowTime) {
         if (!user || !tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
         

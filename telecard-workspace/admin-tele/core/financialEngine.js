@@ -1,10 +1,10 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - الإصدار المؤسسي V26.3.0 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - الإصدار الألماسي V27.0.0 💎 (The Oracle)
 // 🎯 الوظيفة: محاكاة أسعار السيرفر، كشف الأرباح، وتشخيص الأخطاء بشفافية مطلقة للمدير.
-// 🚀 التحديثات المعمارية (V26.3.0 - Smart Fallback Guard): 
-// 1. Smart Fallback Guard 🛡️: دمج نظام التعافي الذكي لاستخراج المستوى الافتراضي الخالد (isDefault) بدلاً من الفهرس العشوائي.
-// 2. Missing Bridge Fix 🛡️: إضافة `getPricingLocal` لدعم معاينة المنتجات في لوحة الإدارة مع كشف الأرباح.
-// 3. Infinity Guard 🛡️: منع الأرقام اللانهائية (Infinity) من كسر جداول لوحة الإدارة عند حذف عملة.
+// 🚀 التحديثات المعمارية (V27.0.0 - Safe Diagnostic Core): 
+// 1. Unified Fail-Safe Tier 🛡️: دمج نظام التعافي الذكي لاستخراج المستوى الافتراضي (TIER_DEFAULT) والفرز العادل.
+// 2. Base Currency Strictness 🛡️: إجبار التحويل على الانطلاق من عملة الأساس لضمان دقة كشف الأرباح للعملات المحلية.
+// 3. Admin Infinity Guard 🛡️: منع الأرقام اللانهائية من كسر جداول لوحة الإدارة دون إيقاف عرض المنتجات.
 // 4. Absolute Transparency 👁️: الحفاظ على كشف التكاليف، الأرباح، وأسباب الرفض الصريحة للإدمن.
 // ============================================================================
 
@@ -42,7 +42,7 @@ const FinancialEngineDef = {
         const numB = Number(b) || 0;
         if (numB === 0) { 
             console.error("🚨 [Admin Math Guard]: Division by zero prevented! يرجى مراجعة أسعار الصرف."); 
-            return numA; // إرجاع القيمة الأصلية لمنع الانهيار
+            return numA; // إرجاع القيمة الأصلية لمنع الانهيار في واجهة الإدمن
         }
         return FinancialEngineDef._preciseRound(numA / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
     },
@@ -434,15 +434,29 @@ const FinancialEngineDef = {
     // ========================================================================
     
     getUserTier: function(user, tiers) {
+        // 1. حماية فورية من البيانات المفقودة لمنع توقف التطبيق
         if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
-        const safeUser = user || {};
-        const userTierId = String(safeUser.tierId || 'TIER_DEFAULT');
         
+        const safeUser = user || {};
+        
+        // 2. التوحيد المعماري: البحث عن المعرف القياسي بدلاً من الأرقام العشوائية
+        const userTierId = String(safeUser.tierId || 'TIER_DEFAULT');
         let foundTier = tiers.find(t => String(t.id) === userTierId);
 
-        // 🛡️ التوافق المعماري: إذا كان مستوى العميل غير موجود، استخرج المستوى الافتراضي الخالد
+        // 3. السقوط الآمن المطلق (Absolute Fail-Safe)
         if (!foundTier) {
-            foundTier = tiers.find(t => t.isDefault === true) || tiers.find(t => String(t.id) === 'TIER_DEFAULT') || tiers[0];
+            // المحاولة أ: البحث عن المستوى الافتراضي المحدد من الإدارة صراحةً
+            foundTier = tiers.find(t => t.isDefault === true);
+            
+            // المحاولة ب: البحث عن المعرف القياسي الثابت
+            if (!foundTier) foundTier = tiers.find(t => String(t.id) === 'TIER_DEFAULT');
+            
+            // المحاولة ج (الحماية القصوى من الإفلاس): 
+            if (!foundTier) {
+                const getThresh = (t) => Number(t.threshold || t.condition_amount || 0);
+                const sortedBySafety = [...tiers].sort((a, b) => getThresh(a) - getThresh(b));
+                foundTier = sortedBySafety[0];
+            }
         }
 
         return foundTier;
@@ -453,6 +467,9 @@ const FinancialEngineDef = {
         
         const sortedTiers = [...tiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
         const currentTier = FinancialEngineDef.getUserTier(user, sortedTiers);
+        
+        // 🛡️ التحديث المعماري: حماية من التوقف الكامل للتطبيق (Fatal Crash Guard)
+        if (!currentTier) return null;
         
         const spent = Number(user.tierCycleSpent || 0);
         const now = nowTime || Date.now();
@@ -507,7 +524,14 @@ const FinancialEngineDef = {
         const result = FinancialEngineDef.calculateOrderTotal(params, qty);
 
         const convert = (amt) => {
-            return FinancialEngineDef.convertViaUSDHelper(amt, baseCur, displayCur, rates, 'round', 'pricing');
+            return FinancialEngineDef.convertViaUSDHelper(
+                amt, 
+                FinancialEngineDef.CONFIG.BASE_CURRENCY, // 👈 الإجبار المطلق على استخدام عملة السيرفر الأساسية هنا
+                displayCur, 
+                rates, 
+                'round', 
+                'pricing'
+            );
         };
 
         const unitFinalLocal = convert(result.finalPrice);

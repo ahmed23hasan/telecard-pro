@@ -1,11 +1,12 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.9.1 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.9.2 💎
 // 🎯 الوظيفة: النوافذ، التوجيه الذكي، الإشعارات، التنسيق، ومزامنة الصوت
-// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - Core Stability & Routing Patch):
+// 🚀 التحديثات المعمارية الصارمة (V18.9.2 - Core Stability & Routing Patch):
 // 1. Double-Spend Shield Alignment 🛡️: محاذاة مستمعات الأحداث المركزية مع (UIState) لردع النقرات العشوائية.
 // 2. History API De-bloat 🛡️: منع دفع حالات متطابقة في سجل المتصفح لتأمين زر "الرجوع" في الهواتف.
 // 3. Silent Error Auditing 🛡️: تعقب صامت لأخطاء (Storage & Audio) المكتومة لتسهيل عمليات (Debugging).
 // 4. Audio Primer Optimization 🛡️: تقنين مبدئيات تشغيل الصوت في iOS لمنع استنزاف البطارية مع كثرة النقرات.
+// 5. Zombie Modals Fix 🛡️: تغليف أوامر إخفاء النوافذ بـ (RAF) لمنع تعليق الشاشة عند النقر السريع المتزامن.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY, DYNAMIC_PREFIXES } from '../config.js';           
@@ -241,7 +242,9 @@ export const UICore = {
         const modal = document.getElementById(`${modalId}-modal`);
         
         if (modal) {
-            modal.classList.remove('active');
+            requestAnimationFrame(() => {
+                modal.classList.remove('active');
+            });
             if (modal._scrollTimer) clearTimeout(modal._scrollTimer);
             modal._scrollTimer = setTimeout(() => {
                 modal.scrollTop = 0;
@@ -249,7 +252,11 @@ export const UICore = {
             }, 350);
         }
         
-        if (overlay) overlay.classList.remove('active');
+        if (overlay) {
+            requestAnimationFrame(() => {
+                overlay.classList.remove('active');
+            });
+        }
         
         if (state.activeModals) {
             state.activeModals = state.activeModals.filter(id => id !== modalId);
@@ -1004,28 +1011,38 @@ export const UICore = {
         else { loader.classList.remove('active'); setTimeout(() => { if(!loader.classList.contains('active')) loader.style.display = 'none'; }, 200); }
     },
 
-    _executePageTransition: function(renderCallback) {
+        _executePageTransition: function(renderCallback) {
         const grid = document.getElementById('store-grid');
         this._toggleNavLoader(true); 
         
-        if (grid) { grid.style.transition = 'none'; grid.style.opacity = '0'; }
+        // 🛡️ الإصلاح المعماري 1: إزالة opacity: 0 التي تدمر رسم الـ GPU للصور المأخوذة من الكاش
+        // نستخدم الـ Blur الخفيف لإعطاء إحساس الانتقال دون تجميد دورة الرسم
+        if (grid) { 
+            grid.style.transition = 'none'; 
+            grid.style.filter = 'blur(4px)'; 
+        }
         
         requestAnimationFrame(() => {
-            setTimeout(() => {
-                try {
-                    if (typeof renderCallback === 'function') renderCallback(); 
-                } catch (err) {
-                    console.error("🚨 Render Error during transition:", err);
-                } finally {
-                    setTimeout(() => {
-                        this._toggleNavLoader(false); 
-                        if (grid) { grid.style.transition = 'opacity 0.25s ease-out'; grid.style.opacity = '1'; }
-                    }, 250);
-                }
-            }, 0);
+            try {
+                if (typeof renderCallback === 'function') renderCallback(); 
+            } catch (err) {
+                console.error("🚨 Render Error during transition:", err);
+            } finally {
+                // 🛡️ Layout Flush: إجبار المتصفح على حساب الأبعاد ورسم الصور فوراً
+                if (grid) void grid.offsetHeight;
+
+                setTimeout(() => {
+                    this._toggleNavLoader(false); 
+                    if (grid) { 
+                        grid.style.transition = 'filter 0.25s ease-out'; 
+                        grid.style.filter = 'blur(0)'; 
+                        // تنظيف الـ Filter بعد انتهاء الحركة
+                        setTimeout(() => { if(grid) grid.style.filter = ''; }, 300);
+                    }
+                }, 50); // تقليل التأخير القاتل من 250ms إلى 50ms لمنع تعليق الشاشة
+            }
         });
     },
-
     navigateHome: function() { 
         this.closeSidebar(); this.currentCategoryId = null; this.navHistory = [];
         this._executePageTransition(() => { if(RenderManager.renderHome) RenderManager.renderHome(); });

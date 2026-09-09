@@ -1,11 +1,12 @@
 // ============================================================================
-// 🖥️ محرك الرسم والتحكم (renderManager.js) - الإصدار التجاري V19.0.0 🚀
+// 🖥️ محرك الرسم والتحكم (renderManager.js) - الإصدار التجاري V19.1.0 🚀
 // 🎯 الوظيفة: المايسترو لمعالجة البيانات، الفلترة، الحماية، والتوجيه المرئي
-// 🚀 التحديثات المعمارية الصارمة (V19.0.0 - Ultimate Production Release):
+// 🚀 التحديثات المعمارية الصارمة (V19.1.0 - Ultimate Production Release):
 // 1. RAM Saver Engine 🛡️: إطلاق محرك IntersectionObserver لتدمير استهلاك الذاكرة العشوائية للصور بنسبة 70%.
 // 2. Anti-Stuttering Patch 🛡️: إزالة التداخل الزمني (Nested RAF) في الفواتير لمنع تجميد الشاشة.
 // 3. Silent Failure Shield 🛡️: رصد الأخطاء الفردية داخل المصفوفات واستبدالها ببطاقات (Fallback) لمنع انهيار الواجهة.
-// 4. Separation of Concerns 🛡️: نقل أنماط إخفاء الفواتير (Stealth CSS) لملف خارجي تنفيذاً للمعايير المعمارية.
+// 4. Shimmer Assassination Fix (Patched) 🛡️: الاعتماد على الـ Attributes لمنع تضارب المتصفح مع التحميل الكسول.
+// 5. Unified DOM Fragment (Patched) 🛡️: معالجة مشكلة Hidden Paint Failure عبر التوجيه المباشر لدورة رسم المتصفح.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS } from './config.js'; 
@@ -46,6 +47,11 @@ window.StoreRenderApp = window.StoreRenderApp || {
     
     onImgLoad: function(img) {
         if (!img) return;
+        
+        // 🛡️ درع حماية الشيمر (Patched): الاعتماد على وجود السمة لمعرفة أن الصورة لا تزال مؤقتة
+        if (img.hasAttribute('data-src')) {
+            return; 
+        }
         
         const key = img.getAttribute('data-key');
         if (key) {
@@ -156,44 +162,84 @@ export const RenderManager = {
         });
     },
 
-    _getImgLoadVars: function(rawUrl) {
-        if (!rawUrl) return { imgClass: '', wrapperClass: '', lazyAttrs: '', imgStyle: '', wrapperStyle: '', cacheKey: '' };
-        let cacheKey = rawUrl;
-        const isCached = window.StoreRenderApp.imgCache.has(cacheKey);
+            _getImgLoadVars: function(rawUrl) {
+        // 🛡️ العودة للقاعدة الذهبية: كل الصور تبدأ مخفية بالشيمر، والمتصفح يقرر متى يظهرها
         return {
-            cacheKey: cacheKey, imgClass: 'img-loading-state', wrapperClass: '',
-            lazyAttrs: isCached ? 'loading="eager" decoding="sync" fetchpriority="high"' : 'loading="lazy" decoding="async"',
-            imgStyle: '', wrapperStyle: ''
+            cacheKey: rawUrl || '',
+            imgClass: 'img-loading-state', 
+            wrapperClass: '',
+            lazyAttrs: '', 
+            imgStyle: '',
+            wrapperStyle: ''
         };
     },
 
     _generateImageHTML: function(rawUrl, safeName, type, isHighPriority = false) {
-        let defaultIcon = type === 'cat' ? 'fa-layer-group' : (type === 'pay' ? 'fa-building-columns' : 'fa-box-open');
-        let defaultClass = type === 'pay' ? 'pay-icon-default' : 'default-prod-icon';
-        let extraClass = type === 'story' ? ' story-fallback-icon' : '';
-
-        const fallbackHTML = `<div class="${defaultClass} fallback-icon-ready${extraClass}" style="display: none;"><i class="fa-solid ${Utils.escapeHtml(defaultIcon)}"></i></div>`;
-
-        if (!rawUrl) return { html: fallbackHTML.replace('display: none;', 'display: flex;'), wrapperClass: ' shimmer-stop-override', wrapperStyle: '' };
-
-        const safeUrl = typeof Utils !== 'undefined' && Utils.safeUrl ? Utils.safeUrl(rawUrl) : String(rawUrl).replace(/"/g, '&quot;');
-        
-        const imgVars = this._getImgLoadVars(rawUrl);
-        const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
-        const imgClass = type === 'pay' ? `pay-icon-img ${imgVars.imgClass}` : imgVars.imgClass;
-        
-        // 🛡️ التحديث الماسي: استخدام Base64 شفاف كعنصر نائب أثناء المراقبة
-        const placeholder = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
-        const isCached = window.StoreRenderApp.imgCache.has(imgVars.cacheKey);
-        const useLazyObserver = !isCached && !isHighPriority;
-        
-        let imgHTML = `<img ${useLazyObserver ? `src="${placeholder}" data-src="${safeUrl}"` : `src="${safeUrl}"`} data-key="${imgVars.cacheKey}" class="${imgClass}" ${imgVars.lazyAttrs} alt="${safeName}" ${priorityAttr} data-img-type="${type}" onload="window.StoreRenderApp.onImgLoad(this)" onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
-        imgHTML += fallbackHTML;
-        
-        return { html: imgHTML, wrapperClass: imgVars.wrapperClass, wrapperStyle: imgVars.wrapperStyle };
-    },
-
-    _generateProductCardHTML: function(p, idx) {
+    let defaultIcon = type === 'cat' ? 'fa-layer-group' : (type === 'pay' ? 'fa-building-columns' : 'fa-box-open');
+    let defaultClass = type === 'pay' ? 'pay-icon-default' : 'default-prod-icon';
+    let extraClass = type === 'story' ? ' story-fallback-icon' : '';
+    
+    const fallbackHTML = `<div class="${defaultClass} fallback-icon-ready${extraClass}" style="display: none;"><i class="fa-solid ${Utils.escapeHtml(defaultIcon)}"></i></div>`;
+    
+    if (!rawUrl) return { html: fallbackHTML.replace('display: none;', 'display: flex;'), wrapperClass: ' shimmer-stop-override', wrapperStyle: '' };
+    
+    const safeUrl = typeof Utils !== 'undefined' && Utils.safeUrl ? Utils.safeUrl(rawUrl) : String(rawUrl).replace(/"/g, '&quot;');
+    
+    const imgVars = this._getImgLoadVars(rawUrl);
+    const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
+    
+    // 🛡️ إبقاء كلاس التحميل (img-loading-state) كحالة افتراضية دائماً
+    const imgClass = type === 'pay' ? `pay-icon-img ${imgVars.imgClass}` : imgVars.imgClass;
+    
+    const placeholder = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
+    const isCached = window.StoreRenderApp.imgCache.has(imgVars.cacheKey);
+    
+    const useLazyObserver = !isCached && !isHighPriority && type !== 'pay';
+    const finalLazyAttrs = isHighPriority ? 'loading="eager" decoding="sync"' : (useLazyObserver ? '' : 'loading="lazy" decoding="async"');
+    
+    // 🛡️ الحل الاحترافي: إجبار المتصفح على الإبلاغ عن التحميل في كل الحالات (سواء كاش أو جديد)
+    // لا تقم أبداً بإزالة حدث onload، فهو الوحيد القادر على قتل الشيمر بالوقت المناسب
+    const onloadAttr = 'onload="window.StoreRenderApp.onImgLoad(this)"';
+    
+    let imgHTML = `<img ${useLazyObserver ? `src="${placeholder}" data-src="${safeUrl}"` : `src="${safeUrl}"`} data-key="${imgVars.cacheKey}" class="${imgClass}" ${finalLazyAttrs} alt="${safeName}" ${priorityAttr} data-img-type="${type}" ${onloadAttr} onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
+    
+    imgHTML += fallbackHTML;
+    
+    // 🛡️ عدم إرسال shimmer-stop-override أبداً في البداية.. الشيمر يجب أن يعمل حتى يقتله الـ onload
+    return { html: imgHTML, wrapperClass: '', wrapperStyle: imgVars.wrapperStyle };
+},
+        _generateImageHTML: function(rawUrl, safeName, type, isHighPriority = false) {
+            let defaultIcon = type === 'cat' ? 'fa-layer-group' : (type === 'pay' ? 'fa-building-columns' : 'fa-box-open');
+            let defaultClass = type === 'pay' ? 'pay-icon-default' : 'default-prod-icon';
+            let extraClass = type === 'story' ? ' story-fallback-icon' : '';
+            
+            const fallbackHTML = `<div class="${defaultClass} fallback-icon-ready${extraClass}" style="display: none;"><i class="fa-solid ${Utils.escapeHtml(defaultIcon)}"></i></div>`;
+            
+            if (!rawUrl) return { html: fallbackHTML.replace('display: none;', 'display: flex;'), wrapperClass: ' shimmer-stop-override', wrapperStyle: '' };
+            
+            const safeUrl = typeof Utils !== 'undefined' && Utils.safeUrl ? Utils.safeUrl(rawUrl) : String(rawUrl).replace(/"/g, '&quot;');
+            
+            // 🛡️ إرسال نوع الصورة والأولوية لمحرك المتغيرات
+            const imgVars = this._getImgLoadVars(rawUrl, type, isHighPriority);
+            const priorityAttr = isHighPriority ? 'fetchpriority="high"' : '';
+            const imgClass = type === 'pay' ? `pay-icon-img ${imgVars.imgClass}` : imgVars.imgClass;
+            
+            const placeholder = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
+            const isCached = window.StoreRenderApp.imgCache.has(imgVars.cacheKey);
+            
+            // 🛡️ استثناء طرق الدفع من المراقبة الكسولة لأنها داخل نافذة
+            const useLazyObserver = !isCached && !isHighPriority && type !== 'pay';
+            
+            const finalLazyAttrs = isHighPriority ? 'loading="eager" decoding="sync"' : (useLazyObserver ? '' : imgVars.lazyAttrs);
+            
+            // 🛡️ إزالة حدث onload كلياً إذا تجاوزنا اللودر لمنع إعادة التنفيذ الوهمي
+            const onloadAttr = (isCached || type === 'pay') ? '' : 'onload="window.StoreRenderApp.onImgLoad(this)"';
+            
+            let imgHTML = `<img ${useLazyObserver ? `src="${placeholder}" data-src="${safeUrl}"` : `src="${safeUrl}"`} data-key="${imgVars.cacheKey}" class="${imgClass}" ${finalLazyAttrs} alt="${safeName}" ${priorityAttr} data-img-type="${type}" ${onloadAttr} onerror="window.StoreRenderApp.handleImgError(this, '${type}')">`;
+            imgHTML += fallbackHTML;
+            
+            return { html: imgHTML, wrapperClass: imgVars.wrapperClass, wrapperStyle: imgVars.wrapperStyle };
+        },    _generateProductCardHTML: function(p, idx) {
         let pricingInfo = null;
         const activeOffer = DataManager.getActiveOffer(p.id);
         
@@ -862,7 +908,8 @@ export const RenderManager = {
         });
     },
 
-    renderPayMethods: function() {
+    // 🛡️ الإصلاح الجذري لمشكلة بوابات الدفع (Hidden Paint Patch)
+        renderPayMethods: function() {
         const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container');
         if (!container) return;
         
@@ -873,15 +920,9 @@ export const RenderManager = {
                 container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-building-columns"></i><h3>لا توجد طرق دفع متاحة حالياً</h3></div>`; 
                 return;
             }
-
             if (!container.querySelector('.fa-circle-notch')) {
-                container.innerHTML = `
-                    <div class="empty-state-v2" style="min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: none; background: transparent;">
-                        <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 32px; color: var(--gold-main); margin-bottom: 15px;"></i>
-                        <h3 style="color: var(--text-muted); font-size: 14px; font-weight: 600;">جاري تجهيز بوابات الدفع...</h3>
-                    </div>`;
+                container.innerHTML = `<div class="empty-state-v2" style="min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: none; background: transparent;"><i class="fa-solid fa-circle-notch fa-spin" style="font-size: 32px; color: var(--gold-main); margin-bottom: 15px;"></i><h3 style="color: var(--text-muted); font-size: 14px; font-weight: 600;">جاري تجهيز بوابات الدفع...</h3></div>`;
             }
-            
             if (!container.dataset.fallbackTimer) {
                 const timerId = setTimeout(() => {
                     container.dataset.syncDone = 'true';
@@ -900,7 +941,6 @@ export const RenderManager = {
         }
         
         container.dataset.syncDone = 'true';
-        
         let html = '';
         const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (window.DataManager?.user ? String(window.DataManager.user.id) : null);
         const pendingMethodKeys = (LiveStoreData.deposits || []).filter(d => String(d.userId) === String(uid) && d.status === 'pending').map(d => String(d.methodId || d.method).toLowerCase());
@@ -909,14 +949,23 @@ export const RenderManager = {
             try {
                 const safeName = Utils.escapeHtml(p.name);
                 const isLocked = pendingMethodKeys.includes(String(p.id).toLowerCase()) || pendingMethodKeys.includes(String(p.name).toLowerCase());
+                const safeUrl = Utils.safeUrl ? Utils.safeUrl(p.img) : p.img;
                 
-                let imgHtml = '';
-                if (this._generateImageHTML) {
-                    const imgObj = this._generateImageHTML(p.img, safeName, 'pay');
-                    imgHtml = `<div class="pay-icon-wrapper ${imgObj.wrapperClass}">${imgObj.html}</div>`;
-                } else {
-                    imgHtml = `<div class="pay-icon-wrapper"><img src="${p.img || ''}" alt="${safeName}"></div>`;
-                }
+                // 🛡️ الفصل المعماري: بوابات الدفع أيقونات صغيرة، يتم إجبارها على الرسم فوراً
+                // وضعنا opacity: 1 و shimmer-stop-override لقتل أي تأخير بصري
+                const imgHtml = `
+                    <div class="pay-icon-wrapper shimmer-stop-override">
+                        <img src="${safeUrl}" 
+                             alt="${safeName}" 
+                             class="pay-icon-img" 
+                             style="opacity: 1 !important; visibility: visible !important;" 
+                             loading="eager" 
+                             decoding="sync"
+                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                        <div class="pay-icon-default fallback-icon-ready" style="display: none;">
+                            <i class="fa-solid fa-building-columns"></i>
+                        </div>
+                    </div>`;
 
                 if (isLocked) {
                     html += `<div class="pay-card-select method-locked" onclick="window.UIManager?.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة.', 'warning')">${imgHtml}<div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3><span class="method-locked-warning"><i class="fa-solid fa-hourglass-half"></i> طلب قيد المعالجة</span></div><i class="fa-solid fa-lock pay-card-arrow"></i></div>`;
@@ -926,73 +975,10 @@ export const RenderManager = {
             } catch(e) { console.error("🚨 [Render Engine] فشل رسم بوابة الدفع:", e); }
         });
         
-        container.innerHTML = html;
-    },
-
-    renderPayments: function(forceRender = false) {
-        if (!forceRender) {
-            if (!this._payDebounced) this._payDebounced = this._debounce('pay', () => this.renderPayments(true), 250);
-            return this._payDebounced();
-        }
-
-        const list = document.getElementById('mypay-list');
-        if(!list) return;
-        
-        const filterData = Utils.getSearchAndDateFilters('pay', 'pay');
-        if (filterData.error) { UIManager.showToast?.(filterData.error, 'error'); return; }
-        const { q, dStart, dEnd, tStart, tEnd } = filterData;
-
-        const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (DataManager.user ? String(DataManager.user.uid || DataManager.user.id) : null);
-        if (!uid || uid === '0' || uid === 'undefined') {
-            list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>يرجى تسجيل الدخول</h3></div>`; return;
-        }
-
-        const user = DataManager.user || { id: 0 };
-        const baseCurrency = (user.baseCurrency || 'USD').toUpperCase();
-        
-        this._historicalData = this._historicalData || { deposits: [], orders: [] };
-        this.limits = this.limits || { payments: 15, wallet: 15, orders: 15 };
-
-        const rawDeposits = [...(LiveStoreData.deposits || []), ...(this._historicalData.deposits || [])];
-        const uniqueDeposits = Array.from(new Map(rawDeposits.map(item => [String(item.id), item])).values());
-        
-        let myDeposits = uniqueDeposits.filter(d => String(d.userId) === String(uid)).map(d => ({ ...d, sortTime: Utils.parseSafeTime(d.time || d.createdAt) }));
-
-        const filters = DataManager.filters || { payments: 'all' };
-        if (filters.payments !== 'all') myDeposits = myDeposits.filter(d => filters.payments === 'rejected' ? ['rejected', 'refunded', 'returned'].includes(d.status) : d.status === filters.payments);
-
-        if (q) myDeposits = myDeposits.filter(d => String(d.id).toLowerCase().includes(q) || (d.displayId && String(d.displayId).toLowerCase().includes(q)) || RenderHelpers.formatDepositId(d).toLowerCase().includes(q) || (d.method && d.method.toLowerCase().includes(q)));
-        if (tStart) myDeposits = myDeposits.filter(d => d.sortTime >= tStart);
-        if (tEnd) myDeposits = myDeposits.filter(d => d.sortTime <= tEnd);
-
-        myDeposits.sort((a, b) => {
-            const timeDiff = b.sortTime - a.sortTime;
-            return timeDiff !== 0 ? timeDiff : String(b.id || '').localeCompare(String(a.id || ''));
-        });
-
-        const totalPaymentsCount = myDeposits.length;
-        const displayLimit = (!q && !dStart && !dEnd) ? this.limits.payments : Math.min(myDeposits.length, 50);
-        const visibleDeposits = myDeposits.slice(0, displayLimit);
-
-        if (visibleDeposits.length === 0) { list.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-file-invoice-dollar"></i><h3>لا توجد عمليات</h3></div>`; return; }
-
-        const userDisplayName = Utils.escapeHtml(user.username ? `@${user.username}` : (user.fullName || 'العميل'));
-        const userIdString = RenderHelpers.formatUserId(user);
-
         requestAnimationFrame(() => {
-            const rawHtml = visibleDeposits.map(d => { 
-                try { return UIBuilders.buildPaymentCard(d, userDisplayName, userIdString, baseCurrency); } 
-                catch(e) { 
-                    console.error('🚨 [Render Engine] فشل رسم عملية الشحن:', e); 
-                    return '<div class="sys-error-card" style="padding:15px; margin-bottom:10px; background:var(--bg-glass); border-radius:12px; color:var(--red-main); text-align:center;"><i class="fa-solid fa-triangle-exclamation"></i> سجل تالف</div>'; 
-                } 
-            }).join('');
-            
-            list.replaceChildren(this._renderHtmlToFragment(rawHtml));
-            if (!q && !dStart && !dEnd) this._appendLoadMoreButton(list, 'deposits', uid, totalPaymentsCount, 'payments');
+            container.innerHTML = html;
         });
     },
-
     renderOrders: function(forceRender = false) {
         if (!forceRender) { 
             if (!this._ordersDebounced) { 
@@ -1091,9 +1077,6 @@ export const RenderManager = {
         }); 
     },
 
-    // ============================================================================
-    // 🖨️ محرك تصدير الفواتير الاحترافي (Real Viewport Masking Technique)
-    // ============================================================================
     // ============================================================================
     // 🖨️ محرك تصدير الفواتير الاحترافي (Real Viewport Masking Technique)
     // ============================================================================
@@ -1244,7 +1227,9 @@ export const RenderManager = {
                 cleanup();
             }
         });
-    },    exportReceipt: async function(orderId, btnElement = null) {
+    },
+    
+    exportReceipt: async function(orderId, btnElement = null) {
         if (btnElement && btnElement.disabled) return; 
         
         const o = (LiveStoreData.orders || []).find(x => String(x.id) === String(orderId));

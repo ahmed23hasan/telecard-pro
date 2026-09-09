@@ -1,12 +1,11 @@
 // ============================================================================
-// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية V8.3 💎
+// ☁️ بوابة الـ API ومستقبل الـ Webhooks (functions/developerApi.js) - النسخة الماسية V9.0.0 💎
 // 🎯 الوظيفة: معالجة طلبات التجار الخارجية، طابور الـ Webhooks، والتوقيع الرقمي
-// 🚀 التحديثات (V8.3 - SSOT Integration & Price Slippage Shield):
-// 1. API Price Slippage Shield 🛡️: إجبار واجهة الـ API على التحقق من `expectedPrice` لحماية أموال التجار من تقلب الأسعار.
-// 2. Smart Tier Recovery 🛡️: استيراد آلية "المستوى الخالد/الافتراضي" في حال اختفاء مستوى التاجر لمنع الـ Crash.
-// 3. Tier Auto-Upgrade Fix: دمج الترقية التلقائية لحسابات التجار عبر الـ API.
-// 4. High-Speed Webhook Retry: تسريع معالجة طابور الإشعارات (15m / 300 req).
-// 5. Zero-Trust Security: سد ثغرة التوقيع الافتراضي (No fallback secrets).
+// 🚀 التحديثات (V9.0.0 - Master Core Alignment):
+// 1. Phantom Tier Fix 🛡️: فصل خصم الرصيد (مباشر) عن ترقية مستوى التاجر (بعد التسليم فقط) لتطابق index.js.
+// 2. Time-Machine Recovery 🛡️: استيراد آلية احتساب المستويات عبر الـ API عند اختفاء التقييم.
+// 3. TIER_DEFAULT Unification 🛡️: إزالة القيمة العشوائية (1) واستبدالها بالمعرف الموحد.
+// 4. Notifications Merge 🛡️: إضافة {merge: true} لإشعارات الـ API.
 // ============================================================================
 
 const { onRequest } = require('firebase-functions/v2/https');
@@ -149,7 +148,7 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
         
         const { productId, qty, inputStr, optIdx } = req.body;
         
-        // 🛡️ التحديث 1: استقبال السعر المتوقع لحماية التاجر
+        // 🛡️ استقبال السعر المتوقع لحماية التاجر (Price Slippage Guard)
         const expectedPriceRaw = Number(req.body.expectedPrice);
         const expectedPrice = isNaN(expectedPriceRaw) ? null : expectedPriceRaw;
 
@@ -236,22 +235,61 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                     const allTiersSnap = await transaction.get(db.collection('telecard_tiers'));
                     const allTiers = allTiersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-                    // 🛡️ التحديث 2: الاسترداد الذكي للمستويات لضمان عدم حدوث Crash
-                    const assignedTierId = String(userData.tierId || userData.tier || '1');
+                    // 🛡️ التحديث المعماري: الاسترداد الذكي للمستويات لضمان عدم حدوث Crash (Time-Machine)
+                    const assignedTierId = String(userData.tierId || userData.tier || 'TIER_DEFAULT');
                     let activeTierObj = allTiers.find(t => String(t.id) === assignedTierId);
                     let userUpdateObj = {};
 
                     if (!activeTierObj) {
                         const getThresh = (t) => Number(t.threshold || t.condition_amount || 0);
                         const sortedTiers = [...allTiers].filter(t => t.autoAdvance !== false).sort((a, b) => getThresh(b) - getThresh(a));
-                        const spent = Number(userData.tierCycleSpent || 0);
+                        
+                        let qualifiedTier = null;
+                        let calculatedCycleSpent = 0;
 
-                        activeTierObj = sortedTiers.find(t => spent >= getThresh(t));
-                        if (!activeTierObj) { activeTierObj = allTiers.find(t => t.isDefault) || allTiers.find(t => String(t.id) === '1') || allTiers[0]; }
-                        if (!activeTierObj) throw new Error('System Configuration Error: No Tiers found.');
+                        for (const tier of sortedTiers) {
+                            const threshold = getThresh(tier);
+                            const durationDays = Number(tier.durationDays || 30);
+                            const timeWindowMs = serverNow - (durationDays * 24 * 60 * 60 * 1000);
 
+                            const ordersSnap = await transaction.get(
+                                db.collection('telecard_orders')
+                                  .where('userId', '==', uid)
+                                  .where('status', 'in', ['completed', 'pending', 'processing'])
+                                  .where('createdAt', '>=', new Date(timeWindowMs))
+                            );
+
+                            let spentInWindow = 0;
+                            ordersSnap.forEach(doc => { spentInWindow += Number(doc.data().price || 0); });
+
+                            if (spentInWindow >= threshold) {
+                                qualifiedTier = tier;
+                                calculatedCycleSpent = spentInWindow; 
+                                break; 
+                            }
+                        }
+
+                        if (!qualifiedTier) {
+    let fallbackTier = allTiers.find(t => t.isDefault) || allTiers.find(t => String(t.id) === 'TIER_DEFAULT');
+    if (!fallbackTier) {
+        // 🛡️ التحديث الماسي: الفرز العادل لمنع إعطاء VIP عشوائي للتاجر
+        const getT = (t) => Number(t.threshold || t.condition_amount || 0);
+        const sortedBySafety = [...allTiers].sort((a, b) => getT(a) - getT(b));
+        fallbackTier = sortedBySafety[0];
+    }
+    qualifiedTier = fallbackTier;
+    calculatedCycleSpent = 0;
+}
+
+                        if (!qualifiedTier) throw new Error('System Configuration Error: No Tiers found.');
+
+                        activeTierObj = qualifiedTier;
                         userUpdateObj.tierId = activeTierObj.id;
+                        userUpdateObj.tierCycleSpent = sanitizeAmount(calculatedCycleSpent);
+                        userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp();
+                        
                         userData.tierId = activeTierObj.id;
+                        userData.tierCycleSpent = sanitizeAmount(calculatedCycleSpent);
                     }
                     
                     let currentCycleSpent = Number(userData.tierCycleSpent || 0);
@@ -278,7 +316,7 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                     if (pricingSnapshot.isFirewallViolated) throw new Error('Firewall Violation');
                     const exactPrice = pricingSnapshot.totalFinalPrice;
 
-                    // 🛡️ التحديث 3: حماية التاجر من الانزلاق السعري مع التسامح العشري
+                    // 🛡️ حماية التاجر من الانزلاق السعري
                     if (expectedPrice !== null && exactPrice > (expectedPrice + 0.05)) {
                         throw new Error('Price Slippage: Product price has increased. Please fetch the latest prices.');
                     }
@@ -297,18 +335,32 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
                         isAutoDelivered = true;
                     }
 
+                    // 🛡️ التحديث المعماري (Phantom Tier Fix): خصم الرصيد فوراً، وإضافة المشتريات فقط بعد التسليم
                     const newBalance = sanitizeAmount(safeSub(currentBalance, exactPrice));
-                    const newTotalSpent = sanitizeAmount(safeAdd(userData.totalSpent || 0, exactPrice));
-                    const newTierCycleSpent = sanitizeAmount(safeAdd(currentCycleSpent, exactPrice));
+                    userUpdateObj.walletBalance = newBalance;
+                    userUpdateObj.lastOrderTime = serverNow;
 
-                    let finalTierId = activeTierObj.id;
-                    if (userData.manualTierOverride !== true && activeTierObj?.autoAdvance !== false) {
-                        const getThreshold = (t) => Number(t.threshold || t.condition_amount || 0);
-                        const earnedTiers = allTiers
-                            .filter(t => (t.autoAdvance !== false) && getThreshold(t) <= newTierCycleSpent && getThreshold(t) > getThreshold(activeTierObj))
-                            .sort((a, b) => getThreshold(b) - getThreshold(a));
+                    if (isAutoDelivered) {
+                        const newTotalSpent = sanitizeAmount(safeAdd(userData.totalSpent || 0, exactPrice));
+                        const newTierCycleSpent = sanitizeAmount(safeAdd(currentCycleSpent, exactPrice));
+
+                        let finalTierId = activeTierObj.id;
+                        if (userData.manualTierOverride !== true && activeTierObj?.autoAdvance !== false) {
+                            const getThreshold = (t) => Number(t.threshold || t.condition_amount || 0);
+                            const earnedTiers = allTiers
+                                .filter(t => (t.autoAdvance !== false) && getThreshold(t) <= newTierCycleSpent && getThreshold(t) > getThreshold(activeTierObj))
+                                .sort((a, b) => getThreshold(b) - getThreshold(a));
+                            
+                            if (earnedTiers.length > 0) { finalTierId = earnedTiers[0].id; }
+                        }
+
+                        userUpdateObj.totalSpent = newTotalSpent;
+                        userUpdateObj.tierCycleSpent = newTierCycleSpent;
+                        userUpdateObj.tierId = finalTierId;
                         
-                        if (earnedTiers.length > 0) { finalTierId = earnedTiers[0].id; }
+                        if (isCycleExpired || finalTierId !== activeTierObj.id || userUpdateObj.tierId) { 
+                            userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); 
+                        }
                     }
 
                     const newOrder = {
@@ -322,22 +374,15 @@ exports.externalCreateOrder = onRequest(async (req, res) => {
 
                     resultData = { orderId: cleanOrderId, status: newOrder.status, pricePaid: exactPrice, deliveredCode: deliveredCodeText };
                     
-                    userUpdateObj.walletBalance = newBalance;
-                    userUpdateObj.totalSpent = newTotalSpent;
-                    userUpdateObj.tierCycleSpent = newTierCycleSpent;
-                    userUpdateObj.tierId = finalTierId;
-                    
-                    if (isCycleExpired || finalTierId !== activeTierObj.id) { 
-                        userUpdateObj.tierCycleStartDate = admin.firestore.FieldValue.serverTimestamp(); 
-                    }
-
                     transaction.update(userDoc.ref, userUpdateObj);
                     transaction.set(db.collection('telecard_orders').doc(cleanOrderId), newOrder);
                     
                     if (isAutoDelivered) {
                         const notifId = `notif_api_${cleanOrderId}`;
-                        transaction.set(userDoc.ref.collection('notifications').doc(notifId), { id: notifId, title: "🔌 تسليم API بنجاح", message: `تم تسليم ( ${liveProduct.name} ).`, type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp() });
+                        // 🛡️ حماية الكتابة المزدوجة {merge: true}
+                        transaction.set(userDoc.ref.collection('notifications').doc(notifId), { id: notifId, title: "🔌 تسليم API بنجاح", message: `تم تسليم ( ${liveProduct.name} ).`, type: 'notification', jumpTarget: 'order', createdAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
                     }
+                    
                     if (idempotencyRef) {
                         transaction.set(idempotencyRef, { 
                             createdAt: admin.firestore.FieldValue.serverTimestamp(), 

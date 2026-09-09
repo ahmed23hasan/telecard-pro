@@ -5,7 +5,7 @@
 // 1. Absolute Asset Routing 🛡️: تأمين تحميل مكتبات التشفير (QR) بمسارات جذرية لحماية الروابط العميقة.
 // 2. Worker Memory Leak Fix 🛡️: تدمير (Web Worker) الخاص بالصور بشكل إجباري عند نفاد الوقت لتحرير الـ RAM.
 // 3. Biometric Timer Cleanup 🛡️: إيقاف مؤقت الموت (Deadlock Timer) فور نجاح البصمة لمنع تضارب الأحداث.
-// 4. Silent Error Auditing 🛡️: إضافة مستشعرات صامتة لاصطياد أخطاء التخزين والـ DOM المكتومة.
+// 4. KYC Session Guard 🛡️: إصلاح ربط حدث لافتة التوثيق لضمان بدء الجلسة وعدم فقدان المرفقات.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -1311,7 +1311,7 @@ export const UIAuth = {
         if (status === 'pending') {
             kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-pending" data-action="open-kyc-status" data-state="pending"><span><i class="fa-solid fa-hourglass-half"></i> هويتك قيد المراجعة</span><i class="fa-solid fa-chevron-left"></i></div>`;
         } else {
-            kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-required" onclick="window.ClientSystem.UIAuth._kycSessionActive = true;" data-action="open-kyc-upload"><span><i class="fa-solid fa-shield-halved"></i> التحقق من الهوية (KYC)</span><i class="fa-solid fa-chevron-left"></i></div>`;
+            kycContainer.innerHTML = `<div class="sb-kyc-banner kyc-required" onclick="if(window.ClientSystem && window.ClientSystem.Auth) window.ClientSystem.Auth._kycSessionActive = true;" data-action="open-kyc-upload"><span><i class="fa-solid fa-shield-halved"></i> التحقق من الهوية (KYC)</span><i class="fa-solid fa-chevron-left"></i></div>`;
         }
     },    
 

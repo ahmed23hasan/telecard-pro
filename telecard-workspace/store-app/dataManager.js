@@ -61,57 +61,30 @@ export const DataManager = {
     },
 
     syncOfflineTasks: async function() {
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-        
-        // 1. تنظيف التوكنات العالقة (FCM Ghosting Fix & Memory Leak Shield)
-        try {
-            let pendingDeletes = JSON.parse(localStorage.getItem('tc_pending_fcm_delete') || '[]');
-            if (pendingDeletes.length > 0) {
-                let remaining = [];
-                for (const req of pendingDeletes) {
-                    try {
-                        const userDoc = await StoreDB.getById(DB_KEYS.USERS, req.uid);
-                        if (userDoc && Array.isArray(userDoc.fcmTokens)) {
-                            const updatedTokens = userDoc.fcmTokens.filter(t => t !== req.token);
-                            if (updatedTokens.length !== userDoc.fcmTokens.length) {
-                                await StoreDB.set(DB_KEYS.USERS, req.uid, { fcmTokens: updatedTokens }, { merge: true });
-                            }
-                        }
-                    } catch (e) {
-                        const errMsg = String(e?.message || '').toLowerCase();
-                        const isPermanentError = e?.code === 'permission-denied' || errMsg.includes('permission') || errMsg.includes('not found') || errMsg.includes('missing');
-                        if (!isPermanentError) remaining.push(req);
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    
+    // 1. تنظيف ملفات التخزين اليتيمة (Orphaned Storage Shield)
+    try {
+        let orphanedFiles = JSON.parse(localStorage.getItem('tc_orphaned_files') || '[]');
+        if (orphanedFiles.length > 0) {
+            let remainingFiles = [];
+            for (const url of orphanedFiles) {
+                try {
+                    if (typeof StoreDB.deleteImageByUrl === 'function') {
+                        await StoreDB.deleteImageByUrl(url);
                     }
+                } catch (e) {
+                    const isNotFound = e && (e.code === 'storage/object-not-found' || String(e.message).toLowerCase().includes('not found') || String(e.message).toLowerCase().includes('does not exist'));
+                    if (!isNotFound) remainingFiles.push(url);
                 }
-                if (remaining.length > 0) localStorage.setItem('tc_pending_fcm_delete', JSON.stringify(remaining));
-                else localStorage.removeItem('tc_pending_fcm_delete');
-                console.log('🧹 [Offline Sync] تم التخلص من توكنات الإشعارات العالقة.');
             }
-        } catch(e) {}
-
-        // 2. تنظيف ملفات التخزين اليتيمة (Orphaned Storage Shield)
-        try {
-            let orphanedFiles = JSON.parse(localStorage.getItem('tc_orphaned_files') || '[]');
-            if (orphanedFiles.length > 0) {
-                let remainingFiles = [];
-                for (const url of orphanedFiles) {
-                    try {
-                        if (typeof StoreDB.deleteImageByUrl === 'function') {
-                            await StoreDB.deleteImageByUrl(url);
-                        }
-                    } catch(e) { 
-                        const isNotFound = e && (e.code === 'storage/object-not-found' || String(e.message).toLowerCase().includes('not found') || String(e.message).toLowerCase().includes('does not exist'));
-                        if (!isNotFound) remainingFiles.push(url); 
-                    }
-                }
-                if (remainingFiles.length > 0) localStorage.setItem('tc_orphaned_files', JSON.stringify(remainingFiles));
-                else localStorage.removeItem('tc_orphaned_files');
-                console.log('🧹 [Offline Sync] تم معالجة صور التخزين اليتيمة بنجاح.');
-            }
-        } catch(e) {}
-    },
-
-    // =========================================================
+            if (remainingFiles.length > 0) localStorage.setItem('tc_orphaned_files', JSON.stringify(remainingFiles));
+            else localStorage.removeItem('tc_orphaned_files');
+            console.log('🧹 [Offline Sync] تم معالجة صور التخزين اليتيمة بنجاح.');
+        }
+    } catch (e) {}
+},
+// =========================================================
     // 🌐 إقلاع المتجر (Store Bootstrapping)
     // =========================================================
     initStoreCatalog: async function() {
@@ -636,22 +609,14 @@ export const DataManager = {
                         StoreDB.requestFCMToken(),
                         new Promise(r => setTimeout(r, 3000))
                     ]).then(currentToken => {
-                        if (currentToken && typeof currentToken === 'string') {
-                            if (navigator.onLine === false) {
-                                let pendingDeletes = JSON.parse(localStorage.getItem('tc_pending_fcm_delete') || '[]');
-                                if (!pendingDeletes.some(item => item.token === currentToken)) {
-                                    pendingDeletes.push({ uid: currentUid, token: currentToken });
-                                    if (pendingDeletes.length > 10) pendingDeletes = pendingDeletes.slice(-10); 
-                                    localStorage.setItem('tc_pending_fcm_delete', JSON.stringify(pendingDeletes));
-                                    console.log('🔒 [FCM Offline] تم حفظ التوكن للإلغاء لاحقاً.');
-                                }
-                            } else {
-                                let currentTokens = Array.isArray(this.user?.fcmTokens) ? [...this.user.fcmTokens] : [];
-                                const updatedTokens = currentTokens.filter(t => t !== currentToken);
-                                if (currentTokens.length !== updatedTokens.length) {
-                                    StoreDB.set(DB_KEYS.USERS, currentUid, { fcmTokens: updatedTokens }, { merge: true }).catch(()=>{});
-                                    console.log('🔒 [FCM] تم إلغاء ربط هذا الجهاز بالإشعارات بنجاح لحماية الخصوصية.');
-                                }
+                        // 🛡️ التحديث المعماري: محاولة حذف التوكن فقط إذا كان متصلاً بالانترنت
+                        // إذا كان غير متصل، نترك السيرفر ينظف التوكن الميت لاحقاً تلقائياً
+                        if (currentToken && typeof currentToken === 'string' && navigator.onLine !== false) {
+                            let currentTokens = Array.isArray(this.user?.fcmTokens) ? [...this.user.fcmTokens] : [];
+                            const updatedTokens = currentTokens.filter(t => t !== currentToken);
+                            if (currentTokens.length !== updatedTokens.length) {
+                                StoreDB.set(DB_KEYS.USERS, currentUid, { fcmTokens: updatedTokens }, { merge: true }).catch(()=>{});
+                                console.log('🔒 [FCM] تم إلغاء ربط هذا الجهاز بالإشعارات بنجاح لحماية الخصوصية.');
                             }
                         }
                     }).catch(()=>{});
@@ -733,7 +698,6 @@ export const DataManager = {
             window.location.replace(window.location.pathname);
         }
     },
-
     syncUser: async function() {
         let me = null;
         

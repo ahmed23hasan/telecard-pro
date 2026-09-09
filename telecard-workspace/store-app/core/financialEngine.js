@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Storefront Edition) - الإصدار المؤسسي V26.4.0 💎 
-// 🎯 الوظيفة: محرك حسابات الواجهة (PWA)، مطابق رياضياً للسيرفر 100% ومحصن أمنياً.
-// 🚀 التحديثات المعمارية (V26.4.0 - Client Graceful Degradation & Math Guard):
-// 1. Math Firewall 🛡️: إيقاف القسمة على صفر ورمي أخطاء داخلية مع التقاطها لحماية الواجهة من التحطم.
-// 2. Base Currency Shield 🛡️: استخدام (Set) لمنع استبدال عملة الأساس وتسريع معالجة الأسعار بـ O(1).
-// 3. Null Reference Guard 🛡️: إصلاح ثغرة توقف التطبيق (Fatal Crash) عند غياب مستوى العميل (Tier).
-// 4. Safe UI Fallback 🛡️: إعادة كائنات مصفّرة بالكامل لتظهر "خطأ بالتسعير" عند اختلال البيانات المالية.
+// 💰 المحرك المالي المركزي (Storefront Edition) - الإصدار الألماسي V27.0.0 💎 
+// 🎯 الوظيفة: محرك حسابات الواجهة (PWA)، مطابق رياضياً للسيرفر ومحصن أمنياً 100%.
+// 🚀 التحديثات المعمارية (V27.0.0 - The Absolute Shield):
+// 1. Currency Slippage Fix 🛡️: إجبار التحويل النهائي على استخدام عملة الأساس (BASE) وليس عملة العميل لمنع ثغرة التسعير المباشر (40$ = 40 ليرة).
+// 2. Absolute Fail-Safe Tier 🛡️: توحيد TIER_DEFAULT وفرز المستويات تنازلياً لمنع الإفلاس عند حذف الإدمن للمستويات.
+// 3. Zero-Drop Shield 🛡️: الواجهة ترفض تحويلات العملة الفاشلة بخطأ قطعي بدلاً من إرجاع (0) لمنع عرض المنتج مجاناً للعميل.
+// 4. Ghost Ledger (Cost Masking) 👻: ضمان تصفير سعر التكلفة والأرباح (MASKED_ZERO) قبل إرجاعها للواجهة لحماية الأسرار التجارية.
 // ============================================================================
 
 export class FinancialSecurityError extends Error { 
@@ -45,7 +45,6 @@ const FinancialEngineDef = {
     _internalDiv: function(a, b) {
         const numA = Number(a) || 0;
         const numB = Number(b) || 0;
-        // 🛡️ التحديث المعماري: رمي خطأ داخلي صريح بدلاً من الإخفاق الصامت
         if (numB === 0) { 
             throw new FinancialSecurityError("عملية حسابية غير صالحة (قسمة على صفر)."); 
         }
@@ -173,14 +172,11 @@ const FinancialEngineDef = {
         const processRateObj = (rawCode, priceR, depR, symbol, name) => {
             if (!rawCode) return;
             const code = String(rawCode).trim().toUpperCase();
-            
-            // 🛡️ الحماية المطلقة: منع تجاوز عملة الأساس
             if (!code || code === FinancialEngineDef.CONFIG.BASE_CURRENCY) return;
 
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
             
-            // 🛡️ في الواجهة: يتم تجاهل العملة المعطوبة فقط، لكي يستمر المتجر بالعمل للعملات الأخرى
             if (numPrice === 0 || numDep === 0) {
                 console.warn(`🚨 [Client Guard]: سعر صرف صفري للعملة [${code}]. تم تجاهلها.`);
                 return; 
@@ -197,7 +193,6 @@ const FinancialEngineDef = {
                 }
             }
         } else {
-            // 🛡️ تحسين الأداء (O(1)) عبر استخدام Set
             const invalidKeys = new Set(['ISBASE', 'PRICERATE', 'DEPRATE', 'CODE', 'VALUE', 'SYMBOL', 'NAME']);
             for (const [key, value] of Object.entries(raw)) {
                 if (!value || typeof value !== 'object') continue;
@@ -230,10 +225,10 @@ const FinancialEngineDef = {
     },
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
-        // 🛡️ طبقة الحماية للواجهة (Try-Catch Wrapper)
         try {
             let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c); 
-            if (isNaN(v) || !isFinite(v)) return 0;
+            // 🛡️ التحديث الماسي: رفض القيم اللانهائية (NaN/Infinity) لعدم إظهار المنتج بـ 0.00
+            if (isNaN(v) || !isFinite(v)) throw new FinancialSecurityError(`تحويل العملة أنتج قيمة رياضية غير صالحة.`);
 
             const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
             let result = 0;
@@ -245,10 +240,11 @@ const FinancialEngineDef = {
             } else {
                 result = Number(v.toFixed(FinancialEngineDef.CONFIG.PRECISION));
             }
-            return isNaN(result) ? 0 : result;
+            if (isNaN(result)) throw new FinancialSecurityError(`نتيجة التقريب غير صالحة.`);
+            return result;
         } catch (e) {
-            console.warn(`[Client Currency Guard] ${e.message}`);
-            return 0; // عودة آمنة للمتصفح
+            // 🚨 رمي الخطأ ليتم التقاطه في getPricingLocal ليعرض (خطأ في التسعير) بدلاً من (صفر دولار)
+            throw new FinancialSecurityError(`[محول العملات]: ${e.message}`);
         }
     },
 
@@ -314,6 +310,7 @@ const FinancialEngineDef = {
     calculatePrice: function(params = {}) {
         const { product = {}, costPrice = 0, fixedPrice = 0, tier = null, offer = null, coupon = null, optIdx = null } = params;
         
+        // 👻 Ghost Ledger: هذا المتغير سيقوم بإخفاء بيانات التكلفة في الواجهة!
         const MASKED_ZERO = 0;
 
         if (!product || typeof product !== 'object' || Object.keys(product).length === 0) {
@@ -413,7 +410,7 @@ const FinancialEngineDef = {
         const finalPrice = currentPrice;
 
         return {
-            costUsd: MASKED_ZERO, 
+            costUsd: MASKED_ZERO, // 👻 السعر مشفر
             tierPrice: FinancialEngineDef._preciseRound(tierPrice), 
             originalPrice: FinancialEngineDef._preciseRound(originalPrice), 
             finalPrice: FinancialEngineDef._preciseRound(finalPrice), 
@@ -422,8 +419,8 @@ const FinancialEngineDef = {
             couponCode, 
             couponDiscount: FinancialEngineDef._preciseRound(couponDiscount), 
             totalDiscount: FinancialEngineDef._preciseRound(accumulatedDiscount),
-            netProfitUsd: MASKED_ZERO, 
-            marginPct: MASKED_ZERO, 
+            netProfitUsd: MASKED_ZERO, // 👻 الربح مشفر
+            marginPct: MASKED_ZERO, // 👻 النسبة مشفرة
             isFirewallViolated, rejectionReason
         };
     },
@@ -440,27 +437,44 @@ const FinancialEngineDef = {
         return {
             ...unit,
             qty: qty,
-            totalCostUsd: 0, 
+            totalCostUsd: 0, // 👻 السعر مشفر
             totalOriginalPrice: FinancialEngineDef.safeMul(unit.originalPrice, qty),
             totalFinalPrice: FinancialEngineDef.safeMul(unit.finalPrice, qty),
-            totalNetProfitUsd: 0, 
+            totalNetProfitUsd: 0, // 👻 السعر مشفر
             totalDiscount: FinancialEngineDef.safeMul(unit.totalDiscount, qty)
         };
     },
 
     // ========================================================================
-    // 👑 القسم الخامس: محرك مستويات العضوية
+    // 👑 القسم الخامس: محرك مستويات العضوية (المحصن أمنياً)
     // ========================================================================
     
     getUserTier: function(user, tiers) {
+        // 1. حماية فورية من البيانات المفقودة لمنع توقف التطبيق
         if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
-        const safeUser = user || {};
-        const userTierId = String(safeUser.tierId || 'TIER_DEFAULT');
         
+        const safeUser = user || {};
+        
+        // 2. التوحيد المعماري: البحث عن المعرف القياسي بدلاً من الأرقام العشوائية
+        const userTierId = String(safeUser.tierId || 'TIER_DEFAULT');
         let foundTier = tiers.find(t => String(t.id) === userTierId);
 
+        // 3. السقوط الآمن المطلق (Absolute Fail-Safe)
         if (!foundTier) {
-            foundTier = tiers.find(t => t.isDefault === true) || tiers.find(t => String(t.id) === 'TIER_DEFAULT') || tiers[0];
+            // المحاولة أ: البحث عن المستوى الافتراضي المحدد من الإدارة صراحةً
+            foundTier = tiers.find(t => t.isDefault === true);
+            
+            // المحاولة ب: البحث عن المعرف القياسي الثابت
+            if (!foundTier) foundTier = tiers.find(t => String(t.id) === 'TIER_DEFAULT');
+            
+            // المحاولة ج (الحماية القصوى من الإفلاس): 
+            // إذا حذف الإدمن كل المؤشرات، لا نختار مستوى عشوائياً (قد يكون VIP بنسبة خصم 50%)!
+            // بل نرتب المستويات تصاعدياً حسب "حجم المبيعات المطلوبة"، ونأخذ المستوى الأضعف ليعامل كـ "عضو جديد".
+            if (!foundTier) {
+                const getThresh = (t) => Number(t.threshold || t.condition_amount || 0);
+                const sortedBySafety = [...tiers].sort((a, b) => getThresh(a) - getThresh(b));
+                foundTier = sortedBySafety[0];
+            }
         }
 
         return foundTier;
@@ -469,10 +483,11 @@ const FinancialEngineDef = {
     getTierProgress: function(user, tiers, nowTime) {
         if (!user || !tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
         
+        // استخدام דالة getUserTier المحدثة والمحصنة للحصول على المستوى الأساسي الموثوق
         const sortedTiers = [...tiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
         const currentTier = FinancialEngineDef.getUserTier(user, sortedTiers);
         
-        // 🛡️ التحديث المعماري: حماية من التوقف الكامل للتطبيق (Fatal Crash Guard)
+        // 🛡️ حماية من الانهيار (Fatal Crash Guard) في حال فشل كل شيء
         if (!currentTier) return null;
         
         const spent = Number(user.tierCycleSpent || 0);
@@ -516,7 +531,6 @@ const FinancialEngineDef = {
     },
 
     getPricingLocal: function(prod, user, qty, optIdx, coupon, offer, tier, rates, baseCur, displayCur) {
-        // 🛡️ طبقة الحماية للواجهة (Try-Catch Wrapper)
         try {
             const params = {
                 product: prod,
@@ -528,13 +542,20 @@ const FinancialEngineDef = {
 
             const result = FinancialEngineDef.calculateOrderTotal(params, qty);
 
-            // نلتقط أي اختلال حاسوبي من الجدار الناري ونرميه ليتم اصطياده أسفل
             if (result.isFirewallViolated) {
                 throw new Error(result.rejectionReason || "تم إيقاف التسعير لحماية السيرفر.");
             }
 
+            // 🛡️ الإصلاح الجذري (Currency Slippage Fix): السعر يحول دائماً من عملة الأساس (USD)
             const convert = (amt) => {
-                return FinancialEngineDef.convertViaUSDHelper(amt, baseCur, displayCur, rates, 'round', 'pricing');
+                return FinancialEngineDef.convertViaUSDHelper(
+                    amt, 
+                    FinancialEngineDef.CONFIG.BASE_CURRENCY, // 👈 الإجبار المطلق على استخدام عملة السيرفر الأساسية هنا
+                    displayCur, 
+                    rates, 
+                    'round', 
+                    'pricing'
+                );
             };
 
             const unitFinalLocal = convert(result.finalPrice);
@@ -546,7 +567,7 @@ const FinancialEngineDef = {
                 totalText: `${totalFinalLocal.toFixed(2)} ${displayCur}`,
                 displayCurrency: displayCur,
                 totalDisplayNum: totalFinalLocal,
-                totalLocalBase: result.totalFinalPrice,
+                totalLocalBase: result.totalFinalPrice, // السعر هنا يجب أن يبقى دولار ليتم إرساله للسيرفر للتحقق (Slippage Shield)
                 oldTotalDisplayNum: totalOriginalLocal,
                 oldTotalLocalBase: result.totalOriginalPrice,
                 hasDiscount: result.totalDiscount > 0,
@@ -563,7 +584,7 @@ const FinancialEngineDef = {
             };
         } catch (error) {
             console.error("🚨 [Client Pricing Engine]:", error.message);
-            // 🛡️ السقوط الآمن: إرجاع كائن مصفّر تماماً لمنع الواجهة من التحطم وإظهار رسالة "خطأ" للعميل
+            // السقوط الآمن للواجهة
             return {
                 unitText: `--- ${displayCur}`,
                 totalText: `--- ${displayCur}`,
