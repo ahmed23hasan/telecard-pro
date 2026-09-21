@@ -146,7 +146,7 @@ const isMasterAdmin = (request) => request.auth?.token?.admin === true;
 const checkBanStatus = (request) => { if (request.auth?.token?.banned === true) throw new HttpsError('permission-denied', 'عذراً، هذا الحساب محظور.'); };
 
 // ==========================================
-// 🛡️ 0. إنشاء الحساب
+// 🛡️ 0. إننشاء الحساب
 // ==========================================
 exports.onUserAuthCreated = functions
     .runWith({ failurePolicy: true })
