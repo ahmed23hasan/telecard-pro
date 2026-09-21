@@ -1,8 +1,8 @@
 // ============================================================================
-// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - Enterprise V15.0 💎
+// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - Enterprise V18.10 💎
 // 🌟 التحديث الأقصى (Strict MVC Edition): 
 // 1. MVC Enforcement: منع الـ Actions من التحدث المباشر مع قاعدة البيانات.
-// 2. Storage Fix: توجيه الملاحة بـ EventBus نقي.
+// 2. Missing Action Fix 🔌: ربط مسار (toggle-supplier-link) المفقود لتفعيل قفل التكلفة.
 // ============================================================================
 
 import { CatalogController } from './catalogController.js';
@@ -49,6 +49,9 @@ export const CatalogActions = {
   'toggle-mock-edit': (data) => AdminUI?.CatalogUI?.toggleMockEdit?.(data.val),
   'toggle-simple-qty': (data) => AdminUI?.CatalogUI?.toggleSimpleQty?.(data.element.checked),
   
+  // 🚀 [الإصلاح المعماري]: السلك المفقود لربط الموردين
+  'toggle-supplier-link': (data) => AdminUI?.CatalogUI?.toggleSupplierLink?.(data.element),
+  
   // ==========================================
   // 🎨 5. تفاعلات الواجهة والأشجار
   // ==========================================
@@ -67,8 +70,6 @@ export const CatalogActions = {
   // ==========================================
   // 🏦 6. إدارة الأكواد التالفة (Defective Vault)
   // ==========================================
-  // 🚀 [التصحيح المعماري]: تفويض العملية للمتحكم (Controller)
   'view-defective-codes': (data) => CatalogController.viewDefectiveCodes?.(data.id),
   'close-defective-modal': () => AdminUI?.CatalogUI?.closeDefectiveModalUI?.()
-  
 };

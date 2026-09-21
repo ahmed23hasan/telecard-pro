@@ -2156,7 +2156,51 @@ body.light-mode .security-pass-wrapper .lux-input { border-color: rgba(var(--pri
 
 .engraved-label { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; font-size: 11px; font-weight: 800; color: var(--gold-text); }
 .engraved-label i { font-size: 15px; color: var(--gold-text) !important; }
+/* 🌟 تعديل حاوية العنوان لتوزيع الرصيد يميناً وزر العين يساراً */
+.engraved-label.wallet-label-flex {
+    justify-content: space-between;
+    width: 100%;
+    padding-inline-end: 5px;
+}
 
+/* 🌟 زر الخصوصية (العين) - مصمم خصيصاً ليتناغم مع البطاقة الذهبية */
+.privacy-eye-btn {
+    background: transparent;
+    border: none;
+    color: var(--gold-text); /* يأخذ لون النص الذهبي الداكن */
+    opacity: 0.6; /* باهت قليلاً لعدم تشتيت الانتباه عن الرصيد */
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+    transition: all var(--trans-speed);
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.privacy-eye-btn i {
+    font-size: 14px !important; /* حجم متناسق مع النص المجاور */
+    color: var(--gold-text) !important;
+    transition: transform var(--trans-speed);
+}
+
+/* 🌟 تفاعلات الماوس (Hover) - تأثير زجاجي خفيف يليق بالذهبي */
+@media (hover: hover) and (pointer: fine) {
+    .privacy-eye-btn:hover {
+        opacity: 1;
+        background: rgba(255, 255, 255, 0.25); /* لمعة بيضاء خفيفة تتناسب مع الذهب */
+        transform: scale(1.05);
+    }
+}
+
+/* 🌟 تفاعل اللمس (Active) */
+.privacy-eye-btn:active {
+    opacity: 1;
+    transform: scale(0.9);
+    background: rgba(255, 255, 255, 0.3);
+}
 .engraved-val-wrap { display: flex; justify-content: center; align-items: baseline; width: 100%; direction: ltr; }
 .engraved-val { font-family: 'Inter', sans-serif; font-size: 24px; font-weight: 900; color: var(--gold-text); text-shadow: 0 1px 1px rgba(255,255,255,0.4); white-space: nowrap; }
 .gold-card .val-currency { margin-left: 4px; font-size: 13px !important; color: var(--gold-text); opacity: 0.9; }

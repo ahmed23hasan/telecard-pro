@@ -1,16 +1,18 @@
 // ============================================================================
-// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V15.8 💎
+// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V16.3 💎
 // 🎯 الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🚀 التحديثات المعمارية:
-// 1. Radar Preferences: فصل إعدادات الإشعارات (غرفة العمليات) عن الملف الشخصي.
-// 2. Data-Wipe Shield: إصلاح ثغرة حفظ الملف الشخصي لمنع تدمير تفضيلات وتوكنز الرادار.
-// 3. FCM Boot Trigger: تشغيل المراقبة الذكية وصلاحيات المتصفح عند الإقلاع.
+// 🚀 التحديثات المعمارية (V16.3 - Bank-Grade Security Patch):
+// 1. Omni-Search Expansion 🔍: توسيع البحث السحابي المباشر ليشمل الإيداعات لحل عمى الـ Pagination.
+// 2. Strict Session Logout 🔒: توافق تام مع الذاكرة المؤقتة لمسح الجلسة عند الخروج.
+// 3. Zero-Trust Profile 🛡️: منع السيرفر نهائياً من حفظ وتعديل البريد الإلكتروني لمنع عدم التزامن مع Auth.
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
 import { AdminUI } from '../adminUI.js';
 import { AdminRender } from '../adminRender.js';
 import { Utils, EventBus } from '../adminUtils.js';
+
+import { VAPID_KEY } from '../adminConfig.js';
 
 import { RenderHelpers } from './renderHelpers.js'; 
 
@@ -77,10 +79,15 @@ export const AppController = {
                 
                 AdminRender?.updateBadges?.();
                 AdminRender?.updateProfileUI?.();
-                const pendingKycCount = (AdminData.data.users || []).filter(u => u.kycStatus === 'pending').length;
                 
-                if (AdminUI?.UsersUI?.updateSidebarKycBadge) {
-                    AdminUI.UsersUI.updateSidebarKycBadge(pendingKycCount);
+                try {
+                    const kycStats = await FirebaseAdapter.getAggregatedStats('telecard_users', [['kycStatus', '==', 'pending']], { total: { type: 'count' } });
+                    const pendingKycCount = kycStats?.total || 0;
+                    if (AdminUI?.UsersUI?.updateSidebarKycBadge) {
+                        AdminUI.UsersUI.updateSidebarKycBadge(pendingKycCount);
+                    }
+                } catch (e) {
+                    console.warn("⚠️ لم نتمكن من جلب شارة الـ KYC من السيرفر.");
                 }
             }
             
@@ -94,7 +101,6 @@ export const AppController = {
 
             this.isInitialized = true;
 
-            // 🚀 [تفعيل الرادار الصامت أو طلب الصلاحية عند الإقلاع]
             setTimeout(() => {
                 this.setupAdminPushNotifications();
                 if (AdminUI?.showAdminPushPrompt) AdminUI.showAdminPushPrompt();
@@ -142,7 +148,10 @@ export const AppController = {
     },
 
     logoutAdmin: function() {
+        // 🚀 [التحديث الأمني]: مسح الجلسة الصارمة والقديمة معاً
         sessionStorage.removeItem('telecard_admin_auth'); 
+        localStorage.removeItem('telecard_admin_auth'); 
+        
         if (typeof FirebaseAdapter !== 'undefined') FirebaseAdapter.killAllListeners();
         if (typeof EventBus !== 'undefined') EventBus.clearAll();
         if (auth) auth.signOut().catch(() => {});
@@ -157,7 +166,6 @@ export const AppController = {
         EventBus.on('req-go-back', () => this.back());
         EventBus.on('req-close-modal', (data) => AdminUI?.closeModal?.(data?.id || null));
         
-        // 🚀 أحداث الرادار (غرفة العمليات)
         EventBus.on('req-enable-notifs', () => {
             document.getElementById('admin-push-prompt')?.remove();
             this.setupAdminPushNotifications(true);
@@ -261,20 +269,51 @@ export const AppController = {
         AdminUI?.clearAllSearchAndFiltersUI?.(); 
     },
 
-    applyFilters: function(section) {
+        applyFilters: async function(section) {
         if (!this.filters) this.filters = {};
         if (!this.filters[section]) this.filters[section] = { search: '', start: null, end: null };
 
         const searchInput = document.getElementById(`${section}-search-input`) || document.getElementById(`search-${section}`);
-        const searchVal = searchInput ? searchInput.value.trim().toLowerCase() : '';
+        const searchVal = searchInput ? searchInput.value.trim() : '';
 
         this.filters[section].search = searchVal;
         this.updateState({ filters: this.filters });
         
+        // 🚀 [التحديث المعماري]: خفضنا شرط طول البحث إلى 8 رموز ليعمل مع المعرفات المقتطعة
+        if (searchVal.length >= 8 && (section === 'orders' || section === 'deposits')) {
+            try {
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري البحث السحابي المباشر...');
+                
+                const collectionName = section === 'orders' ? 'telecard_orders' : 'telecard_deposits';
+                const dataMap = section === 'orders' ? AdminData.data.ordersMap : AdminData.data.depositsMap;
+                const dataArray = section === 'orders' ? AdminData.data.orders : AdminData.data.deposits;
+
+                let docSnap = await FirebaseAdapter.getById(collectionName, searchVal);
+                
+                if (!docSnap) {
+                    const result = await FirebaseAdapter.fetchMoreWithCursor(collectionName, [['userId', '==', searchVal]], 'time', null, 5);
+                    if (result && result.data && result.data.length > 0) {
+                        const newItems = result.data.filter(newItem => !dataMap[newItem.id]);
+                        if (newItems.length > 0) {
+                            if (section === 'orders') AdminData.data.orders = [...newItems, ...dataArray];
+                            else AdminData.data.deposits = [...newItems, ...dataArray];
+                            newItems.forEach(i => { dataMap[String(i.id)] = i; });
+                        }
+                    }
+                } else if (!dataMap[docSnap.id]) {
+                    dataArray.unshift(docSnap);
+                    dataMap[String(docSnap.id)] = docSnap;
+                }
+            } catch (e) {
+                console.warn("البحث السحابي لم يعثر على نتائج مباشرة.");
+            } finally {
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            }
+        }
+        
         if (section === 'orders') EventBus.emit('req-render-orders');
         else if (section === 'deposits') EventBus.emit('req-render-deposits');
     },
-    
     setQuickDateFilter: function(range, section) {
         if (!this.filters) this.filters = {};
         if (!this.filters[section]) this.filters[section] = { search: '', start: null, end: null };
@@ -283,16 +322,16 @@ export const AppController = {
         const now = new Date();
         
         if (range === 'today') {
-            start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
             end = start + 86399999;
         } else if (range === 'week') {
-            start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).getTime();
+            start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 7);
             end = now.getTime();
         } else if (range === 'month') {
-            start = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).getTime();
+            start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, now.getUTCDate());
             end = now.getTime();
-        } 
-        
+        }
+               
         this.filters[section].start = start;
         this.filters[section].end = end;
         this.updateState({ filters: this.filters });
@@ -309,7 +348,6 @@ export const AppController = {
         if (section === 'orders') EventBus.emit('req-render-orders');
         else if (section === 'deposits') EventBus.emit('req-render-deposits');
     },
-
     navWithFilter: function(section, status) {
         this.nav(section);
         setTimeout(() => AdminRender?.filterByTab?.(section, status), 100);
@@ -531,7 +569,7 @@ export const AppController = {
         }
     },
 
-    addGlobalBanIp: async function() {
+        addGlobalBanIp: async function() {
         const input = document.getElementById('new-ban-ip-input');
         if (!input) return;
         const newIp = input.value.trim();
@@ -539,7 +577,8 @@ export const AppController = {
         if (!newIp) return AdminUI.showToast('الرجاء إدخال عنوان IP', 'error');
         
         const isValidIPv4 = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/.test(newIp);
-        const isValidIPv6 = /^(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}$/.test(newIp) || newIp === '::1'; 
+        // 🚀 [التحديث المعماري]: تعبير نمطي قوي وشامل يدعم كافة صيغ IPv6 المختصرة والموسعة
+        const isValidIPv6 = /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/.test(newIp);
         
         if (!isValidIPv4 && !isValidIPv6) {
             return AdminUI.showToast('صيغة الـ IP غير صحيحة، يرجى إدخال IP حقيقي', 'error');
@@ -567,8 +606,7 @@ export const AppController = {
         } finally {
             if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
         }
-    },    
-
+    },
     removeGlobalBanIp: async function(ip) {
         if (!AdminUI) return;
         if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن الشبكة (${ip})؟`, 'إزالة من القائمة السوداء')) return;
@@ -777,7 +815,8 @@ export const AppController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إرسال الرد للعميل...');
         try {
             if (typeof FirebaseAdapter !== 'undefined' && FirebaseAdapter.updateDocument) {
-                await FirebaseAdapter.updateDocument('reviews', reviewId, {
+                // 🚀 [التحديث المعماري]: تصحيح مسار جدول الشكاوى ليطابق قاعدة البيانات
+                await FirebaseAdapter.updateDocument('telecard_reviews', reviewId, {
                     status: 'resolved',
                     adminReply: reply,
                     resolvedAt: Date.now()
@@ -827,12 +866,10 @@ export const AppController = {
     
     saveAdminProfile: async function(profileData) {
         const name = profileData?.name || Utils.escapeHTML(Utils.getVal('adm-name'));
-        const email = profileData?.email || Utils.escapeHTML(Utils.getVal('adm-email'));
-        const pass = profileData?.pass || Utils.escapeHTML(Utils.getVal('adm-pass'));
+        // 🛡️ [التحديث الأمني]: تم إزالة جلب البريد الإلكتروني من الواجهة لمنع التلاعب
         const hasImg = profileData?.hasImg !== undefined ? profileData.hasImg : document.getElementById('adm-img-wrap')?.classList.contains('has-img');
-        const fileToUpload = profileData?.file !== undefined ? profileData.file : document.getElementById('adm-img-file')?.files?.[0];
 
-        if (!name || !email) return AdminUI?.showToast('الاسم والبريد مطلوبان', 'error');
+        if (!name) return AdminUI?.showToast('الاسم مطلوب', 'error');
         
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث الملف الشخصي...');
         
@@ -841,14 +878,26 @@ export const AppController = {
             const oldImgUrl = this.data.adminProfile?.img || null;
             
             if (hasImg) {
-                if (fileToUpload) {
-                    AdminUI?.showToast('جاري معالجة ورفع الصورة...', 'info');
+                if (AdminUI?.tempImg && AdminUI.tempImg.startsWith('data:image')) {
+                    AdminUI?.showToast('جاري رفع الصورة المضغوطة...', 'info');
+                    
+                    const processedBlob = await (await fetch(AdminUI.tempImg)).blob();
+                    const finalFileToUpload = new File([processedBlob], `admin_profile_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    
                     if (oldImgUrl && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
                         await FirebaseAdapter.deleteImageByUrl(oldImgUrl).catch(() => {});
                     }
-                    const ext = fileToUpload.name.includes('.') ? fileToUpload.name.split('.').pop().toLowerCase() : 'jpg';
+                    
+                    finalImg = await FirebaseAdapter.uploadImage(finalFileToUpload, 'admin', null, true);
+                } else if (profileData?.file || document.getElementById('adm-img-file')?.files?.[0]) {
+                    const fallbackFile = profileData?.file || document.getElementById('adm-img-file')?.files?.[0];
+                    const ext = fallbackFile.name.includes('.') ? fallbackFile.name.split('.').pop().toLowerCase() : 'jpg';
                     const customName = `admin_profile_${Date.now()}.${ext}`;
-                    finalImg = await FirebaseAdapter.uploadImage(fileToUpload, 'admin', customName, true);
+                    
+                    if (oldImgUrl && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                        await FirebaseAdapter.deleteImageByUrl(oldImgUrl).catch(() => {});
+                    }
+                    finalImg = await FirebaseAdapter.uploadImage(fallbackFile, 'admin', customName, true);
                 } else {
                     finalImg = oldImgUrl || '';
                 }
@@ -859,18 +908,25 @@ export const AppController = {
                 finalImg = '';
             }
             
-            // 🚀 [الترقيع المعماري]: دمج البيانات لتفادي مسح إعدادات الرادار والتوكنز
+            // 🛡️ [التحديث الأمني]: إزالة حفظ كلمة المرور (pass) والبريد (email) من قاعدة البيانات (Zero-Trust)
             this.data.adminProfile = { 
                 ...this.data.adminProfile, 
                 name, 
-                email, 
-                pass, 
+                // email: تم الإزالة لمنع عدم التزامن مع Firebase Auth
                 img: finalImg 
             };
             
             await AdminData?.saveAdminProfile?.();
             EventBus.emit('req-update-profile-ui');
-            AdminUI?.showToast('تم حفظ الملف الشخصي بنجاح', 'success');
+            
+            const passInput = document.getElementById('adm-pass');
+            if (passInput && passInput.value.trim() !== '') {
+                AdminUI?.showToast('تم تحديث البيانات. لتغيير كلمة المرور أو البريد، يرجى استخدام نظام إعادة تعيين فايربيز.', 'info');
+                passInput.value = '';
+            } else {
+                AdminUI?.showToast('تم حفظ الملف الشخصي بنجاح', 'success');
+            }
+            
         } catch (error) {
             AdminUI?.showToast(error.message || 'تعذر تحديث الملف الشخصي', 'error');
         } finally {
@@ -878,7 +934,6 @@ export const AppController = {
         }
     },
 
-    // 🚀 [الرادار المعماري]: تفعيل الرادار، طلب الصلاحية، وجمع التفضيلات
     setupAdminPushNotifications: async function(forcePrompt = false) {
         if (typeof window === 'undefined' || !window.Notification) return;
 
@@ -890,15 +945,12 @@ export const AppController = {
         if (Notification.permission === 'granted') {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري ربط جهازك بغرفة العمليات...');
             try {
-                // 🚀 تم دمج مفتاح VAPID الخاص بالمشروع
-                const VAPID_KEY = "BDdFL5sHBs1j5RXsps4TahR2UN4qCRwZR2G769OJEGR_1gTj8D2MHsTRsMeSv_Spad22N6LYFsu0x9GhdARqEFk"; 
                 const token = await FirebaseAdapter.requestFCMToken(VAPID_KEY);
 
                 if (token) {
                     let currentTokens = Array.isArray(this.data.adminProfile?.fcmTokens) ? [...this.data.adminProfile.fcmTokens] : [];
                     if (!currentTokens.includes(token)) {
                         currentTokens.push(token);
-                        // حماية الذاكرة السحابية: 5 أجهزة كحد أقصى للمدير
                         if (currentTokens.length > 5) currentTokens = currentTokens.slice(-5); 
                         
                         if (!this.data.adminProfile) this.data.adminProfile = {};
@@ -916,7 +968,6 @@ export const AppController = {
         }
     },
 
-    // 🚀 [الرادار المعماري]: دالة مستقلة لحفظ تفضيلات الإشعارات فقط
     saveAdminPreferences: async function() {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث إعدادات غرفة العمليات...');
         try {
@@ -929,8 +980,6 @@ export const AppController = {
             };
 
             let currentTokens = Array.isArray(this.data.adminProfile?.fcmTokens) ? [...this.data.adminProfile.fcmTokens] : [];
-            // 🚀 تم دمج مفتاح VAPID الخاص بالمشروع
-            const VAPID_KEY = "BDdFL5sHBs1j5RXsps4TahR2UN4qCRwZR2G769OJEGR_1gTj8D2MHsTRsMeSv_Spad22N6LYFsu0x9GhdARqEFk"; 
             
             if (typeof window !== 'undefined' && window.Notification && Notification.permission !== 'denied') {
                 const token = await FirebaseAdapter.requestFCMToken(VAPID_KEY);
@@ -947,7 +996,7 @@ export const AppController = {
             await AdminData?.saveAdminProfile?.();
             
             AdminUI?.showToast('تم تحديث إعدادات الرادار السحابي بنجاح 🚀', 'success');
-            AdminUI?.closeModal?.('admin-prefs'); // إغلاق نافذة التفضيلات
+            AdminUI?.closeModal?.('admin-prefs'); 
         } catch (error) {
             AdminUI?.showToast('تعذر حفظ إعدادات الإشعارات', 'error');
         } finally {
@@ -955,10 +1004,9 @@ export const AppController = {
         }
     },
 
-        delItem: async function(type, id) {
+    delItem: async function(type, id) {
         const strId = String(id);
         
-        // 🚀 إضافة التوجيه المفقود للمستويات وربطه بالمتحكم المحصن
         if (type === 'tier') return import('../modules/users/usersController.js').then(m => m.UsersController.deleteTier(strId));
         
         if (type === 'vault') return CatalogController.deleteVaultPool(strId);
@@ -968,33 +1016,7 @@ export const AppController = {
         if (type === 'coupon') return MarketingController.deleteCoupon(strId);
         if (type === 'offer') return MarketingController.deleteOffer(strId);
         
-        let itemName = "عنصر";
-        
-        if (type === 'pay') {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح البوابة السحابية...');
-            try {
-                const itm = this.data.payments.find(x => String(x.id) === strId);
-                if (itm) {
-                    itemName = itm.name;
-                    if (itm.img && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
-                        try { await FirebaseAdapter.deleteImageByUrl(itm.img); } catch(e){}
-                    }
-                }
-                this.data.payments = this.data.payments.filter(x => String(x.id) !== strId);
-                await AdminData.savePayments();
-                
-                if (typeof FirebaseAdapter !== 'undefined' && FirebaseAdapter.callFunction) {
-                    FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
-                }
-
-                this.finishAction('req-render-payments', null, `DELETE_PAY`, `تم حذف بوابة الدفع: ${itemName}`, 'تم الحذف بنجاح');
-            } catch (error) {
-                AdminUI?.showToast(error.message || 'فشل الحذف', 'error');
-            } finally {
-                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-            }
-        }
-        else if (type === 'banner') {
+        if (type === 'banner') {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح البنر الإعلاني...');
             try {
                 const bnr = this.data.banners.find(x => String(x.id) === strId);

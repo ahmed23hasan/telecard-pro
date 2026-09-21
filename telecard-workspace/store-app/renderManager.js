@@ -879,75 +879,74 @@ _generateProductCardHTML: function(p, idx) {
 
     // 🛡️ الإصلاح الجذري لمشكلة بوابات الدفع (Hidden Paint Patch)
         renderPayMethods: function() {
-        const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container');
-        if (!container) return;
-        
-        const validPayments = (LiveStoreData.payments || []).filter(p => p?.name?.trim() && p.isActive !== false && p.is_active !== false).sort((a,b) => (a.order || 0) - (b.order || 0));
-
-        if (validPayments.length === 0) {
-            if (container.dataset.syncDone === 'true') {
-                container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-building-columns"></i><h3>لا توجد طرق دفع متاحة حالياً</h3></div>`; 
-                return;
-            }
-            if (!container.querySelector('.fa-circle-notch')) {
-                container.innerHTML = `<div class="empty-state-v2" style="min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: none; background: transparent;"><i class="fa-solid fa-circle-notch fa-spin" style="font-size: 32px; color: var(--gold-main); margin-bottom: 15px;"></i><h3 style="color: var(--text-muted); font-size: 14px; font-weight: 600;">جاري تجهيز بوابات الدفع...</h3></div>`;
-            }
-            if (!container.dataset.fallbackTimer) {
-                const timerId = setTimeout(() => {
-                    container.dataset.syncDone = 'true';
-                    delete container.dataset.fallbackTimer;
-                    if (window.RenderManager && window.RenderManager.renderPayMethods) window.RenderManager.renderPayMethods();
-                    else if (this.renderPayMethods) this.renderPayMethods();
-                }, 3500);
-                container.dataset.fallbackTimer = timerId; 
-            }
+    const container = document.getElementById('bal-pay-grid') || document.getElementById('bal-methods-container');
+    if (!container) return;
+    
+    const validPayments = (LiveStoreData.payments || []).filter(p => p?.name?.trim() && p.isActive !== false && p.is_active !== false).sort((a, b) => (a.order || 0) - (b.order || 0));
+    
+    if (validPayments.length === 0) {
+        if (container.dataset.syncDone === 'true') {
+            container.innerHTML = `<div class="empty-state-v2"><i class="fa-solid fa-building-columns"></i><h3>لا توجد طرق دفع متاحة حالياً</h3></div>`;
             return;
         }
-
-        if (container.dataset.fallbackTimer) {
-            clearTimeout(Number(container.dataset.fallbackTimer));
-            delete container.dataset.fallbackTimer;
+        if (!container.querySelector('.fa-circle-notch')) {
+            container.innerHTML = `<div class="empty-state-v2" style="min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: none; background: transparent;"><i class="fa-solid fa-circle-notch fa-spin" style="font-size: 32px; color: var(--gold-main); margin-bottom: 15px;"></i><h3 style="color: var(--text-muted); font-size: 14px; font-weight: 600;">جاري تجهيز بوابات الدفع...</h3></div>`;
         }
-        
-        container.dataset.syncDone = 'true';
-        let html = '';
-        const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (window.DataManager?.user ? String(window.DataManager.user.id) : null);
-        const pendingMethodKeys = (LiveStoreData.deposits || []).filter(d => String(d.userId) === String(uid) && d.status === 'pending').map(d => String(d.methodId || d.method).toLowerCase());
-
-        validPayments.forEach(p => {
-            try {
-                const safeName = Utils.escapeHtml(p.name);
-                const isLocked = pendingMethodKeys.includes(String(p.id).toLowerCase()) || pendingMethodKeys.includes(String(p.name).toLowerCase());
-                const safeUrl = Utils.safeUrl ? Utils.safeUrl(p.img) : p.img;
-                
-                // 🛡️ الفصل المعماري: بوابات الدفع أيقونات صغيرة، يتم إجبارها على الرسم فوراً
-                // وضعنا opacity: 1 و shimmer-stop-override لقتل أي تأخير بصري
-                const imgHtml = `
+        if (!container.dataset.fallbackTimer) {
+            const timerId = setTimeout(() => {
+                container.dataset.syncDone = 'true';
+                delete container.dataset.fallbackTimer;
+                if (window.RenderManager && window.RenderManager.renderPayMethods) window.RenderManager.renderPayMethods();
+                else if (this.renderPayMethods) this.renderPayMethods();
+            }, 3500);
+            container.dataset.fallbackTimer = timerId;
+        }
+        return;
+    }
+    
+    if (container.dataset.fallbackTimer) {
+        clearTimeout(Number(container.dataset.fallbackTimer));
+        delete container.dataset.fallbackTimer;
+    }
+    
+    container.dataset.syncDone = 'true';
+    let html = '';
+    const uid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID) || (window.DataManager?.user ? String(window.DataManager.user.id) : null);
+    const pendingMethodKeys = (LiveStoreData.deposits || []).filter(d => String(d.userId) === String(uid) && d.status === 'pending').map(d => String(d.methodId || d.method).toLowerCase());
+    
+    validPayments.forEach(p => {
+        try {
+            const safeName = Utils.escapeHtml(p.name);
+            const isLocked = pendingMethodKeys.includes(String(p.id).toLowerCase()) || pendingMethodKeys.includes(String(p.name).toLowerCase());
+            const safeUrl = Utils.safeUrl ? Utils.safeUrl(p.img) : p.img;
+            
+            // 🛡️ الحل المعماري النهائي: إظهار فوري (بدون شيمر) + فك تشفير بالخلفية (لمنع التقطيع)
+            const imgHtml = `
                     <div class="pay-icon-wrapper shimmer-stop-override">
                         <img src="${safeUrl}" 
                              alt="${safeName}" 
                              class="pay-icon-img" 
                              style="opacity: 1 !important; visibility: visible !important;" 
                              loading="eager" 
-                             decoding="sync"
+                             decoding="async"
                              onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                         <div class="pay-icon-default fallback-icon-ready" style="display: none;">
                             <i class="fa-solid fa-building-columns"></i>
                         </div>
                     </div>`;
-
-                if (isLocked) {
-                    html += `<div class="pay-card-select method-locked" onclick="window.UIManager?.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة.', 'warning')">${imgHtml}<div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3><span class="method-locked-warning"><i class="fa-solid fa-hourglass-half"></i> طلب قيد المعالجة</span></div><i class="fa-solid fa-lock pay-card-arrow"></i></div>`;
-                } else {
-                    html += `<div class="pay-card-select clickable" data-action="select-pay" data-id="${p.id}">${imgHtml}<div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3></div><i class="fa-solid fa-chevron-left pay-card-arrow"></i></div>`;
-                }
-            } catch(e) { console.error("🚨 [Render Engine] فشل رسم بوابة الدفع:", e); }
-        });
-        
-        requestAnimationFrame(() => {
-            container.innerHTML = html;
-        });
-    },
+            
+            if (isLocked) {
+                html += `<div class="pay-card-select method-locked" onclick="window.UIManager?.showToast('لديك طلب إيداع قيد المعالجة بهذه الطريقة.', 'warning')">${imgHtml}<div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3><span class="method-locked-warning"><i class="fa-solid fa-hourglass-half"></i> طلب قيد المعالجة</span></div><i class="fa-solid fa-lock pay-card-arrow"></i></div>`;
+            } else {
+                html += `<div class="pay-card-select clickable" data-action="select-pay" data-id="${p.id}">${imgHtml}<div class="pay-card-content"><h3 class="pay-card-name">${safeName}</h3></div><i class="fa-solid fa-chevron-left pay-card-arrow"></i></div>`;
+            }
+        } catch (e) { console.error("🚨 [Render Engine] فشل رسم بوابة الدفع:", e); }
+    });
+    
+    requestAnimationFrame(() => {
+        container.innerHTML = html;
+    });
+},
     renderOrders: function(forceRender = false) {
         if (!forceRender) { 
             if (!this._ordersDebounced) { 

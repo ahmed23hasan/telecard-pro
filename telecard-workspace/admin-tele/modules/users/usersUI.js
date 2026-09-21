@@ -1,16 +1,15 @@
 // ============================================================================
-// 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js) - Enterprise V16.2 💎
+// 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js) - Cloud-Native V18.5 💎
 // 🎯 الوظيفة: إدارة التفاعلات المرئية فقط (Visual Interactions)
-// 🚀 التحديث الأقصى: 
-// 1. Ghost Event Fix: توجيه زر "إدارة العملاء" في المستويات لمحرك الرسم مباشرة لإنهاء مشكلة الزر الميت.
-// 2. Dead Code Elimination: إزالة كود الـ Modal القديم واعتماد السجل الموحد.
+// 🚀 التحديثات المعمارية (V18.5 - DOM Cleansing Patch): 
+// 1. Clean DOM Routing 🧹: تدمير نافذة الترقية من الـ HTML بالكامل بعد إغلاقها لمنع تكدس الـ DOM.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { UsersTemplates } from './usersTemplates.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { UIService } from '../../core/uiService.js';
-import { UsersRender } from './usersRender.js'; // 🚀 استيراد المحرك الصحيح لربط المسارات
+import { UsersRender } from './usersRender.js'; 
 
 export const UsersUI = {
     tempKycConfig: null,
@@ -89,7 +88,6 @@ export const UsersUI = {
         }
     },
     
-    // 🚀 [الإصلاح الماسي]: استدعاء دالة الرسم مباشرة لفتح صفحة العملاء للمستوى المحدد
     openTierUsers: function(tierId) {
         if (UsersRender && typeof UsersRender.showTierUsersPage === 'function') {
             UsersRender.showTierUsersPage(tierId);
@@ -140,8 +138,11 @@ export const UsersUI = {
     },
     
     showTierSelection: function(userId) {
-        const u = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(x => String(x.id) === String(userId));
-        if (!u) return;
+        const u = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(x => String(x.id) === String(userId)) || (UsersRender._cloudSearchResults || []).find(x => String(x.id) === String(userId));
+        if (!u) {
+            UIService.showToast('تعذر العثور على العميل لتغيير مستواه', 'error');
+            return;
+        }
         
         let modal = document.getElementById('tier-selection-modal');
         if (!modal) {
@@ -164,14 +165,20 @@ export const UsersUI = {
     
     closeTierSelection: function() {
         const modal = document.getElementById('tier-selection-modal');
-        if (modal) modal.classList.remove('active');
+        if (modal) {
+            modal.classList.remove('active');
+            // 🚀 [التحديث المعماري]: تدمير النافذة بعد الإغلاق لمنع تراكم הـ DOM
+            setTimeout(() => {
+                if (modal.parentElement) modal.remove();
+            }, 300);
+        }
     },
     
     // ---------------------------------------------------------
     // 👤 2. إدارة ملفات المستخدمين (Users)
     // ---------------------------------------------------------
     openUserEditModal: function(userId) {
-        const u = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(x => String(x.id) === String(userId));
+        const u = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(x => String(x.id) === String(userId)) || (UsersRender._cloudSearchResults || []).find(x => String(x.id) === String(userId));
         if (!u) return UIService.showToast('لم يتم العثور على العميل', 'error');
         
         const container = document.getElementById('user-edit-form-container');
@@ -300,13 +307,12 @@ export const UsersUI = {
         }
     },
     
-        saveKycSettings: function() {
+    saveKycSettings: function() {
         if (!this.tempKycConfig) {
             const settings = AdminData.data.settings || {};
             this.tempKycConfig = JSON.parse(JSON.stringify(settings.kycConfig || { mode: 'off', targetedTiers: [] }));
         }
         
-        // قراءة حالة أزرار الأمان الجديدة
         const forceBioEl = document.getElementById('policy-force-bio');
         const force2FAEl = document.getElementById('policy-force-2fa');
         
@@ -315,7 +321,6 @@ export const UsersUI = {
             force2FA: force2FAEl ? force2FAEl.checked : false
         };
 
-        // إرسال البيانات (KYC + Security) للموجه المركزي للحفظ
         EventBus.emit('req-save-kyc-config', {
             kycConfig: this.tempKycConfig,
             securityPolicy: securityPolicy
@@ -323,5 +328,4 @@ export const UsersUI = {
         
         this.tempKycConfig = null;
     }
-
 };

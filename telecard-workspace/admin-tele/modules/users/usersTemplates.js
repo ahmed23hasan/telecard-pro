@@ -1,9 +1,10 @@
 // ============================================================================
-// 👥 قوالب المستخدمين والتوثيق (modules/users/usersTemplates.js) - النسخة الماسية V16.2 💎
+// 👥 قوالب المستخدمين والتوثيق (modules/users/usersTemplates.js) - Cloud-Native V18.6 💎
 // 🎯 الوظيفة: توليد الـ HTML النقي المدمج بالبيانات (Data Binding)
-// 🚀 التحديث الأقصى: 
-// 1. CRM Rating Injection: دمج وتصميم شارة "تقييم العميل للمتجر" داخل تبويب النظرة العامة.
-// 2. SSOT Integration: حقن قالب تبويب المطورين برمجياً.
+// 🚀 التحديثات المعمارية (V18.6 - Ledger Transparency Patch): 
+// 1. Ledger Transparency 📊: إضافة خانة (الإيداعات) في واجهة العميل لعرض totalDeposit بشفافية.
+// 2. Device Print XSS Fix 🛡️: إغلاق ثغرة حقن الجافاسكريبت عبر تغليف بصمات الأجهزة بدالة _esc.
+// 3. Smart ID Shield 🛡️: تحرير مخرجات RenderHelpers.formatUserId من سجن _esc وحاويات النسخ.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -86,9 +87,9 @@ export const UsersTemplates = {
             <div class="usr-bottom">
                 <div class="usr-meta">
                     <span class="usr-username" dir="ltr">${u.username ? '@' + _esc(u.username) : '---'}</span>
-                    <span class="uid-capsule copyable-admin" title="المعرف الكامل: ${_esc(u.id)} (انقر للنسخ)" data-action="copy-text" data-copy-text="${_esc(u.id)}">
-                        <i class="fa-solid fa-hashtag"></i>${_esc(RenderHelpers.formatUserId(u))}
-                    </span>
+                    <div class="uid-capsule" style="background:transparent; border:none; padding:0; box-shadow:none;">
+                        ${RenderHelpers.formatUserId(u)}
+                    </div>
                 </div>
                 <div class="usr-wallet">
                     <span class="w-lbl">الرصيد الحالي</span>
@@ -174,7 +175,6 @@ export const UsersTemplates = {
             `;
         }
 
-        // 🚀 [نظام الـ CRM الذهبي]: جلب وعرض التقييم الخاص بهذا العميل إن وجد
         const userReview = uiData.userReview;
         let ratingHtml = '';
         
@@ -211,7 +211,7 @@ export const UsersTemplates = {
                 <div class="ud-info-list">
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-regular fa-id-badge"></i> الاسم الكامل</span><span class="ud-info-val ud-copyable" title="انقر للنسخ" data-action="copy-to-clipboard">${_esc(uiData.rawName)}</span></div>
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-at"></i> اسم المستخدم</span><span class="ud-info-val num-en ud-copyable" dir="ltr" lang="en" title="انقر للنسخ" data-action="copy-to-clipboard">${u.username ? '@' + _esc(u.username) : '---'}</span></div>
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-fingerprint"></i> معرف العميل (ID)</span><span class="ud-info-val"><span class="uid-capsule font-lg copyable-admin" title="المعرف الكامل: ${_esc(u.id)} (انقر للنسخ)" data-action="copy-text" data-copy-text="${_esc(u.id)}"><i class="fa-solid fa-hashtag"></i>${_esc(RenderHelpers.formatUserId(u))}</span></span></div>
+                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-fingerprint"></i> معرف العميل (ID)</span><span class="ud-info-val">${RenderHelpers.formatUserId(u)}</span></div>
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-envelope"></i> البريد</span><span class="ud-info-val num-en ${u.email ? 'ud-copyable' : 'text-muted'}" dir="ltr" lang="en" ${u.email ? 'title="انقر للنسخ" data-action="copy-to-clipboard"' : ''}>${u.email ? _esc(u.email) : '----'}</span></div>
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-clock"></i> رقم الهاتف</span><span class="ud-info-val num-en ${u.phone ? 'ud-copyable' : 'text-muted'}" dir="ltr" lang="en" ${u.phone ? 'title="انقر للنسخ" data-action="copy-to-clipboard"' : ''}>${u.phone ? _esc(u.phone) : '----'}</span></div>
                     <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-gem"></i> مستوى العميل</span><span class="ud-info-val ud-copyable" title="انقر للنسخ" data-action="copy-to-clipboard"><i class="fa-solid fa-crown"></i> ${_esc(uiData.tierName)}</span></div>
@@ -242,10 +242,20 @@ export const UsersTemplates = {
                 </div>
                 <div class="ud-section">
                     <div class="ud-section-header ud-header-clean"><h3 class="ud-section-title"><i class="fa-solid fa-chart-pie"></i> الإحصائيات المالية</h3></div>
+                    
+                    <!-- 🛡️ [التصحيح المالي]: إضافة خانة الإيداعات لعرضها بشفافية للمدير -->
                     <div class="ud-stats-grid mt-10">
                         <div class="ud-info-row ud-stat-box"><span class="ud-info-lbl"><i class="fa-solid fa-sack-dollar"></i> المشتريات</span><span class="ud-info-val num-en ud-stat-val-success" dir="ltr" lang="en">${RenderHelpers.formatMoney(uiData.totalSpent, uiData.safeCurrency, 2)}</span></div>
+                        <div class="ud-info-row ud-stat-box"><span class="ud-info-lbl"><i class="fa-solid fa-wallet"></i> الإيداعات</span><span class="ud-info-val num-en text-info" dir="ltr" lang="en">${RenderHelpers.formatMoney(u.totalDeposit || 0, uiData.safeCurrency, 2)}</span></div>
                         <div class="ud-info-row ud-stat-box"><span class="ud-info-lbl"><i class="fa-solid fa-boxes-stacked"></i> الطلبات</span><span class="ud-info-val num-en" dir="ltr" lang="en">${_enNum(uiData.totalOrdersCount)} طلب</span></div>
                     </div>
+                </div>
+                
+                <div class="mt-15 text-center">
+                    <button class="btn btn-ghost w-100 text-warning fw-bold" style="border: 1px dashed rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.05);" data-action="audit-user-wallet" data-id="${u.id}">
+                        <i class="fa-solid fa-scale-balanced"></i> تدقيق ومطابقة السجلات المالية (المحقق المالي)
+                    </button>
+                    <div class="fs-11 text-muted text-center mt-5">استخدم هذا الخيار فقط إذا لاحظت اختلافاً بين مدفوعات العميل الفعلية والإحصائيات.</div>
                 </div>
             </div>
             
@@ -290,7 +300,7 @@ export const UsersTemplates = {
                         
                         ${Array.isArray(u.devicePrints) && u.devicePrints.length > 0 ? 
                             `<div class="d-flex flex-wrap gap-2 mb-10">
-                                ${u.devicePrints.map(dp => `<span class="badge-tag num-en fs-10" dir="ltr" style="background: rgba(255,255,255,0.05);">${dp.substring(0,8)}...</span>`).join('')}
+                                ${u.devicePrints.map(dp => `<span class="badge-tag num-en fs-10" dir="ltr" style="background: rgba(255,255,255,0.05);">${_esc(dp.substring(0,8))}...</span>`).join('')}
                             </div>` 
                             : `<div class="text-muted fs-11 mb-10">لم يتم التقاط أي بصمة جهاز لهذا العميل بعد.</div>`
                         }
@@ -440,9 +450,9 @@ export const UsersTemplates = {
                     ${avatarHtml}
                     <div class="tuc-info">
                         <h4>${safeName}</h4>
-                        <span class="uid-capsule copyable-admin" title="المعرف الكامل: ${_esc(u.id)} (انقر للنسخ)" data-action="copy-text" data-copy-text="${_esc(u.id)}">
-                            <i class="fa-solid fa-hashtag"></i>${_esc(RenderHelpers.formatUserId(u))}
-                        </span>
+                        <div class="uid-capsule" style="background:transparent; border:none; padding:0; box-shadow:none;">
+                            ${RenderHelpers.formatUserId(u)}
+                        </div>
                     </div>
                 </div>
                 <div class="tuc-change-capsule" data-action="change-tier" data-id="${_esc(u.id)}" title="تغيير المستوى">
@@ -458,12 +468,12 @@ export const UsersTemplates = {
                             <div class="prog-item text-left"><span class="p-lbl">الهدف</span><span class="p-val num-en text-info" dir="ltr" lang="en">${RenderHelpers.formatMoney(target, 'USD', 2)}</span></div>
                         </div>
                         <div class="tuc-progress-bar-container">
-                            <div class="tuc-bar-bg"><div class="tuc-bar-fill" style="width: ${pct}%; background: ${tierColor}; box-shadow: 0 0 10px ${tierColor}60;"></div></div>
+                            <div class="tuc-bar-bg"><div class="tuc-bar-fill" style="width: ${pct}%; background: ${tierColor}; box-shadow: 0 0 10px${tierColor}60;"></div></div>
                             <span class="tuc-pct-badge num-en" dir="ltr" lang="en">${pct}%</span>
                         </div>
                     </div>
                 ` : `
-                    <div class="tuc-status-box status-achieved" style="border-color: ${tierColor}; background: ${tierColor}08;">
+                    <div class="tuc-status-box status-achieved" style="border-color: ${tierColor}; background:${tierColor}08;">
                         <div class="status-label-main" style="color: ${tierColor};"><i class="fa-solid fa-trophy"></i> محقق للشرط المالي</div>
                     </div>
                 `}
@@ -552,9 +562,9 @@ export const UsersTemplates = {
                 <div class="kyc-req-user-info">
                     <h4>${safeName}</h4>
                     <div class="d-flex align-items-center gap-2 mt-1">
-                        <span class="uid-capsule m-0 copyable-admin" title="المعرف الكامل: ${_esc(user.id)} (انقر للنسخ)" data-action="copy-text" data-copy-text="${_esc(user.id)}">
-                            <i class="fa-solid fa-hashtag"></i>${_esc(RenderHelpers.formatUserId(user))}
-                        </span>
+                        <div class="uid-capsule m-0" style="background:transparent; border:none; padding:0; box-shadow:none;">
+                            ${RenderHelpers.formatUserId(user)}
+                        </div>
                         <span class="fs-11 fw-bold kyc-tier-badge" style="color: ${tierColor};">
                             <i class="${tierIcon}"></i> ${tierName}
                         </span>
@@ -603,7 +613,6 @@ export const UsersTemplates = {
         const mode = config.mode || 'off'; 
         const isSpec = (mode === 'specific' || mode === 'spec');
         
-        // جلب سياسات الأمان من الإعدادات
         const settings = AdminData.data.settings || {};
         const securityPolicy = settings.securityPolicy || { forceBiometrics: false, force2FA: false };
         
@@ -630,7 +639,6 @@ export const UsersTemplates = {
         </div>`;
 
         return `
-        <!-- 🛡️ قسم توثيق الهوية KYC -->
         <div class="kyc-dashboard-card mb-15">
             <div class="kyc-master-switch-box">
                 <h5 class="fw-bold text-main mb-15"><i class="fa-solid fa-id-card text-primary"></i> وضع توثيق الهوية (KYC) الحالي:</h5>
@@ -649,7 +657,6 @@ export const UsersTemplates = {
             ${tiersHtml}
         </div>
         
-        <!-- 🚀 قسم سياسات الأمان الإلزامية الجديدة -->
         <div class="kyc-dashboard-card mb-15" style="border-color: rgba(16, 185, 129, 0.3);">
             <div class="kyc-master-switch-box">
                 <h5 class="fw-bold text-success mb-5"><i class="fa-solid fa-fingerprint"></i> سياسات الأمان الإلزامية للمتجر</h5>

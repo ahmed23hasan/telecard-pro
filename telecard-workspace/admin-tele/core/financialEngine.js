@@ -1,11 +1,11 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - الإصدار الألماسي V27.0.0 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - الإصدار الألماسي V30.4.0 💎 (The Oracle)
 // 🎯 الوظيفة: محاكاة أسعار السيرفر، كشف الأرباح، وتشخيص الأخطاء بشفافية مطلقة للمدير.
-// 🚀 التحديثات المعمارية (V27.0.0 - Safe Diagnostic Core): 
-// 1. Unified Fail-Safe Tier 🛡️: دمج نظام التعافي الذكي لاستخراج المستوى الافتراضي (TIER_DEFAULT) والفرز العادل.
-// 2. Base Currency Strictness 🛡️: إجبار التحويل على الانطلاق من عملة الأساس لضمان دقة كشف الأرباح للعملات المحلية.
-// 3. Admin Infinity Guard 🛡️: منع الأرقام اللانهائية من كسر جداول لوحة الإدارة دون إيقاف عرض المنتجات.
-// 4. Absolute Transparency 👁️: الحفاظ على كشف التكاليف، الأرباح، وأسباب الرفض الصريحة للإدمن.
+// 🚀 التحديثات المعمارية (V30.4.0 - Server Sync Patch): 
+// 1. Math Core Sync 🧮: توحيد خوارزمية التقريب (e4) لتطابق السيرفر بنسبة 100% ومنع الفروقات الكسرية.
+// 2. Firewall Alignment 🛡️: توحيد هامش الحماية (0.5%) لمنع تضارب الرفض والقبول بين الأدمن والسيرفر.
+// 3. Absolute Transparency 👁️: عدم إيقاف الكود عند كسر الحماية، بل إرجاع السبب بالأرقام لتلوين الواجهة للأدمن.
+// 4. Upgrade Simulator 👑: إضافة محرك الترقيات لتمكين الأدمن من محاكاة مسار إنفاق العملاء.
 // ============================================================================
 
 const FinancialEngineDef = { 
@@ -16,41 +16,42 @@ const FinancialEngineDef = {
         PRECISION: 4,
         INTERNAL_PRECISION: 8, 
         MIN_SALE_PRICE: 0.01, 
-        MIN_MARGIN_PERCENT: 5,
+        // 🛡️ تم التوحيد مع السيرفر: 0.5% (رسوم بوابات الدفع التشغيلية كحد أدنى قطعي)
+        MIN_MARGIN_PERCENT: 0.5,
         MAX_GLOBAL_DISCOUNT_PCT: 95
     }),
 
     // ========================================================================
-    // 🧮 القسم الأول: محرك الرياضيات الموحد (Unified Core Math)
+    // 🧮 القسم الأول: محرك الرياضيات الدقيق (Identical to Server Math Core)
     // ========================================================================
 
-    _preciseRound: function(num, decimals = FinancialEngineDef.CONFIG.PRECISION) {
-        let n = Number(num);
-        // 🛡️ التحديث الماسي: حماية جداول الإدارة من قيم الـ NaN والـ Infinity
-        if (isNaN(n) || !isFinite(n) || n === 0) return 0;
-        const factor = Math.pow(10, decimals);
-        return Math.round((n + Number.EPSILON) * factor) / factor;
+    sanitizeAmount: function(amount) {
+        const num = Number(amount);
+        // 🛡️ حماية جداول الإدارة من قيم الـ NaN والـ Infinity
+        if (isNaN(num) || !isFinite(num)) return 0;
+        // خوارزمية التقريب المتطابقة مع السيرفر
+        return Number(Math.round(num + 'e4') + 'e-4');
     },
 
-    _internalAdd: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) + (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
-    _internalSub: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) - (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
-    _internalMul: function(a, b) { return FinancialEngineDef._preciseRound((Number(a) || 0) * (Number(b) || 0), FinancialEngineDef.CONFIG.INTERNAL_PRECISION); },
+    _internalAdd: function(a, b) { return FinancialEngineDef.sanitizeAmount((Number(a) || 0) + (Number(b) || 0)); },
+    _internalSub: function(a, b) { return FinancialEngineDef.sanitizeAmount((Number(a) || 0) - (Number(b) || 0)); },
+    _internalMul: function(a, b) { return FinancialEngineDef.sanitizeAmount((Number(a) || 0) * (Number(b) || 0)); },
     
-    // 🛡️ الترقيع الرياضي: منع انهيار واجهة الإدارة عند وجود أخطاء في أسعار الصرف
     _internalDiv: function(a, b) {
         const numA = Number(a) || 0;
         const numB = Number(b) || 0;
+        
         if (numB === 0) { 
-            console.error("🚨 [Admin Math Guard]: Division by zero prevented! يرجى مراجعة أسعار الصرف."); 
-            return numA; // إرجاع القيمة الأصلية لمنع الانهيار في واجهة الإدمن
+            console.error("🚨 [Admin Math Guard]: منع قسمة على صفر! يرجى مراجعة أسعار الصرف."); 
+            return numA; 
         }
-        return FinancialEngineDef._preciseRound(numA / numB, FinancialEngineDef.CONFIG.INTERNAL_PRECISION);
+        return FinancialEngineDef.sanitizeAmount(numA / numB);
     },
 
-    safeAdd: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalAdd(a, b)); },
-    safeSub: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalSub(a, b)); },
-    safeMul: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(a, b)); },
-    safeDiv: function(a, b) { return FinancialEngineDef._preciseRound(FinancialEngineDef._internalDiv(a, b)); },
+    safeAdd: function(a, b) { return FinancialEngineDef._internalAdd(a, b); },
+    safeSub: function(a, b) { return FinancialEngineDef._internalSub(a, b); },
+    safeMul: function(a, b) { return FinancialEngineDef._internalMul(a, b); },
+    safeDiv: function(a, b) { return FinancialEngineDef._internalDiv(a, b); },
 
     extractNum: function(val, allowZero = true) {
         if (val === undefined || val === null || val === '' || Array.isArray(val) || typeof val === 'object') return 0;
@@ -74,7 +75,12 @@ const FinancialEngineDef = {
         return Date.now();
     },
 
-    // ========================================================================
+    // 🚀 [توحيد الزمن]: حساب منتصف الليل بناءً على التوقيت العالمي (Pure UTC)
+getStartOfUTCDay: function(timestampMs) {
+    const d = new Date(timestampMs);
+    d.setUTCHours(0, 0, 0, 0);
+    return d.getTime();
+},    // ========================================================================
     // 🏦 القسم الثاني: معالجة الإيداعات ورسوم البوابات (Gateway Engine)
     // ========================================================================
     
@@ -146,7 +152,7 @@ const FinancialEngineDef = {
             if (cleanAmt > s.max) return { isValid: false, msg: `أقصى حد للإيداع بطريقة الدفع هذه هو ${s.max} ${curr}` };
         } else {
             if (cleanAmt > dynamicGlobalMax) {
-                const displayLimit = FinancialEngineDef._preciseRound(dynamicGlobalMax, 0); 
+                const displayLimit = Math.floor(dynamicGlobalMax); 
                 return { isValid: false, msg: `أقصى حد للإيداع في المرة الواحدة هو ${displayLimit} ${curr}` };
             }
         }
@@ -213,12 +219,11 @@ const FinancialEngineDef = {
         
         if (fRate === 0 || tRate === 0) return amt; 
         
-        return FinancialEngineDef._preciseRound(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
+        return FinancialEngineDef.sanitizeAmount(FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(amt, fRate), tRate));
     },
 
     convertViaUSDHelper: function(amt, f, t, rates, rnd = 'round', c = 'pricing') {
         let v = FinancialEngineDef.convertViaUSD(amt, f, t, rates, c); 
-        // 🛡️ حماية جداول الإدارة من القيم اللانهائية عند حذف عملات نشطة مسبقاً
         if (isNaN(v) || !isFinite(v)) return 0;
 
         const factor = Math.pow(10, FinancialEngineDef.CONFIG.PRECISION);
@@ -242,7 +247,7 @@ const FinancialEngineDef = {
             return { valid: false, msg: 'عذراً، لا يمكن استخدام الكوبونات مع العروض الترويجية' };
         }
 
-        const cp = coupons.find(c => c.code.toUpperCase() === code.toUpperCase());
+        const cp = coupons.find(c => String(c.code).toUpperCase() === String(code).toUpperCase());
         if (!cp) return { valid: false, msg: 'كوبون غير صحيح' };
         if (cp.isActive === false) return { valid: false, msg: 'الكوبون غير مفعل' };
         
@@ -319,12 +324,21 @@ const FinancialEngineDef = {
         let currentPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.price || product.price) : FinancialEngineDef.extractNum(product.price);
         let tierName = "عضو";
 
+        // 🧮 1. سلطة التسعير (مطابقة السيرفر)
         if (isFixed) {
             currentPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.fixedPriceUsd || activeOption.price || product.price) : FinancialEngineDef.extractNum(fixedPrice || product.fixedPriceUsd || product.price);
             tierName = "سعر ثابت";
         } else if (tier && typeof tier === 'object') {
             tierName = tier.nameAr || tier.name || tier.id || 'عضو';
-            const tierPriceField = activeOption?.tierPrices?.[tier.id] || product.tierPrices?.[tier.id];
+            // 🛡️ التحديث الأمني: منع وراثة السعر الخاطئ من المنتج الأساسي للخيار
+let tierPriceField;
+if (activeOption) {
+    // إذا كان العميل يشتري خياراً، ابحث في أسعار الخيار فقط
+    tierPriceField = activeOption.tierPrices?.[tier.id];
+} else {
+    // إذا كان يشتري المنتج الأساسي، ابحث في أسعار المنتج الأساسي
+    tierPriceField = product.tierPrices?.[tier.id];
+}
             
             if (tierPriceField !== undefined && tierPriceField !== null) {
                 currentPrice = FinancialEngineDef.extractNum(tierPriceField);
@@ -346,8 +360,8 @@ const FinancialEngineDef = {
         const originalPrice = tierPrice;
         const allowsDiscounts = !isFixed;
 
+        // 🏷️ 2. الخصومات
         let offerName = null, offerDiscount = 0, couponCode = null, couponDiscount = 0;
-        
         const absoluteMaxDiscountAllowable = FinancialEngineDef._internalMul(originalPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
         let accumulatedDiscount = 0;
 
@@ -376,14 +390,17 @@ const FinancialEngineDef = {
         
         currentPrice = Math.max(FinancialEngineDef.CONFIG.MIN_SALE_PRICE, FinancialEngineDef._internalSub(originalPrice, accumulatedDiscount));
 
+        // 🧱 3. سلطة الحماية (الجدار الناري - مطابقة السيرفر)
         let isFirewallViolated = false;
         let rejectionReason = null;
 
         if (cost > 0) {
-            const safeMarginPrice = FinancialEngineDef._internalAdd(cost, FinancialEngineDef._internalMul(cost, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MIN_MARGIN_PERCENT, 100)));
+            const absoluteMinMargin = FinancialEngineDef._internalMul(cost, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MIN_MARGIN_PERCENT, 100));
+            const safeMarginPrice = FinancialEngineDef._internalAdd(cost, absoluteMinMargin);
+            
             if (currentPrice < safeMarginPrice) {
                 isFirewallViolated = true;
-                // 👁️ الشفافية المطلقة: الإدمن يرى السبب الحقيقي للرفض بالأرقام والتفاصيل الدقيقة!
+                // 👁️ الشفافية المطلقة للأدمن: إرجاع السبب بدون إيقاف الكود (Throw Error)
                 rejectionReason = `السعر النهائي (${currentPrice}$) يكسر حاجز الربح الآمن (${safeMarginPrice}$). السيرفر سيرفض هذه العملية حمايةً للأرباح!`;
             }
         }
@@ -393,17 +410,16 @@ const FinancialEngineDef = {
         let marginPct = finalPrice > 0 ? FinancialEngineDef._internalMul(FinancialEngineDef._internalDiv(netProfitUsd, finalPrice), 100) : 0;
 
         return {
-            // 👁️ الشفافية المطلقة: كافة التكاليف والأرباح مكشوفة في لوحة الإدارة
-            costUsd: FinancialEngineDef._preciseRound(cost),
-            tierPrice: FinancialEngineDef._preciseRound(tierPrice), 
-            originalPrice: FinancialEngineDef._preciseRound(originalPrice), 
-            finalPrice: FinancialEngineDef._preciseRound(finalPrice), 
+            costUsd: FinancialEngineDef.sanitizeAmount(cost),
+            tierPrice: FinancialEngineDef.sanitizeAmount(tierPrice), 
+            originalPrice: FinancialEngineDef.sanitizeAmount(originalPrice), 
+            finalPrice: FinancialEngineDef.sanitizeAmount(finalPrice), 
             tierName, offerName, 
-            offerDiscount: FinancialEngineDef._preciseRound(offerDiscount), 
+            offerDiscount: FinancialEngineDef.sanitizeAmount(offerDiscount), 
             couponCode, 
-            couponDiscount: FinancialEngineDef._preciseRound(couponDiscount), 
-            totalDiscount: FinancialEngineDef._preciseRound(accumulatedDiscount),
-            netProfitUsd: FinancialEngineDef._preciseRound(netProfitUsd),
+            couponDiscount: FinancialEngineDef.sanitizeAmount(couponDiscount), 
+            totalDiscount: FinancialEngineDef.sanitizeAmount(accumulatedDiscount),
+            netProfitUsd: FinancialEngineDef.sanitizeAmount(netProfitUsd),
             marginPct: Number(marginPct.toFixed(2)), 
             isFirewallViolated, rejectionReason
         };
@@ -434,32 +450,67 @@ const FinancialEngineDef = {
     // ========================================================================
     
     getUserTier: function(user, tiers) {
-        // 1. حماية فورية من البيانات المفقودة لمنع توقف التطبيق
         if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
         
         const safeUser = user || {};
-        
-        // 2. التوحيد المعماري: البحث عن المعرف القياسي بدلاً من الأرقام العشوائية
-        const userTierId = String(safeUser.tierId || 'TIER_DEFAULT');
+        const userTierId = String(safeUser.tierId || safeUser.tier || 'TIER_DEFAULT');
         let foundTier = tiers.find(t => String(t.id) === userTierId);
 
-        // 3. السقوط الآمن المطلق (Absolute Fail-Safe)
         if (!foundTier) {
-            // المحاولة أ: البحث عن المستوى الافتراضي المحدد من الإدارة صراحةً
             foundTier = tiers.find(t => t.isDefault === true);
-            
-            // المحاولة ب: البحث عن المعرف القياسي الثابت
             if (!foundTier) foundTier = tiers.find(t => String(t.id) === 'TIER_DEFAULT');
-            
-            // المحاولة ج (الحماية القصوى من الإفلاس): 
             if (!foundTier) {
                 const getThresh = (t) => Number(t.threshold || t.condition_amount || 0);
                 const sortedBySafety = [...tiers].sort((a, b) => getThresh(a) - getThresh(b));
                 foundTier = sortedBySafety[0];
             }
         }
-
         return foundTier;
+    },
+
+    // 🛡️ تمت إضافتها للأدمن لمحاكاة مسار إنفاق العملاء والترقيات
+    processTierUpgrade: function(userData, tiersData, newOrderUsdAmount, serverNowMs = Date.now()) {
+        const safeAdd = FinancialEngineDef.safeAdd;
+        let currentTierObj = FinancialEngineDef.getUserTier(userData, tiersData);
+        
+        let currentCycleSpentUsd = Number(userData.tierCycleSpent || 0);
+        const cycleStartMs = FinancialEngineDef.parseSafeTime(userData.tierCycleStartDate || serverNowMs);
+        
+        const daysPassed = (FinancialEngineDef.getStartOfUTCDay(serverNowMs) - FinancialEngineDef.getStartOfUTCDay(cycleStartMs)) / (24 * 60 * 60 * 1000);
+        const isCycleExpired = daysPassed > Number(currentTierObj?.durationDays || 30);
+
+        let activeTierObj = currentTierObj;
+        
+        if (isCycleExpired) { 
+            currentCycleSpentUsd = 0; 
+            if (userData.manualTierOverride !== true) { 
+                activeTierObj = tiersData.find(t => t.isDefault) || currentTierObj; 
+            }
+        }
+
+        const newTierCycleSpentUsd = FinancialEngineDef.sanitizeAmount(safeAdd(currentCycleSpentUsd, newOrderUsdAmount));
+        const newTotalSpentUsd = FinancialEngineDef.sanitizeAmount(safeAdd(Number(userData.totalSpent || 0), newOrderUsdAmount));
+
+        let finalTierId = activeTierObj.id;
+        
+        if (userData.manualTierOverride !== true && activeTierObj?.autoAdvance !== false) {
+            const getThreshold = (t) => Number(t.threshold || t.condition_amount || 0);
+            const earnedTiers = tiersData
+                .filter(t => (t.autoAdvance !== false) && getThreshold(t) <= newTierCycleSpentUsd && getThreshold(t) > getThreshold(activeTierObj))
+                .sort((a, b) => getThreshold(b) - getThreshold(a));
+            
+            if (earnedTiers.length > 0) finalTierId = earnedTiers[0].id;
+        }
+
+        const shouldUpdateCycleStart = (isCycleExpired || finalTierId !== activeTierObj.id || !userData.tierId);
+
+        return {
+            activeTierId: activeTierObj.id, 
+            finalTierId: finalTierId,       
+            newTierCycleSpentUsd: newTierCycleSpentUsd,
+            newTotalSpentUsd: newTotalSpentUsd,
+            shouldUpdateCycleStart: shouldUpdateCycleStart
+        };
     },
 
     getTierProgress: function(user, tiers, nowTime) {
@@ -468,16 +519,18 @@ const FinancialEngineDef = {
         const sortedTiers = [...tiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
         const currentTier = FinancialEngineDef.getUserTier(user, sortedTiers);
         
-        // 🛡️ التحديث المعماري: حماية من التوقف الكامل للتطبيق (Fatal Crash Guard)
         if (!currentTier) return null;
         
         const spent = Number(user.tierCycleSpent || 0);
         const now = nowTime || Date.now();
         const cycleStart = FinancialEngineDef.parseSafeTime(user.tierCycleStartDate || now);
         
-        const CYCLE_DAYS = 30;
+        const CYCLE_DAYS = Number(currentTier.durationDays || 30);
         const msPerDay = 1000 * 60 * 60 * 24;
-        const daysPassed = Math.floor(Math.max(0, now - cycleStart) / msPerDay);
+        // حساب الأيام بناءً على منتصف الليل (تطابق السيرفر 100%)
+const startOfNow = FinancialEngineDef.getStartOfUTCDay(now);
+const startOfCycle = FinancialEngineDef.getStartOfUTCDay(cycleStart);
+const daysPassed = Math.floor(Math.max(0, startOfNow - startOfCycle) / msPerDay);
         const remainingDays = Math.max(0, CYCLE_DAYS - daysPassed);
 
         let nextTier = null;
@@ -494,7 +547,13 @@ const FinancialEngineDef = {
         
         let remainingAmt = Math.max(0, targetThreshold - spent);
         let percent = targetThreshold > 0 ? Math.min(100, (spent / targetThreshold) * 100) : 100;
+        
         if (isMaxTier) { percent = 100; remainingAmt = 0; }
+
+        if (user && user.manualTierOverride === true) {
+            percent = 100;
+            remainingAmt = 0;
+        }
 
         return {
             currentTier,
@@ -511,7 +570,7 @@ const FinancialEngineDef = {
         };
     },
 
-    // 🛡️ التحديث الماسي: دالة الـ Bridge المفقودة، مخصصة حصرياً لكشف الأسرار للوحة الإدارة
+    // 🛡️ جسر واجهة الإدارة: مخصصة حصرياً لكشف الأسرار للوحة الإدارة بالعملة المحددة
     getPricingLocal: function(prod, user, qty, optIdx, coupon, offer, tier, rates, baseCur, displayCur) {
         const params = {
             product: prod,
@@ -526,7 +585,7 @@ const FinancialEngineDef = {
         const convert = (amt) => {
             return FinancialEngineDef.convertViaUSDHelper(
                 amt, 
-                FinancialEngineDef.CONFIG.BASE_CURRENCY, // 👈 الإجبار المطلق على استخدام عملة السيرفر الأساسية هنا
+                FinancialEngineDef.CONFIG.BASE_CURRENCY, 
                 displayCur, 
                 rates, 
                 'round', 
@@ -557,7 +616,7 @@ const FinancialEngineDef = {
                 isFirewallViolated: result.isFirewallViolated,
                 rejectionReason: result.rejectionReason,
                 
-                // 👁️ الشفافية المطلقة للإدارة: تصدير التكلفة والربح ليعرض في الـ Modal الخاص بالأدمن
+                // 👁️ الشفافية المطلقة للإدارة: تصدير التكلفة والربح ليعرض في الواجهة
                 totalCostUsd: result.totalCostUsd,
                 totalNetProfitUsd: result.totalNetProfitUsd,
                 marginPct: result.marginPct

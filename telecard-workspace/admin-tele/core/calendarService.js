@@ -1,9 +1,9 @@
 // ============================================================================
-// 📅 خدمة التقويم المتقدمة (core/calendarService.js) - النواة الصلبة V15.0 💎
+// 📅 خدمة التقويم المتقدمة (core/calendarService.js) - النواة الصلبة V15.1 💎
 // 🎯 الوظيفة: محرك اختيار التواريخ والوقت (مستقل تماماً عن أي ميزة أخرى)
-// 🚀 التحديث الأقصى (V15.0 - Timezone Shield):
-// 1. Timezone Drift Fix: تحويل كافة التواريخ المدخلة إلى (Absolute UTC) لضمان تطابقها
-//    مع السيرفر بغض النظر عن موقع المشرف الجغرافي (تجنب التفعيل المبكر/المتأخر للكوبونات).
+// 🚀 التحديثات (V15.1 - Missing Links Fix):
+// 1. إضافة دوال (selectDay) و (toggleYears) المفقودة لربطها بـ systemActions.
+// 2. Timezone Shield: تحويل كافة التواريخ المدخلة إلى (Absolute UTC).
 // ============================================================================
 
 import { AdminTemplates } from '../adminTemplates.js';
@@ -29,7 +29,7 @@ export const CalendarService = {
         }
 
         let savedVal = null;
-        if(section === 'coupon' || section === 'offer') {
+        if(section === 'coupon' || section === 'offer' || section === 'sys') {
             savedVal = document.getElementById(`${section}-${type}`)?.value;
         } else {
             savedVal = currentFilterValue;
@@ -40,7 +40,6 @@ export const CalendarService = {
             const dObj = new Date(parsedTs);
             
             // 🛡️ [Timezone Shield]: إعادة بناء التاريخ المحلي بناءً على مكونات الـ UTC
-            // لضمان أن المشرف يرى نفس الوقت الذي أدخله بغض النظر عن منطقته الحالية
             this.selectedDate = new Date(dObj.getUTCFullYear(), dObj.getUTCMonth(), dObj.getUTCDate(), dObj.getUTCHours(), dObj.getUTCMinutes());
             this.currentDate = new Date(dObj.getUTCFullYear(), dObj.getUTCMonth(), 1);
             
@@ -70,6 +69,7 @@ export const CalendarService = {
             modal.classList.add('show');
         }
     },
+    
     close: function() {
         const modal = document.getElementById('cal-modal');
         if(modal) {
@@ -110,11 +110,19 @@ export const CalendarService = {
         grid.innerHTML = daysHtml.join('');
     },
 
+    // 🚀 [إصلاح الخلل]: الدالة المفقودة لاختيار اليوم
+    selectDay: function(dayNumber) {
+        if (!dayNumber) return;
+        this.selectedDate = new Date(this.currentDate.getFullYear(), this.currentDate.getMonth(), dayNumber);
+        this.renderCalendar();
+    },
+
     changeMonth: function(dir) {
         this.currentDate.setDate(1); 
         this.currentDate.setMonth(this.currentDate.getMonth() + dir);
         this.renderCalendar();
     },
+    
     changeYear: function(dir) {
         this.currentDate.setDate(1); 
         this.currentDate.setFullYear(this.currentDate.getFullYear() + dir);
@@ -185,6 +193,14 @@ export const CalendarService = {
         if(!list) return;
         list.classList.toggle('active');
         if (list.classList.contains('active')) list.innerHTML = AdminTemplates.calMonthList(this.months, this.currentDate.getMonth());
+    },
+    
+    // 🚀 [إصلاح الخلل]: الدالة المفقودة لفتح قائمة السنوات
+    toggleYears: function() {
+        const list = document.getElementById('cal-year-list');
+        if(!list) return;
+        list.classList.toggle('active');
+        if (list.classList.contains('active')) list.innerHTML = AdminTemplates.calYearList(this.currentDate.getFullYear(), Utils.enNum);
     },
     
     setYear: function(y) { this.currentDate.setFullYear(y); document.getElementById('cal-year-list')?.classList.remove('active'); this.renderCalendar(); },

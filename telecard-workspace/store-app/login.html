@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
     <script>
-        // 🛡️ التوجيه الصحيح بناءً على شجرة الملفات (store.html)
+        // 🛡️ التوجيه الصحيح بناءً على شجرة الملفات
         const legacyKeys = ['tc_active_uid', 'telecard_active_user_uid_v20'];
         legacyKeys.forEach(k => { if(localStorage.getItem(k)) localStorage.removeItem(k); });
         
@@ -14,11 +14,9 @@
         if (activeUid) window.location.replace('./store.html');
     </script>
 
-    <!-- 🚀 استعادة المسارات النسبية ليعمل الـ Live Server بامتياز -->
     <link rel="stylesheet" href="./style.css">
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Inter:wght@500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-    
     <link rel="manifest" href="./manifest.json">
 </head>
 
@@ -32,7 +30,8 @@
             </div>
             <h3 class="sys-dialog-title danger" id="alertTitle">رسالة</h3>
             <p class="sys-dialog-msg" id="alertMsg">يرجى الانتظار...</p>
-            <button type="button" class="pm-btn-gold alert-btn mt-15" onclick="closeCustomAlert()" id="alertOkBtn">حسناً</button>
+            <!-- 🛡️ تمت إزالة onclick -->
+            <button type="button" class="pm-btn-gold alert-btn mt-15" id="alertOkBtn">حسناً</button>
         </div>
     </div>
 
@@ -47,11 +46,12 @@
                 <div class="input-error-text" id="forgotEmailError" style="display:none; text-align: start;"></div>
             </div>
             <div class="pm-buttons-row" style="width: 100%; gap: 10px;">
-                <button type="button" class="pm-btn-gold btn-pro" id="btnSubmitForgot" onclick="if(window.submitForgotPasswordModal) window.submitForgotPasswordModal()" style="flex: 1; height: 48px; border-radius: var(--radius-md);">
+                <!-- 🛡️ تمت إزالة onclick -->
+                <button type="button" class="pm-btn-gold btn-pro" id="btnSubmitForgot" style="flex: 1; height: 48px; border-radius: var(--radius-md);">
                     <span class="btn-content">إرسال الرابط</span>
                     <span class="btn-spinner"><i class="fa-solid fa-spinner fa-spin"></i></span>
                 </button>
-                <button type="button" class="pm-btn-gold" onclick="closeForgotPasswordModal()" style="flex: 1; height: 48px; border-radius: var(--radius-md); background: var(--bg-input); border: var(--card-border); color: var(--text-muted); box-shadow: none;">إلغاء</button>
+                <button type="button" class="pm-btn-gold" id="btnCancelForgot" style="flex: 1; height: 48px; border-radius: var(--radius-md); background: var(--bg-input); border: var(--card-border); color: var(--text-muted); box-shadow: none;">إلغاء</button>
             </div>
         </div>
     </div>
@@ -66,11 +66,12 @@
                 <div class="input-error-text" id="loginOtpError" style="display:none; text-align: center; justify-content: center;"></div>
             </div>
             <div class="pm-buttons-row" style="width: 100%; gap: 10px;">
-                <button type="button" class="pm-btn-gold btn-pro" id="btnSubmit2FA" onclick="if(window.submit2FALogin) window.submit2FALogin()" style="flex: 1; height: 48px; border-radius: var(--radius-md); background: var(--success); color: var(--gold-text); box-shadow: 0 4px 15px rgba(var(--success-rgb), 0.3);">
+                <!-- 🛡️ تمت إزالة onclick -->
+                <button type="button" class="pm-btn-gold btn-pro" id="btnSubmit2FA" style="flex: 1; height: 48px; border-radius: var(--radius-md); background: var(--success); color: var(--gold-text); box-shadow: 0 4px 15px rgba(var(--success-rgb), 0.3);">
                     <span class="btn-content">تأكيد الدخول</span>
                     <span class="btn-spinner"><i class="fa-solid fa-spinner fa-spin"></i></span>
                 </button>
-                <button type="button" class="pm-btn-gold" onclick="close2FAModal()" style="flex: 1; height: 48px; border-radius: var(--radius-md); background: var(--bg-input); border: var(--card-border); color: var(--text-muted); box-shadow: none;">إلغاء</button>
+                <button type="button" class="pm-btn-gold" id="btnCancel2FA" style="flex: 1; height: 48px; border-radius: var(--radius-md); background: var(--bg-input); border: var(--card-border); color: var(--text-muted); box-shadow: none;">إلغاء</button>
             </div>
         </div>
     </div>
@@ -82,7 +83,8 @@
             <p class="sub-text">سجل دخولك للمتابعة</p>
         </div>
 
-        <button type="button" class="btn-google-auth btn-pro" id="googleLoginBtn" onclick="if(window.handleGoogleLogin) window.handleGoogleLogin()">
+        <!-- 🛡️ تمت إزالة onclick -->
+        <button type="button" class="btn-google-auth btn-pro" id="googleLoginBtn">
             <span class="btn-content">
                 <svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
                 تسجيل الدخول بواسطة Google
@@ -92,7 +94,8 @@
 
         <div class="auth-divider"><span>أو عبر البريد الإلكتروني</span></div>
 
-        <form autocomplete="off" id="loginForm" onsubmit="event.preventDefault(); if(window.validateLogin) window.validateLogin();">
+        <!-- 🛡️ تمت إزالة onsubmit -->
+        <form autocomplete="off" id="loginForm">
             <div class="floating-group">
                 <input type="email" class="lux-input floating-input num-en" placeholder=" " id="identifier" dir="ltr" style="text-align: right;">
                 <label class="floating-label">البريد الإلكتروني</label>
@@ -102,8 +105,8 @@
             <div class="floating-group has-eye">
                 <input type="password" class="lux-input floating-input num-en" placeholder=" " id="password" dir="ltr">
                 <label class="floating-label">كلمة المرور</label>
-                <!-- 🛠️ العين تعمل دائماً الآن لأنها خارج الـ Module -->
-                <div class="auth-eye-icon" onclick="togglePass('password', this)">
+                <!-- 🛡️ تمت إزالة onclick -->
+                <div class="auth-eye-icon" id="togglePassEye">
                     <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2.5-4 5.5-6 9-6 3.5 0 6.5 2 9 6-2.5 4-5.5 6-9 6-3.5 0-6.5-2-9-6z" /><path d="M5 5l14 14" stroke-width="1.6" /></svg>
                     <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3.2" /></svg>
                 </div>
@@ -111,7 +114,8 @@
             </div>
 
             <div class="form-options" style="justify-content: flex-end;">
-                <a href="#" class="forgot-link" onclick="event.preventDefault(); handleForgotPassword();">نسيت كلمة المرور؟</a>
+                <!-- 🛡️ تمت إزالة onclick -->
+                <a href="#" class="forgot-link" id="forgotPassLink">نسيت كلمة المرور؟</a>
             </div>
 
             <button type="submit" class="pm-btn-gold btn-pro" style="height: 56px; width: 100%; border-radius: var(--radius-md);" id="loginBtn">
@@ -125,17 +129,8 @@
         </form>
     </div>
 
-<!-- 🛠️ فصل منطق الواجهة النقي لضمان الاستجابة السريعة -->
+<!-- 🛠️ واجهة الوظائف النقية (Pure UI Logic) -->
 <script>
-    function togglePass(inputId, el) {
-        const inp = document.getElementById(inputId);
-        if(!inp) return;
-        const toText = inp.type === "password";
-        inp.type = toText ? "text" : "password";
-        toText ? el.classList.add('active') : el.classList.remove('active');
-        inp.focus();
-    }
-
     function showCustomAlert(title, message, type = 'error') {
         const overlay = document.getElementById('customAlert');
         const card = document.getElementById('alertCard');
@@ -182,32 +177,83 @@
         if (error) error.style.display = 'none';
     }
 
-    function handleForgotPassword() {
-        const mainEmailInput = document.getElementById('identifier');
-        const forgotEmailInput = document.getElementById('forgotEmailInput');
-        const modal = document.getElementById('forgotPasswordModal');
-        if (!modal || !forgotEmailInput) return;
-        hideError('forgotEmailInput', 'forgotEmailError');
-        forgotEmailInput.value = mainEmailInput ? mainEmailInput.value.trim() : "";
-        modal.classList.add('active'); document.body.style.overflow = 'hidden';
-    }
+    // 🛡️ ربط أحداث الواجهة بأمان بعد اكتمال الـ DOM
+    document.addEventListener('DOMContentLoaded', () => {
+        const fields = [
+            { id: 'identifier', err: 'identifierError' }, 
+            { id: 'password', err: 'passwordError' }, 
+            { id: 'forgotEmailInput', err: 'forgotEmailError' }, 
+            { id: 'loginOtpInput', err: 'loginOtpError' }
+        ];
+        fields.forEach(field => {
+            const el = document.getElementById(field.id);
+            if (el) el.addEventListener('input', () => hideError(field.id, field.err));
+        });
 
-    function closeForgotPasswordModal() {
-        const modal = document.getElementById('forgotPasswordModal');
-        if (modal) { modal.classList.remove('active'); document.body.style.overflow = ''; }
-    }
+        const toggleEye = document.getElementById('togglePassEye');
+        if (toggleEye) {
+            toggleEye.addEventListener('click', function() {
+                const inp = document.getElementById('password');
+                if(!inp) return;
+                const toText = inp.type === "password";
+                inp.type = toText ? "text" : "password";
+                toText ? this.classList.add('active') : this.classList.remove('active');
+                inp.focus();
+            });
+        }
 
-    function close2FAModal() {
-        if(window._current2FAResolver) window._current2FAResolver = null;
-        document.getElementById('login2FAModal')?.classList.remove('active');
-        document.body.style.overflow = '';
-    }
+        const alertOkBtn = document.getElementById('alertOkBtn');
+        if (alertOkBtn) alertOkBtn.addEventListener('click', closeCustomAlert);
 
-    const fields = [{ id: 'identifier', err: 'identifierError' }, { id: 'password', err: 'passwordError' }, { id: 'forgotEmailInput', err: 'forgotEmailError' }, { id: 'loginOtpInput', err: 'loginOtpError' }];
-    fields.forEach(field => {
-        const el = document.getElementById(field.id);
-        if (el) el.addEventListener('input', () => hideError(field.id, field.err));
+        // فتح نافذة نسيت كلمة المرور
+        const forgotLink = document.getElementById('forgotPassLink');
+        if (forgotLink) {
+            forgotLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                const mainEmailInput = document.getElementById('identifier');
+                const forgotEmailInput = document.getElementById('forgotEmailInput');
+                const modal = document.getElementById('forgotPasswordModal');
+                if (!modal || !forgotEmailInput) return;
+                hideError('forgotEmailInput', 'forgotEmailError');
+                forgotEmailInput.value = mainEmailInput ? mainEmailInput.value.trim() : "";
+                modal.classList.add('active'); document.body.style.overflow = 'hidden';
+            });
+        }
+
+        // إغلاق نوافذ المودال
+        const btnCancelForgot = document.getElementById('btnCancelForgot');
+        if (btnCancelForgot) {
+            btnCancelForgot.addEventListener('click', () => {
+                const modal = document.getElementById('forgotPasswordModal');
+                if (modal) { modal.classList.remove('active'); document.body.style.overflow = ''; }
+            });
+        }
+
+        const btnCancel2FA = document.getElementById('btnCancel2FA');
+        if (btnCancel2FA) {
+            btnCancel2FA.addEventListener('click', () => {
+                // إعلام الـ Module بتفريغ الـ Resolver
+                document.dispatchEvent(new Event('cancel2FAEvent'));
+                document.getElementById('login2FAModal')?.classList.remove('active');
+                document.body.style.overflow = '';
+            });
+        }
+
+        // التعبئة التلقائية للإيميل إن وجد
+        const prefilledEmail = sessionStorage.getItem('prefilled_email');
+        if (prefilledEmail) {
+            const emailInput = document.getElementById('identifier');
+            const passInput = document.getElementById('password');
+            if (emailInput) {
+                emailInput.value = prefilledEmail;
+                setTimeout(() => { if(passInput) passInput.focus(); }, 300);
+            }
+            sessionStorage.removeItem('prefilled_email');
+        }
     });
+
+    // نعرض دالة Show/Hide للـ Module لاستخدامها بأمان
+    window.UIBridge = { showCustomAlert, showError, hideError };
 </script>
 
 <!-- 🔐 منطق المصادقة الخاص بفايربيز -->
@@ -217,14 +263,18 @@
     import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, getMultiFactorResolver, TotpMultiFactorGenerator, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const googleProvider = new GoogleAuthProvider();
-    window._current2FAResolver = null;
+    // 🛡️ حماية المتغير بجعله داخلياً فقط في الـ Module لمنع التلاعب (No more window variable)
+    let current2FAResolver = null;
 
-    // 🛡️ درع المقاطعة الزمنية (30 ثانية لحماية الواجهة من التجمد)
+    // استقبال حدث الإلغاء لتفريغ المتغير
+    document.addEventListener('cancel2FAEvent', () => { current2FAResolver = null; });
+
+    // درع المقاطعة الزمنية
     const withAuthTimeout = (promise, ms = 30000) => {
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
-                reject(new Error("استغرق الاتصال وقتاً أطول من المعتاد بسبب ضعف الشبكة أو تعليق في المتصفح. يرجى إعادة تحميل الصفحة والمحاولة مجدداً."));
+                reject(new Error("استغرق الاتصال وقتاً أطول من المعتاد بسبب ضعف الشبكة أو تعليق المتصفح. يرجى المحاولة مجدداً."));
             }, ms);
         });
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
@@ -265,12 +315,16 @@
         return 'USD';
     }
 
-    window.handleGoogleLogin = async function() {
+    let preFetchedCurrency = 'USD'; 
+    document.addEventListener('DOMContentLoaded', async () => {
+        preFetchedCurrency = await getAdminDefaultCurrency();
+    });
+
+    async function handleGoogleLogin() {
         const btn = document.getElementById('googleLoginBtn');
         btn.disabled = true; btn.classList.add('is-loading');
         
         try {
-            // 🛡️ تغليف طلب جوجل بـ Timeout
             const result = await withAuthTimeout(signInWithPopup(auth, googleProvider));
             const firebaseUser = result.user;
             let activeUserObj = null;
@@ -280,12 +334,14 @@
             }
             
             if (!activeUserObj) {
-                const targetCurrency = await getAdminDefaultCurrency();
+                const targetCurrency = preFetchedCurrency;
                 const shortDisplayId = await generateUniqueDisplayId();
                 const rawDisplayName = firebaseUser.displayName || '';
-                const cleanNameForUser = rawDisplayName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9\s]/g, "");
                 
+                // 🛡️ نفس قوة التنظيف المستخدمة في صفحة التسجيل
+                const cleanNameForUser = rawDisplayName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9\s]/g, "");
                 let firstName = ''; let lastName = ''; let finalFullName = '';
+                
                 if (cleanNameForUser.trim()) {
                     finalFullName = cleanNameForUser.trim();
                     const nameParts = finalFullName.split(' ');
@@ -311,7 +367,7 @@
                 if (activeUserObj.isBanned || activeUserObj.isIpBanned) {
                     await safeWipeSession();
                     btn.disabled = false; btn.classList.remove('is-loading');
-                    showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة.", "error");
+                    window.UIBridge.showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة.", "error");
                     return;
                 }
                 if (!activeUserObj.img && firebaseUser.photoURL) {
@@ -332,30 +388,29 @@
         } catch (error) {
             btn.disabled = false; btn.classList.remove('is-loading');
             if (error.code === 'auth/multi-factor-auth-required') {
-                window._current2FAResolver = getMultiFactorResolver(auth, error);
+                current2FAResolver = getMultiFactorResolver(auth, error);
                 document.getElementById('loginOtpInput').value = '';
                 document.getElementById('login2FAModal').classList.add('active');
                 return;
             }
-            if (error.code !== 'auth/popup-closed-by-user') showCustomAlert("فشل الدخول", "السبب: " + error.message, "error");
+            if (error.code !== 'auth/popup-closed-by-user') window.UIBridge.showCustomAlert("فشل الدخول", "السبب: " + error.message, "error");
         }
-    };
+    }
 
-    window.validateLogin = async function() {
+    async function validateLogin() {
         const identifier = document.getElementById('identifier');
         const password = document.getElementById('password');
         let isValid = true;
 
-        if (identifier.value.trim() === "") { showError('identifier', 'identifierError', "يرجى إدخال البريد الإلكتروني"); isValid = false; } 
-        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier.value)) { showError('identifier', 'identifierError', "البريد الإلكتروني غير صالح"); isValid = false; }
-        if (password.value.trim() === "") { showError('password', 'passwordError', "يرجى كتابة كلمة المرور"); isValid = false; }
+        if (identifier.value.trim() === "") { window.UIBridge.showError('identifier', 'identifierError', "يرجى إدخال البريد الإلكتروني"); isValid = false; } 
+        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier.value)) { window.UIBridge.showError('identifier', 'identifierError', "البريد الإلكتروني غير صالح"); isValid = false; }
+        if (password.value.trim() === "") { window.UIBridge.showError('password', 'passwordError', "يرجى كتابة كلمة المرور"); isValid = false; }
         if (!isValid) return;
 
         const btn = document.getElementById('loginBtn');
         btn.disabled = true; btn.classList.add('is-loading');
 
         try {
-            // 🛡️ تغليف طلب تسجيل الدخول بالبريد بـ Timeout
             const userCredential = await withAuthTimeout(signInWithEmailAndPassword(auth, identifier.value.trim().toLowerCase(), password.value));
             const firebaseUser = userCredential.user;
 
@@ -367,7 +422,7 @@
             if (userDoc && (userDoc.isBanned || userDoc.isIpBanned)) {
                 await safeWipeSession();
                 btn.disabled = false; btn.classList.remove('is-loading');
-                showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة.", "error"); return;
+                window.UIBridge.showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور من قبل الإدارة.", "error"); return;
             }
 
             localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
@@ -383,30 +438,29 @@
         } catch (error) {
             btn.disabled = false; btn.classList.remove('is-loading');
             if (error.code === 'auth/multi-factor-auth-required') { 
-                window._current2FAResolver = getMultiFactorResolver(auth, error); 
+                current2FAResolver = getMultiFactorResolver(auth, error); 
                 document.getElementById('loginOtpInput').value = '';
                 document.getElementById('login2FAModal').classList.add('active');
                 return; 
             }
-            if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(error.code)) showError('identifier', 'identifierError', "البريد الإلكتروني أو كلمة المرور غير صحيحة");
-            else if (error.code === 'auth/too-many-requests') showError('identifier', 'identifierError', "تم حظر المحاولات مؤقتاً بسبب تكرار الدخول الخاطئ");
-            else showError('identifier', 'identifierError', error.message || "حدث خطأ غير متوقع، يرجى المحاولة لاحقاً");
+            if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(error.code)) window.UIBridge.showError('identifier', 'identifierError', "البريد الإلكتروني أو كلمة المرور غير صحيحة");
+            else if (error.code === 'auth/too-many-requests') window.UIBridge.showError('identifier', 'identifierError', "تم حظر المحاولات مؤقتاً بسبب تكرار الدخول الخاطئ");
+            else window.UIBridge.showError('identifier', 'identifierError', error.message || "حدث خطأ غير متوقع، يرجى المحاولة لاحقاً");
         }
-    };
+    }
 
-    window.submit2FALogin = async function() {
-        if (!window._current2FAResolver) return;
+    async function submit2FALogin() {
+        if (!current2FAResolver) return;
         const code = document.getElementById('loginOtpInput').value.trim();
-        if (code.length !== 6) { showError('loginOtpInput', 'loginOtpError', 'يجب إدخال 6 أرقام'); return; }
+        if (code.length !== 6) { window.UIBridge.showError('loginOtpInput', 'loginOtpError', 'يجب إدخال 6 أرقام'); return; }
 
         const btn = document.getElementById('btnSubmit2FA');
         btn.disabled = true; btn.classList.add('is-loading');
 
         try {
-            const tfaHint = window._current2FAResolver.hints[0];
+            const tfaHint = current2FAResolver.hints[0];
             const assertion = TotpMultiFactorGenerator.assertionForSignIn(tfaHint.uid, code);
-            // 🛡️ تغليف طلب 2FA بـ Timeout
-            const userCredential = await withAuthTimeout(window._current2FAResolver.resolveSignIn(assertion));
+            const userCredential = await withAuthTimeout(current2FAResolver.resolveSignIn(assertion));
             const firebaseUser = userCredential.user;
 
             let userDoc = null;
@@ -416,8 +470,9 @@
 
             if (userDoc && (userDoc.isBanned || userDoc.isIpBanned)) {
                 await safeWipeSession();
-                btn.disabled = false; btn.classList.remove('is-loading'); close2FAModal();
-                showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور.", "error"); return;
+                btn.disabled = false; btn.classList.remove('is-loading'); 
+                document.getElementById('login2FAModal')?.classList.remove('active');
+                window.UIBridge.showCustomAlert("حساب محظور", "عذراً، هذا الحساب محظور.", "error"); return;
             }
 
             localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
@@ -432,45 +487,55 @@
 
         } catch (error) {
             btn.disabled = false; btn.classList.remove('is-loading');
-            showError('loginOtpInput', 'loginOtpError', error.message.includes('ضعف الشبكة') ? error.message : 'الكود غير صحيح أو منتهي الصلاحية');
+            window.UIBridge.showError('loginOtpInput', 'loginOtpError', error.message.includes('ضعف الشبكة') ? error.message : 'الكود غير صحيح أو منتهي الصلاحية');
         }
-    };
+    }
 
-    window.submitForgotPasswordModal = async function() {
+    async function submitForgotPasswordModal() {
         const emailInput = document.getElementById('forgotEmailInput');
         const email = emailInput ? emailInput.value.trim() : "";
-        if (email === "") { showError('forgotEmailInput', 'forgotEmailError', "يرجى إدخال البريد الإلكتروني"); return; } 
-        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showError('forgotEmailInput', 'forgotEmailError', "البريد الإلكتروني غير صالح"); return; }
+        if (email === "") { window.UIBridge.showError('forgotEmailInput', 'forgotEmailError', "يرجى إدخال البريد الإلكتروني"); return; } 
+        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { window.UIBridge.showError('forgotEmailInput', 'forgotEmailError', "البريد الإلكتروني غير صالح"); return; }
         
         const btn = document.getElementById('btnSubmitForgot');
         btn.disabled = true; btn.classList.add('is-loading');
         
         try {
-            // 🛡️ تغليف طلب إعادة تعيين كلمة المرور بـ Timeout
             await withAuthTimeout(sendPasswordResetEmail(auth, email));
             btn.disabled = false; btn.classList.remove('is-loading');
-            closeForgotPasswordModal(); 
-            showCustomAlert("تم إرسال الرابط", `إذا كان البريد مسجلاً، فقد أرسلنا رابط الاستعادة. يرجى فحص صندوق الوارد.`, "success");
+            document.getElementById('forgotPasswordModal')?.classList.remove('active');
+            window.UIBridge.showCustomAlert("تم إرسال الرابط", `إذا كان البريد مسجلاً، فقد أرسلنا رابط الاستعادة. يرجى فحص صندوق الوارد.`, "success");
         } catch (error) {
             btn.disabled = false; btn.classList.remove('is-loading');
-            if (error.code === 'auth/user-not-found') { closeForgotPasswordModal(); showCustomAlert("تم إرسال الرابط", `إذا كان البريد مسجلاً، فقد أرسلنا رابط الاستعادة.`, "success"); } 
-            else if (error.code === 'auth/too-many-requests') { showError('forgotEmailInput', 'forgotEmailError', "تم حظر المحاولات مؤقتاً"); } 
-            else { showError('forgotEmailInput', 'forgotEmailError', error.message || "تعذر إرسال الإيميل، تحقق من الإنترنت"); }
+            if (error.code === 'auth/user-not-found') { 
+                document.getElementById('forgotPasswordModal')?.classList.remove('active');
+                window.UIBridge.showCustomAlert("تم إرسال الرابط", `إذا كان البريد مسجلاً، فقد أرسلنا رابط الاستعادة.`, "success"); 
+            } 
+            else if (error.code === 'auth/too-many-requests') { window.UIBridge.showError('forgotEmailInput', 'forgotEmailError', "تم حظر المحاولات مؤقتاً"); } 
+            else { window.UIBridge.showError('forgotEmailInput', 'forgotEmailError', error.message || "تعذر إرسال الإيميل، تحقق من الإنترنت"); }
         }
-    };
+    }
 
-    window.addEventListener('DOMContentLoaded', () => {
-        const prefilledEmail = sessionStorage.getItem('prefilled_email');
-        if (prefilledEmail) {
-            const emailInput = document.getElementById('identifier');
-            const passInput = document.getElementById('password');
-            if (emailInput) {
-                emailInput.value = prefilledEmail;
-                setTimeout(() => { if(passInput) passInput.focus(); }, 300);
-            }
-            sessionStorage.removeItem('prefilled_email');
+    // 🛡️ الربط البرمجي الاحترافي (Event Delegation)
+    document.addEventListener('DOMContentLoaded', () => {
+        const googleBtn = document.getElementById('googleLoginBtn');
+        if (googleBtn) googleBtn.addEventListener('click', handleGoogleLogin);
+
+        const loginForm = document.getElementById('loginForm');
+        if (loginForm) {
+            loginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                validateLogin();
+            });
         }
+
+        const btnSubmitForgot = document.getElementById('btnSubmitForgot');
+        if (btnSubmitForgot) btnSubmitForgot.addEventListener('click', submitForgotPasswordModal);
+
+        const btnSubmit2FA = document.getElementById('btnSubmit2FA');
+        if (btnSubmit2FA) btnSubmit2FA.addEventListener('click', submit2FALogin);
     });
+
 </script>
 </body>
 </html>

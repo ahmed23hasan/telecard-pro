@@ -1,7 +1,9 @@
 // ============================================================================
 // 🚀 نقطة الإقلاع المركزية (admin.js) - The Cloud Master Entry Point
 // 🎯 الوظيفة: الربط النهائي، حقن التبعيات، إدارة دورة حياة التطبيق ومراقبة الاتصال
-// 🌟 التحديث: تفعيل الرادار المتقدم (Boot Tracer) + زر الإغلاق القسري للودر
+// 🌟 التحديثات: 
+// 1. تفعيل الرادار المتقدم (Boot Tracer) + زر الإغلاق القسري للودر.
+// 2. 🛡️ [Strict Session Fix]: استبدال localStorage بـ sessionStorage لتطبيق الأمان البنكي الصارم.
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
@@ -132,7 +134,7 @@ const startApp = async () => {
             if (user) {
                 console.log("🟢 5. تم تأكيد الهوية. مزامنة الجلسة المحلية الفورية...");
                 
-                // 🛡️ [تحديث أمني]: مزامنة التوثيق المحلي مع جلسة فايربيز الحقيقية لمنع الطرد الخاطئ عند فتح تابات جديدة
+                // 🛡️ [تحديث أمني]: استخدام sessionStorage بدلاً من localStorage لدعم الأمان البنكي الصارم
                 sessionStorage.setItem('telecard_admin_auth', 'true');
                 
                 if (AppController && typeof AppController.init === 'function') {
@@ -159,7 +161,7 @@ const startApp = async () => {
                     }, 1500);
                 } else {
                     console.warn("🚨 لا توجد جلسة اتصال نشطة إطلاقاً، جاري التوجيه الفوري.");
-                    sessionStorage.removeItem('telecard_admin_auth'); 
+                    sessionStorage.removeItem('telecard_admin_auth');
                     window.location.replace("login.html");
                 }
             }

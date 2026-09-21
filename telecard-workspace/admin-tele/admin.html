@@ -10,11 +10,11 @@
 
     <!-- 🛡️ حارس البوابة السريع (Pre-Auth Gate): يمنع الوميض ويطرد الزوار في 0 ثانية -->
     <script>
-        if (sessionStorage.getItem('telecard_admin_auth') !== 'true') {
-            window.location.replace('login.html');
-        }
-    </script>
-
+    // 🛡️ حارس البوابة الصارم (Session): يطردك فور إغلاق المتصفح
+    if (sessionStorage.getItem('telecard_admin_auth') !== 'true') {
+        window.location.replace('login.html');
+    }
+</script>
     <script type="module">
         async function bootApp() {
             try {
@@ -1245,8 +1245,7 @@
             <input id="adm-name" class="form-input mb-10">
             
             <label class="form-label">البريد الإلكتروني</label>
-            <input id="adm-email" class="form-input mb-10" dir="ltr" lang="en">
-            
+<input id="adm-email" class="form-input mb-10" dir="ltr" lang="en" readonly disabled style="opacity: 0.7; cursor: not-allowed;" title="لا يمكن تغيير البريد الإلكتروني لدواعي أمنية">            
             <!-- 🛡️ إضافة حقل كلمة المرور المفقود -->
             <label class="form-label">كلمة المرور الجديدة (اتركه فارغاً إذا لم ترد التغيير)</label>
             <input type="password" id="adm-pass" class="form-input mb-10" dir="ltr" lang="en" placeholder="********">

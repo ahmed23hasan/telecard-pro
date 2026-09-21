@@ -1,8 +1,9 @@
 // ============================================================================
-// 📊 قوالب لوحة القيادة والمبيعات (modules/dashboard/dashboardTemplates.js) - V15.1 👑
+// 📊 قوالب لوحة القيادة والمبيعات (modules/dashboard/dashboardTemplates.js) - Cloud-Native V17.1 👑
 // 🎯 الوظيفة: توليد الـ HTML للأدوات المالية، الإحصائيات، ومؤشرات النمو
-// 🚀 التحديث الأقصى: 
-// 1. Growth Engine: دمج مؤشرات (الأسهم الخضراء والحمراء) لمقارنة الفترات الزمنية.
+// 🚀 التحديث الأقصى (V17.1): 
+// 1. Cash Flow Completion: دمج كبسولات الإيداعات الناجحة في النبض المالي.
+// 2. Podium Denormalization: قراءة اسم العميل من (userDataSnapshot) لمنع الأخطاء.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -13,7 +14,6 @@ const _enNum = Utils.enNum;
 
 export const DashboardTemplates = {
     
-    // 🌟 [محرك حساب النمو - Growth Engine]
     growthBadge: (curr, prev) => {
         if (prev === 0 && curr === 0) return '<span class="fs-11 text-muted" dir="ltr">0%</span>';
         if (prev === 0) return '<span class="fs-11 text-success fw-bold" dir="ltr"><i class="fa-solid fa-arrow-trend-up"></i> 100%</span>';
@@ -26,7 +26,6 @@ export const DashboardTemplates = {
         return `<span class="fs-11 text-muted fw-bold" dir="ltr">0%</span>`;
     },
 
-    // 🌟 [لوحة ملخص المبيعات مع مؤشرات النمو]
     salesExecutiveSummary: function(currStats, prevStats, range) {
         const isComparing = range !== 'all';
         const growthRev = isComparing ? this.growthBadge(currStats.revenue, prevStats.revenue) : '';
@@ -78,7 +77,6 @@ export const DashboardTemplates = {
         `;
     },
 
-    // 💰 قوالب المحافظ والسيولة
     dashEmptyWallets: () => `
         <div class="dash-circ-card" data-action="nav" data-target="wallets">
             <div class="circ-icon bg-warning"><i class="fa-solid fa-wallet"></i></div>
@@ -136,13 +134,15 @@ export const DashboardTemplates = {
         podiumSchema.forEach(slot => {
             const user = topUsers[slot.index];
             if (user) {
+                // 🚀 الاعتماد على اللقطة السحابية لضمان صحة الاسم
+                const safeName = _esc(user.userDataSnapshot?.fullName || user.name || 'عميل');
                 html += `
                     <div class="podium-item ${slot.rankClass} animate__animated animate__zoomIn clickable" data-action="view-user" data-id="${_esc(user.id)}">
                         <div class="podium-avatar-wrap">
                             <div class="podium-rank-num">${slot.num}</div>
                         </div>
                         <div class="podium-info">
-                            <span class="podium-name text-truncate">${_esc(user.name)}</span>
+                            <span class="podium-name text-truncate">${safeName}</span>
                             <span class="podium-value text-gold num-en" dir="ltr">${RenderHelpers.formatMoney(user.spent, 'USD', 2)}</span>
                         </div>
                     </div>`;
@@ -169,13 +169,17 @@ export const DashboardTemplates = {
     },
     
     dashGrid: (stats, walletsCapsules, couponsHtml, communityHtml) => `
-        <div class="dash-group-header"><h4><i class="fa-solid fa-money-bill-trend-up text-gold"></i> النبض المالي</h4><div class="group-line"></div></div>
+        <div class="dash-group-header"><h4><i class="fa-solid fa-money-bill-trend-up text-gold"></i> النبض المالي (التدفق النقدي)</h4><div class="group-line"></div></div>
         <div class="dash-circ-grid">
             <div class="dash-circ-card cap-profit" data-action="nav-with-filter" data-section="orders" data-status="completed"><div class="circ-icon bg-gold"><i class="fa-solid fa-sack-dollar"></i></div><div class="circ-data"><h3 class="num-en text-gold" dir="ltr">${RenderHelpers.formatMoney(stats.financials.totalProfit, 'USD', 2)}</h3><span>صافي الأرباح</span></div></div>
-            <div class="dash-circ-card" data-action="nav-with-filter" data-section="orders" data-status="completed"><div class="circ-icon bg-primary"><i class="fa-solid fa-chart-line"></i></div><div class="circ-data"><h3 class="num-en text-primary" dir="ltr">${RenderHelpers.formatMoney(stats.financials.totalRevenue, 'USD', 2)}</h3><span>إجمالي المبيعات</span></div></div>
+            <div class="dash-circ-card" data-action="nav-with-filter" data-section="orders" data-status="completed"><div class="circ-icon bg-primary"><i class="fa-solid fa-chart-line"></i></div><div class="circ-data"><h3 class="num-en text-primary" dir="ltr">${RenderHelpers.formatMoney(stats.financials.totalRevenue, 'USD', 2)}</h3><span>قيمة المبيعات المستهلكة</span></div></div>
+            
+            <!-- 🚀 إضافة كبسولات الإيداعات للتدفق النقدي -->
+            <div class="dash-circ-card" data-action="nav-with-filter" data-section="deposits" data-status="approved"><div class="circ-icon bg-success"><i class="fa-solid fa-money-bill-transfer"></i></div><div class="circ-data"><h3 class="num-en text-success" dir="ltr">${RenderHelpers.formatMoney(stats.financials.totalDeposits || 0, 'USD', 2)}</h3><span>إجمالي الإيداعات</span></div></div>
+            <div class="dash-circ-card" data-action="nav-with-filter" data-section="deposits" data-status="approved"><div class="circ-icon bg-info"><i class="fa-solid fa-wallet"></i></div><div class="circ-data"><h3 class="num-en text-info" dir="ltr">${_enNum(stats.financials.depositsCount || 0)}</h3><span>عمليات شحن المحافظ</span></div></div>
         </div>
         
-        <div class="dash-group-header"><h4><i class="fa-solid fa-vault text-success"></i> سيولة المحافظ</h4><div class="group-line"></div></div>
+        <div class="dash-group-header"><h4><i class="fa-solid fa-vault text-success"></i> سيولة المحافظ (الالتزامات)</h4><div class="group-line"></div></div>
         <div class="dash-circ-grid" id="dash-wallets-grid">${walletsCapsules}</div>
         
         ${couponsHtml || ''}

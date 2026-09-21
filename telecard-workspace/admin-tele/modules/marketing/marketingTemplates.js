@@ -1,8 +1,9 @@
 // ============================================================================
-// 📢 قوالب التسويق والعروض (modules/marketing/marketingTemplates.js)
+// 📢 قوالب التسويق والعروض (modules/marketing/marketingTemplates.js) - Cloud-Native V18.2
 // 🎯 الوظيفة: توليد الـ HTML بنظام المجموعات العمودية لضمان ثبات الأزرار
-// 🚀 التحديث: تطهير الملف بالكامل من دوال القص المحلية والتواريخ المباشرة.
-// 2. RAM Protection: استخدام Map للبحث الآني `O(1)` للإشعارات.
+// 🚀 التحديثات:
+// 1. Crash Protection 🛡️: إزالة الاستيرادات الميتة (Dead Imports) لمنع الانهيار.
+// 2. Event Correction 🎯: تصحيح حدث حذف الإشعارات ليرتبط بموجه (delete-alert).
 // ============================================================================
 
 import { AdminData } from '../../adminData.js'; 
@@ -29,6 +30,8 @@ export const MarketingTemplates = {
         const valText = isPercent ? `${_enNum(coupon.value)}%` : RenderHelpers.formatMoney(coupon.value, 'USD', 2);
         const usageText = coupon.maxUses > 0 ? `${_enNum(coupon.usedCount)} / ${_enNum(coupon.maxUses)}` : `${_enNum(coupon.usedCount)} / ∞`;
         const perUserText = coupon.maxPerUser > 0 ? _enNum(coupon.maxPerUser) : '∞';
+        
+        const maxDiscText = (isPercent && coupon.maxDiscount > 0) ? RenderHelpers.formatMoney(coupon.maxDiscount, 'USD', 2) : '∞';
 
         return `
         <div class="promo-card" data-status="${exactStatus}">
@@ -63,7 +66,7 @@ export const MarketingTemplates = {
             </div>
             <div class="promo-details-grid">
                 <div class="promo-col"><span class="promo-lbl">حد الاستخدام للعميل</span><span class="promo-val num-en" dir="ltr" lang="en">${perUserText}</span></div>
-                <div class="promo-col"><span class="promo-lbl">الحد الأدنى للطلب</span><span class="promo-val num-en" dir="ltr" lang="en">${coupon.minOrder > 0 ? RenderHelpers.formatMoney(coupon.minOrder, 'USD', 2) : '∞'}</span></div>
+                <div class="promo-col"><span class="promo-lbl">أقصى مبلغ خصم</span><span class="promo-val num-en text-danger" dir="ltr" lang="en">${maxDiscText}</span></div>
             </div>
             <div class="promo-meta">
                 <span class="text-muted fs-11"><i class="fa-regular fa-clock"></i> ينتهي: <span class="num-en" dir="ltr" lang="en">${coupon.expiryDate ? RenderHelpers.formatSafeDate(coupon.expiryDate) : '∞'}</span></span>
@@ -161,9 +164,9 @@ export const MarketingTemplates = {
         else if (alert.targetType === 'user') { 
             targetText = `عميل مخصص`; targetIcon = 'fa-user text-info'; 
             
-            // 🚀 [التصحيح المعماري]: استخدام الـ Map (O(1)) بدلاً من Array.find لمنع اختناق الذاكرة في المتصفح
             const targetUser = AdminData.data.usersMap?.[alert.targetId];
-            const dId = targetUser ? RenderHelpers.formatUserId(targetUser) : RenderHelpers.formatUserId(alert.targetId);
+            
+            const dId = targetUser ? RenderHelpers.formatUserId(targetUser) : String(alert.targetId || '').substring(0,8);
             
             targetIdHtml = `<span class="num-en text-warning copyable-admin" data-action="copy-text" data-copy-text="${_esc(dId)}" dir="ltr" title="نسخ رقم العميل">#${_esc(dId)}</span>`;
         }
@@ -188,7 +191,8 @@ export const MarketingTemplates = {
                 </div>
                 <div class="promo-actions">
                     <div class="promo-btns-group">
-                        <button class="promo-btn-mini promo-btn-del" data-action="delete-item" data-type="alert" data-id="${_esc(alert.id)}" title="حذف"><i class="fa-solid fa-trash"></i></button>
+                        <!-- 🚀 [تصحيح السلك المقطوع]: توجيه مباشر لمسار delete-alert -->
+                        <button class="promo-btn-mini promo-btn-del" data-action="delete-alert" data-id="${_esc(alert.id)}" title="حذف الإشعار"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>
             </div>

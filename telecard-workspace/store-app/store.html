@@ -3,7 +3,7 @@
 <head>
     <script>
         // 🚀 1. تحدديد الإصدار (متوافق مع محرك V19.0.0 الماسي للإنتاج التجاري)
-        window.TELECARD_VERSION = "v22.4"; 
+        window.TELECARD_VERSION = "v22.8"; 
     </script>
     
     <!-- 🚀 نظام المراقبة المبكر للإقلاع -->
@@ -456,10 +456,13 @@
             <div class="w-grid">
                 <div class="gold-card">
                     <div class="gold-card-content">
-                        <div class="engraved-label">
-                            <i class="fa-solid fa-wallet"></i> الرصيد الحالي
-                        </div>
-                        <div class="engraved-val-wrap">
+                      <div class="engraved-label wallet-label-flex">
+    <span><i class="fa-solid fa-wallet"></i> الرصيد الحالي</span>
+    <button class="privacy-eye-btn" data-action="toggle-balance-visibility" aria-label="إخفاء/إظهار الرصيد" title="إخفاء/إظهار الرصيد">
+        <i class="fa-regular fa-eye" id="balance-eye-icon"></i>
+    </button>
+</div>    
+<div class="engraved-val-wrap">
                             <div class="engraved-val num-en">
                                 <span id="live-balance-num">0.00</span> 
                                 <span class="val-currency" id="live-balance-curr">USD</span>

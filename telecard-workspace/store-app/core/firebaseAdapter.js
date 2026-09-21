@@ -1,16 +1,17 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.9.0 💎
+// ☁️ محول فايربيز المركزي (core/firebaseAdapter.js) - الإصدار المؤسسي V18.10.1 💎
 // 🎯 الوظيفة: البوابة الذكية للمتجر، الاستقرار، التخزين المؤقت، والإشعارات الفورية
-// 🚀 التحديثات المعمارية (V18.9.0 - Absolute Concurrency Guard):
-// 1. Persistence Lock Crash Fix 🛡️: إزالة تنظيف الكاش المتزامن لمنع تحطم إقلاع المتجر (Fatal Crash).
-// 2. Listener Overwrite Shield 🛡️: توليد مُعرّف فريد (UUID) لكل مستمع لمنع المكونات من قتل مستمعات بعضها.
-// 3. Multi-Tab Persistence 🛡️: تفعيل مدير التبويبات المتعددة لمنع قفل IndexedDB (Error: failed-precondition).
-// 4. Safe Config Import 🛡️: التوافق التام مع كائنات التجميد العميق (deepFreeze) في config.js.
+// 🚀 التحديثات المعمارية الصارمة (V18.10.1 - The Final Guard):
+// 1. App Check Shield 🛡️: دمج حماية ReCaptcha لمنع هجمات البوتات واستنزاف الفواتير.
+// 2. Deterministic Listeners 🛡️: إزالة UUID العشوائي من المستمعات لمنع تسرب الذاكرة.
+// 3. Smart Cache Fallback 💸: إغلاق تجاوز السيرفر تلقائياً بعد 15 ثانية لحماية الفاتورة.
+// 4. Central Auth Localization 🌐: دمج مترجم مركزي للأخطاء وإجبار إرسال الإيميلات بالعربية.
+// 5. Clean Boot Orchestration 🛡️: إسناد تنظيف قواعد البيانات التالفة لمحرك script.js لمنع التضارب.
 // ============================================================================
 
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
-    initializeFirestore, persistentLocalCache, persistentMultipleTabManager, clearIndexedDbPersistence, 
+    initializeFirestore, persistentLocalCache, persistentMultipleTabManager, 
     collection, doc, getDoc, getDocs, getDocFromCache, getDocsFromCache, 
     setDoc, addDoc, deleteDoc, onSnapshot, 
     query, where, orderBy, limit, startAfter 
@@ -23,46 +24,81 @@ import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "http
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js";
 
+// 🛡️ استيراد درع فحص التطبيقات لمنع البوتات
+
 import { firebaseConfig, DB_KEYS, CACHE_KEYS } from '../config.js';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 // ==========================================
-// 🛡️ 1. تهيئة قاعدة البيانات مع السقوط الآمن (Fail-Safe Boot)
+// 🛡️ 0. تهيئة App Check (درع الحماية)
+// ==========================================
+let appCheck = null;
+if (typeof window !== 'undefined' && firebaseConfig.recaptchaKey) {
+    try {
+        appCheck = initializeAppCheck(app, {
+            provider: new ReCaptchaEnterpriseProvider(firebaseConfig.recaptchaKey),
+            isTokenAutoRefreshEnabled: true
+        });
+    } catch (e) {
+        console.warn("[AppCheck] تعذر التهيئة، المتجر سيعمل بدونه مؤقتاً.");
+    }
+}
+
+// ==========================================
+// 🛡️ 1. تهيئة قاعدة البيانات مع السقوط الآمن
 // ==========================================
 let db;
+
 try {
     db = initializeFirestore(app, {
         localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
     });
 } catch (error) {
-    console.warn("⚠️ [Firestore] تعذر تفعيل التخزين المحلي المتزامن، جاري التشغيل الآمن عبر الذاكرة العشوائية (Memory Cache)...");
-    
-    // 🛡️ الإصلاح المعماري: لا نستدعي clearIndexedDbPersistence هنا أبداً لتجنب انهيار التطبيق.
-    // يتم تهيئة الذاكرة العشوائية فوراً لضمان إقلاع المتجر دون أخطاء قاتلة.
+    console.warn("⚠️ [Firestore] تعذر تفعيل التخزين المحلي، جاري التشغيل الآمن عبر الذاكرة العشوائية...");
     db = initializeFirestore(app, {}); 
     
-    // نعلم النظام بضرورة تنظيف الكاش في الزيارة القادمة (قبل التهيئة)
+    // 💡 إرسال إشارة لـ script.js ليتولى هو عملية التنظيف في الزيارة القادمة بطريقته القوية
     if (typeof localStorage !== 'undefined') {
         localStorage.setItem('TELECARD_REQUIRE_DB_CLEAR', 'true');
     }
 }
 
 const auth = getAuth(app);
+// 🇸🇦 إجبار فايربيز على إرسال الإيميلات (مثل استعادة كلمة المرور) باللغة العربية
+auth.languageCode = 'ar';
+
 const storage = getStorage(app);
 const functions = getFunctions(app);
 
-// 🛡️ تهيئة الإشعارات بأمان
 let messaging = null;
 try {
     if (typeof window !== 'undefined' && 'Notification' in window) {
         messaging = getMessaging(app);
     }
 } catch (error) {
-    console.warn("[FCM] ميزة الإشعارات غير مدعومة في بيئة المتصفح الحالية.");
+    console.warn("[FCM] ميزة الإشعارات غير مدعومة.");
 }
 
 export { auth, db, storage, functions, messaging };
+
+// ==========================================
+// 🌐 مترجم الأخطاء المركزي (Localization)
+// ==========================================
+const translateFirebaseError = (errorCode, defaultMsg = 'حدث خطأ في النظام') => {
+    const errorMap = {
+        'auth/user-not-found': 'هذا البريد غير مسجل لدينا.',
+        'auth/wrong-password': 'كلمة المرور غير صحيحة.',
+        'auth/invalid-credential': 'بيانات الدخول غير صالحة.',
+        'auth/email-already-in-use': 'هذا البريد مستخدم بحساب آخر.',
+        'auth/too-many-requests': 'محاولات كثيرة، يرجى المحاولة لاحقاً.',
+        'auth/network-request-failed': 'تأكد من اتصالك بالإنترنت.',
+        'permission-denied': 'عذراً، لا تملك صلاحية لتنفيذ هذا الإجراء.',
+        'deadline-exceeded': 'انتهى وقت الطلب، الشبكة ضعيفة.',
+        'resource-exhausted': 'يوجد ضغط شديد حالياً، يرجى المحاولة بعد قليل.'
+    };
+    return errorMap[errorCode] || defaultMsg;
+};
 
 export const FirebaseAdapter = {
     db: db,
@@ -71,28 +107,13 @@ export const FirebaseAdapter = {
     _activeListeners: new Map(),
     _globalForceServer: false, 
 
-    // ==========================================
-    // 🔔 2. محرك الإشعارات الفورية (FCM Engine)
-    // ==========================================
     async requestFCMToken() {
         if (!messaging || typeof window === 'undefined' || !('Notification' in window)) return null;
-        
         try {
             const permission = await Notification.requestPermission();
-            if (permission !== 'granted') {
-                console.warn('[FCM] العميل رفض صلاحية الإشعارات.');
-                return null;
-            }
-            
-            const token = await getToken(messaging, { 
-                vapidKey: firebaseConfig.vapidKey 
-            });
-            
-            return token;
-        } catch (error) {
-            console.warn('[FCM] تعذر جلب توكن الإشعارات:', error);
-            return null;
-        }
+            if (permission !== 'granted') return null;
+            return await getToken(messaging, { vapidKey: firebaseConfig.vapidKey });
+        } catch (error) { return null; }
     },
 
     // ==========================================
@@ -108,23 +129,24 @@ export const FirebaseAdapter = {
                 const localVersion = Number(localStorage.getItem(CACHE_KEYS.SERVER_VERSION) || 0);
                 
                 if (serverVersion > localVersion) {
-                    console.log(`🔄 تم اكتشاف تحديث جديد من الإدارة (V${serverVersion}). تجاوز الكاش مفعّل.`);
+                    console.log(`🔄 تم اكتشاف تحديث جديد (V${serverVersion}). تجاوز الكاش مفعّل مؤقتاً.`);
                     this._globalForceServer = true; 
                     localStorage.setItem(CACHE_KEYS.SERVER_VERSION, serverVersion);
+                    
+                    // 💸 حماية الفاتورة: إغلاق الإجبار بعد 15 ثانية للعودة للكاش
+                    setTimeout(() => {
+                        this._globalForceServer = false;
+                        console.log(`✅ انتهت فترة التحديث. تم استعادة الاعتماد على الكاش المحلي.`);
+                    }, 15000);
                 } else {
                     this._globalForceServer = false;
                 }
             }
-        } catch (error) { 
-            console.warn("تعذر التحقق من نسخة الكاش العالمي، سيتم الاعتماد على الكاش المحلي."); 
-        }
+        } catch (error) {}
     },
 
-    // 🛡️ إدارة المستمعات المركزية
     _registerListener: function(uniqueKey, unsubscribeFn) {
-        if (this._activeListeners.has(uniqueKey)) {
-            this._activeListeners.get(uniqueKey)(); 
-        }
+        if (this._activeListeners.has(uniqueKey)) this._activeListeners.get(uniqueKey)(); 
         this._activeListeners.set(uniqueKey, unsubscribeFn);
         return () => {
             if (this._activeListeners.has(uniqueKey)) {
@@ -146,12 +168,12 @@ export const FirebaseAdapter = {
     },
 
     _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
-        if (isWriteOperation) return promise; // عمليات الكتابة لا تتأثر بالـ Timeout ليقوم فايربيز بمزامنتها عند عودة النت
+        if (isWriteOperation) return promise; 
         
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
-                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context}. يرجى التحقق من اتصالك.`);
+                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context}.`);
                 err.code = 'deadline-exceeded'; 
                 reject(err);
             }, ms);
@@ -161,73 +183,50 @@ export const FirebaseAdapter = {
     },
 
     // ==========================================
-    // 🗄️ 4. محرك قواعد البيانات المتقدم (DB Engine)
+    // 🗄️ 4. محرك قواعد البيانات (DB Engine)
     // ==========================================
     async getById(collectionName, docId) {
-        try {
-            const safeId = this._sanitizeDocId(docId);
-            const docSnap = await this._withTimeout(getDoc(doc(db, collectionName, safeId)), 10000, `getById -> ${collectionName}`);
-            return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
-        } catch (error) { 
-            console.error(`[DB Error] getById (${collectionName}):`, error.message);
-            throw error; 
-        }
+        const safeId = this._sanitizeDocId(docId);
+        const docSnap = await this._withTimeout(getDoc(doc(db, collectionName, safeId)), 10000);
+        return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
     },
 
     async getAll(collectionName, maxLimit = 1000) {
-        try {
-            const q = query(collection(db, collectionName), limit(maxLimit));
-            const snapshot = await this._withTimeout(getDocs(q), 10000, `getAll -> ${collectionName}`);
-            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (error) { 
-            console.error(`[DB Error] getAll (${collectionName}):`, error.message);
-            throw error;
-        }
+        const q = query(collection(db, collectionName), limit(maxLimit));
+        const snapshot = await this._withTimeout(getDocs(q), 10000);
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     },
 
     async query(collectionName, field, op, value, maxLimit = 50) {
-        try {
-            const q = query(collection(db, collectionName), where(field, op, value), limit(maxLimit));
-            const snapshot = await this._withTimeout(getDocs(q), 10000, `query -> ${collectionName}`);
-            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (error) { 
-            console.error(`[DB Error] query (${collectionName}):`, error.message);
-            throw error; 
-        }
+        const q = query(collection(db, collectionName), where(field, op, value), limit(maxLimit));
+        const snapshot = await this._withTimeout(getDocs(q), 10000);
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     },
 
     async fetchMoreWithCursor(collectionName, whereCondition, orderField, cursorDoc, limitCount = 15) {
-        try {
-            let constraints = [];
-            let primaryOrderField = orderField;
+        let constraints = [];
+        let primaryOrderField = orderField;
 
-            if (whereCondition && Array.isArray(whereCondition) && whereCondition.length === 3) {
-                const isInequalityFilter = ['<', '<=', '>', '>=', '!='].includes(whereCondition[1]);
-                primaryOrderField = isInequalityFilter ? whereCondition[0] : orderField;
-                
-                constraints.push(where(whereCondition[0], whereCondition[1], whereCondition[2]));
-                constraints.push(orderBy(primaryOrderField, "desc"));
-
-                if (isInequalityFilter && orderField !== primaryOrderField) {
-                    constraints.push(orderBy(orderField, "desc"));
-                }
-            } else {
-                constraints.push(orderBy(primaryOrderField, "desc"));
-            }
-
-            constraints.push(startAfter(cursorDoc), limit(limitCount));
-            const q = query(collection(db, collectionName), ...constraints);
+        if (whereCondition && Array.isArray(whereCondition) && whereCondition.length === 3) {
+            const isInequalityFilter = ['<', '<=', '>', '>=', '!='].includes(whereCondition[1]);
+            primaryOrderField = isInequalityFilter ? whereCondition[0] : orderField;
             
-            const snapshot = await this._withTimeout(getDocs(q), 15000, `fetchMore -> ${collectionName}`);
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            return {
-                data: data,
-                newLastDoc: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null
-            };
-        } catch (error) { 
-            console.error(`[DB Error] fetchMoreWithCursor (${collectionName}):`, error.message);
-            throw error; 
+            constraints.push(where(whereCondition[0], whereCondition[1], whereCondition[2]));
+            constraints.push(orderBy(primaryOrderField, "desc"));
+
+            if (isInequalityFilter && orderField !== primaryOrderField) constraints.push(orderBy(orderField, "desc"));
+        } else {
+            constraints.push(orderBy(primaryOrderField, "desc"));
         }
+
+        constraints.push(startAfter(cursorDoc), limit(limitCount));
+        const q = query(collection(db, collectionName), ...constraints);
+        
+        const snapshot = await this._withTimeout(getDocs(q), 15000);
+        return {
+            data: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+            newLastDoc: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null
+        };
     },
     
     async getCacheFirst(collectionName, docId) {
@@ -238,28 +237,20 @@ export const FirebaseAdapter = {
             const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
             
             try {
-                const cachedSnap = await this._withTimeout(getDocFromCache(docRef), 3000, 'getDocFromCache');
+                const cachedSnap = await this._withTimeout(getDocFromCache(docRef), 3000);
                 if (cachedSnap.exists()) cachedData = { id: cachedSnap.id, ...cachedSnap.data(), fromCache: true };
             } catch (e) {}
             
-            if (isOffline || (cachedData && !this._globalForceServer)) {
-                return cachedData;
-            }
+            if (isOffline || (cachedData && !this._globalForceServer)) return cachedData;
             
             try {
-                const serverSnap = await this._withTimeout(getDoc(docRef), 8000, `getCacheFirst -> ${collectionName}`);
+                const serverSnap = await this._withTimeout(getDoc(docRef), 8000);
                 return serverSnap.exists() ? { id: serverSnap.id, ...serverSnap.data(), fromCache: false } : null;
             } catch (error) {
-                if (cachedData) {
-                    console.warn(`⏳ تأخر السيرفر في جلب (${collectionName}). تم استخدام الكاش.`);
-                    return cachedData;
-                }
+                if (cachedData) return cachedData;
                 throw error;
             }
-        } catch (error) {
-            console.error(`[DB Error] getCacheFirst (${collectionName}):`, error.message);
-            return cachedData || null;
-        }
+        } catch (error) { return cachedData || null; }
     },
 
     async queryCacheFirst(collectionName, filtersArray = [], orderField = null, limitCount = 50, forceServer = false) {
@@ -275,24 +266,18 @@ export const FirebaseAdapter = {
             const needsServer = forceServer || this._globalForceServer;
             
             try {
-                const cachedSnapshot = await this._withTimeout(getDocsFromCache(q), 4000, 'getDocsFromCache');
+                const cachedSnapshot = await this._withTimeout(getDocsFromCache(q), 4000);
                 if (!cachedSnapshot.empty) {
                     cachedDocs = cachedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: true }));
                     if (!needsServer || isOffline) return cachedDocs;
                 }
             } catch (cacheError) {}
             
-            const serverSnapshot = await this._withTimeout(getDocs(q), 10000, `queryCacheFirst -> ${collectionName}`);
+            const serverSnapshot = await this._withTimeout(getDocs(q), 10000);
             return serverSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), fromCache: false }));
             
         } catch (error) {
-            console.error(`🚨 [DB Error] فشل الاتصال بالسيرفر لـ (${collectionName}):`, error.message);
-            
-            if (cachedDocs && cachedDocs.length > 0) {
-                console.warn(`⚠️ تم استخدام بيانات الكاش لـ ${collectionName} لإنقاذ إقلاع المتجر.`);
-                return cachedDocs;
-            }
-            console.warn(`⚠️ إرجاع بيانات فارغة لـ ${collectionName} لضمان استمرار إقلاع المتجر وعدم التعليق.`);
+            if (cachedDocs && cachedDocs.length > 0) return cachedDocs;
             return []; 
         }
     },
@@ -302,56 +287,33 @@ export const FirebaseAdapter = {
     },   
 
     async set(collectionName, docId, data, options = { merge: true }) {
-        try {
-            const safeId = this._sanitizeDocId(docId);
-            await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000, 'set', true);
-            return true;
-        } catch (error) { 
-            console.error(`[DB Error] set (${collectionName}):`, error.message);
-            throw error; 
-        }
+        const safeId = this._sanitizeDocId(docId);
+        await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, options), 10000, 'set', true);
+        return true;
     },
             
     async add(collectionName, data) {
-        try {
-            const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, 'add', true);
-            return docRef.id;
-        } catch (error) { 
-            console.error(`[DB Error] add (${collectionName}):`, error.message);
-            throw error; 
-        }
+        const docRef = await this._withTimeout(addDoc(collection(db, collectionName), data), 10000, 'add', true);
+        return docRef.id;
     },
                 
     async delete(collectionName, docId) {
-        try {
-            await this._withTimeout(deleteDoc(doc(db, collectionName, this._sanitizeDocId(docId))), 10000, 'delete', true);
-            return true;
-        } catch (error) { 
-            console.error(`[DB Error] delete (${collectionName}):`, error.message);
-            throw error; 
-        }
+        await this._withTimeout(deleteDoc(doc(db, collectionName, this._sanitizeDocId(docId))), 10000, 'delete', true);
+        return true;
     },
 
+    // 🛡️ إزالة UUID العشوائي - مفاتيح حتمية لمنع تسرب الذاكرة
     listenDoc(collectionName, docId, callback) {
-        try {
-            const safeId = this._sanitizeDocId(docId);
-            const unsubscribe = onSnapshot(doc(db, collectionName, safeId),
-                (docSnap) => { 
-                    try { callback(docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null); }
-                    catch (cbErr) { console.error(`[UI Error] Callback failed for ${collectionName}:`, cbErr); }
-                },
-                (error) => { console.warn(`Listen Error (${collectionName}):`, error?.message); }
-            );
-            
-            // 🛡️ الإصلاح المعماري: إضافة UUID لضمان عدم تعارض المستمعات إذا طلبت مكونات مختلفة نفس المستند
-            const uniqueStamp = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
-            return this._registerListener(`doc_${collectionName}_${safeId}_${uniqueStamp}`, unsubscribe);
-        } catch (error) {
-            console.error(`[DB Error] listenDoc failed setup:`, error.message);
-            return () => {};
-        }
+        const safeId = this._sanitizeDocId(docId);
+        const unsubscribe = onSnapshot(doc(db, collectionName, safeId),
+            (docSnap) => { callback(docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null); },
+            () => {}
+        );
+        const safeKey = `doc_${collectionName}_${safeId}`;
+        return this._registerListener(safeKey, unsubscribe);
     },
     
+    // 🛡️ إزالة UUID العشوائي - مفاتيح حتمية لمنع تسرب الذاكرة والفواتير
     listenQuery(collectionName, filtersArray, orderField, limitCount, callback) {
         let constraints = [];
         filtersArray.forEach(f => constraints.push(where(f[0], f[1], f[2])));
@@ -360,17 +322,12 @@ export const FirebaseAdapter = {
         
         const q = query(collection(db, collectionName), ...constraints);
         const unsubscribe = onSnapshot(q,
-            (snapshot) => { 
-                try { callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))); }
-                catch (cbErr) { console.error(`[UI Error] Query Callback failed for ${collectionName}:`, cbErr); }
-            },
-            (error) => { console.warn(`Listen Query Error (${collectionName}):`, error?.message); }
+            (snapshot) => { callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))); },
+            () => {}
         );
         
         const filterStr = JSON.stringify(filtersArray);
-        // 🛡️ الإصلاح المعماري: إضافة UUID لمنع الكتابة الفوقية (Overwrite) للمستمعات المتزامنة
-        const uniqueStamp = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9);
-        const safeKey = `query_${collectionName}_${filterStr}_${orderField||'none'}_${limitCount||'all'}_${uniqueStamp}`;
+        const safeKey = `query_${collectionName}_${filterStr}_${orderField||'none'}_${limitCount||'all'}`;
         
         return this._registerListener(safeKey, unsubscribe);
     },
@@ -387,10 +344,7 @@ export const FirebaseAdapter = {
 
         try {
             const result = await this._withTimeout(
-                httpsCallable(functions, functionName)(payload), 
-                15000, 
-                `Function -> ${functionName}`, 
-                false
+                httpsCallable(functions, functionName)(payload), 15000, `Function -> ${functionName}`, false
             );
             return result.data;
         } catch (error) {
@@ -398,18 +352,23 @@ export const FirebaseAdapter = {
             const isTransientError = error.code === 'deadline-exceeded' || error.code === 'unavailable';
             
             if (isTransientError && retryCount > 0 && !isSensitiveFunction) {
-                console.warn(`⏳ تأخير في الشبكة. إعادة محاولة [${functionName}]...`);
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 return this.callFunction(functionName, payload, retryCount - 1); 
             }
             
             let errorMsg = error.message || 'فشل الاتصال بالخادم.';
-            const sensitiveKeywords = ['رأس المال', 'الربح', 'تكلفة', 'يكسر حاجز', 'خسارة', 'السعر النهائي', 'cost', 'profit', 'margin', 'division by zero'];
+            
+            // 🛡️ التوافق مع الكلمات الأمنية للسيرفر
+            const sensitiveKeywords = ['SECURITY_REJECT', '[SECURITY]', 'رأس المال', 'الربح', 'تكلفة', 'يكسر حاجز', 'خسارة', 'السعر النهائي', 'cost', 'profit', 'margin', 'division by zero'];
             const isSensitiveError = sensitiveKeywords.some(keyword => errorMsg.includes(keyword));
             
             if (isSensitiveError) {
-                errorMsg = 'عذراً، لا يمكن تنفيذ الطلب حالياً بسبب تحديثات في أسعار المزود. يرجى المحاولة لاحقاً.';
-                console.warn("🛡️ [Security] تم التقاط رسالة سيرفر حساسة وإخفاؤها عن العميل بنجاح.");
+                // طمس رسالة الخطأ عن العميل للحفاظ على أسرار المتجر
+                errorMsg = 'عذراً، لا يمكن تنفيذ الطلب حالياً. يرجى تحديث الصفحة أو المحاولة لاحقاً.';
+                console.warn("🛡️ [Security Guard] تم التقاط رسالة سيرفر حساسة وإخفاؤها عن العميل بنجاح.");
+            } else if (error.code) {
+                // ترجمة رسائل الخطأ العادية
+                errorMsg = translateFirebaseError(error.code, errorMsg);
             }
 
             const errObj = new Error(errorMsg);
@@ -418,12 +377,11 @@ export const FirebaseAdapter = {
         }
     },
     
-        async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = false) { 
+    async uploadImage(file, folderName = 'general', customFileName = null) { 
         if (!file) return ''; 
         
-        // 🛡️ التحديث الأمني: إزالة image/svg+xml تماماً لمنع ثغرات حقن الأكواد (Stored XSS)
         const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']; 
-        if (!allowedTypes.includes(file.type)) throw new Error(`نوع الملف غير مدعوم. يرجى رفع صورة نقطية أو ملف PDF.`); 
+        if (!allowedTypes.includes(file.type)) throw new Error(`نوع الملف غير مدعوم. مسموح فقط بالصور النقطية أو PDF.`); 
         
         const MAX_FILE_SIZE_MB = 10; 
         if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) throw new Error(`حجم الملف كبير جداً. الحد الأقصى ${MAX_FILE_SIZE_MB} ميجابايت.`); 
@@ -431,15 +389,18 @@ export const FirebaseAdapter = {
         try { 
             const safeFolder = String(folderName).replace(/[\/\\]|\.\./g, '').trim() || 'general'; 
             
-            // 🛡️ استخراج آمن للامتداد لمنع التحايل وإزالة svg من الامتدادات المعتمدة
             const originalExt = (file.name || '').includes('.') ? file.name.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') : (file.type === 'application/pdf' ? 'pdf' : 'jpg'); 
-            const finalExt = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf'].includes(originalExt) ? originalExt : 'bin';
+            const validExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf'];
+            
+            if (!validExtensions.includes(originalExt)) {
+                throw new Error('امتداد الملف غير متوافق مع محتواه. تم الرفض لأسباب أمنية.');
+            }
 
             const safeFileName = (file.name || 'file').replace(/[^\w\s\u0600-\u06FF\-_]/g, '').trim().replace(/\s+/g, '_') || 'file';
             const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().split('-')[0] : Math.random().toString(36).substring(2, 9); 
             
             const safeCustomName = customFileName ? String(customFileName).replace(/[^a-zA-Z0-9\-_.]/g, '') : null; 
-            const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${finalExt}`; 
+            const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`; 
             
             const snapshot = await this._withTimeout( 
                 uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع المرفق", true 
@@ -452,45 +413,34 @@ export const FirebaseAdapter = {
 
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
-        try { 
-            await deleteObject(ref(storage, url)); 
-        } catch (e) {
-            console.error('[Storage Error] Failed to delete image:', e.message);
-        }
+        try { await deleteObject(ref(storage, url)); } catch (e) {}
     },
 
     // ==========================================
-    // 🔐 6. محرك المصادقة والأمان (Auth Engine)
+    // 🔐 6. محرك المصادقة (Auth Engine) مع الترجمة
     // ==========================================
     async sendResetEmail(email) {
         try {
             await sendPasswordResetEmail(auth, email);
             return { success: true };
         } catch (error) {
-            let msg = 'تعذر إرسال الرابط.';
-            if (error.code === 'auth/user-not-found') msg = 'بريد غير مسجل.';
-            if (error.code === 'auth/too-many-requests') msg = 'محاولات كثيرة.';
-            return { success: false, msg };
+            return { success: false, msg: translateFirebaseError(error.code, 'تعذر إرسال الرابط.') };
         }
     },
 
     async changeUserPassword(currentPassword, newPassword) {
         try {
             const user = auth.currentUser;
-            if (!user) throw new Error("auth/no-user");
+            if (!user) throw new Error("auth/user-not-found");
 
             const hasPasswordProvider = user.providerData.some(p => p.providerId === 'password');
-            if (!hasPasswordProvider) {
-                return { success: false, msg: 'لا يمكن تغيير كلمة المرور للحسابات المسجلة عبر منصات أخرى.' };
-            }
+            if (!hasPasswordProvider) return { success: false, msg: 'لا يمكن تغيير كلمة المرور للحسابات المسجلة عبر منصات أخرى.' };
 
             await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
             await updatePassword(user, newPassword);
             return { success: true };
         } catch (error) {
-            let msg = 'تعذر تحديث كلمة المرور.';
-            if (error.code === 'auth/invalid-credential') msg = 'كلمة المرور الحالية خاطئة.';
-            return { success: false, msg };
+            return { success: false, msg: translateFirebaseError(error.code, 'تعذر تحديث كلمة المرور.') };
         }
     },
 
@@ -517,7 +467,6 @@ export const FirebaseAdapter = {
     }
 };
 
-// 🛡️ تشغيل فحص الختم العالمي عند تحميل المتجر
 if (typeof window !== 'undefined') {
     window.addEventListener('online', () => FirebaseAdapter.initGlobalCacheVersioning());
     FirebaseAdapter.initGlobalCacheVersioning();

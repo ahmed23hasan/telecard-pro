@@ -1,11 +1,11 @@
 // ============================================================================
-// 🔔 عامل خدمة الإشعارات (Firebase Messaging SW) - Enterprise V18.9.0 💎
+// 🔔 عامل خدمة الإشعارات (Firebase Messaging SW) - Enterprise V18.9.1 💎
 // 🎯 الوظيفة: العمل في خلفية النظام لاستقبال الإشعارات وتوجيه المستخدم بذكاء.
-// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - FCM Integrity Patch):
-// 1. Double-Ping Shield 🛡️: إيقاف ثغرة الإشعارات المزدوجة المزعجة التي تحدث عندما يرسم المتصفح والكود نفس الإشعار.
-// 2. Data-Only Fallback 🛡️: رسم الإشعارات يدوياً حصرياً في حالة الرسائل الصامتة (Data-Only Payload).
-// 3. Stringified Payload Guard 🛡️: تأمين قراءة المتغيرات كنصوص نقية لمنع تحطم الروابط عند التوجيه.
-// 4. Subfolder Routing Fix 🛡️: إصلاح التوجيه ليعمل داخل المجلدات الفرعية ديناميكياً باستخدام URL Object.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - Deep Routing & FCM Target Patch):
+// 1. FCM_MSG Decoupler 🛡️: استخراج البيانات المدفونة من إشعارات فايربيز التلقائية لمنع النقر الميت.
+// 2. Subfolder Origin Fix 🛡️: استخدام (self.location.href) بدلاً من (origin) لحماية مسارات المجلدات الفرعية.
+// 3. Double-Ping Shield 🛡️: إيقاف ثغرة الإشعارات المزدوجة المزعجة للمتصفح.
+// 4. Data-Only Fallback 🛡️: رسم الإشعارات يدوياً حصرياً في حالة الرسائل الصامتة.
 // ============================================================================
 
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
@@ -34,19 +34,15 @@ self.addEventListener('activate', () => self.clients.claim());
 messaging.onBackgroundMessage((payload) => {
     console.log('[FCM SW] 🔔 نبضة إشعار في الخلفية تم استلامها.');
     
-    // 🛡️ Double-Ping Shield: حماية ضد الإشعارات المزدوجة!
-    // إذا أرسل السيرفر كائن (notification)، المتصفح سيتولى رسمه تلقائياً بصوت وصورة.
-    // لا يجب أن نتدخل يدوياً هنا لتجنب إزعاج العميل بإشعارين لنفس الطلب.
+    // 🛡️ Double-Ping Shield: حماية ضد الإشعارات المزدوجة
     if (payload.notification) {
-        console.log('[FCM SW] الإشعار يحتوي على واجهة مرئية. المتصفح يتولى الرسم تلقائياً.');
+        console.log('[FCM SW] الإشعار مرئي. المتصفح يتولى الرسم تلقائياً.');
         return;
     }
 
-    // 🛡️ Data-Only Fallback: نرسم الإشعار يدوياً فقط إذا كانت الرسالة "صامتة" (تحتوي على Data فقط)
-    // وتتطلب من العميل الانتباه لتحديث مهم.
+    // 🛡️ Data-Only Fallback: رسم يدوي للرسائل الصامتة
     const dataPayload = payload.data || {};
     
-    // تأمين جلب النصوص (FCM Data Payloads are strictly Strings)
     const notificationTitle = dataPayload.title || 'تنبيه من المتجر';
     const notificationBody = dataPayload.message || 'لديك تحديث جديد، تفضل بالدخول.';
     const notificationId = dataPayload.id ? String(dataPayload.id) : 'telecard-general-alert';
@@ -57,7 +53,7 @@ messaging.onBackgroundMessage((payload) => {
         badge: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
         dir: 'rtl',
         vibrate: [200, 100, 200],
-        data: dataPayload, 
+        data: dataPayload, // البيانات تمرر مباشرة هنا للإشعار اليدوي
         tag: notificationId, 
         requireInteraction: false
     };
@@ -71,13 +67,16 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener('notificationclick', (event) => {
     event.notification.close(); 
     
-    const notificationData = event.notification.data || {};
+    // 🛡️ [الإصلاح المعماري 1]: فك تشفير بيانات فايربيز (FCM_MSG Trap)
+    // إذا كان الإشعار مرسوماً تلقائياً من فايربيز، ستكون بياناتك مخفية داخل FCM_MSG
+    let notificationData = event.notification.data || {};
+    if (notificationData.FCM_MSG && notificationData.FCM_MSG.data) {
+        notificationData = { ...notificationData, ...notificationData.FCM_MSG.data };
+    }
     
-    // 🛡️ Stringified Payload Guard: التأكد من تحويل المعرفات لنصوص صريحة
     const actionType = String(notificationData.targetType || notificationData.jumpTarget || notificationData.type || '').trim();
     const actionId = String(notificationData.targetId || notificationData.id || '').trim();
     
-    // بناء المسار بناءً على موقع ملف العامل الحالي لضمان دعم المجلدات الفرعية
     const defaultStoreUrl = new URL('./store.html', self.location.href).href;
     let targetUrl = (notificationData.click_action && typeof notificationData.click_action === 'string') 
                     ? notificationData.click_action 
@@ -86,30 +85,28 @@ self.addEventListener('notificationclick', (event) => {
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
             
-            // أ) إذا كان المتجر مفتوحاً في الخلفية (في نفس النطاق)
+            // أ) إذا كان المتجر مفتوحاً في الخلفية
             const basePath = new URL('./', self.location.href).href;
             for (let i = 0; i < windowClients.length; i++) {
                 const client = windowClients[i];
                 if (client.url.includes(basePath) && 'focus' in client) {
-                    client.focus();
-                    
-                    // التخاطب الذكي مع الواجهة بمتغيرات موحدة
-                    if (actionType && actionId && actionType !== 'undefined' && actionId !== 'undefined') {
-                        client.postMessage({
-                            type: 'FCM_NOTIFICATION_CLICK',
-                            payload: { type: actionType, id: actionId }
-                        });
-                    }
-                    return;
+                    return client.focus().then(() => {
+                        if (actionType && actionId && actionType !== 'undefined' && actionId !== 'undefined') {
+                            client.postMessage({
+                                type: 'FCM_NOTIFICATION_CLICK',
+                                payload: { type: actionType, id: actionId }
+                            });
+                        }
+                    });
                 }
             }
             
             // ب) إذا كان المتجر مغلقاً تماماً، نفتحه في نافذة جديدة مع دمج المتغيرات بذكاء
-                        if (clients.openWindow) {
+            if (clients.openWindow) {
                 if (actionType && actionId && actionType !== 'undefined' && actionId !== 'undefined') {
                     try {
-                        // 🛡️ [الإصلاح]: توفير Base URL يمنع انهيار النظام إذا كان targetUrl مساراً نسبياً
-                        const urlObj = new URL(targetUrl, self.location.origin);
+                        // 🛡️ [الإصلاح المعماري 2]: استخدام self.location.href لحماية المجلدات الفرعية
+                        const urlObj = new URL(targetUrl, self.location.href);
                         urlObj.searchParams.set('action', 'view');
                         urlObj.searchParams.set('type', actionType);
                         urlObj.searchParams.set('id', actionId);

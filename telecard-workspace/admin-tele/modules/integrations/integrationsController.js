@@ -1,9 +1,7 @@
 // ============================================================================
-// 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js) - V15.0 💎
-// 🎯 الوظيفة: إدارة واجهة الموردين والتواصل مع المحرك السحابي (Supplier Engine)
-// 🌟 التحديث الأقصى: 
-// 1. Audit Trail Fix: تسجيل عمليات الإيقاف والتفعيل في السجل لضمان المساءلة الرقابية.
-// 2. فك الارتباط الدائري، ترقية البحث لـ O(1)، وتوحيد الـ UI Events.
+// 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js) - V18.4 💎
+// 🚀 التحديثات المعمارية (V18.4 - Defects Ledger Fetcher): 
+// 1. Defects Fetcher 🕵️‍♂️: إضافة دالة لجلب الأكواد التالفة (API) من السيرفر وعرضها.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -13,16 +11,18 @@ import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const IntegrationsController = {
 
-    // ==========================================
-    // 🛡️ 1. حفظ بيانات المورد (عبر البوابة السحابية)
-    // ==========================================
+    _actionLocks: new Set(), 
+
     saveSupplier: async function(id = null) {
+        if (this._actionLocks.has('save-supplier')) return;
+
         const name = Utils.escapeHTML(Utils.getVal('supp-name'));
         const type = Utils.escapeHTML(Utils.getVal('supp-type'));
         const baseUrl = Utils.escapeHTML(Utils.getVal('supp-url'));
-        const token = Utils.escapeHTML(Utils.getVal('supp-token'));
+        let token = Utils.escapeHTML(Utils.getVal('supp-token'));
         const margin = parseFloat(Utils.getVal('supp-margin')) || 0;
         
+        const currency = Utils.escapeHTML(Utils.getVal('supp-currency')) || 'USD';
         const autoSync = Utils.getCheck('supp-auto-sync');
 
         if (!name || !baseUrl) {
@@ -30,18 +30,23 @@ export const IntegrationsController = {
             return;
         }
 
+        this._actionLocks.add('save-supplier');
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تشفير وحفظ بيانات المورد سحابياً...');
 
         try {
+            if (id && (!token || token.includes('••••'))) {
+                token = ''; 
+            }
+
             const result = await FirebaseAdapter.callFunction('secureSaveSupplier', { 
-                id, name, type, baseUrl, token, defaultMargin: margin, autoSync 
+                id, name, type, baseUrl, token, defaultMargin: margin, autoSync, currency 
             });
             
             if (result && result.success) {
-                const finalId = result.id;
+                const finalId = result.id || id || 'supp_' + Date.now();
 
                 const supplierData = { 
-                    id: finalId, name, type, baseUrl, defaultMargin: margin, autoSync, isActive: true,
+                    id: finalId, name, type, baseUrl, defaultMargin: margin, autoSync, isActive: true, currency,
                     importedCount: id ? (this.getSupplier(id)?.importedCount || 0) : 0,
                     lastSync: id ? (this.getSupplier(id)?.lastSync || null) : null
                 };
@@ -58,41 +63,41 @@ export const IntegrationsController = {
                 if (!AdminData.data.suppliersMap) AdminData.data.suppliersMap = {};
                 AdminData.data.suppliersMap[finalId] = supplierData;
 
-                if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
-
                 EventBus.emit('req-finish-action', {
                     renderEvent: 'req-render-integrations',
-                    modalId: 'modal', 
+                    modalId: 'supplier',
                     logAction: id ? 'UPDATE_SUPPLIER' : 'ADD_SUPPLIER',
                     logDetails: `تحديث المورد: ${name}`,
                     toastMsg: 'تم حفظ بيانات المورد بأمان تام'
                 });
+            } else {
+                throw new Error(result?.message || 'رفض السيرفر العملية');
             }
         } catch (error) {
             console.error("Save Supplier Error:", error);
             EventBus.emit('req-show-toast', { message: `فشل الحفظ: ${error.message}`, type: 'error' });
         } finally {
+            this._actionLocks.delete('save-supplier');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
-    // ==========================================
-    // ⚡ 2. تفعيل أو تعطيل المورد
-    // ==========================================
     toggleSupplier: async function(id, isChecked) {
+        if (this._actionLocks.has(`toggle-${id}`)) return;
+        
         const supp = this.getSupplier(id);
         if (!supp) return;
 
+        this._actionLocks.add(`toggle-${id}`);
+
         try {
-            await FirebaseAdapter.set('telecard_suppliers', String(id), {
-                isActive: isChecked,
-                updatedAt: Date.now()
+            await FirebaseAdapter.updateDocument('telecard_suppliers', String(id), { 
+                isActive: isChecked, 
+                updatedAt: Date.now() 
             });
 
             supp.isActive = isChecked;
-            if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
-
-            // 🛡️ [سد الثغرة الأمنية]: توثيق الحدث في السجلات الجنائية للإدارة
+            
             if (AdminData.addLog) {
                 AdminData.addLog('TOGGLE_SUPPLIER', `تم ${isChecked ? 'تفعيل' : 'إيقاف'} المورد: ${supp.name}`);
             }
@@ -106,13 +111,14 @@ export const IntegrationsController = {
             console.error("Toggle Supplier Error:", error);
             EventBus.emit('req-show-toast', { message: 'فشل تغيير حالة المورد، تأكد من الاتصال بالإنترنت.', type: 'error' });
             EventBus.emit('req-render-integrations'); 
+        } finally {
+            this._actionLocks.delete(`toggle-${id}`);
         }
     },
 
-    // ==========================================
-    // 🚀 3. عملية المزامنة السحابية الحقيقية (Cloud Sync)
-    // ==========================================
     syncSupplier: async function(id) {
+        if (this._actionLocks.has(`sync-${id}`)) return;
+
         const supp = this.getSupplier(id);
         if (!supp) return;
 
@@ -121,7 +127,8 @@ export const IntegrationsController = {
             return;
         }
 
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, `جاري مزامنة المنتجات من سيرفرات (${supp.name})، قد يستغرق الأمر بعض الوقت...`);
+        this._actionLocks.add(`sync-${id}`);
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, `جاري مزامنة المنتجات من سيرفرات (${supp.name})، الرجاء عدم إغلاق النافذة...`);
 
         try {
             const result = await FirebaseAdapter.callFunction('syncSupplierData', { supplierId: id });
@@ -130,29 +137,66 @@ export const IntegrationsController = {
                 supp.lastSync = Date.now(); 
                 supp.importedCount = result.importedCount || 0;
                 
-                if (AdminData.saveSystemSettings) await AdminData.saveSystemSettings();
-                
+                setTimeout(() => {
+                    EventBus.emit('req-refresh', { type: 'products' });
+                    EventBus.emit('req-refresh', { type: 'vault' });
+                }, 1500);
+
                 EventBus.emit('req-finish-action', {
                     renderEvent: 'req-render-integrations',
                     modalId: null,
                     logAction: 'SYNC_SUPPLIER',
-                    logDetails: `مزامنة المورد: ${supp.name} (${result.importedCount} منتج)`,
+                    logDetails: `مزامنة المورد: ${supp.name} (${result.importedCount} منتج تم، ${result.deletedCount} معطل، ${result.revokedCount} كود تالف)`,
                     toastMsg: result.message || `تمت المزامنة بنجاح!`
                 });
+            } else {
+                throw new Error(result?.message || 'فشلت عملية المزامنة السحابية.');
             }
         } catch (error) {
             console.error("Sync Failed:", error);
             let errorMsg = error.message || 'فشلت المزامنة. تأكد من صحة الرابط ومفتاح الـ API.';
-            if (errorMsg.includes('Timeout')) errorMsg = `سيرفر المورد (${supp.name}) لا يستجيب حالياً (Timeout).`;
+            if (errorMsg.includes('Timeout')) errorMsg = `سيرفر المورد (${supp.name}) استغرق وقتاً طويلاً. لا تقلق، السيرفر لا يزال يعمل في الخلفية وسيتم تحديث المنتجات قريباً.`;
             
             EventBus.emit('req-show-toast', { message: errorMsg, type: 'error' });
         } finally {
+            this._actionLocks.delete(`sync-${id}`);
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
-    // ==========================================
-    // 🔍 4. البحث الفوري (O(1) Engine)
-    // ==========================================
+    // 🚀 [الإضافة المعمارية]: دالة جلب الأكواد التالفة من السيرفر
+    viewSupplierDefects: async function(supplierId, supplierName) {
+        if (this._actionLocks.has('view-defects')) return;
+        this._actionLocks.add('view-defects');
+        
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري جلب السجل الجنائي للمورد من السحابة...');
+        
+        try {
+            const result = await FirebaseAdapter.fetchMoreWithCursor(
+                'telecard_supplier_defects', 
+                [['supplierId', '==', String(supplierId)]], 
+                'reportedAt', 
+                null, 
+                100 
+            );
+
+            const defects = result.data || [];
+            
+            // 🚀 استدعاء دالة الرسم لعرض النافذة
+            import('./integrationsRender.js').then(({ IntegrationsRender }) => {
+                if (IntegrationsRender && IntegrationsRender.renderDefectsModal) {
+                    IntegrationsRender.renderDefectsModal(supplierName, defects);
+                }
+            });
+            
+        } catch (error) {
+            console.error("Failed to fetch supplier defects:", error);
+            EventBus.emit('req-show-toast', { message: 'فشل جلب الأكواد التالفة للمورد', type: 'error' });
+        } finally {
+            this._actionLocks.delete('view-defects');
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+        }
+    },
+
     getSupplier: (id) => AdminData.data.suppliersMap?.[id] || (AdminData.data.suppliers || []).find(s => String(s.id) === String(id))
 };

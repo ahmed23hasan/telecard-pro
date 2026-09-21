@@ -1,9 +1,9 @@
 // ============================================================================
-// 📦 وحدة الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V16.2 💎
-// 🎯 الوظيفة: إدارة واجهات ونوافذ الطلبات (معزولة بالكامل عن باقي النظام)
-// 🚀 التحديث: 
-// 1. Wrong Drawer Fix: استخدام المعرف (ID) المباشر لمنع تحريك درج الإيداعات بالخطأ.
-// 2. Forensic Tracing: ضخ بيانات التتبع العميقة وحماية كيبورد الجوال.
+// 📦 وحدة الطلبات (modules/orders/ordersUI.js) - Cloud-Native V17.6 💎
+// 🚀 التحديث الأقصى: 
+// 1. Denormalization Activation: الاعتماد على (userDataSnapshot) المحفوظ في الفاتورة كأولوية 
+//    لتجنب ظهور "مستخدم جديد" للطلبات التي لم يتم جلب ملفات عملائها للذاكرة.
+// 2. Smart ID Shield 🛡️: إزالة التعقيم (escapeHTML) عن مخرجات المعرفات الذكية لمنع كسر أيقونات النسخ المزدوج.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -45,13 +45,11 @@ export const OrdersUI = {
                 noteInput.setAttribute('data-events-bound', 'true');
                 
                 noteInput.addEventListener('focus', function() {
-                    // 🛡️ [إصلاح ה-Wrong Drawer]: استخدام المعرف الدقيق لدرج الطلبات
                     const drawerContainer = document.getElementById('order-drawer');
                     if(drawerContainer) drawerContainer.classList.add('typing-mode');
                 });
                 
                 noteInput.addEventListener('blur', function() {
-                    // 🛡️ [إصلاح ה-Wrong Drawer]: استخدام المعرف الدقيق لدرج الطلبات
                     const drawerContainer = document.getElementById('order-drawer');
                     if(drawerContainer) drawerContainer.classList.remove('typing-mode');
                 });
@@ -67,8 +65,11 @@ export const OrdersUI = {
 
         headerContent.innerHTML = AdminTemplates.orderDrawerHeader(order.id);
         
-        const user = AdminData.data.usersMap?.[order.userId] || {};
-        const displayUser = Utils.escapeHTML(user.fullName || user.name || user.username || 'مستخدم جديد');
+        // 🚀 [درع الحماية والتفعيل المعماري للـ Denormalization]
+        const user = AdminData.data.usersMap?.[order.userId] || { id: order.userId };
+        
+        // قراءة الاسم من لقطة الطلب السحابية
+        const displayUser = Utils.escapeHTML(order.userDataSnapshot?.fullName || order.userName || user.fullName || user.name || user.username || 'مستخدم جديد');
         const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
         const avatarHtml = AdminTemplates.drawerAvatar(user.img ? Utils.escapeHTML(user.img) : null, firstLetter);
 
@@ -111,8 +112,6 @@ export const OrdersUI = {
                         couponRowHtml = AdminTemplates.orderReceiptRow('fa-solid fa-tags text-primary', 'كوبون خصم مفعّل', `<b class="num-en text-primary">${Utils.escapeHTML(order.couponCode)}</b>`);
                         originalPriceRowHtml = AdminTemplates.orderReceiptRow('fa-solid fa-money-bill-trend-up text-muted', 'السعر قبل الكوبون', `<del class="num-en text-muted">${origPriceTxt}</del>`);
                     }
-                } else {
-                    console.warn("[OrdersUI] الكوبون المستخدم في هذا الطلب تم حذفه من النظام مسبقاً.");
                 }
             }
         }
@@ -189,7 +188,9 @@ export const OrdersUI = {
 
         bodyContent.innerHTML = AdminTemplates.orderDrawerBody({
             userId: Utils.escapeHTML(order.userId || '--'),
-            userDisplayId: Utils.escapeHTML(shortId), 
+            // 🚀 [التحديث المعماري الأهم]: تمرير shortId المولد من RenderHelpers كما هو بدون تعقيم
+            // لأن بداخله أكواد HTML للنسخ الذكي للأيقونة.
+            userDisplayId: shortId, 
             displayUser, avatarHtml, imgHtml, prodName, 
             qty: Utils.enNum(qty), priceTxt, exactPriceTxt, unitCostTxt, 
             statusClass: order.status, sText, dateTxt,
@@ -204,7 +205,6 @@ export const OrdersUI = {
             financialSnapshotHtml 
         });
 
-        // 🛡️ [إصلاح ה-API Override Shield]: إرسال حالة ה-API לקالب الأزرار لمنع التخطي الخاطئ
         footerActions.innerHTML = AdminTemplates.orderDrawerFooter(order.status, order.id, isApi);
         drawer.classList.add('active');
     },

@@ -60,60 +60,58 @@ export const RenderHelpers = Object.freeze({
             useGrouping: true // 🛡️ تفعيل فواصل الآلاف لراحة عين الأدمن (مثال: 10,000.00)
         });
     },
-
     // ============================================================================
-    // 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (Visual Masking for UI)
+    // 🎫 محرك معالجة وتنسيق المُعرّفات المركزية (Dual-Target Smart ID Badge)
     // ============================================================================
 
     formatUserId: function(userObj, withPrefix = false) {
         if (!userObj) return '---';
-        let fullId = '';
-        
-        if (typeof userObj === 'object') {
-            fullId = String(userObj.displayId || userObj.uid || userObj.id || '');
-        } else {
-            fullId = String(userObj);
-        }
-        
+        let fullId = typeof userObj === 'object' ? String(userObj.displayId || userObj.uid || userObj.id || '') : String(userObj);
         if (!fullId.trim()) fullId = 'UKNWN';
-
-        // 🚀 الاقتطاع البصري: عرض أول 8 رموز لراحة العين وجمال التصميم
-        let shortId = fullId;
-        if (fullId.length > 15) {
-            shortId = fullId.substring(0, 8);
-        }
         
-        const formatted = withPrefix ? `USR-${shortId.toUpperCase()}` : shortId.toUpperCase();
-        return RenderHelpers._esc(formatted);
+        const shortId = fullId.length > 15 ? fullId.substring(0, 8) : fullId;
+        const displayTxt = withPrefix ? `USR-${shortId.toUpperCase()}` : shortId.toUpperCase();
+        
+        // 🚀 [التحديث المعماري]: نسخ مزدوج (النص للقصير، والأيقونة للطويل)
+        return `<span style="display:inline-flex; align-items:center; gap:6px;">
+            <span class="smart-id-badge" title="نسخ الرقم القصير (للبحث السريع)" data-action="copy-text" data-copy-text="${RenderHelpers._esc(displayTxt)}" style="cursor: pointer; border-bottom: 1px dashed var(--text-muted); padding-bottom: 1px;">${RenderHelpers._esc(displayTxt)}</span>
+            <i class="fa-solid fa-fingerprint text-muted click-shrink" title="نسخ المعرف الكامل لقاعدة البيانات: ${RenderHelpers._esc(fullId)}" data-action="copy-text" data-copy-text="${RenderHelpers._esc(fullId)}" style="cursor: pointer; font-size: 13px;"></i>
+        </span>`;
     },
-
+    
     formatOrderId: function(orderObj, withPrefix = true) {
         if (!orderObj) return '---';
-        let rawId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
-        
-        // إزالة البادئة القديمة لتنظيف الرقم
-        rawId = String(rawId).replace(/^ORD-/i, '').trim();
+        let rawId = typeof orderObj === 'object' ? String(orderObj.displayId || orderObj.id || '') : String(orderObj);
+        const fullId = rawId; // الاحتفاظ بالرقم الأصلي كاملاً
+        rawId = rawId.replace(/^ORD-/i, '').trim();
         if (!rawId) return '---';
-
-        // 🚀 الاقتطاع البصري: أخذ آخر 8 رموز من الـ ID لأنه الجزء الأكثر عشوائية
-        const shortId = rawId.length > 8 ? rawId.slice(-8) : rawId;
         
-        return RenderHelpers._esc(withPrefix ? `ORD-${shortId.toUpperCase()}` : shortId.toUpperCase());
+        const shortId = rawId.length > 8 ? rawId.slice(-8) : rawId;
+        const displayTxt = withPrefix ? `ORD-${shortId.toUpperCase()}` : shortId.toUpperCase();
+        
+        // 🚀 [التحديث المعماري]: نسخ مزدوج (النص للقصير، والأيقونة للطويل)
+        return `<span style="display:inline-flex; align-items:center; gap:6px;">
+            <span class="smart-id-badge" title="نسخ الرقم القصير (للبحث السريع)" data-action="copy-text" data-copy-text="${RenderHelpers._esc(displayTxt)}" style="cursor: pointer; border-bottom: 1px dashed var(--text-muted); padding-bottom: 1px;">${RenderHelpers._esc(displayTxt)}</span>
+            <i class="fa-solid fa-fingerprint text-muted click-shrink" title="نسخ المعرف الكامل لقاعدة البيانات: ${RenderHelpers._esc(fullId)}" data-action="copy-text" data-copy-text="${RenderHelpers._esc(fullId)}" style="cursor: pointer; font-size: 13px;"></i>
+        </span>`;
     },
-
+    
     formatDepositId: function(depObj, withPrefix = true) {
         if (!depObj) return '---';
-        let rawId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
-        
-        rawId = String(rawId).replace(/^DEP-/i, '').trim();
+        let rawId = typeof depObj === 'object' ? String(depObj.displayId || depObj.id || '') : String(depObj);
+        const fullId = rawId; // الاحتفاظ بالرقم الأصلي كاملاً
+        rawId = rawId.replace(/^DEP-/i, '').trim();
         if (!rawId) return '---';
-
-        // 🚀 الاقتطاع البصري: أخذ آخر 8 رموز
-        const shortId = rawId.length > 8 ? rawId.slice(-8) : rawId;
         
-        return RenderHelpers._esc(withPrefix ? `DEP-${shortId.toUpperCase()}` : shortId.toUpperCase());
-    },    
-
+        const shortId = rawId.length > 8 ? rawId.slice(-8) : rawId;
+        const displayTxt = withPrefix ? `DEP-${shortId.toUpperCase()}` : shortId.toUpperCase();
+        
+        // 🚀 [التحديث المعماري]: نسخ مزدوج (النص للقصير، والأيقونة للطويل)
+        return `<span style="display:inline-flex; align-items:center; gap:6px;">
+            <span class="smart-id-badge" title="نسخ الرقم القصير (للبحث السريع)" data-action="copy-text" data-copy-text="${RenderHelpers._esc(displayTxt)}" style="cursor: pointer; border-bottom: 1px dashed var(--text-muted); padding-bottom: 1px;">${RenderHelpers._esc(displayTxt)}</span>
+            <i class="fa-solid fa-fingerprint text-muted click-shrink" title="نسخ المعرف الكامل لقاعدة البيانات: ${RenderHelpers._esc(fullId)}" data-action="copy-text" data-copy-text="${RenderHelpers._esc(fullId)}" style="cursor: pointer; font-size: 13px;"></i>
+        </span>`;
+    },
     // ============================================================================
     // 💰 المحركات المالية والعملات 
     // ============================================================================

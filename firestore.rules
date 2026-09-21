@@ -74,7 +74,7 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 🌐 المجموعات العامة و 🎟️ الكوبونات (Public Catalog)
+    // 🌐 المجموعات العامة (Public Catalog)
     // ==========================================
     match /telecard_tiers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     match /telecard_cats/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
@@ -87,8 +87,10 @@ service cloud.firestore {
     match /telecard_offers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     match /telecard_prods_public/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     
+    // 🛡️ [الإصلاح الأمني]: إغلاق صلاحية قراءة الكوبونات من جهة العميل لمنع سحب الأكواد (Data Dump).
+    // التحقق يتم بأمان داخل الـ Cloud Functions أثناء الطلب عبر السيرفر.
     match /telecard_coupons/{docId} { 
-      allow read: if isAuthenticated() && isNotBanned(); allow write: if isMasterAdmin(); 
+      allow read, write: if isMasterAdmin(); 
     }
 
     // ==========================================
@@ -110,10 +112,9 @@ service cloud.firestore {
     // 💬 التقييمات والـ KYC
     // ==========================================
     
-    // 🚀 الإصلاح الجذري: توجيه التقييمات للقسم الجديد (reviews) وتفعيل حماية الإغراق (Anti-Spam Upsert)
-    match /reviews/{reviewId} {
+    // 🛡️ [الإصلاح المعماري]: توحيد اسم المجموعة مع الـ Cloud Functions (telecard_reviews بدلاً من reviews)
+    match /telecard_reviews/{reviewId} {
       allow read, delete: if isMasterAdmin();
-      // السماح بإنشاء أو تحديث التقييم فقط إذا كان الـ ID للمستند يطابق ID العميل (لا يمكنه إنشاء مستندات عشوائية)
       allow create, update: if isNotBanned() 
                             && request.auth.uid == reviewId 
                             && request.resource.data.userId == request.auth.uid

@@ -1,8 +1,8 @@
 // ============================================================================
-// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - النسخة الماسية V4.5 💎
-// 🚀 التحديث: 
-// 1. إضافة حقول (minFee / maxFee) لفصل حدود العمولة عن حدود الإيداع.
-// 2. سد ثغرة الانهيار الحرج لدرج الإيداع (drawerBankImg) وسحق التكرار لـ O(1).
+// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - Cloud-Native V18.5 💎
+// 🚀 التحديث الأقصى: 
+// 1. Action Routing Fix 🛡️: تعديل مسارات أزرار التعديل والحذف في بوابة الدفع لتتجه للقسم المالي.
+// 2. Null User Shield 🛡️: تمرير كائن وهمي لاستخراج الـ ID.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -14,7 +14,6 @@ const _enNum = Utils.enNum;
 
 export const FinanceTemplates = {
     emptyDeposits: () => `<div class="empty-state"><i class="fa-solid fa-money-bill-transfer"></i><span>لا توجد إيداعات تطابق الفلتر أو التبويب الحالي</span></div>`,
-
     depositCard: (d, userName, bankName, targetCurr, netBase) => {
         const exactStatus = d.status || 'pending';
         const isAppr = exactStatus === 'approved', isRej = exactStatus === 'rejected', isRef = exactStatus === 'refunded';
@@ -26,8 +25,7 @@ export const FinanceTemplates = {
         const rawTime = d.time || d.createdAt;
         const timeHtml = RenderHelpers.formatSafeDate(rawTime);
 
-        // 🌟 ⚡ التحديث الفائق: استدعاء العميل فورا بـ O(1)
-        const userRec = AdminData.data.usersMap?.[d.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(d.userId)) || {};
+        const userRec = AdminData.data.usersMap?.[d.userId] || { id: d.userId };
         const shortId = RenderHelpers.formatUserId(userRec);
 
         const isIdAsName = String(userName).trim() === String(shortId).trim() || String(userName).trim() === String(d.userId).trim();
@@ -60,15 +58,16 @@ export const FinanceTemplates = {
 
         const formattedDepositId = RenderHelpers.formatDepositId(d);
 
+        // 🚀 [التحديث المعماري]: إزالة copyable-admin المزدوج لعدم كسر كود Smart ID
         return `<div id="deposit-card-${_esc(d.id)}" class="o-card ${cardCls} ${(isRej || isRef) ? 'locked' : ''}" data-status="${exactStatus}" data-action="open-deposit-drawer" data-id="${_esc(d.id)}">
-                    <div class="corner-tag-id num-en copyable-admin" dir="ltr" lang="en" title="انقر لنسخ رقم الإيداع" data-action="copy-text" data-copy-text="${formattedDepositId}">${formattedDepositId}</div>
+                    <div class="corner-tag-id num-en" dir="ltr" lang="en"><span class="text-muted">#</span>${formattedDepositId}</div>
                     <div class="corner-tag-time num-en" dir="ltr" lang="en"><i class="fa-regular fa-clock"></i> ${timeHtml}</div>
                     
                     <div class="o-card-header-row">
                         ${d.methodLogo ? `<img src="${_esc(d.methodLogo)}" class="o-card-img zoomable-img" draggable="false" data-action="open-img-viewer" data-src="${_esc(d.methodLogo)}">` : `<div class="o-card-img-fallback"><i class="fa-solid fa-building-columns"></i></div>`}
                         
                         <div class="o-card-content">
-                            <div class="o-card-title">${d.network ? `${_esc(bankName)} • ${_esc(d.network)}` : _esc(bankName)}</div>
+                            <div class="o-card-title">${d.network ? `${_esc(bankName)} •${_esc(d.network)}` : _esc(bankName)}</div>
                             <div class="o-card-meta">
                                 ${clientIdentityHtml}
                                 <div class="flex-center-gap">
@@ -98,7 +97,6 @@ export const FinanceTemplates = {
                     <div class="wc-meta"><i class="fa-solid fa-shield-halved"></i> إجمالي السيولة المطلوبة لتغطية أرصدة العملاء</div>
                 </div>`,
 
-    // 🚀 التحديث: إضافة حقول (minFee/maxFee) وفصلها عن حدود الإيداع
     currencySettingRow: (code, displayCode, oldFeeType, oldFeeUnit, oldFee, oldMin, oldMax, oldMinFee, oldMaxFee) => {
         return `
         <div class="curr-setting-row" id="curr-setting-${_esc(code)}">
@@ -126,7 +124,6 @@ export const FinanceTemplates = {
                     <input type="text" inputmode="decimal" id="pay-fee-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldFee)}" placeholder="0.0">
                 </div>
 
-                <!-- 🚀 حقول حدود العمولة الجديدة -->
                 <div class="form-group mb-0">
                     <label class="form-label curr-setting-lbl text-danger">أدنى عمولة/بونص</label>
                     <input type="text" inputmode="decimal" id="pay-minfee-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldMinFee)}" placeholder="0.00">
@@ -137,7 +134,6 @@ export const FinanceTemplates = {
                     <input type="text" inputmode="decimal" id="pay-maxfee-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldMaxFee)}" placeholder="0.00">
                 </div>
 
-                <!-- حقول حدود الإيداع -->
                 <div class="form-group mb-0" style="grid-column: span 1.5;">
                     <label class="form-label curr-setting-lbl text-success">أدنى حد للإيداع</label>
                     <input type="text" inputmode="decimal" id="pay-min-${_esc(code)}" class="form-input num-en" dir="ltr" lang="en" value="${_esc(oldMin)}" placeholder="0.00">
@@ -165,8 +161,9 @@ export const FinanceTemplates = {
                             </div>
                         </div>
                         <div class="pay-card-actions">
-                            <div class="action-mini btn-edit-mini" data-action="edit-item" data-type="pay" data-id="${_esc(p.id)}" title="تعديل"><i class="fa-solid fa-pen"></i></div>
-                            <div class="action-mini btn-del-mini" data-action="delete-item" data-type="pay" data-id="${_esc(p.id)}" title="حذف"><i class="fa-solid fa-trash"></i></div>
+                            <!-- 🚀 [توجيه مباشر]: تم استبدال edit-item و delete-item -->
+                            <div class="action-mini btn-edit-mini" data-action="edit-payment" data-id="${_esc(p.id)}" title="تعديل"><i class="fa-solid fa-pen"></i></div>
+                            <div class="action-mini btn-del-mini" data-action="delete-payment" data-id="${_esc(p.id)}" title="حذف"><i class="fa-solid fa-trash"></i></div>
                         </div>
                     </div>
                     <div class="tc-body">

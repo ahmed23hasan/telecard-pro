@@ -1,12 +1,11 @@
 // ============================================================================
-// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.9.2 💎
+// ⚙️ وحدة الأساسيات والنواة (uiCore.js) - الإصدار المؤسسي V18.9.3 💎
 // 🎯 الوظيفة: النوافذ، التوجيه الذكي، الإشعارات، التنسيق، ومزامنة الصوت
-// 🚀 التحديثات المعمارية الصارمة (V18.9.2 - Core Stability & Routing Patch):
-// 1. Double-Spend Shield Alignment 🛡️: محاذاة مستمعات الأحداث المركزية مع (UIState) لردع النقرات العشوائية.
-// 2. History API De-bloat 🛡️: منع دفع حالات متطابقة في سجل المتصفح لتأمين زر "الرجوع" في الهواتف.
-// 3. Silent Error Auditing 🛡️: تعقب صامت لأخطاء (Storage & Audio) المكتومة لتسهيل عمليات (Debugging).
-// 4. Audio Primer Optimization 🛡️: تقنين مبدئيات تشغيل الصوت في iOS لمنع استنزاف البطارية مع كثرة النقرات.
-// 5. Zombie Modals Fix 🛡️: تغليف أوامر إخفاء النوافذ بـ (RAF) لمنع تعليق الشاشة عند النقر السريع المتزامن.
+// 🚀 التحديثات المعمارية (V18.9.3 - Performance & Event Guard Patch):
+// 1. Audio Debounce Guard 🛡️: تقنين إطلاق الأصوات المتزامنة (Debouncing) لمنع تداخل وتشوه الموجات الصوتية.
+// 2. Stale Closure Fix 🛡️: إزالة المتغيرات المغلقة في السلايدر لحل مشكلة تسرب الذاكرة (Memory Leak).
+// 3. Disabled Penetration Shield 🛡️: رفض أحداث النقر إجبارياً لأي عنصر يحمل حالة (disabled) أو (is-loading).
+// 4. Missing SFX Patch 🔊: إضافة الأصوات المفقودة للنوافذ الإدارية وصيانة النظام لمنع الصمت المفاجئ.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, ACTIVE_USER_KEY, DYNAMIC_PREFIXES } from '../config.js';           
@@ -28,6 +27,7 @@ const getSys = () => {
 export const UICore = {
     displayMenuTimer: null,
     audioCtx: null,
+    _lastSfxTime: 0, // 🛡️ متغير تقنين الصوت
     navHistory: [],
     currentCategoryId: null,
     historyStateSet: false,
@@ -651,7 +651,7 @@ export const UICore = {
         // =========================================================
         // 🗂️ 3. قسم الأحداث المالية والطلبات (Finance & Transactions)
         // =========================================================
-const FinanceActions = {
+        const FinanceActions = {
             'confirm-purchase': async (e, id, val, target) => { 
                 const sys = getSys();
                 // 🛡️ Double-Spend Shield: حماية مشددة للنقرات
@@ -752,11 +752,19 @@ const FinanceActions = {
 
             'clear-bal-file': () => getSys().clearDepositFile?.(),
             'clear-kyc-file': (e, id, val, target, dataType, dataCurr, dataName, dataCode, dataLen, dataTarget) => {
-                e.preventDefault(); 
+                e.preventDefault();
                 e.stopPropagation();
                 getSys().clearKycImage?.(dataTarget);
+            },
+            
+            'toggle-balance-visibility': () => {
+                if (!DataManager.prefs) DataManager.prefs = {};
+                DataManager.prefs.hideBalance = !DataManager.prefs.hideBalance;
+                if (DataManager.savePrefs) DataManager.savePrefs();
+                this.updateDisplayBalance();
+                // تمت إزالة الصوت من هنا ليتم تشغيله من الرادار المركزي لمنع التداخل
             }
-        };
+        };     
         // =========================================================
         // 🗂️ 6. قسم الفلترة، التقويم، والإشعارات (Filters, Calendar & Notifications)
         // =========================================================
@@ -929,7 +937,9 @@ const FinanceActions = {
             }
            
             const actionBtn = target.closest('[data-action]');
-            if (!actionBtn) return;
+            
+            // 🛡️ الحاجز الأمني لمنع اختراق الأزرار المعطلة
+            if (!actionBtn || actionBtn.disabled || actionBtn.classList.contains('disabled') || actionBtn.classList.contains('is-loading')) return;
             
             const action = actionBtn.getAttribute('data-action');
             const prodId = actionBtn.getAttribute('data-id');
@@ -957,7 +967,8 @@ const FinanceActions = {
                 return;
             }
 
-            if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigger-click', 'update-simple-qty', 'delete-avatar', 'open-product', 'mark-single-read', 'toggle-fav-modal'].includes(action)) {
+            // 🛡️ تصحيح استثناء الصوت لمنع التكرار (تمت إضافة toggle-balance-visibility)
+            if (!['copy-text', 'apply-coupon', 'submit-balance', 'confirm-purchase', 'trigger-click', 'update-simple-qty', 'delete-avatar', 'open-product', 'mark-single-read', 'toggle-fav-modal', 'toggle-balance-visibility'].includes(action)) {
                 this.sfx?.('nav');
             }            
             
@@ -1263,6 +1274,7 @@ const FinanceActions = {
         document.body.insertAdjacentHTML('beforeend', html);
         this.sfx?.('success');
         document.getElementById('ack-admin-msg-btn').addEventListener('click', () => { 
+            this.sfx?.('nav'); // 🔊 التحديث: إضافة الصوت المفقود
             if (DataManager && typeof DataManager.ackAdminMessage === 'function') {
                 DataManager.ackAdminMessage(); 
             }
@@ -1553,10 +1565,14 @@ const FinanceActions = {
         }, 4000);
     },    
     
-    // 🛡️ التحديث الماسي (Audio Leak Guard): إيقاف العتاد الصوتي لتوفير البطارية
+    // 🛡️ التحديث الماسي (Audio Leak & Overlap Guard): إيقاف العتاد الصوتي لتوفير البطارية ومنع التداخل
     sfx: function(type) {
         if(DataManager.prefs?.sound === false) return; 
         if (!navigator.userActivation || !navigator.userActivation.hasBeenActive) return;
+
+        // 🛡️ تقنين التشغيل المتزامن (Debounce) لمنع تشوه الصوت
+        if (this._lastSfxTime && (Date.now() - this._lastSfxTime < 100)) return;
+        this._lastSfxTime = Date.now();
 
         try {
             if(!this.audioCtx) {
@@ -1784,33 +1800,43 @@ const FinanceActions = {
             displayDep = Utils.convertViaUSD(safeRawDep, baseCurrency, displayCurrency, rates, 'deposit');
         }
         
-        const beautifulBalHtml = (RenderHelpers?.formatMoney) ? RenderHelpers.formatMoney(displayBal, displayCurrency) : `${Number(displayBal).toFixed(2)} ${displayCurrency}`;
+        // 🛡️ الميزة الجديدة: التحقق من وضع الخصوصية
+        const isHidden = DataManager.prefs?.hideBalance === true;
+        const formattedNum = (val) => isHidden ? '****' : Number(val).toFixed(2);
+        
+        const beautifulBalHtml = (RenderHelpers?.formatMoney) ? (isHidden ? `**** ${displayCurrency}` : RenderHelpers.formatMoney(displayBal, displayCurrency)) : `${formattedNum(displayBal)} ${displayCurrency}`;
         const currencyTxt = (RenderHelpers?.getCurrencySymbolText) ? RenderHelpers.getCurrencySymbolText(displayCurrency) : displayCurrency;
-        const formattedNum = (val) => Number(val).toFixed(2);
 
         requestAnimationFrame(() => {
             const numEl = document.getElementById('live-balance-num'), currEl = document.getElementById('live-balance-curr');
             if (numEl) numEl.innerText = formattedNum(displayBal);
-            if (currEl) currEl.innerText = currencyTxt;
+            if (currEl) currEl.innerText = isHidden ? '' : currencyTxt;
 
             const spentNum = document.getElementById('live-spent-num'), spentCurr = document.getElementById('live-spent-curr');
             if (spentNum) spentNum.innerText = formattedNum(displaySpent);
-            if (spentCurr) spentCurr.innerText = currencyTxt;
+            if (spentCurr) spentCurr.innerText = isHidden ? '' : currencyTxt;
 
             const depNum = document.getElementById('live-deposit-num'), depCurr = document.getElementById('live-deposit-curr');
             if (depNum) depNum.innerText = formattedNum(displayDep);
-            if (depCurr) depCurr.innerText = currencyTxt;
+            if (depCurr) depCurr.innerText = isHidden ? '' : currencyTxt;
 
             const sidebarBalBox = document.querySelector('.sp-balance-value');
             if (sidebarBalBox) sidebarBalBox.innerHTML = beautifulBalHtml;
 
             const balMain = document.getElementById('wallet-balance-disp');
             if (balMain) balMain.innerHTML = beautifulBalHtml;
+            
+            // تحديث أيقونة العين
+            const eyeIcon = document.getElementById('balance-eye-icon');
+            if (eyeIcon) {
+                eyeIcon.className = isHidden ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye';
+            }
         });
 
         this.updateDisplayCurrencyUI(displayCurrency);
-    },
-
+    },    
+    
+    // 🛡️ التحديث المعماري: ربط المؤقت (Timer) بالكائن نفسه لمنع التسرب
     initSlider: function() {
         const banners = LiveStoreData.banners || [];
         const settings = LiveStoreData.settings || {};
@@ -1834,23 +1860,32 @@ const FinanceActions = {
             container.appendChild(div); 
         });
         
-        let idx = 0; 
-        const intervalMs = (settings.sliderDuration ? Number(settings.sliderDuration) * 1000 : 3000) || 3000;
+        if (this.sliderTimer) { clearInterval(this.sliderTimer); this.sliderTimer = null; }
         
-        const nextSlide = () => {
-            const slides = container.querySelectorAll('.slide');
+        this._sliderContainer = container;
+        this._sliderIntervalMs = (settings.sliderDuration ? Number(settings.sliderDuration) * 1000 : 3000) || 3000;
+        this._sliderIdx = 0;
+        
+        this._nextSlide = () => {
+            if (!this._sliderContainer) return;
+            const slides = this._sliderContainer.querySelectorAll('.slide');
             if (slides.length === 0) return;
-            slides[idx].classList.remove('active'); 
-            idx = (idx + 1) % slides.length; 
-            slides[idx].classList.add('active');
+            slides[this._sliderIdx].classList.remove('active'); 
+            this._sliderIdx = (this._sliderIdx + 1) % slides.length; 
+            slides[this._sliderIdx].classList.add('active');
         };
 
-        const startTimer = () => { if (!this.sliderTimer) this.sliderTimer = setInterval(nextSlide, intervalMs); };
-        const stopTimer = () => { if (this.sliderTimer) { clearInterval(this.sliderTimer); this.sliderTimer = null; } };
+        this._startSliderTimer = () => { 
+            if (!this.sliderTimer) this.sliderTimer = setInterval(this._nextSlide, this._sliderIntervalMs); 
+        };
+        this._stopSliderTimer = () => { 
+            if (this.sliderTimer) { clearInterval(this.sliderTimer); this.sliderTimer = null; } 
+        };
 
         if (!this._visibilityBound) {
             document.addEventListener('visibilitychange', () => {
-                if (document.hidden) stopTimer(); else if (container.offsetParent !== null) startTimer();
+                if (document.hidden) this._stopSliderTimer?.(); 
+                else if (this._sliderContainer && this._sliderContainer.offsetParent !== null) this._startSliderTimer?.();
             });
             this._visibilityBound = true;
         }
@@ -1859,12 +1894,12 @@ const FinanceActions = {
             if (this._sliderObserver) this._sliderObserver.disconnect();
             
             this._sliderObserver = new IntersectionObserver((entries) => {
-                if (entries[0].isIntersecting && !document.hidden) startTimer();
-                else stopTimer();
+                if (entries[0].isIntersecting && !document.hidden) this._startSliderTimer();
+                else this._stopSliderTimer();
             });
             this._sliderObserver.observe(container);
         } else {
-            startTimer();
+            this._startSliderTimer();
         }
     }, 
 
@@ -2070,7 +2105,10 @@ const FinanceActions = {
             }
             
             document.body.innerHTML = `<div class="maintenance-screen"><div class="m-glass-box"><i class="fa-solid fa-person-digging m-icon"></i><h1 class="m-title">المتجر في وضع الصيانة</h1><p class="m-desc">${Utils.escapeHtml(msg)}</p>${dateHtml}<button id="maint-refresh-btn" class="btn btn-primary mt-20">تحديث الصفحة</button></div></div>`;
-            document.getElementById('maint-refresh-btn').addEventListener('click', () => location.reload());
+            document.getElementById('maint-refresh-btn').addEventListener('click', () => {
+                this.sfx?.('nav'); // 🔊 التحديث: إضافة الصوت المفقود
+                location.reload();
+            });
             return true;
         }
         

@@ -1,8 +1,9 @@
 // ============================================================================
-// 📦 قوالب الطلبات (modules/orders/ordersTemplates.js) - النسخة الماسية V16.2 💎
-// 🎯 الوظيفة: توليد الـ HTML بنظام الهيكلة المرنة (Flexbox) لبطاقات ونوافذ الطلبات
+// 📦 قوالب الطلبات (modules/orders/ordersTemplates.js) - Cloud-Native V17.6 💎
 // 🚀 التحديث الأقصى: 
-// 1. API Override Shield: إضافة درع تحذيري وزر تعويض للطلبات المرتبطة بـ API لمنع تضارب التسليم.
+// 1. Null User Shield: تمرير (o.userId) لدالة الفورمات بدلاً من الاعتماد الأعمى على usersMap 
+//    لضمان استخراج المعرف المختصر (shortId) بنجاح حتى للعملاء غير المحملين في الذاكرة.
+// 2. Bulk Reject UI 🛡️: إضافة زر الرفض الجماعي داخل شريط فلترة الطلبات.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -14,26 +15,31 @@ const _enNum = Utils.enNum;
 
 export const OrdersTemplates = {
     
-    // 🛡️ [أزرار الفلترة الذكية لمصدر الطلبات]
+    // 🚀 [التحديث المعماري]: إضافة زر "الرفض الجماعي" بجانب الفلاتر
     ordersSourceFilters: (activeState) => `
-        <div class="orders-source-filters mb-15 d-flex gap-2 flex-wrap align-items-center p-10" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;">
-            <span class="fs-12 fw-bold text-muted me-2"><i class="fa-solid fa-filter"></i> مصدر الطلبات:</span>
-            <button class="btn btn-sm ${activeState === 'all' ? 'btn-primary' : 'btn-ghost'}" data-action="filter-orders-source" data-val="all">
-                <i class="fa-solid fa-layer-group"></i> الكل
-            </button>
-            <button class="btn btn-sm ${activeState === 'api' ? 'btn-primary' : 'btn-ghost'}" data-action="filter-orders-source" data-val="api">
-                <i class="fa-solid fa-robot ${activeState === 'api' ? '' : 'text-info'}"></i> عبر الـ API
-            </button>
-            <button class="btn btn-sm ${activeState === 'auto' ? 'btn-primary' : 'btn-ghost'}" data-action="filter-orders-source" data-val="auto">
-                <i class="fa-solid fa-bolt ${activeState === 'auto' ? '' : 'text-success'}"></i> تسليم آلي
-            </button>
-            <button class="btn btn-sm ${activeState === 'manual' ? 'btn-primary' : 'btn-ghost'}" data-action="filter-orders-source" data-val="manual">
-                <i class="fa-solid fa-hand-paper ${activeState === 'manual' ? '' : 'text-warning'}"></i> تنفيذ يدوي
+        <div class="orders-source-filters mb-15 d-flex gap-2 flex-wrap align-items-center justify-content-between p-10" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;">
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+                <span class="fs-12 fw-bold text-muted me-2"><i class="fa-solid fa-filter"></i> مصدر الطلبات:</span>
+                <button class="btn btn-sm ${activeState === 'all' ? 'btn-primary' : 'btn-ghost'}" data-action="filter-orders-source" data-val="all">
+                    <i class="fa-solid fa-layer-group"></i> الكل
+                </button>
+                <button class="btn btn-sm ${activeState === 'api' ? 'btn-primary' : 'btn-ghost'}" data-action="filter-orders-source" data-val="api">
+                    <i class="fa-solid fa-robot ${activeState === 'api' ? '' : 'text-info'}"></i> عبر الـ API
+                </button>
+                <button class="btn btn-sm ${activeState === 'auto' ? 'btn-primary' : 'btn-ghost'}" data-action="filter-orders-source" data-val="auto">
+                    <i class="fa-solid fa-bolt ${activeState === 'auto' ? '' : 'text-success'}"></i> تسليم آلي
+                </button>
+                <button class="btn btn-sm ${activeState === 'manual' ? 'btn-primary' : 'btn-ghost'}" data-action="filter-orders-source" data-val="manual">
+                    <i class="fa-solid fa-hand-paper ${activeState === 'manual' ? '' : 'text-warning'}"></i> تنفيذ يدوي
+                </button>
+            </div>
+            
+            <button class="btn btn-sm btn-red ms-auto" data-action="reject-all-pending" title="رفض جميع الطلبات اليدوية المعلقة وإرجاع الرصيد للعملاء دفعة واحدة">
+                <i class="fa-solid fa-ban"></i> رفض جميع المعلقة
             </button>
         </div>
     `,
 
-    // 🛡️ [حالة الفراغ]
     emptyOrders: () => `
         <div class="empty-state">
             <i class="fa-solid fa-box-open"></i>
@@ -41,7 +47,6 @@ export const OrdersTemplates = {
         </div>
     `,
 
-    // 🛡️ [كارت الطلب في الشبكة]
     orderCard: (o, userName, inputData) => {
         const exactStatus = o.status || 'pending';
         const isComp = exactStatus === 'completed', isRej = exactStatus === 'rejected', isRef = (exactStatus === 'refunded' || exactStatus === 'returned');
@@ -52,7 +57,8 @@ export const OrdersTemplates = {
         const rawTime = o.time || o.createdAt;
         const timeHtml = RenderHelpers.formatSafeDate(rawTime);
 
-        const userRec = AdminData.data.usersMap?.[o.userId] || {};
+        // 🚀 [درع الحماية]: تمرير الكائن الوهمي إذا لم يكن العميل في الذاكرة ليستخرج الـ ID
+        const userRec = AdminData.data.usersMap?.[o.userId] || { id: o.userId };
         const shortId = RenderHelpers.formatUserId(userRec);
 
         const isIdAsName = String(userName).trim() === String(shortId).trim() || String(userName).trim() === String(o.userId).trim();
@@ -110,7 +116,6 @@ export const OrdersTemplates = {
         </div>`;
     },
 
-    // 🛡️ [رأس النافذة الجانبية]
     orderDrawerHeader: (orderId) => {
         const formattedOrderId = RenderHelpers.formatOrderId(orderId);
         return `
@@ -125,7 +130,6 @@ export const OrdersTemplates = {
         </div>`;
     },
     
-    // 🛡️ [عناصر الصور]
     drawerAvatar: (imgSrc, firstLetter) => imgSrc 
         ? `<img src="${_esc(imgSrc)}" class="dr-avatar dr-avatar-fit zoomable-img" data-action="open-img-viewer" data-src="${_esc(imgSrc)}">` 
         : `<div class="dr-avatar">${_esc(firstLetter)}</div>`,
@@ -134,7 +138,6 @@ export const OrdersTemplates = {
         ? `<img src="${_esc(imgSrc)}" class="dr-prod-img zoomable-img" data-action="open-img-viewer" data-src="${_esc(imgSrc)}">` 
         : `<div class="dr-prod-placeholder"><i class="fa-solid fa-box"></i></div>`,
 
-    // 🛡️ [مدة الإنجاز]
     orderDurationRow: (durationTxt) => `
         <div class="dr-receipt-row">
             <span class="dr-receipt-lbl"><i class="fa-solid fa-stopwatch text-info"></i> وقت المعالجة والرد</span>
@@ -142,7 +145,6 @@ export const OrdersTemplates = {
         </div>
     `,
 
-    // 🛡️ [مدخلات العميل]
     orderInputsCard: (parsedInputs) => { 
         const inputsHtml = parsedInputs.map(inp => `
             <div class="copy-row copyable-admin" data-action="copy-text" data-copy-text="${_esc(inp.value)}">
@@ -159,7 +161,6 @@ export const OrdersTemplates = {
         </div>`; 
     },
 
-    // 🛡️ [الكود المُسلم آلياً]
     orderCodeCard: (codeText) => `
         <div class="dr-card dr-system-box">
             <div class="dr-inputs-title text-success"><i class="fa-solid fa-bolt"></i> التسليم الآلي (الكود المُسلّم)</div>
@@ -172,7 +173,6 @@ export const OrdersTemplates = {
         </div>
     `,
 
-    // 🛡️ [ملاحظات الإدارة]
     adminReplyCard: (replyText, customTitle = 'رد المتجر المـُرسل') => `
         <div class="dr-card dr-admin-reply">
             <div class="dr-inputs-title text-info"><i class="fa-solid fa-comment-dots"></i> ${customTitle}</div>
@@ -182,7 +182,6 @@ export const OrdersTemplates = {
         </div>
     `,
 
-    // 🛡️ [السطر المحاسبي العادي]
     orderReceiptRow: (iconClass, label, valHtml) => `
         <div class="dr-receipt-row">
             <span class="dr-receipt-lbl"><i class="${iconClass}"></i> ${label}</span>
@@ -190,7 +189,6 @@ export const OrdersTemplates = {
         </div>
     `,
 
-    // 🛡️ [التقرير المالي الذكي للطلب - مفكوك ومقروء بوضوح]
     financialSnapshotBlock: (snap, status) => {
         const isCompleted = status === 'completed';
         const isRefundedOrRejected = ['refunded', 'rejected', 'returned'].includes(status);
@@ -281,7 +279,6 @@ export const OrdersTemplates = {
         `;
     },
 
-    // 🛡️ [النافذة الجانبية الكاملة للطلب - تم الفصل البصري للسجلات الجنائية]
     orderDrawerBody: (data) => {
         const isRefRej = ['refunded', 'rejected', 'returned'].includes(data.statusClass);
         const isComp = data.statusClass === 'completed';
@@ -297,7 +294,6 @@ export const OrdersTemplates = {
             : `<span class="dr-client-name">${_esc(data.displayUser)}</span><span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`;
         
         return `
-        <!-- الكارت الخاص ببيانات العميل -->
         <div class="dr-card dr-client" data-action="view-user" data-id="${_esc(data.userId)}">
             <div class="dr-client-left">
                 ${data.avatarHtml}
@@ -307,7 +303,6 @@ export const OrdersTemplates = {
         </div>
 
         <div class="dr-card">
-            <!-- الكارت الخاص ببيانات المنتج -->
             <div class="dr-prod-header">
                 ${data.imgHtml}
                 <div class="dr-prod-name">
@@ -317,7 +312,6 @@ export const OrdersTemplates = {
                 </div>
             </div>
             
-            <!-- صندوق الفاتورة المالية (إما الذكي أو العادي) -->
             ${data.financialSnapshotHtml ? data.financialSnapshotHtml : `
             <div class="dr-receipt-box mb-15">
                 <div class="dr-receipt-row ${fBg}" style="padding: 10px; border-radius: 8px;">
@@ -334,7 +328,6 @@ export const OrdersTemplates = {
             </div>
             `}
             
-            <!-- صندوق التتبع الجنائي والنظامي (System Logs) -->
             <div class="dr-receipt-box" style="border-top: 1px solid var(--border); padding-top: 15px;">
                 <div class="dr-inputs-title text-muted mb-10"><i class="fa-solid fa-server"></i> بيانات التتبع الجنائي (System Logs)</div>
                 
@@ -361,13 +354,11 @@ export const OrdersTemplates = {
             </div>
         </div>
         
-        <!-- ملحقات الطلب من مدخلات ورسائل -->
         ${data.inputsCardHtml || ''} 
         ${data.codeHtml || ''} 
         ${data.replyHtml || ''}`;
     },
     
-    // 🛡️ [أزرار المعالجة في أسفل النافذة - API Override Shield]
     orderDrawerFooter: (status, orderId, isApi = false) => {
         if (status === 'pending' || status === 'processing') {
             if (isApi) {

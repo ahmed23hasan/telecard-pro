@@ -1,9 +1,9 @@
 // ============================================================================
-// ⚙️ ملف الإعدادات والأساسيات (adminConfig.js) - Enterprise V16.5 💎
+// ⚙️ ملف الإعدادات والأساسيات (adminConfig.js) - Enterprise V16.6 💎
 // 🎯 الوظيفة: مصدر الحقيقة الوحيد للمفاتيح وإعدادات فايربيز.
-// 🚀 التحديث: 
-// 1. Circular Dependency Fix: إزالة استيراد FinancialEngine لفك الارتباط الدائري القاتل.
-// 2. Data Only Object: تحويل الملف إلى Pure Config Object لمنع انهيار الـ Imports.
+// 🚀 التحديثات (V16.6 - Security & Stability Patch):
+// 1. Firebase Mutability Fix 🛡️: إزالة التجميد عن إعدادات فايربيز لمنع انهيار الـ SDK.
+// 2. VAPID Key Centralization 🔑: إضافة مفتاح الرادار السحابي كمصدر حقيقة وحيد (SSOT).
 // ============================================================================
 
 const deepFreeze = (obj) => {
@@ -15,15 +15,20 @@ const deepFreeze = (obj) => {
     return Object.freeze(obj);
 };
 
-export const firebaseConfig = deepFreeze({
+// 🛡️ تم إزالة deepFreeze هنا للسماح لمكتبة Firebase بحقن البيانات الوصفية (Metadata) بحرية
+export const firebaseConfig = {
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
     projectId: "telecard-1",
     storageBucket: "telecard-1.firebasestorage.app",
     messagingSenderId: "698672838633",
     appId: "1:698672838633:web:743c8809615bd8308bfd78"
-});
+};
 
+// 🚀 [التحديث المعماري]: مفتاح الرادار الموحد (Single Source of Truth)
+export const VAPID_KEY = "BDdFL5sHBs1j5RXsps4TahR2UN4qCRwZR2G769OJEGR_1gTj8D2MHsTRsMeSv_Spad22N6LYFsu0x9GhdARqEFk";
+
+// 🔒 الجداول تبقى مجمدة لأنها ثوابت خاصة بالنظام ولا يجب تعديلها برمجياً عن طريق الخطأ
 export const DB_KEYS = deepFreeze({
     CATS: 'telecard_cats',
     PRODS: 'telecard_prods', // 👈 الإدارة ترى كل شيء (المنتجات الأصلية بتكلفتها)

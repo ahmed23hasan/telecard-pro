@@ -35,16 +35,6 @@
       ]
     },
     {
-      "collectionGroup": "telecard_orders",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "price", "order": "ASCENDING" },
-        { "fieldPath": "pricingSnapshot.costUsd", "order": "ASCENDING" },
-        { "fieldPath": "pricingSnapshot.netProfitUsd", "order": "ASCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "telecard_deposits",
       "queryScope": "COLLECTION",
       "fields": [
@@ -141,6 +131,14 @@
         { "fieldPath": "supplierId", "order": "ASCENDING" },
         { "fieldPath": "isAvailable", "order": "ASCENDING" },
         { "fieldPath": "syncSessionId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_prods",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isActive", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     }
   ],

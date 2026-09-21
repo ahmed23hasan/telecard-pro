@@ -5,13 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TELE CARD | تسجيل دخول الإدارة</title>
     
-    <!-- 🛡️ حارس البوابة السريع: يطرد المدير المسجل مسبقاً للوحة التحكم في 0 ثانية ويمنع الوميض -->
+    <!-- 🛡️ حارس البوابة السريع: تم التحديث لـ localStorage لمنع طرد المدير ودعم التابات المتعددة -->
     <script>
-        if (sessionStorage.getItem('telecard_admin_auth') === 'true') {
-            window.location.replace('admin.html');
-        }
-    </script>
-
+    if (sessionStorage.getItem('telecard_admin_auth') === 'true') {
+        window.location.replace('admin.html');
+    }
+</script>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="admin.css">

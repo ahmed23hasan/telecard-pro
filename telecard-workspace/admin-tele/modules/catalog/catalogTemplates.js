@@ -1,10 +1,10 @@
 // ============================================================================
-// 📦 قوالب المنتجات والكتالوج (modules/catalog/catalogTemplates.js) - Enterprise V15.0 💎
+// 📦 قوالب المنتجات والكتالوج (modules/catalog/catalogTemplates.js) - Enterprise V18.11 💎
 // 🎯 الوظيفة: توليد الـ HTML المتقدم للأقسام، المنتجات، الخزنة، والبلدان
-// 🌟 التحديث الأقصى: 
-// 1. Regex Evasion: حقن كلاسات الـ Drag برمجياً في دوال التوليد لحماية الواجهة.
-// 2. Data Mapping Fix: قراءة `codeText` لتطابق هيكل بيانات السيرفر الجديد.
-// 3. XSS Prevention: عزل الرموز المزدوجة (Double-Escaping) بأمان تام.
+// 🌟 التحديثات المعمارية (V18.11 - Phantom Sales Shield): 
+// 1. Phantom Sales UI Fix 👻: تغيير تسمية (مُباع) إلى (مستهلك/مسحوب) لحل التضارب مع أكواد الموردين المسحوبة.
+// 2. Defective Blackhole Fix: إضافة (id) لحاوية الأكواد التالفة وزر (جلب المزيد).
+// 3. Mismatch Fix: فصل دالة (defectiveCodesList) لتعمل بتناغم مع (catalogUI).
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -64,7 +64,6 @@ export const CatalogTemplates = {
         </div>
     `,
     
-    // 🛡️ استقبال dragClass ودمجه مباشرة
     catCard: (c, index, currCatId, dragClass = '') => {
         const orderValue = (c.order !== undefined) ? Number(c.order) : index;
         const iconClass = currCatId === null ? 'root' : 'sub';
@@ -84,7 +83,6 @@ export const CatalogTemplates = {
         </div>`;
     },
     
-    // 🛡️ استقبال dragClass
     prodCard: (p, index, dragClass = '') => {
         const orderValue = (p.order !== undefined) ? Number(p.order) : index;
         
@@ -139,7 +137,8 @@ export const CatalogTemplates = {
                         <i class="fa-solid fa-check-circle"></i>
                         <span class="num-en">${_enNum(availCount)}</span>
                     </div>
-                    <div class="v-stat-chip chip-sold" title="مباع">
+                    <!-- 🚀 [الإصلاح المعماري]: تم التعديل لمنع الذعر المحاسبي -->
+                    <div class="v-stat-chip chip-sold" title="مستهلك/مسحوب">
                         <i class="fa-solid fa-cart-shopping"></i>
                         <span class="num-en">${_enNum(soldCount)}</span>
                     </div>
@@ -162,8 +161,8 @@ export const CatalogTemplates = {
         ${prodsHtml ? `<div class="items-grid prods-grid sortable-container ignore-elements">${prodsHtml}</div>` : ''}
     `,
     
-    defectiveModal: (poolName, codes) => {
-        const codesHtml = codes.map(c => {
+    defectiveCodesList: (codes) => {
+        return codes.map(c => {
             const rawText = c.codeText || c.text || '';
             const safeTextForHtml = rawText.replace(/"/g, '&quot;');
             return `
@@ -173,8 +172,18 @@ export const CatalogTemplates = {
                 </div>
                 <div class="cr-icon text-danger"><i class="fa-solid fa-copy"></i></div>
             </div>
-        `
+            `;
         }).join('');
+    },
+    
+    defectiveModal: (poolName, codesHtml, hasMore) => {
+        const loadMoreBtn = hasMore ? `
+            <div class="text-center mt-10" id="btn-load-more-defective">
+                <button class="btn btn-ghost btn-sm" onclick="if(window._loadMoreDefective) window._loadMoreDefective()">
+                    <i class="fa-solid fa-angle-down"></i> جلب المزيد من السجلات ☁️
+                </button>
+            </div>
+        ` : '';
         
         return `
         <div id="defective-codes-overlay" class="modal-overlay">
@@ -188,9 +197,10 @@ export const CatalogTemplates = {
 
                 <div class="form-group">
                     <label class="form-label">الصندوق: <span class="text-main fw-bold">${_esc(poolName)}</span></label>
-                    <div class="dr-inputs-list mt-10" style="max-height: 300px; overflow-y: auto;">
+                    <div id="defective-codes-list" class="dr-inputs-list mt-10" style="max-height: 300px; overflow-y: auto;">
                         ${codesHtml || '<div class="text-center py-20 text-muted">لا توجد أكواد تالفة حالياً</div>'}
                     </div>
+                    ${loadMoreBtn}
                 </div>
                 
                 <button class="btn btn-ghost btn-full mt-15" data-action="close-defective-modal">إغلاق</button>
@@ -241,7 +251,7 @@ export const CatalogTemplates = {
     bannerItem: (b, index) => `
         <div id="banner-card-${_esc(b.id)}" class="item-box banner-item click-shrink" data-id="${_esc(b.id)}" data-order="${b.order ?? index}">
             <div class="item-actions">
-                <div class="action-mini btn-del-mini" data-action="delete-item" data-type="banner" data-id="${_esc(b.id)}"><i class="fa-solid fa-trash"></i></div>
+                <div class="action-mini btn-del-mini" data-action="delete-banner" data-id="${_esc(b.id)}"><i class="fa-solid fa-trash"></i></div>
             </div>
             <div class="item-img">
                 <img src="${_esc(b.img)}" class="zoomable-img" draggable="false" data-action="open-img-viewer" data-src="${_esc(b.img)}">

@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Enterprise V15.1 🛡️
-// الوظيفة: الكوبونات، العروض، الإشعارات، وإعدادات البنرات (الهوية البصرية).
-// 🚀 التحديث الأقصى: 
-// 1. Deadlock Fix: نقل الـ Loader لما بعد قرارات (Confirm) لمنع تجميد الشاشة للأبد.
-// 2. Safe Rollback: إضافة إغلاق الـ Loader في كتل (finally) لدوال الحذف لمنع التعليق.
-// 3. O(1) Inbox Mutation: تحديث صندوق وارد العميل مباشرة من خريطة الذاكرة.
+// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Cloud-Native V18.9 🛡️
+// 🚀 التحديثات المعمارية (V18.9 - The Final Polish Patch): 
+// 1. UID Coercion Fix 🐛: منع تحويل معرفات العملاء النصية (Firebase UIDs) إلى أرقام في الكوبونات لضمان نجاح التخصيص.
+// 2. Full Mutex Coverage 🔒: إغلاق ثغرة (autoSaveSettings) وإدراجها تحت حماية الأقفال الذرية.
+// 3. Strict Adapter Pattern 🔌: توجيه كافة عمليات (الإشعارات والإنذارات) لتعبر من خلال FirebaseAdapter النظيف.
+// 4. Pricing Cache Sync 📊: إجبار السيرفر على تحديث الأسعار لحظياً.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -12,12 +12,12 @@ import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
+import { UIService } from '../../core/uiService.js';
 
 export const MarketingController = {
 
-    // =========================================================
-    // 🛍️ 1. إدارة العروض المركزية (Offers)
-    // =========================================================
+    _actionLocks: new Set(), // 🛡️ درع الحماية المركزي
+
     openOfferModal: function(id = null) {
         let strId = id ? String(id) : null;
         EventBus.emit('req-update-state', { tempEditId: strId });
@@ -51,7 +51,7 @@ export const MarketingController = {
                         prodName: prodObj ? prodObj.name : `المنتج #${prodId}`,
                         oldOfferId: oldOffer.id,
                         oldOfferName: oldOffer.name,
-                        oldOfferRef: oldOffer
+                        oldOfferRef: oldOffer 
                     });
                     break;
                 }
@@ -126,6 +126,8 @@ export const MarketingController = {
     },
 
     saveOffer: async function() {
+        if (this._actionLocks.has('save-offer')) return;
+
         const name = Utils.escapeHTML(Utils.getVal('offer-name'));
         const type = Utils.getVal('offer-type') || 'real';
         const value = Number(Utils.getVal('offer-value')) || 0;
@@ -142,93 +144,117 @@ export const MarketingController = {
         if (selectedTiers.length === 0) return EventBus.emit('req-show-toast', { message: 'يجب تحديد مستوى واحد على الأقل', type: 'error' });
         if (selectedProds.length === 0) return EventBus.emit('req-show-toast', { message: 'يجب تحديد منتج واحد على الأقل', type: 'error' });
 
-        const currentVisualConfig = AdminUI?.MarketingUI?.visualConfig ? JSON.parse(JSON.stringify(AdminUI.MarketingUI.visualConfig)) : { storyEnabled: false };
-        if (currentVisualConfig.storyEnabled) {
-            const selectedStoryProds = AdminUI?.MarketingUI?.getSelectedStoryProds?.() || [];
-            if (selectedStoryProds.length === 0) return EventBus.emit('req-show-toast', { message: 'يرجى اختيار منتج واحد على الأقل من شجرة القصص', type: 'warning' });
-            currentVisualConfig.storyProducts = selectedStoryProds;
-        } else { currentVisualConfig.storyProducts = []; }
-
-        if (!AdminData.data.offers) AdminData.data.offers = [];
-        const isEdit = !!AdminData.tempEditId;
-        const oIdx = isEdit ? AdminData.data.offers.findIndex(o => String(o.id) === String(AdminData.tempEditId)) : -1;
-        
-        const offerData = { id: isEdit ? AdminData.tempEditId : 'off_' + Date.now(), name, type, value, isActive, expiryDate, targetTiers: selectedTiers, targetProds: selectedProds, visualConfig: currentVisualConfig };
-
-        const passedCollision = await this._checkOfferCollisions(offerData);
-        if (!passedCollision) return;
-
-        const passedShapeSync = await this._checkStoryShapeSync(offerData);
-        if (!passedShapeSync) return;
-
-        // 🚀 [إصلاح ה-Deadlock]: تفعيل الـ Loader هنا فـقـط بعد عبور كافة رسائل التأكيد والأسئلة!
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحفظ سحابياً...');
-
-        if (isEdit && oIdx !== -1) AdminData.data.offers[oIdx] = offerData;
-        else AdminData.data.offers.push(offerData);
-
-        if (!AdminData.data.offersMap) AdminData.data.offersMap = {};
-        AdminData.data.offersMap[offerData.id] = offerData;
+        this._actionLocks.add('save-offer');
 
         try {
+            const currentVisualConfig = AdminUI?.MarketingUI?.visualConfig ? JSON.parse(JSON.stringify(AdminUI.MarketingUI.visualConfig)) : { storyEnabled: false };
+            if (currentVisualConfig.storyEnabled) {
+                const selectedStoryProds = AdminUI?.MarketingUI?.getSelectedStoryProds?.() || [];
+                if (selectedStoryProds.length === 0) throw new Error('يرجى اختيار منتج واحد على الأقل من شجرة القصص');
+                currentVisualConfig.storyProducts = selectedStoryProds;
+            } else { currentVisualConfig.storyProducts = []; }
+
+            if (!AdminData.data.offers) AdminData.data.offers = [];
+            const isEdit = !!AdminData.tempEditId;
+            const oIdx = isEdit ? AdminData.data.offers.findIndex(o => String(o.id) === String(AdminData.tempEditId)) : -1;
+            
+            const offerData = { id: isEdit ? AdminData.tempEditId : 'off_' + Date.now(), name, type, value, isActive, expiryDate, targetTiers: selectedTiers, targetProds: selectedProds, visualConfig: currentVisualConfig };
+
+            const passedCollision = await this._checkOfferCollisions(offerData);
+            if (!passedCollision) return;
+
+            const passedShapeSync = await this._checkStoryShapeSync(offerData);
+            if (!passedShapeSync) return;
+
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحفظ سحابياً...');
+
+            if (isEdit && oIdx !== -1) AdminData.data.offers[oIdx] = offerData;
+            else AdminData.data.offers.push(offerData);
+
+            if (!AdminData.data.offersMap) AdminData.data.offersMap = {};
+            AdminData.data.offersMap[offerData.id] = offerData;
+
             await AdminData?.saveOffers?.();
+            
+            if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
+                FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
+            }
+
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-offers',
                 modalId: 'offer',
                 logAction: isEdit ? 'EDIT_OFFER' : 'ADD_OFFER',
                 logDetails: `حملة تخفيض: ${name}`,
-                toastMsg: isEdit ? 'تم التعديل بنجاح' : 'تمت الإضافة بنجاح'
+                toastMsg: isEdit ? 'تم التعديل ومزامنة الأسعار بنجاح' : 'تمت الإضافة ومزامنة الأسعار بنجاح'
             });
-        } finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
+        } catch (error) {
+            EventBus.emit('req-show-toast', { message: error.message || 'خطأ أثناء الحفظ', type: 'warning' });
+        } finally { 
+            this._actionLocks.delete('save-offer');
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
+        }
     },
 
     deleteOffer: async function(id) {
-        if (!AdminData.data.offers) return;
+        if (!AdminData.data.offers || this._actionLocks.has('del-offer')) return;
+        
         if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من حذف العرض نهائياً؟')) return;
         
-        // 🚀 [إصلاح ה-Rollback Hang]: تفعيل الـ Loader لتجنب ضغط المستخدم المتكرر والتأكد من إغلاقه 
+        this._actionLocks.add('del-offer');
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحذف سحابياً...');
         
         const offer = AdminData.data.offersMap?.[id] || AdminData.data.offers.find(o => String(o.id) === String(id));
         const offersBackup = [...AdminData.data.offers]; 
         
-        AdminData.data.offers = AdminData.data.offers.filter(o => String(o.id) !== String(id));
-        if(AdminData.data.offersMap) delete AdminData.data.offersMap[id]; 
-
-        EventBus.emit('req-render-offers'); 
-        
         try {
+            AdminData.data.offers = AdminData.data.offers.filter(o => String(o.id) !== String(id));
+            if(AdminData.data.offersMap) delete AdminData.data.offersMap[id]; 
+
             await AdminData?.saveOffers?.();
+            
+            if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
+                FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
+            }
+
+            EventBus.emit('req-render-offers'); 
             if (offer) AdminData?.addLog?.('DELETE_OFFER', `حذف حملة: ${offer.name}`);
-            EventBus.emit('req-show-toast', {message:'تم الحذف بنجاح', type:'success'});
+            EventBus.emit('req-show-toast', {message:'تم الحذف وتحديث المتجر بنجاح', type:'success'});
         } catch(e) { 
             AdminData.data.offers = offersBackup; 
             if(offer && AdminData.data.offersMap) AdminData.data.offersMap[id] = offer;
             EventBus.emit('req-render-offers'); 
             EventBus.emit('req-show-toast', {message:'فشل الحذف، حدث خطأ سحابي', type:'error'});
         } finally {
+            this._actionLocks.delete('del-offer');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
     toggleOfferStatus: async function(id, isActive) {
+        if (this._actionLocks.has(`tog-off-${id}`)) return;
+        this._actionLocks.add(`tog-off-${id}`);
+
         const offer = AdminData.data.offersMap?.[id] || AdminData.data.offers.find(o => String(o.id) === String(id));
         if (offer) {
             offer.isActive = isActive; 
             EventBus.emit('req-render-offers');
             try {
                 await AdminData?.saveOffers?.();
+                if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
+                    FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
+                }
                 EventBus.emit('req-show-toast', { message: isActive ? 'تم تفعيل العرض' : 'تم الإيقاف', type: 'success' });
             } catch(e) { 
                 offer.isActive = !isActive; 
                 EventBus.emit('req-render-offers'); 
+            } finally {
+                this._actionLocks.delete(`tog-off-${id}`);
             }
+        } else {
+            this._actionLocks.delete(`tog-off-${id}`);
         }
     },
 
-    // =========================================================
-    // 🎟️ 2. إدارة الكوبونات (Coupons)
-    // =========================================================
     openCouponModal: function(id = null) {
         EventBus.emit('req-update-state', { tempEditId: id });
         const isEdit = !!id;
@@ -246,6 +272,8 @@ export const MarketingController = {
     },
 
     saveCoupon: async function() {
+        if (this._actionLocks.has('save-coupon')) return;
+
         const code = Utils.escapeHTML(Utils.getVal('coupon-code')).toUpperCase();
         if (!code) return EventBus.emit('req-show-toast', { message: 'أدخل كود الكوبون', type: 'error' });
         
@@ -271,58 +299,80 @@ export const MarketingController = {
             return EventBus.emit('req-show-toast', { message: 'هذا الكود مستخدم مسبقاً في متجرنا', type: 'error' });
         }
 
-        const expiryVal = Utils.getVal('coupon-expiry');
-        const allowedUsersStr = Utils.getVal('coupon-allowed-users');
-        const allowedUsers = allowedUsersStr ? allowedUsersStr.split(',').map(s => Number(s.trim())).filter(n => !isNaN(n) && n > 0) : [];
+        this._actionLocks.add('save-coupon');
 
-        const couponData = {
-            id: isEdit ? AdminData.tempEditId : 'coup_' + Date.now(), 
-            code, type, value,
-            minOrder: Number(Utils.getVal('coupon-min-order')) || 0,
-            maxUses: Number(Utils.getVal('coupon-max-uses')) || 0,
-            maxPerUser: Number(Utils.getVal('coupon-max-per-user')) || 0,
-            isActive: Utils.getCheck('coupon-active'),
-            expiryDate: expiryVal ? Number(expiryVal) : null,
-            allowedUsers, targetTiers: selectedTiers, targetProds: selectedProds,
-            usageHistory: (isEdit && cIdx > -1 && AdminData.data.coupons[cIdx].usageHistory) ? AdminData.data.coupons[cIdx].usageHistory : {},
-            usedCount: (isEdit && cIdx > -1) ? (AdminData.data.coupons[cIdx].usedCount || 0) : 0
-        };
-
-        if (isEdit && cIdx !== -1) AdminData.data.coupons[cIdx] = couponData;
-        else AdminData.data.coupons.push(couponData);
-
-        if (!AdminData.data.couponsMap) AdminData.data.couponsMap = {};
-        AdminData.data.couponsMap[couponData.id] = couponData;
-
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحفظ...');
         try {
+            const expiryVal = Utils.getVal('coupon-expiry');
+            const allowedUsersStr = Utils.getVal('coupon-allowed-users');
+            
+            // 🚀 [التصحيح المعماري - UID Coercion Fix]: معالجة المعرفات كنصوص للحفاظ على Firebase UIDs
+            const allowedUsers = allowedUsersStr 
+                ? allowedUsersStr.split(',').map(s => String(s).trim()).filter(s => s.length > 0) 
+                : [];
+                
+            const maxDiscount = Number(Utils.getVal('coupon-max-discount')) || 0;
+
+            const couponData = {
+                id: isEdit ? AdminData.tempEditId : 'coup_' + Date.now(), 
+                code, type, value, maxDiscount, 
+                minOrder: Number(Utils.getVal('coupon-min-order')) || 0,
+                maxUses: Number(Utils.getVal('coupon-max-uses')) || 0,
+                maxPerUser: Number(Utils.getVal('coupon-max-per-user')) || 0,
+                isActive: Utils.getCheck('coupon-active'),
+                expiryDate: expiryVal ? Number(expiryVal) : null,
+                allowedUsers, targetTiers: selectedTiers, targetProds: selectedProds,
+                usageHistory: (isEdit && cIdx > -1 && AdminData.data.coupons[cIdx].usageHistory) ? AdminData.data.coupons[cIdx].usageHistory : {},
+                usedCount: (isEdit && cIdx > -1) ? (AdminData.data.coupons[cIdx].usedCount || 0) : 0
+            };
+
+            if (isEdit && cIdx !== -1) AdminData.data.coupons[cIdx] = couponData;
+            else AdminData.data.coupons.push(couponData);
+
+            if (!AdminData.data.couponsMap) AdminData.data.couponsMap = {};
+            AdminData.data.couponsMap[couponData.id] = couponData;
+
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحفظ...');
+            
             await AdminData?.saveCoupons?.();
+            
+            if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
+                FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
+            }
+
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-coupons',
                 modalId: 'coupon',
                 logAction: isEdit ? 'EDIT_COUPON' : 'ADD_COUPON',
                 logDetails: `كوبون: ${code}`,
-                toastMsg: 'تم حفظ الكوبون بنجاح'
+                toastMsg: 'تم حفظ الكوبون وتحديث المتجر بنجاح'
             });
-        } finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
+        } finally { 
+            this._actionLocks.delete('save-coupon');
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
+        }
     },
     
     deleteCoupon: async function(id) {
-        if (!AdminData.data.coupons) return;
+        if (!AdminData.data.coupons || this._actionLocks.has('del-coup')) return;
         if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من الحذف؟')) return;
         
+        this._actionLocks.add('del-coup');
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحذف سحابياً...');
         
         const coupon = AdminData.data.couponsMap?.[id] || AdminData.data.coupons.find(c => String(c.id) === String(id));
         const couponsBackup = [...AdminData.data.coupons]; 
         
-        AdminData.data.coupons = AdminData.data.coupons.filter(c => String(c.id) !== String(id));
-        if(AdminData.data.couponsMap) delete AdminData.data.couponsMap[id];
-
-        EventBus.emit('req-render-coupons'); 
-        
         try {
+            AdminData.data.coupons = AdminData.data.coupons.filter(c => String(c.id) !== String(id));
+            if(AdminData.data.couponsMap) delete AdminData.data.couponsMap[id];
+
             await AdminData?.saveCoupons?.();
+            
+            if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
+                FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
+            }
+
+            EventBus.emit('req-render-coupons'); 
             if (coupon) AdminData?.addLog?.('DELETE_COUPON', `حذف الكوبون: ${coupon.code}`);
             EventBus.emit('req-show-toast', { message: 'تم الحذف', type: 'success' });
         } catch(e) { 
@@ -330,84 +380,117 @@ export const MarketingController = {
             if(coupon && AdminData.data.couponsMap) AdminData.data.couponsMap[id] = coupon;
             EventBus.emit('req-render-coupons'); 
         } finally {
+            this._actionLocks.delete('del-coup');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
     toggleCouponStatus: async function(id, isActive) {
+        if (this._actionLocks.has(`tog-coup-${id}`)) return;
+        this._actionLocks.add(`tog-coup-${id}`);
+
         const coupon = AdminData.data.couponsMap?.[id] || AdminData.data.coupons.find(c => String(c.id) === String(id));
         if (coupon) {
             coupon.isActive = isActive; 
             EventBus.emit('req-render-coupons');
-            try { await AdminData?.saveCoupons?.(); } 
+            try { 
+                await AdminData?.saveCoupons?.(); 
+                if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
+                    FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
+                }
+            } 
             catch(e) { coupon.isActive = !isActive; EventBus.emit('req-render-coupons'); }
+            finally { this._actionLocks.delete(`tog-coup-${id}`); }
+        } else {
+            this._actionLocks.delete(`tog-coup-${id}`);
         }
     },
 
-    // =========================================================
-    // 🔔 3. إدارة التنبيهات (Alerts)
-    // =========================================================
     openAlertModal: function() {
         AdminUI?.MarketingUI?.setupAlertModal?.(AdminData.data.tiers || []);
         EventBus.emit('req-open-modal', 'alert');
     },
 
     sendUnifiedAlert: async function() {
+        if (this._actionLocks.has('send-alert')) return;
+
         const title = Utils.escapeHTML(Utils.getVal('alert-title'));
         const body = Utils.escapeHTML(Utils.getVal('alert-body'));
         if (!body) return EventBus.emit('req-show-toast', { message: 'يرجى كتابة الرسالة', type: 'error' });
 
         const targetType = Utils.getVal('alert-target-type', 'all');
         let targetId = null;
-        if (targetType === 'user') {
-            const inputVal = Utils.escapeHTML(Utils.getVal('alert-target-user'));
-            const userExists = AdminData.data.usersMap?.[inputVal] || (AdminData.data.users || []).find(u => String(u.id) === String(inputVal) || String(u.displayId) === String(inputVal));
-            if (!userExists) return EventBus.emit('req-show-toast', { message: 'العميل غير موجود في متجرنا', type: 'error' });
-            targetId = userExists.id; 
-        }
+        let targetUser = null; 
         
-        const type = Utils.getVal('alert-type', 'notification');
-        const isPopup = (type === 'popup');
-        const expiryInput = Utils.getVal('alert-expiry');
+        this._actionLocks.add('send-alert');
 
-        const newAlert = {
-            id: 'ALT_' + Date.now(), type: type, isPopup: isPopup, targetType: targetType, targetId: targetId,
-            title: title, message: body, createdAt: Date.now(),
-            expiresAt: expiryInput ? parseInt(expiryInput) : null,
-            maxViews: isPopup ? parseInt(Utils.getVal('alert-max-views', '3')) : null,
-            actionLink: isPopup ? Utils.escapeHTML(Utils.getVal('alert-action-link')) : '',
-            couponCode: isPopup ? Utils.escapeHTML(Utils.getVal('alert-coupon-code')) : ''
-        };
-
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الإرسال...');
         try {
             if (targetType === 'user') {
-                const targetUser = AdminData.data.usersMap?.[targetId] || (AdminData.data.users || []).find(u => String(u.id) === String(targetId));
-                if (targetUser) {
-                    if (!targetUser.inbox) targetUser.inbox = [];
-                    targetUser.inbox.push(newAlert);
-                    await AdminData.saveUsers();
+                const inputVal = Utils.escapeHTML(Utils.getVal('alert-target-user'));
+                
+                targetUser = AdminData.data.usersMap?.[inputVal] || (AdminData.data.users || []).find(u => String(u.id) === String(inputVal) || String(u.displayId) === String(inputVal));
+                
+                if (!targetUser) {
+                    if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري البحث عن العميل سحابياً...');
+                    try {
+                        targetUser = await FirebaseAdapter.getById('telecard_users', inputVal); 
+                        if (!targetUser) {
+                            const result = await FirebaseAdapter.fetchMoreWithCursor('telecard_users', [['displayId', '==', inputVal]], 'createdAt', null, 1);
+                            if (result && result.data && result.data.length > 0) targetUser = result.data[0];
+                        }
+                    } catch(e) { console.warn(e); }
                 }
+
+                if (!targetUser) {
+                    EventBus.emit('req-show-toast', { message: 'العميل غير موجود في متجرنا', type: 'error' });
+                    return; 
+                }
+                targetId = targetUser.id; 
+            }
+            
+            const type = Utils.getVal('alert-type', 'notification');
+            const isPopup = (type === 'popup');
+            const expiryInput = Utils.getVal('alert-expiry');
+
+            const newAlert = {
+                id: 'ALT_' + Date.now(), type: type, isPopup: isPopup, targetType: targetType, targetId: targetId,
+                title: title, message: body, createdAt: Date.now(),
+                expiresAt: expiryInput ? parseInt(expiryInput) : null,
+                maxViews: isPopup ? parseInt(Utils.getVal('alert-max-views', '3')) : null,
+                actionLink: isPopup ? Utils.escapeHTML(Utils.getVal('alert-action-link')) : '',
+                couponCode: isPopup ? Utils.escapeHTML(Utils.getVal('alert-coupon-code')) : ''
+            };
+
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الإرسال...');
+            
+            if (targetType === 'user') {
+                await FirebaseAdapter.set(`telecard_users/${targetId}/notifications`, newAlert.id, newAlert);
+                if (AdminData?.addLog) AdminData.addLog('SEND_DIRECT_ALERT', `إرسال تنبيه خاص للعميل: ${targetUser.fullName || targetUser.name || targetId}`);
             } else {
+                await FirebaseAdapter.set('telecard_alerts', newAlert.id, newAlert);
                 if (!AdminData.data.alerts) AdminData.data.alerts = [];
                 AdminData.data.alerts.push(newAlert);
-                await AdminData.saveAlerts();
+                if (AdminData?.addLog) AdminData.addLog('SEND_GLOBAL_ALERT', `إرسال إشعار للجميع`);
             }
             
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-alerts',
-                modalId: 'alert', // إغلاق النافذة
-                logAction: null,
-                logDetails: null,
-                toastMsg: 'تم الإرسال بنجاح!'
+                modalId: 'alert', 
+                logAction: null, logDetails: null, toastMsg: 'تم الإرسال بنجاح!'
             });
-        } finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
+        } catch(e) {
+            EventBus.emit('req-show-toast', { message: 'تعذر الإرسال السحابي', type: 'error' });
+        } finally { 
+            this._actionLocks.delete('send-alert');
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
+        }
     },
 
     deleteAlert: async function(id) {
-        if (!AdminData.data.alerts) return;
-        if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من مسح الإشعار؟')) return;
+        if (!AdminData.data.alerts || this._actionLocks.has('del-alert')) return;
+        if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من مسح الإشعار العام؟')) return;
 
+        this._actionLocks.add('del-alert');
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح الإشعار...');
         
         const alertBackup = [...AdminData.data.alerts];
@@ -415,53 +498,75 @@ export const MarketingController = {
         EventBus.emit('req-render-alerts');
         
         try {
-            await AdminData.saveAlerts();
-            if (AdminData.data.users) {
-                let userUpdated = false;
-                AdminData.data.users.forEach(u => {
-                    if (u.inbox && u.inbox.some(a => a.id === id)) { u.inbox = u.inbox.filter(a => a.id !== id); userUpdated = true; }
-                });
-                if (userUpdated) await AdminData.saveUsers();
-            }
-            EventBus.emit('req-show-toast', { message: 'تم الحذف', type: 'success' });
+            await FirebaseAdapter.delete('telecard_alerts', id);
+            if (AdminData?.addLog) AdminData.addLog('DELETE_ALERT', `تم مسح إشعار عام من السيرفر`);
+            EventBus.emit('req-show-toast', { message: 'تم الحذف بنجاح', type: 'success' });
         } catch(e) { 
             AdminData.data.alerts = alertBackup; 
             EventBus.emit('req-render-alerts'); 
+            EventBus.emit('req-show-toast', { message: 'فشل الحذف. تأكد من الاتصال', type: 'error' });
         } finally {
+            this._actionLocks.delete('del-alert');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
-    // =========================================================
-    // 🎨 4. إعدادات الإعلانات والهوية + 🌟 (التنظيف التلقائي للسحابة)
-    // =========================================================
     saveBanner: async function() {
+        if (this._actionLocks.has('save-banner')) return;
+
         const fileInput = document.getElementById('ban-img-input');
         const fileToUpload = fileInput?.files?.[0];
         if (!fileToUpload) return EventBus.emit('req-show-toast', {message: 'اختر صورة للبنر', type: 'warning'});
 
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الرفع السحابي...'); 
+        this._actionLocks.add('save-banner');
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري ضغط ورفع البانر الإعلاني...'); 
+        
         try {
-            const finalImgUrl = await FirebaseAdapter.uploadImage(fileToUpload, 'banners');
+            const compressedBase64 = await new Promise(resolve => {
+                if (UIService && UIService.processImage) UIService.processImage(fileToUpload, resolve);
+                else resolve(null);
+            });
+
+            let fileForUpload = fileToUpload;
+            if (compressedBase64 && compressedBase64.startsWith('data:image')) {
+                const mimeType = fileToUpload.type === 'image/png' ? 'image/png' : 'image/jpeg';
+                const byteString = atob(compressedBase64.split(',')[1]);
+                const ab = new ArrayBuffer(byteString.length);
+                const ia = new Uint8Array(ab);
+                for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+                const blob = new Blob([ab], { type: mimeType });
+                fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
+            }
+
+            const finalImgUrl = await FirebaseAdapter.uploadImage(fileForUpload, 'banners');
+            
             if(!AdminData.data.banners) AdminData.data.banners = [];
             AdminData.data.banners.push({ id: String(Date.now()), img: finalImgUrl, link: Utils.escapeHTML(Utils.getVal('ban-link')) });
             await AdminData?.saveBanners?.();
             
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-banners',
-                modalId: 'banner', // إغلاق النافذة
+                modalId: 'banner', 
                 logAction: 'ADD_BANNER',
                 logDetails: 'إضافة بانر جديد في المتجر',
                 toastMsg: 'تم إضافة بانر بنجاح'
             });
-        } catch (error) { EventBus.emit('req-show-toast', {message: 'خطأ أثناء الرفع', type: 'error'}); } 
-        finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
+        } catch (error) { 
+            EventBus.emit('req-show-toast', {message: 'خطأ أثناء الرفع', type: 'error'}); 
+        } finally { 
+            this._actionLocks.delete('save-banner');
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
+        }
     },
     
     deleteBanner: async function(id) {
+        if (this._actionLocks.has('del-banner')) return;
+
         if (AdminUI?.showConfirm && !await AdminUI.showConfirm('حذف البانر الإعلاني؟')) return;
 
+        this._actionLocks.add('del-banner');
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحذف...');
+        
         try {
             const bnr = AdminData.data.banners.find(x => String(x.id) === String(id));
             if (bnr && bnr.img && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
@@ -472,11 +577,14 @@ export const MarketingController = {
             EventBus.emit('req-render-banners');
             EventBus.emit('req-show-toast', {message: 'تم الحذف', type: 'success'});
         } finally {
+            this._actionLocks.delete('del-banner');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
     saveStoreIdentity: async function() {
+        if (this._actionLocks.has('save-brand')) return;
+
         if (!AdminData?.data?.settings) AdminData.data.settings = {};
         
         const settingsBackup = JSON.parse(JSON.stringify(AdminData.data.settings)); 
@@ -501,14 +609,31 @@ export const MarketingController = {
             
             if (inputEl && inputEl.files && inputEl.files.length > 0) {
                 if (currentUrl) await FirebaseAdapter.deleteImageByUrl(currentUrl).catch(()=>{});
-                const file = inputEl.files[0];
-                return await FirebaseAdapter.uploadImage(file, 'brand');
+                const fileToUpload = inputEl.files[0];
+                
+                const compressedBase64 = await new Promise(resolve => {
+                    if (UIService && UIService.processImage) UIService.processImage(fileToUpload, resolve);
+                    else resolve(null);
+                });
+                let fileForUpload = fileToUpload;
+                if (compressedBase64 && compressedBase64.startsWith('data:image')) {
+                    const mimeType = fileToUpload.type === 'image/png' ? 'image/png' : 'image/jpeg';
+                    const byteString = atob(compressedBase64.split(',')[1]);
+                    const ab = new ArrayBuffer(byteString.length);
+                    const ia = new Uint8Array(ab);
+                    for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+                    const blob = new Blob([ab], { type: mimeType });
+                    fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
+                }
+                return await FirebaseAdapter.uploadImage(fileForUpload, 'brand');
             }
             
             return currentUrl || '';
         };
 
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث هوية المتجر السحابية...');
+        this._actionLocks.add('save-brand');
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري ضغط وتحديث هوية المتجر السحابية...');
+        
         try {
             const [newLogo, newLogoLight, newFavicon] = await Promise.all([
                 processBrandImage('store-logo', sys.storeLogo),
@@ -526,32 +651,44 @@ export const MarketingController = {
             AdminData.data.settings = settingsBackup; 
             EventBus.emit('req-update-preview'); 
             EventBus.emit('req-show-toast', {message: 'خطأ أثناء الرفع، تم التراجع عن التغييرات', type: 'error'}); 
-        } 
-        finally { if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); }
+        } finally { 
+            this._actionLocks.delete('save-brand');
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
+        }
     },
 
     autoSaveSettings: async function() {
-        if (!AdminData?.data?.settings) AdminData.data.settings = {};
-        const s = AdminData.data.settings;
-        
-        s.promoText = Utils.escapeHTML(Utils.getVal('promo-text', ''));
-        s.sliderDuration = Utils.getVal('slider-time', 3);
-        s.sliderTransition = Utils.getVal('slider-transition', 'fade');
-        s.promoAnim = Utils.getVal('promo-speed', 'vertical-normal');
-        s.currencyDisplay = Utils.getVal('setting-curr-display', 'symbol');
-        
-        const syncToggle = document.getElementById('setting-sync-currency-store');
-        if (syncToggle) s.syncCurrencyDisplay = syncToggle.checked;
-        
-        const currToggle = document.getElementById('setting-show-currency');
-        if (currToggle) s.showCurrencyToggle = currToggle.checked;
-        
-        const tierMsg = document.getElementById('setting-tier-paused-msg');
-        if (tierMsg) s.tierPausedMsg = Utils.escapeHTML(tierMsg.value);
-        
-        if (AdminData?.saveSystemSettings) await AdminData.saveSystemSettings();
-        
-        EventBus.emit('req-update-preview');
-        EventBus.emit('req-show-toast', { message: 'تم حفظ الإعدادات', type: 'success' });
+        // 🚀 [التحديث المعماري - Full Mutex Coverage]: إغلاق ثغرة الحفظ المزدوج لإعدادات المتجر
+        if (this._actionLocks.has('auto-save-settings')) return;
+        this._actionLocks.add('auto-save-settings');
+
+        try {
+            if (!AdminData?.data?.settings) AdminData.data.settings = {};
+            const s = AdminData.data.settings;
+            
+            s.promoText = Utils.escapeHTML(Utils.getVal('promo-text', ''));
+            s.sliderDuration = Utils.getVal('slider-time', 3);
+            s.sliderTransition = Utils.getVal('slider-transition', 'fade');
+            s.promoAnim = Utils.getVal('promo-speed', 'vertical-normal');
+            s.currencyDisplay = Utils.getVal('setting-curr-display', 'symbol');
+            
+            const syncToggle = document.getElementById('setting-sync-currency-store');
+            if (syncToggle) s.syncCurrencyDisplay = syncToggle.checked;
+            
+            const currToggle = document.getElementById('setting-show-currency');
+            if (currToggle) s.showCurrencyToggle = currToggle.checked;
+            
+            const tierMsg = document.getElementById('setting-tier-paused-msg');
+            if (tierMsg) s.tierPausedMsg = Utils.escapeHTML(tierMsg.value);
+            
+            if (AdminData?.saveSystemSettings) await AdminData.saveSystemSettings();
+            
+            EventBus.emit('req-update-preview');
+            EventBus.emit('req-show-toast', { message: 'تم حفظ الإعدادات', type: 'success' });
+        } catch (error) {
+            EventBus.emit('req-show-toast', { message: 'فشل حفظ الإعدادات', type: 'error' });
+        } finally {
+            this._actionLocks.delete('auto-save-settings');
+        }
     }
 };

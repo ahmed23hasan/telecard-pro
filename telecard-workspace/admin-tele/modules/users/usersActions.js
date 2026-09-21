@@ -1,22 +1,20 @@
 // ============================================================================
-// 🗺️ خريطة مسارات المستخدمين (Users Actions Router) - النسخة الماسية V16.1 💎
+// 🗺️ خريطة مسارات المستخدمين (Users Actions Router) - Cloud-Native V18.4 💎
 // 🚀 التحديث الأقصى: 
-// 1. Ghost Router Fix: توجيه الأوامر للمحرك الحديث UsersRender بدلاً من AdminRender الميت.
-// 2. Missing Routes: إضافة مسارات (fetch-user-history) لجلب سجلات العميل السحابية.
+// 1. Ledger Audit Route ⚖️: ربط مسار "المحقق المالي" لتصحيح تشوهات الأرصدة سحابياً.
+// 2. Version Unification: توحيد رقم الإصدار مع باقي المنظومة لضمان التوافقية التامة.
 // ============================================================================
 
 import { UsersController } from './usersController.js';
-import { UsersRender } from './usersRender.js'; // 🛡️ استيراد المحرك الصحيح
+import { UsersRender } from './usersRender.js'; 
 import { AdminUI } from '../../adminUI.js';
 import { EventBus } from '../../adminUtils.js';
 
 export const UsersActions = {
     // --- 1. الإدارة العامة للمستخدمين ---
-    // 🚀 [الإصلاح]: التوجيه إلى UsersRender لضمان عمل الـ CRM والسجل المالي المدمج
     'view-user': (data) => UsersRender?.viewUser?.(data.id),
     'switch-user-tab': (data) => UsersRender?.switchUserTab?.(data.tab),
     
-    // 🚀 [الإصلاح]: مسارات جلب السجل المالي من السيرفر (كانت مفقودة)
     'fetch-user-history': (data) => UsersController.fetchUserHistory?.(data.id, data.loadMore),
     'load-more-user-history': (data) => UsersController.fetchUserHistory?.(data.id, true),
     
@@ -28,6 +26,10 @@ export const UsersActions = {
     'ban-user': (data) => UsersController.banUser?.(data.id),
     'ban-user-ip': (data) => UsersController.banUserIp?.(data.id, data.ip),
     'adjust-balance': (data) => UsersController.openBalanceAdjust?.(data.type, data.id),
+    
+    // 🚀 [ربط مسار المحقق المالي الجنائي]
+    'audit-user-wallet': (data) => UsersController.auditUserWallet?.(data.id),
+    
     'send-custom-notif': (data) => UsersController.sendCustomNotification?.(data.id),
     'send-password-reset': (data) => UsersController.sendPasswordReset?.(data.id),
     'toggle-user-sort': () => UsersController.toggleUserSort?.(),

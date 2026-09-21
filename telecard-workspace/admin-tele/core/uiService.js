@@ -1,8 +1,10 @@
 // ============================================================================
-// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.1 💎
+// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.2 💎
 // 🎯 الوظيفة: أدوات الواجهة المشتركة (الإشعارات، التحميل، النوافذ) بدون منطق عمل
-// 🌟 التحديثات:
-// 1. Radar Prompt: نافذة تفاعلية منبثقة لطلب صلاحية الإشعارات للمدير بطريقة احترافية.
+// 🌟 التحديثات (V15.2):
+// 1. Storage Saver 💾: إضافة دالة base64ToBlob لتحويل الصور المضغوطة ورفعها.
+// 2. Memory Leak Fix 🧹: تدمير الكانفاس والصور من الذاكرة العشوائية بعد الضغط.
+// 3. Radar Prompt 📡: نافذة تفاعلية منبثقة لطلب صلاحية الإشعارات للمدير.
 // ============================================================================
 
 import { Utils, EventBus } from '../adminUtils.js';
@@ -12,6 +14,22 @@ export const UIService = {
     _esc: Utils.escapeHTML,
     tempImg: null,
     tempFile: null, 
+
+    // 🚀 [تحديث أمني وهندسي]: دالة تحويل الصورة المضغوطة إلى ملف حقيقي لرفعه للسيرفر
+    base64ToBlob: function(base64Data, contentType = 'image/jpeg') {
+        if (!base64Data || !base64Data.includes(',')) return null;
+        const byteCharacters = atob(base64Data.split(',')[1]);
+        const byteArrays = [];
+        for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+            const slice = byteCharacters.slice(offset, offset + 512);
+            const byteNumbers = new Array(slice.length);
+            for (let i = 0; i < slice.length; i++) {
+                byteNumbers[i] = slice.charCodeAt(i);
+            }
+            byteArrays.push(new Uint8Array(byteNumbers));
+        }
+        return new Blob(byteArrays, { type: contentType });
+    },
 
     initTheme: function() {
         const savedTheme = localStorage.getItem('telecard_theme');
@@ -375,11 +393,20 @@ export const UIService = {
                     img.onload = () => {
                         const canvas = document.createElement('canvas'); 
                         const ctx = canvas.getContext('2d');
-                        const scale = img.width > 800 ? 800 / img.width : 1;
+                        const maxDimension = Math.max(img.width, img.height);
+                        const scale = maxDimension > 800 ? 800 / maxDimension : 1;
                         canvas.width = img.width * scale; 
                         canvas.height = img.height * scale;
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                         resolve(canvas.toDataURL(file.type === 'image/png' ? 'image/png' : 'image/jpeg', file.type === 'image/jpeg' ? 0.7 : undefined)); 
+                        
+                        // 🧹 [حماية الذاكرة]: تنظيف الكانفاس والصورة من الذاكرة العشوائية (RAM)
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        canvas.width = 0;
+                        canvas.height = 0;
+                        img.onload = null;
+                        img.onerror = null;
+                        img.src = '';
                     };
                     img.onerror = () => reject(new Error("فشل"));
                 };

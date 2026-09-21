@@ -1,14 +1,20 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V15.8 💎
-// 🎯 الوظيفة: بوابة البيانات الآمنة للوحة الإدارة، إدارة الذاكرة، حماية الفواتير.
-// 🚀 التحديث الأقصى (V15.8): 
-// 1. FCM Integration: دمج مكتبة الإشعارات وتوليد مفاتيح الربط (Tokens) لغرفة عمليات الإدارة.
-// 2. Transparent Errors: رمي الأخطاء الصريحة لعمليات الكتابة.
+// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V16.3 💎
+// 🎯 الوظيفة: بوابة البيانات الآمنة للوحة الإدارة، إدارة الذاكرة، وحماية الفواتير.
+// 🚀 التحديثات المعمارية (V16.3 - Cloud Functions Sync Patch): 
+// 1. Timeout Expansion ⏳: تمديد المهلة الزمنية للوظائف السحابية الثقيلة (callFunction) إلى 120 ثانية لمنع انقطاع الاتصال الوهمي.
+// 2. Batch & DeleteField 🛡️: استيراد writeBatch و deleteField لحل انهيارات حذف المستويات وإبطال الـ KYC.
+// 3. Update Engine 🔄: دالة updateDocument للتحديث الجزئي الآمن (Partial Updates).
+// 4. Aggregation Engine 📊: دمج دوال التجميع (sum, count, average) لخفض التكاليف.
+// 5. FCM Integration 📡: دمج مكتبة الإشعارات للرادار السحابي.
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { 
-    getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, onSnapshot, query, where, orderBy, limit, startAfter
+    getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, 
+    updateDoc, writeBatch, deleteField, 
+    onSnapshot, query, where, orderBy, limit, startAfter,
+    getAggregateFromServer, sum, count, average 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
@@ -31,6 +37,14 @@ export const FirebaseAdapter = {
     db: db,
     storage: storage,
     functions: functions,
+
+    // 🚀 [التحديث المعماري]: تصدير أداة حذف الحقول لاستخدامها في إبطال الـ KYC
+    deleteField: deleteField,
+
+    // 🚀 [التحديث المعماري]: تصدير أداة العمليات المجمعة لاستخدامها في نقل العملاء عند حذف مستوى
+    getBatch: function() {
+        return writeBatch(db);
+    },
 
     _activeListeners: new Map(),
 
@@ -88,6 +102,45 @@ export const FirebaseAdapter = {
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
 
+    // ========================================================================
+    // 📊 دوال التجميع الذكية (Cost-Zero Aggregation Data)
+    // ========================================================================
+
+    async getAggregatedStats(collectionName, conditions = [], aggregations = {}) {
+        try {
+            if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
+            const queryConstraints = [collection(db, collectionName)];
+
+            if (conditions && Array.isArray(conditions) && conditions.length > 0) {
+                if (Array.isArray(conditions[0])) {
+                    conditions.forEach(cond => { if (cond.length === 3) queryConstraints.push(where(cond[0], cond[1], cond[2])); });
+                } else if (conditions.length === 3) {
+                    queryConstraints.push(where(conditions[0], conditions[1], conditions[2]));
+                }
+            }
+
+            const q = query(...queryConstraints);
+
+            const aggSpec = {};
+            for (const [key, config] of Object.entries(aggregations)) {
+                if (config.type === 'count') aggSpec[key] = count();
+                else if (config.type === 'sum' && config.field) aggSpec[key] = sum(config.field);
+                else if (config.type === 'average' && config.field) aggSpec[key] = average(config.field);
+            }
+
+            const snapshot = await this._withTimeout(getAggregateFromServer(q, aggSpec), 15000, `Aggregate -> ${collectionName}`);
+            return snapshot.data();
+            
+        } catch (error) {
+            console.error(`🚨 خطأ في جلب إحصائيات [${collectionName}]:`, error.message);
+            return null;
+        }
+    },
+
+    // ========================================================================
+    // 📦 دوال جلب البيانات الأساسية (CRUD Operations)
+    // ========================================================================
+
     async getAll(collectionName, maxLimit = 3000, retryCount = 1) { 
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
@@ -130,8 +183,21 @@ export const FirebaseAdapter = {
             await this._withTimeout(setDoc(doc(db, collectionName, safeId), data, { merge: true }), 10000, 'set', true);
             return true;
         } catch (error) { 
-            console.error(`🚨 [FirebaseAdapter] رفض التحديث في ${collectionName}:`, error.message);
+            console.error(`🚨 [FirebaseAdapter] رفض الإحلال في ${collectionName}:`, error.message);
             throw error; 
+        }
+    },
+
+    async updateDocument(collectionName, docId, data) {
+        try {
+            if (!collectionName || !docId) throw new Error("بيانات التحديث مفقودة!");
+            const safeId = this._sanitizeDocId(docId);
+            const docRef = doc(db, collectionName, safeId);
+            await this._withTimeout(updateDoc(docRef, data), 10000, 'update', true);
+            return true;
+        } catch (error) {
+            console.error(`🚨 [FirebaseAdapter] رفض التحديث الجزئي في ${collectionName}:`, error.message);
+            throw error;
         }
     },
 
@@ -225,6 +291,10 @@ export const FirebaseAdapter = {
         } catch (error) { return { data: [], newLastDoc: null }; }
     },
 
+    // ========================================================================
+    // 🖼️ دوال رفع الملفات والصور
+    // ========================================================================
+
     async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = true) {
         if (!file) return '';
         
@@ -264,13 +334,24 @@ export const FirebaseAdapter = {
         } catch (error) { }
     },
 
-    async callFunction(functionName, payload = {}) {
+    // ========================================================================
+    // ⚙️ دوال الربط مع السيرفر السحابي (Cloud Functions)
+    // ========================================================================
+
+    // 🚀 [التحديث المعماري]: رفع حد المهلة الزمنية الافتراضية إلى 120 ثانية (120000ms) 
+    // لمنع انقطاع الاتصال (Timeout) أثناء المزامنات الثقيلة للكتالوج
+    async callFunction(functionName, payload = {}, timeoutMs = 120000) {
         try {
             const targetFunction = httpsCallable(functions, functionName);
-            const result = await this._withTimeout(targetFunction(payload), 60000, `Function -> ${functionName}`, true);
+            const result = await this._withTimeout(
+                targetFunction(payload), 
+                timeoutMs, 
+                `Function -> ${functionName}`, 
+                true // اعتبرها عملية كتابة لتفادي الرفض المبكر من الـ race promise
+            );
             return result.data;
         } catch (error) {
-            throw new Error(error.message || 'فشل الاتصال بالسيرفر.');
+            throw new Error(error.message || 'فشل الاتصال بالسيرفر. قد تستغرق العملية وقتاً أطول من المتوقع.');
         }
     },
 

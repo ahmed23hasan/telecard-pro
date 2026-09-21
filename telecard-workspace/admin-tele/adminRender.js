@@ -1,14 +1,16 @@
 // ============================================================================
-// 🖥️ موزع محرك الرسم (adminRender.js) - نمط الواجهة النظيف (Facade) 🚀
+// 🖥️ موزع محرك الرسم (adminRender.js) - Enterprise V17.1 🚀
 // 🎯 الوظيفة: المايسترو الذي يوجه طلبات الرسم للوحدات المعزولة (Micro-Frontends).
-// 🌟 التحديثات المعمارية: 
-// 1. Radar Hydration: إضافة دالة updatePrefsUI لمزامنة تفضيلات الإشعارات الحية.
-// 2. Event Binding: ربط حدث req-update-prefs-ui لملء نافذة الرادار عند فتحها.
+// 🌟 التحديثات المعمارية (V17.1 - Firebase Cost Shield): 
+// 1. Rate Limiting 🛡️: تطبيق (Throttle) على دالة updateBadges لمنع استنزاف قراءات فايربيز.
+// 2. Cloud-Native Badges ☁️: استعلامات تجميعية حية (1 Read) لضمان دقة الأرقام.
+// 3. Radar Hydration 📡: إضافة دالة updatePrefsUI لمزامنة تفضيلات الإشعارات الحية.
 // ============================================================================
 
 import { EventBus, Utils } from './adminUtils.js'; 
 import { AdminData } from './adminData.js';
 import { RenderHelpers } from './core/renderHelpers.js';
+import { FirebaseAdapter } from './core/firebaseAdapter.js';
 
 import { OrdersRender } from './modules/orders/ordersRender.js';
 import { FinanceRender } from './modules/finance/financeRender.js';
@@ -27,6 +29,9 @@ MarketingRender?.initListeners?.();
 IntegrationsRender?.initListeners?.(); 
 DashboardRender?.initListeners?.();
 SalesRender?.initListeners?.(); 
+
+// 🛡️ [حماية التكاليف]: متغير سري لتتبع آخر تحديث للشارات ومنع الاستنزاف
+let lastBadgeUpdate = 0;
 
 export const AdminRender = {
     // ==========================================
@@ -98,22 +103,56 @@ export const AdminRender = {
         else this.exportOrdersToExcel();
     },
 
-    updateBadges: function() {
-        const d = (AdminData.data.deposits || []).filter(x => x.status === 'pending').length;
-        const o = (AdminData.data.orders || []).filter(x => x.status === 'pending').length;
-        const bDep = document.getElementById('badge-dep');
-        const bOrd = document.getElementById('badge-ord');
-        
-        if (bDep) { 
-            if (d > 0) { bDep.innerText = Utils.enNum(d); bDep.classList.add('active'); bDep.classList.remove('hide-element'); } 
-            else { bDep.classList.remove('active'); bDep.classList.add('hide-element'); } 
-        }
-        if (bOrd) { 
-            if (o > 0) { bOrd.innerText = Utils.enNum(o); bOrd.classList.add('active'); bOrd.classList.remove('hide-element'); } 
-            else { bOrd.classList.remove('active'); bOrd.classList.add('hide-element'); } 
+    updateBadges: async function(force = false) {
+        const now = Date.now();
+        // 🛡️ [درع التكاليف]: لا تحدث إذا مر أقل من 3 دقائق (180,000 ملي ثانية)، إلا إذا طلبنا التحديث بالقوة
+        if (!force && (now - lastBadgeUpdate < 180000)) return; 
+
+        try {
+            // جلب الأرقام الحقيقية من السيرفر مباشرة بتكلفة (1 Read)
+            const [depStats, ordStats] = await Promise.all([
+                FirebaseAdapter.getAggregatedStats('telecard_deposits', [['status', '==', 'pending']], { total: { type: 'count' } }),
+                FirebaseAdapter.getAggregatedStats('telecard_orders', [['status', 'in', ['pending', 'processing']]], { total: { type: 'count' } })
+            ]);
+
+            const d = depStats?.total || 0;
+            const o = ordStats?.total || 0;
+
+            const bDep = document.getElementById('badge-dep');
+            const bOrd = document.getElementById('badge-ord');
+            
+            if (bDep) { 
+                if (d > 0) { bDep.innerText = Utils.enNum(d); bDep.classList.add('active'); bDep.classList.remove('hide-element'); } 
+                else { bDep.classList.remove('active'); bDep.classList.add('hide-element'); } 
+            }
+            if (bOrd) { 
+                if (o > 0) { bOrd.innerText = Utils.enNum(o); bOrd.classList.add('active'); bOrd.classList.remove('hide-element'); } 
+                else { bOrd.classList.remove('active'); bOrd.classList.add('hide-element'); } 
+            }
+            
+            // تحديث الطابع الزمني بعد نجاح الجلب
+            lastBadgeUpdate = Date.now();
+        } catch (error) {
+            console.warn("⚠️ فشل جلب الشارات الحية، يرجى التحقق من الاتصال.");
         }
     },
 
+    // 🚀 [الحل المعماري لعمى الشارات]: إنقاص العداد محلياً (Optimistic UI) 
+    // لراحة عين المدير دون استنزاف قراءات السيرفر
+    decrementLocalBadge: function(type) {
+        const badgeId = type === 'order' ? 'badge-ord' : 'badge-dep';
+        const badge = document.getElementById(badgeId);
+        if (badge && !badge.classList.contains('hide-element')) {
+            let currentVal = parseInt(badge.innerText.replace(/,/g, '')) || 0;
+            if (currentVal > 1) {
+                badge.innerText = Utils.enNum(currentVal - 1);
+            } else {
+                // إخفاء الشارة تماماً إذا وصل العدد للصفر
+                badge.classList.add('hide-element');
+                badge.classList.remove('active');
+            }
+        }
+    },
     updatePreview: function() {
         const txtEl = document.getElementById('promo-text');
         const animEl = document.getElementById('promo-speed');

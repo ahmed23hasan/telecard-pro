@@ -1,17 +1,25 @@
 // ============================================================================
-// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V18.9.0 💎
+// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V18.9.1 💎
 // 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - Firewall Integration Patch):
-// 1. Silent Success Fix 🛡️: دمج مستشعرات הגدار الناري المالي مع الكوبونات لمنع نجاح وهمي إذا رُفض السعر.
-// 2. Mobile Keyboard Glitch Fix 🛡️: إزالة (focus) بعد اللصق الآلي للكوبون لمنع انبثاق كيبورد الهاتف بشكل مزعج.
-// 3. Dynamic Revalidation 🛡️: إلغاء الكوبون المطبق تلقائياً إذا قام العميل بتغيير الكمية لسعر يكسر حماية المتجر.
-// 4. Clean Memory Release 🛡️: تفريغ مؤقتات رسائل الكوبونات عند تدمير العنصر.
+// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - Stability & Memory Patch):
+// 1. Event Delegation Fix 🛡️: نقل أحداث التقويم للمستمع المركزي لمنع "الأزرار الميتة" عند إعادة رسم الـ DOM.
+// 2. Circular Dependency Shield 🛡️: إزالة استيراد UIManager المباشر واستخدام getSys() لمنع انهيار ES6.
+// 3. Animation Ghost Killer 🛡️: القتل التلقائي لرسوم عداد السعر إذا تم إغلاق أو تغيير المنتج لتوفير الـ CPU.
+// 4. Silent Success Fix 🛡️: دمج مستشعرات الجدار الناري المالي مع الكوبونات.
 // ============================================================================
 
 import { DataManager, LiveStoreData } from './dataManager.js';
-import { UIManager } from './ui/uiManager.js'; 
 import * as Utils from './utils.js'; 
 import { RenderHelpers } from './core/renderHelpers.js'; 
+
+// 🛡️ التحديث 2: التوجيه الآمن للموزع المركزي لمنع الاعتماد الدائري (Circular Dependency)
+const getSys = () => {
+    if (typeof window !== 'undefined') {
+        if (window.UIManager) return window.UIManager;
+        if (window.ClientSystem) return window.ClientSystem;
+    }
+    return null;
+};
 
 // =========================================================
 // 1️⃣ نظام التقويم الذكي (Calendar App)
@@ -56,23 +64,24 @@ export const CalendarApp = {
             });
         }
 
-        if (modal) {
-            modal.addEventListener('click', (e) => {
-                if (e.target.closest('#calBtnConfirm')) {
-                    e.stopPropagation(); this.confirmSelection();
-                } else if (e.target.closest('#calBtnCancel')) {
-                    e.stopPropagation(); this.close();
-                }
-            });
-        }
-
+        // 🛡️ التحديث 1: الاعتماد على المستمع المركزي للـ Document بدلاً من ربطه بالـ Modal المتغير
         if (!this._boundDocClick) {
             document.addEventListener('click', (e) => {
+                // معالجة أزرار التقويم
+                if (e.target.closest('#calBtnConfirm')) {
+                    e.stopPropagation(); this.confirmSelection(); return;
+                } else if (e.target.closest('#calBtnCancel')) {
+                    e.stopPropagation(); this.close(); return;
+                }
+
+                // فتح التقويم عند النقر على الحقل
                 const dateField = e.target.closest('.custom-field');
                 if (dateField) {
                     const hiddenInput = dateField.querySelector('input[type="hidden"]');
                     if (hiddenInput) { e.preventDefault(); e.stopPropagation(); this.open(hiddenInput.id, dateField); return; }
                 }
+
+                // إغلاق التقويم عند النقر خارجه
                 const activeModal = document.getElementById('cal-modal');
                 if (!activeModal || !activeModal.classList.contains('show')) return;
                 
@@ -349,7 +358,6 @@ export const Components = {
         if (this.priceTicker) cancelAnimationFrame(this.priceTicker);
         
         el.innerHTML = RenderHelpers.formatMoney(startVal, currency);
-        
         const numElement = el.querySelector('.num-en.money-val');
         
         if (!numElement) {
@@ -361,7 +369,9 @@ export const Components = {
         let startTimestamp = null;
         
         const step = (timestamp) => {
-            if (!el.isConnected) {
+            // 🛡️ التحديث 3: التأكد من أن العنصر لا يزال موجوداً في الشاشة لتوفير الموارد
+            const currentEl = document.getElementById('pm-price');
+            if (!currentEl || currentEl !== el) {
                 this.priceTicker = null;
                 return; 
             }
@@ -412,6 +422,7 @@ export const Components = {
     },
 
     pasteText: async function() {
+        const SysUI = getSys();
         const codeInput = document.getElementById('couponCode');
         if (!codeInput) return;
         try {
@@ -422,13 +433,13 @@ export const Components = {
                 codeInput.value = String(text).replace(/[<>'"/;`%]/g, '').trim().toUpperCase();
                 this.checkInputState(); 
                 
-                // 🛡️ Mobile Keyboard Glitch Fix: نفك التركيز (blur) بدلاً من (focus) لمنع كيبورد الجوال من القفز للعميل فجأة
+                // 🛡️ Mobile Keyboard Glitch Fix
                 codeInput.blur(); 
                 
-                if (typeof UIManager !== 'undefined') UIManager.showToast('تم إدراج الكوبون', 'success');
+                if (SysUI) SysUI.showToast?.('تم إدراج الكوبون', 'success');
             }
         } catch (err) { 
-            if (typeof UIManager !== 'undefined') UIManager.showToast('تعذر اللصق تلقائياً، يرجى كتابة الكود', 'error'); 
+            if (SysUI) SysUI.showToast?.('تعذر اللصق تلقائياً، يرجى كتابة الكود', 'error'); 
         }
     },
 
@@ -453,15 +464,15 @@ export const Components = {
 
     applyCoupon: function() {
         if (!DataManager.currentProd) return; 
-        const SysUI = typeof UIManager !== 'undefined' ? UIManager : null;
+        const SysUI = getSys();
 
         if (!DataManager.user) {
-            if (SysUI) { SysUI.showToast('يرجى تسجيل الدخول أولاً', 'error'); SysUI.sfx?.('error'); }
+            if (SysUI) { SysUI.showToast?.('يرجى تسجيل الدخول أولاً', 'error'); SysUI.sfx?.('error'); }
             return;
         }
         
         if (DataManager.appliedCoupon) { 
-            if (SysUI) SysUI.showToast('يوجد كوبون مستخدم بالفعل', 'info'); 
+            if (SysUI) SysUI.showToast?.('يوجد كوبون مستخدم بالفعل', 'info'); 
             return; 
         }
 
@@ -484,19 +495,18 @@ export const Components = {
 
         if (!result.valid) {
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-xmark"></i> ${Utils.escapeHtml(result.msg)}`, 'error');
-            if(SysUI) { SysUI.showToast(result.msg, 'error'); SysUI.sfx?.('error'); }
+            if(SysUI) { SysUI.showToast?.(result.msg, 'error'); SysUI.sfx?.('error'); }
             return;
         }
 
         const pricingCheck = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, result.coupon);
         if (!pricingCheck || !pricingCheck.pricingSnapshot) return;
 
-        // 🛡️ التحديث الماسي (Firewall Guard): 
-        // نتحقق من رسائل الخطأ الصادرة من المحرك المالي قبل الموافقة على الكوبون
+        // 🛡️ التحديث الماسي (Firewall Guard)
         if (pricingCheck.pricingSnapshot.isFirewallViolated) {
             const reason = pricingCheck.pricingSnapshot.rejectionReason || 'عذراً، هذا الكوبون يكسر حماية التسعير.';
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-shield-halved"></i> ${Utils.escapeHtml(reason)}`, 'error', 6000);
-            if(SysUI) { SysUI.showToast('مرفوض لحماية المتجر', 'error'); SysUI.sfx?.('error'); }
+            if(SysUI) { SysUI.showToast?.('مرفوض لحماية المتجر', 'error'); SysUI.sfx?.('error'); }
             return; 
         }
 
@@ -506,7 +516,7 @@ export const Components = {
         
         if (couponDiscount === 0 && originalTotal > 0 && couponVal > 0) {
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-info"></i> عذراً، لا يمكن تطبيق الخصم على هذا المنتج.`, 'error', 5000);
-            if(SysUI) { SysUI.showToast('هذا المنتج غير مشمول بالخصم الإضافي', 'warning'); SysUI.sfx?.('error'); }
+            if(SysUI) { SysUI.showToast?.('هذا المنتج غير مشمول بالخصم الإضافي', 'warning'); SysUI.sfx?.('error'); }
             return; 
         }
 
@@ -528,11 +538,11 @@ export const Components = {
             if(clearIcon) clearIcon.style.display = 'block'; 
         });
 
-        if(SysUI) SysUI.showToast('تم تطبيق الخصم بنجاح', 'success');
+        if(SysUI) SysUI.showToast?.('تم تطبيق الخصم بنجاح', 'success');
     },
     
     removeCoupon: function(silent = false) {
-        const SysUI = typeof UIManager !== 'undefined' ? UIManager : null;
+        const SysUI = getSys();
         const codeInput = document.getElementById('couponCode');
         const msgBox = document.getElementById('couponMsg');
         const btnApply = document.getElementById('btnApply');
@@ -545,7 +555,6 @@ export const Components = {
             if (codeInput) {
                 codeInput.value = '';
                 codeInput.disabled = false;
-                // التركيز فقط على الكمبيوتر لمنع كيبورد الموبايل من الانبثاق التلقائي
                 if (!silent && window.innerWidth > 768) {
                     codeInput.focus();
                 }
@@ -563,7 +572,7 @@ export const Components = {
         
         this.checkInputState(); 
 
-        if(!silent && SysUI) { SysUI.showToast('تم إزالة الكوبون', 'info'); SysUI.sfx?.('nav'); }
+        if(!silent && SysUI) { SysUI.showToast?.('تم إزالة الكوبون', 'info'); SysUI.sfx?.('nav'); }
     },
 
     revalidateAppliedCoupon: function() {
@@ -575,7 +584,7 @@ export const Components = {
         let isValid = result.valid;
         let rejectMsg = result.msg;
 
-        // 🛡️ Dynamic Revalidation Guard: التأكد أن تغيير الكمية لم يكسر הגدار الناري
+        // 🛡️ Dynamic Revalidation Guard
         if (isValid) {
             const pricingCheck = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, DataManager.appliedCoupon);
             if (pricingCheck && pricingCheck.pricingSnapshot?.isFirewallViolated) {
@@ -589,8 +598,8 @@ export const Components = {
             const msgBox = document.getElementById('couponMsg');
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-triangle-exclamation"></i> تم إزالة الكوبون: ${Utils.escapeHtml(rejectMsg)}`, 'error', 5000);
             
-            const SysUI = typeof UIManager !== 'undefined' ? UIManager : null;
-            if (SysUI) SysUI.showToast('تم إلغاء الكوبون بسبب تغير الشروط', 'warning');
+            const SysUI = getSys();
+            if (SysUI) SysUI.showToast?.('تم إلغاء الكوبون بسبب تغير الشروط', 'warning');
         }
     },
 

@@ -1,11 +1,11 @@
 // ============================================================================
-// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V18.9.1 💎
+// 🪪 وحدة الهوية والأمان (uiAuth.js) - الإصدار المؤسسي V18.9.2 💎
 // 🎯 الوظيفة: الملف الشخصي، التوثيق (KYC)، الأمان، الـ Native 2FA، والبصمة الحيوية
-// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - Security & Memory Patch):
-// 1. Absolute Asset Routing 🛡️: تأمين تحميل مكتبات التشفير (QR) بمسارات جذرية لحماية الروابط العميقة.
-// 2. Worker Memory Leak Fix 🛡️: تدمير (Web Worker) الخاص بالصور بشكل إجباري عند نفاد الوقت لتحرير الـ RAM.
-// 3. Biometric Timer Cleanup 🛡️: إيقاف مؤقت الموت (Deadlock Timer) فور نجاح البصمة لمنع تضارب الأحداث.
-// 4. KYC Session Guard 🛡️: إصلاح ربط حدث لافتة التوثيق لضمان بدء الجلسة وعدم فقدان المرفقات.
+// 🚀 التحديثات المعمارية (V18.9.2 - UI Integrity & Promise Patch):
+// 1. Blob Revocation Fix 🛡️: تحديث مسار الصورة النهائي قبل تدمير الروابط المؤقتة لمنع اختفاء الأفاتار.
+// 2. Promise Trap Guard 🛡️: إغلاق ثغرة تجميد الشاشة في تعديل الاسم عبر إضافة (try...catch) للـ Loader.
+// 3. Sound Redundancy Cleanup 🔊: إزالة استدعاءات الصوت المزدوجة لتقليل العبء على محرك AudioContext.
+// 4. Worker Memory Leak Fix 🛡️: تدمير (Web Worker) الخاص بالصور بشكل إجباري عند نفاد الوقت.
 // ============================================================================
 
 import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES } from '../config.js'; 
@@ -28,13 +28,12 @@ export const UIAuth = {
 
     kycFiles: {},
     _processingImgs: new Set(), 
-    _kycSessionActive: false, // 🛡️ محدد حالة الجلسة لمنع تسرب الذاكرة
+    _kycSessionActive: false,
 
     _compressImage: function(file, maxWidth = 1000) {
         return new Promise(async (resolve, reject) => {
             let worker, workerUrl;
             
-            // 🛡️ دالة لتنظيف الذاكرة وتدمير العامل (Worker) لمنع التسرب
             const cleanupWorker = () => {
                 if (worker) { worker.terminate(); worker = null; }
                 if (workerUrl) { URL.revokeObjectURL(workerUrl); workerUrl = null; }
@@ -309,6 +308,10 @@ export const UIAuth = {
                         const dbUpdateSuccess = DataManager.updateUserProfile ? await DataManager.updateUserProfile({ img: downloadUrl }) : false;
                         
                         if (dbUpdateSuccess) {
+                            // 🛡️ التحديث المعماري 1: تطبيق مسار الصورة النهائي على العناصر المرئية فوراً قبل تدمير الرابط المؤقت
+                            if(liveImgEl) liveImgEl.src = downloadUrl;
+                            if(liveSidebarAvatar) liveSidebarAvatar.src = downloadUrl;
+
                             try { localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + DataManager.user.id, downloadUrl); } 
                             catch(err) { console.warn("Failed to update cache:", err); }
 
@@ -320,7 +323,6 @@ export const UIAuth = {
                             if (avatarMenu) avatarMenu.classList.remove('open'); 
 
                             sys.showToast?.('تم تحديث الصورة الشخصية بنجاح', 'success');
-                            sys.sfx?.('success');
                             downloadUrl = null; 
                         } else {
                             throw new Error("قاعدة البيانات رفضت التحديث.");
@@ -383,27 +385,33 @@ export const UIAuth = {
                 const newFirstName = nameParts[0];
                 const newLastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
                 
+                // 🛡️ التحديث المعماري 2: حماية اللودر بكتلة Try Catch لمنع تجميد الواجهة
                 sys.toggleLoader?.(true, 'جاري تحديث الاسم...');
-                const success = await DataManager.updateUserProfile({ 
-                    firstName: newFirstName, 
-                    lastName: newLastName, 
-                    fullName: newVal 
-                });
-                sys.toggleLoader?.(false);
-                
-                if (success) {
-                    nameEl.textContent = newVal; 
-                    sys.showToast?.('تم تحديث الاسم بنجاح', 'success');
-                    if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
+                try {
+                    const success = await DataManager.updateUserProfile({ 
+                        firstName: newFirstName, 
+                        lastName: newLastName, 
+                        fullName: newVal 
+                    });
                     
-                    inpEl.value = newVal;
-                    inpEl.classList.add('d-none');
-                    nameEl.classList.remove('d-none');
-                    
-                    if (saveBtn) saveBtn.classList.add('d-none');
-                    if (editBtn) editBtn.classList.remove('d-none');
-                } else {
-                    sys.showToast?.('تعذر تحديث الاسم، يرجى المحاولة لاحقاً', 'error');
+                    if (success) {
+                        nameEl.textContent = newVal; 
+                        sys.showToast?.('تم تحديث الاسم بنجاح', 'success');
+                        if (typeof this.updateProfileDisplay === 'function') this.updateProfileDisplay();
+                        
+                        inpEl.value = newVal;
+                        inpEl.classList.add('d-none');
+                        nameEl.classList.remove('d-none');
+                        
+                        if (saveBtn) saveBtn.classList.add('d-none');
+                        if (editBtn) editBtn.classList.remove('d-none');
+                    } else {
+                        throw new Error('Update failed');
+                    }
+                } catch (error) {
+                    sys.showToast?.('تعذر تحديث الاسم، تأكد من اتصالك أو حاول لاحقاً', 'error');
+                } finally {
+                    sys.toggleLoader?.(false);
                 }
             } else {
                 inpEl.classList.add('d-none');
@@ -537,7 +545,6 @@ export const UIAuth = {
             }
             
             sys.showToast?.('تم حذف الصورة الشخصية', 'success'); 
-            sys.sfx?.('success'); 
         } catch(e) { 
             console.error("Error deleting avatar:", e);
             sys.showToast?.('تعذر حذف الصورة', 'error'); 
@@ -745,7 +752,6 @@ export const UIAuth = {
                         } else {
                             const script = document.createElement('script');
                             script.id = 'qrcode-lib-script';
-                            // 🛡️ التحديث المعماري: مسار آمن ومرن يعتمد على الموقع الأساسي
                             script.src = window.location.origin + '/qrcode.min.js';
                             script.onload = resolve;
                             script.onerror = reject;
@@ -827,7 +833,6 @@ export const UIAuth = {
 
             sys.closeModal?.('setup-2fa');
             sys.showToast?.('تم تفعيل المصادقة الثنائية بنجاح 🛡️', 'success');
-            sys.sfx?.('success');
             
             setTimeout(() => {
                 if (typeof this.openSecurityModal === 'function') this.openSecurityModal();
@@ -836,7 +841,6 @@ export const UIAuth = {
             
         } else {
             sys.showToast?.(result.msg, 'error');
-            sys.sfx?.('error');
             if (input) {
                 input.classList.add('input-error');
                 setTimeout(() => input.classList.remove('input-error'), 1000);
@@ -882,7 +886,6 @@ export const UIAuth = {
             
             const controller = new AbortController();
             const timeoutPromise = new Promise((_, reject) => {
-                // 🛡️ التحديث المعماري: حفظ معرف المؤقت لتنظيفه في حال نجاح العملية
                 bioTimerId = setTimeout(() => {
                     controller.abort(); 
                     reject(new Error('biometric_timeout'));
@@ -910,7 +913,7 @@ export const UIAuth = {
                 timeoutPromise
             ]);
             
-            clearTimeout(bioTimerId); // 🛡️ تنظيف المؤقت
+            clearTimeout(bioTimerId); 
             
             const rawIdBytes = new Uint8Array(credential.rawId);
             const binaryString = Array.from(rawIdBytes).map(b => String.fromCharCode(b)).join('');
@@ -924,13 +927,12 @@ export const UIAuth = {
             if (success) {
                 try { localStorage.setItem(CACHE_KEYS.BIOMETRIC_KEY, rawIdBase64); } catch (e) {}
                 sys.showToast?.('تم تفعيل قفل البصمة بنجاح!', 'success');
-                sys.sfx?.('success');
                 this.openSecurityModal();
             } else {
                 throw new Error('server_error');
             }
         } catch (error) {
-            clearTimeout(bioTimerId); // 🛡️ تنظيف المؤقت
+            clearTimeout(bioTimerId); 
             console.error("Biometric Error:", error);
             
             if (error.message === 'biometric_timeout') {
@@ -977,12 +979,10 @@ export const UIAuth = {
         DataManager.submitPasswordChange(currentVal, newVal, confirmVal).then(result => {
             if (result.success) {
                 sys.showToast?.('تم تحديث كلمة المرور بنجاح!', 'success');
-                sys.sfx?.('success');
                 [currentInput, newInput, confirmInput].forEach(el => { if (el) el.value = ''; });
                 setTimeout(() => { sys.closeSecurityModal?.(); }, 1000);
             } else {
                 sys.showToast?.(result.msg, 'error');
-                sys.sfx?.('error');
             }
         });
     },
@@ -992,7 +992,6 @@ export const UIAuth = {
         const user = DataManager?.user;
         if (!user || !user.email) {
             sys.showToast?.('لا يوجد بريد إلكتروني مرتبط بهذا الحساب لإرسال الرابط!', 'error');
-            sys.sfx?.('error');
             return;
         }
         
@@ -1005,10 +1004,8 @@ export const UIAuth = {
             if (result.success) {
                 sys.closeSecurityModal?.(); 
                 sys.showToast?.('تم إرسال رابط التعيين إلى بريدك الإلكتروني بنجاح', 'success');
-                sys.sfx?.('success');
             } else {
                 sys.showToast?.(result.msg, 'error'); 
-                sys.sfx?.('error');
             }
         } catch (error) {
             console.error("Password Reset Error:", error);
@@ -1109,7 +1106,6 @@ export const UIAuth = {
             }
         } catch (error) {
             console.error("Identity Save Error:", error);
-            sys.sfx?.('error');
             sys.showToast?.(error.message, 'error');
         } finally {
             if (sys.State) sys.State.isSavingIdentity = false;
@@ -1202,7 +1198,6 @@ export const UIAuth = {
     sys.toggleLoader?.(true, 'جاري معالجة الصورة...');
     const compressed = await this._compressImage(file, 1200);
     
-    // 🛡️ [الإصلاح]: التحقق مما إذا كان العميل قد حذف الصورة أثناء معالجتها
     if (!this._kycSessionActive || !input.value) {
         URL.revokeObjectURL(compressed.previewUrl);
         return;
@@ -1512,7 +1507,6 @@ export const UIAuth = {
             if (res.success) {
                 sys.closeModal?.('rating'); 
                 sys.showToast?.("نشكرك جداً! تم الإرسال للإدارة.", "success"); 
-                sys.sfx?.('success');
             } else {
                 throw new Error("فشل الإرسال");
             }

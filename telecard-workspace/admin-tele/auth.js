@@ -1,14 +1,16 @@
 // ============================================================================
-// 🔐 محرك المصادقة السحابي للإدارة (auth.js) - Bank Grade Security 🏦
+// 🔐 محرك المصادقة السحابي للإدارة (auth.js) - Bank Grade Security 🏦 V16.3 💎
 // 🎯 الوظيفة: التحقق من هوية المشرف، حماية الجلسات، ودعم المصادقة الثنائية (2FA)
-// 🌟 التحديث: فصل الاهتمامات (SoC) + فحص الـ Custom Claims + Session Persistence
+// 🚀 التحديثات المعمارية (V16.3 - Bank-Grade Strict Session):
+// 1. Strict Session Security 🔒: العودة إلى الذاكرة المؤقتة (Session) لطرد المدير فور إغلاق المتصفح.
+// 2. Zero-Trust Claims 🛡️: إزالة المعرف الثابت (Hardcoded UID) والاعتماد حصرياً على توثيق السيرفر.
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
 import {
     signInWithEmailAndPassword,
     setPersistence,
-    browserSessionPersistence,
+    browserSessionPersistence, // 🚀 [التحديث الأمني]: استخدام الذاكرة المؤقتة لأقصى درجات الأمان
     getMultiFactorResolver,
     TotpMultiFactorGenerator
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
@@ -96,13 +98,15 @@ const handle2FARequest = (resolver) => {
 const finalizeAdminLogin = async (user) => {
     const idTokenResult = await user.getIdTokenResult();
     
-    const isAuthorizedAdmin = idTokenResult.claims.admin === true || user.uid === 'e064MQJyn6dhU9mNXZvXItc7VYg2';
+    // 🛡️ [التحديث الأمني]: الاعتماد حصرياً على الـ Claims الموثقة من السيرفر وإزالة المعرف الثابت
+    const isAuthorizedAdmin = idTokenResult.claims.admin === true;
     
     if (!isAuthorizedAdmin) {
         await auth.signOut();
         throw new Error('NotAuthorizedAdmin');
     }
     
+    // 🚀 [التحديث الأمني]: استخدام sessionStorage لضمان تدمير الجلسة بمجرد إغلاق المتصفح (المعيار البنكي)
     sessionStorage.setItem('telecard_admin_auth', 'true');
     
     const btnLogin = document.getElementById('btn-login');
@@ -147,6 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setBtnLoading(true);
         
         try {
+            // 🚀 [التحديث الأمني]: إجبار فايربيز على نسيان المدير بمجرد إغلاق المتصفح
             await setPersistence(auth, browserSessionPersistence);
             const userCredential = await signInWithEmailAndPassword(auth, inputEmail, inputPass);
             await finalizeAdminLogin(userCredential.user);

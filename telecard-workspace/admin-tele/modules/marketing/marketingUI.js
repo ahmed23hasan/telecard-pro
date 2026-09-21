@@ -1,7 +1,9 @@
 // ============================================================================
-// 📢 وحدة التسويق والعروض (modules/marketing/marketingUI.js)
+// 📢 وحدة التسويق والعروض (modules/marketing/marketingUI.js) - Cloud-Native V18.2
 // 🎯 الوظيفة: إدارة الكوبونات، العروض المركزية، ومحرك البناء المرئي (Visual Engine)
-// 🚀 التحديث: إضافة انتقال سلس (Smooth Transition) عند تغيير الهوية البصرية.
+// 🚀 التحديثات المعمارية:
+// 1. Crash Protection 🛡️: استخدام دوال الإسناد الآمنة لتهيئة نوافذ الإشعارات وتجنب أخطاء (Null Ref).
+// 2. State Bleed Fix 🛡️: تنظيف كائن البناء المرئي عند كل فتح لمنع تداخل التصاميم بين العروض.
 // ============================================================================
 
 import { Utils, EventBus } from '../../adminUtils.js';
@@ -10,9 +12,11 @@ import { UIService } from '../../core/uiService.js';
 
 export const MarketingUI = {
 
-    // =========================================================
-    // 🌟 1. جسور تهيئة النوافذ (Modals Setup - DOM Isolation)
-    // =========================================================
+    visualConfig: {
+        storyEnabled: false, storyShape: 'shape-circle', storyProducts: [], 
+        grid: { badgeText: '', badgeStyle: 'none', badgeColor: 'theme-ruby', badgePos: 'pos-tr', timerStyle: 'none', timerPos: 'pos-bc' }
+    },
+
     setupOfferModal: function(offer) {
         const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
         const safeSetCheck = (elId, val) => { const el = document.getElementById(elId); if (el) el.checked = val; };
@@ -32,6 +36,8 @@ export const MarketingUI = {
             if (dText) { dText.innerText = 'DD/MM/YYYY HH:MM'; dText.classList.add('placeholder-text'); } 
         }
         this.toggleOfferFields();
+
+        this.resetVisualBuilder(offer ? offer.visualConfig : null);
     },
 
     setupCouponModal: function(coupon, isEdit) {
@@ -41,32 +47,57 @@ export const MarketingUI = {
         if (titleEl) titleEl.innerHTML = isEdit ? '<i class="fa-solid fa-pen"></i> تعديل الكوبون' : '<i class="fa-solid fa-ticket"></i> إضافة كوبون جديد';
         
         if (isEdit && coupon) {
-            safeSetVal('coupon-code', coupon.code || ''); safeSetVal('coupon-type', coupon.type || 'percentage'); safeSetVal('coupon-value', coupon.value || 0); safeSetVal('coupon-min-order', coupon.minOrder || 0); safeSetVal('coupon-max-uses', coupon.maxUses || 0); safeSetCheck('coupon-active', coupon.isActive !== false); safeSetVal('coupon-max-per-user', coupon.maxPerUser || 0); safeSetVal('coupon-allowed-users', (coupon.allowedUsers || []).join(', '));
+            safeSetVal('coupon-code', coupon.code || ''); 
+            safeSetVal('coupon-type', coupon.type || 'percentage'); 
+            safeSetVal('coupon-value', coupon.value || 0); 
+            safeSetVal('coupon-max-discount', coupon.maxDiscount || 0); 
+            safeSetVal('coupon-min-order', coupon.minOrder || 0); 
+            safeSetVal('coupon-max-uses', coupon.maxUses || 0); 
+            safeSetCheck('coupon-active', coupon.isActive !== false); 
+            safeSetVal('coupon-max-per-user', coupon.maxPerUser || 0); 
+            safeSetVal('coupon-allowed-users', (coupon.allowedUsers || []).join(', '));
+            
             const tempDate = coupon.expiryDate || null; const dText = document.getElementById('date-expiry-coupon'); const dHidden = document.getElementById('coupon-expiry');
             if (dHidden) dHidden.value = tempDate || '';
             if (dText) { if (tempDate) { dText.innerText = Utils.formatDate(tempDate); dText.classList.remove('placeholder-text'); } else { dText.innerText = 'DD/MM/YYYY HH:MM'; dText.classList.add('placeholder-text'); } }
         } else {
-            safeSetVal('coupon-code', ''); safeSetVal('coupon-type', 'percentage'); safeSetVal('coupon-value', ''); safeSetVal('coupon-min-order', ''); safeSetVal('coupon-max-uses', ''); safeSetCheck('coupon-active', true); safeSetVal('coupon-max-per-user', ''); safeSetVal('coupon-allowed-users', ''); 
+            safeSetVal('coupon-code', ''); 
+            safeSetVal('coupon-type', 'percentage'); 
+            safeSetVal('coupon-value', ''); 
+            safeSetVal('coupon-max-discount', ''); 
+            safeSetVal('coupon-min-order', ''); 
+            safeSetVal('coupon-max-uses', ''); 
+            safeSetCheck('coupon-active', true); 
+            safeSetVal('coupon-max-per-user', ''); 
+            safeSetVal('coupon-allowed-users', ''); 
+            
             const dText = document.getElementById('date-expiry-coupon'); const dHidden = document.getElementById('coupon-expiry');
             if (dHidden) dHidden.value = ''; if (dText) { dText.innerText = 'DD/MM/YYYY HH:MM'; dText.classList.add('placeholder-text'); }
         }
     },
 
     setupAlertModal: function(tiersList) {
-        document.getElementById('alert-title').value = ''; document.getElementById('alert-body').value = ''; document.getElementById('alert-expiry').value = ''; document.getElementById('date-expiry-alert').innerText = 'DD/MM/YYYY HH:MM';
+        // 🚀 [التحديث المعماري]: تغليف آمن يمنع انهيار الواجهة
+        const safeSetVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+        const safeSetText = (id, txt) => { const el = document.getElementById(id); if (el) el.innerText = txt; };
+
+        safeSetVal('alert-title', ''); 
+        safeSetVal('alert-body', ''); 
+        safeSetVal('alert-expiry', ''); 
+        safeSetText('date-expiry-alert', 'DD/MM/YYYY HH:MM');
+        
         const alertTypeEl = document.getElementById('alert-type'); if (alertTypeEl && alertTypeEl.options.length > 0) alertTypeEl.selectedIndex = 0; 
         const targetTypeEl = document.getElementById('alert-target-type'); if (targetTypeEl && targetTypeEl.options.length > 0) targetTypeEl.selectedIndex = 0; 
-        const maxViewsInput = document.getElementById('alert-max-views'); if (maxViewsInput) maxViewsInput.value = '3'; 
-        const actionLinkInput = document.getElementById('alert-action-link'); if (actionLinkInput) actionLinkInput.value = '';
-        const couponInput = document.getElementById('alert-coupon-code'); if (couponInput) couponInput.value = '';
+        
+        safeSetVal('alert-max-views', '3');
+        safeSetVal('alert-action-link', '');
+        safeSetVal('alert-coupon-code', '');
+        
         const tierSelect = document.getElementById('alert-target-tier');
         if (tierSelect) { tierSelect.innerHTML = tiersList.map(t => `<option value="${t.id}">${Utils.escapeHTML(t.name)}</option>`).join(''); }
         if(window.AdminUI) { window.AdminUI.toggleAlertTargetFields?.(); window.AdminUI.toggleAlertTypeFields?.(); }
     },
 
-    // =========================================================
-    // 🌟 2. تبويبات العروض والتخفيضات 
-    // =========================================================
     switchPromoTab: function(tab, btnEl) {
         document.querySelectorAll('#tabs-promotions.main-tab-btn').forEach(b => b.classList.remove('active'));
         if(btnEl) btnEl.classList.add('active');
@@ -107,14 +138,6 @@ export const MarketingUI = {
             if (type === 'real' || type === 'fake') valueLabel.innerText = "نسبة الخصم المئوية (%)";
             else if (type === 'fixed') valueLabel.innerText = "السعر الثابت الموحد ($)";
         }
-    },
-
-    // ============================================================================
-    // 🎨 3. محرك البناء المرئي (Visual Engine)
-    // ============================================================================
-    visualConfig: {
-        storyEnabled: false, storyShape: 'shape-circle', storyProducts: [], 
-        grid: { badgeText: '', badgeStyle: 'none', badgeColor: 'theme-ruby', badgePos: 'pos-tr', timerStyle: 'none', timerPos: 'pos-bc' }
     },
 
     switchBuilderTab: function(tabId) {
@@ -280,9 +303,6 @@ export const MarketingUI = {
         this.switchBuilderTab('data', null); this.renderGridPreview();
     },
 
-    // =========================================================
-    // 🛡️ 4. أدوات منع التضارب والجسور (Logic Bridges)
-    // =========================================================
     showBatchCollisionResolverUI: function(collisions, resolveCallback) {
         const overlay = document.createElement('div'); overlay.className = 'modal-overlay active'; overlay.id = 'batch-collision-modal';
         const listHtml = collisions.map(c => `
@@ -313,7 +333,6 @@ export const MarketingUI = {
         if (input) { input.value = code; input.focus(); input.classList.add('flash-success'); setTimeout(() => input.classList.remove('flash-success'), 400); }
     },
 
-    // 🌟 5. مساعدة استخراج البيانات (Data Extractors)
     getSelectedTiers: () => Array.from(document.querySelectorAll('#offer-target-tiers .tree-tier-cb:checked')).map(cb => cb.value),
     getSelectedProds: () => Array.from(document.querySelectorAll('#offer-target-prods .tree-child-cb:checked')).map(cb => cb.value),
     getSelectedStoryProds: () => Array.from(document.querySelectorAll('#story-selection-prods .tree-child-cb:checked')).map(cb => cb.value),

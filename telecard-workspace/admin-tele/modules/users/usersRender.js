@@ -1,15 +1,15 @@
 // ============================================================================
-// 👥 محرك رسم المستخدمين (modules/users/usersRender.js) - Enterprise V16.4 💎
-// 🚀 التحديثات المعمارية: 
-// 1. Data Normalization Shield: إصلاح ثغرة اختفاء السجلات السحابية عبر التمييز الذكي لنوع العملية (Order vs Deposit).
-// 2. CRM Rating Sync: جلب تقييم العميل من قاعدة البيانات وإرساله للقالب.
-// 3. Chunked Rendering: رسم القوائم الضخمة بدفعات لحماية المتصفح من التجمد.
+// 👥 محرك رسم المستخدمين (modules/users/usersRender.js) - Cloud-Native V18.6 💎
+// 🚀 التحديثات المعمارية (V18.6 - Infinite Loop Shield): 
+// 1. Data Normalization Shield 🛡️: الاعتماد المطلق على الذاكرة المركزية AdminData.
+// 2. Infinite Loop Fix 🛡️: إيقاف زر جلب المزيد بشكل قطعي إذا أرجع السيرفر (null).
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { EventBus, Utils } from '../../adminUtils.js'; 
 import { RenderHelpers } from '../../core/renderHelpers.js';
 import { UsersTemplates } from './usersTemplates.js'; 
+import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const UsersRender = {
     state: { userSearch: '', sortUsers: 'desc', userSortCategory: 'newest', currentTierId: null, currentEditUserId: null, userHistoryTab: 'orders' },
@@ -20,6 +20,11 @@ export const UsersRender = {
     initListeners: function() {
         EventBus.on('state-update', (newState) => { this.state = { ...this.state, ...newState }; });
         EventBus.on('req-render-user-history', () => this.renderUserHistoryList());
+        
+        EventBus.on('req-clear-render-filters', () => {
+            this.state.userSearch = '';
+        });
+        
         this.setupFullHistoryTabListeners();
     },
 
@@ -27,24 +32,75 @@ export const UsersRender = {
         const btn = document.getElementById('btn-user-sort');
         if(btn) btn.innerHTML = UsersTemplates.userSortLabel(this.state.sortUsers === 'asc');
     },
+    
+    loadMoreUsers: async function() {
+        const btn = document.querySelector('.btn-load-more');
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
+            btn.disabled = true;
+        }
+
+        try {
+            const res = await FirebaseAdapter.fetchMoreWithCursor(
+                'telecard_users', [], 'createdAt', AdminData.cursors.users, 50
+            );
+
+            if (res && res.data && res.data.length > 0) {
+                // 🚀 [درع الدمج]: إضافة العملاء الجدد دون مسح القدامى
+                AdminData.data.users = [...AdminData.data.users, ...res.data];
+                res.data.forEach(u => { AdminData.data.usersMap[String(u.id)] = u; });
+                
+                // 🛡️ [إصلاح التكرار اللانهائي]: تحديث المؤشر فقط إذا كان هناك المزيد
+                if (res.newLastDoc) {
+                    AdminData.cursors.users = res.newLastDoc;
+                } else {
+                    AdminData.cursors.users = null;
+                    if (btn) {
+                        btn.innerHTML = '<i class="fa-solid fa-check"></i> لا يوجد عملاء أقدم';
+                        btn.classList.add('disabled', 'text-muted');
+                        btn.disabled = true;
+                    }
+                }
+
+                this.renderUsers(); 
+            } else {
+                // 🛡️ إغلاق الزر نهائياً إذا لم يرجع السيرفر أي بيانات
+                AdminData.cursors.users = null;
+                if (btn) {
+                    btn.innerHTML = '<i class="fa-solid fa-check"></i> لا يوجد عملاء أقدم';
+                    btn.classList.add('disabled', 'text-muted');
+                    btn.disabled = true;
+                }
+            }
+        } catch (error) {
+            console.error("🚨 فشل جلب المزيد من العملاء سحابياً:", error);
+            if (btn) {
+                btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
+                btn.disabled = false;
+            }
+        }
+    },
 
     renderUsers: function() {
         const wrap = document.getElementById('users-container');
         if(!wrap) return;
 
+        // 🚀 [التحديث المعماري]: الاعتماد المطلق على الذاكرة المركزية المدمجة
         let users = Array.isArray(AdminData.data.users) ? [...AdminData.data.users] : [];
-        if(!users.length) { wrap.innerHTML = UsersTemplates.emptyUsers(); return; }
-        
-        const term = (this.state.userSearch || '').toLowerCase();
-        if(term) {
+
+        if (this.state.userSearch) {
+            const query = this.state.userSearch.toLowerCase();
             users = users.filter(u => 
-                String(u.id||'').toLowerCase().includes(term) || 
-                String(u.displayId||'').toLowerCase().includes(term) || 
-                String(u.fullName || u.name || '').toLowerCase().includes(term) || 
-                String(u.username||'').toLowerCase().includes(term) || 
-                String(u.phone||'').includes(term) || 
-                String(u.email||'').includes(term)
+                String(u.id||'').toLowerCase().includes(query) || 
+                String(u.displayId||'').toLowerCase().includes(query) || 
+                String(u.fullName || u.name || '').toLowerCase().includes(query) || 
+                String(u.email||'').includes(query)
             );
+        }
+
+        if(!users.length) { 
+            wrap.innerHTML = this.state.userSearch ? `<div class="empty-state"><i class="fa-solid fa-search"></i><span>لم يتم العثور على العميل "${Utils.escapeHTML(this.state.userSearch)}" في قاعدة البيانات.</span></div>` : UsersTemplates.emptyUsers(); 
+            return; 
         }
 
         const now = new Date();
@@ -78,7 +134,15 @@ export const UsersRender = {
         this._renderToken = Date.now();
         const currentToken = this._renderToken;
 
-        wrap.innerHTML = `<div class="users-grid" id="users-grid-container"></div>`;
+        const hasMoreInCloud = AdminData.cursors.users !== null && AdminData.cursors.users !== undefined && !this.state.userSearch;
+        const loadMoreHtml = hasMoreInCloud ? `
+            <div class="load-more-container mt-15 mb-15 w-100 text-center" id="load-more-users-btn">
+                <button class="btn btn-ghost btn-load-more" data-action="load-more-users">
+                    <i class="fa-solid fa-angle-down"></i> جلب المزيد من العملاء ☁️
+                </button>
+            </div>` : '';
+
+        wrap.innerHTML = `<div class="users-grid" id="users-grid-container"></div>${loadMoreHtml}`;
         const grid = document.getElementById('users-grid-container');
 
         const chunkSize = 200; 
@@ -112,8 +176,11 @@ export const UsersRender = {
         const modal = document.getElementById('m-user-detail'), body = document.getElementById('ud-body');
         if(!modal || !body) return;
         
-        const u = AdminData.data.usersMap?.[id] || (AdminData.data.users || []).find(x => String(x.id) === String(id)); 
-        if(!u) return;
+        const u = AdminData.data.usersMap?.[id] || (AdminData.data.users || []).find(x => String(x.id) === String(id));
+        if(!u) {
+            if (window.AdminUI?.showToast) window.AdminUI.showToast("لا يمكن العثور على بيانات هذا العميل حالياً.", "error");
+            return;
+        }
         
         this.state.currentEditUserId = id;
         EventBus.emit('state-update', { currentEditUserId: id });
@@ -192,12 +259,11 @@ export const UsersRender = {
         const tab = this.state.userHistoryTab || 'orders';
         const allHistory = (AdminData.tempUserHistory && AdminData.tempUserHistory.all) ? AdminData.tempUserHistory.all : [];
         
-        // 🚀 [الإصلاح الماسي - درع توحيد البيانات]: ضمان تصنيف السجلات القادمة من السيرفر لكي لا تختفي
         allHistory.forEach(tx => {
             if (!tx.txType) {
                 if (tx.product || tx.prodId || tx.qty) tx.txType = 'order';
                 else if (tx.method || tx.methodName || tx.network) tx.txType = 'deposit';
-                else tx.txType = 'order'; // تصنيف افتراضي لتجنب الاختفاء
+                else tx.txType = 'order'; 
             }
         });
         
@@ -234,17 +300,13 @@ export const UsersRender = {
 
     setupFullHistoryTabListeners: function() {
         if (this._historyListenerAdded) return;
-        
         document.addEventListener('click', (e) => {
             const tabBtn = e.target.closest('.fh-tab');
             if (!tabBtn) return;
-            
             const rawTarget = tabBtn.dataset.target || '';
             const tabId = rawTarget.replace('fh-', ''); 
-            
             this.switchUserHistoryTab(tabId, tabBtn);
         });
-        
         this._historyListenerAdded = true;
     },
 
@@ -265,15 +327,18 @@ export const UsersRender = {
         if(!cont) return;
         const tiers = Array.isArray(AdminData.data.tiers) ? AdminData.data.tiers : [];
         if(tiers.length === 0) { cont.innerHTML = ''; return; }
-        const gStats = AdminData.data.system?.globalStats?.tierStats || {};
-        const userCounts = {};
-        (AdminData.data.users || []).forEach(u => {
-            const tId = String(u.tierId || 'default');
-            userCounts[tId] = (userCounts[tId] || 0) + 1;
-        });
+        
+        const cloudStats = AdminData.data.cloudStats?.users?.tierCounts || {};
+        
         cont.innerHTML = tiers.map(t => {
-            const tStats = gStats[t.id] || { profit: 0, revenue: 0, orderCount: 0 };
-            return UsersTemplates.tierCard(t, userCounts[t.id] || 0, tStats);
+            const cloudUserCount = cloudStats[t.id];
+            let userCount = 0;
+            if (cloudUserCount !== undefined) {
+                userCount = cloudUserCount;
+            } else {
+                userCount = (AdminData.data.users || []).filter(u => String(u.tierId) === String(t.id)).length;
+            }
+            return UsersTemplates.tierCard(t, userCount);
         }).join('');
     },
 
@@ -296,10 +361,8 @@ export const UsersRender = {
             document.getElementById('tier-name').textContent = tier.name;
             const iconBox = document.querySelector('.tier-info-card .tic-icon-box i');
             if(iconBox) iconBox.className = `fa-solid ${Utils.escapeHTML(tier.icon||'fa-user')}`;
-            const gStats = AdminData.data.system?.globalStats?.tierStats || {};
-            const tStats = gStats[tier.id] || { profit: 0, revenue: 0 };
             const tierInfo = document.querySelector('.tier-info-card .tier-stats');
-            if(tierInfo) tierInfo.innerHTML = UsersTemplates.tierInfoStats(tier, tStats);
+            if(tierInfo) tierInfo.innerHTML = UsersTemplates.tierInfoStats(tier);
         }
         tierUsersSection.classList.add('active');
         this.renderTierUsersPage();
@@ -313,9 +376,7 @@ export const UsersRender = {
         
         const serverNowMs = Date.now();
         const getStartOfUTCDay = (timestampMs) => {
-            const d = new Date(timestampMs);
-            d.setUTCHours(0, 0, 0, 0);
-            return d.getTime();
+            const d = new Date(timestampMs); d.setUTCHours(0, 0, 0, 0); return d.getTime();
         };
         const todayDay = getStartOfUTCDay(serverNowMs);
 

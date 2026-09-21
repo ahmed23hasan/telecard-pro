@@ -1,10 +1,12 @@
 // ============================================================================
-// 🗺️ خريطة مسارات التسويق (Marketing Actions Router)
+// 🗺️ خريطة مسارات التسويق (Marketing Actions Router) - Cloud-Native V18.2 💎
+// 🚀 التحديث الأقصى: 
+// 1. Decoupling 🛡️: فصل أوامر الحذف (الإشعارات والبنرات) عن الموجه المركزي لتجنب تضارب الصلاحيات.
 // ============================================================================
 
-import { MarketingController } from './marketingController.js'; 
+import { MarketingController } from './marketingController.js';
 import { AdminUI } from '../../adminUI.js';
-import { EventBus } from '../../adminUtils.js'; // 🆕 استيراد ناقل الأحداث الضروري للمعاينة الحية
+import { EventBus } from '../../adminUtils.js';
 
 export const MarketingActions = {
     // --- 1. إدارة العروض (Offers & Visual Builder) ---
@@ -31,6 +33,7 @@ export const MarketingActions = {
     // --- 3. إدارة الإشعارات الذكية (Alerts & Notifications) ---
     'open-alert-modal': () => MarketingController.openAlertModal?.(),
     'send-alert': () => MarketingController.sendUnifiedAlert?.(),
+    'delete-alert': (data) => MarketingController.deleteAlert?.(data.id), // 🚀 مسار الحذف المباشر للإشعار
     'toggle-alert-adv': () => AdminUI?.toggleAlertAdvancedFields?.(),
     'toggle-alert-tgt': () => AdminUI?.toggleAlertTargetFields?.(),
     'toggle-alert-type': () => AdminUI?.toggleAlertTypeFields?.(),
@@ -38,12 +41,13 @@ export const MarketingActions = {
     
     // --- 4. إدارة الإعلانات والبانرات (Ads & Branding) ---
     'save-banner': () => MarketingController.saveBanner?.(),
+    'delete-banner': (data) => MarketingController.deleteBanner?.(data.id), // 🚀 مسار الحذف المباشر للبنر
     'save-ads-settings': () => MarketingController.autoSaveSettings?.(),
     
     // 🌟 مسار حفظ هوية المتجر
     'save-store-identity': () => MarketingController.saveStoreIdentity?.(),
     
-    // 🌟 مسار المعاينة الحية للشريط الإخباري (يطلق حدث الرسم المركزي)
+    // 🌟 مسار المعاينة الحية للشريط الإخباري
     'update-ticker-preview': () => EventBus.emit('req-update-preview'),
     
     'update-brand': () => AdminUI?.updateBrandPreview?.(),
