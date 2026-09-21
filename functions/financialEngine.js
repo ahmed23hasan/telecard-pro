@@ -390,7 +390,7 @@ getStartOfUTCDay: function(timestampMs) {
         let currentPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.price || product.price) : FinancialEngineDef.extractNum(product.price);
         let tierName = "عضو";
 
-        // 🧮 1. سلطة التسعير: احترام إعدادات المستوى (Tier) بشكل مطلق
+        // 🧮 1. سلطة التتسعير: احترام إعدادات المستوى (Tier) بشكل مطلق
         if (isFixed) {
             currentPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.fixedPriceUsd || activeOption.price || product.price) : FinancialEngineDef.extractNum(fixedPrice || product.fixedPriceUsd || product.price);
             tierName = "سعر ثابت";
