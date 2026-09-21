@@ -17,7 +17,7 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 // 🌐 [السيادة الجغرافية والتحكم الذكي في الموارد]
 setGlobalOptions({
     region: 'us-central1',
-    maxInstances: 5, // تقليل العدد لتجاوز قيود السيرفر
+    maxInstances: 2, // تقليل العدد لتجاوز قيود السيرفر
     concurrency: 80
 });
 
