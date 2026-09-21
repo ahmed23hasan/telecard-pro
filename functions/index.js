@@ -230,7 +230,7 @@ exports.createOrder = onCall({ enforceAppCheck: false }, async (request) => {
     const idempotencyKey = data.idempotencyKey ? String(data.idempotencyKey).replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 50) : null;
     
     if (data.expectedBasePrice === undefined || isNaN(Number(data.expectedBasePrice))) {
-        throw new HttpsError('invalid-argument', 'بيانات التسعير الأساسية مفقودة أو تم التلاعب بها.');
+        throw new HttpsError('invalid-argument', 'بيانات التسعيير الأساسية مفقودة أو تم التلاعب بها.');
     }
     const expectedBasePrice = Number(data.expectedBasePrice);
 
