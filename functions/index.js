@@ -1387,7 +1387,7 @@ exports.adminGetOrdersList = onCall({ memory: "256MiB", timeoutSeconds: 60 }, as
 });
 
 // ==========================================
-// 🧹 6. محررك الكنس الذكي (Smart Tier Sweeper)
+// 🧹 6. محرك الكنس الذكي (Smart Tier Sweeper)
 // ==========================================
 exports.dailyTierDowngradeSweep = onSchedule({
             schedule: "0 0 * * *",
