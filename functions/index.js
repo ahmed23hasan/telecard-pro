@@ -1502,6 +1502,7 @@ exports.adminSaveVaultCodes = onCall(async (request) => {
 });
 
 exports.trackNewKycUploads = onObjectFinalized({ 
+    region: "us-east1",
     memory: "128MiB",
     timeoutSeconds: 60
 }, async (event) => {
