@@ -117,6 +117,14 @@
       ]
     },
     {
+      "collectionGroup": "telecard_failed_webhooks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "nextRetryAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "keys",
       "queryScope": "COLLECTION",
       "fields": [
@@ -131,14 +139,6 @@
         { "fieldPath": "supplierId", "order": "ASCENDING" },
         { "fieldPath": "isAvailable", "order": "ASCENDING" },
         { "fieldPath": "syncSessionId", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "telecard_prods",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "isActive", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     }
   ],
