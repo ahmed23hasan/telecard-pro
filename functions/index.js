@@ -17,7 +17,7 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 // 🌐 [السيادة الجغرافية والتحكم الذكي في الموارد]
 setGlobalOptions({
     region: 'us-east1', // تم توحيد المنطقة الجغرافية مع مساحة التخزين (Storage Bucket)
-    maxInstances: 2,    // تقليل العدد لتجاوز قيود حصة السيرفر
+    maxInstances: 5,    // تقليل العدد لتجاوز قيود حصة السيرفر
     concurrency: 80
 });
 
