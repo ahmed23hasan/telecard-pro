@@ -234,7 +234,7 @@ exports.externalCreateOrder = onRequest({
     region: 'us-east1', // 🛡️ توجيه جغرافي صريح
     memory: '512MiB',
     timeoutSeconds: 120,
-    maxInstances: 100 
+    maxInstances: 20 
 
 }, async (req, res) => {
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed. Use POST.' });
