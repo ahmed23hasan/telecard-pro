@@ -92,7 +92,10 @@ async function logFailedWebhook(payload, webhookUrl, errorMsg, userId, signature
 // ==========================================
 // 🔔 1. مشغل إشعارات التجار (Webhooks)
 // ==========================================
-exports.orderStatusWebhook = onDocumentWritten({ document: 'telecard_orders/{orderId}' }, async (event) => {
+exports.orderStatusWebhook = onDocumentWritten({ 
+    document: 'telecard_orders/{orderId}',
+    region: 'us-east1' // 🛡️ توجيه جغرافي صريح
+}, async (event) => {
     if (!event.data.after.exists) return null;
     const after = event.data.after.data();
     const before = event.data.before.exists ? event.data.before.data() : null;
@@ -143,6 +146,7 @@ exports.orderStatusWebhook = onDocumentWritten({ document: 'telecard_orders/{ord
 // 🔄 2. نظام المحاولات الذاتي (Retry Cron)
 // ==========================================
 exports.cronRetryWebhooks = onSchedule({
+            region: 'us-east1', // 🛡️ توجيه جغرافي صريح
             schedule: 'every 15 minutes',
             timeZone: 'UTC', // ✅ تم التوحيد مع المعمارية الجديدة
             timeoutSeconds: 540,
@@ -227,9 +231,10 @@ exports.cronRetryWebhooks = onSchedule({
 // 🔌 3. نقطة الدخول للتجار (B2B API Endpoint)
 // ==========================================
 exports.externalCreateOrder = onRequest({
+    region: 'us-east1', // 🛡️ توجيه جغرافي صريح
     memory: '512MiB',
     timeoutSeconds: 120,
-    maxInstances: 100
+    maxInstances: 2 // 🚨 تم تعديل هذا الرقم من 100 إلى 2 لإنقاذ حصة الـ CPU
 }, async (req, res) => {
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed. Use POST.' });
 

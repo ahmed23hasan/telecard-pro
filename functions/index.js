@@ -16,8 +16,8 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 
 // 🌐 [السيادة الجغرافية والتحكم الذكي في الموارد]
 setGlobalOptions({
-    region: 'us-central1',
-    maxInstances: 2, // تقليل العدد لتجاوز قيود السيرفر
+    region: 'us-east1', // تم توحيد المنطقة الجغرافية مع مساحة التخزين (Storage Bucket)
+    maxInstances: 2,    // تقليل العدد لتجاوز قيود حصة السيرفر
     concurrency: 80
 });
 
@@ -42,7 +42,7 @@ const SYSTEM_LIMITS = {
 const MATH_EPSILON = 0.0001;
 
 // ==========================================
-// 🛡️ دواول المساعدة الشاملة والرياضيات الآمنة 
+// 🛡️ دوال المساعدة الشاملة والرياضيات الآمنة 
 // ==========================================
 
 const sanitizeAmount = (amount) => FinancialEngine.sanitizeAmount(amount);
@@ -146,9 +146,10 @@ const isMasterAdmin = (request) => request.auth?.token?.admin === true;
 const checkBanStatus = (request) => { if (request.auth?.token?.banned === true) throw new HttpsError('permission-denied', 'عذراً، هذا الحساب محظور.'); };
 
 // ==========================================
-// 🛡️ 0. إننشاء الحساب
+// 🛡️ 0. إنشاء الحساب
 // ==========================================
 exports.onUserAuthCreated = functions
+    .region('us-east1') // 🛡️ التوجيه الصريح للإصدار الأول ليتطابق مع باقي الدوال
     .runWith({ failurePolicy: true })
     .auth.user().onCreate(async (user) => {
         try {
@@ -1502,7 +1503,6 @@ exports.adminSaveVaultCodes = onCall(async (request) => {
 });
 
 exports.trackNewKycUploads = onObjectFinalized({ 
-    region: "us-east1",
     memory: "128MiB",
     timeoutSeconds: 60
 }, async (event) => {

@@ -490,7 +490,7 @@ if (!isFreezeRequired) {
 // ==========================================
 // 🚀 1. المزامنة اليدوية (من لوحة الإدارة)
 // ==========================================
-exports.syncSupplierData = onCall({ memory: '1GiB', timeoutSeconds: 540, enforceAppCheck: false }, async (request) => {
+exports.syncSupplierData = onCall({ region: 'us-east1', memory: '1GiB', timeoutSeconds: 540, enforceAppCheck: false }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     try {
         const result = await coreSyncLogic(request.data.supplierId);
@@ -503,6 +503,7 @@ exports.syncSupplierData = onCall({ memory: '1GiB', timeoutSeconds: 540, enforce
 // ⏱️ 2. المزامنة التلقائية (موزع المهام Pub/Sub)
 // ==========================================
 exports.scheduledSupplierSync = onSchedule({ 
+    region: 'us-east1',
     schedule: '0 */12 * * *', 
     timeZone: 'Asia/Riyadh', 
     memory: '256MiB', 
@@ -527,6 +528,7 @@ exports.scheduledSupplierSync = onSchedule({
 });
 
 exports.onSupplierSyncWorker = onMessagePublished({
+    region: 'us-east1',
     topic: 'telecard-sync-supplier-topic',
     memory: '1GiB',
     timeoutSeconds: 540
@@ -544,7 +546,7 @@ exports.onSupplierSyncWorker = onMessagePublished({
 // ==========================================
 // 🛡️ 3. حفظ بيانات المورد من الإدارة
 // ==========================================
-exports.secureSaveSupplier = onCall({ enforceAppCheck: false }, async (request) => {
+exports.secureSaveSupplier = onCall({ region: 'us-east1', enforceAppCheck: false }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     
     const { id, name, type, baseUrl, token, defaultMargin, autoSync, currency } = request.data;
