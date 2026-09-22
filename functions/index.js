@@ -42,7 +42,7 @@ const SYSTEM_LIMITS = {
 const MATH_EPSILON = 0.0001;
 
 // ==========================================
-// 🛡️ دواول المساعدة الشاملة والرياضيات الآمنة 
+// 🛡️ دوال المساعدة الشاملة والرياضيات الآمنة 
 // ==========================================
 
 const sanitizeAmount = (amount) => FinancialEngine.sanitizeAmount(amount);
