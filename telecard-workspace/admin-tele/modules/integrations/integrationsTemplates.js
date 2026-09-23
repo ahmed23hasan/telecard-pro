@@ -1,7 +1,7 @@
 // ============================================================================
-// 🔌 قوالب الربط التلقائي والموردين (modules/integrations/integrationsTemplates.js)
-// 🚀 التحديث الأقصى: 
-// 1. Defects Ledger UI 📊: إضافة قالب سجل التوالف وزر الوصول إليه في بطاقة المورد.
+// 🔌 قوالب الربط التلقائي والموردين (modules/integrations/integrationsTemplates.js) - V18.5
+// 🚀 التحديث: 
+// 1. Safe Modal Closure 🛡️: تغيير زر الإغلاق ليعتمد على مسارات الـ Routing الصحيحة بدلاً من كود onClick البدائي.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -79,16 +79,16 @@ export const IntegrationsTemplates = {
             
             <!-- 🚀 [الإضافة الجديدة]: زر عرض الأكواد التالفة -->
             <div class="mt-10 pt-10" style="border-top: 1px dashed var(--border-color);">
-                <button class="btn btn-ghost btn-sm w-100 text-danger" style="background: rgba(239, 68, 68, 0.05);" data-action="view-supplier-defects" data-id="${_esc(supplier.id)}" data-name="${_esc(supplier.name)}">
+                <button class="btn btn-ghost btn-sm w-100 text-danger supp-defect-btn" style="background: rgba(239, 68, 68, 0.05);" data-action="view-supplier-defects" data-id="${_esc(supplier.id)}" data-name="${_esc(supplier.name)}">
                     <i class="fa-solid fa-bug"></i> سجل الأكواد التالفة (للمطالبة بالتعويض)
                 </button>
             </div>
 
             <div class="flex-center-gap mt-10">
-                <button class="btn btn-ghost flex-1" data-action="sync-supplier" data-id="${_esc(supplier.id)}">
+                <button class="btn btn-ghost flex-1 supp-sync-btn" data-action="sync-supplier" data-id="${_esc(supplier.id)}">
                     <i class="fa-solid fa-rotate"></i> مزامنة
                 </button>
-                <button class="btn btn-info flex-1" data-action="open-supplier-edit" data-id="${_esc(supplier.id)}">
+                <button class="btn btn-info flex-1 supp-edit-btn" data-action="open-supplier-edit" data-id="${_esc(supplier.id)}">
                     <i class="fa-solid fa-pen"></i> إعدادات
                 </button>
             </div>
@@ -154,7 +154,6 @@ export const IntegrationsTemplates = {
         </button>
     `,
     
-    // 🚀 [الإضافة المعمارية]: قالب نافذة الأكواد التالفة
     supplierDefectsModal: (supplierName, defects) => {
         let rowsHtml = '';
         
@@ -180,10 +179,11 @@ export const IntegrationsTemplates = {
             }).join('');
         }
         
+        // 🚀 [التحديث المعماري]: إضافة data-action لإغلاق النافذة بأمان
         return `
         <div id="supplier-defects-overlay" class="modal-overlay" style="display: flex;">
             <div class="modal-content modal-lg">
-                <div class="modal-close-btn" onclick="this.closest('.modal-overlay').remove()"><i class="fa-solid fa-xmark"></i></div>
+                <div class="modal-close-btn" data-action="close-supplier-defects"><i class="fa-solid fa-xmark"></i></div>
                 <h2 class="main-title text-danger"><i class="fa-solid fa-bug"></i> سجل الأكواد التالفة (API)</h2>
                 
                 <div class="alert-info mb-15">

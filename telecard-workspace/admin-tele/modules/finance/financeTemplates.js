@@ -1,8 +1,10 @@
 // ============================================================================
-// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - Cloud-Native V18.5 💎
+// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - Cloud-Native V18.6 💎
 // 🚀 التحديث الأقصى: 
 // 1. Action Routing Fix 🛡️: تعديل مسارات أزرار التعديل والحذف في بوابة الدفع لتتجه للقسم المالي.
 // 2. Null User Shield 🛡️: تمرير كائن وهمي لاستخراج الـ ID.
+// 3. Smart ID Format Fix 🎨: السماح للـ HTML بالظهور في شريط رقم الإيداع بدلاً من النص المكشوف.
+// 4. Admin Copy Feature 📋: إضافة زر نسخ سريع للمدير داخل تفاصيل طريقة الدفع.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -14,6 +16,7 @@ const _enNum = Utils.enNum;
 
 export const FinanceTemplates = {
     emptyDeposits: () => `<div class="empty-state"><i class="fa-solid fa-money-bill-transfer"></i><span>لا توجد إيداعات تطابق الفلتر أو التبويب الحالي</span></div>`,
+    
     depositCard: (d, userName, bankName, targetCurr, netBase) => {
         const exactStatus = d.status || 'pending';
         const isAppr = exactStatus === 'approved', isRej = exactStatus === 'rejected', isRef = exactStatus === 'refunded';
@@ -56,9 +59,9 @@ export const FinanceTemplates = {
             dualAmountHtml = `<span class="single-price ${priceColor}">${sign} ${RenderHelpers.formatMoney(absNetBase, target, 2)}</span>`;
         }
 
+        // 🚀 [الإصلاح 1]: طباعة المتغير كنص HTML مباشر ليأخذ تنسيق "الكبسولة" ولا يظهر كود برمجي
         const formattedDepositId = RenderHelpers.formatDepositId(d);
 
-        // 🚀 [التحديث المعماري]: إزالة copyable-admin المزدوج لعدم كسر كود Smart ID
         return `<div id="deposit-card-${_esc(d.id)}" class="o-card ${cardCls} ${(isRej || isRef) ? 'locked' : ''}" data-status="${exactStatus}" data-action="open-deposit-drawer" data-id="${_esc(d.id)}">
                     <div class="corner-tag-id num-en" dir="ltr" lang="en"><span class="text-muted">#</span>${formattedDepositId}</div>
                     <div class="corner-tag-time num-en" dir="ltr" lang="en"><i class="fa-regular fa-clock"></i> ${timeHtml}</div>
@@ -99,13 +102,13 @@ export const FinanceTemplates = {
 
     currencySettingRow: (code, displayCode, oldFeeType, oldFeeUnit, oldFee, oldMin, oldMax, oldMinFee, oldMaxFee) => {
         return `
-        <div class="curr-setting-row" id="curr-setting-${_esc(code)}">
+        <div class="curr-setting-row" id="curr-setting-${_esc(code)}" data-code="${_esc(code)}">
             <div class="curr-setting-title">إعدادات عملة ${_esc(code)} <span class="text-muted fs-11 num-en" dir="ltr">(${_esc(displayCode)})</span></div>
             
             <div class="curr-setting-inputs">
                 <div class="form-group mb-0">
                     <label class="form-label curr-setting-lbl">النوع</label>
-                    <select id="pay-feetype-${_esc(code)}" class="form-input num-en" dir="rtl">
+                    <select id="pay-feetype-${_esc(code)}" class="form-input num-en" dir="rtl" data-val="${_esc(oldFeeType)}">
                         <option value="fee" ${oldFeeType !== 'bonus' ? 'selected' : ''}>عمولة (-)</option>
                         <option value="bonus" ${oldFeeType === 'bonus' ? 'selected' : ''}>بونص (+)</option>
                     </select>
@@ -161,7 +164,6 @@ export const FinanceTemplates = {
                             </div>
                         </div>
                         <div class="pay-card-actions">
-                            <!-- 🚀 [توجيه مباشر]: تم استبدال edit-item و delete-item -->
                             <div class="action-mini btn-edit-mini" data-action="edit-payment" data-id="${_esc(p.id)}" title="تعديل"><i class="fa-solid fa-pen"></i></div>
                             <div class="action-mini btn-del-mini" data-action="delete-payment" data-id="${_esc(p.id)}" title="حذف"><i class="fa-solid fa-trash"></i></div>
                         </div>
@@ -180,9 +182,13 @@ export const FinanceTemplates = {
 
     emptyPayDetails: () => `<div class="pay-det-empty"><i class="fa-solid fa-inbox"></i><br>لا توجد تفاصيل بعد.</div>`,
 
+    // 🚀 [الإصلاح 2]: إضافة زر النسخ (copy) للمدير بجانب زر الحذف لتسهيل أخذ البيانات
     payDetailItem: (item, i, text, isCopyable) => `<div class="pay-det-item pay-det-box">
                     <div class="pay-det-text">${_esc(text).replace(/\n/g, '<br>')}${isCopyable ? '<div class="mt-6"><span class="pay-badge-copyable"><i class="fa-solid fa-copy"></i> قابل للنسخ بالمتجر</span></div>' : '<div class="mt-6"><span class="pay-badge-viewonly"><i class="fa-solid fa-eye"></i> عنوان للعرض فقط</span></div>'}</div>
-                    <button class="btn btn-red btn-xs btn-pay-det-del" data-action="remove-pay-detail" data-index="${i}"><i class="fa-solid fa-trash"></i></button>
+                    <div class="d-flex flex-column gap-2">
+                        <button class="btn btn-ghost btn-xs btn-pay-det-copy" data-action="copy-text" data-copy-text="${_esc(text)}" title="نسخ للإدارة"><i class="fa-solid fa-copy"></i></button>
+                        <button class="btn btn-red btn-xs btn-pay-det-del" data-action="remove-pay-detail" data-index="${i}" title="حذف"><i class="fa-solid fa-trash"></i></button>
+                    </div>
                 </div>`,    
 
     rateCard: (c, isDefaultDisplay = false) => {

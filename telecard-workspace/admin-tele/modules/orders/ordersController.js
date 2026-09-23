@@ -10,7 +10,7 @@ export const OrdersController = {
     
     _actionLocks: new Set(),
     
-    submitOrderAction: async function(action, orderId) {
+        submitOrderAction: async function(action, orderId) {
         if (this._actionLocks.has(orderId)) return;
         
         const o = AdminData.data.ordersMap?.[orderId] || AdminData.data.orders.find(x => String(x.id) === String(orderId));
@@ -55,36 +55,30 @@ export const OrdersController = {
                     o.status = mappedAction;
                 }
                 
-                                if (AdminUI?.OrdersUI?.closeOrderDrawer) {
-                    AdminUI.OrdersUI.closeOrderDrawer();
-                } else if (AdminUI?.closeOrderDrawer) {
-                    AdminUI.closeOrderDrawer();
-                }
+                // 🚀 1. التوجيه المباشر للإغلاق (Facade Pattern)
+                if (AdminUI?.closeOrderDrawer) AdminUI.closeOrderDrawer();
                 
-                // 🚀 [التصحيح المحاسبي]: فصل العملة المحلية (للمحفظة) عن الدولار (لترقيات المستوى)
-                const priceToAdjustLocal = Number(o.priceLocalDeducted ?? o.price ?? 0);
-                const priceToAdjustUsd = Number(o.priceBaseUsd ?? o.price ?? 0);
-                
-                const userRec = AdminData.data.usersMap?.[o.userId];
-                
-                if (userRec) {
-                    if (mappedAction === 'refunded') {
-                        userRec.walletBalance = FinancialEngine.safeAdd(userRec.walletBalance || 0, priceToAdjustLocal);
-                        userRec.totalSpent = Math.max(0, FinancialEngine.safeSub(userRec.totalSpent || 0, priceToAdjustUsd));
-                    } else if (mappedAction === 'rejected') {
-                        userRec.walletBalance = FinancialEngine.safeAdd(userRec.walletBalance || 0, priceToAdjustLocal);
-                    } else if (mappedAction === 'completed') {
-                        userRec.totalSpent = FinancialEngine.safeAdd(userRec.totalSpent || 0, priceToAdjustUsd);
-                    }
-                }
-           
-                // 🚀 [التحديث المعماري]: إنقاص العداد الأحمر محلياً لراحة الإدارة (Optimistic UI)
+                // 🚀 2. إنقاص العداد الأحمر محلياً لراحة الإدارة (Optimistic UI)
                 if (AdminRender?.decrementLocalBadge && (mappedAction === 'completed' || mappedAction === 'rejected')) {
                     AdminRender.decrementLocalBadge('order');
                 }
 
-                EventBus.emit('req-render-users');
+                // 🚀 3. الاعتماد المطلق على السيرفر (Server-Side Truth)
+                // تم إزالة الحسابات اليدوية (safeAdd/safeSub) واستبدالها بجلب أرصدة العملاء الحقيقية
                 EventBus.emit('req-render-orders');
+                EventBus.emit('req-refresh', { type: 'users' });
+                
+                // 🚀 4. تحديث نافذة العميل الشاملة لحظياً (Omnipresent UI Sync)
+                // لكي يرى المدير الرصيد الجديد مباشرة إذا كان يراجع الطلب من داخل ملف العميل
+                setTimeout(() => {
+                    const modalDetail = document.getElementById('m-user-detail');
+                    if (modalDetail && modalDetail.classList.contains('active')) {
+                        const currentEditedUserId = AdminRender?.UsersRender?.state?.currentEditUserId;
+                        if (currentEditedUserId === o.userId) {
+                            EventBus.emit('action-triggered', { action: 'view-user', id: o.userId, preventModalOpen: true });
+                        }
+                    }
+                }, 500);
                 
                 if (AdminData?.addLog) {
                     const logName = o.userDataSnapshot?.fullName || o.userName || o.userId;
@@ -105,7 +99,6 @@ export const OrdersController = {
             this._actionLocks.delete(orderId);
         }
     },
-    
     rejectAllPendingOrders: async function() {
         if (this._actionLocks.has('bulk-reject')) return;
         

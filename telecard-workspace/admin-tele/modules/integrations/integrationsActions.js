@@ -1,12 +1,13 @@
 // ============================================================================
-// 🗺️ موجه أحداث الربط (modules/integrations/integrationsActions.js) - V18.4 💎
+// 🗺️ موجه أحداث الربط (modules/integrations/integrationsActions.js) - V18.5 💎
 // 🚀 التحديثات:
-// 1. Defects Ledger Route 🔗: ربط مسار فتح السجل الجنائي للمورد (الأكواد التالفة).
+// 1. Decoupled Navigation 🔀: استخدام EventBus لفتح نافذة الطلبات بدلاً من الاتصال المباشر بوحدة الطلبات لتجنب أخطاء التحميل.
+// 2. Safe Modal Closure 🛡️: إضافة مسار إغلاق نافذة الأكواد التالفة.
 // ============================================================================
 
 import { IntegrationsController } from './integrationsController.js';
 import { IntegrationsUI } from './integrationsUI.js';
-import { AdminUI } from '../../adminUI.js'; // 🚀 لفتح نافذة الطلبات الجانبية
+import { EventBus } from '../../adminUtils.js';
 
 export const IntegrationsActions = {
     'open-add-supplier': () => IntegrationsUI.openSupplierModal(),
@@ -15,9 +16,17 @@ export const IntegrationsActions = {
     'toggle-supplier': (data) => IntegrationsController.toggleSupplier(data.id, data.element.checked),
     'sync-supplier': (data) => IntegrationsController.syncSupplier(data.id),
     
-    // 🚀 [الإضافة الجديدة]: مسار فتح سجل الأكواد التالفة للمورد
+    // 🚀 مسار فتح سجل الأكواد التالفة للمورد
     'view-supplier-defects': (data) => IntegrationsController.viewSupplierDefects(data.id, data.name),
     
-    // 🚀 [الإضافة الجديدة]: مسار فتح الطلب من داخل نافذة التوالف
-    'open-order-drawer': (data) => AdminUI?.OrdersUI?.openOrderDrawer?.(data.id)
+    // 🚀 [الإصلاح المعماري 2]: إغلاق النافذة بشكل آمن وأنيمشن سلس
+    'close-supplier-defects': () => IntegrationsUI.closeDefectsModal(),
+    
+    // 🚀 [الإصلاح المعماري 1]: استخدام الحدث المركزي لفتح الطلب من أي مكان لمنع الانهيار
+    'open-order-drawer': (data) => {
+        // نغلق نافذة التوالف أولاً لتسهيل رؤية الطلب
+        IntegrationsUI.closeDefectsModal();
+        // نوجه النظام لفتح الطلب بأمان عبر نظام الأحداث المركزي
+        EventBus.emit('action-triggered', { action: 'open-order-drawer', id: data.id });
+    }
 };

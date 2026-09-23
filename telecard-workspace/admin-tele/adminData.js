@@ -1,10 +1,11 @@
 // ============================================================================
-// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V18.3 💎 (The Masterpiece)
+// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V18.5 💎 (The Masterpiece)
 // 🎯 الوظيفة: SSOT، إدارة الذاكرة بذكاء (Pagination)، والاستعلامات التجميعية (JIT Aggregation).
-// 🚀 التحديثات المعمارية (V18.3 - The Ultimate Cloud-Native Paradigm):
+// 🚀 التحديثات المعمارية (V18.5 - The Ultimate Cloud-Native Paradigm):
 // 1. Pagination Blindness Fix 👁️: استئصال دالة (autoAdvanceSweep) بالكامل. الواجهة لم تعد مسؤولة عن الترقية.
-// 2. Ghost Deletion Shield 🛡️: إزالة (saveAlerts) نهائياً لمنع مسح الإشعارات القديمة غير المحملة في الذاكرة.
-// 3. True Separation of Concerns ⚖️: الواجهة للعرض، وتحديث الجداول اللانهائية يتم ذرياً أو عبر وظائف سحابية.
+// 2. Ghost Deletion Shield 🛡️: تعديل دالة saveCollection لترسل التحديثات (Delta) فقط لحماية بيانات السيرفر.
+// 3. Firewall Alignment ⚖️: التقاط حقول requiresAdminAttention القادمة من السيرفر في قسم المنتجات.
+// 4. Top Customers Report 👑: توسيع جلب الأبطال لـ 50 عميلاً ليتوافق مع التقرير الجديد.
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -178,7 +179,13 @@ export const AdminData = {
             }));
 
             this.data.prods = arr(rProds).map(p => ({
-                ...p, costPrice: Number(p.costPrice || p.cost_price || 0), price: Number(p.price || 0), isFixedPrice: !!(p.isFixedPrice || p.is_fixed_price)
+                ...p, 
+                costPrice: Number(p.costPrice || p.cost_price || 0), 
+                price: Number(p.price || 0), 
+                isFixedPrice: !!(p.isFixedPrice || p.is_fixed_price),
+                // 🛡️ التحديث الأمني: التقاط حالة التجميد والملاحظات من السيرفر
+                requiresAdminAttention: !!p.requiresAdminAttention, 
+                syncNote: p.syncNote || '' 
             }));
 
             this.data.deposits = arr(rDepositsObj.data);
@@ -264,8 +271,8 @@ export const AdminData = {
             FirebaseAdapter.getAggregatedStats('telecard_reviews', [['status', '==', 'pending'], ['rating', '<=', 2]], { total: { type: 'count' }}),
             FirebaseAdapter.getAggregatedStats(DB_KEYS.USERS, [], { total: { type: 'count' }}),
             FirebaseAdapter.getAggregatedStats(DB_KEYS.USERS, [['isBanned', '==', true]], { total: { type: 'count' }}),
-            this.fetchWalletsLiquidityAsync(),
-            FirebaseAdapter.getRecent(DB_KEYS.USERS, 3, 'totalSpent') 
+            // 🚀 توسيع نطاق جلب الأبطال إلى 50 بطلاً لتغذية تقرير "كبار العملاء" الجديد
+            FirebaseAdapter.getRecent(DB_KEYS.USERS, 50, 'totalSpent') 
         ]);
 
         let topHeroes = [];
@@ -290,8 +297,9 @@ export const AdminData = {
                 }
             });
             
+            // 🚀 إزالة .slice(0, 3) لتغذية تقرير "كبار العملاء" الشهري
             topHeroes = Object.entries(userMapLocal)
-                .sort(([, aSpent], [, bSpent]) => bSpent - aSpent).slice(0, 3)
+                .sort(([, aSpent], [, bSpent]) => bSpent - aSpent)
                 .map(([uid, spent]) => {
                     const u = this.data.usersMap[uid]; 
                     const fallback = userNameMap[uid] || {};
@@ -352,7 +360,7 @@ export const AdminData = {
         }
     },
 
-        saveCollection: async function(key, prop) {
+    saveCollection: async function(key, prop) {
         if (!this.isCloudSyncSuccessful) return false;
         
         const targetCollectionKey = (prop === 'prods') ? 'telecard_prods' : key;
@@ -368,7 +376,6 @@ export const AdminData = {
         const validSnapArr = snapArr.filter(Boolean);
         const snapMap = new Map(validSnapArr.map(i => [String(i.id), i]));
         
-        // 🚀 [التحديث المعماري]: استخدام نظام الحزم (Batches) بدلاً من Promise.all لمنع اختناق المتصفح والشبكة
         let currentBatch = FirebaseAdapter.getBatch();
         let operationCount = 0;
         let hasAnyChanges = false;
@@ -386,26 +393,31 @@ export const AdminData = {
             const docRef = doc(FirebaseAdapter.db, targetCollectionKey, id);
 
             if (!old) {
+                // مستند جديد: نرفعه بالكامل
                 if (prop === 'prods' && item.isActive === undefined) item.isActive = true;
                 currentBatch.set(docRef, item, { merge: true });
                 operationCount++;
                 hasAnyChanges = true;
             } else {
                 let hasItemChanges = false;
+                let updatePayload = {}; // 🛡️ [الحل الاحترافي]: بناء كائن يحمل التعديلات (Delta) فقط
+
                 Object.keys(item).forEach(k => { 
+                    // نقارن الحقول، وإذا كان هناك تغيير، نضعه في كائن التحديث
                     if (k !== 'updatedAt' && !this._deepEqual(item[k], old[k])) {
                         hasItemChanges = true; 
+                        updatePayload[k] = item[k]; 
                     }
                 });
 
                 if (hasItemChanges) { 
-                    item.updatedAt = Date.now(); 
-                    currentBatch.set(docRef, item, { merge: true });
+                    updatePayload.updatedAt = Date.now(); 
+                    // 🚀 نرفع updatePayload بدلاً من item! هذا يحمي المخزون وحقول السيرفر من المسح
+                    currentBatch.set(docRef, updatePayload, { merge: true });
                     operationCount++;
                     hasAnyChanges = true;
                 }
             }
-            // 🛡️ قاطع الأمان: فايربيز يرفض أكثر من 500 عملية في الحزمة الواحدة
             if (operationCount >= 400) await commitAndReset();
         }
         
@@ -419,7 +431,6 @@ export const AdminData = {
             }
         }
         
-        // تنفيذ أي عمليات متبقية في الحزمة الأخيرة
         await commitAndReset();
         
         if (hasAnyChanges) {

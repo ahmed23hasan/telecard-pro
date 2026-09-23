@@ -1,9 +1,11 @@
 // ============================================================================
-// 📦 قوالب الطلبات (modules/orders/ordersTemplates.js) - Cloud-Native V17.6 💎
+// 📦 قوالب الطلبات (modules/orders/ordersTemplates.js) - Cloud-Native V17.8 💎
 // 🚀 التحديث الأقصى: 
 // 1. Null User Shield: تمرير (o.userId) لدالة الفورمات بدلاً من الاعتماد الأعمى على usersMap 
 //    لضمان استخراج المعرف المختصر (shortId) بنجاح حتى للعملاء غير المحملين في الذاكرة.
 // 2. Bulk Reject UI 🛡️: إضافة زر الرفض الجماعي داخل شريط فلترة الطلبات.
+// 3. Smart ID Format Fix 🎨: السماح للـ HTML بالظهور في شريط رقم الطلب بدلاً من النص المكشوف.
+// 4. Syntax Glitch Fix 🐛: إصلاح خطأ الـ Template Literal.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -88,6 +90,7 @@ export const OrdersTemplates = {
             ? `<span class="${priceColor}">${sign} ${o.dualPriceTxt.replace(/[-+]/g, '').trim()}</span>`
             : `<span class="single-price ${priceColor}">${sign} ${RenderHelpers.formatMoney(absPrice, cCode, 2)}</span>`;
 
+        // 🚀 [الإصلاح 1]: السماح للـ HTML بالظهور بدلاً من الـ escape
         const orderIdHtml = RenderHelpers.formatOrderId(o);
 
         const isApi = (o.isApi === true || o.source === 'api');
@@ -100,7 +103,7 @@ export const OrdersTemplates = {
 
         return `
         <div id="order-card-${_esc(o.id)}" class="o-card ${cardCls} ${lockCls}" data-status="${exactStatus}" data-action="open-order-drawer" data-id="${_esc(o.id)}">
-            <div class="corner-tag-id num-en copyable-admin" dir="ltr" lang="en" title="المعرف الكامل: ${_esc(o.id)} (انقر للنسخ)" data-action="copy-text" data-copy-text="${_esc(o.id)}">#${orderIdHtml}</div>
+            <div class="corner-tag-id num-en copyable-admin" dir="ltr" lang="en" title="المعرف الكامل: ${_esc(o.id)} (انقر للنسخ)" data-action="copy-text" data-copy-text="${_esc(o.id)}">${orderIdHtml}</div>
             <div class="corner-tag-time num-en" dir="ltr" lang="en"><i class="fa-regular fa-clock"></i> ${timeHtml}</div>
             <div class="o-card-header-row">
                 <div class="o-card-img-fallback"><i class="fa-solid fa-cube"></i></div>
@@ -316,11 +319,11 @@ export const OrdersTemplates = {
             <div class="dr-receipt-box mb-15">
                 <div class="dr-receipt-row ${fBg}" style="padding: 10px; border-radius: 8px;">
                     <span class="dr-receipt-lbl ${fColor}">${fLabel}</span>
-                    <span class="dr-receipt-val price num-en fw-bold ${fColor}" dir="ltr">${fSign} ${data.priceTxt}</span>
+                    <span class="dr-receipt-val price num-en fw-bold ${fColor}" dir="ltr">${fSign}${data.priceTxt}</span>
                 </div>
                 ${data.exactPriceTxt ? `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-dollar-sign text-success"></i> المعادل بالدولار</span><span class="dr-receipt-val num-en text-success" dir="ltr">${_esc(data.exactPriceTxt)}</span></div>` : ''}
-                ${data.couponRowHtml || ''} 
-                ${data.originalPriceRowHtml || ''}
+                ${data.couponRowHtml || ''}${data.originalPriceRowHtml || ''}
+
                 <div class="dr-receipt-row">
                     <span class="dr-receipt-lbl"><i class="fa-solid fa-box-open text-warning"></i> التكلفة الإجمالية</span>
                     <span class="dr-receipt-val num-en text-warning" dir="ltr">${_esc(data.unitCostTxt)}</span>

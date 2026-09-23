@@ -1,7 +1,7 @@
 // ============================================================================
-// 🔌 واجهة الربط التفاعلية (modules/integrations/integrationsUI.js) 💎
-// 🚀 التحديثات المعمارية (V18.4 - UI Thread Protection):
-// 1. Thread Shield 🛡️: تغليف عملية فتح النافذة بـ try/catch لمنع انهيار الواجهة في حال تلف البيانات.
+// 🔌 واجهة الربط التفاعلية (modules/integrations/integrationsUI.js) - V18.5 💎
+// 🚀 التحديثات المعمارية:
+// 1. Safe Modal Closure 🛡️: دالة مخصصة لإغلاق النوافذ بأنيمشن وتفريغ الذاكرة (Memory Cleanup).
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -30,6 +30,17 @@ export const IntegrationsUI = {
         } catch (error) {
             console.error("🚨 خطأ في فتح نافذة المورد:", error);
             EventBus.emit('req-show-toast', { message: 'حدث خطأ أثناء تهيئة نافذة المورد.', type: 'error' });
+        }
+    },
+    
+    // 🚀 [الإضافة المعمارية]: دالة إغلاق النافذة المنبثقة بشكل آمن وسلس
+    closeDefectsModal: function() {
+        const overlay = document.getElementById('supplier-defects-overlay');
+        if (overlay) {
+            overlay.classList.remove('active');
+            setTimeout(() => {
+                overlay.remove();
+            }, 300); // 300ms لانتظار تأثير الاختفاء (Fade-out Animation)
         }
     }
 };

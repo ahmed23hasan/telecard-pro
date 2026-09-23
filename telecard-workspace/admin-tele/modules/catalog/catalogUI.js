@@ -1,9 +1,9 @@
 // ============================================================================
-// 📦 وحدة المنتجات والأقسام (modules/catalog/catalogUI.js) - Cloud-Native V18.10 💎
-// 🚀 التحديثات المعمارية (V18.10 - Supplier Wipeout Shield & Template Fix):
-// 1. Supplier Wipeout Shield 🛡️: تعبئة حقول المورد عند فتح نافذة المنتج لمنع مسح الارتباط.
-// 2. Cost Lock Feature 🔒: إضافة دالة (toggleSupplierLink) لقفل حقل التكلفة عند ربط المنتج بمورد.
-// 3. Vault Mismatch Fix ☁️: تعديل (renderDefectiveCodesModal) لتستورد القوالب الصحيحة.
+// 📦 وحدة المنتجات والأقسام (modules/catalog/catalogUI.js) - Cloud-Native V18.12 💎
+// 🚀 التحديثات المعمارية (V18.12 - API UX & Pricing Preview Patch):
+// 1. Smart API Preview 🤖: نافذة المعاينة الآن تدرك وجود مورد API وتغير إرشاداتها بناءً عليه.
+// 2. Package Lock UI 🔒: إخفاء حقول إضافة الباقات اليدوية فوراً عند ربط المنتج بمورد لمنع التضارب.
+// 3. Supplier Wipeout Shield 🛡️: تعبئة حقول المورد عند فتح نافذة المنتج لمنع مسح الارتباط.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js'; 
@@ -13,15 +13,16 @@ import { FinancialEngine } from '../../core/financialEngine.js';
 
 export const CatalogUI = {
   dragEditMode: false,
+  currentEditPaymentId: null,
   
-    openCategoryModal: function(id = null) {
-    // 🚀 [التصحيح المعماري]: تصفير tempImg لمنع تسرب صور المنتجات للأقسام
+  openCategoryModal: function(id = null) {
     EventBus.emit('req-update-state', { tempEditId: id ? String(id) : null, tempImg: null });
     const cat = id ? (AdminData.data.catsMap?.[id] || (AdminData.data.cats || []).find(c => String(c.id) === String(id))) : null;
     const isSubCat = window.AdminApp ? !!window.AdminApp.currFolder : false;
     this.setupCategoryModal(cat, isSubCat);
     EventBus.emit('req-open-modal', 'cat');
   },
+  
   openProductModal: function(id = null) {
     EventBus.emit('set-temp-edit-id', id);
     const prod = id ? (AdminData.data.prodsMap?.[id] || (AdminData.data.prods || []).find(p => String(p.id) === String(id))) : null;
@@ -97,7 +98,6 @@ export const CatalogUI = {
     safeSetVal('h-lbl1', p ? (p.input1Label || '') : '');
     safeSetVal('h-lbl2', p ? (p.input2Label || '') : '');
     
-    // 🚀 [إصلاح كارثة الموردين]: تعبئة حقول الموردين لمنع مسحها عند الحفظ
     const supplierSelect = document.getElementById('pr-supplier');
     if (supplierSelect) {
         let suppHtml = '<option value="">-- بدون ربط (منتج محلي) --</option>';
@@ -137,11 +137,11 @@ export const CatalogUI = {
     }
   },
 
-  // 🚀 [الإصلاح المعماري]: الدالة المفقودة لقفل التكلفة عند الربط بمورد
   toggleSupplierLink: function(selectEl) {
       if (!selectEl) return;
       const costInput = document.getElementById('pr-cost');
       const extIdInput = document.getElementById('pr-supplier-prod-id');
+      const pkgInputsArea = document.querySelector('.pkg-inputs-container') || document.querySelector('.pkg-add-form');
       
       if (selectEl.value !== '') {
           if (costInput) {
@@ -150,6 +150,8 @@ export const CatalogUI = {
               costInput.title = 'التكلفة يتم جلبها آلياً من المورد';
           }
           if (extIdInput) extIdInput.parentElement.classList.remove('hide-element');
+          if (pkgInputsArea) pkgInputsArea.classList.add('hide-element'); 
+          
       } else {
           if (costInput) {
               costInput.readOnly = false;
@@ -157,7 +159,11 @@ export const CatalogUI = {
               costInput.title = '';
           }
           if (extIdInput) extIdInput.parentElement.classList.add('hide-element');
+          if (pkgInputsArea) pkgInputsArea.classList.remove('hide-element'); 
       }
+      
+      // 🚀 تحديث نافذة المعاينة لعكس وضع الـ API
+      EventBus.emit('req-update-price-preview');
   },
   
   setupCountryModal: function(country) {
@@ -182,79 +188,69 @@ export const CatalogUI = {
   },
 
   setupVaultModal: function(pool) {
-  const isEdit = !!pool;
-  const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
-  
-  safeSetVal('v-pool-id', pool ? pool.id : '');
-  safeSetVal('v-name', pool ? pool.name : '');
-  safeSetVal('v-alert-limit', pool ? (pool.alertLimit || 5) : 5);
-  
-  safeSetVal('v-codes', '');
-  
-  const titleEl = document.getElementById('vault-modal-title');
-  if (titleEl) titleEl.innerHTML = isEdit ? '<i class="fa-solid fa-box-open"></i> إضافة أكواد للصندوق' : '<i class="fa-solid fa-plus"></i> إنشاء صندوق جديد';
-  
-  // 🚀 [الإصلاح المعماري]: تفعيل وعرض الإحصائيات والأرباح داخل النافذة
-  const statsArea = document.getElementById('v-stats-area');
-  if (statsArea) {
-    if (isEdit) {
-      const availCount = Number(pool.stockCount || 0);
-      const defectCount = Number(pool.burnedCount || 0);
-      const totalAdded = Number(pool.totalCount || 0);
-      
-      let soldCount = totalAdded - availCount - defectCount;
-      if (soldCount < 0) soldCount = 0;
-      
-      const availEl = document.getElementById('v-stat-avail');
-      const soldEl = document.getElementById('v-stat-sold');
-      
-      if (availEl) availEl.innerText = availCount;
-      if (soldEl) soldEl.innerText = soldCount;
-      
-      // 💰 [حقن واجهة الأرباح ديناميكياً]
-      let financialBox = document.getElementById('v-financial-stats');
-      if (!financialBox) {
-        financialBox = document.createElement('div');
-        financialBox.id = 'v-financial-stats';
-        financialBox.className = 'mt-10 p-10';
-        financialBox.style.cssText = 'background: rgba(16, 185, 129, 0.05); border: 1px dashed rgba(16, 185, 129, 0.3); border-radius: 8px; font-size: 12px;';
-        statsArea.appendChild(financialBox);
-      }
-      
-      // عرض حالة التحميل
-      financialBox.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-success"></i> <span class="text-muted">جاري حساب أرباح هذا الصندوق من السيرفر...</span>`;
-      statsArea.classList.remove('hide-element');
-      
-      // 🚀 استدعاء الأرباح من السيرفر (بدون تجميد الواجهة)
-      import('./catalogController.js').then(({ CatalogController }) => {
-        CatalogController.fetchVaultFinancials(pool.id).then(financials => {
-          // التحقق من أن النافذة لا تزال مفتوحة لنفس الصندوق (منع Race Condition)
-          const currentModalId = document.getElementById('v-pool-id')?.value;
-          if (currentModalId === pool.id) {
-            const profitHtml = RenderHelpers.formatMoney(financials.profit, 'USD', 2);
-            const revenueHtml = RenderHelpers.formatMoney(financials.revenue, 'USD', 2);
-            
-            financialBox.innerHTML = `
-                            <div class="flex-between align-items-center mb-5">
-                                <span class="fw-bold text-success"><i class="fa-solid fa-sack-dollar"></i> صافي الأرباح:</span>
-                                <span class="num-en fw-bold text-success" dir="ltr">${profitHtml}</span>
-                            </div>
-                            <div class="flex-between align-items-center">
-                                <span class="text-muted"><i class="fa-solid fa-chart-line"></i> إجمالي الإيرادات:</span>
-                                <span class="num-en text-muted" dir="ltr">${revenueHtml}</span>
-                            </div>
-                        `;
-          }
+    const isEdit = !!pool;
+    const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
+    
+    safeSetVal('v-pool-id', pool ? pool.id : '');
+    safeSetVal('v-name', pool ? pool.name : '');
+    safeSetVal('v-alert-limit', pool ? (pool.alertLimit || 5) : 5);
+    safeSetVal('v-codes', '');
+    
+    const titleEl = document.getElementById('vault-modal-title');
+    if (titleEl) titleEl.innerHTML = isEdit ? '<i class="fa-solid fa-box-open"></i> إضافة أكواد للصندوق' : '<i class="fa-solid fa-plus"></i> إنشاء صندوق جديد';
+    
+    const statsArea = document.getElementById('v-stats-area');
+    if (statsArea) {
+      if (isEdit) {
+        const availCount = Number(pool.stockCount || 0);
+        const defectCount = Number(pool.burnedCount || 0);
+        const totalAdded = Number(pool.totalCount || 0);
+        let soldCount = totalAdded - availCount - defectCount;
+        if (soldCount < 0) soldCount = 0;
+        
+        const availEl = document.getElementById('v-stat-avail');
+        const soldEl = document.getElementById('v-stat-sold');
+        if (availEl) availEl.innerText = availCount;
+        if (soldEl) soldEl.innerText = soldCount;
+        
+        let financialBox = document.getElementById('v-financial-stats');
+        if (!financialBox) {
+          financialBox = document.createElement('div');
+          financialBox.id = 'v-financial-stats';
+          financialBox.className = 'mt-10 p-10';
+          financialBox.style.cssText = 'background: rgba(16, 185, 129, 0.05); border: 1px dashed rgba(16, 185, 129, 0.3); border-radius: 8px; font-size: 12px;';
+          statsArea.appendChild(financialBox);
+        }
+        
+        financialBox.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-success"></i> <span class="text-muted">جاري حساب أرباح هذا الصندوق من السيرفر...</span>`;
+        statsArea.classList.remove('hide-element');
+        
+        import('./catalogController.js').then(({ CatalogController }) => {
+          CatalogController.fetchVaultFinancials(pool.id).then(financials => {
+            const currentModalId = document.getElementById('v-pool-id')?.value;
+            if (currentModalId === pool.id) {
+              const profitHtml = RenderHelpers.formatMoney(financials.profit, 'USD', 2);
+              const revenueHtml = RenderHelpers.formatMoney(financials.revenue, 'USD', 2);
+              financialBox.innerHTML = `
+                              <div class="flex-between align-items-center mb-5">
+                                  <span class="fw-bold text-success"><i class="fa-solid fa-sack-dollar"></i> صافي الأرباح:</span>
+                                  <span class="num-en fw-bold text-success" dir="ltr">${profitHtml}</span>
+                              </div>
+                              <div class="flex-between align-items-center">
+                                  <span class="text-muted"><i class="fa-solid fa-chart-line"></i> إجمالي الإيرادات:</span>
+                                  <span class="num-en text-muted" dir="ltr">${revenueHtml}</span>
+                              </div>`;
+            }
+          });
         });
-      });
-      
-    } else {
-      statsArea.classList.add('hide-element');
-      const financialBox = document.getElementById('v-financial-stats');
-      if (financialBox) financialBox.remove();
+      } else {
+        statsArea.classList.add('hide-element');
+        const financialBox = document.getElementById('v-financial-stats');
+        if (financialBox) financialBox.remove();
+      }
     }
-  }
-},
+  },
+
   toggleDragEditMode: function(e) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     this.dragEditMode = !this.dragEditMode;
@@ -268,7 +264,6 @@ export const CatalogUI = {
     
     const editModeBtn = document.getElementById('drag-edit-mode-btn');
     if (editModeBtn) {
-      // 🚀 استيراد ديناميكي للقوالب لمنع الأخطاء
       import('./catalogTemplates.js').then(({ CatalogTemplates }) => {
           if (this.dragEditMode) {
             editModeBtn.classList.add('active');
@@ -374,6 +369,7 @@ export const CatalogUI = {
       });
   },
 
+  // 🚀 [الإصلاح المعماري]: دالة معاينة الأسعار أصبحت ذكية وتدرك وجود الـ API
   renderPricePreview: function(type, cost, tiers, pkgs, EngineRef) {
       const previewContainer = document.getElementById('universal-price-preview');
       if (!previewContainer) return;
@@ -381,14 +377,22 @@ export const CatalogUI = {
       const safeEngine = EngineRef || window.FinancialEngine || FinancialEngine;
       if (!safeEngine) return;
       
-      let html = '<div class="fs-12 fw-bold text-primary mb-10"><i class="fa-solid fa-eye"></i> المعاينة الحية لأسعار المستويات:</div>';
-      
       const isFixed = document.getElementById('pr-fixed-price')?.checked || false;
       const fixedVal = parseFloat(Utils.getVal('pr-fixed-val', cost)) || cost;
+      
+      // 🤖 استكشاف هل المنتج مربوط بمورد API؟
+      const supplierId = document.getElementById('pr-supplier')?.value;
+
+      let html = '<div class="fs-12 fw-bold text-primary mb-10"><i class="fa-solid fa-eye"></i> المعاينة الحية لأسعار المستويات:</div>';
 
       if (type !== 'select') {
-          if (cost <= 0 && !isFixed) { 
-              previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-calculator"></i> أدخل تكلفة المنتج لرؤية أسعار البيع للعملاء</div>'; 
+          // 🛡️ إذا لم تكن هناك تكلفة، إما أن نطلب إدخالها أو نخبره أن الـ API سيتكفل بها
+          if (cost <= 0 && !isFixed) {
+              if (supplierId) {
+                  previewContainer.innerHTML = '<div class="preview-mini-empty text-info fs-11 mt-10 text-center p-15" style="background: rgba(56, 189, 248, 0.1); border-radius: 8px;"><i class="fa-solid fa-robot fa-2x mb-10 text-info"></i><br><b>تسعير آلي (API)</b><br>سيتم جلب تكلفة المنتج آلياً من المورد وحساب أسعار المستويات بناءً عليها فور حفظ المنتج.</div>';
+              } else {
+                  previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-calculator"></i> أدخل تكلفة المنتج بالأعلى لرؤية أسعار البيع للعملاء</div>';
+              }
               return; 
           }
           
@@ -410,7 +414,11 @@ export const CatalogUI = {
           
       } else {
           if (pkgs.length === 0) { 
-              previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-layer-group"></i> أضف باقات بالأسفل لرؤية تسعير كل باقة على حدة</div>'; 
+              if (supplierId) {
+                  previewContainer.innerHTML = '<div class="preview-mini-empty text-info fs-11 mt-10 text-center p-15" style="background: rgba(56, 189, 248, 0.1); border-radius: 8px;"><i class="fa-solid fa-layer-group fa-2x mb-10 text-info"></i><br><b>باقات آلية (API)</b><br>هذا المنتج مربوط بمورد. سيتم جلب باقاته وتكاليفها آلياً وتطبيق أسعار المستويات عليها. لا حاجة لإضافتها يدوياً.</div>';
+              } else {
+                  previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-layer-group"></i> أضف باقات بالأسفل لرؤية تسعير كل باقة على حدة</div>'; 
+              }
               return; 
           }
           
@@ -493,7 +501,6 @@ export const CatalogUI = {
     }
   },
 
-  // 🚀 [التصحيح المعماري]: حل تعارض التمرير واستيراد القوالب ديناميكياً
   renderDefectiveCodesModal: function(poolName, defectiveCodes, isLoadMore = false, hasMore = false, poolId = null) {
     import('./catalogTemplates.js').then(({ CatalogTemplates }) => {
         const codesHtml = CatalogTemplates.defectiveCodesList(defectiveCodes);

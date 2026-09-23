@@ -1,9 +1,10 @@
 // ============================================================================
-// 📈 محرك رسم وتحليل المبيعات (modules/dashboard/salesRender.js) - Ultimate Hybrid V18.5 💎
+// 📈 محرك رسم وتحليل المبيعات (modules/dashboard/salesRender.js) - Ultimate Hybrid V18.6 💎
 // 🎯 الوظيفة: استهلاك البيانات المركزية، الفلترة الزمنية، ورسم التقارير والتصدير
-// 🚀 التحديثات المعمارية (V18.5 - Session Integrity Patch): 
+// 🚀 التحديثات المعمارية (V18.6 - Top Customers Report Patch): 
 // 1. Strict Session Fix 🔒: استبدال localStorage بـ sessionStorage لتوافق سياسة الأمان.
 // 2. Export NaN Shield 🛡️: معالجة القيم المفقودة في التصدير لمنع انهيار الإكسل.
+// 3. Top Customers Report 👑: إضافة زر لاستخراج قائمة كبار العملاء ديناميكياً لتخفيف الضغط عن وحدة المستخدمين.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -21,7 +22,7 @@ export const SalesRender = {
     _listenersBound: false,
     _isRendering: false,
 
-        initListeners: function() {
+    initListeners: function() {
         if (this._listenersBound) return; 
         this._listenersBound = true;
 
@@ -48,10 +49,78 @@ export const SalesRender = {
         });
         themeObserver.observe(document.body, { attributes: true });
     },
+    
     changeTimeRange: function(range) {
         this.state.timeRange = range;
         sessionStorage.setItem('telecard_sales_filter', range); // 🚀 [توافق الأمان]
         this.renderSales();
+    },
+
+    // 👑 [الإضافة المعمارية]: دالة استخراج تقرير كبار العملاء المخصصة
+    loadTopCustomersReport: async function() {
+        const btn = document.getElementById('btn-load-top-customers');
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري استخراج التقرير السحابي...';
+            btn.disabled = true;
+        }
+
+        try {
+            // نستخدم نفس الدالة السحابية من لوحة القيادة (ستجلب الآن عدداً أكبر بناءً على تحديثك لـ adminData)
+            const stats = await AdminData.fetchDashboardStatsAsync(this.state.timeRange);
+            const topUsers = stats.users?.topThree || []; 
+
+            let html = '';
+            if (topUsers.length === 0) {
+                html = '<div class="text-center text-muted w-100 p-20">لا توجد مبيعات مسجلة في هذه الفترة.</div>';
+            } else {
+                html = topUsers.map((u, i) => {
+                    // 🚀 جلب البيانات المحدثة للعميل من الذاكرة المحلية (Join)
+                    const memUser = AdminData.data.usersMap?.[u.id] || {};
+                    const safeName = Utils.escapeHTML(memUser.fullName || memUser.name || memUser.username || u.name || 'عميل');
+                    const safeImg = Utils.escapeHTML(memUser.img || u.img || '');
+                    const fallbackChar = safeName.charAt(0);
+                    
+                    const avatarHtml = safeImg 
+                        ? `<img src="${safeImg}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">` 
+                        : `<div style="width:40px;height:40px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;">${fallbackChar}</div>`;
+
+                    return `
+                        <div class="d-flex align-items-center justify-content-between p-10 mb-10" style="background: var(--bg-body); border-radius: 8px;">
+                            <div class="d-flex align-items-center gap-3">
+                                <span class="fs-14 fw-bold text-muted">#${i + 1}</span>
+                                ${avatarHtml}
+                                <div>
+                                    <div class="fw-bold">${safeName}</div>
+                                    <div class="fs-11 text-muted num-en" dir="ltr">${Utils.escapeHTML(u.displayId)}</div>
+                                </div>
+                            </div>
+                            <div class="text-gold fw-bold num-en" dir="ltr">${RenderHelpers.formatMoney(u.spent, 'USD', 2)}</div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // إظهار التقرير في نافذة منبثقة
+            const periodNames = { 'all': 'كل الأوقات', 'today': 'اليوم', '7days': 'آخر 7 أيام', '30days': 'آخر 30 يوم', '90days': 'آخر 90 يوم', 'this_month': 'هذا الشهر', 'last_month': 'الشهر الماضي' };
+            const periodTitle = periodNames[this.state.timeRange] || 'الفترة المحددة';
+            
+            UIService.showPrompt(`<div class="custom-scrollbar" style="max-height: 400px; overflow-y: auto; text-align: right; padding-left: 5px;">${html}</div>`, `تقرير كبار العملاء (${periodTitle})`, '', false).catch(()=>{});
+            
+            // إخفاء حقل الإدخال النصي الافتراضي الخاص بـ Prompt
+            setTimeout(() => {
+                const promptInput = document.getElementById('prompt-input');
+                if (promptInput) promptInput.style.display = 'none';
+            }, 50);
+            
+        } catch (error) {
+            console.error("خطأ في جلب تقرير كبار العملاء:", error);
+            UIService.showToast("تعذر جلب التقرير السحابي", "error");
+        } finally {
+            if (btn) {
+                btn.innerHTML = '<i class="fa-solid fa-list-ol"></i> تقرير كبار العملاء (الكامل)';
+                btn.disabled = false;
+            }
+        }
     },
 
     renderSales: async function() {
@@ -156,6 +225,16 @@ export const SalesRender = {
                     };
 
                     podiumContainer.innerHTML = `${buildRankHtml(sortedProds[1], 'rank-2', '2', '<i class="fa-solid fa-medal"></i>')}${buildRankHtml(sortedProds[0], 'rank-1', '1', '<i class="fa-solid fa-crown text-gold"></i>')}${buildRankHtml(sortedProds[2], 'rank-3', '3', '<i class="fa-solid fa-award"></i>')}`;
+                    
+                    // 👑 إضافة زر استخراج التقرير تحت منصة التتويج
+                    podiumContainer.insertAdjacentHTML('afterend', `
+                        <div class="text-center mt-20">
+                            <button class="btn btn-ghost text-warning" id="btn-load-top-customers" onclick="AdminRender.SalesRender.loadTopCustomersReport()">
+                                <i class="fa-solid fa-list-ol"></i> تقرير كبار العملاء (الكامل)
+                            </button>
+                        </div>
+                    `);
+
                 } else {
                     podiumContainer.innerHTML = `<div class="text-center text-muted w-100 py-20"><i class="fa-solid fa-ghost fs-2 mb-10 opacity-50"></i><br>لا توجد مبيعات!</div>`;
                 }

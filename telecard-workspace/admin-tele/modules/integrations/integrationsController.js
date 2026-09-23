@@ -1,7 +1,8 @@
 // ============================================================================
-// 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js) - V18.4 💎
-// 🚀 التحديثات المعمارية (V18.4 - Defects Ledger Fetcher): 
-// 1. Defects Fetcher 🕵️‍♂️: إضافة دالة لجلب الأكواد التالفة (API) من السيرفر وعرضها.
+// 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js) - V18.6 💎
+// 🚀 التحديثات المعمارية (V18.6 - Sync UI Lock): 
+// 1. UI Sync Lock 🔒: تجميد أزرار بطاقة المورد (المزامنة، الإعدادات، التوالف) أثناء الاتصال بالسيرفر لمنع التضارب.
+// 2. Defects Fetcher 🕵️‍♂️: إضافة دالة لجلب الأكواد التالفة (API) من السيرفر وعرضها.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -128,6 +129,17 @@ export const IntegrationsController = {
         }
 
         this._actionLocks.add(`sync-${id}`);
+        
+        // 🚀 [الإصلاح المعماري 3]: تجميد كافة الأزرار والمفاتيح الخاصة بهذا المورد في الواجهة أثناء المزامنة
+        const cardElementsToDisable = document.querySelectorAll(`[data-id="${id}"]`);
+        cardElementsToDisable.forEach(el => {
+            if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') {
+                el.disabled = true;
+                el.classList.add('opacity-50');
+                el.style.pointerEvents = 'none';
+            }
+        });
+
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, `جاري مزامنة المنتجات من سيرفرات (${supp.name})، الرجاء عدم إغلاق النافذة...`);
 
         try {
@@ -161,10 +173,18 @@ export const IntegrationsController = {
         } finally {
             this._actionLocks.delete(`sync-${id}`);
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            
+            // 🚀 فك التجميد عن الأزرار في حال فشل المزامنة وعدم إعادة رسم الواجهة
+            cardElementsToDisable.forEach(el => {
+                if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') {
+                    el.disabled = false;
+                    el.classList.remove('opacity-50');
+                    el.style.pointerEvents = 'auto';
+                }
+            });
         }
     },
 
-    // 🚀 [الإضافة المعمارية]: دالة جلب الأكواد التالفة من السيرفر
     viewSupplierDefects: async function(supplierId, supplierName) {
         if (this._actionLocks.has('view-defects')) return;
         this._actionLocks.add('view-defects');
@@ -182,7 +202,6 @@ export const IntegrationsController = {
 
             const defects = result.data || [];
             
-            // 🚀 استدعاء دالة الرسم لعرض النافذة
             import('./integrationsRender.js').then(({ IntegrationsRender }) => {
                 if (IntegrationsRender && IntegrationsRender.renderDefectsModal) {
                     IntegrationsRender.renderDefectsModal(supplierName, defects);

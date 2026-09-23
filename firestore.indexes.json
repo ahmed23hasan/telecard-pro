@@ -35,6 +35,15 @@
       ]
     },
     {
+      "collectionGroup": "telecard_orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "priceBaseUsd", "order": "ASCENDING" },
+        { "fieldPath": "pricingSnapshot.netProfitUsd", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "telecard_deposits",
       "queryScope": "COLLECTION",
       "fields": [
@@ -57,6 +66,14 @@
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_deposits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "creditedBaseUsd", "order": "ASCENDING" }
       ]
     },
     {
@@ -139,6 +156,14 @@
         { "fieldPath": "supplierId", "order": "ASCENDING" },
         { "fieldPath": "isAvailable", "order": "ASCENDING" },
         { "fieldPath": "syncSessionId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_reviews",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "rating", "order": "ASCENDING" }
       ]
     }
   ],

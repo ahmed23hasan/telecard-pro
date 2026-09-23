@@ -1,13 +1,11 @@
 // ============================================================================
-// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Cloud-Native V18.10 💎
+// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Cloud-Native V18.12 💎
 // 🎯 الوظيفة: المنطق التجاري للمنتجات، الأقسام، الدول، وصناديق الأكواد (Vault)
-// 🚀 التحديثات المعمارية (V18.10 - Ultimate Integrity Patch):
-// 1. API Blackhole Fix 🕳️: التقاط وحفظ بيانات ربط الموردين (supplierId, externalId) بدقة.
-// 2. Orphaned Data Cleanup 🧹: تنظيف الكوبونات والعروض صامتاً عند إبادة المنتجات والأقسام لمنع تراكم البيانات الميتة.
-// 3. Pagination Race Condition Fix 🐛: تأمين زر "جلب المزيد" بقفل ذري.
-// 4. Sanitization Shield 🛡️: تنظيف المدخلات من المسافات الفارغة قبل إرسالها للسيرفر.
-// 5. Category Hijacking Fix 🛡️: الحفاظ على القسم الأصلي للمنتج عند التعديل.
-// 6. Zombie API Products Shield 🧟: تحذيرات مبكرة عند حذف المنتجات أو الأقسام المربوطة بمورد.
+// 🚀 التحديثات المعمارية (V18.12 - Atomic Vault Stats Patch):
+// 1. Atomic Vault Stats 📈: تبسيط جلب أرباح الصندوق للاعتماد على العدادات الذرية (Point-Read) لمنع استنزاف القراءات.
+// 2. API Package Shield 🛡️: قفل الباقات اليدوية (Packages) عند ربط المنتج بمورد خارجي.
+// 3. Orphaned Data Cleanup 🧹: تنظيف الكوبونات والعروض صامتاً عند إبادة المنتجات والأقسام.
+// 4. Category Hijacking Fix 🛡️: الحفاظ على القسم الأصلي للمنتج عند التعديل.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -52,23 +50,35 @@ export const CatalogController = {
         AdminUI?.CatalogUI?.renderPricePreview?.(type, cost, tiers, this.tempPackages, FinancialEngine);
     },
 
+    // 🚀 [التحديث المعماري الأهم]: الدالة الآن تجلب مستنداً واحداً فقط بدلاً من آلاف الفواتير!
     fetchVaultFinancials: async function(poolId) {
         try {
-            const stats = await FirebaseAdapter.getAggregatedStats('telecard_orders',
-                [
-                    ['vaultPoolId', '==', String(poolId)],
-                    ['status', '==', 'completed']
-                ],
-                {
-                    totalProfit: { type: 'sum', field: 'pricingSnapshot.netProfitUsd' },
-                    totalRevenue: { type: 'sum', field: 'priceBaseUsd' }
-                }
-            );
+            // أولاً، نحاول قراءة القيمة من الذاكرة المحلية (0 Reads)
+            const localPool = AdminData.data.vault?.find(v => String(v.id) === String(poolId));
             
-            return {
-                profit: stats?.totalProfit || 0,
-                revenue: stats?.totalRevenue || 0
-            };
+            // إذا كانت العدادات موجودة في الذاكرة وموثوقة، نستخدمها فوراً
+            if (localPool && localPool.totalProfit !== undefined && localPool.totalRevenue !== undefined) {
+                return {
+                    profit: Number(localPool.totalProfit || 0),
+                    revenue: Number(localPool.totalRevenue || 0)
+                };
+            }
+
+            // في حال عدم وجودها (أو للتحقق)، نطلب المستند الحي من فايربيز (1 Read فقط!)
+            const liveVaultSnap = await FirebaseAdapter.getById('telecard_vault', String(poolId));
+            if (liveVaultSnap) {
+                // تحديث الذاكرة المحلية
+                if (localPool) {
+                    localPool.totalProfit = liveVaultSnap.totalProfit;
+                    localPool.totalRevenue = liveVaultSnap.totalRevenue;
+                }
+                return {
+                    profit: Number(liveVaultSnap.totalProfit || 0),
+                    revenue: Number(liveVaultSnap.totalRevenue || 0)
+                };
+            }
+            
+            return { profit: 0, revenue: 0 };
         } catch (error) {
             console.error("🚨 فشل جلب أرباح الصندوق:", error);
             return { profit: 0, revenue: 0 };
@@ -80,12 +90,14 @@ export const CatalogController = {
 
         const name = Utils.escapeHTML(Utils.getVal('pr-name'));
         const type = Utils.getVal('pr-type');
+        const supplierId = (Utils.getVal('pr-supplier') || '').trim();
+        const externalId = (Utils.getVal('pr-supplier-prod-id') || '').trim();
         
         if (!name) return EventBus.emit('req-show-toast', {message:'يرجى إدخال اسم المنتج', type:'error'});
 
         const rawCost = parseFloat(Utils.getVal('pr-cost')) || 0;
-        if (rawCost <= 0 && type !== 'select') {
-            return EventBus.emit('req-show-toast', {message:'لا يمكن أن تكون التكلفة 0 للمنتجات الفردية', type:'error'});
+        if (rawCost <= 0 && type !== 'select' && !supplierId) {
+            return EventBus.emit('req-show-toast', {message:'لا يمكن أن تكون التكلفة 0 للمنتجات المحلية', type:'error'});
         }
 
         const MAX_PRICE_LIMIT = FinancialEngine.CONFIG.MAX_PRICE_LIMIT;
@@ -153,12 +165,8 @@ export const CatalogController = {
                 fallbackPrice = parseFloat(Utils.getVal('pr-fixed-val', rawCost)) || rawCost; 
             }
 
-            const supplierId = (Utils.getVal('pr-supplier') || '').trim();
-            const externalId = (Utils.getVal('pr-supplier-prod-id') || '').trim();
-
             let updatedFields = {
                 id: newProdId, 
-                // 🚀 [درع اختطاف الأقسام]: الحفاظ على القسم الأصلي عند التعديل لمنع طيران المنتج للرئيسية
                 catId: isEdit ? (oldProd.catId || null) : (AdminData.currFolder != null ? String(AdminData.currFolder) : null),
                 name: name, 
                 description: Utils.escapeHTML(Utils.getVal('pr-desc')),
@@ -188,7 +196,10 @@ export const CatalogController = {
                 updatedFields.maxQty = parseInt(Utils.getVal('pr-max')) || 100;
                 updatedFields.input1Label = l1;
             } else if (type === 'select') {
-                if (this.tempPackages.length === 0) throw new Error('يرجى إضافة باقة (خيار) واحد على الأقل للمنتج المتعدد.');
+                if (this.tempPackages.length === 0 && !supplierId) {
+                    throw new Error('يرجى إضافة باقة (خيار) واحد على الأقل للمنتج المحلي المتعدد.');
+                }
+                
                 updatedFields.options = JSON.parse(JSON.stringify(this.tempPackages)); 
                 updatedFields.input1Label = l1;
             }
@@ -257,7 +268,6 @@ export const CatalogController = {
         }
 
         if (marketingChanged) {
-            // 🚀 [أمان الانهيار الصامت]: استبدال Promise.all بـ allSettled
             await Promise.allSettled([
                 AdminData.saveCoupons ? AdminData.saveCoupons() : Promise.resolve(),
                 AdminData.saveOffers ? AdminData.saveOffers() : Promise.resolve()
@@ -270,7 +280,6 @@ export const CatalogController = {
 
         const prod = AdminData.data.prodsMap?.[id] || AdminData.data.prods.find(p => String(p.id) === String(id));
         
-        // 🧟 [درع منتجات الزومبي]: تنبيه المدير
         if (prod?.supplierId) {
             const confirmApi = await AdminUI.showConfirm('⚠️ تحذير معماري:\nهذا المنتج مربوط بمورد (API). حذفه من هنا سيجعله يعود للحياة مجدداً في المزامنة القادمة!\n\nلإخفائه نهائياً، يفضل "تعطيله" من زر التفعيل بدلاً من حذفه.\n\nهل تريد إجباره على الحذف على أي حال؟', 'منتج مورد (API)');
             if (!confirmApi) return;
@@ -322,7 +331,6 @@ export const CatalogController = {
         const affectedProds = AdminData.data.prods.filter(p => String(p.catId) === catId || allChildCatIds.has(String(p.catId)));
         const affectedCats = AdminData.data.cats.filter(c => allChildCatIds.has(String(c.id)));
         
-        // 🧟 [درع الأقسام الزومبي]: التحقق من وجود منتجات API
         const hasApiProducts = affectedProds.some(p => p.supplierId != null);
         
         let warningMsg = `تحذير: سيتم حذف القسم "${categoryToDelete?.name || 'المحدد'}" نهائياً.`;

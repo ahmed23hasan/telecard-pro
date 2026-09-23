@@ -1,11 +1,9 @@
 // ============================================================================
-// 💰 المحرك المالي المركزي (Admin Edition) - الإصدار الألماسي V30.4.0 💎 (The Oracle)
+// 💰 المحرك المالي المركزي (Admin Edition) - الإصدار الألماسي V30.5.0 💎
 // 🎯 الوظيفة: محاكاة أسعار السيرفر، كشف الأرباح، وتشخيص الأخطاء بشفافية مطلقة للمدير.
-// 🚀 التحديثات المعمارية (V30.4.0 - Server Sync Patch): 
-// 1. Math Core Sync 🧮: توحيد خوارزمية التقريب (e4) لتطابق السيرفر بنسبة 100% ومنع الفروقات الكسرية.
-// 2. Firewall Alignment 🛡️: توحيد هامش الحماية (0.5%) لمنع تضارب الرفض والقبول بين الأدمن والسيرفر.
-// 3. Absolute Transparency 👁️: عدم إيقاف الكود عند كسر الحماية، بل إرجاع السبب بالأرقام لتلوين الواجهة للأدمن.
-// 4. Upgrade Simulator 👑: إضافة محرك الترقيات لتمكين الأدمن من محاكاة مسار إنفاق العملاء.
+// 🚀 التحديثات المعمارية (V30.5.0 - Absolute Profit Patch): 
+// 1. Zero-Cost Profit Shield 🛡️: السماح بإضافة "نسبة الربح الدنيا" للطلبات المجانية (التكلفة = 0).
+// 2. Math Core Sync 🧮: توحيد خوارزمية التقريب (e4) لتطابق السيرفر بنسبة 100%.
 // ============================================================================
 
 const FinancialEngineDef = { 
@@ -16,20 +14,13 @@ const FinancialEngineDef = {
         PRECISION: 4,
         INTERNAL_PRECISION: 8, 
         MIN_SALE_PRICE: 0.01, 
-        // 🛡️ تم التوحيد مع السيرفر: 0.5% (رسوم بوابات الدفع التشغيلية كحد أدنى قطعي)
         MIN_MARGIN_PERCENT: 0.5,
         MAX_GLOBAL_DISCOUNT_PCT: 95
     }),
 
-    // ========================================================================
-    // 🧮 القسم الأول: محرك الرياضيات الدقيق (Identical to Server Math Core)
-    // ========================================================================
-
     sanitizeAmount: function(amount) {
         const num = Number(amount);
-        // 🛡️ حماية جداول الإدارة من قيم الـ NaN والـ Infinity
         if (isNaN(num) || !isFinite(num)) return 0;
-        // خوارزمية التقريب المتطابقة مع السيرفر
         return Number(Math.round(num + 'e4') + 'e-4');
     },
 
@@ -40,11 +31,7 @@ const FinancialEngineDef = {
     _internalDiv: function(a, b) {
         const numA = Number(a) || 0;
         const numB = Number(b) || 0;
-        
-        if (numB === 0) { 
-            console.error("🚨 [Admin Math Guard]: منع قسمة على صفر! يرجى مراجعة أسعار الصرف."); 
-            return numA; 
-        }
+        if (numB === 0) return numA; 
         return FinancialEngineDef.sanitizeAmount(numA / numB);
     },
 
@@ -75,15 +62,12 @@ const FinancialEngineDef = {
         return Date.now();
     },
 
-    // 🚀 [توحيد الزمن]: حساب منتصف الليل بناءً على التوقيت العالمي (Pure UTC)
-getStartOfUTCDay: function(timestampMs) {
-    const d = new Date(timestampMs);
-    d.setUTCHours(0, 0, 0, 0);
-    return d.getTime();
-},    // ========================================================================
-    // 🏦 القسم الثاني: معالجة الإيداعات ورسوم البوابات (Gateway Engine)
-    // ========================================================================
-    
+    getStartOfUTCDay: function(timestampMs) {
+        const d = new Date(timestampMs);
+        d.setUTCHours(0, 0, 0, 0);
+        return d.getTime();
+    },
+
     calculateDepositNet: function(amount, feeSettings = {}) {
         const amt = FinancialEngineDef.extractNum(amount);
         if (amt === 0) return 0;
@@ -163,10 +147,6 @@ getStartOfUTCDay: function(timestampMs) {
         return { isValid: true, netBase: isNaN(netBase) ? 0 : netBase, feePct: s.fee, feeType: s.feeType, feeUnit: s.feeUnit, adminMax: s.max, adminMin: s.min };
     },
 
-    // ========================================================================
-    // 💱 القسم الثالث: محول العملات المتعدد (Currency Exchange)
-    // ========================================================================
-
     normalizeRates: function(raw) {
         const ratesMap = {};
         ratesMap[FinancialEngineDef.CONFIG.BASE_CURRENCY] = { code: FinancialEngineDef.CONFIG.BASE_CURRENCY, symbol: '$', name: 'دولار أمريكي', priceRate: 1, depRate: 1, isBase: true };
@@ -175,7 +155,6 @@ getStartOfUTCDay: function(timestampMs) {
             const numPrice = FinancialEngineDef.extractNum(priceR);
             const numDep = FinancialEngineDef.extractNum(depR);
             if (numPrice === 0 || numDep === 0) {
-                console.warn(`🚨 [Admin System]: سعر صرف غير صالح للعملة ${code}. سيتم اعتبارها 1 للحماية.`);
                 ratesMap[code] = { code: code, priceRate: numPrice || 1, depRate: numDep || 1 };
                 return;
             }
@@ -210,7 +189,6 @@ getStartOfUTCDay: function(timestampMs) {
         const ratesMap = FinancialEngineDef.normalizeRates(ratesRaw);
         
         if (!ratesMap[fCode] || !ratesMap[tCode]) {
-            console.error(`🚨 [Admin System]: فشل التحويل من ${fCode} إلى ${tCode}. العملة مفقودة!`);
             return amt;
         }
         
@@ -235,10 +213,6 @@ getStartOfUTCDay: function(timestampMs) {
 
         return isNaN(result) ? 0 : result;
     },
-
-    // ========================================================================
-    // 💼 القسم الرابع: محاكاة التسعير والجدار الناري الصريح (Honest Simulator)
-    // ========================================================================
 
     validateCoupon: function(code, prod, qty, optIdx, user, userTier, coupons = [], now = Date.now(), offer = null) {
         if (!code) return { valid: false, msg: 'لم يتم تقديم كود خصم' };
@@ -324,31 +298,28 @@ getStartOfUTCDay: function(timestampMs) {
         let currentPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.price || product.price) : FinancialEngineDef.extractNum(product.price);
         let tierName = "عضو";
 
-        // 🧮 1. سلطة التسعير (مطابقة السيرفر)
         if (isFixed) {
             currentPrice = activeOption ? FinancialEngineDef.extractNum(activeOption.fixedPriceUsd || activeOption.price || product.price) : FinancialEngineDef.extractNum(fixedPrice || product.fixedPriceUsd || product.price);
             tierName = "سعر ثابت";
         } else if (tier && typeof tier === 'object') {
             tierName = tier.nameAr || tier.name || tier.id || 'عضو';
-            // 🛡️ التحديث الأمني: منع وراثة السعر الخاطئ من المنتج الأساسي للخيار
-let tierPriceField;
-if (activeOption) {
-    // إذا كان العميل يشتري خياراً، ابحث في أسعار الخيار فقط
-    tierPriceField = activeOption.tierPrices?.[tier.id];
-} else {
-    // إذا كان يشتري المنتج الأساسي، ابحث في أسعار المنتج الأساسي
-    tierPriceField = product.tierPrices?.[tier.id];
-}
+            
+            let tierPriceField;
+            if (activeOption) {
+                tierPriceField = activeOption.tierPrices?.[tier.id];
+            } else {
+                tierPriceField = product.tierPrices?.[tier.id];
+            }
             
             if (tierPriceField !== undefined && tierPriceField !== null) {
                 currentPrice = FinancialEngineDef.extractNum(tierPriceField);
             } else {
                 const profitPercent = FinancialEngineDef.extractNum(tier.profitPercent || tier.profit_percent);
                 const minProfitUsd = FinancialEngineDef.extractNum(tier.minProfitUsd || tier.min_profit_usd);
-                if (cost > 0 && (profitPercent > 0 || minProfitUsd > 0)) {
-                    let profitAdded = FinancialEngineDef._internalMul(cost, FinancialEngineDef._internalDiv(profitPercent, 100));
-                    currentPrice = FinancialEngineDef._internalAdd(cost, Math.max(profitAdded, minProfitUsd));
-                }
+                
+                // 🚀 [الإصلاح المعماري 3]: السماح بحساب ربح المستوى حتى لو كانت التكلفة (0)
+                let profitAdded = FinancialEngineDef._internalMul(cost, FinancialEngineDef._internalDiv(profitPercent, 100));
+                currentPrice = FinancialEngineDef._internalAdd(cost, Math.max(profitAdded, minProfitUsd));
             }
         }
 
@@ -360,7 +331,6 @@ if (activeOption) {
         const originalPrice = tierPrice;
         const allowsDiscounts = !isFixed;
 
-        // 🏷️ 2. الخصومات
         let offerName = null, offerDiscount = 0, couponCode = null, couponDiscount = 0;
         const absoluteMaxDiscountAllowable = FinancialEngineDef._internalMul(originalPrice, FinancialEngineDef._internalDiv(FinancialEngineDef.CONFIG.MAX_GLOBAL_DISCOUNT_PCT, 100));
         let accumulatedDiscount = 0;
@@ -390,7 +360,6 @@ if (activeOption) {
         
         currentPrice = Math.max(FinancialEngineDef.CONFIG.MIN_SALE_PRICE, FinancialEngineDef._internalSub(originalPrice, accumulatedDiscount));
 
-        // 🧱 3. سلطة الحماية (الجدار الناري - مطابقة السيرفر)
         let isFirewallViolated = false;
         let rejectionReason = null;
 
@@ -400,8 +369,7 @@ if (activeOption) {
             
             if (currentPrice < safeMarginPrice) {
                 isFirewallViolated = true;
-                // 👁️ الشفافية المطلقة للأدمن: إرجاع السبب بدون إيقاف الكود (Throw Error)
-                rejectionReason = `السعر النهائي (${currentPrice}$) يكسر حاجز الربح الآمن (${safeMarginPrice}$). السيرفر سيرفض هذه العملية حمايةً للأرباح!`;
+                rejectionReason = `السعر النهائي (${currentPrice}$) يكسر حاجز الربح الآمن (${safeMarginPrice}$). הסירفر سيرفض هذه العملية حمايةً للأرباح!`;
             }
         }
 
@@ -445,10 +413,6 @@ if (activeOption) {
         };
     },
 
-    // ========================================================================
-    // 👑 القسم الخامس: محرك مستويات العضوية والـ VIP (Tiers Engine)
-    // ========================================================================
-    
     getUserTier: function(user, tiers) {
         if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return null;
         
@@ -468,7 +432,6 @@ if (activeOption) {
         return foundTier;
     },
 
-    // 🛡️ تمت إضافتها للأدمن لمحاكاة مسار إنفاق العملاء والترقيات
     processTierUpgrade: function(userData, tiersData, newOrderUsdAmount, serverNowMs = Date.now()) {
         const safeAdd = FinancialEngineDef.safeAdd;
         let currentTierObj = FinancialEngineDef.getUserTier(userData, tiersData);
@@ -527,10 +490,9 @@ if (activeOption) {
         
         const CYCLE_DAYS = Number(currentTier.durationDays || 30);
         const msPerDay = 1000 * 60 * 60 * 24;
-        // حساب الأيام بناءً على منتصف الليل (تطابق السيرفر 100%)
-const startOfNow = FinancialEngineDef.getStartOfUTCDay(now);
-const startOfCycle = FinancialEngineDef.getStartOfUTCDay(cycleStart);
-const daysPassed = Math.floor(Math.max(0, startOfNow - startOfCycle) / msPerDay);
+        const startOfNow = FinancialEngineDef.getStartOfUTCDay(now);
+        const startOfCycle = FinancialEngineDef.getStartOfUTCDay(cycleStart);
+        const daysPassed = Math.floor(Math.max(0, startOfNow - startOfCycle) / msPerDay);
         const remainingDays = Math.max(0, CYCLE_DAYS - daysPassed);
 
         let nextTier = null;
@@ -570,7 +532,6 @@ const daysPassed = Math.floor(Math.max(0, startOfNow - startOfCycle) / msPerDay)
         };
     },
 
-    // 🛡️ جسر واجهة الإدارة: مخصصة حصرياً لكشف الأسرار للوحة الإدارة بالعملة المحددة
     getPricingLocal: function(prod, user, qty, optIdx, coupon, offer, tier, rates, baseCur, displayCur) {
         const params = {
             product: prod,
@@ -616,7 +577,6 @@ const daysPassed = Math.floor(Math.max(0, startOfNow - startOfCycle) / msPerDay)
                 isFirewallViolated: result.isFirewallViolated,
                 rejectionReason: result.rejectionReason,
                 
-                // 👁️ الشفافية المطلقة للإدارة: تصدير التكلفة والربح ليعرض في الواجهة
                 totalCostUsd: result.totalCostUsd,
                 totalNetProfitUsd: result.totalNetProfitUsd,
                 marginPct: result.marginPct

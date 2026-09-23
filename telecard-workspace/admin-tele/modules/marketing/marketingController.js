@@ -1,10 +1,9 @@
 // ============================================================================
-// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Cloud-Native V18.9 🛡️
-// 🚀 التحديثات المعمارية (V18.9 - The Final Polish Patch): 
-// 1. UID Coercion Fix 🐛: منع تحويل معرفات العملاء النصية (Firebase UIDs) إلى أرقام في الكوبونات لضمان نجاح التخصيص.
-// 2. Full Mutex Coverage 🔒: إغلاق ثغرة (autoSaveSettings) وإدراجها تحت حماية الأقفال الذرية.
-// 3. Strict Adapter Pattern 🔌: توجيه كافة عمليات (الإشعارات والإنذارات) لتعبر من خلال FirebaseAdapter النظيف.
-// 4. Pricing Cache Sync 📊: إجبار السيرفر على تحديث الأسعار لحظياً.
+// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Cloud-Native V18.10 🛡️
+// 🚀 التحديثات المعمارية (V18.10 - The Ultimate Routing Patch): 
+// 1. Target Routing Fix 🔀: تصحيح مسار حذف الإشعارات ليشمل إشعارات العملاء المخصصة (Targeted Alerts).
+// 2. DOM Shield 🛡️: حماية الاستهداف القديم من المسح العشوائي إذا لم يكتمل رسم واجهة الشجرة.
+// 3. UID Coercion Fix 🐛: منع تحويل معرفات العملاء النصية في الكوبونات لضمان نجاح التخصيص.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -16,7 +15,7 @@ import { UIService } from '../../core/uiService.js';
 
 export const MarketingController = {
 
-    _actionLocks: new Set(), // 🛡️ درع الحماية المركزي
+    _actionLocks: new Set(), 
 
     openOfferModal: function(id = null) {
         let strId = id ? String(id) : null;
@@ -138,8 +137,17 @@ export const MarketingController = {
         if (!name) return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم الحملة', type: 'error' });
         if (value <= 0 && type !== 'badge_only') return EventBus.emit('req-show-toast', { message: 'قيمة الخصم يجب أن تكون أكبر من صفر', type: 'error' });
 
-        const selectedTiers = AdminUI?.MarketingUI?.getSelectedTiers?.() || [];
-        const selectedProds = AdminUI?.MarketingUI?.getSelectedProds?.() || [];
+        // 🚀 [درع الـ DOM]: جلب البيانات من الذاكرة إذا كان التحديد فارغاً (لتجنب مسح الاستهداف القديم)
+        const isEdit = !!AdminData.tempEditId;
+        const oldOffer = isEdit ? AdminData.data.offersMap?.[AdminData.tempEditId] : null;
+
+        let selectedTiers = AdminUI?.MarketingUI?.getSelectedTiers?.() || [];
+        let selectedProds = AdminUI?.MarketingUI?.getSelectedProds?.() || [];
+
+        if (isEdit && selectedTiers.length === 0 && selectedProds.length === 0 && oldOffer) {
+            selectedTiers = oldOffer.targetTiers || [];
+            selectedProds = oldOffer.targetProds || [];
+        }
 
         if (selectedTiers.length === 0) return EventBus.emit('req-show-toast', { message: 'يجب تحديد مستوى واحد على الأقل', type: 'error' });
         if (selectedProds.length === 0) return EventBus.emit('req-show-toast', { message: 'يجب تحديد منتج واحد على الأقل', type: 'error' });
@@ -149,13 +157,15 @@ export const MarketingController = {
         try {
             const currentVisualConfig = AdminUI?.MarketingUI?.visualConfig ? JSON.parse(JSON.stringify(AdminUI.MarketingUI.visualConfig)) : { storyEnabled: false };
             if (currentVisualConfig.storyEnabled) {
-                const selectedStoryProds = AdminUI?.MarketingUI?.getSelectedStoryProds?.() || [];
+                let selectedStoryProds = AdminUI?.MarketingUI?.getSelectedStoryProds?.() || [];
+                if (isEdit && selectedStoryProds.length === 0 && oldOffer?.visualConfig?.storyProducts) {
+                    selectedStoryProds = oldOffer.visualConfig.storyProducts;
+                }
                 if (selectedStoryProds.length === 0) throw new Error('يرجى اختيار منتج واحد على الأقل من شجرة القصص');
                 currentVisualConfig.storyProducts = selectedStoryProds;
             } else { currentVisualConfig.storyProducts = []; }
 
             if (!AdminData.data.offers) AdminData.data.offers = [];
-            const isEdit = !!AdminData.tempEditId;
             const oIdx = isEdit ? AdminData.data.offers.findIndex(o => String(o.id) === String(AdminData.tempEditId)) : -1;
             
             const offerData = { id: isEdit ? AdminData.tempEditId : 'off_' + Date.now(), name, type, value, isActive, expiryDate, targetTiers: selectedTiers, targetProds: selectedProds, visualConfig: currentVisualConfig };
@@ -281,14 +291,22 @@ export const MarketingController = {
         const value = Number(Utils.getVal('coupon-value')) || 0;
         if (value <= 0) return EventBus.emit('req-show-toast', { message: 'قيمة الخصم يجب أن تكون أعلى من صفر', type: 'error' });
 
-        const selectedTiers = AdminUI?.MarketingUI?.getCouponSelectedTiers?.() || [];
-        const selectedProds = AdminUI?.MarketingUI?.getCouponSelectedProds?.() || [];
+        const isEdit = !!AdminData.tempEditId;
+        const oldCoupon = isEdit ? AdminData.data.couponsMap?.[AdminData.tempEditId] : null;
+
+        let selectedTiers = AdminUI?.MarketingUI?.getCouponSelectedTiers?.() || [];
+        let selectedProds = AdminUI?.MarketingUI?.getCouponSelectedProds?.() || [];
+
+        // 🚀 [درع الـ DOM]: حماية الاستهداف للكوبونات أيضاً
+        if (isEdit && selectedTiers.length === 0 && selectedProds.length === 0 && oldCoupon) {
+            selectedTiers = oldCoupon.targetTiers || [];
+            selectedProds = oldCoupon.targetProds || [];
+        }
 
         if (selectedTiers.length === 0 || selectedProds.length === 0) {
             return EventBus.emit('req-show-toast', { message: 'يجب تحديد مستوى ومنتج واحد على الأقل', type: 'error' });
         }
 
-        const isEdit = !!AdminData.tempEditId;
         const cIdx = isEdit ? AdminData.data.coupons.findIndex(c => String(c.id) === String(AdminData.tempEditId)) : -1;
         
         const isCodeDuplicate = (AdminData.data.coupons || []).some(c => 
@@ -305,7 +323,6 @@ export const MarketingController = {
             const expiryVal = Utils.getVal('coupon-expiry');
             const allowedUsersStr = Utils.getVal('coupon-allowed-users');
             
-            // 🚀 [التصحيح المعماري - UID Coercion Fix]: معالجة المعرفات كنصوص للحفاظ على Firebase UIDs
             const allowedUsers = allowedUsersStr 
                 ? allowedUsersStr.split(',').map(s => String(s).trim()).filter(s => s.length > 0) 
                 : [];
@@ -465,6 +482,11 @@ export const MarketingController = {
             
             if (targetType === 'user') {
                 await FirebaseAdapter.set(`telecard_users/${targetId}/notifications`, newAlert.id, newAlert);
+                
+                // 🚀 محاكاة للإضافة للذاكرة المحلية لكي تظهر فوراً في واجهة العميل عند المدير
+                if (!AdminData.data.alerts) AdminData.data.alerts = [];
+                AdminData.data.alerts.push(newAlert);
+                
                 if (AdminData?.addLog) AdminData.addLog('SEND_DIRECT_ALERT', `إرسال تنبيه خاص للعميل: ${targetUser.fullName || targetUser.name || targetId}`);
             } else {
                 await FirebaseAdapter.set('telecard_alerts', newAlert.id, newAlert);
@@ -488,18 +510,27 @@ export const MarketingController = {
 
     deleteAlert: async function(id) {
         if (!AdminData.data.alerts || this._actionLocks.has('del-alert')) return;
-        if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من مسح الإشعار العام؟')) return;
+        if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من مسح الإشعار؟')) return;
 
         this._actionLocks.add('del-alert');
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح الإشعار...');
         
+        const alertObj = AdminData.data.alerts.find(a => a.id === id);
         const alertBackup = [...AdminData.data.alerts];
+        
         AdminData.data.alerts = AdminData.data.alerts.filter(a => a.id !== id);
         EventBus.emit('req-render-alerts');
         
         try {
-            await FirebaseAdapter.delete('telecard_alerts', id);
-            if (AdminData?.addLog) AdminData.addLog('DELETE_ALERT', `تم مسح إشعار عام من السيرفر`);
+            // 🚀 [التصحيح المعماري الأهم]: مسح الإشعار المخصص من ملف العميل أو العام
+            if (alertObj && alertObj.targetType === 'user' && alertObj.targetId) {
+                await FirebaseAdapter.delete(`telecard_users/${alertObj.targetId}/notifications`, id);
+                if (AdminData?.addLog) AdminData.addLog('DELETE_ALERT', `تم مسح إشعار مخصص للعميل`);
+            } else {
+                await FirebaseAdapter.delete('telecard_alerts', id);
+                if (AdminData?.addLog) AdminData.addLog('DELETE_ALERT', `تم مسح إشعار عام من السيرفر`);
+            }
+            
             EventBus.emit('req-show-toast', { message: 'تم الحذف بنجاح', type: 'success' });
         } catch(e) { 
             AdminData.data.alerts = alertBackup; 
@@ -652,13 +683,12 @@ export const MarketingController = {
             EventBus.emit('req-update-preview'); 
             EventBus.emit('req-show-toast', {message: 'خطأ أثناء الرفع، تم التراجع عن التغييرات', type: 'error'}); 
         } finally { 
-            this._actionLocks.delete('save-brand');
+            this._actionLocks.add('save-brand');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
         }
     },
 
     autoSaveSettings: async function() {
-        // 🚀 [التحديث المعماري - Full Mutex Coverage]: إغلاق ثغرة الحفظ المزدوج لإعدادات المتجر
         if (this._actionLocks.has('auto-save-settings')) return;
         this._actionLocks.add('auto-save-settings');
 

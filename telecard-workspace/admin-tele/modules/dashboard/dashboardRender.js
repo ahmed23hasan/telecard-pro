@@ -1,13 +1,14 @@
 // ============================================================================
-// 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate V17.12 🚀
+// 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate V17.13 🚀
 // 🎯 الوظيفة: رسم الإحصائيات، الرادار الجنائي، سجل النشاطات، ومراقبة الأمان.
-// 🚀 التحديثات المعمارية (V17.12 - Fatal Refactoring Patch): 
+// 🚀 التحديثات المعمارية (V17.13 - Smart Bell Aggregator Patch): 
 // 1. Template Reference Fix 💥: استيراد واستخدام DashboardTemplates بدلاً من AdminTemplates المفقودة.
 // 2. Render Mutex Locks 🔒: إضافة أقفال للرسم لمنع تداخل المخططات (Race Conditions).
+// 3. Smart Bell 🔔: تفعيل محرك الجمع الذكي (Aggregator) لإظهار الرقم الدقيق للمهام في جرس الإشعارات.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
-import { DashboardTemplates } from './dashboardTemplates.js'; // 🚀 [الإصلاح]: استيراد القوالب الصحيحة
+import { DashboardTemplates } from './dashboardTemplates.js'; 
 import { RenderHelpers } from '../../core/renderHelpers.js';
 import { FinancialEngine } from '../../core/financialEngine.js'; 
 import { EventBus, Utils } from '../../adminUtils.js';
@@ -21,7 +22,7 @@ export const DashboardRender = {
     _isRenderingDash: false,
     _isRenderingChart: false,
 
-        initListeners: function() {
+    initListeners: function() {
         if (this._listenersBound) return; 
         this._listenersBound = true;
 
@@ -70,34 +71,34 @@ export const DashboardRender = {
             
             let walletsCapsules = '';
             if (!stats.wallets.details || Object.keys(stats.wallets.details).length === 0) {
-                walletsCapsules = DashboardTemplates.dashEmptyWallets(); // 🚀 تم التصحيح
+                walletsCapsules = DashboardTemplates.dashEmptyWallets(); 
             } else {
-                walletsCapsules += DashboardTemplates.dashWalletCapsule('إجمالي التزامات المحافظ', stats.wallets.totalUsd, 'USD'); // 🚀 تم التصحيح
+                walletsCapsules += DashboardTemplates.dashWalletCapsule('إجمالي التزامات المحافظ', stats.wallets.totalUsd, 'USD'); 
                 const details = stats.wallets.details;
                 Object.keys(details).forEach(cc => {
                     const d = details[cc];
                     if (d.count > 0 || d.name !== 'عملة غير مدرجة') {
-                        walletsCapsules += DashboardTemplates.dashWalletCapsule(`محفظة ${cc}`, d.sum, cc); // 🚀 تم التصحيح
+                        walletsCapsules += DashboardTemplates.dashWalletCapsule(`محفظة ${cc}`, d.sum, cc); 
                     }
                 });
             }
 
-            let couponsHtml = (stats.promoStats && DashboardTemplates.dashCouponsSection) ? DashboardTemplates.dashCouponsSection(stats.promoStats) : ''; // 🚀 تم التصحيح
+            let couponsHtml = (stats.promoStats && DashboardTemplates.dashCouponsSection) ? DashboardTemplates.dashCouponsSection(stats.promoStats) : ''; 
             
             let communityHtml = '';
-            if (DashboardTemplates.dashCommunitySection) { // 🚀 تم التصحيح
+            if (DashboardTemplates.dashCommunitySection) { 
                 const topSpenders = stats.users?.topThree || [];
-                const podiumHtml = DashboardTemplates.dashPodium(topSpenders); // 🚀 تم التصحيح
+                const podiumHtml = DashboardTemplates.dashPodium(topSpenders); 
                 
                 const theMostActive = topSpenders.length > 0 ? topSpenders[0] : null;
-                const activeUserHtml = DashboardTemplates.dashActiveUserCapsule(theMostActive); // 🚀 تم التصحيح
+                const activeUserHtml = DashboardTemplates.dashActiveUserCapsule(theMostActive); 
                 
-                communityHtml = DashboardTemplates.dashCommunitySection(podiumHtml, activeUserHtml, this.leaderboardFilter); // 🚀 تم التصحيح
+                communityHtml = DashboardTemplates.dashCommunitySection(podiumHtml, activeUserHtml, this.leaderboardFilter); 
             }
 
             if (capsGrid) { 
                 capsGrid.className = ''; 
-                capsGrid.innerHTML = DashboardTemplates.dashGrid(stats, walletsCapsules, couponsHtml, communityHtml); // 🚀 تم التصحيح
+                capsGrid.innerHTML = DashboardTemplates.dashGrid(stats, walletsCapsules, couponsHtml, communityHtml); 
             }
 
             const sysSettings = AdminData.data.settings || {};
@@ -111,22 +112,24 @@ export const DashboardRender = {
             const pendingKYC = stats.pendingCounts?.kyc || 0;
             const pendingComplaints = stats.pendingCounts?.complaints || 0;
 
-            if (pendingOrders > 0) displayAlerts.unshift({ id: 'act_ord', type: 'warning', icon: 'fa-box-open', text: `بانتظارك <b class="text-white num-en" dir="ltr">${pendingOrders}</b> طلبات منتجات تحتاج للتنفيذ.`, action: `data-action="nav-with-filter" data-section="orders" data-status="pending"` });
-            if (pendingDeposits > 0) displayAlerts.unshift({ id: 'act_dep', type: 'success', icon: 'fa-money-bill-transfer', text: `بانتظارك <b class="text-white num-en" dir="ltr">${pendingDeposits}</b> طلبات إيداع للمحفظة.`, action: `data-action="nav-with-filter" data-section="deposits" data-status="pending"` });
-            if (pendingKYC > 0) displayAlerts.unshift({ id: 'act_kyc', type: 'info', icon: 'fa-id-card-clip', text: `يوجد <b class="num-en text-info" dir="ltr">${pendingKYC}</b> طلبات توثيق هوية بانتظار المراجعة.`, action: `data-action="nav" data-target="kyc-system"` });
+            // 🎯 إضافة الحقل badgeCount لنقل الأرقام الحقيقية لمحرك الجمع الخاص بالجرس
+            if (pendingOrders > 0) displayAlerts.unshift({ id: 'act_ord', badgeCount: pendingOrders, type: 'warning', icon: 'fa-box-open', text: `بانتظارك <b class="text-white num-en" dir="ltr">${pendingOrders}</b> طلبات منتجات تحتاج للتنفيذ.`, action: `data-action="nav-with-filter" data-section="orders" data-status="pending"` });
+            if (pendingDeposits > 0) displayAlerts.unshift({ id: 'act_dep', badgeCount: pendingDeposits, type: 'success', icon: 'fa-money-bill-transfer', text: `بانتظارك <b class="text-white num-en" dir="ltr">${pendingDeposits}</b> طلبات إيداع للمحفظة.`, action: `data-action="nav-with-filter" data-section="deposits" data-status="pending"` });
+            if (pendingKYC > 0) displayAlerts.unshift({ id: 'act_kyc', badgeCount: pendingKYC, type: 'info', icon: 'fa-id-card-clip', text: `يوجد <b class="num-en text-info" dir="ltr">${pendingKYC}</b> طلبات توثيق هوية بانتظار المراجعة.`, action: `data-action="nav" data-target="kyc-system"` });
             
             if (pendingComplaints > 0) {
-                displayAlerts.unshift({ id: 'act_complaint', type: 'danger', icon: 'fa-star-half-stroke', text: `تنبيه هام: يوجد <b class="text-white num-en" dir="ltr">${pendingComplaints}</b> عميل غاضب بانتظار تدخلك!`, action: `data-action="nav-to-complaints"` });
+                displayAlerts.unshift({ id: 'act_complaint', badgeCount: pendingComplaints, type: 'danger', icon: 'fa-star-half-stroke', text: `تنبيه هام: يوجد <b class="text-white num-en" dir="ltr">${pendingComplaints}</b> عميل غاضب بانتظار تدخلك!`, action: `data-action="nav-to-complaints"` });
             }
 
             if (totalBannedIps > 0 || totalBannedDevices > 0) {
-                displayAlerts.unshift({ id: 'firewall_active', type: 'danger', icon: 'fa-shield-virus', text: `الجدار الناري نشط! يتصدى لـ <b class="text-white num-en" dir="ltr">${totalBannedIps}</b> IP و <b class="text-white num-en" dir="ltr">${totalBannedDevices}</b> جهاز محظور.`, action: `data-action="nav" data-target="sys"` });
+                // الجدار الناري نعتبره تنبيهاً واحداً
+                displayAlerts.unshift({ id: 'firewall_active', badgeCount: 1, type: 'danger', icon: 'fa-shield-virus', text: `الجدار الناري نشط! يتصدى لـ <b class="text-white num-en" dir="ltr">${totalBannedIps}</b> IP و <b class="text-white num-en" dir="ltr">${totalBannedDevices}</b> جهاز محظور.`, action: `data-action="nav" data-target="sys"` });
             }
 
             const alertsCont = document.getElementById('dash-smart-alerts');
             if (alertsCont) {
                 if (displayAlerts.length === 0) {
-                    alertsCont.innerHTML = DashboardTemplates.dashEmptyAlerts(); // 🚀 تم التصحيح
+                    alertsCont.innerHTML = DashboardTemplates.dashEmptyAlerts(); 
                 } else {
                     alertsCont.innerHTML = displayAlerts.map(a => {
                         let type = a.type || 'info', icon = a.icon || 'fa-info-circle', text = a.text || '', action = a.action || '';
@@ -137,7 +140,7 @@ export const DashboardRender = {
                         else if (a.id === 'coupon_used') { type = 'success'; icon = 'fa-tag'; text = `استخدم العميل <b class="text-white">${Utils.escapeHTML(a.user)}</b> الكوبون <span class="badge-qty badge-success" dir="ltr">${Utils.escapeHTML(a.code)}</span>`; action = `data-action="open-order-drawer" data-id="${a.orderId}"`; } 
                         else if (a.id === 'security_stable') { type = 'security'; icon = 'fa-shield-check'; text = `حالة النظام الأمنية مستقرة - لا يوجد أي نشاط مشبوه.`; }
 
-                        return DashboardTemplates.dashAlertItem(type, icon, text, action, timeStr); // 🚀 تم التصحيح
+                        return DashboardTemplates.dashAlertItem(type, icon, text, action, timeStr); 
                     }).join('');
                 }
             }
@@ -160,12 +163,20 @@ export const DashboardRender = {
             return;
         }
         
-        // 🚀 [توافق الأمان]: استخدام sessionStorage بدلاً من localStorage
-        const latestAlertTime = Math.max(...displayAlerts.map(a => RenderHelpers.parseTime(a.time || 0)));
-        const lastSeenTime = Number(sessionStorage.getItem('telecard_last_seen_alert_time')) || 0;
+        // 🎯 الجمع الاحترافي: جمع الأرقام الحقيقية لكل مهمة (طلبات + إيداعات + kyc + إلخ)
+        const currentAlertCount = displayAlerts.reduce((sum, a) => sum + (a.badgeCount || 1), 0);
         
-        if (latestAlertTime > lastSeenTime) { 
-            topBellBadge.innerText = "!"; 
+        // جلب البيانات المخزنة من الجلسة
+        const lastSeenTime = Number(sessionStorage.getItem('telecard_last_seen_alert_time')) || 0;
+        const lastSeenCount = Number(sessionStorage.getItem('telecard_last_seen_alert_count')) || 0;
+        
+        const latestAlertTime = Math.max(...displayAlerts.map(a => RenderHelpers.parseTime(a.time || 0)));
+        
+        // 🚀 متى نظهر الشارة الحمراء؟ 
+        // 1. إذا وصل تنبيه جديد له وقت (أحدث من آخر رؤية)
+        // 2. أو إذا زاد عدد المهام المعلقة عن آخر مرة فتح فيها المدير الجرس
+        if (latestAlertTime > lastSeenTime || currentAlertCount > lastSeenCount || lastSeenTime === 0) { 
+            topBellBadge.innerText = currentAlertCount > 99 ? "+99" : currentAlertCount; 
             topBellBadge.classList.remove('hide-element'); 
             topBellBadge.classList.add('active'); 
         } else { 
@@ -177,8 +188,9 @@ export const DashboardRender = {
         if (bellContainer && !bellContainer.hasAttribute('data-alert-bound')) {
             bellContainer.setAttribute('data-alert-bound', 'true');
             bellContainer.addEventListener('click', function() { 
-                const currentLatestTime = Math.max(...(AdminData?.data?.alerts || []).map(a => RenderHelpers.parseTime(a.time || 0)), Date.now());
-                sessionStorage.setItem('telecard_last_seen_alert_time', currentLatestTime); 
+                // حفظ الوقت الحالي وعدد المهام الحالي عند فتح الجرس
+                sessionStorage.setItem('telecard_last_seen_alert_time', Date.now()); 
+                sessionStorage.setItem('telecard_last_seen_alert_count', currentAlertCount); 
                 topBellBadge.classList.add('hide-element'); 
                 topBellBadge.classList.remove('active'); 
             });

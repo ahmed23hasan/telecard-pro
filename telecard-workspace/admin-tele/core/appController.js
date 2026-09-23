@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V16.3 💎
+// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V16.4 💎
 // 🎯 الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🚀 التحديثات المعمارية (V16.3 - Bank-Grade Security Patch):
-// 1. Omni-Search Expansion 🔍: توسيع البحث السحابي المباشر ليشمل الإيداعات لحل عمى الـ Pagination.
+// 🚀 التحديثات المعمارية (V16.4 - Modular Navigation Patch):
+// 1. Decoupled Filtering 🔀: تحويل التصفية المباشرة إلى Event-Driven لمنع انهيار الـ UI في الأقسام المفصولة.
 // 2. Strict Session Logout 🔒: توافق تام مع الذاكرة المؤقتة لمسح الجلسة عند الخروج.
-// 3. Zero-Trust Profile 🛡️: منع السيرفر نهائياً من حفظ وتعديل البريد الإلكتروني لمنع عدم التزامن مع Auth.
+// 3. Zero-Trust Profile 🛡️: منع السيرفر نهائياً من حفظ وتعديل البريد الإلكتروني.
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -148,7 +148,6 @@ export const AppController = {
     },
 
     logoutAdmin: function() {
-        // 🚀 [التحديث الأمني]: مسح الجلسة الصارمة والقديمة معاً
         sessionStorage.removeItem('telecard_admin_auth'); 
         localStorage.removeItem('telecard_admin_auth'); 
         
@@ -161,7 +160,10 @@ export const AppController = {
     setupEventBusListeners: function() {
         EventBus.on('req-logout', () => this.logoutAdmin());
         EventBus.on('req-navigate', (data) => this.nav?.(data.page, data.btnEl));
+        
+        // 🚀 [الإصلاح المعماري 1]: تحويل التصفية المباشرة لنظام موجه (Event Driven) 
         EventBus.on('req-navigate-filter', (data) => this.navWithFilter?.(data.section, data.status));
+        
         EventBus.on('req-refresh', (data) => this.refresh?.(data.type));
         EventBus.on('req-go-back', () => this.back());
         EventBus.on('req-close-modal', (data) => AdminUI?.closeModal?.(data?.id || null));
@@ -269,7 +271,7 @@ export const AppController = {
         AdminUI?.clearAllSearchAndFiltersUI?.(); 
     },
 
-        applyFilters: async function(section) {
+    applyFilters: async function(section) {
         if (!this.filters) this.filters = {};
         if (!this.filters[section]) this.filters[section] = { search: '', start: null, end: null };
 
@@ -279,7 +281,6 @@ export const AppController = {
         this.filters[section].search = searchVal;
         this.updateState({ filters: this.filters });
         
-        // 🚀 [التحديث المعماري]: خفضنا شرط طول البحث إلى 8 رموز ليعمل مع المعرفات المقتطعة
         if (searchVal.length >= 8 && (section === 'orders' || section === 'deposits')) {
             try {
                 if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري البحث السحابي المباشر...');
@@ -314,6 +315,7 @@ export const AppController = {
         if (section === 'orders') EventBus.emit('req-render-orders');
         else if (section === 'deposits') EventBus.emit('req-render-deposits');
     },
+
     setQuickDateFilter: function(range, section) {
         if (!this.filters) this.filters = {};
         if (!this.filters[section]) this.filters[section] = { search: '', start: null, end: null };
@@ -348,9 +350,13 @@ export const AppController = {
         if (section === 'orders') EventBus.emit('req-render-orders');
         else if (section === 'deposits') EventBus.emit('req-render-deposits');
     },
+
+    // 🚀 [الإصلاح المعماري 1]: فصل تصفية الواجهة عن AdminRender المركزي، ونقلها لمستمعي الأحداث
     navWithFilter: function(section, status) {
         this.nav(section);
-        setTimeout(() => AdminRender?.filterByTab?.(section, status), 100);
+        setTimeout(() => {
+            EventBus.emit('action-triggered', { action: `filter-${section}`, val: status });
+        }, 100);
     },
 
     nav: async function(id, el) {
@@ -368,7 +374,8 @@ export const AppController = {
                 'orders': 'req-render-orders', 'products': 'req-render-prods', 'payments': 'req-render-payments',
                 'tiers': 'req-render-tiers', 'wallets': 'req-render-wallets', 'rates': 'req-render-rates',
                 'notifs': 'req-render-alerts', 'countries': 'req-render-countries', 'vault': 'req-render-vault',
-                'coupons': 'req-render-coupons', 'offers': 'req-render-offers', 'logs': 'req-render-logs'
+                'coupons': 'req-render-coupons', 'offers': 'req-render-offers', 'logs': 'req-render-logs',
+                'integrations': 'req-render-integrations'
             };
             
             if (id === 'users') { EventBus.emit('req-update-user-sort'); EventBus.emit('req-render-users'); }
@@ -512,7 +519,7 @@ export const AppController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري التحديث...');
         try {
             await AdminData?.loadData?.(true);
-            const refreshMap = { 'deposits': 'req-render-deposits', 'orders': 'req-render-orders', 'users': 'req-render-users', 'products': 'req-render-prods', 'logs': 'req-render-logs', 'wallets': 'req-render-wallets', 'complaints': 'filter-reviews' };
+            const refreshMap = { 'deposits': 'req-render-deposits', 'orders': 'req-render-orders', 'users': 'req-render-users', 'products': 'req-render-prods', 'logs': 'req-render-logs', 'wallets': 'req-render-wallets', 'complaints': 'filter-reviews', 'integrations': 'req-render-integrations' };
             if (refreshMap[type]) EventBus.emit(refreshMap[type]); else await this.nav(type || 'dash');
             
             if (type === 'sys' || document.getElementById('view-sys')?.classList.contains('active')) {
@@ -569,7 +576,7 @@ export const AppController = {
         }
     },
 
-        addGlobalBanIp: async function() {
+    addGlobalBanIp: async function() {
         const input = document.getElementById('new-ban-ip-input');
         if (!input) return;
         const newIp = input.value.trim();
@@ -577,7 +584,6 @@ export const AppController = {
         if (!newIp) return AdminUI.showToast('الرجاء إدخال عنوان IP', 'error');
         
         const isValidIPv4 = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/.test(newIp);
-        // 🚀 [التحديث المعماري]: تعبير نمطي قوي وشامل يدعم كافة صيغ IPv6 المختصرة والموسعة
         const isValidIPv6 = /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/.test(newIp);
         
         if (!isValidIPv4 && !isValidIPv6) {
@@ -607,6 +613,7 @@ export const AppController = {
             if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
+
     removeGlobalBanIp: async function(ip) {
         if (!AdminUI) return;
         if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن الشبكة (${ip})؟`, 'إزالة من القائمة السوداء')) return;
@@ -815,14 +822,11 @@ export const AppController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إرسال الرد للعميل...');
         try {
             if (typeof FirebaseAdapter !== 'undefined' && FirebaseAdapter.updateDocument) {
-                // 🚀 [التحديث المعماري]: تصحيح مسار جدول الشكاوى ليطابق قاعدة البيانات
                 await FirebaseAdapter.updateDocument('telecard_reviews', reviewId, {
                     status: 'resolved',
                     adminReply: reply,
                     resolvedAt: Date.now()
                 });
-            } else {
-                console.warn("FirebaseAdapter.updateDocument is not defined. Simulating update for UI.");
             }
 
             const review = AdminData.data.reviews.find(r => r.id === reviewId);
@@ -866,7 +870,6 @@ export const AppController = {
     
     saveAdminProfile: async function(profileData) {
         const name = profileData?.name || Utils.escapeHTML(Utils.getVal('adm-name'));
-        // 🛡️ [التحديث الأمني]: تم إزالة جلب البريد الإلكتروني من الواجهة لمنع التلاعب
         const hasImg = profileData?.hasImg !== undefined ? profileData.hasImg : document.getElementById('adm-img-wrap')?.classList.contains('has-img');
 
         if (!name) return AdminUI?.showToast('الاسم مطلوب', 'error');
@@ -908,11 +911,9 @@ export const AppController = {
                 finalImg = '';
             }
             
-            // 🛡️ [التحديث الأمني]: إزالة حفظ كلمة المرور (pass) والبريد (email) من قاعدة البيانات (Zero-Trust)
             this.data.adminProfile = { 
                 ...this.data.adminProfile, 
                 name, 
-                // email: تم الإزالة لمنع عدم التزامن مع Firebase Auth
                 img: finalImg 
             };
             

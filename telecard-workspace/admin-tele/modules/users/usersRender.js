@@ -81,7 +81,7 @@ export const UsersRender = {
         }
     },
 
-    renderUsers: function() {
+        renderUsers: function() {
         const wrap = document.getElementById('users-container');
         if(!wrap) return;
 
@@ -103,37 +103,36 @@ export const UsersRender = {
             return; 
         }
 
-        const now = new Date();
-        const currentMonthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-        const lastMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-        const lastMonthKey = `${lastMonthDate.getUTCFullYear()}-${String(lastMonthDate.getUTCMonth() + 1).padStart(2, '0')}`;
-
         const sortCat = this.state.userSortCategory || 'newest';
         const isAsc = this.state.sortUsers === 'asc';
         const sortDir = isAsc ? 1 : -1;
 
+        // 🚀 التحديث المعماري: إزالة الفلاتر الشهرية التالفة والاعتماد على الإجماليات الشاملة فقط
         users.sort((a, b) => {
-            let valA = 0, valB = 0;
+            let valA = 0,
+                valB = 0;
             if (sortCat === 'newest') {
                 valA = RenderHelpers.parseTime(a.time || a.joinDate || a.createdAt);
                 valB = RenderHelpers.parseTime(b.time || b.joinDate || b.createdAt);
-            } 
-            else if (sortCat === 'spend_all') { valA = Number(a.totalSpent || 0); valB = Number(b.totalSpent || 0); } 
-            else if (sortCat === 'spend_month') { valA = Number(a.monthlySpent?.[currentMonthKey] || 0); valB = Number(b.monthlySpent?.[currentMonthKey] || 0); }
-            else if (sortCat === 'spend_last_month') { valA = Number(a.monthlySpent?.[lastMonthKey] || 0); valB = Number(b.monthlySpent?.[lastMonthKey] || 0); }
-            else if (sortCat === 'orders_all') { valA = Number(a.totalOrdersCount || 0); valB = Number(b.totalOrdersCount || 0); }
-            else if (sortCat === 'orders_month') { valA = Number(a.monthlyOrders?.[currentMonthKey] || 0); valB = Number(b.monthlyOrders?.[currentMonthKey] || 0); }
-            else if (sortCat === 'orders_last_month') { valA = Number(a.monthlyOrders?.[lastMonthKey] || 0); valB = Number(b.monthlyOrders?.[lastMonthKey] || 0); }
-
+            }
+            else if (sortCat === 'spend_all') {
+                valA = Number(a.totalSpent || 0);
+                valB = Number(b.totalSpent || 0);
+            }
+            else if (sortCat === 'orders_all') {
+                valA = Number(a.totalOrdersCount || 0);
+                valB = Number(b.totalOrdersCount || 0);
+            }
+            
             if (valA === valB) {
                 return (RenderHelpers.parseTime(b.time || b.createdAt) - RenderHelpers.parseTime(a.time || a.createdAt));
             }
             return (valA - valB) * sortDir;
         });
-
+        
         this._renderToken = Date.now();
         const currentToken = this._renderToken;
-
+        
         const hasMoreInCloud = AdminData.cursors.users !== null && AdminData.cursors.users !== undefined && !this.state.userSearch;
         const loadMoreHtml = hasMoreInCloud ? `
             <div class="load-more-container mt-15 mb-15 w-100 text-center" id="load-more-users-btn">
@@ -141,34 +140,35 @@ export const UsersRender = {
                     <i class="fa-solid fa-angle-down"></i> جلب المزيد من العملاء ☁️
                 </button>
             </div>` : '';
-
+        
         wrap.innerHTML = `<div class="users-grid" id="users-grid-container"></div>${loadMoreHtml}`;
         const grid = document.getElementById('users-grid-container');
-
-        const chunkSize = 200; 
+        
+        const chunkSize = 200;
         let currentIndex = 0;
-
+        
         const renderChunk = () => {
-            if (this._renderToken !== currentToken) return; 
-
+            if (this._renderToken !== currentToken) return;
+            
             const chunk = users.slice(currentIndex, currentIndex + chunkSize);
             if (chunk.length === 0) {
                 this.updateUserSortLabel();
                 return;
             }
-
-            const htmlChunk = chunk.map((u, i) => UsersTemplates.userCard(u, sortCat, currentMonthKey, lastMonthKey, currentIndex + i));
+            
+            // تم حذف المتغيرات الشهرية الحالية والماضية من الاستدعاء
+            const htmlChunk = chunk.map((u, i) => UsersTemplates.userCard(u, sortCat, '', '', currentIndex + i));
             grid.insertAdjacentHTML('beforeend', htmlChunk.join(''));
-
+            
             currentIndex += chunkSize;
-
+            
             if (currentIndex < users.length) {
-                requestAnimationFrame(renderChunk); 
+                requestAnimationFrame(renderChunk);
             } else {
                 this.updateUserSortLabel();
             }
         };
-
+        
         requestAnimationFrame(renderChunk);
     },
 
