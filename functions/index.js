@@ -702,7 +702,16 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                                 keysAssignedCount++;
                             });
                             
-                            transaction.update(vaultRef, { stockCount: admin.firestore.FieldValue.increment(-keysAssignedCount), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+                            // 🚀 [التحديث المعماري الأهم]: إضافة العداد الذري للأرباح
+                            const profitToAdd = Number(liveOrder.pricingSnapshot?.netProfitUsd || liveOrder.pricingSnapshot?.profit || 0);
+                            const revenueToAdd = priceToDeductTierUsd;
+
+                            transaction.update(vaultRef, { 
+                                stockCount: admin.firestore.FieldValue.increment(-keysAssignedCount), 
+                                totalProfit: admin.firestore.FieldValue.increment(profitToAdd),
+                                totalRevenue: admin.firestore.FieldValue.increment(revenueToAdd),
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp() 
+                            });
                         }
 
                         const userRef = db.collection('telecard_users').doc(String(liveOrder.userId));
@@ -741,7 +750,6 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                         let vaultExists = false;
                         let vRef = null;
 
-                        // 1. التحقق من وجود الخزنة وجلب الأكواد
                         if (poolId && liveOrder.deliveredCode) {
                             vRef = db.collection('telecard_vault').doc(String(poolId));
                             const vSnap = await transaction.get(vRef);
@@ -752,7 +760,6 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                                 keysToHandle = kQuerySnap.docs;
                             }
                         } 
-                        // 2. معالجة أكواد الـ API المباشر (التالفة)
                         else if (!poolId && liveOrder.deliveredCode && (liveOrder.supplierId || liveOrder.isApi || liveOrder.source === 'api')) {
                             const defectRef = db.collection('telecard_supplier_defects').doc();
                             transaction.set(defectRef, {
@@ -767,10 +774,8 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                             keysBurnedCount++; 
                         }
 
-                        // 3. معالجة أكواد الخزنة (السليمة أو اليتيمة)
                         if (poolId && liveOrder.deliveredCode) {
                             if (vaultExists && keysToHandle.length > 0) {
-                                // الخزنة والأكواد موجودة بشكل طبيعي
                                 keysToHandle.forEach(keyDoc => {
                                     if (previousStatus === 'pending' || previousStatus === 'processing') {
                                         transaction.update(keyDoc.ref, { 
@@ -786,14 +791,20 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                                     }
                                 });
 
-                                // تحديث إحصائيات الخزنة بكفاءة
-                                let vaultUpdates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+                                // 🚀 [التحديث المعماري الأهم]: خصم العداد الذري للأرباح عند الاسترجاع
+                                const profitToDeduct = Number(liveOrder.pricingSnapshot?.netProfitUsd || liveOrder.pricingSnapshot?.profit || 0);
+                                const revenueToDeduct = priceToDeductTierUsd;
+
+                                let vaultUpdates = { 
+                                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                    totalProfit: admin.firestore.FieldValue.increment(-profitToDeduct),
+                                    totalRevenue: admin.firestore.FieldValue.increment(-revenueToDeduct)
+                                };
                                 if (keysBurnedCount > 0) vaultUpdates.burnedCount = admin.firestore.FieldValue.increment(keysBurnedCount);
                                 if (keysRestoredCount > 0) vaultUpdates.stockCount = admin.firestore.FieldValue.increment(keysRestoredCount);
                                 transaction.update(vRef, vaultUpdates);
                                 
                             } else {
-                                // 🚀 [الحل الاحترافي]: الخزنة محذوفة، نقوم بإنقاذ الأكواد وتوثيقها في الأرشيف
                                 const codesArray = liveOrder.deliveredCode.split(' | ').filter(c => c.trim() !== '');
                                 const archiveRef = db.collection('telecard_vault_archived');
                                 
@@ -814,7 +825,6 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                             }
                         }
 
-                        // 4. استكمال استرجاع رصيد العميل وتحديث مستوياته
                         const userRef = db.collection('telecard_users').doc(String(liveOrder.userId));
                         const userSnap = await transaction.get(userRef);
                         

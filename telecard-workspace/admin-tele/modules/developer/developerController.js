@@ -1,9 +1,9 @@
 // ============================================================================
-// 🧠 متحكم المطورين والربط (modules/developer/developerController.js) - V18.7 💎
+// 🧠 متحكم المطورين والربط (modules/developer/developerController.js) - V18.8 💎
 // 🎯 الوظيفة: معالجة العمليات المنطقية للـ API و Webhooks بأعلى معايير الأمان
-// 🚀 التحديثات المعمارية (V18.7 - Enterprise Mutex & Sync Patch): 
-// 1. Mutex Action Locks 🔒: إضافة درع الأقفال لمنع الاختناق (Race Conditions) وتوليد مفاتيح متزامنة.
-// 2. Seamless Tab Routing 🔄: إصلاح خلل إعادة الرسم (Flash Crash) وضمان الانتقال السلس لتبويب المطورين.
+// 🚀 التحديثات المعمارية (V18.8 - Enterprise Mutex & Sync Patch): 
+// 1. Partial DOM Re-render 🎨: القضاء على ثغرة الـ Flash Crash وتحديث تبويب المطورين لحظياً دون إعادة رسم نافذة العميل.
+// 2. Crypto Safety Guard 🛡️: منع انهيار المتصفح في الاتصالات غير الآمنة (HTTP) أثناء تشفير المفاتيح.
 // 3. Webhook Integrity Shield 🛡️: إضافة رسالة تأكيد حاسمة قبل التدمير الكلي لروابط الـ Webhook والـ Secret.
 // ============================================================================
 
@@ -11,9 +11,14 @@ import { AdminData } from '../../adminData.js';
 import { EventBus, Utils } from '../../adminUtils.js';
 import { AdminUI } from '../../adminUI.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
+import { DeveloperTemplates } from './developerTemplates.js'; // 🚀 [الإصلاح]: استيراد القوالب للرسم الجزئي
 
 // 🛡️ دالة التشفير المدمجة المتوافقة مع السيرفر
 const generateSha256Hash = async (text) => {
+    // 🚀 [الإصلاح المعماري]: حماية ضد انهيار المتصفح في البيئات غير المحمية بـ HTTPS
+    if (!window.crypto || !window.crypto.subtle) {
+        throw new Error("تشفير المفاتيح يتطلب اتصالاً آمناً (HTTPS). بيئة المتصفح الحالية لا تدعم التشفير.");
+    }
     const msgBuffer = new TextEncoder().encode(text);
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -23,6 +28,14 @@ const generateSha256Hash = async (text) => {
 export const DeveloperController = {
     
     _actionLocks: new Set(), // 🛡️ درع الحماية المركزي لمنع التكرار
+
+    // 🚀 [دالة مساعدة]: إعادة رسم تبويب المطورين لحظياً بدون تحميل النافذة بأكملها
+    _refreshDeveloperTabLocally: function(user) {
+        const devTabContent = document.getElementById('tab-developer');
+        if (devTabContent) {
+            devTabContent.innerHTML = DeveloperTemplates.apiKeysCard(user) + DeveloperTemplates.webhookCard(user);
+        }
+    },
 
     // =========================================================
     // 🔑 1. توليد مفتاح API جديد للعميل
@@ -45,7 +58,6 @@ export const DeveloperController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري توليد وتشفير المفتاح سحابياً...');
         
         try {
-            // توليد مفتاح عشوائي آمن
             const array = new Uint8Array(24);
             window.crypto.getRandomValues(array);
             const secureString = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
@@ -58,7 +70,6 @@ export const DeveloperController = {
                 apiKeyHash: hashedKey
             });
             
-            // تحديث الذاكرة المحلية فقط بعد نجاح الحفظ السحابي
             user.apiKey = newKey;
             user.apiKeyHash = hashedKey; 
             
@@ -67,15 +78,12 @@ export const DeveloperController = {
             }
             EventBus.emit('req-show-toast', { message: `تم توليد وتوثيق المفتاح للعميل (${displayName}) بنجاح`, type: 'success' });
             
-            // 🔄 [التحديث المعماري]: إعادة الرسم السلسة بدون وميض
-            EventBus.emit('action-triggered', { action: 'view-user', id: userId, preventModalOpen: true });
-            setTimeout(() => {
-                EventBus.emit('action-triggered', { action: 'switch-user-tab', tab: 'developer' });
-            }, 100);
+            // 🔄 [الترقية المعمارية]: تحديث فوري وسلس لجزء الـ DOM فقط
+            this._refreshDeveloperTabLocally(user);
             
         } catch (error) {
             console.error("API Key Generation Error:", error);
-            EventBus.emit('req-show-toast', { message: 'تعذر حفظ المفتاح في السحابة، يرجى المحاولة مجدداً.', type: 'error' });
+            EventBus.emit('req-show-toast', { message: error.message.includes('HTTPS') ? error.message : 'تعذر حفظ المفتاح في السحابة، يرجى المحاولة مجدداً.', type: 'error' });
         } finally {
             this._actionLocks.delete(`gen-key-${userId}`);
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
@@ -100,7 +108,6 @@ export const DeveloperController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إبطال صلاحيات المفتاح سحابياً...');
         
         try {
-            // 🚀 استخدام FirebaseAdapter.deleteField() للتدمير الجذري
             const deleteMarker = FirebaseAdapter.deleteField();
 
             await FirebaseAdapter.updateDocument('telecard_users', String(userId), {
@@ -110,7 +117,6 @@ export const DeveloperController = {
                 webhookSecret: deleteMarker
             });
             
-            // تنظيف الذاكرة المحلية
             delete user.apiKey;
             delete user.apiKeyHash;
             delete user.webhookUrl;
@@ -121,11 +127,8 @@ export const DeveloperController = {
             }
             EventBus.emit('req-show-toast', { message: 'تم إبطال المفتاح وتطهير الاتصالات الخارجية للعميل', type: 'success' });
             
-            // 🔄 [التحديث المعماري]: إعادة الرسم السلسة بدون وميض
-            EventBus.emit('action-triggered', { action: 'view-user', id: userId, preventModalOpen: true });
-            setTimeout(() => {
-                EventBus.emit('action-triggered', { action: 'switch-user-tab', tab: 'developer' });
-            }, 100);
+            // 🔄 [الترقية المعمارية]: تحديث فوري وسلس لجزء الـ DOM فقط
+            this._refreshDeveloperTabLocally(user);
             
         } catch (error) {
             console.error("API Key Revocation Error:", error);
@@ -155,12 +158,11 @@ export const DeveloperController = {
             return;
         }
 
-        // 🛡️ التنبيه الأمني عند تفريغ وحذف رابط ה- Webhook
         if (newUrl === '' && oldUrl !== '') {
             const confirmMsg = `أنت تقوم بمسح نقطة اتصال الـ Webhook الحالية.\n\n⚠️ هذا سيؤدي إلى حذف (مفتاح التوقيع السري Webhook Secret) المرتبط بها ولن تتمكن من استرجاعه.\n\nهل أنت متأكد؟`;
             const confirm = await AdminUI.showConfirm(confirmMsg, 'حذف نقطة الاتصال');
             if (!confirm) {
-                if (inputEl) inputEl.value = oldUrl; // إعادة القيمة للواجهة
+                if (inputEl) inputEl.value = oldUrl; 
                 return;
             }
         }
@@ -194,7 +196,6 @@ export const DeveloperController = {
 
             await FirebaseAdapter.updateDocument('telecard_users', String(userId), updatePayload);
             
-            // تحديث الذاكرة المحلية
             if (newUrl === '') {
                 delete user.webhookUrl;
                 delete user.webhookSecret;
@@ -208,11 +209,8 @@ export const DeveloperController = {
             }
             EventBus.emit('req-show-toast', { message: newUrl === '' ? 'تم مسح وإلغاء نقطة الاتصال' : 'تم حفظ وتوثيق رابط الإشعارات بنجاح', type: 'success' });
             
-            // 🔄 [التحديث المعماري]: إعادة الرسم السلسة بدون وميض
-            EventBus.emit('action-triggered', { action: 'view-user', id: userId, preventModalOpen: true });
-            setTimeout(() => {
-                EventBus.emit('action-triggered', { action: 'switch-user-tab', tab: 'developer' });
-            }, 100);
+            // 🔄 [الترقية المعمارية]: تحديث فوري وسلس لجزء الـ DOM فقط
+            this._refreshDeveloperTabLocally(user);
 
         } catch (error) {
             console.error("Webhook Save Error:", error);
