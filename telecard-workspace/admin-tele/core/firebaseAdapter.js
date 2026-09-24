@@ -166,7 +166,10 @@ export const FirebaseAdapter = {
             const q = query(collection(db, collectionName), orderBy(orderByField, 'desc'), limit(limitCount));
             const snapshot = await this._withTimeout(getDocs(q), 10000, `getRecent -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (error) { return []; }
+        } catch (error) {
+    console.error(`🚨 خطأ فايربيز في getRecent [${collectionName}]:`, error);
+    return [];
+}
     },
 
     async getById(collectionName, docId) {
@@ -175,7 +178,10 @@ export const FirebaseAdapter = {
             const safeId = this._sanitizeDocId(docId);
             const docSnap = await this._withTimeout(getDoc(doc(db, collectionName, safeId)), 10000);
             return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
-        } catch (error) { return null; }
+        } catch (error) {
+    console.error(`🚨 خطأ فايربيز في getById [${collectionName}]:`, error);
+    return null;
+}
     },
 
     async set(collectionName, docId, data) {
@@ -266,7 +272,10 @@ export const FirebaseAdapter = {
 
             cleanupFn = this._registerListener(key, unsub);
             return cleanupFn;
-        } catch (error) { return () => {}; }
+        } catch (error) {
+    console.error(`🚨 خطأ فايربيز في إعداد listenQuery [${collectionName}]:`, error);
+    return () => {};
+}
     },
 
     async fetchMoreWithCursor(collectionName, conditions, orderByField = 'time', lastDocMarker, limitCount = 25) {
@@ -289,7 +298,10 @@ export const FirebaseAdapter = {
                 data: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })), 
                 newLastDoc: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null 
             };
-        } catch (error) { return { data: [], newLastDoc: null }; }
+        } catch (error) {
+    console.error(`🚨 خطأ فايربيز في fetchMoreWithCursor [${collectionName}]:`, error);
+    return { data: [], newLastDoc: null };
+}
     },
 
     // ========================================================================
