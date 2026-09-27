@@ -1130,6 +1130,77 @@ exports.adminDeleteTier = onCall({ timeoutSeconds: 540, memory: "1GiB" }, async 
     }
 });
 // ==========================================
+// 🚨 دالة التعافي: بناء الإحصائيات بأثر رجعي (Historical Backfill)
+// ==========================================
+exports.adminRebuildStatistics = onCall({ timeoutSeconds: 540, memory: "1GiB" }, async (request) => {
+    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
+    
+    try {
+        const db = admin.firestore();
+        // 1. مسح الإحصائيات القديمة الفاسدة
+        const oldStats = await db.collection('telecard_statistics').get();
+        const batchDelete = db.batch();
+        oldStats.forEach(doc => batchDelete.delete(doc.ref));
+        await batchDelete.commit();
+        
+        // 2. جلب جميع الطلبات المكتملة لبناء الإحصائيات من جديد
+        const ordersSnap = await db.collection('telecard_orders').where('status', '==', 'completed').get();
+        
+        const dailyData = {};
+        let allTime = { revenue: 0, profit: 0, cost: 0, count: 0, api_profit: 0, auto_profit: 0, manual_profit: 0 };
+        
+        ordersSnap.forEach(doc => {
+            const order = doc.data();
+            const timeMs = order.time?.toMillis ? order.time.toMillis() : Date.now();
+            const dateObj = new Date(timeMs);
+            const dayKey = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
+            
+            const revenue = Number(order.priceBaseUsd || 0);
+            const profit = Number(order.pricingSnapshot?.netProfitUsd || 0);
+            const cost = Number(order.pricingSnapshot?.costUsd || 0);
+            const isApi = (order.isApi || order.source === 'api');
+            const isAuto = (!isApi && order.deliveredCode && order.deliveredCode.length > 0);
+            
+            if (!dailyData[dayKey]) {
+                dailyData[dayKey] = { revenue: 0, profit: 0, cost: 0, count: 0, api_profit: 0, auto_profit: 0, manual_profit: 0 };
+            }
+            
+            // الجمع اليومي
+            dailyData[dayKey].revenue += revenue;
+            dailyData[dayKey].profit += profit;
+            dailyData[dayKey].cost += cost;
+            dailyData[dayKey].count += 1;
+            
+            if (isApi) dailyData[dayKey].api_profit += profit;
+            else if (isAuto) dailyData[dayKey].auto_profit += profit;
+            else dailyData[dayKey].manual_profit += profit;
+            
+            // الجمع الكلي
+            allTime.revenue += revenue;
+            allTime.profit += profit;
+            allTime.cost += cost;
+            allTime.count += 1;
+            if (isApi) allTime.api_profit += profit;
+            else if (isAuto) allTime.auto_profit += profit;
+            else allTime.manual_profit += profit;
+        });
+        
+        // 3. حفظ البيانات النظيفة الجديدة
+        const batchSave = db.batch();
+        batchSave.set(db.collection('telecard_statistics').doc('all_time'), allTime);
+        
+        Object.keys(dailyData).forEach(dayKey => {
+            batchSave.set(db.collection('telecard_statistics').doc(`daily_${dayKey}`), dailyData[dayKey]);
+        });
+        
+        await batchSave.commit();
+        return { success: true, message: `تم بناء الإحصائيات لـ ${allTime.count} طلب بنجاح!` };
+        
+    } catch (error) {
+        throw new HttpsError('internal', `فشل بناء الإحصائيات: ${error.message}`);
+    }
+});
+// ==========================================
 // 🪪 4. استكمال بيانات الحساب (KYC)
 // ==========================================
 exports.completeUserIdentity = onCall({ enforceAppCheck: false }, async (request) => {

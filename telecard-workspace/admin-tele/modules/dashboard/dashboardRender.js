@@ -157,46 +157,52 @@ export const DashboardRender = {
     },
 
     updateTopBellBadge: function(displayAlerts) {
-        const topBellBadge = document.getElementById('global-alert-badge');
-        if (!topBellBadge || !displayAlerts || displayAlerts.length === 0) {
-            if (topBellBadge) { topBellBadge.classList.add('hide-element'); topBellBadge.classList.remove('active'); }
-            return;
-        }
-        
-        // 🎯 الجمع الاحترافي: جمع الأرقام الحقيقية لكل مهمة (طلبات + إيداعات + kyc + إلخ)
-        const currentAlertCount = displayAlerts.reduce((sum, a) => sum + (a.badgeCount || 1), 0);
-        
-        // جلب البيانات المخزنة من الجلسة
-        const lastSeenTime = Number(sessionStorage.getItem('telecard_last_seen_alert_time')) || 0;
-        const lastSeenCount = Number(sessionStorage.getItem('telecard_last_seen_alert_count')) || 0;
-        
-        const latestAlertTime = Math.max(...displayAlerts.map(a => RenderHelpers.parseTime(a.time || 0)));
-        
-        // 🚀 متى نظهر الشارة الحمراء؟ 
-        // 1. إذا وصل تنبيه جديد له وقت (أحدث من آخر رؤية)
-        // 2. أو إذا زاد عدد المهام المعلقة عن آخر مرة فتح فيها المدير الجرس
-        if (latestAlertTime > lastSeenTime || currentAlertCount > lastSeenCount || lastSeenTime === 0) { 
-            topBellBadge.innerText = currentAlertCount > 99 ? "+99" : currentAlertCount; 
-            topBellBadge.classList.remove('hide-element'); 
-            topBellBadge.classList.add('active'); 
-        } else { 
-            topBellBadge.classList.add('hide-element'); 
-            topBellBadge.classList.remove('active'); 
-        }
-
-        const bellContainer = topBellBadge.parentElement; 
-        if (bellContainer && !bellContainer.hasAttribute('data-alert-bound')) {
-            bellContainer.setAttribute('data-alert-bound', 'true');
-            bellContainer.addEventListener('click', function() { 
-                // حفظ الوقت الحالي وعدد المهام الحالي عند فتح الجرس
-                sessionStorage.setItem('telecard_last_seen_alert_time', Date.now()); 
-                sessionStorage.setItem('telecard_last_seen_alert_count', currentAlertCount); 
-                topBellBadge.classList.add('hide-element'); 
-                topBellBadge.classList.remove('active'); 
-            });
-        }
-    },
-
+    const topBellBadge = document.getElementById('global-alert-badge');
+    if (!topBellBadge) return;
+    
+    // 🚀 [الإصلاح المعماري 1]: إذا لم يكن هناك أي مهام، أخفِ الجرس و"صفّر" الذاكرة
+    if (!displayAlerts || displayAlerts.length === 0) {
+        topBellBadge.classList.add('hide-element');
+        topBellBadge.classList.remove('active');
+        sessionStorage.removeItem('telecard_last_seen_alert_time');
+        sessionStorage.removeItem('telecard_last_seen_alert_count');
+        return;
+    }
+    
+    // 🎯 الجمع الاحترافي: جمع الأرقام الحقيقية لكل مهمة (طلبات + إيداعات + kyc + إلخ)
+    const currentAlertCount = displayAlerts.reduce((sum, a) => sum + (a.badgeCount || 1), 0);
+    
+    // جلب البيانات المخزنة من الجلسة
+    const lastSeenTime = Number(sessionStorage.getItem('telecard_last_seen_alert_time')) || 0;
+    const lastSeenCount = Number(sessionStorage.getItem('telecard_last_seen_alert_count')) || 0;
+    
+    const latestAlertTime = Math.max(...displayAlerts.map(a => RenderHelpers.parseTime(a.time || 0)));
+    
+    // 🚀 [الإصلاح المعماري 2]: متى نظهر الشارة الحمراء؟
+    // 1. إذا كان عدد المهام الحالي "يختلف" عن آخر عدد شاهده المدير (سواء زاد أو نقص ولكن لم يصل للصفر)
+    // 2. إذا وصل تنبيه جديد له وقت (أحدث من آخر رؤية)
+    // 3. إذا لم يسبق للمدير فتح الجرس في هذه الجلسة
+    if (latestAlertTime > lastSeenTime || currentAlertCount !== lastSeenCount || lastSeenTime === 0) {
+        topBellBadge.innerText = currentAlertCount > 99 ? "+99" : currentAlertCount;
+        topBellBadge.classList.remove('hide-element');
+        topBellBadge.classList.add('active');
+    } else {
+        topBellBadge.classList.add('hide-element');
+        topBellBadge.classList.remove('active');
+    }
+    
+    const bellContainer = topBellBadge.parentElement;
+    if (bellContainer && !bellContainer.hasAttribute('data-alert-bound')) {
+        bellContainer.setAttribute('data-alert-bound', 'true');
+        bellContainer.addEventListener('click', function() {
+            // 🚀 حفظ الوقت الحالي وعدد المهام الحالي عند فتح الجرس لإخفائه مؤقتاً
+            sessionStorage.setItem('telecard_last_seen_alert_time', Date.now());
+            sessionStorage.setItem('telecard_last_seen_alert_count', currentAlertCount);
+            topBellBadge.classList.add('hide-element');
+            topBellBadge.classList.remove('active');
+        });
+    }
+},
     renderMainChart: async function() { 
         const chartDiv = document.querySelector("#main-revenue-chart");
         if (!chartDiv || typeof window.ApexCharts === 'undefined') return;

@@ -202,7 +202,23 @@ export const UIService = {
             if (window.innerWidth > 768) setTimeout(() => { inputEl.focus(); }, 350);
         });
     },    
-
+showReportModal: function(title, htmlContent) {
+    const overlay = document.createElement('div');
+    overlay.className = 'sys-overlay active';
+    overlay.style.cssText = 'z-index: 99999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6);';
+    overlay.innerHTML = `
+            <div class="modal-content modal-md" style="animation: slideIn 0.3s ease; width: 90%; max-width: 500px;">
+                <div class="flex-between align-items-center mb-15">
+                    <h2 class="main-title m-0"><i class="fa-solid fa-file-invoice"></i> ${this._esc(title)}</h2>
+                    <div class="modal-close-btn clickable" onclick="this.closest('.sys-overlay').remove()"><i class="fa-solid fa-xmark"></i></div>
+                </div>
+                <div class="custom-scrollbar" style="max-height: 400px; overflow-y: auto; text-align: right; padding-left: 5px;">
+                    ${htmlContent}
+                </div>
+                <button class="btn btn-ghost btn-full mt-15" onclick="this.closest('.sys-overlay').remove()">إغلاق التقرير</button>
+            </div>`;
+    document.body.appendChild(overlay);
+},
     copyText: function(text, event, element) {
         if (event) { event.stopPropagation(); event.preventDefault(); }
         if (!text) return;
