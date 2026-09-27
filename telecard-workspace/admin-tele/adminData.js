@@ -354,24 +354,137 @@ export const AdminData = {
         return stats;
     },    fetchSalesBIAsync: async function(range = '30days') {
         try {
-            if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(true, 'جاري تحليل ملايين السجلات عبر محرك السحابة (BI)...');
-            
-            const result = await FirebaseAdapter.callFunction('adminGetSalesBI', { range });
-            
-            if (result && result.success) {
-                return result.data;
-            } else {
-                console.warn("السيرفر لم يرجع بيانات التحليل بشكل صحيح، ننتظر تحديث السيرفر...");
-                return { rawOrders: [], revenue: 0, profit: 0, cost: 0, count: 0, categories: {}, products: {}, tiers: {} };
+            if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(true, 'جاري تحليل بيانات المبيعات الحية...');
+
+            const now = Date.now();
+            let startTime = 0; let endTime = Infinity;
+            let prevStartTime = 0; let prevEndTime = 0; 
+
+            const nowObj = new Date(now);
+
+            // 1. حساب النطاق الزمني الحالي (curr) والسابق (prev) بدقة ميكروثانية
+            if (range === 'today') {
+                startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), nowObj.getUTCDate());
+                prevStartTime = startTime - 86400000;
+                prevEndTime = startTime - 1;
+            } else if (range === '7days') {
+                startTime = now - (7 * 86400000);
+                prevStartTime = startTime - (7 * 86400000);
+                prevEndTime = startTime - 1;
+            } else if (range === '30days') {
+                startTime = now - (30 * 86400000);
+                prevStartTime = startTime - (30 * 86400000);
+                prevEndTime = startTime - 1;
+            } else if (range === '90days') {
+                startTime = now - (90 * 86400000);
+                prevStartTime = startTime - (90 * 86400000);
+                prevEndTime = startTime - 1;
+            } else if (range === 'this_month') {
+                startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1);
+                prevStartTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth() - 1, 1);
+                prevEndTime = startTime - 1;
+            } else if (range === 'last_month') {
+                startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth() - 1, 1);
+                endTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1) - 1;
+                prevStartTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth() - 2, 1);
+                prevEndTime = startTime - 1;
             }
+
+            // 2. الجلب السحابي (نجلب الطلبات التي تغطي الفترتين معاً)
+            let queryStartTime = range === 'all' ? 0 : prevStartTime;
+
+            const res = await FirebaseAdapter.callFunction('adminGetOrdersList', {
+                limit: 10000,
+                status: 'completed',
+                startDateMs: queryStartTime,
+                endDateMs: endTime === Infinity ? null : endTime
+            });
+
+            const orders = res?.success ? res.data : [];
+
+            // 3. هيكل البيانات الأساسي المحصن
+            const bi = {
+                curr: { revenue: 0, profit: 0, cost: 0, count: 0, categories: {}, products: {}, tiers: {}, daily: {}, sources: { api: 0, auto: 0, manual: 0 } },
+                prev: { revenue: 0, profit: 0, cost: 0, count: 0 }
+            };
+
+            // 4. معالجة البيانات بأمان رياضي وزمني
+            orders.forEach(o => {
+                // 🛡️ [الإصلاح المعماري]: استخدام parseTime لترجمة تواريخ فايربيز المعقدة بشكل آمن
+                const orderTime = RenderHelpers.parseTime(o.time || o.createdAt);
+                
+                const rev = Number(o.priceBaseUsd || 0);
+                const prof = Number(o.pricingSnapshot?.netProfitUsd || 0);
+                const cost = Number(o.pricingSnapshot?.costUsd || 0);
+
+                const isCurrentPeriod = (orderTime >= startTime && orderTime <= endTime);
+                const isPrevPeriod = (orderTime >= prevStartTime && orderTime <= prevEndTime);
+
+                // حسابات نمو الفترة السابقة
+                if (isPrevPeriod && range !== 'all') {
+                    bi.prev.revenue = FinancialEngine.safeAdd(bi.prev.revenue, rev);
+                    bi.prev.profit = FinancialEngine.safeAdd(bi.prev.profit, prof);
+                    bi.prev.cost = FinancialEngine.safeAdd(bi.prev.cost, cost);
+                    bi.prev.count++;
+                }
+
+                // حسابات الفترة المحددة حالياً
+                if (isCurrentPeriod || range === 'all') {
+                    bi.curr.revenue = FinancialEngine.safeAdd(bi.curr.revenue, rev);
+                    bi.curr.profit = FinancialEngine.safeAdd(bi.curr.profit, prof);
+                    bi.curr.cost = FinancialEngine.safeAdd(bi.curr.cost, cost);
+                    bi.curr.count++;
+
+                    const pId = o.prodId || 'unknown';
+                    const pName = o.product || 'منتج محذوف';
+                    if (!bi.curr.products[pId]) bi.curr.products[pId] = { name: pName, revenue: 0, profit: 0, count: 0 };
+                    bi.curr.products[pId].revenue = FinancialEngine.safeAdd(bi.curr.products[pId].revenue, rev);
+                    bi.curr.products[pId].profit = FinancialEngine.safeAdd(bi.curr.products[pId].profit, prof);
+                    bi.curr.products[pId].count++;
+
+                    const tName = o.tierName || 'عضو';
+                    if (!bi.curr.tiers[tName]) bi.curr.tiers[tName] = { name: tName, revenue: 0, profit: 0, count: 0 };
+                    bi.curr.tiers[tName].revenue = FinancialEngine.safeAdd(bi.curr.tiers[tName].revenue, rev);
+                    bi.curr.tiers[tName].profit = FinancialEngine.safeAdd(bi.curr.tiers[tName].profit, prof);
+                    bi.curr.tiers[tName].count++;
+
+                    const dDate = new Date(orderTime);
+                    const dayKey = `${dDate.getUTCFullYear()}-${String(dDate.getUTCMonth()+1).padStart(2,'0')}-${String(dDate.getUTCDate()).padStart(2,'0')}`;
+                    if (!bi.curr.daily[dayKey]) bi.curr.daily[dayKey] = { revenue: 0, profit: 0 };
+                    bi.curr.daily[dayKey].revenue = FinancialEngine.safeAdd(bi.curr.daily[dayKey].revenue, rev);
+                    bi.curr.daily[dayKey].profit = FinancialEngine.safeAdd(bi.curr.daily[dayKey].profit, prof);
+
+                    const isApi = (o.isApi || o.source === 'api');
+                    const isAuto = (!isApi && o.deliveredCode && o.deliveredCode.length > 0);
+                    if (isApi) bi.curr.sources.api++;
+                    else if (isAuto) bi.curr.sources.auto++;
+                    else bi.curr.sources.manual++;
+                    
+                    const realProd = this.data.prodsMap?.[pId];
+                    if (realProd && realProd.categoryId) {
+                        const cId = realProd.categoryId;
+                        const cName = this.data.catsMap?.[cId]?.name || 'قسم غير معروف';
+                        if (!bi.curr.categories[cId]) bi.curr.categories[cId] = { name: cName, revenue: 0, profit: 0, count: 0 };
+                        bi.curr.categories[cId].revenue = FinancialEngine.safeAdd(bi.curr.categories[cId].revenue, rev);
+                        bi.curr.categories[cId].profit = FinancialEngine.safeAdd(bi.curr.categories[cId].profit, prof);
+                        bi.curr.categories[cId].count++;
+                    }
+                }
+            });
+
+            return bi;
+
         } catch (error) {
-            console.error("🚨 Cloud BI Error:", error);
-            return null;
+            console.error("🚨 التحليل السحابي انهار بسبب خطأ غير متوقع:", error);
+            // 🛡️ [الإصلاح المعماري الجذري]: إرجاع وعاء بيانات فارغ بدلاً من null لمنع اختفاء الكبسولات!
+            return {
+                curr: { revenue: 0, profit: 0, cost: 0, count: 0, categories: {}, products: {}, tiers: {}, daily: {}, sources: { api: 0, auto: 0, manual: 0 } },
+                prev: { revenue: 0, profit: 0, cost: 0, count: 0 }
+            };
         } finally {
             if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(false);
         }
     },
-
     saveCollection: async function(key, prop) {
         if (!this.isCloudSyncSuccessful) return false;
         

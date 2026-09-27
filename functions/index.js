@@ -1130,7 +1130,7 @@ exports.adminDeleteTier = onCall({ timeoutSeconds: 540, memory: "1GiB" }, async 
     }
 });
 // ==========================================
-// 🚨 دالة التعافي الشاملة V2: تجميل الطلبات والإيداعات القديمة (Data Healing)
+// 🚨 دالة التعافي الاحترافية (V3): تجميل الطلبات والإيداعات، والحساب الذكي للأرباح (Enterprise Data Migration)
 // ==========================================
 exports.adminHealAndRebuildStats = onCall({ timeoutSeconds: 540, memory: "1GiB" }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
@@ -1149,33 +1149,69 @@ exports.adminHealAndRebuildStats = onCall({ timeoutSeconds: 540, memory: "1GiB" 
             return batches[batchIndex];
         };
 
-        // --- المرحلة 1: إصلاح الطلبات القديمة (زرع priceBaseUsd) ---
+        // --- 1. جلب كتالوج المنتجات لمعرفة التكلفة الحقيقية للمنتجات القديمة ---
+        const prodsSnap = await db.collection('telecard_prods').get();
+        const prodsMap = {};
+        prodsSnap.forEach(doc => { prodsMap[doc.id] = doc.data(); });
+
+        // --- 2. إصلاح الطلبات القديمة (الأرباح، التكاليف، والإيرادات) ---
         const ordersSnap = await db.collection('telecard_orders').get();
         ordersSnap.forEach(doc => {
             const data = doc.data();
-            if (data.priceBaseUsd === undefined || data.priceBaseUsd === null || typeof data.priceBaseUsd === 'string') {
-                let fallbackPrice = Number(data.pricingSnapshot?.finalPriceUsd || data.price || 0);
-                getSafeBatch().update(doc.ref, { priceBaseUsd: fallbackPrice });
+            let needsUpdate = false;
+            let updatePayload = {};
+
+            const rev = Number(data.priceBaseUsd || data.pricingSnapshot?.finalPriceUsd || data.price || 0);
+
+            // إصلاح حقل الإيرادات المفقود
+            if (data.priceBaseUsd === undefined || data.priceBaseUsd === null) {
+                updatePayload.priceBaseUsd = rev;
+                needsUpdate = true;
+            }
+
+            // إصلاح الأرباح والتكاليف المفقودة بذكاء
+            if (!data.pricingSnapshot || data.pricingSnapshot.netProfitUsd === undefined) {
+                const realProd = prodsMap[data.prodId];
+                let calculatedCost = 0;
+
+                if (realProd && realProd.costPrice) {
+                    calculatedCost = Number(realProd.costPrice); // جلب التكلفة الحقيقية من الكتالوج
+                } else {
+                    calculatedCost = rev * 0.85; // منتج محذوف: نفترض 15% ربح لوزن المحاسبة
+                }
+
+                let calculatedProfit = rev - calculatedCost;
+                if (calculatedProfit < 0) calculatedProfit = 0;
+
+                updatePayload.pricingSnapshot = {
+                    ...(data.pricingSnapshot || {}),
+                    costUsd: Number(calculatedCost.toFixed(4)),
+                    netProfitUsd: Number(calculatedProfit.toFixed(4))
+                };
+                needsUpdate = true;
+            }
+
+            if (needsUpdate) {
+                getSafeBatch().update(doc.ref, updatePayload);
                 fixedOrdersCount++; opCount++;
             }
         });
 
-        // --- المرحلة 2: إصلاح الإيداعات القديمة (زرع creditedBaseUsd) 🚀 ---
+        // --- 3. إصلاح الإيداعات القديمة ---
         const depositsSnap = await db.collection('telecard_deposits').get();
         depositsSnap.forEach(doc => {
             const data = doc.data();
             if (data.creditedBaseUsd === undefined || data.creditedBaseUsd === null || typeof data.creditedBaseUsd === 'string') {
-                // إذا كان الحقل مفقوداً أو نصياً، نستخرجه كأرقام من الحقول القديمة
                 let fallbackBaseUsd = Number(data.creditedAmount || data.amount || 0);
                 getSafeBatch().update(doc.ref, { creditedBaseUsd: fallbackBaseUsd });
                 fixedDepositsCount++; opCount++;
             }
         });
 
-        // تنفيذ كل الإصلاحات في قاعدة البيانات
+        // تنفيذ الإصلاحات
         for (let batch of batches) { await batch.commit(); }
 
-        // --- المرحلة 3: بناء جدول الإحصائيات الزمني (المخطط البياني) ---
+        // --- 4. إعادة بناء الدفتر الإحصائي الزمني ---
         const oldStats = await db.collection('telecard_statistics').get();
         const statBatches = [db.batch()];
         let statBatchIndex = 0; let statOpCount = 0;
@@ -1197,7 +1233,7 @@ exports.adminHealAndRebuildStats = onCall({ timeoutSeconds: 540, memory: "1GiB" 
             const dateObj = new Date(timeMs);
             const dayKey = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
 
-            const revenue = Number(order.priceBaseUsd || order.pricingSnapshot?.finalPriceUsd || order.price || 0);
+            const revenue = Number(order.priceBaseUsd || 0);
             const profit = Number(order.pricingSnapshot?.netProfitUsd || 0);
             const cost = Number(order.pricingSnapshot?.costUsd || 0);
             const isApi = (order.isApi || order.source === 'api');
@@ -1224,12 +1260,13 @@ exports.adminHealAndRebuildStats = onCall({ timeoutSeconds: 540, memory: "1GiB" 
 
         for (let batch of statBatches) { await batch.commit(); }
 
-        return { success: true, message: `نجاح! تم إصلاح ${fixedOrdersCount} طلب، و ${fixedDepositsCount} إيداع قديم.` };
+        return { success: true, message: `العملية تمت باحترافية: إصلاح عميق لـ ${fixedOrdersCount} طلب و ${fixedDepositsCount} إيداع!` };
 
     } catch (error) {
         throw new HttpsError('internal', `فشل الإصلاح: ${error.message}`);
     }
-});// ==========================================
+});
+;// ==========================================
 // 🪪 4. استكمال بيانات الحساب (KYC)
 // ==========================================
 exports.completeUserIdentity = onCall({ enforceAppCheck: false }, async (request) => {
