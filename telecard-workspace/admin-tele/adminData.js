@@ -269,96 +269,90 @@ export const AdminData = {
             endTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1) - 1; 
         }
 
+        // 🛡️ دروع حماية تمنع انهيار اللوحة إذا فشل استعلام واحد
+        const safeAgg = async (col, conditions, aggSpec) => {
+            try { return await FirebaseAdapter.getAggregatedStats(col, conditions, aggSpec); }
+            catch(e) { console.error(`Agg Error [${col}]:`, e); return null; }
+        };
+
+        const safeRecent = async (col, limitCount, orderField) => {
+            try { return await FirebaseAdapter.getRecent(col, limitCount, orderField); }
+            catch(e) { console.error(`Recent Error [${col}]:`, e); return []; }
+        };
+
+        // 🚀 جلب البيانات بشكل متوازي ومحصن تماماً
         const [ordAgg, depAgg, pOrd, pDep, pKyc, pComp, tUsr, bUsr, topUsersRaw, liquidity] = await Promise.all([
-            FirebaseAdapter.getAggregatedStats(DB_KEYS.ORDERS, [['status', '==', 'completed']], {
-                revenue: { type: 'sum', field: 'priceBaseUsd' }, profit: { type: 'sum', field: 'pricingSnapshot.netProfitUsd' }, count: { type: 'count' }
-            }),
-            FirebaseAdapter.getAggregatedStats(DB_KEYS.DEPOSITS, [['status', '==', 'approved']], {
-                totalAmount: { type: 'sum', field: 'creditedBaseUsd' }, count: { type: 'count' }
-            }),
-            FirebaseAdapter.getAggregatedStats(DB_KEYS.ORDERS, [['status', 'in', ['pending', 'processing']]], { total: { type: 'count' }}),
-            FirebaseAdapter.getAggregatedStats(DB_KEYS.DEPOSITS, [['status', '==', 'pending']], { total: { type: 'count' }}),
-            FirebaseAdapter.getAggregatedStats(DB_KEYS.USERS, [['kycStatus', '==', 'pending']], { total: { type: 'count' }}),
-            FirebaseAdapter.getAggregatedStats('telecard_reviews', [['status', '==', 'pending'], ['rating', '<=', 2]], { total: { type: 'count' }}),
-            FirebaseAdapter.getAggregatedStats(DB_KEYS.USERS, [], { total: { type: 'count' }}),
-            FirebaseAdapter.getAggregatedStats(DB_KEYS.USERS, [['isBanned', '==', true]], { total: { type: 'count' }}),
-            FirebaseAdapter.getRecent(DB_KEYS.USERS, 50, 'totalSpent'),
-            this.fetchWalletsLiquidityAsync() // 🚀 هذا هو السطر المفقود الذي تسبب في انهيار اللوحة
+            safeAgg(DB_KEYS.ORDERS, [['status', '==', 'completed']], { revenue: { type: 'sum', field: 'priceBaseUsd' }, profit: { type: 'sum', field: 'pricingSnapshot.netProfitUsd' }, count: { type: 'count' } }),
+            safeAgg(DB_KEYS.DEPOSITS, [['status', '==', 'approved']], { totalAmount: { type: 'sum', field: 'creditedBaseUsd' }, count: { type: 'count' } }),
+            safeAgg(DB_KEYS.ORDERS, [['status', 'in', ['pending', 'processing']]], { total: { type: 'count' }}),
+            safeAgg(DB_KEYS.DEPOSITS, [['status', '==', 'pending']], { total: { type: 'count' }}),
+            safeAgg(DB_KEYS.USERS, [['kycStatus', '==', 'pending']], { total: { type: 'count' }}),
+            safeAgg('telecard_reviews', [['status', '==', 'pending'], ['rating', '<=', 2]], { total: { type: 'count' }}),
+            safeAgg(DB_KEYS.USERS, [], { total: { type: 'count' }}),
+            safeAgg(DB_KEYS.USERS, [['isBanned', '==', true]], { total: { type: 'count' }}),
+            safeRecent(DB_KEYS.USERS, 50, 'totalSpent'),
+            this.fetchWalletsLiquidityAsync().catch(() => ({ totalUsd: 0, details: {} }))
         ]);
+
         let topHeroes = [];
         if (leaderboardPeriod === 'all') {
             topHeroes = (topUsersRaw || []).map(u => ({
                 id: u.id, displayId: u.displayId || String(u.id).substring(0, 8), name: u.fullName || u.username || 'عميل مميز', img: u.profileImage || null, spent: u.totalSpent || 0
             }));
         } else {
-            // 🚀 [الحل المعماري الاحترافي]: الاعتماد على الدالة السحابية التي وضعناها بدلاً من الترقيع والحد المحلي
-            const recentOrdersRes = await FirebaseAdapter.callFunction('adminGetOrdersList', {
-                limit: 5000,
-                status: 'completed',
-                startDateMs: startTime,
-                endDateMs: endTime
-            });
-            
-            const recentOrdersData = recentOrdersRes?.success ? recentOrdersRes.data : [];
-            const userMapLocal = {};
-            const userNameMap = {}; 
+            try {
+                const recentOrdersRes = await FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 5000, status: 'completed', startDateMs: startTime, endDateMs: endTime });
+                const recentOrdersData = recentOrdersRes?.success ? recentOrdersRes.data : [];
+                const userMapLocal = {};
+                const userNameMap = {}; 
 
-            recentOrdersData.forEach(o => {
-                const uid = String(o.userId);
-                userMapLocal[uid] = FinancialEngine.safeAdd(userMapLocal[uid] || 0, Number(o.priceBaseUsd || 0));
-                
-                if (!userNameMap[uid]) {
-                    userNameMap[uid] = { 
-                        name: o.userDataSnapshot?.fullName || o.userName || 'عميل',
-                        displayId: o.userDataSnapshot?.displayId || uid.substring(0, 8) 
-                    };
-                }
-            });
-            
-            topHeroes = Object.entries(userMapLocal)
-                .sort(([, aSpent], [, bSpent]) => bSpent - aSpent)
-                .slice(0, 3) // نجلب أعلى 3 للوحة القيادة
-                .map(([uid, spent]) => {
-                    const u = this.data.usersMap[uid]; 
-                    const fallback = userNameMap[uid] || {};
-                    return { 
-                        id: uid, 
-                        displayId: u?.displayId || fallback.displayId || uid.substring(0, 8), 
-                        name: u?.fullName || u?.username || fallback.name || 'عميل', 
-                        img: u?.profileImage || null, 
-                        spent: spent 
-                    };
+                recentOrdersData.forEach(o => {
+                    const uid = String(o.userId);
+                    userMapLocal[uid] = FinancialEngine.safeAdd(userMapLocal[uid] || 0, Number(o.priceBaseUsd || 0));
+                    if (!userNameMap[uid]) {
+                        userNameMap[uid] = { name: o.userDataSnapshot?.fullName || o.userName || 'عميل', displayId: o.userDataSnapshot?.displayId || uid.substring(0, 8) };
+                    }
                 });
+                
+                topHeroes = Object.entries(userMapLocal)
+                    .sort(([, aSpent], [, bSpent]) => bSpent - aSpent)
+                    .slice(0, 3)
+                    .map(([uid, spent]) => {
+                        const u = this.data.usersMap?.[uid] || {}; 
+                        const fallback = userNameMap[uid] || {};
+                        return { id: uid, displayId: u.displayId || fallback.displayId || uid.substring(0, 8), name: u.fullName || u.username || fallback.name || 'عميل', img: u.profileImage || null, spent: spent };
+                    });
+            } catch (err) {
+                console.error("Top Heroes Error:", err);
+            }
         }
 
+        // 🛡️ تجميع الإحصائيات مع قيم افتراضية قوية تمنع الانهيار
         const stats = {
-            financials: { 
-                totalRevenue: ordAgg?.revenue || 0, 
-                totalProfit: ordAgg?.profit || 0,
-                totalDeposits: depAgg?.totalAmount || 0,
-                depositsCount: depAgg?.count || 0
-            },
+            financials: { totalRevenue: ordAgg?.revenue || 0, totalProfit: ordAgg?.profit || 0, totalDeposits: depAgg?.totalAmount || 0, depositsCount: depAgg?.count || 0 },
             orders: { completed: ordAgg?.count || 0, pending: pOrd?.total || 0, total: (ordAgg?.count || 0) + (pOrd?.total || 0) },
             deposits: { pending: pDep?.total || 0 },
             users: { total: tUsr?.total || 0, banned: bUsr?.total || 0, active: (tUsr?.total || 0) - (bUsr?.total || 0), topThree: topHeroes },
-            wallets: liquidity,
+            wallets: liquidity || { totalUsd: 0, details: {} },
             alerts: [],
             pendingCounts: { orders: pOrd?.total || 0, deposits: pDep?.total || 0, kyc: pKyc?.total || 0, complaints: pComp?.total || 0 }
         };
 
-        this.data.vault.forEach(v => {
-            const stock = Number(v.stockCount || 0);
-            if (stock === 0) stats.alerts.push({ id: 'vault_empty', poolName: v.name, time: nowTime, poolId: v.id });
-            else if (stock <= (v.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolName: v.name, count: stock, time: nowTime, poolId: v.id });
-        });
+        try {
+            if (Array.isArray(this.data.vault)) {
+                this.data.vault.forEach(v => {
+                    const stock = Number(v.stockCount || 0);
+                    if (stock === 0) stats.alerts.push({ id: 'vault_empty', poolName: v.name, time: nowTime, poolId: v.id });
+                    else if (stock <= (v.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolName: v.name, count: stock, time: nowTime, poolId: v.id });
+                });
+            }
+        } catch(e) { console.error("Vault Alert Error:", e); }
 
         if (stats.alerts.length === 0) stats.alerts.push({ id: 'security_stable', time: 0 });
         stats.alerts.sort((a, b) => parseSafeTime(b.time) - parseSafeTime(a.time));
 
         return stats;
-    },
-
-    fetchSalesBIAsync: async function(range = '30days') {
+    },    fetchSalesBIAsync: async function(range = '30days') {
         try {
             if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(true, 'جاري تحليل ملايين السجلات عبر محرك السحابة (BI)...');
             

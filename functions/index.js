@@ -1130,34 +1130,60 @@ exports.adminDeleteTier = onCall({ timeoutSeconds: 540, memory: "1GiB" }, async 
     }
 });
 // ==========================================
-// 🚨 دالة التعافي: بناء الإحصائيات بأثر رجعي (Historical Backfill)
+// 🚨 دالة التعافي الشاملة: تجميل البيانات القديمة وبناء الإحصائيات (Data Healing)
 // ==========================================
-exports.adminRebuildStatistics = onCall({ timeoutSeconds: 540, memory: "1GiB" }, async (request) => {
+exports.adminHealAndRebuildStats = onCall({ timeoutSeconds: 540, memory: "1GiB" }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
     
     try {
         const db = admin.firestore();
-        // 1. مسح الإحصائيات القديمة الفاسدة
+        let fixedOrdersCount = 0;
+        
+        // --- المرحلة الأولى: زرع الحقل المفقود في الطلبات القديمة ---
+        const ordersSnap = await db.collection('telecard_orders').get();
+        let fixBatch = db.batch();
+        
+        ordersSnap.forEach(doc => {
+            const data = doc.data();
+            // إذا كان الحقل الجديد مفقوداً، نقوم بجلبه من الحقول القديمة
+            if (data.priceBaseUsd === undefined || data.priceBaseUsd === null) {
+                let fallbackPrice = 0;
+                if (data.pricingSnapshot && data.pricingSnapshot.finalPriceUsd !== undefined) {
+                    fallbackPrice = Number(data.pricingSnapshot.finalPriceUsd);
+                } else {
+                    fallbackPrice = Number(data.price || 0);
+                }
+                fixBatch.update(doc.ref, { priceBaseUsd: fallbackPrice });
+                fixedOrdersCount++;
+            }
+        });
+        
+        // تنفيذ الإصلاح في قاعدة البيانات
+        if (fixedOrdersCount > 0) {
+            await fixBatch.commit();
+        }
+        
+        // --- المرحلة الثانية: بناء جدول الإحصائيات الزمني ---
         const oldStats = await db.collection('telecard_statistics').get();
         const batchDelete = db.batch();
         oldStats.forEach(doc => batchDelete.delete(doc.ref));
         await batchDelete.commit();
         
-        // 2. جلب جميع الطلبات المكتملة لبناء الإحصائيات من جديد
-        const ordersSnap = await db.collection('telecard_orders').where('status', '==', 'completed').get();
-        
+        const completedOrdersSnap = await db.collection('telecard_orders').where('status', '==', 'completed').get();
         const dailyData = {};
         let allTime = { revenue: 0, profit: 0, cost: 0, count: 0, api_profit: 0, auto_profit: 0, manual_profit: 0 };
         
-        ordersSnap.forEach(doc => {
+        completedOrdersSnap.forEach(doc => {
             const order = doc.data();
             const timeMs = order.time?.toMillis ? order.time.toMillis() : Date.now();
             const dateObj = new Date(timeMs);
             const dayKey = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
             
-            const revenue = Number(order.priceBaseUsd || 0);
+            // نأخذ السعر سواء من الحقل القديم أو الجديد لضمان الحساب
+            const revenue = Number(order.priceBaseUsd || order.pricingSnapshot?.finalPriceUsd || order.price || 0);
             const profit = Number(order.pricingSnapshot?.netProfitUsd || 0);
             const cost = Number(order.pricingSnapshot?.costUsd || 0);
+            
             const isApi = (order.isApi || order.source === 'api');
             const isAuto = (!isApi && order.deliveredCode && order.deliveredCode.length > 0);
             
@@ -1165,7 +1191,6 @@ exports.adminRebuildStatistics = onCall({ timeoutSeconds: 540, memory: "1GiB" },
                 dailyData[dayKey] = { revenue: 0, profit: 0, cost: 0, count: 0, api_profit: 0, auto_profit: 0, manual_profit: 0 };
             }
             
-            // الجمع اليومي
             dailyData[dayKey].revenue += revenue;
             dailyData[dayKey].profit += profit;
             dailyData[dayKey].cost += cost;
@@ -1175,7 +1200,6 @@ exports.adminRebuildStatistics = onCall({ timeoutSeconds: 540, memory: "1GiB" },
             else if (isAuto) dailyData[dayKey].auto_profit += profit;
             else dailyData[dayKey].manual_profit += profit;
             
-            // الجمع الكلي
             allTime.revenue += revenue;
             allTime.profit += profit;
             allTime.cost += cost;
@@ -1185,19 +1209,17 @@ exports.adminRebuildStatistics = onCall({ timeoutSeconds: 540, memory: "1GiB" },
             else allTime.manual_profit += profit;
         });
         
-        // 3. حفظ البيانات النظيفة الجديدة
         const batchSave = db.batch();
         batchSave.set(db.collection('telecard_statistics').doc('all_time'), allTime);
-        
         Object.keys(dailyData).forEach(dayKey => {
             batchSave.set(db.collection('telecard_statistics').doc(`daily_${dayKey}`), dailyData[dayKey]);
         });
-        
         await batchSave.commit();
-        return { success: true, message: `تم بناء الإحصائيات لـ ${allTime.count} طلب بنجاح!` };
+        
+        return { success: true, message: `تم إصلاح ${fixedOrdersCount} طلب قديم، وبناء إحصائيات لـ ${allTime.count} طلب بنجاح!` };
         
     } catch (error) {
-        throw new HttpsError('internal', `فشل بناء الإحصائيات: ${error.message}`);
+        throw new HttpsError('internal', `فشل الإصلاح: ${error.message}`);
     }
 });
 // ==========================================
