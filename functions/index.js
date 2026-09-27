@@ -1201,7 +1201,7 @@ exports.adminRebuildStatistics = onCall({ timeoutSeconds: 540, memory: "1GiB" },
     }
 });
 // ==========================================
-// 🪪 4. استكمال بيانات الحساب (KYC)
+// 🪪 4. استكمال  بيانات الحساب (KYC)
 // ==========================================
 exports.completeUserIdentity = onCall({ enforceAppCheck: false }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
