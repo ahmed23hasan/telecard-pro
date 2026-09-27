@@ -1163,7 +1163,7 @@ exports.adminHealAndRebuildStats = onCall({ timeoutSeconds: 540, memory: "1GiB" 
             await fixBatch.commit();
         }
         
-        // --- المرحلة الثانية: بناء جدول الإحصائيات الزمني ---
+        // --- المرحلة الثانيية: بناء جدول الإحصائيات الزمني ---
         const oldStats = await db.collection('telecard_statistics').get();
         const batchDelete = db.batch();
         oldStats.forEach(doc => batchDelete.delete(doc.ref));
