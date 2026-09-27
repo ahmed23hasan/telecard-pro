@@ -1130,99 +1130,106 @@ exports.adminDeleteTier = onCall({ timeoutSeconds: 540, memory: "1GiB" }, async 
     }
 });
 // ==========================================
-// 🚨 دالة التعافي الشاملة: تجميل البيانات القديمة وبناء الإحصائيات (Data Healing)
+// 🚨 دالة التعافي الشاملة V2: تجميل الطلبات والإيداعات القديمة (Data Healing)
 // ==========================================
 exports.adminHealAndRebuildStats = onCall({ timeoutSeconds: 540, memory: "1GiB" }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
-    
+
     try {
         const db = admin.firestore();
         let fixedOrdersCount = 0;
-        
-        // --- المرحلة الأولى: زرع الحقل المفقود في الطلبات القديمة ---
+        let fixedDepositsCount = 0;
+
+        const batches = [db.batch()];
+        let batchIndex = 0;
+        let opCount = 0;
+
+        const getSafeBatch = () => {
+            if (opCount >= 400) { batches.push(db.batch()); batchIndex++; opCount = 0; }
+            return batches[batchIndex];
+        };
+
+        // --- المرحلة 1: إصلاح الطلبات القديمة (زرع priceBaseUsd) ---
         const ordersSnap = await db.collection('telecard_orders').get();
-        let fixBatch = db.batch();
-        
         ordersSnap.forEach(doc => {
             const data = doc.data();
-            // إذا كان الحقل الجديد مفقوداً، نقوم بجلبه من الحقول القديمة
-            if (data.priceBaseUsd === undefined || data.priceBaseUsd === null) {
-                let fallbackPrice = 0;
-                if (data.pricingSnapshot && data.pricingSnapshot.finalPriceUsd !== undefined) {
-                    fallbackPrice = Number(data.pricingSnapshot.finalPriceUsd);
-                } else {
-                    fallbackPrice = Number(data.price || 0);
-                }
-                fixBatch.update(doc.ref, { priceBaseUsd: fallbackPrice });
-                fixedOrdersCount++;
+            if (data.priceBaseUsd === undefined || data.priceBaseUsd === null || typeof data.priceBaseUsd === 'string') {
+                let fallbackPrice = Number(data.pricingSnapshot?.finalPriceUsd || data.price || 0);
+                getSafeBatch().update(doc.ref, { priceBaseUsd: fallbackPrice });
+                fixedOrdersCount++; opCount++;
             }
         });
-        
-        // تنفيذ الإصلاح في قاعدة البيانات
-        if (fixedOrdersCount > 0) {
-            await fixBatch.commit();
-        }
-        
-        // --- المرحلة الثانيية: بناء جدول الإحصائيات الزمني ---
+
+        // --- المرحلة 2: إصلاح الإيداعات القديمة (زرع creditedBaseUsd) 🚀 ---
+        const depositsSnap = await db.collection('telecard_deposits').get();
+        depositsSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.creditedBaseUsd === undefined || data.creditedBaseUsd === null || typeof data.creditedBaseUsd === 'string') {
+                // إذا كان الحقل مفقوداً أو نصياً، نستخرجه كأرقام من الحقول القديمة
+                let fallbackBaseUsd = Number(data.creditedAmount || data.amount || 0);
+                getSafeBatch().update(doc.ref, { creditedBaseUsd: fallbackBaseUsd });
+                fixedDepositsCount++; opCount++;
+            }
+        });
+
+        // تنفيذ كل الإصلاحات في قاعدة البيانات
+        for (let batch of batches) { await batch.commit(); }
+
+        // --- المرحلة 3: بناء جدول الإحصائيات الزمني (المخطط البياني) ---
         const oldStats = await db.collection('telecard_statistics').get();
-        const batchDelete = db.batch();
-        oldStats.forEach(doc => batchDelete.delete(doc.ref));
-        await batchDelete.commit();
-        
+        const statBatches = [db.batch()];
+        let statBatchIndex = 0; let statOpCount = 0;
+
+        const getSafeStatBatch = () => {
+            if (statOpCount >= 400) { statBatches.push(db.batch()); statBatchIndex++; statOpCount = 0; }
+            return statBatches[statBatchIndex];
+        };
+
+        oldStats.forEach(doc => { getSafeStatBatch().delete(doc.ref); statOpCount++; });
+
         const completedOrdersSnap = await db.collection('telecard_orders').where('status', '==', 'completed').get();
         const dailyData = {};
         let allTime = { revenue: 0, profit: 0, cost: 0, count: 0, api_profit: 0, auto_profit: 0, manual_profit: 0 };
-        
+
         completedOrdersSnap.forEach(doc => {
             const order = doc.data();
             const timeMs = order.time?.toMillis ? order.time.toMillis() : Date.now();
             const dateObj = new Date(timeMs);
             const dayKey = `${dateObj.getUTCFullYear()}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(dateObj.getUTCDate()).padStart(2, '0')}`;
-            
-            // نأخذ السعر سواء من الحقل القديم أو الجديد لضمان الحساب
+
             const revenue = Number(order.priceBaseUsd || order.pricingSnapshot?.finalPriceUsd || order.price || 0);
             const profit = Number(order.pricingSnapshot?.netProfitUsd || 0);
             const cost = Number(order.pricingSnapshot?.costUsd || 0);
-            
             const isApi = (order.isApi || order.source === 'api');
             const isAuto = (!isApi && order.deliveredCode && order.deliveredCode.length > 0);
-            
-            if (!dailyData[dayKey]) {
-                dailyData[dayKey] = { revenue: 0, profit: 0, cost: 0, count: 0, api_profit: 0, auto_profit: 0, manual_profit: 0 };
-            }
-            
-            dailyData[dayKey].revenue += revenue;
-            dailyData[dayKey].profit += profit;
-            dailyData[dayKey].cost += cost;
-            dailyData[dayKey].count += 1;
+
+            if (!dailyData[dayKey]) dailyData[dayKey] = { revenue: 0, profit: 0, cost: 0, count: 0, api_profit: 0, auto_profit: 0, manual_profit: 0 };
+
+            dailyData[dayKey].revenue += revenue; dailyData[dayKey].profit += profit;
+            dailyData[dayKey].cost += cost; dailyData[dayKey].count += 1;
             
             if (isApi) dailyData[dayKey].api_profit += profit;
             else if (isAuto) dailyData[dayKey].auto_profit += profit;
             else dailyData[dayKey].manual_profit += profit;
-            
-            allTime.revenue += revenue;
-            allTime.profit += profit;
-            allTime.cost += cost;
-            allTime.count += 1;
-            if (isApi) allTime.api_profit += profit;
-            else if (isAuto) allTime.auto_profit += profit;
-            else allTime.manual_profit += profit;
+
+            allTime.revenue += revenue; allTime.profit += profit; allTime.cost += cost; allTime.count += 1;
+            if (isApi) allTime.api_profit += profit; else if (isAuto) allTime.auto_profit += profit; else allTime.manual_profit += profit;
         });
-        
-        const batchSave = db.batch();
-        batchSave.set(db.collection('telecard_statistics').doc('all_time'), allTime);
+
+        getSafeStatBatch().set(db.collection('telecard_statistics').doc('all_time'), allTime); statOpCount++;
         Object.keys(dailyData).forEach(dayKey => {
-            batchSave.set(db.collection('telecard_statistics').doc(`daily_${dayKey}`), dailyData[dayKey]);
+            getSafeStatBatch().set(db.collection('telecard_statistics').doc(`daily_${dayKey}`), dailyData[dayKey]);
+            statOpCount++;
         });
-        await batchSave.commit();
-        
-        return { success: true, message: `تم إصلاح ${fixedOrdersCount} طلب قديم، وبناء إحصائيات لـ ${allTime.count} طلب بنجاح!` };
-        
+
+        for (let batch of statBatches) { await batch.commit(); }
+
+        return { success: true, message: `نجاح! تم إصلاح ${fixedOrdersCount} طلب، و ${fixedDepositsCount} إيداع قديم.` };
+
     } catch (error) {
         throw new HttpsError('internal', `فشل الإصلاح: ${error.message}`);
     }
-});
-// ==========================================
+});// ==========================================
 // 🪪 4. استكمال بيانات الحساب (KYC)
 // ==========================================
 exports.completeUserIdentity = onCall({ enforceAppCheck: false }, async (request) => {
