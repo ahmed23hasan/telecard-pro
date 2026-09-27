@@ -1531,23 +1531,26 @@ exports.adminGetSalesBI = onCall({ timeoutSeconds: 60, memory: "256MiB" }, async
 // ==========================================
 // 📄 دالة جلب الطلبات للإدارة بنظام الصفحات (Pagination محصن)
 // ==========================================
+// ==========================================
+// 📄 دالة جلب الطلبات للإدارة بنظام الصفحات (Pagination محصن)
+// ==========================================
 exports.adminGetOrdersList = onCall({ memory: "256MiB", timeoutSeconds: 60 }, async (request) => {
     if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
-
-    const { 
-        limit = 50,           
-        lastTimeMs = null,     
-        lastDocId = null,      
-        status = null,        
-        startDateMs = null,   
-        endDateMs = null      
+    
+    const {
+        limit = 50,
+            lastTimeMs = null,
+            lastDocId = null,
+            status = null,
+            startDateMs = null,
+            endDateMs = null
     } = request.data || {};
-
-    const fetchLimit = Math.min(Number(limit) || 50, 100);
-
+    
+    const fetchLimit = Math.min(Number(limit) || 50, 10000); // 🛡️ تم رفع الحد للسماح للوحة المبيعات بتحليل شامل
+    
     try {
         let query = db.collection('telecard_orders');
-
+        
         if (status && status !== 'all') {
             query = query.where('status', '==', String(status));
         }
@@ -1557,18 +1560,16 @@ exports.adminGetOrdersList = onCall({ memory: "256MiB", timeoutSeconds: 60 }, as
         if (endDateMs) {
             query = query.where('time', '<=', admin.firestore.Timestamp.fromMillis(endDateMs));
         }
-
-        // 🛡️ ترتيب زمني مع ترتيب ثانوي بالمعرف لمنع تخطي الطلبات المتزامنة
+        
         query = query.orderBy('time', 'desc').orderBy(admin.firestore.FieldPath.documentId(), 'desc');
-
-        // 🚀 [الحل الاحترافي]: التمرير المباشر بالقيم بدلاً من استعلام المستند
+        
         if (lastTimeMs && lastDocId) {
             query = query.startAfter(admin.firestore.Timestamp.fromMillis(lastTimeMs), String(lastDocId));
         }
-
+        
         query = query.limit(fetchLimit);
         const snapshot = await query.get();
-
+        
         const orders = [];
         snapshot.forEach(doc => {
             const data = doc.data();
@@ -1576,36 +1577,40 @@ exports.adminGetOrdersList = onCall({ memory: "256MiB", timeoutSeconds: 60 }, as
                 id: doc.id,
                 displayId: data.displayId,
                 product: data.product,
+                prodId: data.prodId || null, // 🚀 تمت الإضافة: لمعرفة الأقسام في المبيعات
                 priceBaseUsd: data.priceBaseUsd,
                 priceLocalDeducted: data.priceLocalDeducted,
                 priceCurrency: data.priceCurrency,
+                pricingSnapshot: data.pricingSnapshot || {}, // 🚀 تمت الإضافة: لجلب التكلفة والربح
+                tierName: data.tierName || 'عضو', // 🚀 تمت الإضافة: لجلب المبيعات حسب المستويات
+                isApi: data.isApi || false, // 🚀 تمت الإضافة: لمخطط مصادر الطلبات
+                source: data.source || null,
+                deliveredCode: data.deliveredCode || null,
                 status: data.status,
                 time: data.time ? data.time.toMillis() : null,
                 userDataSnapshot: data.userDataSnapshot || {}
             });
         });
-
+        
         const hasMore = snapshot.docs.length === fetchLimit;
         const newLastTimeMs = orders.length > 0 ? orders[orders.length - 1].time : null;
         const newLastDocId = orders.length > 0 ? orders[orders.length - 1].id : null;
-
-        return { 
-            success: true, 
-            data: orders, 
+        
+        return {
+            success: true,
+            data: orders,
             pagination: {
                 lastTimeMs: newLastTimeMs,
                 lastDocId: newLastDocId,
                 hasMore: hasMore
             }
         };
-
+        
     } catch (error) {
         console.error("Admin Get Orders Error:", error);
         throw new HttpsError('internal', 'فشل جلب قائمة الطلبات.');
     }
-});
-
-// ==========================================
+});// ==========================================
 // 🧹 6. محررك الكنس الذكي (Smart Tier Sweeper)
 // ==========================================
 exports.dailyTierDowngradeSweep = onSchedule({
