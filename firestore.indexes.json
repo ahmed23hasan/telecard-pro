@@ -51,6 +51,15 @@
       ]
     },
     {
+      "collectionGroup": "telecard_orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "priceBaseUsd", "order": "ASCENDING" },
+        { "fieldPath": "pricingSnapshot.netProfitUsd", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "telecard_deposits",
       "queryScope": "COLLECTION",
       "fields": [
