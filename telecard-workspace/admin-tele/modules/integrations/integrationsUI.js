@@ -33,14 +33,13 @@ export const IntegrationsUI = {
         }
     },
     
-    // 🚀 [الإضافة المعمارية]: دالة إغلاق النافذة المنبثقة بشكل آمن وسلس
     closeDefectsModal: function() {
         const overlay = document.getElementById('supplier-defects-overlay');
         if (overlay) {
             overlay.classList.remove('active');
             setTimeout(() => {
                 overlay.remove();
-            }, 300); // 300ms لانتظار تأثير الاختفاء (Fade-out Animation)
+            }, 300);
         }
     }
 };

@@ -21,16 +21,19 @@ export const FinanceRender = {
     filters: {},
     _currentFilteredData: [],
 
+    _listenersBound: false,
     initListeners: function() {
+        if (this._listenersBound) return;
+        this._listenersBound = true;
+        
         EventBus.on('state-update', (newState) => {
-            if(newState.filters && newState.filters.deposits) this.filters = newState.filters.deposits;
+            if (newState.filters && newState.filters.deposits) this.filters = newState.filters.deposits;
         });
         EventBus.on('req-clear-render-filters', () => {
             this.tabState = 'all';
             this.depositsLimit = 50;
         });
     },
-
     filterByTab: function(status, btnElement) {
         this.tabState = status;
         this.depositsLimit = 50;
@@ -43,37 +46,33 @@ export const FinanceRender = {
     },
 
     loadMoreDeposits: async function() {
-        const btn = document.querySelector('.btn-load-more');
-        if (btn) {
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
-            btn.disabled = true;
+    const btn = document.querySelector('.btn-load-more');
+    if (btn) {
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
+        btn.disabled = true;
+    }
+    
+    try {
+        // 🚀 [الحل المعماري]: إرسال الفلاتر (التاريخ والحالة) للسيرفر مباشرة للبحث الحقيقي
+        let conditions = [];
+        if (this.tabState && this.tabState !== 'all' && this.tabState !== 'pending') {
+            conditions.push(['status', '==', this.tabState]);
         }
-
-        try {
-            const res = await FirebaseAdapter.fetchMoreWithCursor(
-                'telecard_deposits', [], 'time', AdminData.cursors.deposits, 50
-            );
-
-            if (res && res.data && res.data.length > 0) {
-                AdminData.data.deposits = [...AdminData.data.deposits, ...res.data];
-                res.data.forEach(d => { AdminData.data.depositsMap[String(d.id)] = d; });
-                
-                // 🛡️ [إصلاح التكرار اللانهائي]: تحديث المؤشر فقط إذا كان هناك المزيد
-                if (res.newLastDoc) {
-                    AdminData.cursors.deposits = res.newLastDoc;
-                } else {
-                    AdminData.cursors.deposits = null;
-                    if (btn) {
-                        btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد إيداعات أقدم';
-                        btn.classList.add('disabled', 'text-muted');
-                        btn.disabled = true;
-                    }
-                }
-
-                this.depositsLimit += 50;
-                this.renderDeposits(); 
+        if (this.filters.start) conditions.push(['time', '>=', this.filters.start]);
+        if (this.filters.end) conditions.push(['time', '<=', this.filters.end + 86399999]);
+        
+        const res = await FirebaseAdapter.fetchMoreWithCursor(
+            'telecard_deposits', conditions, 'time', AdminData.cursors.deposits, 50
+        );
+        
+        if (res && res.data && res.data.length > 0) {
+            AdminData.data.deposits = [...AdminData.data.deposits, ...res.data];
+            res.data.forEach(d => { AdminData.data.depositsMap[String(d.id)] = d; });
+            
+            // 🛡️ [إصلاح التكرار اللانهائي]: تحديث المؤشر فقط إذا كان هناك المزيد
+            if (res.newLastDoc) {
+                AdminData.cursors.deposits = res.newLastDoc;
             } else {
-                // 🛡️ إغلاق الزر نهائياً إذا لم يرجع السيرفر أي بيانات
                 AdminData.cursors.deposits = null;
                 if (btn) {
                     btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد إيداعات أقدم';
@@ -81,17 +80,27 @@ export const FinanceRender = {
                     btn.disabled = true;
                 }
             }
-        } catch (error) {
-            console.error("🚨 فشل جلب المزيد من الإيداعات السحابية:", error);
+            
+            this.depositsLimit += 50;
+            this.renderDeposits();
+        } else {
+            // 🛡️ إغلاق الزر نهائياً إذا لم يرجع السيرفر أي بيانات
+            AdminData.cursors.deposits = null;
             if (btn) {
-                btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد إيداعات مطابقة';
+                btn.classList.add('disabled', 'text-muted');
+                btn.disabled = true;
             }
-        } finally {
-            if (btn) btn.disabled = false;
         }
-    },
-
-    renderDeposits: function() {
+    } catch (error) {
+        console.error("🚨 فشل جلب المزيد من الإيداعات السحابية:", error);
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+},    renderDeposits: function() {
         const list = document.getElementById('deposits-container'); 
         if(!list) return;
         
@@ -102,9 +111,13 @@ export const FinanceRender = {
         let accumulatedData = Array.isArray(this._currentFilteredData) ? this._currentFilteredData : [];
         
         const combinedMap = new Map();
-        accumulatedData.forEach(d => combinedMap.set(d.id, d));
-        currentSnapshotData.forEach(d => combinedMap.set(d.id, d)); 
-        
+// 🚀 [الحل المعماري]: تنظيف البيانات الوهمية (Ghosts)
+accumulatedData.forEach(d => {
+    if (currentSnapshotData.some(live => live.id === d.id)) {
+        combinedMap.set(d.id, d);
+    }
+});
+currentSnapshotData.forEach(d => combinedMap.set(d.id, d));        
         let data = Array.from(combinedMap.values());
 
         if(f.search || f.start || f.end) {
@@ -254,76 +267,79 @@ export const FinanceRender = {
 
     // 🚀 [التحديث المعماري - Pagination Export Trap]: تصدير شامل بالاعتماد على الاستعلام المباشر من السحابة
         exportDepositsToExcel: async function() {
-        const btn = document.querySelector('[data-action="export-excel"][data-type="deposits"]');
+    const btn = document.querySelector('[data-action="export-excel"][data-type="deposits"]');
+    if (btn) {
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري استخراج البيانات...';
+        btn.disabled = true;
+    }
+    
+    try {
+        // 🚀 [الحل المعماري]: نستخدم الدالة السحابية لجلب البيانات بأمان بدلاً من المتصفح
+        const payload = {
+            limit: 5000,
+            status: this.tabState !== 'all' ? this.tabState : null,
+            startDateMs: this.filters.start || null,
+            endDateMs: this.filters.end || null
+        };
+        
+        const response = await FirebaseAdapter.callFunction('adminGetDepositsList', payload);
+        
+        if (!response || !response.success || !response.data || response.data.length === 0) {
+            UIService?.showToast?.("لا توجد إيداعات لتصديرها وفق الفلتر الحالي", "warning");
+            return;
+        }
+        
+        const dataToExport = response.data;
+        let csvContent = "\uFEFFرقم الإيداع,التاريخ,اسم العميل,المعرف القصير,البنك/الطريقة,المبلغ المدخل,العملة الاصلية,الصافي بالمحفظة,عملة المحفظة,الحالة\n";
+        
+        // 🚀 دالة تعقيم آمنة
+        const sanitizeCSV = (str) => {
+            if (str === null || str === undefined) return "";
+            let c = String(str).replace(/"/g, '""');
+            if (/[,\n\r"]/.test(c) || /^[=@+-]/.test(c)) {
+                c = `"${/^[=@+-]/.test(c) ? "'" + c : c}"`;
+            }
+            return c;
+        };
+        
+        dataToExport.forEach(d => {
+            const dateStr = RenderHelpers.formatSafeDate(d.time || d.createdAt);
+            const userRec = AdminData.data.usersMap?.[d.userId] || { id: d.userId };
+            
+            const displayIdRaw = String(userRec.displayId || userRec.uid || userRec.id || 'UKNWN').substring(0, 8).toUpperCase();
+            const customerName = sanitizeCSV(d.userDataSnapshot?.fullName || d.userName || userRec.fullName || userRec.name || d.userId);
+            
+            const method = sanitizeCSV(d.method || d.methodName || 'إيداع غير محدد');
+            const amount = Number(d.amount || 0).toFixed(2);
+            const curr = sanitizeCSV((d.currency || 'USD').toUpperCase());
+            
+            const targetCurr = sanitizeCSV((d.targetCurrency || curr).toUpperCase());
+            
+            let netCreditedRaw = Number(d.creditedAmount || d.amount || 0);
+            if (d.status === 'rejected') netCreditedRaw = 0;
+            const netCredited = netCreditedRaw.toFixed(2);
+            
+            const status = d.status === 'approved' ? 'مقبول' : (d.status === 'rejected' ? 'مرفوض' : (d.status === 'refunded' ? 'مسترجع' : d.status));
+            
+            let rawId = String(d.displayId || d.id || '').replace(/^DEP-/i, '').trim();
+            const shortId = rawId.length > 8 ? rawId.slice(-8).toUpperCase() : rawId.toUpperCase();
+            
+            csvContent += `DEP-${shortId},${dateStr},${customerName},${displayIdRaw},${method},${amount},${curr},${netCredited},${targetCurr},${status}\n`;
+        });
+        
+        const filename = `Deposits_Report_${new Date().toISOString().split('T')[0]}.csv`;
+        this._downloadBlob(csvContent, filename);
+        
+    } catch (error) {
+        console.error("Export Deposits Error:", error);
+        UIService?.showToast?.("فشل استخراج التقرير السحابي. تأكد من نشر الدالة الجديدة.", "error");
+    } finally {
         if (btn) {
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري استخراج البيانات...';
-            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-file-excel"></i> تصدير Excel';
+            btn.disabled = false;
         }
-
-        try {
-            let dataToExport = [];
-            
-            // 🛡️ تجاوز الـ Pagination: استعلام Firebase مباشر لتصدير آلاف السجلات دفعة واحدة
-            let conditions = [];
-            if (this.tabState !== 'all') conditions.push(['status', '==', this.tabState]);
-            if (this.filters.start) conditions.push(['time', '>=', this.filters.start]);
-            if (this.filters.end) conditions.push(['time', '<=', this.filters.end + 86399999]);
-
-            if (typeof FirebaseAdapter !== 'undefined') {
-                const response = await FirebaseAdapter.fetchMoreWithCursor('telecard_deposits', conditions, 'time', null, 5000);
-                if (response && response.data && response.data.length > 0) {
-                    dataToExport = response.data;
-                }
-            } else {
-                dataToExport = this._currentFilteredData || [];
-            }
-
-            if (dataToExport.length === 0) { 
-                UIService?.showToast?.("لا توجد إيداعات لتصديرها وفق الفلتر الحالي", "warning"); 
-                return; 
-            }
-            
-            let csvContent = "\uFEFFرقم الإيداع,التاريخ,اسم العميل,المعرف القصير,البنك/الطريقة,المبلغ المدخل,العملة الاصلية,الصافي بالمحفظة,عملة المحفظة,الحالة\n";
-            
-            dataToExport.forEach(d => {
-                const dateStr = RenderHelpers.formatSafeDate(d.time || d.createdAt);
-                const sanitizeCSV = (str) => { let c = String(str).replace(/,/g, " "); if (/^[=@+-]/.test(c)) c = "'" + c; return c; };
-
-                const userRec = AdminData.data.usersMap?.[d.userId] || { id: d.userId };
-                const displayId = RenderHelpers.formatUserId(userRec);
-                const customerName = sanitizeCSV(d.userDataSnapshot?.fullName || d.userName || userRec.fullName || userRec.name || d.userId);
-
-                const method = sanitizeCSV(d.method || d.methodName || 'إيداع غير محدد');
-                const amount = Number(d.amount || 0).toFixed(2);
-                const curr = sanitizeCSV((d.currency || 'USD').toUpperCase());
-                
-                const targetCurr = sanitizeCSV((d.targetCurrency || curr).toUpperCase());
-                
-                // 🚀 [درع المحاسبة]: تصفير القيمة للإيداعات المرفوضة لعدم تضخيم الإيرادات وهمياً
-                let netCreditedRaw = Number(d.creditedAmount || d.amount || 0);
-                if (d.status === 'rejected') netCreditedRaw = 0;
-                const netCredited = netCreditedRaw.toFixed(2);
-
-                const status = d.status === 'approved' ? 'مقبول' : (d.status === 'rejected' ? 'مرفوض' : (d.status === 'refunded' ? 'مسترجع' : d.status));
-                const formattedDepositId = RenderHelpers.formatDepositId(d);
-                
-                csvContent += `${formattedDepositId},${dateStr},${customerName},${displayId},${method},${amount},${curr},${netCredited},${targetCurr},${status}\n`;
-            });
-            
-            const filename = `Deposits_Report_${new Date().toISOString().split('T')[0]}.csv`;
-            this._downloadBlob(csvContent, filename);
-            
-        } catch (error) {
-            console.error("Export Deposits Error:", error);
-            UIService?.showToast?.("فشل استخراج التقرير", "error");
-        } finally {
-            if (btn) {
-                btn.innerHTML = '<i class="fa-solid fa-file-excel"></i> تصدير Excel';
-                btn.disabled = false;
-            }
-        }
-    },
-
+    }
+},
     _downloadBlob: function(content, filename) {
         const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");

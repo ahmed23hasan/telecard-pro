@@ -34,37 +34,64 @@ export const UsersRender = {
     },
     
     loadMoreUsers: async function() {
-        const btn = document.querySelector('.btn-load-more');
-        if (btn) {
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
-            btn.disabled = true;
-        }
-
-        try {
-            const res = await FirebaseAdapter.fetchMoreWithCursor(
-                'telecard_users', [], 'createdAt', AdminData.cursors.users, 50
-            );
-
-            if (res && res.data && res.data.length > 0) {
-                // 🚀 [درع الدمج]: إضافة العملاء الجدد دون مسح القدامى
-                AdminData.data.users = [...AdminData.data.users, ...res.data];
-                res.data.forEach(u => { AdminData.data.usersMap[String(u.id)] = u; });
-                
-                // 🛡️ [إصلاح التكرار اللانهائي]: تحديث المؤشر فقط إذا كان هناك المزيد
-                if (res.newLastDoc) {
-                    AdminData.cursors.users = res.newLastDoc;
-                } else {
-                    AdminData.cursors.users = null;
-                    if (btn) {
-                        btn.innerHTML = '<i class="fa-solid fa-check"></i> لا يوجد عملاء أقدم';
-                        btn.classList.add('disabled', 'text-muted');
-                        btn.disabled = true;
-                    }
-                }
-
-                this.renderUsers(); 
+    const btn = document.querySelector('.btn-load-more');
+    if (btn) {
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
+        btn.disabled = true;
+    }
+    
+    try {
+        // 🚀 [الحل المعماري 1]: تحديد حقل الترتيب بناءً على اختيار المدير لجلب كبار العملاء الحقيقيين
+        let orderField = 'createdAt';
+        if (this.state.userSortCategory === 'spend_all') orderField = 'totalSpent';
+        else if (this.state.userSortCategory === 'orders_all') orderField = 'totalOrdersCount';
+        
+        // 🚀 [الحل المعماري 2]: إرسال شروط البحث للسيرفر مباشرة (Server-Side Filtering)
+        let conditions = [];
+        const searchTerm = (this.state.userSearch || '').trim();
+        
+        if (searchTerm) {
+            if (searchTerm.includes('@')) {
+                conditions.push(['email', '==', searchTerm.toLowerCase()]);
+            } else if (searchTerm.length > 15) {
+                // إذا كان طول النص كبيراً، فهو غالباً Document ID أو UID
+                conditions.push(['id', '==', searchTerm]);
             } else {
-                // 🛡️ إغلاق الزر نهائياً إذا لم يرجع السيرفر أي بيانات
+                // البحث بالمعرف القصير (يُخزن كأحرف كبيرة عادة)
+                conditions.push(['displayId', '==', searchTerm.toUpperCase()]);
+            }
+            
+            // 🛡️ [حماية الفهارس]: في حالة البحث الدقيق، نُجبر الترتيب على تاريخ الإنشاء 
+            // لتجنب انهيار قاعدة البيانات بطلب فهارس مركبة (Composite Indexes) معقدة.
+            orderField = 'createdAt';
+        }
+        
+        const res = await FirebaseAdapter.fetchMoreWithCursor(
+            'telecard_users', conditions, orderField, AdminData.cursors.users, 50
+        );
+        
+        if (res && res.data && res.data.length > 0) {
+            let currentSnapshotData = res.data;
+            let accumulatedData = Array.isArray(AdminData.data.users) ? AdminData.data.users : [];
+            
+            const combinedMap = new Map();
+            
+            if (searchTerm) {
+                // إذا كان هناك بحث، نعرض النتائج الجديدة فقط ونمسح الكاش القديم
+                currentSnapshotData.forEach(u => combinedMap.set(u.id, u));
+            } else {
+                // 🚀 [درع الدمج]: دمج طبيعي يحافظ على العملاء المحملين مسبقاً
+                accumulatedData.forEach(u => combinedMap.set(u.id, u));
+                currentSnapshotData.forEach(u => combinedMap.set(u.id, u));
+            }
+            
+            AdminData.data.users = Array.from(combinedMap.values());
+            AdminData.data.users.forEach(u => { AdminData.data.usersMap[String(u.id)] = u; });
+            
+            // 🛡️ [إصلاح التكرار اللانهائي]: تحديث المؤشر فقط إذا كان هناك المزيد
+            if (res.newLastDoc && currentSnapshotData.length >= 50) {
+                AdminData.cursors.users = res.newLastDoc;
+            } else {
                 AdminData.cursors.users = null;
                 if (btn) {
                     btn.innerHTML = '<i class="fa-solid fa-check"></i> لا يوجد عملاء أقدم';
@@ -72,16 +99,30 @@ export const UsersRender = {
                     btn.disabled = true;
                 }
             }
-        } catch (error) {
-            console.error("🚨 فشل جلب المزيد من العملاء سحابياً:", error);
+            
+            this.renderUsers();
+        } else {
+            // 🛡️ إغلاق الزر نهائياً إذا لم يرجع السيرفر أي بيانات
+            AdminData.cursors.users = null;
             if (btn) {
-                btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
-                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد نتائج مطابقة';
+                btn.classList.add('disabled', 'text-muted');
+                btn.disabled = true;
+            }
+            // تفريغ القائمة إذا كان بحثاً ولم يجد شيئاً
+            if (searchTerm) {
+                AdminData.data.users = [];
+                this.renderUsers();
             }
         }
-    },
-
-        renderUsers: function() {
+    } catch (error) {
+        console.error("🚨 فشل جلب المزيد من العملاء سحابياً:", error);
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
+            btn.disabled = false;
+        }
+    }
+},        renderUsers: function() {
         const wrap = document.getElementById('users-container');
         if(!wrap) return;
 
@@ -187,7 +228,7 @@ export const UsersRender = {
         
         const bal = Number(u.walletBalance ?? u.balance ?? 0) || 0;
         const safeCurrency = Utils.escapeHTML(u.baseCurrency || 'USD');
-        const rawName = RenderHelpers._getExplicitName(u);
+        const rawName = RenderHelpers._getTxName(u);
         const joinDate = (u.joinDate || u.createdAt || u.date) ? RenderHelpers.formatSafeDate(u.joinDate || u.createdAt || u.date) : 'غير متوفر';
 
         const userTier = AdminData.data.tiersMap?.[u.tierId] || AdminData.data.tiers.find(t => String(t.id) === String(u.tierId));
@@ -210,7 +251,7 @@ export const UsersRender = {
                 if (String(otherUser.id) !== String(u.id) && Array.isArray(otherUser.devicePrints)) {
                     const hasCommonDevice = otherUser.devicePrints.some(device => userDevices.includes(device));
                     if (hasCommonDevice) {
-                        relatedAccounts.push({ id: otherUser.id, name: RenderHelpers._getExplicitName(otherUser), isBanned: otherUser.isBanned || otherUser.isIpBanned });
+                        relatedAccounts.push({ id: otherUser.id, name: RenderHelpers._getTxName(otherUser), isBanned: otherUser.isBanned || otherUser.isIpBanned });
                     }
                 }
             });

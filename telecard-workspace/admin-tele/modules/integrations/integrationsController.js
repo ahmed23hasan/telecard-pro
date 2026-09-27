@@ -1,8 +1,9 @@
 // ============================================================================
 // 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js) - V18.6 💎
-// 🚀 التحديثات المعمارية (V18.6 - Sync UI Lock): 
-// 1. UI Sync Lock 🔒: تجميد أزرار بطاقة المورد (المزامنة، الإعدادات، التوالف) أثناء الاتصال بالسيرفر لمنع التضارب.
-// 2. Defects Fetcher 🕵️‍♂️: إضافة دالة لجلب الأكواد التالفة (API) من السيرفر وعرضها.
+// 🚀 التحديثات المعمارية (V18.6 - Sync & Token Shield): 
+// 1. Token Overwrite Fix 🛡️: حماية التوكن من المسح الصامت عبر حفظ حالة (hasToken) محلياً.
+// 2. Defects Fetcher 🕵️‍♂️: رفع سقف جلب الأكواد التالفة إلى 5000 سجل لضمان عدم ضياع حقوق المتجر.
+// 3. UI Sync Lock 🔒: تجميد أزرار بطاقة المورد أثناء الاتصال بالسيرفر لمنع التضارب.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -35,8 +36,13 @@ export const IntegrationsController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تشفير وحفظ بيانات المورد سحابياً...');
 
         try {
+            const oldSupplier = id ? this.getSupplier(id) : null;
+            let hasToken = !!token;
+            
+            // 🚀 [الحل المعماري - Token Overwrite Shield]: الحفاظ على حالة التوكن القديم
             if (id && (!token || token.includes('••••'))) {
                 token = ''; 
+                hasToken = oldSupplier ? (oldSupplier.hasToken !== false) : true;
             }
 
             const result = await FirebaseAdapter.callFunction('secureSaveSupplier', { 
@@ -48,8 +54,9 @@ export const IntegrationsController = {
 
                 const supplierData = { 
                     id: finalId, name, type, baseUrl, defaultMargin: margin, autoSync, isActive: true, currency,
-                    importedCount: id ? (this.getSupplier(id)?.importedCount || 0) : 0,
-                    lastSync: id ? (this.getSupplier(id)?.lastSync || null) : null
+                    importedCount: oldSupplier ? (oldSupplier.importedCount || 0) : 0,
+                    lastSync: oldSupplier ? (oldSupplier.lastSync || null) : null,
+                    hasToken: hasToken // 🚀 حفظ حالة التوكن للواجهة
                 };
 
                 if (!AdminData.data.suppliers) AdminData.data.suppliers = [];
@@ -130,7 +137,6 @@ export const IntegrationsController = {
 
         this._actionLocks.add(`sync-${id}`);
         
-        // 🚀 [الإصلاح المعماري 3]: تجميد كافة الأزرار والمفاتيح الخاصة بهذا المورد في الواجهة أثناء المزامنة
         const cardElementsToDisable = document.querySelectorAll(`[data-id="${id}"]`);
         cardElementsToDisable.forEach(el => {
             if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') {
@@ -174,7 +180,6 @@ export const IntegrationsController = {
             this._actionLocks.delete(`sync-${id}`);
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
             
-            // 🚀 فك التجميد عن الأزرار في حال فشل المزامنة وعدم إعادة رسم الواجهة
             cardElementsToDisable.forEach(el => {
                 if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') {
                     el.disabled = false;
@@ -192,12 +197,13 @@ export const IntegrationsController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري جلب السجل الجنائي للمورد من السحابة...');
         
         try {
+            // 🚀 [الحل المعماري - توسيع الجلب]: جلب 5000 سجل بدلاً من 100 لضمان عدم ضياع حقوق المتجر
             const result = await FirebaseAdapter.fetchMoreWithCursor(
                 'telecard_supplier_defects', 
                 [['supplierId', '==', String(supplierId)]], 
                 'reportedAt', 
                 null, 
-                100 
+                5000 
             );
 
             const defects = result.data || [];

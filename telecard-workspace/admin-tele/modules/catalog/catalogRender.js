@@ -16,10 +16,13 @@ import { RenderHelpers } from '../../core/renderHelpers.js';
 export const CatalogRender = {
     state: { currFolder: null, dragEditMode: false, tempPackages: [] },
 
+    _listenersBound: false,
     initListeners: function() {
+        if (this._listenersBound) return;
+        this._listenersBound = true;
+        
         EventBus.on('state-update', (newState) => { this.state = { ...this.state, ...newState }; });
     },
-
     // =========================================================
     // 📦 1. رسم شبكة المنتجات والأقسام
     // =========================================================
@@ -90,7 +93,10 @@ export const CatalogRender = {
                         let currentIndex = 0;
 
                         const renderProdChunk = () => {
-                            const chunk = prods.slice(currentIndex, currentIndex + chunkSize);
+        // 🛡️ [الحل المعماري]: قفل التداخل! إذا غادر المدير هذا القسم أثناء الرسم، أوقف العملية فوراً
+        if (String(currCatId) !== String(AdminData.currFolder)) return;
+        
+        const chunk = prods.slice(currentIndex, currentIndex + chunkSize);
                             if (chunk.length === 0) {
                                 // تفعيل الترتيب بعد انتهاء الرسم
                                 const catCont = grid.querySelector('.cats-grid.sortable-container');

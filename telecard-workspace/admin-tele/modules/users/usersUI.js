@@ -1,8 +1,9 @@
 // ============================================================================
-// 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js) - Cloud-Native V18.5 💎
+// 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js) - Cloud-Native V18.6 💎
 // 🎯 الوظيفة: إدارة التفاعلات المرئية فقط (Visual Interactions)
-// 🚀 التحديثات المعمارية (V18.5 - DOM Cleansing Patch): 
+// 🚀 التحديثات المعمارية (V18.6 - Modal Race Condition Shield): 
 // 1. Clean DOM Routing 🧹: تدمير نافذة الترقية من الـ HTML بالكامل بعد إغلاقها لمنع تكدس الـ DOM.
+// 2. Modal Race Condition Fix 🛡️: إضافة قفل زمني (Timer Lock) يمنع تدمير النوافذ إذا تم فتحها وإغلاقها بسرعة جنونية.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -13,6 +14,7 @@ import { UsersRender } from './usersRender.js';
 
 export const UsersUI = {
     tempKycConfig: null,
+    _tierModalTimer: null, // 🛡️ قفل التزامن الزمني للنافذة
     
     // ---------------------------------------------------------
     // 👑 1. إدارة المستويات (Tiers)
@@ -144,6 +146,12 @@ export const UsersUI = {
             return;
         }
         
+        // 🚀 [الحل المعماري - Modal Race Condition Shield]: إيقاف مؤقت التدمير إذا تم فتح النافذة بسرعة
+        if (this._tierModalTimer) {
+            clearTimeout(this._tierModalTimer);
+            this._tierModalTimer = null;
+        }
+
         let modal = document.getElementById('tier-selection-modal');
         if (!modal) {
             modal = document.createElement('div');
@@ -167,8 +175,11 @@ export const UsersUI = {
         const modal = document.getElementById('tier-selection-modal');
         if (modal) {
             modal.classList.remove('active');
-            // 🚀 [التحديث المعماري]: تدمير النافذة بعد الإغلاق لمنع تراكم הـ DOM
-            setTimeout(() => {
+            
+            // 🚀 [الحل المعماري]: حفظ معرف المؤقت لإلغائه إذا تراجع المدير وفتح النافذة لعميل آخر فوراً
+            if (this._tierModalTimer) clearTimeout(this._tierModalTimer);
+            
+            this._tierModalTimer = setTimeout(() => {
                 if (modal.parentElement) modal.remove();
             }, 300);
         }

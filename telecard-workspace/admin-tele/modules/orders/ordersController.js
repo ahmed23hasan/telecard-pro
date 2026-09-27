@@ -1,16 +1,23 @@
+// ============================================================================
+// 🧠 متحكم الطلبات (modules/orders/ordersController.js) - Cloud-Native V18.5 💎
+// 🚀 التحديثات المعمارية (V18.5 - The Atomic Sync & Batching Patch):
+// 1. Read Exhaustion Shield 🛡️: إيقاف جلب آلاف المستخدمين وتحديث العميل المتأثر فقط.
+// 2. Race Condition Fix ⏱️: إلغاء (setTimeout) وتحديث الواجهة تزامنيًا (Atomic Sync).
+// 3. Batched Bulk Reject 📦: تسريع الرفض الجماعي باستخدام Chunks لمنع تجميد المتصفح.
+// ============================================================================
+
 import { AdminData } from '../../adminData.js';
 import { AdminUI } from '../../adminUI.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 import { FinancialEngine } from '../../core/financialEngine.js';
-// 🚀 [التحديث المعماري]: استيراد محرك الرسم للوصول للشارات الوهمية
-import { AdminRender } from '../../adminRender.js'; 
+import { AdminRender } from '../../adminRender.js';
 
 export const OrdersController = {
     
     _actionLocks: new Set(),
     
-        submitOrderAction: async function(action, orderId) {
+    submitOrderAction: async function(action, orderId) {
         if (this._actionLocks.has(orderId)) return;
         
         const o = AdminData.data.ordersMap?.[orderId] || AdminData.data.orders.find(x => String(x.id) === String(orderId));
@@ -62,23 +69,24 @@ export const OrdersController = {
                 if (AdminRender?.decrementLocalBadge && (mappedAction === 'completed' || mappedAction === 'rejected')) {
                     AdminRender.decrementLocalBadge('order');
                 }
-
-                // 🚀 3. الاعتماد المطلق على السيرفر (Server-Side Truth)
-                // تم إزالة الحسابات اليدوية (safeAdd/safeSub) واستبدالها بجلب أرصدة العملاء الحقيقية
-                EventBus.emit('req-render-orders');
-                EventBus.emit('req-refresh', { type: 'users' });
                 
-                // 🚀 4. تحديث نافذة العميل الشاملة لحظياً (Omnipresent UI Sync)
-                // لكي يرى المدير الرصيد الجديد مباشرة إذا كان يراجع الطلب من داخل ملف العميل
-                setTimeout(() => {
-                    const modalDetail = document.getElementById('m-user-detail');
-                    if (modalDetail && modalDetail.classList.contains('active')) {
-                        const currentEditedUserId = AdminRender?.UsersRender?.state?.currentEditUserId;
-                        if (currentEditedUserId === o.userId) {
-                            EventBus.emit('action-triggered', { action: 'view-user', id: o.userId, preventModalOpen: true });
-                        }
+                // 🚀 3. تحديث واجهة الطلبات
+                EventBus.emit('req-render-orders');
+                
+                // 🚀 4. [الدرع المعماري]: جلب المستخدم المتأثر فقط لمنع استنزاف القراءات (Read Exhaustion)
+                const updatedUser = await FirebaseAdapter.getById('telecard_users', String(o.userId));
+                if (updatedUser && AdminData.data.usersMap) {
+                    AdminData.data.usersMap[String(o.userId)] = updatedUser;
+                }
+                
+                // 🚀 5. [إصلاح التزامن]: تحديث نافذة العميل فوراً وبدون الاعتماد على الحظ أو (setTimeout)
+                const modalDetail = document.getElementById('m-user-detail');
+                if (modalDetail && modalDetail.classList.contains('active')) {
+                    const currentEditedUserId = AdminRender?.UsersRender?.state?.currentEditUserId;
+                    if (String(currentEditedUserId) === String(o.userId)) {
+                        EventBus.emit('action-triggered', { action: 'view-user', id: o.userId, preventModalOpen: true });
                     }
-                }, 500);
+                }
                 
                 if (AdminData?.addLog) {
                     const logName = o.userDataSnapshot?.fullName || o.userName || o.userId;
@@ -99,6 +107,7 @@ export const OrdersController = {
             this._actionLocks.delete(orderId);
         }
     },
+    
     rejectAllPendingOrders: async function() {
         if (this._actionLocks.has('bulk-reject')) return;
         
@@ -126,11 +135,16 @@ export const OrdersController = {
             
             let successCount = 0;
             let failCount = 0;
+            const affectedUserIds = new Set(); // 🎯 تتبع العملاء الذين تغيرت أرصدتهم
             
             try {
-                // 🚀 [التحديث المعماري]: المعالجة التسلسلية (Sequential) لمنع حظر المتصفح لطلبات الـ HTTP
-                for (const order of manualPending) {
-                    try {
+                // 🚀 [التصحيح المعماري]: معالجة عبر حزم (Batches) لمنع تجميد الواجهة (UI Blocking) وتسريع العملية
+                const CHUNK_SIZE = 15; // معالجة 15 طلب في نفس اللحظة
+                
+                for (let i = 0; i < manualPending.length; i += CHUNK_SIZE) {
+                    const chunk = manualPending.slice(i, i + CHUNK_SIZE);
+                    
+                    const promises = chunk.map(async (order) => {
                         const res = await FirebaseAdapter.callFunction('adminProcessOrder', {
                             orderId: String(order.id),
                             action: 'rejected',
@@ -139,19 +153,44 @@ export const OrdersController = {
                         
                         if (res && res.success) {
                             order.status = 'rejected';
-                            successCount++;
-                            // إنقاص العداد الوهمي لكل طلب ينجح
+                            affectedUserIds.add(String(order.userId)); // حفظ الآي دي لتحديث رصيده لاحقاً
                             if (AdminRender?.decrementLocalBadge) AdminRender.decrementLocalBadge('order');
+                            return true;
                         } else {
-                            failCount++;
+                            throw new Error('Failed');
                         }
-                    } catch (err) {
-                        failCount++;
-                    }
+                    });
+                    
+                    // انتظار انتهاء الحزمة الحالية قبل الانتقال للتالية
+                    const results = await Promise.allSettled(promises);
+                    results.forEach(r => {
+                        if (r.status === 'fulfilled') successCount++;
+                        else failCount++;
+                    });
                 }
                 
                 EventBus.emit('req-render-orders');
-                EventBus.emit('req-refresh', { type: 'users' });
+                
+                // 🚀 [الحل المعماري للذاكرة]: تحديث بيانات العملاء المتأثرين فقط بالتوازي (بدلاً من جلب قاعدة البيانات كاملة)
+                if (affectedUserIds.size > 0) {
+                    const userFetchPromises = Array.from(affectedUserIds).map(uid => FirebaseAdapter.getById('telecard_users', uid));
+                    const updatedUsers = await Promise.allSettled(userFetchPromises);
+                    
+                    updatedUsers.forEach(res => {
+                        if (res.status === 'fulfilled' && res.value && AdminData.data.usersMap) {
+                            AdminData.data.usersMap[String(res.value.id)] = res.value;
+                        }
+                    });
+                    
+                    // تحديث نافذة العميل المفتوحة إن وجدت
+                    const modalDetail = document.getElementById('m-user-detail');
+                    if (modalDetail && modalDetail.classList.contains('active')) {
+                        const currentEditedUserId = AdminRender?.UsersRender?.state?.currentEditUserId;
+                        if (affectedUserIds.has(String(currentEditedUserId))) {
+                            EventBus.emit('action-triggered', { action: 'view-user', id: currentEditedUserId, preventModalOpen: true });
+                        }
+                    }
+                }
                 
                 if (AdminData?.addLog) {
                     AdminData.addLog('BULK_REJECT', `تم رفض ${successCount} طلب يدوياً بنجاح عبر أداة الرفض الجماعي.`);

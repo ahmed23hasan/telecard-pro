@@ -2,7 +2,7 @@
 // 🖥️ محرك رسم الربط والموردين (modules/integrations/integrationsRender.js) 💎
 // 🌟 التحديثات المعمارية:
 // 1. Repaint Bottleneck Fix 🛡️: تغليف عملية رسم كل مورد داخل try/catch لحماية الواجهة.
-// 2. Defects Modal Renderer 📊: إضافة دالة لرسم نافذة الأكواد التالفة.
+// 2. Memory Leak Shield 🛡️: إضافة قفل _listenersBound لمنع تكرار الأحداث.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -11,7 +11,13 @@ import { EventBus } from '../../adminUtils.js';
 
 export const IntegrationsRender = {
     
+    _listenersBound: false,
+    
     initListeners: function() {
+        // 🚀 [الحل المعماري - Memory Leak Shield]
+        if (this._listenersBound) return;
+        this._listenersBound = true;
+        
         EventBus.on('req-render-integrations', () => this.renderSuppliers());
     },
     
@@ -46,7 +52,6 @@ export const IntegrationsRender = {
         }
     },
     
-    // 🚀 [الإضافة المعمارية]: رسم نافذة الأكواد التالفة
     renderDefectsModal: function(supplierName, defects) {
         const oldOverlay = document.getElementById('supplier-defects-overlay');
         if (oldOverlay) oldOverlay.remove();
@@ -56,7 +61,6 @@ export const IntegrationsRender = {
         
         const overlay = document.getElementById('supplier-defects-overlay');
         if (overlay) {
-            // إضافة كلاس active لتشغيل الأنيميشن
             setTimeout(() => { overlay.classList.add('active'); }, 10);
         }
     }

@@ -934,10 +934,11 @@ exports.adminProcessDeposit = onCall({ enforceAppCheck: false }, async (request)
                 const newTotalDepositUsd = sanitizeAmount(safeAdd(ud.totalDeposit || 0, amtUsd));
                 transaction.update(userRef, { walletBalance: newWalletBal, totalDeposit: newTotalDepositUsd });
             } else if ((action === 'refunded' || action === 'rejected') && wasApproved) {
-                newWalletBal = sanitizeAmount(strictSub(ud.walletBalance || 0, amtLocal));
-                const newTotalDepositUsd = sanitizeAmount(strictSub(ud.totalDeposit || 0, amtUsd));
-                transaction.update(userRef, { walletBalance: newWalletBal, totalDeposit: newTotalDepositUsd });
-            } else {
+    // 🚀 [الحل المحاسبي]: نسمح للمحفظة بالنزول للسالب (لتسجيل الديون)، ونمنع إجمالي الإيداعات من النزول للسالب (لحماية الترقيات)
+    newWalletBal = sanitizeAmount(strictSub(ud.walletBalance || 0, amtLocal));
+    const newTotalDepositUsd = Math.max(0, sanitizeAmount(strictSub(ud.totalDeposit || 0, amtUsd)));
+    transaction.update(userRef, { walletBalance: newWalletBal, totalDeposit: newTotalDepositUsd });
+} else {
                 newWalletBal = ud.walletBalance || 0; 
             }
         }
@@ -1057,7 +1058,77 @@ exports.grantAdminRole = onCall(async (request) => {
         return { success: true };
     } catch (error) { throw new HttpsError('internal', `فشل المنح: ${error.message}`); }
 });
-
+// ==========================================
+// 👑 دالة حذف المستوى ونقل العملاء بأمان (Bulk Migration)
+// ==========================================
+exports.adminDeleteTier = onCall({ timeoutSeconds: 540, memory: "1GiB" }, async (request) => {
+    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
+    
+    const { tierId } = request.data || {};
+    if (!tierId) throw new HttpsError('invalid-argument', 'معرف المستوى مفقود.');
+    
+    if (tierId === 'TIER_DEFAULT') {
+        throw new HttpsError('permission-denied', 'إجراء أمني مرفوض: لا يمكن حذف المستوى الافتراضي الخالد.');
+    }
+    
+    try {
+        const tierRef = db.collection('telecard_tiers').doc(String(tierId));
+        const tierSnap = await tierRef.get();
+        
+        if (!tierSnap.exists) {
+            throw new HttpsError('not-found', 'المستوى غير موجود في قاعدة البيانات.');
+        }
+        if (tierSnap.data().isDefault) {
+            throw new HttpsError('permission-denied', 'لا يمكن حذف المستوى الافتراضي الحالي. قم بتعيين مستوى آخر كافتراضي أولاً.');
+        }
+        
+        // 1. البحث عن المستوى البديل (الافتراضي) لنقل العملاء إليه
+        const fallbackQuery = await db.collection('telecard_tiers').where('isDefault', '==', true).limit(1).get();
+        let fallbackTierId = 'TIER_DEFAULT';
+        
+        if (!fallbackQuery.empty) {
+            fallbackTierId = fallbackQuery.docs[0].id;
+        } else {
+            // إذا لم يجد مستوى افتراضي لسبب ما، يبحث عن أي مستوى آخر متاح
+            const anyTierQuery = await db.collection('telecard_tiers').where(admin.firestore.FieldPath.documentId(), '!=', tierId).limit(1).get();
+            if (!anyTierQuery.empty) {
+                fallbackTierId = anyTierQuery.docs[0].id;
+            } else {
+                throw new HttpsError('failed-precondition', 'لا يوجد مستوى بديل في النظام لنقل العملاء إليه.');
+            }
+        }
+        
+        // 2. جلب جميع العملاء المتأثرين
+        const usersQuery = db.collection('telecard_users').where('tierId', '==', String(tierId));
+        const usersSnap = await usersQuery.get();
+        const migratedCount = usersSnap.size;
+        
+        // 3. نقل العملاء باستخدام BulkWriter (الأداة الاحترافية للتعامل مع آلاف السجلات بدون انهيار)
+        if (migratedCount > 0) {
+            const bulkWriter = db.bulkWriter();
+            usersSnap.forEach((docSnap) => {
+                bulkWriter.update(docSnap.ref, { tierId: fallbackTierId });
+            });
+            await bulkWriter.close(); // ينتظر حتى تكتمل جميع التحديثات بأمان
+        }
+        
+        // 4. إبادة المستوى من قاعدة البيانات
+        await tierRef.delete();
+        
+        // 5. تحديث رقم إصدار الكاش لإجبار المتجر على جلب التسعيرات الجديدة
+        await db.collection('telecard_system').doc('cache_version').set({ version: admin.firestore.FieldValue.increment(1) }, { merge: true });
+        
+        // 6. توثيق العملية في السجل الجنائي (Audit Log)
+        await logAdminAction(request.auth.uid, 'DELETE_TIER', `Deleted tier: ${tierId}. Migrated ${migratedCount} users to ${fallbackTierId}`);
+        
+        return { success: true, migratedCount, fallbackTierId };
+        
+    } catch (error) {
+        console.error("Admin Delete Tier Error:", error);
+        if (error instanceof HttpsError) throw error;
+        throw new HttpsError('internal', `فشل حذف المستوى: ${error.message}`);
+    }
+});
 // ==========================================
 // 🪪 4. استكمال بيانات الحساب (KYC)
 // ==========================================
@@ -1914,7 +1985,62 @@ Object.defineProperty(exports, "secureSaveSupplier", { enumerable: true, get: ()
 
 // 🛡️ دالة العامل المستقلة (Pub/Sub Worker) لمزامنة الموردين
 Object.defineProperty(exports, "onSupplierSyncWorker", { enumerable: true, get: () => require('./supplierEngine.js').onSupplierSyncWorker });
-
+// ==========================================
+// 📄 دالة جلب الإيداعات للإدارة (Pagination محصن للتصدير)
+// ==========================================
+exports.adminGetDepositsList = onCall({ memory: "256MiB", timeoutSeconds: 60 }, async (request) => {
+    if (!isMasterAdmin(request)) throw new HttpsError('permission-denied', 'غير مصرح.');
+    
+    const {
+        limit = 50,
+            status = null,
+            startDateMs = null,
+            endDateMs = null
+    } = request.data || {};
+    
+    const fetchLimit = Math.min(Number(limit) || 50, 5000); // 🛡️ الحد الأقصى 5000 لحماية الذاكرة
+    
+    try {
+        let query = db.collection('telecard_deposits');
+        
+        if (status && status !== 'all') {
+            query = query.where('status', '==', String(status));
+        }
+        if (startDateMs) {
+            query = query.where('time', '>=', admin.firestore.Timestamp.fromMillis(startDateMs));
+        }
+        if (endDateMs) {
+            query = query.where('time', '<=', admin.firestore.Timestamp.fromMillis(endDateMs));
+        }
+        
+        query = query.orderBy('time', 'desc').limit(fetchLimit);
+        const snapshot = await query.get();
+        
+        const deposits = [];
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            deposits.push({
+                id: doc.id,
+                displayId: data.displayId,
+                userId: data.userId,
+                method: data.method || data.methodName,
+                amount: data.amount,
+                creditedAmount: data.creditedAmount,
+                currency: data.currency,
+                targetCurrency: data.targetCurrency,
+                status: data.status,
+                time: data.time ? data.time.toMillis() : null,
+                userDataSnapshot: data.userDataSnapshot || {}
+            });
+        });
+        
+        return { success: true, data: deposits };
+        
+    } catch (error) {
+        console.error("Admin Get Deposits Error:", error);
+        throw new HttpsError('internal', 'فشل جلب قائمة الإيداعات.');
+    }
+});
 // ==========================================
 // 🔍 7. المحقق المالي (Ledger Reconciliation)
 // ==========================================

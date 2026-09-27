@@ -1,7 +1,8 @@
 // ============================================================================
 // 🔌 قوالب الربط التلقائي والموردين (modules/integrations/integrationsTemplates.js) - V18.5
 // 🚀 التحديث: 
-// 1. Safe Modal Closure 🛡️: تغيير زر الإغلاق ليعتمد على مسارات الـ Routing الصحيحة بدلاً من كود onClick البدائي.
+// 1. Safe Modal Closure 🛡️: تغيير زر الإغلاق ليعتمد على مسارات الـ Routing الصحيحة.
+// 2. Token State UI 🛡️: قراءة حالة التوكن من الذاكرة لعرض الـ Placeholder الصحيح.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -77,7 +78,6 @@ export const IntegrationsTemplates = {
                 </div>
             </div>
             
-            <!-- 🚀 [الإضافة الجديدة]: زر عرض الأكواد التالفة -->
             <div class="mt-10 pt-10" style="border-top: 1px dashed var(--border-color);">
                 <button class="btn btn-ghost btn-sm w-100 text-danger supp-defect-btn" style="background: rgba(239, 68, 68, 0.05);" data-action="view-supplier-defects" data-id="${_esc(supplier.id)}" data-name="${_esc(supplier.name)}">
                     <i class="fa-solid fa-bug"></i> سجل الأكواد التالفة (للمطالبة بالتعويض)
@@ -95,7 +95,13 @@ export const IntegrationsTemplates = {
         </div>`;
     },
     
-    supplierModal: (s = null) => `
+    supplierModal: (s = null) => {
+        // 🚀 [الحل المعماري]: قراءة حالة التوكن لعرض الإرشاد الصحيح للمدير
+        const tokenPlaceholder = (s && s.hasToken !== false) ?
+            '•••••••••••••••• (اتركه فارغاً للاحتفاظ بالمفتاح القديم)' :
+            'ضع المفتاح السري هنا...';
+        
+        return `
         <div class="form-group">
             <label class="form-label">اسم المورد (للتنظيم الداخلي)</label>
             <input type="text" id="supp-name" class="form-input" placeholder="مثال: مورد البطاقات الرئيسي" value="${s ? _esc(s.name) : ''}">
@@ -118,7 +124,7 @@ export const IntegrationsTemplates = {
         
         <div class="form-group">
             <label class="form-label">مفتاح الربط (API Key / Bearer Token)</label>
-            <input type="password" id="supp-token" class="form-input num-en" dir="ltr" lang="en" placeholder="${s ? '•••••••••••••••• (اتركه فارغاً للاحتفاظ بالمفتاح القديم)' : 'ضع المفتاح السري هنا...'}" value="">
+            <input type="password" id="supp-token" class="form-input num-en" dir="ltr" lang="en" placeholder="${tokenPlaceholder}" value="">
         </div>
         
         <div class="form-row-2 flex-gap-10 mt-15">
@@ -152,7 +158,8 @@ export const IntegrationsTemplates = {
         <button class="btn btn-primary btn-full mt-20" data-action="save-supplier" data-id="${s ? s.id : ''}">
             <i class="fa-solid fa-floppy-disk"></i> حفظ بيانات المورد
         </button>
-    `,
+    `;
+    },
     
     supplierDefectsModal: (supplierName, defects) => {
         let rowsHtml = '';
@@ -179,7 +186,6 @@ export const IntegrationsTemplates = {
             }).join('');
         }
         
-        // 🚀 [التحديث المعماري]: إضافة data-action لإغلاق النافذة بأمان
         return `
         <div id="supplier-defects-overlay" class="modal-overlay" style="display: flex;">
             <div class="modal-content modal-lg">

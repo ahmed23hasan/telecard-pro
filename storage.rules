@@ -10,11 +10,8 @@ service firebase.storage {
     }
 
     function isMasterAdmin() {
-      // 👑 الصلاحية المزدوجة: الباب الخلفي للطوارئ + Custom Claims
-      return isAuthenticated() && (
-        request.auth.uid == 'e064MQJyn6dhU9mNXZvXItc7VYg2' || 
-        ('admin' in request.auth.token && request.auth.token.admin == true)
-      );
+      // 🛡️ [الإصلاح الأمني]: الاعتماد حصرياً على الـ Token الموثق من السيرفر (إزالة الباب الخلفي)
+      return isAuthenticated() && ('admin' in request.auth.token && request.auth.token.admin == true);
     }
 
     // ==========================================
@@ -48,7 +45,7 @@ service firebase.storage {
     // 🧾 إيصالات الدفع (Receipts Sandboxing)
     // ==========================================
     match /receipts/{fileName} {
-      // 🛡️ متطابق 100% مع DataManager.js: deposit_UID_Timestamp_UUID.webp
+      // 🛡️ متطابق مع الواجهة: deposit_UID_Timestamp_UUID.webp
       allow read: if isAuthenticated() && fileName.matches('^deposit_' + request.auth.uid + '_.*\\.(jpg|jpeg|png|webp|pdf)$');
       
       allow create: if isAuthenticated()
@@ -63,9 +60,8 @@ service firebase.storage {
     // 👤 الصور الشخصية للعملاء (Avatar Overwrite)
     // ==========================================
     match /avatars/{fileName} {
-      allow read: if true;
+      allow read: if true; // مسموح للجميع برؤية الصورة الشخصية
       
-      // 🛡️ متطابق 100% مع uiAuth.js: avatar_UID_Timestamp_UUID.webp
       allow create, update: if isAuthenticated() 
                    && fileName.matches('^avatar_' + request.auth.uid + '_.*\\.(jpg|jpeg|png|webp)$')
                    && isImage() 
@@ -76,11 +72,14 @@ service firebase.storage {
     }
 
     // ==========================================
-    // 🛡️ التوثيق الأمني KYC (مضاد للاستنزاف 100%)
+    // 🛡️ التوثيق الأمني KYC (مضاد للاستنزاف وسرقة الهوية)
     // ==========================================
     match /kyc_docs/{fileName} {
-      // 🚀 الإصلاح الجذري: إضافة 'kyc_' للـ Regex ليتطابق مع ما ترسله الواجهة
-      allow read: if isAuthenticated() && fileName.matches('^kyc_' + request.auth.uid + '_(front|back|selfie)_.*\\.(jpg|jpeg|png|webp)$');
+      // 🏦 المعيار البنكي الصارم: لا يمكن لأي شخص قراءة الهوية بعد رفعها إلا الإدارة
+      allow read: if isMasterAdmin();
+      
+      // 💡 (ملاحظة: إذا أردت يوماً السماح للعميل برؤية هويته المرفوعة، احذف السطر الأعلى وفعل السطر التالي)
+      // allow read: if isMasterAdmin() || (isAuthenticated() && fileName.matches('^kyc_' + request.auth.uid + '.*'));
       
       allow create, update: if isAuthenticated() 
                    && fileName.matches('^kyc_' + request.auth.uid + '_(front|back|selfie)_.*\\.(jpg|jpeg|png|webp)$')

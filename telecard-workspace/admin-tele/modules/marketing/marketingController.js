@@ -1,9 +1,10 @@
 // ============================================================================
-// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Cloud-Native V18.10 🛡️
-// 🚀 التحديثات المعمارية (V18.10 - The Ultimate Routing Patch): 
-// 1. Target Routing Fix 🔀: تصحيح مسار حذف الإشعارات ليشمل إشعارات العملاء المخصصة (Targeted Alerts).
-// 2. DOM Shield 🛡️: حماية الاستهداف القديم من المسح العشوائي إذا لم يكتمل رسم واجهة الشجرة.
-// 3. UID Coercion Fix 🐛: منع تحويل معرفات العملاء النصية في الكوبونات لضمان نجاح التخصيص.
+// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Cloud-Native V18.11 🛡️
+// 🚀 التحديثات المعمارية (V18.11 - UID Coercion & Sync Patch): 
+// 1. UID Coercion Fix 🐛: تحويل المعرفات القصيرة والإيميلات إلى UIDs حقيقية في الكوبونات لمنع فشل المحرك المالي.
+// 2. Delete Alert Race Condition 🛡️: انتظار استجابة السيرفر قبل مسح الإشعار من الواجهة لمنع "الأشباح".
+// 3. Target Routing Fix 🔀: تصحيح مسار حذف الإشعارات ليشمل إشعارات العملاء المخصصة (Targeted Alerts).
+// 4. DOM Shield 🛡️: حماية الاستهداف القديم من المسح العشوائي إذا لم يكتمل رسم واجهة الشجرة.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -323,9 +324,19 @@ export const MarketingController = {
             const expiryVal = Utils.getVal('coupon-expiry');
             const allowedUsersStr = Utils.getVal('coupon-allowed-users');
             
-            const allowedUsers = allowedUsersStr 
-                ? allowedUsersStr.split(',').map(s => String(s).trim()).filter(s => s.length > 0) 
-                : [];
+            const rawUsers = allowedUsersStr ? allowedUsersStr.split(',').map(s => String(s).trim()).filter(s => s.length > 0) : [];
+            
+            // 🚀 [الحل المعماري - UID Coercion]: تحويل المعرفات القصيرة أو الإيميلات إلى UIDs حقيقية
+            const allowedUsers = rawUsers.map(identifier => {
+                const upperId = identifier.toUpperCase();
+                const u = (AdminData.data.users || []).find(user => 
+                    user.id === identifier || 
+                    (user.displayId && user.displayId.toUpperCase() === upperId) ||
+                    (user.displayId && `USR-${user.displayId.toUpperCase()}` === upperId) ||
+                    (user.email && user.email.toUpperCase() === upperId)
+                );
+                return u ? u.id : identifier;
+            });
                 
             const maxDiscount = Number(Utils.getVal('coupon-max-discount')) || 0;
 
@@ -516,13 +527,9 @@ export const MarketingController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح الإشعار...');
         
         const alertObj = AdminData.data.alerts.find(a => a.id === id);
-        const alertBackup = [...AdminData.data.alerts];
-        
-        AdminData.data.alerts = AdminData.data.alerts.filter(a => a.id !== id);
-        EventBus.emit('req-render-alerts');
         
         try {
-            // 🚀 [التصحيح المعماري الأهم]: مسح الإشعار المخصص من ملف العميل أو العام
+            // 🚀 [الحل المعماري]: ننتظر السيرفر أولاً لمنع ظاهرة الإشعارات الشبحية (Ghost Alerts)
             if (alertObj && alertObj.targetType === 'user' && alertObj.targetId) {
                 await FirebaseAdapter.delete(`telecard_users/${alertObj.targetId}/notifications`, id);
                 if (AdminData?.addLog) AdminData.addLog('DELETE_ALERT', `تم مسح إشعار مخصص للعميل`);
@@ -531,10 +538,12 @@ export const MarketingController = {
                 if (AdminData?.addLog) AdminData.addLog('DELETE_ALERT', `تم مسح إشعار عام من السيرفر`);
             }
             
+            // تحديث الواجهة بعد نجاح السيرفر
+            AdminData.data.alerts = AdminData.data.alerts.filter(a => a.id !== id);
+            EventBus.emit('req-render-alerts');
             EventBus.emit('req-show-toast', { message: 'تم الحذف بنجاح', type: 'success' });
+            
         } catch(e) { 
-            AdminData.data.alerts = alertBackup; 
-            EventBus.emit('req-render-alerts'); 
             EventBus.emit('req-show-toast', { message: 'فشل الحذف. تأكد من الاتصال', type: 'error' });
         } finally {
             this._actionLocks.delete('del-alert');

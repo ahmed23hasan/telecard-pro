@@ -1,12 +1,10 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V16.3 💎
+// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V16.5 💎
 // 🎯 الوظيفة: بوابة البيانات الآمنة للوحة الإدارة، إدارة الذاكرة، وحماية الفواتير.
-// 🚀 التحديثات المعمارية (V16.3 - Cloud Functions Sync Patch): 
-// 1. Timeout Expansion ⏳: تمديد المهلة الزمنية للوظائف السحابية الثقيلة (callFunction) إلى 120 ثانية لمنع انقطاع الاتصال الوهمي.
-// 2. Batch & DeleteField 🛡️: استيراد writeBatch و deleteField لحل انهيارات حذف المستويات وإبطال الـ KYC.
-// 3. Update Engine 🔄: دالة updateDocument للتحديث الجزئي الآمن (Partial Updates).
-// 4. Aggregation Engine 📊: دمج دوال التجميع (sum, count, average) لخفض التكاليف.
-// 5. FCM Integration 📡: دمج مكتبة الإشعارات للرادار السحابي.
+// 🚀 التحديثات المعمارية (V16.5 - The Pure Adapter Patch): 
+// 1. Adapter Purity 🧹: إزالة التدخل اليدوي بأسماء الجداول لضمان استقلالية المحول (SOLID Principles).
+// 2. Infinite Loading Shield 🛡️: تفعيل الـ Timeout للدوال السحابية ورفع الصور لمنع تجميد المتصفح عند انقطاع الاتصال.
+// 3. Memory Leak Fix 🧠: تنظيف مستمعات onSnapshot بشكل آمن لحماية الذاكرة العشوائية.
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -19,8 +17,6 @@ import {
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
-
-// 🚀 [إضافة معمارية]: استيراد مكتبة الإشعارات السحابية لتفعيل الرادار
 import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js";
 
 import { firebaseConfig } from '../adminConfig.js';
@@ -31,18 +27,14 @@ const auth = getAuth(app);
 const storage = getStorage(app); 
 const functions = getFunctions(app, 'us-east1');
 
-
 export { auth, db, storage, functions };
 
 export const FirebaseAdapter = {
     db: db,
     storage: storage,
     functions: functions,
-
-    // 🚀 [التحديث المعماري]: تصدير أداة حذف الحقول لاستخدامها في إبطال الـ KYC
     deleteField: deleteField,
 
-    // 🚀 [التحديث المعماري]: تصدير أداة العمليات المجمعة لاستخدامها في نقل العملاء عند حذف مستوى
     getBatch: function() {
         return writeBatch(db);
     },
@@ -69,7 +61,6 @@ export const FirebaseAdapter = {
         console.debug("🧹 [Admin Memory] تم تنظيف كافة المستمعات الشبحية بنجاح. ذاكرة المتصفح بأمان.");
     },
 
-    // 🚀 [الرادار السحابي]: دالة طلب صلاحية الإشعارات وتوليد مفتاح الجهاز
     async requestFCMToken(vapidKey) {
         try {
             const messaging = getMessaging(app);
@@ -90,22 +81,19 @@ export const FirebaseAdapter = {
     },
 
     _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
+        // 🛡️ نتجاهل الـ Timeout فقط لعمليات الكتابة في Firestore لأنها تدعم الـ Offline
         if (isWriteOperation) return promise; 
         
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
-                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب (Read): ${context} خلال ${ms/1000} ثوانٍ`);
+                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context} خلال ${ms/1000} ثوانٍ`);
                 err.code = 'deadline-exceeded'; 
                 reject(err);
             }, ms);
         });
         return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     },
-
-    // ========================================================================
-    // 📊 دوال التجميع الذكية (Cost-Zero Aggregation Data)
-    // ========================================================================
 
     async getAggregatedStats(collectionName, conditions = [], aggregations = {}) {
         try {
@@ -138,10 +126,6 @@ export const FirebaseAdapter = {
         }
     },
 
-    // ========================================================================
-    // 📦 دوال جلب البيانات الأساسية (CRUD Operations)
-    // ========================================================================
-
     async getAll(collectionName, maxLimit = 3000, retryCount = 1) { 
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
@@ -155,7 +139,7 @@ export const FirebaseAdapter = {
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 return this.getAll(collectionName, maxLimit, retryCount - 1); 
             }
-            console.error(`🚨 خطأ نهائي في جلب مجموعة [${collectionName}]: ${error.message}`);
+            console.error(`🚨 خطأ نهائي في جلب مجموعة [${collectionName}]:`, error);
             return [];
         }
     },
@@ -163,13 +147,15 @@ export const FirebaseAdapter = {
     async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
+            
+            // 🚀 [الحل المعماري]: إزالة التدخل اليدوي بأسماء الجداول، والاعتماد على ما يرسله الكنترولر
             const q = query(collection(db, collectionName), orderBy(orderByField, 'desc'), limit(limitCount));
             const snapshot = await this._withTimeout(getDocs(q), 10000, `getRecent -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (error) {
-    console.error(`🚨 خطأ فايربيز في getRecent [${collectionName}]:`, error);
-    return [];
-}
+        } catch (error) { 
+            console.error(`🚨 خطأ فايربيز في getRecent [${collectionName}]:`, error); 
+            return []; 
+        }
     },
 
     async getById(collectionName, docId) {
@@ -178,10 +164,10 @@ export const FirebaseAdapter = {
             const safeId = this._sanitizeDocId(docId);
             const docSnap = await this._withTimeout(getDoc(doc(db, collectionName, safeId)), 10000);
             return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
-        } catch (error) {
-    console.error(`🚨 خطأ فايربيز في getById [${collectionName}]:`, error);
-    return null;
-}
+        } catch (error) { 
+            console.error(`🚨 خطأ فايربيز في getById [${collectionName}]:`, error); 
+            return null; 
+        }
     },
 
     async set(collectionName, docId, data) {
@@ -272,17 +258,17 @@ export const FirebaseAdapter = {
 
             cleanupFn = this._registerListener(key, unsub);
             return cleanupFn;
-        } catch (error) {
-    console.error(`🚨 خطأ فايربيز في إعداد listenQuery [${collectionName}]:`, error);
-    return () => {};
-}
+        } catch (error) { 
+            console.error(`🚨 خطأ في إعداد listenQuery [${collectionName}]:`, error);
+            return () => {}; 
+        }
     },
 
     async fetchMoreWithCursor(collectionName, conditions, orderByField = 'time', lastDocMarker, limitCount = 25) {
         try {
-            if (!lastDocMarker) return { data: [], newLastDoc: null };
             const queryConstraints = [collection(db, collectionName)];
-            
+
+            // 🚀 [الحل المعماري]: إزالة التدخل اليدوي (Hack) والاعتماد على الكنترولر النظيف
             if (conditions && Array.isArray(conditions) && conditions.length > 0) {
                 if (Array.isArray(conditions[0])) {
                     conditions.forEach(cond => { if (cond.length === 3) queryConstraints.push(where(cond[0], cond[1], cond[2])); });
@@ -291,22 +277,23 @@ export const FirebaseAdapter = {
                 }
             }
             
-            queryConstraints.push(orderBy(orderByField, 'desc'), startAfter(lastDocMarker), limit(limitCount));
+            if (lastDocMarker) {
+                queryConstraints.push(orderBy(orderByField, 'desc'), startAfter(lastDocMarker), limit(limitCount));
+            } else {
+                queryConstraints.push(orderBy(orderByField, 'desc'), limit(limitCount));
+            }
+
             const snapshot = await this._withTimeout(getDocs(query(...queryConstraints)), 15000);
             
             return { 
                 data: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })), 
                 newLastDoc: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null 
             };
-        } catch (error) {
-    console.error(`🚨 خطأ فايربيز في fetchMoreWithCursor [${collectionName}]:`, error);
-    return { data: [], newLastDoc: null };
-}
+        } catch (error) { 
+            console.error(`🚨 خطأ فايربيز في fetchMoreWithCursor [${collectionName}]:`, error); 
+            return { data: [], newLastDoc: null }; 
+        }
     },
-
-    // ========================================================================
-    // 🖼️ دوال رفع الملفات والصور
-    // ========================================================================
 
     async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = true) {
         if (!file) return '';
@@ -331,8 +318,10 @@ export const FirebaseAdapter = {
             
             const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`;
             
+            // 🚀 [الحل المعماري]: تمرير false كمعامل أخير لكي يعمل الـ Timeout ولا يتجمد المتصفح
             const snapshot = await this._withTimeout(
-                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 60000, "رفع الصورة", true
+                uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 
+                60000, "رفع الصورة", false 
             );
             return await getDownloadURL(snapshot.ref);
         } catch (error) { 
@@ -343,24 +332,20 @@ export const FirebaseAdapter = {
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
         try { 
-            await this._withTimeout(deleteObject(ref(storage, url)), 10000, 'deleteImage', true);
+            // 🚀 تمرير false لمنع التجمد إذا كان الاتصال مقطوعاً
+            await this._withTimeout(deleteObject(ref(storage, url)), 10000, 'deleteImage', false);
         } catch (error) { }
     },
 
-    // ========================================================================
-    // ⚙️ دوال الربط مع السيرفر السحابي (Cloud Functions)
-    // ========================================================================
-
-    // 🚀 [التحديث المعماري]: رفع حد المهلة الزمنية الافتراضية إلى 120 ثانية (120000ms) 
-    // لمنع انقطاع الاتصال (Timeout) أثناء المزامنات الثقيلة للكتالوج
     async callFunction(functionName, payload = {}, timeoutMs = 120000) {
         try {
             const targetFunction = httpsCallable(functions, functionName);
+            // 🚀 [الحل المعماري]: تمرير false لمنع تجاوز الـ Timeout، فالدوال السحابية لا تعمل Offline!
             const result = await this._withTimeout(
                 targetFunction(payload), 
                 timeoutMs, 
                 `Function -> ${functionName}`, 
-                true // اعتبرها عملية كتابة لتفادي الرفض المبكر من الـ race promise
+                false 
             );
             return result.data;
         } catch (error) {

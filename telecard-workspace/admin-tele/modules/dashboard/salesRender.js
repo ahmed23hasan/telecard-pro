@@ -65,32 +65,61 @@ export const SalesRender = {
         }
 
         try {
-            // نستخدم نفس الدالة السحابية من لوحة القيادة (ستجلب الآن عدداً أكبر بناءً على تحديثك لـ adminData)
-            const stats = await AdminData.fetchDashboardStatsAsync(this.state.timeRange);
-            const topUsers = stats.users?.topThree || []; 
+            // 🚀 [الإصلاح المعماري]: جلب آلاف الطلبات من السيرفر وحسابها محلياً للحصول على التقرير الكامل
+            let startTime = 0; let endTime = Infinity;
+            const nowObj = new Date();
+            if (this.state.timeRange === 'this_month') {
+                startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1);
+            } else if (this.state.timeRange === 'last_month') {
+                startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth() - 1, 1);
+                endTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1) - 1; 
+            } else if (this.state.timeRange === '7days') {
+                startTime = Date.now() - (7 * 86400000);
+            } else if (this.state.timeRange === '30days') {
+                startTime = Date.now() - (30 * 86400000);
+            }
+
+            // استخدام محول فايربيز مباشرة لتخطي حد الـ 3 عملاء
+            const { FirebaseAdapter } = await import('../../core/firebaseAdapter.js');
+            const recentOrdersRes = await FirebaseAdapter.callFunction('adminGetOrdersList', {
+                limit: 5000, status: 'completed', startDateMs: startTime, endDateMs: endTime
+            });
+
+            const recentOrdersData = recentOrdersRes?.success ? recentOrdersRes.data : [];
+            const userMapLocal = {};
+
+            // تجميع الأرباح والمصروفات لكل عميل
+            recentOrdersData.forEach(o => {
+                const uid = String(o.userId);
+                if (!userMapLocal[uid]) {
+                    userMapLocal[uid] = { 
+                        spent: 0, 
+                        name: o.userDataSnapshot?.fullName || 'عميل', 
+                        displayId: o.userDataSnapshot?.displayId || uid.substring(0, 8) 
+                    };
+                }
+                // جمع المبالغ بأمان عبر المحرك المالي
+                userMapLocal[uid].spent = FinancialEngine.safeAdd(userMapLocal[uid].spent, Number(o.priceBaseUsd || 0));
+            });
+
+            // تحويل الخريطة لمصفوفة وترتيبها تنازلياً (بدون قص slice)
+            const topUsersFull = Object.entries(userMapLocal)
+                .map(([id, data]) => ({ id, ...data }))
+                .sort((a, b) => b.spent - a.spent);
 
             let html = '';
-            if (topUsers.length === 0) {
+            if (topUsersFull.length === 0) {
                 html = '<div class="text-center text-muted w-100 p-20">لا توجد مبيعات مسجلة في هذه الفترة.</div>';
             } else {
-                html = topUsers.map((u, i) => {
-                    // 🚀 جلب البيانات المحدثة للعميل من الذاكرة المحلية (Join)
-                    const memUser = AdminData.data.usersMap?.[u.id] || {};
-                    const safeName = Utils.escapeHTML(memUser.fullName || memUser.name || memUser.username || u.name || 'عميل');
-                    const safeImg = Utils.escapeHTML(memUser.img || u.img || '');
-                    const fallbackChar = safeName.charAt(0);
-                    
-                    const avatarHtml = safeImg 
-                        ? `<img src="${safeImg}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">` 
-                        : `<div style="width:40px;height:40px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;">${fallbackChar}</div>`;
-
+                html = topUsersFull.map((u, i) => {
+                    const fallbackChar = Utils.escapeHTML(u.name).charAt(0);
                     return `
                         <div class="d-flex align-items-center justify-content-between p-10 mb-10" style="background: var(--bg-body); border-radius: 8px;">
                             <div class="d-flex align-items-center gap-3">
-                                <span class="fs-14 fw-bold text-muted">#${i + 1}</span>
-                                ${avatarHtml}
+                                <span class="fs-14 fw-bold text-muted" style="min-width: 25px;">#${i + 1}</span>
+                                <div style="width:40px;height:40px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;">${fallbackChar}</div>
                                 <div>
-                                    <div class="fw-bold">${safeName}</div>
+                                    <div class="fw-bold">${Utils.escapeHTML(u.name)}</div>
                                     <div class="fs-11 text-muted num-en" dir="ltr">${Utils.escapeHTML(u.displayId)}</div>
                                 </div>
                             </div>
@@ -100,18 +129,9 @@ export const SalesRender = {
                 }).join('');
             }
 
-            // إظهار التقرير في نافذة منبثقة
             const periodNames = { 'all': 'كل الأوقات', 'today': 'اليوم', '7days': 'آخر 7 أيام', '30days': 'آخر 30 يوم', '90days': 'آخر 90 يوم', 'this_month': 'هذا الشهر', 'last_month': 'الشهر الماضي' };
-            const periodTitle = periodNames[this.state.timeRange] || 'الفترة المحددة';
-            
-            UIService.showPrompt(`<div class="custom-scrollbar" style="max-height: 400px; overflow-y: auto; text-align: right; padding-left: 5px;">${html}</div>`, `تقرير كبار العملاء (${periodTitle})`, '', false).catch(()=>{});
-            
-            // إخفاء حقل الإدخال النصي الافتراضي الخاص بـ Prompt
-            setTimeout(() => {
-                const promptInput = document.getElementById('prompt-input');
-                if (promptInput) promptInput.style.display = 'none';
-            }, 50);
-            
+            UIService.showReportModal(`التقرير الشامل لكبار العملاء (${periodNames[this.state.timeRange] || 'الفترة المحددة'})`, html);
+
         } catch (error) {
             console.error("خطأ في جلب تقرير كبار العملاء:", error);
             UIService.showToast("تعذر جلب التقرير السحابي", "error");
@@ -122,7 +142,6 @@ export const SalesRender = {
             }
         }
     },
-
     renderSales: async function() {
         const salesView = document.getElementById('view-sales');
         if (!salesView || !salesView.classList.contains('active')) return;

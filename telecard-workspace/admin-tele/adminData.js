@@ -1,11 +1,10 @@
 // ============================================================================
-// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V18.5 💎 (The Masterpiece)
+// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V18.7 💎 (The Masterpiece)
 // 🎯 الوظيفة: SSOT، إدارة الذاكرة بذكاء (Pagination)، والاستعلامات التجميعية (JIT Aggregation).
-// 🚀 التحديثات المعمارية (V18.5 - The Ultimate Cloud-Native Paradigm):
-// 1. Pagination Blindness Fix 👁️: استئصال دالة (autoAdvanceSweep) بالكامل. الواجهة لم تعد مسؤولة عن الترقية.
-// 2. Ghost Deletion Shield 🛡️: تعديل دالة saveCollection لترسل التحديثات (Delta) فقط لحماية بيانات السيرفر.
-// 3. Firewall Alignment ⚖️: التقاط حقول requiresAdminAttention القادمة من السيرفر في قسم المنتجات.
-// 4. Top Customers Report 👑: توسيع جلب الأبطال لـ 50 عميلاً ليتوافق مع التقرير الجديد.
+// 🚀 التحديثات المعمارية (V18.7 - The Pure Native Patch):
+// 1. Native Promise Resolution 🛡️: إزالة الترقيعات واستخدام Promise.allSettled لضمان إقلاع محصن 100%.
+// 2. Cloud-Powered Top Users 👑: الاعتماد على الدالة السحابية (adminGetOrdersList) لحساب كبار العملاء بدقة.
+// 3. Ghost Deletion Shield 🛡️: إرسال التحديثات (Delta) فقط لحماية بيانات السيرفر.
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -35,8 +34,6 @@ export const AdminData = {
     isSeedingCountries: false, 
     
     cursors: { orders: null, deposits: null, users: null, logs: null, alerts: null },
-    
-    // 🚀 الكاش المركزي السريع لتغذية قسم المالية ولوحة القيادة
     walletsCache: { totalUsd: 0, details: {} },
     
     data: { 
@@ -44,11 +41,12 @@ export const AdminData = {
         payments: [], banners: [], settings: {}, rates: [], 
         system: {}, adminProfile: {}, tiers: [], countries: [], 
         vault: [], coupons: [], offers: [], logs: [], alerts: [],
+        suppliers: [], 
         
         usersMap: {}, prodsMap: {}, catsMap: {}, tiersMap: {}, 
         couponsMap: {}, countriesMap: {}, ratesMap: {},
         ordersMap: {}, depositsMap: {}, offersMap: {}, 
-        vaultMap: {}, paymentsMap: {} 
+        vaultMap: {}, paymentsMap: {}, suppliersMap: {} 
     },
     
     filters: {
@@ -89,6 +87,7 @@ export const AdminData = {
         else if (prop === 'offers') this.data.offersMap = Object.fromEntries(arr.map(o => [String(o.id), o])); 
         else if (prop === 'vault') this.data.vaultMap = Object.fromEntries(arr.map(v => [String(v.id), v])); 
         else if (prop === 'payments') this.data.paymentsMap = Object.fromEntries(arr.map(p => [String(p.id), p])); 
+        else if (prop === 'suppliers') this.data.suppliersMap = Object.fromEntries(arr.map(s => [String(s.id), s])); 
         else if (prop === 'rates') {
             this.data.ratesMap = Object.fromEntries(arr.map(r => [String(r.code).toUpperCase(), r]));
         }
@@ -98,7 +97,7 @@ export const AdminData = {
     },    
     
     _buildMaps: function() {
-        const mapsToBuild = ['users', 'prods', 'cats', 'tiers', 'coupons', 'countries', 'rates', 'orders', 'deposits', 'offers', 'vault', 'payments'];
+        const mapsToBuild = ['users', 'prods', 'cats', 'tiers', 'coupons', 'countries', 'rates', 'orders', 'deposits', 'offers', 'vault', 'payments', 'suppliers']; 
         mapsToBuild.forEach(prop => this._buildSingleMap(prop));
     },
     
@@ -108,51 +107,63 @@ export const AdminData = {
     },
 
     loadData: async function() {
-        console.log("🚀 [TeleCard Admin] إقلاع السحابة... جاري تطبيق استراتيجية Pagination...");
+        console.log("🚀 [TeleCard Admin] إقلاع السحابة... جاري تطبيق استراتيجية التوازي القياسية (Promise.allSettled)...");
         this.isCloudSyncSuccessful = false;
 
         const arr = v => Array.isArray(v) ? v.filter(Boolean) : [];
         const obj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
 
-        const fetchArray = async (key) => {
-            const res = await FirebaseAdapter.getAll(key);
-            return (res && res.length > 0) ? res : [];
-        };
-
-        const fetchSingleton = async (key, fallback = {}) => {
-            const res = await FirebaseAdapter.getById(key, 'singleton');
-            return res ? res : fallback;
-        };
-
         try {
-            // 🚀 الجداول المحدودة (بدون Pagination) مسموح لها أن تحمل بالكامل
-            const staticResults = await Promise.all([
-                fetchArray(DB_KEYS.RATES), fetchArray(DB_KEYS.TIERS), fetchArray(DB_KEYS.CATS), 
-                fetchArray('telecard_prods'), fetchArray(DB_KEYS.PAYMENTS), fetchArray(DB_KEYS.BANNERS), 
-                fetchSingleton(DB_KEYS.SETTINGS), fetchSingleton(DB_KEYS.POPUP), fetchSingleton(DB_KEYS.SYSTEM), 
-                fetchSingleton(DB_KEYS.ADMIN), fetchArray(DB_KEYS.COUNTRIES), fetchArray(DB_KEYS.VAULT), 
-                fetchArray(DB_KEYS.COUPONS), fetchArray(DB_KEYS.OFFERS)
-            ]);
+            // 🚀 [الحل المعماري الاحترافي]: استخدام Promise.allSettled لضمان إقلاع النظام 
+            // حتى لو فشل جلب أحد الجداول (بدون دوال مساعدة أو ترقيعات)
+            const staticPromises = [
+                FirebaseAdapter.getAll(DB_KEYS.RATES), FirebaseAdapter.getAll(DB_KEYS.TIERS), FirebaseAdapter.getAll(DB_KEYS.CATS), 
+                FirebaseAdapter.getAll('telecard_prods'), FirebaseAdapter.getAll(DB_KEYS.PAYMENTS), FirebaseAdapter.getAll(DB_KEYS.BANNERS), 
+                FirebaseAdapter.getById(DB_KEYS.SETTINGS, 'singleton'), FirebaseAdapter.getById(DB_KEYS.POPUP, 'singleton'), FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton'), 
+                FirebaseAdapter.getById(DB_KEYS.ADMIN, 'singleton'), FirebaseAdapter.getAll(DB_KEYS.COUNTRIES), FirebaseAdapter.getAll(DB_KEYS.VAULT), 
+                FirebaseAdapter.getAll(DB_KEYS.COUPONS), FirebaseAdapter.getAll(DB_KEYS.OFFERS), FirebaseAdapter.getAll('telecard_suppliers')
+            ];
 
-            const [
-                rRates, rTiers, rCats, rProds, rPayments, rBanners, 
-                rSettings, rNotif, rSystem, rAdmin, rCountries, 
-                rVault, rCoupons, rOffers
-            ] = staticResults;
-
-            // 🚀 الجداول اللانهائية (مع Pagination) تسحب 50 سجلاً فقط لحماية الذاكرة
-            const dynamicResults = await Promise.all([
+            const dynamicPromises = [
                 FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.USERS, [], 'createdAt', null, 50),
-                FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.ORDERS, [], 'time', null, 50),
-                FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.DEPOSITS, [], 'time', null, 50),
+                FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 50 }), // 👑 الاعتماد على الدالة السحابية للطلبات
+                FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.DEPOSITS, [], 'time', null, 50), 
                 FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.LOGS, [], 'timestamp', null, 50),
                 FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.ALERTS, [], 'time', null, 50)
+            ];
+
+            const [staticResults, dynamicResults] = await Promise.all([
+                Promise.allSettled(staticPromises),
+                Promise.allSettled(dynamicPromises)
             ]);
 
-            const [rUsersObj, rOrdersObj, rDepositsObj, rLogsObj, rAlertsObj] = dynamicResults;
+            const extract = (res, fallback) => res.status === 'fulfilled' && res.value ? res.value : fallback;
 
+            const rRates = extract(staticResults[0], []);
+            const rTiers = extract(staticResults[1], []);
+            const rCats = extract(staticResults[2], []);
+            const rProds = extract(staticResults[3], []);
+            const rPayments = extract(staticResults[4], []);
+            const rBanners = extract(staticResults[5], []);
+            const rSettings = extract(staticResults[6], {});
+            const rNotif = extract(staticResults[7], {});
+            const rSystem = extract(staticResults[8], {});
+            const rAdmin = extract(staticResults[9], {});
+            const rCountries = extract(staticResults[10], []);
+            const rVault = extract(staticResults[11], []);
+            const rCoupons = extract(staticResults[12], []);
+            const rOffers = extract(staticResults[13], []);
+            const rSuppliers = extract(staticResults[14], []);
+
+            const rUsersObj = extract(dynamicResults[0], { data: [], newLastDoc: null });
+            const rOrdersCloudRes = extract(dynamicResults[1], { success: false, data: [], pagination: null });
+            const rDepositsObj = extract(dynamicResults[2], { data: [], newLastDoc: null });
+            const rLogsObj = extract(dynamicResults[3], { data: [], newLastDoc: null });
+            const rAlertsObj = extract(dynamicResults[4], { data: [], newLastDoc: null });
+
+            // 🛡️ معالجة استجابة السيرفر الخاصة بالطلبات
+            this.cursors.orders = rOrdersCloudRes.success ? rOrdersCloudRes.pagination : null;
             this.cursors.users = rUsersObj.newLastDoc;
-            this.cursors.orders = rOrdersObj.newLastDoc;
             this.cursors.deposits = rDepositsObj.newLastDoc;
             this.cursors.logs = rLogsObj.newLastDoc;
             this.cursors.alerts = rAlertsObj.newLastDoc;
@@ -183,16 +194,16 @@ export const AdminData = {
                 costPrice: Number(p.costPrice || p.cost_price || 0), 
                 price: Number(p.price || 0), 
                 isFixedPrice: !!(p.isFixedPrice || p.is_fixed_price),
-                // 🛡️ التحديث الأمني: التقاط حالة التجميد والملاحظات من السيرفر
                 requiresAdminAttention: !!p.requiresAdminAttention, 
                 syncNote: p.syncNote || '' 
             }));
 
             this.data.deposits = arr(rDepositsObj.data);
-            this.data.orders = arr(rOrdersObj.data);
+            this.data.orders = arr(rOrdersCloudRes.data); 
             this.data.logs = arr(rLogsObj.data);
             this.data.alerts = arr(rAlertsObj.data);
             this.data.cats = arr(rCats);
+            this.data.suppliers = arr(rSuppliers); 
             
             const normalizeCurrencyList = (val) => {
                 const allowed = new Set(this.data.rates.map(c => String(c.code).toUpperCase()));
@@ -271,7 +282,6 @@ export const AdminData = {
             FirebaseAdapter.getAggregatedStats('telecard_reviews', [['status', '==', 'pending'], ['rating', '<=', 2]], { total: { type: 'count' }}),
             FirebaseAdapter.getAggregatedStats(DB_KEYS.USERS, [], { total: { type: 'count' }}),
             FirebaseAdapter.getAggregatedStats(DB_KEYS.USERS, [['isBanned', '==', true]], { total: { type: 'count' }}),
-            // 🚀 توسيع نطاق جلب الأبطال إلى 50 بطلاً لتغذية تقرير "كبار العملاء" الجديد
             FirebaseAdapter.getRecent(DB_KEYS.USERS, 50, 'totalSpent') 
         ]);
 
@@ -281,11 +291,19 @@ export const AdminData = {
                 id: u.id, displayId: u.displayId || String(u.id).substring(0, 8), name: u.fullName || u.username || 'عميل مميز', img: u.profileImage || null, spent: u.totalSpent || 0
             }));
         } else {
-            const recentOrdersSnap = await FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.ORDERS, [['status', '==', 'completed'], ['time', '>=', startTime], ['time', '<=', endTime]], 'time', null, 1000);
+            // 🚀 [الحل المعماري الاحترافي]: الاعتماد على الدالة السحابية التي وضعناها بدلاً من الترقيع والحد المحلي
+            const recentOrdersRes = await FirebaseAdapter.callFunction('adminGetOrdersList', {
+                limit: 5000,
+                status: 'completed',
+                startDateMs: startTime,
+                endDateMs: endTime
+            });
+            
+            const recentOrdersData = recentOrdersRes?.success ? recentOrdersRes.data : [];
             const userMapLocal = {};
             const userNameMap = {}; 
 
-            (recentOrdersSnap.data || []).forEach(o => {
+            recentOrdersData.forEach(o => {
                 const uid = String(o.userId);
                 userMapLocal[uid] = FinancialEngine.safeAdd(userMapLocal[uid] || 0, Number(o.priceBaseUsd || 0));
                 
@@ -297,9 +315,9 @@ export const AdminData = {
                 }
             });
             
-            // 🚀 إزالة .slice(0, 3) لتغذية تقرير "كبار العملاء" الشهري
             topHeroes = Object.entries(userMapLocal)
                 .sort(([, aSpent], [, bSpent]) => bSpent - aSpent)
+                .slice(0, 3) // نجلب أعلى 3 للوحة القيادة
                 .map(([uid, spent]) => {
                     const u = this.data.usersMap[uid]; 
                     const fallback = userNameMap[uid] || {};
@@ -393,17 +411,15 @@ export const AdminData = {
             const docRef = doc(FirebaseAdapter.db, targetCollectionKey, id);
 
             if (!old) {
-                // مستند جديد: نرفعه بالكامل
                 if (prop === 'prods' && item.isActive === undefined) item.isActive = true;
                 currentBatch.set(docRef, item, { merge: true });
                 operationCount++;
                 hasAnyChanges = true;
             } else {
                 let hasItemChanges = false;
-                let updatePayload = {}; // 🛡️ [الحل الاحترافي]: بناء كائن يحمل التعديلات (Delta) فقط
+                let updatePayload = {}; 
 
                 Object.keys(item).forEach(k => { 
-                    // نقارن الحقول، وإذا كان هناك تغيير، نضعه في كائن التحديث
                     if (k !== 'updatedAt' && !this._deepEqual(item[k], old[k])) {
                         hasItemChanges = true; 
                         updatePayload[k] = item[k]; 
@@ -412,7 +428,6 @@ export const AdminData = {
 
                 if (hasItemChanges) { 
                     updatePayload.updatedAt = Date.now(); 
-                    // 🚀 نرفع updatePayload بدلاً من item! هذا يحمي المخزون وحقول السيرفر من المسح
                     currentBatch.set(docRef, updatePayload, { merge: true });
                     operationCount++;
                     hasAnyChanges = true;
@@ -434,7 +449,7 @@ export const AdminData = {
         await commitAndReset();
         
         if (hasAnyChanges) {
-            if (['prods', 'cats', 'tiers', 'offers', 'rates', 'banners'].includes(prop)) {
+            if (['prods', 'cats', 'tiers', 'offers', 'rates', 'banners', 'suppliers'].includes(prop)) {
                 if (!this.data.settings) this.data.settings = {};
                 this.data.settings.catalogVersion = Date.now().toString(36);
                 await this.saveSystemSettings();
@@ -454,7 +469,6 @@ export const AdminData = {
         } catch (error) { return { success: false, message: error.message }; }
     },
 
-    // 🚀 [درع الأمان الكلي]: الجداول الثابتة فقط هي التي تمر عبر المزامنة الجماعية (saveCollection)
     saveCountries: function() { return this.saveCollection(DB_KEYS.COUNTRIES, 'countries'); },
     saveRates: function() { return this.saveCollection(DB_KEYS.RATES, 'rates'); },
     saveCoupons: function() { return this.saveCollection(DB_KEYS.COUPONS, 'coupons'); },
@@ -465,6 +479,7 @@ export const AdminData = {
     savePayments: function() { return this.saveCollection(DB_KEYS.PAYMENTS, 'payments'); },
     saveBanners: function() { return this.saveCollection(DB_KEYS.BANNERS, 'banners'); },
     saveOffers: function() { return this.saveCollection(DB_KEYS.OFFERS, 'offers'); },
+    saveSuppliers: function() { return this.saveCollection('telecard_suppliers', 'suppliers'); }, 
     
     saveSystemSettings: async function() {
         if (!this.isCloudSyncSuccessful) return false;

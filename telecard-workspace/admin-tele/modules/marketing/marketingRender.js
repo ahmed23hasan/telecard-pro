@@ -1,17 +1,23 @@
 // ============================================================================
-// 🎨 محرك رسم التسويق (modules/marketing/marketingRender.js) - Enterprise V15.0 💎
+// 🎨 محرك رسم التسويق (modules/marketing/marketingRender.js) - Enterprise V18.11 💎
 // الوظيفة: رسم العروض المركزية، الكوبونات، الإشعارات المنبثقة، والبنرات الإعلانية.
-// 🚀 التحديث الأقصى: معالجة خوارزمية (O(N*M)) في الشجرة الذكية لحماية الـ RAM.
+// 🚀 التحديثات المعمارية:
+// 1. Template Mismatch Fix 💥: استيراد MarketingTemplates الصحيحة لمنع الشاشة البيضاء.
+// 2. Memory Leak Shield 🛡️: إضافة قفل _listenersBound لمنع تكرار الأحداث وانهيار المتصفح.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
-import { AdminTemplates } from '../../adminTemplates.js';
-import { EventBus } from '../../adminUtils.js';
+import { MarketingTemplates } from './marketingTemplates.js';
+import { EventBus, Utils } from '../../adminUtils.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
 
 export const MarketingRender = {
   
+  _listenersBound: false,
   initListeners: function() {
+    if (this._listenersBound) return;
+    this._listenersBound = true;
+    
     EventBus.on('req-render-banners', () => this.renderBanners());
     EventBus.on('req-render-offers', () => this.renderOffers());
     EventBus.on('req-render-coupons', () => this.renderCoupons());
@@ -27,7 +33,7 @@ export const MarketingRender = {
     
     list.innerHTML = [...(AdminData.data.banners || [])]
       .sort((a, b) => (Number(a.order) || 9999) - (Number(b.order) || 9999))
-      .map((b, index) => AdminTemplates.bannerItem(b, index)).join('');
+      .map((b, index) => MarketingTemplates.bannerItem(b, index)).join('');
     
     EventBus.emit('req-init-sortable', { container: list, type: 'banner' });
   },
@@ -48,7 +54,7 @@ export const MarketingRender = {
       return;
     }
     
-    grid.innerHTML = offers.map(offer => AdminTemplates.offerCard(offer)).join('');
+    grid.innerHTML = offers.map(offer => MarketingTemplates.offerCard(offer)).join('');
   },
   
   // =========================================================
@@ -63,7 +69,7 @@ export const MarketingRender = {
     
     if (!grid) return;
     if (coupons.length === 0) {
-      grid.innerHTML = AdminTemplates.emptyCoupons();
+      grid.innerHTML = MarketingTemplates.emptyCoupons();
       return;
     }
     
@@ -75,7 +81,7 @@ export const MarketingRender = {
         tierName: coupon.targetTiers?.length > 0 ? `${coupon.targetTiers.length} مستويات` : 'الكل',
         liveUsedCount: promoStats.couponUsageMap[coupon.code] || 0
       };
-      return AdminTemplates.couponCard(coupon, uiData);
+      return MarketingTemplates.couponCard(coupon, uiData);
     }).join('');
   },
   
@@ -88,12 +94,12 @@ export const MarketingRender = {
     
     const alerts = AdminData.data.alerts || [];
     if (alerts.length === 0) {
-      grid.innerHTML = AdminTemplates.emptyUnifiedAlerts();
+      grid.innerHTML = MarketingTemplates.emptyUnifiedAlerts();
       return;
     }
     
     grid.innerHTML = [...alerts].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-      .map(a => AdminTemplates.unifiedAlertCard(a)).join('');
+      .map(a => MarketingTemplates.unifiedAlertCard(a)).join('');
   },
   
   // =========================================================
@@ -102,16 +108,16 @@ export const MarketingRender = {
   populateSmartTreeTargets: function(prefix, savedTiers = [], savedProds = []) {
     const d = AdminData.data;
     const tiersContainer = document.getElementById(`${prefix}-tiers`),
-          prodsContainer = document.getElementById(`${prefix}-prods`);
+      prodsContainer = document.getElementById(`${prefix}-prods`);
     
     if (!tiersContainer || !prodsContainer) return;
-
+    
     // 🛡️ [التصحيح المعماري 1]: تحويل المصفوفات البطيئة لكائنات Set (O(1)) لحماية الذاكرة 
     const savedTiersSet = new Set(savedTiers.map(String));
     const savedProdsSet = new Set(savedProds.map(String));
     
     let tiersHtml = (d.tiers || []).map(t =>
-      AdminTemplates.smartTreeTier(t.id, Utils.escapeHTML(t.name), t.icon || 'fa-user', savedTiersSet.has(String(t.id)))
+      MarketingTemplates.smartTreeTier(t.id, Utils.escapeHTML(t.name), t.icon || 'fa-user', savedTiersSet.has(String(t.id)))
     ).join('');
     tiersContainer.innerHTML = `${tiersHtml || 'لا توجد مستويات'}`;
     
@@ -129,18 +135,18 @@ export const MarketingRender = {
       if (category.prods.length === 0) return '';
       
       let childrenHtml = category.prods.map(p =>
-        AdminTemplates.smartTreeChild(p.id, Utils.escapeHTML(p.name), p.img, savedProdsSet.has(String(p.id)), String(p.id).slice(-4))
+        MarketingTemplates.smartTreeChild(p.id, Utils.escapeHTML(p.name), p.img, savedProdsSet.has(String(p.id)), String(p.id).slice(-4))
       ).join('');
       
-      return AdminTemplates.smartTreeParent(catId, Utils.escapeHTML(category.name), childrenHtml, category.prods.some(p => savedProdsSet.has(String(p.id))));
+      return MarketingTemplates.smartTreeParent(catId, Utils.escapeHTML(category.name), childrenHtml, category.prods.some(p => savedProdsSet.has(String(p.id))));
     }).join('');
     
     if (orphanProds.length > 0) {
       let orphanHtml = orphanProds.map(p =>
-        AdminTemplates.smartTreeChild(p.id, Utils.escapeHTML(p.name), p.img, savedProdsSet.has(String(p.id)), String(p.id).slice(-4))
+        MarketingTemplates.smartTreeChild(p.id, Utils.escapeHTML(p.name), p.img, savedProdsSet.has(String(p.id)), String(p.id).slice(-4))
       ).join('');
       
-      treeHtml += AdminTemplates.smartTreeParent('orphans', 'منتجات بدون قسم', orphanHtml, orphanProds.some(p => savedProdsSet.has(String(p.id))));
+      treeHtml += MarketingTemplates.smartTreeParent('orphans', 'منتجات بدون قسم', orphanHtml, orphanProds.some(p => savedProdsSet.has(String(p.id))));
     }
     
     prodsContainer.innerHTML = `${treeHtml || 'لا توجد منتجات'}`;

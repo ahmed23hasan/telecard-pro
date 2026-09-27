@@ -1,11 +1,8 @@
 // ============================================================================
-// 📦 قوالب الطلبات (modules/orders/ordersTemplates.js) - Cloud-Native V17.8 💎
+// 📦 قوالب الطلبات (modules/orders/ordersTemplates.js) - Cloud-Native V17.9 💎
 // 🚀 التحديث الأقصى: 
-// 1. Null User Shield: تمرير (o.userId) لدالة الفورمات بدلاً من الاعتماد الأعمى على usersMap 
-//    لضمان استخراج المعرف المختصر (shortId) بنجاح حتى للعملاء غير المحملين في الذاكرة.
-// 2. Bulk Reject UI 🛡️: إضافة زر الرفض الجماعي داخل شريط فلترة الطلبات.
-// 3. Smart ID Format Fix 🎨: السماح للـ HTML بالظهور في شريط رقم الطلب بدلاً من النص المكشوف.
-// 4. Syntax Glitch Fix 🐛: إصلاح خطأ الـ Template Literal.
+// 1. Smart ID Format Fix 🎨: السماح للـ HTML بالظهور في شريط رقم الطلب والمعرف الذكي في الدرج الجانبي.
+// 2. Null User Shield: تمرير (o.userId) لدالة الفورمات بدلاً من الاعتماد الأعمى على usersMap.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -17,7 +14,6 @@ const _enNum = Utils.enNum;
 
 export const OrdersTemplates = {
     
-    // 🚀 [التحديث المعماري]: إضافة زر "الرفض الجماعي" بجانب الفلاتر
     ordersSourceFilters: (activeState) => `
         <div class="orders-source-filters mb-15 d-flex gap-2 flex-wrap align-items-center justify-content-between p-10" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;">
             <div class="d-flex gap-2 flex-wrap align-items-center">
@@ -59,14 +55,14 @@ export const OrdersTemplates = {
         const rawTime = o.time || o.createdAt;
         const timeHtml = RenderHelpers.formatSafeDate(rawTime);
 
-        // 🚀 [درع الحماية]: تمرير الكائن الوهمي إذا لم يكن العميل في الذاكرة ليستخرج الـ ID
         const userRec = AdminData.data.usersMap?.[o.userId] || { id: o.userId };
         const shortId = RenderHelpers.formatUserId(userRec);
 
-        const isIdAsName = String(userName).trim() === String(shortId).trim() || String(userName).trim() === String(o.userId).trim();
+        // 🚀 [إصلاح 1]: إزالة _esc عن shortId للسماح بعرض الـ HTML الخاص بالنسخ المزدوج
+        const isIdAsName = String(userName).trim() === String(shortId).replace(/<[^>]*>?/gm, '').trim() || String(userName).trim() === String(o.userId).trim();
         const clientIdentityHtml = isIdAsName 
-            ? `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="uid-capsule copyable-admin" title="انقر لنسخ رقم العميل" data-action="copy-text" data-copy-text="${_esc(shortId)}"><i class="fa-solid fa-hashtag"></i>${_esc(shortId)}</span></div>`
-            : `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="user-name-text">${_esc(userName)}</span> <span class="uid-capsule copyable-admin" title="انقر لنسخ رقم العميل" data-action="copy-text" data-copy-text="${_esc(shortId)}"><i class="fa-solid fa-hashtag"></i>${_esc(shortId)}</span></div>`;
+            ? `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <div class="uid-capsule" style="background:transparent; border:none; padding:0; box-shadow:none;">${shortId}</div></div>`
+            : `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="user-name-text">${_esc(userName)}</span> <div class="uid-capsule" style="background:transparent; border:none; padding:0; box-shadow:none; margin-right: 5px;">${shortId}</div></div>`;
 
         let inputHtml = '';
         if (inputData) {
@@ -90,7 +86,7 @@ export const OrdersTemplates = {
             ? `<span class="${priceColor}">${sign} ${o.dualPriceTxt.replace(/[-+]/g, '').trim()}</span>`
             : `<span class="single-price ${priceColor}">${sign} ${RenderHelpers.formatMoney(absPrice, cCode, 2)}</span>`;
 
-        // 🚀 [الإصلاح 1]: السماح للـ HTML بالظهور بدلاً من الـ escape
+        // السماح للـ HTML بالظهور بدلاً من الـ escape
         const orderIdHtml = RenderHelpers.formatOrderId(o);
 
         const isApi = (o.isApi === true || o.source === 'api');
@@ -286,21 +282,23 @@ export const OrdersTemplates = {
         const isRefRej = ['refunded', 'rejected', 'returned'].includes(data.statusClass);
         const isComp = data.statusClass === 'completed';
         
-        let fSign = isRefRej ? '+' : '-'; 
-        let fColor = isRefRej ? 'text-success' : (isComp ? 'text-danger' : 'text-warning'); 
-        let fBg = isRefRej ? 'highlight-success' : (isComp ? 'highlight-danger' : ''); 
+        let fSign = isRefRej ? '+' : '-';
+        let fColor = isRefRej ? 'text-success' : (isComp ? 'text-danger' : 'text-warning');
+        let fBg = isRefRej ? 'highlight-success' : (isComp ? 'highlight-danger' : '');
         let fLabel = isRefRej ? '<i class="fa-solid fa-hand-holding-dollar"></i> إجمالي المسترجع' : '<i class="fa-solid fa-hand-holding-dollar"></i> المخصوم من المحفظة';
         
-        const isIdAsNameDrawer = String(data.displayUser).trim() === String(data.userDisplayId).trim() || String(data.displayUser).trim() === String(data.userId).trim();
-        const drawerIdentityHtml = isIdAsNameDrawer 
-            ? `<span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>` 
-            : `<span class="dr-client-name">${_esc(data.displayUser)}</span><span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`;
+        // 🚀 [الحل المعماري - XSS Shield]: بناء الـ HTML داخل القالب وتعقيم المتغيرات مباشرة
+        const safeUserId = _esc(data.userId);
+        const safeDisplayUser = _esc(data.displayUser);
+        const isIdAsNameDrawer = String(data.displayUser).trim() === String(data.userId).trim();
         
-        return `
+        const drawerIdentityHtml = isIdAsNameDrawer ?
+            `<div class="uid-capsule" style="background:transparent; border:none; padding:0; box-shadow:none;">${data.userDisplayId}</div>` :
+            `<span class="dr-client-name">${safeDisplayUser}</span><div class="uid-capsule" style="background:transparent; border:none; padding:0; box-shadow:none; margin-right:5px;">${data.userDisplayId}</div>`;        return `
         <div class="dr-card dr-client" data-action="view-user" data-id="${_esc(data.userId)}">
             <div class="dr-client-left">
                 ${data.avatarHtml}
-                <div>${drawerIdentityHtml}</div>
+                <div class="d-flex align-items-center">${drawerIdentityHtml}</div>
             </div>
             <i class="fa-solid fa-chevron-left dr-client-icon"></i>
         </div>

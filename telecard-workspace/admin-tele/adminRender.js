@@ -1,10 +1,11 @@
 // ============================================================================
-// 🖥️ موزع محرك الرسم (adminRender.js) - Enterprise V17.1 🚀
+// 🖥️ موزع محرك الرسم (adminRender.js) - Enterprise V17.2 🚀
 // 🎯 الوظيفة: المايسترو الذي يوجه طلبات الرسم للوحدات المعزولة (Micro-Frontends).
-// 🌟 التحديثات المعمارية (V17.1 - Firebase Cost Shield): 
-// 1. Rate Limiting 🛡️: تطبيق (Throttle) على دالة updateBadges لمنع استنزاف قراءات فايربيز.
-// 2. Cloud-Native Badges ☁️: استعلامات تجميعية حية (1 Read) لضمان دقة الأرقام.
-// 3. Radar Hydration 📡: إضافة دالة updatePrefsUI لمزامنة تفضيلات الإشعارات الحية.
+// 🌟 التحديثات المعمارية (V17.2 - Server Pagination Bridge): 
+// 1. Server-Side Bridge 🌉: توجيه طلبات الجلب السحابي (Load More) بشكل مباشر للوحدات.
+// 2. Rate Limiting 🛡️: تطبيق (Throttle) على دالة updateBadges لمنع استنزاف قراءات فايربيز.
+// 3. Cloud-Native Badges ☁️: استعلامات تجميعية حية (1 Read) لضمان دقة الأرقام.
+// 4. Radar Hydration 📡: إضافة دالة updatePrefsUI لمزامنة تفضيلات الإشعارات الحية.
 // ============================================================================
 
 import { EventBus, Utils } from './adminUtils.js'; 
@@ -47,6 +48,7 @@ export const AdminRender = {
     // 📦 تفويض محركات الأقسام (Modules Routing)
     // ==========================================
     
+    // 🚀 [الجسر السحابي]: توجيه طلبات جلب المزيد للطلبات
     loadMoreOrders: () => OrdersRender.loadMoreOrders(),
     renderOrders: (isAppend) => OrdersRender.renderOrders(isAppend),
     exportOrdersToExcel: () => OrdersRender.exportToExcel(),

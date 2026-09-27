@@ -1,11 +1,10 @@
 // ============================================================================
-// 🧠 متحكم المستخدمين (modules/users/usersController.js) - Cloud-Native V18.8 💎
-// 🚀 التحديثات المعمارية (V18.8 - Accounting Purity Patch):
+// 🧠 متحكم المستخدمين (modules/users/usersController.js) - Cloud-Native V18.9 💎
+// 🚀 التحديثات المعمارية (V18.9 - The Server-Side Purity Patch):
 // 1. Adapter Purity 🔌: إزالة استيراد (doc) المباشر من Firebase للحفاظ على عزلة الكنترولر 100%.
-// 2. Financial Precision 🧮: تصحيح الرياضيات المباشرة في إضافة الأرصدة واستخدام FinancialEngine.safeAdd لمنع تشوه الأرقام العشرية.
-// 3. Subtract Math Fix 🛡️: تصحيح الخصم الإداري ليُنقص من (totalDeposit) بدلاً من زيادة (totalSpent).
-// 4. Mutex Locks 🔒: حماية كافة العمليات من التكرار والضغط المزدوج.
-// 5. Firebase V9 DeleteTier Patch 🛡️: تصحيح خطأ الحذف باستخدام الـ Chunking الموزع و V9 Syntax.
+// 2. Cloud Migration ☁️: ربط زر حذف المستوى بالدالة السحابية (adminDeleteTier) لحماية البيانات.
+// 3. Search Delegation 🔍: إزالة دوال البحث العشوائية وتفويض البحث لمحرك الرسم (Render Engine).
+// 4. Financial Precision 🧮: حماية (totalDeposit) من النزول للسالب محلياً ليتطابق مع السيرفر.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -16,35 +15,6 @@ import { RenderHelpers } from '../../core/renderHelpers.js';
 import { FirebaseAdapter, auth } from '../../core/firebaseAdapter.js';
 import { sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { FinancialEngine } from '../../core/financialEngine.js';
-// 🚀 [التحديث المعماري]: استيراد doc من فايربيز ليعمل نظام الحزم V9 بنجاح
-import { doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-
-const performCloudSearch = async (searchTerm) => {
-    const term = searchTerm.toLowerCase().trim();
-    if (!term) return null;
-
-    try {
-        let results = [];
-        if (term.length > 15) {
-            const exactUser = await FirebaseAdapter.getById('telecard_users', term);
-            if (exactUser) results.push(exactUser);
-        } else {
-            const resDisplay = await FirebaseAdapter.fetchMoreWithCursor('telecard_users', [['displayId', '==', term]], 'createdAt', null, 10);
-            if (resDisplay && resDisplay.data && resDisplay.data.length > 0) {
-                results.push(...resDisplay.data);
-            } else {
-                 const resEmail = await FirebaseAdapter.fetchMoreWithCursor('telecard_users', [['email', '==', term]], 'createdAt', null, 10);
-                 if (resEmail && resEmail.data && resEmail.data.length > 0) {
-                     results.push(...resEmail.data);
-                 }
-            }
-        }
-        return results.length > 0 ? results : null;
-    } catch (e) {
-        console.warn("Cloud Search failed:", e);
-        return null;
-    }
-};
 
 export const UsersController = {
     selectedUserId: null,
@@ -73,48 +43,43 @@ export const UsersController = {
         const query = (q || '').trim();
         EventBus.emit('req-update-state', { userSearch: query });
         
-        if (!query) {
-            EventBus.emit('req-render-users');
-            return;
-        }
+        // 🚀 [الحل المعماري]: تفويض البحث بالكامل لمحرك الرسم والسيرفر
+        // نقوم بتصفير الكاش المحلي لإجبار النظام على جلب نتائج البحث الدقيقة من قاعدة البيانات
+        AdminData.cursors.users = null;
+        AdminData.data.users = [];
+        AdminData.data.usersMap = {};
 
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري البحث في السحابة...');
+        EventBus.emit('req-render-users');
         
-        try {
-            const localResults = AdminData.data.users.filter(u => 
-                String(u.id||'').toLowerCase().includes(query.toLowerCase()) || 
-                String(u.displayId||'').toLowerCase().includes(query.toLowerCase()) || 
-                String(u.fullName || u.name || '').toLowerCase().includes(query.toLowerCase()) || 
-                String(u.email||'').includes(query.toLowerCase())
-            );
-
-            if (localResults.length === 0) {
-                const cloudHits = await performCloudSearch(query);
-                if (cloudHits) {
-                    cloudHits.forEach(user => {
-                        if (!AdminData.data.usersMap) AdminData.data.usersMap = {};
-                        if (!AdminData.data.usersMap[user.id]) {
-                            AdminData.data.users.push(user);
-                            AdminData.data.usersMap[user.id] = user;
-                        }
-                    });
-                }
-            }
-            EventBus.emit('req-render-users');
-        } finally {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+        // استدعاء جلب المزيد لملء الشاشة بنتائج البحث من السيرفر
+        if (query && AdminRender?.UsersRender?.loadMoreUsers) {
+            AdminRender.UsersRender.loadMoreUsers();
         }
     },
 
     toggleUserSort: function() {
         const currentSort = AdminRender?.UsersRender?.state?.sortUsers || 'desc';
         EventBus.emit('req-update-state', { sortUsers: currentSort === 'desc' ? 'asc' : 'desc' });
+        
+        // تصفير الكاش لجلب الترتيب الصحيح من السيرفر
+        AdminData.cursors.users = null;
+        AdminData.data.users = [];
+        AdminData.data.usersMap = {};
+        
         EventBus.emit('req-render-users');
+        if (AdminRender?.UsersRender?.loadMoreUsers) AdminRender.UsersRender.loadMoreUsers();
     },
 
     changeUserSort: function(val) {
         EventBus.emit('req-update-state', { userSortCategory: val, sortUsers: 'desc' });
+        
+        // تصفير الكاش لجلب الترتيب الصحيح من السيرفر
+        AdminData.cursors.users = null;
+        AdminData.data.users = [];
+        AdminData.data.usersMap = {};
+        
         EventBus.emit('req-render-users');
+        if (AdminRender?.UsersRender?.loadMoreUsers) AdminRender.UsersRender.loadMoreUsers();
     },
 
     fetchUserHistory: async function(userId, isLoadMore = false) {
@@ -400,7 +365,8 @@ export const UsersController = {
                 if (type === 'add') {
                     user.totalDeposit = FinancialEngine.safeAdd(user.totalDeposit || 0, adjustAmount);
                 } else {
-                    user.totalDeposit = FinancialEngine.safeSub(user.totalDeposit || 0, adjustAmount);
+                    // 🚀 [التصحيح المحاسبي]: منع النزول للسالب
+                    user.totalDeposit = Math.max(0, FinancialEngine.safeSub(user.totalDeposit || 0, adjustAmount));
                 }
                 
                 AdminData.data.deposits.unshift({
@@ -594,70 +560,50 @@ export const UsersController = {
     deleteTier: async function(id) {
         if (this._actionLocks.has('del-tier')) return;
         if (!AdminData.data.tiers) return;
-        
+
         const strId = String(id).trim();
         const tierToDelete = AdminData.data.tiersMap[strId] || AdminData.data.tiers.find(t => String(t.id) === strId);
         if (!tierToDelete) return;
-        
+
         if (tierToDelete.isDefault || strId === 'TIER_DEFAULT') {
             EventBus.emit('req-show-toast', { message: 'إجراء أمني مرفوض: لا يمكن حذف المستوى الافتراضي الخالد لحماية النظام.', type: 'error' });
             return;
         }
 
-        const defaultTier = AdminData.data.tiers.find(t => t.isDefault) || AdminData.data.tiers.find(t => String(t.id) === 'TIER_DEFAULT') || AdminData.data.tiers[0];
-        if (!defaultTier) {
-            EventBus.emit('req-show-toast', { message: 'خطأ حرج: لم يتم العثور على مستوى بديل آمن لنقل العملاء إليه.', type: 'error' });
-            return;
-        }
-
-        const usersInTier = (AdminData.data.users || []).filter(u => String(u.tierId) === strId);
-        const userCount = usersInTier.length;
-        
-        let msg = userCount > 0 
-            ? `⚠️ تنبيه أمان هام!\nهذا المستوى يضم (${userCount}) عميل حالياً.\nسيتم نقلهم جميعاً إلى المستوى الافتراضي (${defaultTier.name}).\nهل أنت متأكد؟` 
-            : `هل أنت متأكد من حذف مستوى "${tierToDelete.name}" نهائياً؟`;
+        const msg = `هل أنت متأكد من حذف مستوى "${tierToDelete.name}" نهائياً؟\nسيقوم السيرفر بنقل جميع العملاء المرتبطين به إلى المستوى الافتراضي بأمان.`;
 
         if (AdminUI && await AdminUI.showConfirm(msg, 'تأكيد إزالة المستوى')) {
             this._actionLocks.add('del-tier');
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حذف المستوى وتحديث العملاء سحابياً...');
-            
-            try {
-                if (userCount > 0) {
-                    let batch = FirebaseAdapter.getBatch();
-                    let opCount = 0;
-                    
-                    for (const u of AdminData.data.users) {
-                        if (String(u.tierId) === strId) {
-                            u.tierId = String(defaultTier.id); 
-                            // 🚀 [التصحيح المعماري]: استخدام V9 Syntax وحماية حد الـ 500 عملية
-                            const userRef = doc(FirebaseAdapter.db, 'telecard_users', String(u.id));
-                            batch.update(userRef, { tierId: String(defaultTier.id) });
-                            opCount++;
-                            
-                            if (opCount >= 400) {
-                                await batch.commit();
-                                batch = FirebaseAdapter.getBatch();
-                                opCount = 0;
-                            }
-                        }
-                    }
-                    if (opCount > 0) await batch.commit();
-                }
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حذف المستوى ونقل العملاء سحابياً...');
 
-                AdminData.data.tiers = AdminData.data.tiers.filter(t => String(t.id) !== strId);
-                if (AdminData.data.tiersMap) delete AdminData.data.tiersMap[id];
-                
-                await AdminData?.saveTiers?.();
-                
-                if (typeof FirebaseAdapter !== 'undefined' && FirebaseAdapter.callFunction) {
-                    FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
+            try {
+                // 🚀 [الحل المعماري]: استدعاء الدالة السحابية الجبارة بدلاً من التحديث المحلي
+                const result = await FirebaseAdapter.callFunction('adminDeleteTier', { tierId: strId });
+
+                if (result && result.success) {
+                    const fallbackTierId = result.fallbackTierId;
+
+                    // تحديث الذاكرة المحلية للعملاء المحملين حالياً
+                    if (AdminData.data.users) {
+                        AdminData.data.users.forEach(u => {
+                            if (String(u.tierId) === strId) {
+                                u.tierId = fallbackTierId;
+                            }
+                        });
+                    }
+
+                    // إزالة المستوى من الذاكرة
+                    AdminData.data.tiers = AdminData.data.tiers.filter(t => String(t.id) !== strId);
+                    if (AdminData.data.tiersMap) delete AdminData.data.tiersMap[strId];
+
+                    await AdminData?.saveTiers?.();
+
+                    EventBus.emit('req-render-tiers');
+                    EventBus.emit('req-render-users');
+                    EventBus.emit('req-show-toast', { message: `تم الحذف ونقل ${result.migratedCount} عميل بأمان`, type: 'success' });
                 }
-                
-                EventBus.emit('req-render-tiers');
-                EventBus.emit('req-render-users');
-                EventBus.emit('req-show-toast', { message: `تم الحذف ونقل العملاء بأمان`, type: 'success' });
             } catch (error) {
-                EventBus.emit('req-show-toast', { message: `حدث خطأ أثناء الحذف`, type: 'error' });
+                EventBus.emit('req-show-toast', { message: `حدث خطأ أثناء الحذف: ${error.message}`, type: 'error' });
             } finally {
                 this._actionLocks.delete('del-tier');
                 if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);

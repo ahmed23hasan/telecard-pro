@@ -1,10 +1,9 @@
 // ============================================================================
-// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - Cloud-Native V18.6 💎
+// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - Cloud-Native V18.7 💎
 // 🚀 التحديث الأقصى: 
-// 1. Action Routing Fix 🛡️: تعديل مسارات أزرار التعديل والحذف في بوابة الدفع لتتجه للقسم المالي.
-// 2. Null User Shield 🛡️: تمرير كائن وهمي لاستخراج الـ ID.
-// 3. Smart ID Format Fix 🎨: السماح للـ HTML بالظهور في شريط رقم الإيداع بدلاً من النص المكشوف.
-// 4. Admin Copy Feature 📋: إضافة زر نسخ سريع للمدير داخل تفاصيل طريقة الدفع.
+// 1. Smart ID Format Fix 🎨: إصلاح مقارنة وعرض المعرف الذكي السماح للـ HTML بالظهور بدلاً من النص المكشوف.
+// 2. Action Routing Fix 🛡️: تعديل مسارات أزرار التعديل والحذف في بوابة الدفع لتتجه للقسم المالي.
+// 3. Null User Shield 🛡️: تمرير كائن وهمي لاستخراج الـ ID.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -31,10 +30,11 @@ export const FinanceTemplates = {
         const userRec = AdminData.data.usersMap?.[d.userId] || { id: d.userId };
         const shortId = RenderHelpers.formatUserId(userRec);
 
-        const isIdAsName = String(userName).trim() === String(shortId).trim() || String(userName).trim() === String(d.userId).trim();
+        // 🚀 [الإصلاح المعماري]: تنظيف shortId من الـ HTML أثناء المقارنة، والسماح بعرض الـ HTML في الواجهة
+        const isIdAsName = String(userName).trim() === String(shortId).replace(/<[^>]*>?/gm, '').trim() || String(userName).trim() === String(d.userId).trim();
         const clientIdentityHtml = isIdAsName 
-            ? `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="uid-capsule copyable-admin" title="انقر لنسخ رقم العميل" data-action="copy-text" data-copy-text="${_esc(shortId)}"><i class="fa-solid fa-hashtag"></i>${_esc(shortId)}</span></div>`
-            : `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="user-name-text">${_esc(userName)}</span> <span class="uid-capsule copyable-admin" title="انقر لنسخ رقم العميل" data-action="copy-text" data-copy-text="${_esc(shortId)}"><i class="fa-solid fa-hashtag"></i>${_esc(shortId)}</span></div>`;
+            ? `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <div class="uid-capsule" style="background:transparent; border:none; padding:0; box-shadow:none;">${shortId}</div></div>`
+            : `<div class="o-card-user"><i class="fa-solid fa-user o-card-user-icon"></i> <span class="user-name-text">${_esc(userName)}</span> <div class="uid-capsule" style="background:transparent; border:none; padding:0; box-shadow:none; margin-right: 5px;">${shortId}</div></div>`;
 
         const absNetBase = Math.abs(netBase);
         const absLocal = Math.abs(localAmount);
@@ -59,7 +59,6 @@ export const FinanceTemplates = {
             dualAmountHtml = `<span class="single-price ${priceColor}">${sign} ${RenderHelpers.formatMoney(absNetBase, target, 2)}</span>`;
         }
 
-        // 🚀 [الإصلاح 1]: طباعة المتغير كنص HTML مباشر ليأخذ تنسيق "الكبسولة" ولا يظهر كود برمجي
         const formattedDepositId = RenderHelpers.formatDepositId(d);
 
         return `<div id="deposit-card-${_esc(d.id)}" class="o-card ${cardCls} ${(isRej || isRef) ? 'locked' : ''}" data-status="${exactStatus}" data-action="open-deposit-drawer" data-id="${_esc(d.id)}">
@@ -182,7 +181,6 @@ export const FinanceTemplates = {
 
     emptyPayDetails: () => `<div class="pay-det-empty"><i class="fa-solid fa-inbox"></i><br>لا توجد تفاصيل بعد.</div>`,
 
-    // 🚀 [الإصلاح 2]: إضافة زر النسخ (copy) للمدير بجانب زر الحذف لتسهيل أخذ البيانات
     payDetailItem: (item, i, text, isCopyable) => `<div class="pay-det-item pay-det-box">
                     <div class="pay-det-text">${_esc(text).replace(/\n/g, '<br>')}${isCopyable ? '<div class="mt-6"><span class="pay-badge-copyable"><i class="fa-solid fa-copy"></i> قابل للنسخ بالمتجر</span></div>' : '<div class="mt-6"><span class="pay-badge-viewonly"><i class="fa-solid fa-eye"></i> عنوان للعرض فقط</span></div>'}</div>
                     <div class="d-flex flex-column gap-2">
@@ -250,16 +248,18 @@ export const FinanceTemplates = {
         </button>`,
         
     depositDrawerBody: (data) => {
-        const isIdAsNameDrawer = String(data.displayUser).trim() === String(data.userDisplayId).trim() || String(data.displayUser).trim() === String(data.userId).trim();
-        const drawerIdentityHtml = isIdAsNameDrawer
-            ? `<span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`
-            : `<span class="dr-client-name">${_esc(data.displayUser)}</span><span class="uid-capsule copyable-admin" title="انقر للنسخ" data-action="copy-text" data-copy-text="${_esc(data.userDisplayId)}"><i class="fa-solid fa-hashtag"></i>${_esc(data.userDisplayId)}</span>`;
-
-        return `
+        // 🚀 [الحل المعماري - XSS Shield]: بناء الـ HTML داخل القالب وتعقيم المتغيرات مباشرة
+        const safeUserId = _esc(data.userId);
+        const safeDisplayUser = _esc(data.displayUser);
+        const isIdAsNameDrawer = String(data.displayUser).trim() === String(data.userId).trim();
+        
+        const drawerIdentityHtml = isIdAsNameDrawer ?
+            `<div class="uid-capsule" style="background:transparent; border:none; padding:0; box-shadow:none;">${data.userDisplayId}</div>` :
+            `<span class="dr-client-name">${safeDisplayUser}</span><div class="uid-capsule" style="background:transparent; border:none; padding:0; box-shadow:none; margin-right:5px;">${data.userDisplayId}</div>`;        return `
         <div class="dr-card dr-client" data-action="view-user" data-id="${_esc(data.userId)}">
             <div class="dr-client-left">
                 ${data.avatarHtml}
-                <div>
+                <div class="d-flex align-items-center">
                     ${drawerIdentityHtml}
                 </div>
             </div>

@@ -19,17 +19,20 @@ export const OrdersRender = {
     filters: {},
     _currentFilteredData: [], 
 
+    _listenersBound: false,
     initListeners: function() {
+        if (this._listenersBound) return;
+        this._listenersBound = true;
+        
         EventBus.on('state-update', (newState) => {
-            if(newState.filters && newState.filters.orders) this.filters = newState.filters.orders;
+            if (newState.filters && newState.filters.orders) this.filters = newState.filters.orders;
         });
         EventBus.on('req-clear-render-filters', () => {
             this.tabState = 'all';
-            this.sourceState = 'all'; 
+            this.sourceState = 'all';
             this.ordersLimit = 50;
         });
     },
-
     filterBySource: function(sourceVal) {
         this.sourceState = sourceVal;
         this.ordersLimit = 50; 
@@ -48,49 +51,54 @@ export const OrdersRender = {
     },
 
     loadMoreOrders: async function() {
-        const btn = document.querySelector('.btn-load-more');
-        if (btn) {
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
-            btn.disabled = true;
+    const btn = document.querySelector('.btn-load-more');
+    if (btn) {
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
+        btn.disabled = true;
+    }
+    
+    try {
+        // 🚀 [الحل المعماري]: إرسال الفلاتر (التاريخ والحالة) للسيرفر مباشرة
+        let conditions = [];
+        if (this.tabState && this.tabState !== 'all' && this.tabState !== 'pending') {
+            conditions.push(['status', '==', this.tabState]);
         }
-
-        try {
-            const res = await FirebaseAdapter.fetchMoreWithCursor(
-                'telecard_orders', [], 'time', AdminData.cursors.orders, 50
-            );
-
-            if (res && res.data && res.data.length > 0) {
-                AdminData.data.orders = [...AdminData.data.orders, ...res.data];
-                res.data.forEach(o => { AdminData.data.ordersMap[String(o.id)] = o; });
-                
-                // 🛡️ [إصلاح التكرار اللانهائي]: تحديث المؤشر فقط إذا كان هناك المزيد
-                AdminData.cursors.orders = res.newLastDoc || null;
-                this.ordersLimit += 50;
-                this.renderOrders(); 
-                
-                if (!res.newLastDoc && btn) {
-                    btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد طلبات أقدم';
-                    btn.classList.add('disabled', 'text-muted');
-                    btn.disabled = true;
-                }
-            } else {
-                // 🛡️ إغلاق الزر نهائياً إذا لم يرجع السيرفر أي بيانات
-                AdminData.cursors.orders = null;
-                if (btn) {
-                    btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد طلبات أقدم';
-                    btn.classList.add('disabled', 'text-muted');
-                    btn.disabled = true;
-                }
+        if (this.filters.start) conditions.push(['time', '>=', this.filters.start]);
+        if (this.filters.end) conditions.push(['time', '<=', this.filters.end + 86399999]);
+        
+        const res = await FirebaseAdapter.fetchMoreWithCursor(
+            'telecard_orders', conditions, 'time', AdminData.cursors.orders, 50
+        );
+        
+        if (res && res.data && res.data.length > 0) {
+            AdminData.data.orders = [...AdminData.data.orders, ...res.data];
+            res.data.forEach(o => { AdminData.data.ordersMap[String(o.id)] = o; });
+            
+            AdminData.cursors.orders = res.newLastDoc || null;
+            this.ordersLimit += 50;
+            this.renderOrders();
+            
+            if (!res.newLastDoc && btn) {
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد طلبات أقدم';
+                btn.classList.add('disabled', 'text-muted');
+                btn.disabled = true;
             }
-        } catch (error) {
-            console.error("🚨 فشل جلب المزيد من الطلبات السحابية:", error);
+        } else {
+            AdminData.cursors.orders = null;
             if (btn) {
-                btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
-                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد طلبات مطابقة';
+                btn.classList.add('disabled', 'text-muted');
+                btn.disabled = true;
             }
         }
-    },
-
+    } catch (error) {
+        console.error("🚨 فشل جلب المزيد من الطلبات السحابية:", error);
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
+            btn.disabled = false;
+        }
+    }
+},
     renderOrders: function() {
         const list = document.getElementById('orders-container'); 
         if(!list) return;
@@ -100,10 +108,13 @@ export const OrdersRender = {
         let accumulatedData = Array.isArray(this._currentFilteredData) ? this._currentFilteredData : [];
         
         const combinedMap = new Map();
-        accumulatedData.forEach(o => combinedMap.set(o.id, o));
-        currentSnapshotData.forEach(o => combinedMap.set(o.id, o)); 
-        
-        let data = Array.from(combinedMap.values());
+// 🚀 [الحل المعماري]: لا ندمج البيانات القديمة إلا إذا كانت لا تزال موجودة في المصدر الحي
+accumulatedData.forEach(o => {
+    if (currentSnapshotData.some(live => live.id === o.id)) {
+        combinedMap.set(o.id, o);
+    }
+});
+currentSnapshotData.forEach(o => combinedMap.set(o.id, o));   let data = Array.from(combinedMap.values());
 
         if(f.search || f.start || f.end) {
             const startD = f.start ? Number(f.start) : null;
@@ -237,7 +248,6 @@ export const OrdersRender = {
         }
 
         try {
-            // سحب البيانات من السيرفر مباشرة لتجاهل قيود الـ Pagination المحلية
             const payload = {
                 limit: 5000, 
                 status: this.tabState !== 'all' ? this.tabState : null,
@@ -255,13 +265,22 @@ export const OrdersRender = {
             const dataToExport = response.data;
             let csvContent = "\uFEFFرقم الطلب,التاريخ,اسم العميل,المعرف القصير,المنتج,الكمية,السعر الاجمالي($),التكلفة($),الربح($),المصدر,الحالة\n";
             
+            // 🚀 [الحل المعماري]: دالة تعقيم قياسية تمنع انهيار ملف الإكسل (CSV Escaping)
+            const sanitizeCSV = (str) => { 
+                if (str === null || str === undefined) return "";
+                let c = String(str).replace(/"/g, '""'); 
+                if (/[,\n\r"]/.test(c) || /^[=@+-]/.test(c)) {
+                    c = `"${/^[=@+-]/.test(c) ? "'" + c : c}"`; 
+                }
+                return c; 
+            };
+            
             dataToExport.forEach(o => {
                 const dateStr = RenderHelpers.formatSafeDate(o.time || o.createdAt);
-                const sanitizeCSV = (str) => { let c = String(str).replace(/,/g, " "); if (/^[=@+-]/.test(c)) c = "'" + c; return c; };
-
                 const userRec = AdminData.data.usersMap?.[o.userId] || { id: o.userId };
-                const displayId = RenderHelpers.formatUserId(userRec);
                 
+                // استخراج النصوص النظيفة بدون HTML
+                const displayIdRaw = String(userRec.displayId || userRec.uid || userRec.id || 'UKNWN').substring(0, 8).toUpperCase();
                 const customerName = sanitizeCSV(o.userDataSnapshot?.fullName || o.userName || userRec.fullName || userRec.name || o.userId);
                 const product = sanitizeCSV(o.product || 'منتج غير معروف');
                 const qty = Number(o.qty || 1);
@@ -271,26 +290,28 @@ export const OrdersRender = {
                 if (o.pricingSnapshot) {
                     totalCost = Number(o.pricingSnapshot.costUsd || o.pricingSnapshot.cost || 0);
                     exactPrice = Number(o.pricingSnapshot.finalPriceUsd || o.pricingSnapshot.finalPrice || exactPrice);
-                    // في الإكسل نصدر الربح الخام للمحاسبة بغض النظر عن الحالة
                     profit = Number(o.pricingSnapshot.netProfitUsd || o.pricingSnapshot.profit || 0); 
                 } else {
                     totalCost = Number(o.costPrice || o.unitCost || 0) * qty;
                     profit = exactPrice - totalCost;
                 }
 
-                // 🚀 [التصحيح المحاسبي]: تصفير الربح والتكلفة للطلبات غير المكتملة لمنع تشوه الإحصائيات المالية
+                const isApi = (o.isApi || o.source === 'api');
+
+                // 🚀 [التصحيح المحاسبي]: تصفير الربح دائماً لغير المكتمل. 
+                // لكن نحتفظ بالتكلفة إذا كان الطلب API لضمان مطابقة فواتير الموردين.
                 if (o.status !== 'completed') {
                     profit = 0;
-                    totalCost = 0;
+                    if (!isApi) totalCost = 0; 
                 }
                 
                 let source = 'يدوي';
-                if (o.isApi || o.source === 'api') source = 'API';
+                if (isApi) source = 'API';
                 else if (o.deliveredCode && o.deliveredCode.length > 0) source = 'تسليم آلي';
 
                 const status = o.status === 'completed' ? 'مكتمل' : (o.status === 'rejected' ? 'مرفوض' : (o.status === 'refunded' ? 'مسترجع' : o.status));
 
-                csvContent += `${o.id},${dateStr},${customerName},${displayId},${product},${qty},${exactPrice.toFixed(2)},${totalCost.toFixed(2)},${profit.toFixed(2)},${source},${status}\n`;
+                csvContent += `${o.id},${dateStr},${customerName},${displayIdRaw},${product},${qty},${exactPrice.toFixed(2)},${totalCost.toFixed(2)},${profit.toFixed(2)},${source},${status}\n`;
             });
             
             const filename = `Sales_Orders_Report_${new Date().toISOString().split('T')[0]}.csv`;
@@ -305,9 +326,7 @@ export const OrdersRender = {
                 btn.disabled = false;
             }
         }
-    },
-
-    _downloadBlob: function(content, filename) {
+    },    _downloadBlob: function(content, filename) {
         const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         const url = window.URL.createObjectURL(blob);

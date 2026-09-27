@@ -1,10 +1,10 @@
 // ============================================================================
-// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V16.4 💎
+// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V16.6 💎
 // 🎯 الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🚀 التحديثات المعمارية (V16.4 - Modular Navigation Patch):
-// 1. Decoupled Filtering 🔀: تحويل التصفية المباشرة إلى Event-Driven لمنع انهيار الـ UI في الأقسام المفصولة.
-// 2. Strict Session Logout 🔒: توافق تام مع الذاكرة المؤقتة لمسح الجلسة عند الخروج.
-// 3. Zero-Trust Profile 🛡️: منع السيرفر نهائياً من حفظ وتعديل البريد الإلكتروني.
+// 🚀 التحديثات المعمارية (V16.6 - Ultimate Search & Date Patch):
+// 1. Server-Side Delegation 🛡️: تفويض البحث بالكامل للـ Render Engine لمنع تضارب البيانات.
+// 2. Timezone Precision ⏱️: حساب التواريخ السريعة بالملي ثانية لمنع أخطاء تداخل الأشهر.
+// 3. Strict Refresh Sync 🔄: إجبار التحديث (Refresh) على جلب البيانات الحية من السيرفر.
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -160,10 +160,7 @@ export const AppController = {
     setupEventBusListeners: function() {
         EventBus.on('req-logout', () => this.logoutAdmin());
         EventBus.on('req-navigate', (data) => this.nav?.(data.page, data.btnEl));
-        
-        // 🚀 [الإصلاح المعماري 1]: تحويل التصفية المباشرة لنظام موجه (Event Driven) 
         EventBus.on('req-navigate-filter', (data) => this.navWithFilter?.(data.section, data.status));
-        
         EventBus.on('req-refresh', (data) => this.refresh?.(data.type));
         EventBus.on('req-go-back', () => this.back());
         EventBus.on('req-close-modal', (data) => AdminUI?.closeModal?.(data?.id || null));
@@ -271,6 +268,7 @@ export const AppController = {
         AdminUI?.clearAllSearchAndFiltersUI?.(); 
     },
 
+    // 🚀 [الإصلاح المعماري 1]: تفويض البحث بالكامل للـ Render Engine لمنع تضارب البيانات
     applyFilters: async function(section) {
         if (!this.filters) this.filters = {};
         if (!this.filters[section]) this.filters[section] = { search: '', start: null, end: null };
@@ -281,56 +279,48 @@ export const AppController = {
         this.filters[section].search = searchVal;
         this.updateState({ filters: this.filters });
         
-        if (searchVal.length >= 8 && (section === 'orders' || section === 'deposits')) {
-            try {
-                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري البحث السحابي المباشر...');
-                
-                const collectionName = section === 'orders' ? 'telecard_orders' : 'telecard_deposits';
-                const dataMap = section === 'orders' ? AdminData.data.ordersMap : AdminData.data.depositsMap;
-                const dataArray = section === 'orders' ? AdminData.data.orders : AdminData.data.deposits;
-
-                let docSnap = await FirebaseAdapter.getById(collectionName, searchVal);
-                
-                if (!docSnap) {
-                    const result = await FirebaseAdapter.fetchMoreWithCursor(collectionName, [['userId', '==', searchVal]], 'time', null, 5);
-                    if (result && result.data && result.data.length > 0) {
-                        const newItems = result.data.filter(newItem => !dataMap[newItem.id]);
-                        if (newItems.length > 0) {
-                            if (section === 'orders') AdminData.data.orders = [...newItems, ...dataArray];
-                            else AdminData.data.deposits = [...newItems, ...dataArray];
-                            newItems.forEach(i => { dataMap[String(i.id)] = i; });
-                        }
-                    }
-                } else if (!dataMap[docSnap.id]) {
-                    dataArray.unshift(docSnap);
-                    dataMap[String(docSnap.id)] = docSnap;
-                }
-            } catch (e) {
-                console.warn("البحث السحابي لم يعثر على نتائج مباشرة.");
-            } finally {
-                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-            }
+        // 🛡️ تصفير الكاش المحلي لإجبار النظام على جلب نتائج البحث الدقيقة من السيرفر
+        if (section === 'orders') {
+            AdminData.cursors.orders = null;
+            AdminData.data.orders = [];
+            AdminData.data.ordersMap = {};
+            EventBus.emit('req-render-orders');
+            
+            // استدعاء جلب المزيد لملء الشاشة بنتائج البحث من السيرفر
+            import('../modules/orders/ordersRender.js').then(m => {
+                if (m.OrdersRender?.loadMoreOrders) m.OrdersRender.loadMoreOrders();
+            });
         }
-        
-        if (section === 'orders') EventBus.emit('req-render-orders');
-        else if (section === 'deposits') EventBus.emit('req-render-deposits');
+        else if (section === 'deposits') {
+            AdminData.cursors.deposits = null;
+            AdminData.data.deposits = [];
+            AdminData.data.depositsMap = {};
+            EventBus.emit('req-render-deposits');
+            
+            // استدعاء جلب المزيد لملء الشاشة بنتائج البحث من السيرفر
+            import('../modules/finance/financeRender.js').then(m => {
+                if (m.FinanceRender?.loadMoreDeposits) m.FinanceRender.loadMoreDeposits();
+            });
+        }
     },
 
+    // 🚀 [الإصلاح المعماري 3]: حساب التواريخ بدقة باستخدام الـ Milliseconds لمنع أخطاء تداخل الأشهر
     setQuickDateFilter: function(range, section) {
         if (!this.filters) this.filters = {};
         if (!this.filters[section]) this.filters[section] = { search: '', start: null, end: null };
         
         let start = null, end = null;
         const now = new Date();
+        const startOfTodayUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
         
         if (range === 'today') {
-            start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+            start = startOfTodayUTC;
             end = start + 86399999;
         } else if (range === 'week') {
-            start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 7);
+            start = startOfTodayUTC - (6 * 86400000); // 7 أيام بما فيها اليوم
             end = now.getTime();
         } else if (range === 'month') {
-            start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, now.getUTCDate());
+            start = startOfTodayUTC - (29 * 86400000); // 30 يوماً بما فيها اليوم
             end = now.getTime();
         }
                
@@ -347,11 +337,10 @@ export const AppController = {
         const calText = document.getElementById(`date-filter-${section}`);
         if(calText) { calText.innerText = 'DD/MM/YYYY'; calText.classList.add('placeholder-text'); calText.closest('.custom-field')?.classList.remove('active'); }
 
-        if (section === 'orders') EventBus.emit('req-render-orders');
-        else if (section === 'deposits') EventBus.emit('req-render-deposits');
+        // تصفير الكاش لإجبار جلب البيانات الجديدة حسب التاريخ
+        this.applyFilters(section);
     },
 
-    // 🚀 [الإصلاح المعماري 1]: فصل تصفية الواجهة عن AdminRender المركزي، ونقلها لمستمعي الأحداث
     navWithFilter: function(section, status) {
         this.nav(section);
         setTimeout(() => {
@@ -515,12 +504,29 @@ export const AppController = {
         }
     },
 
+    // 🚀 [الإصلاح المعماري 2]: إجبار عملية التحديث على استدعاء السيرفر
     refresh: async function(type) {
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري التحديث...');
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري جلب أحدث البيانات من السيرفر...');
         try {
-            await AdminData?.loadData?.(true);
-            const refreshMap = { 'deposits': 'req-render-deposits', 'orders': 'req-render-orders', 'users': 'req-render-users', 'products': 'req-render-prods', 'logs': 'req-render-logs', 'wallets': 'req-render-wallets', 'complaints': 'filter-reviews', 'integrations': 'req-render-integrations' };
-            if (refreshMap[type]) EventBus.emit(refreshMap[type]); else await this.nav(type || 'dash');
+            // استدعاء loadData بدلاً من الاعتماد على البيانات المخبأة
+            await AdminData?.loadData?.(); 
+            
+            const refreshMap = { 
+                'deposits': 'req-render-deposits', 
+                'orders': 'req-render-orders', 
+                'users': 'req-render-users', 
+                'products': 'req-render-prods', 
+                'logs': 'req-render-logs', 
+                'wallets': 'req-render-wallets', 
+                'complaints': 'filter-reviews', 
+                'integrations': 'req-render-integrations' 
+            };
+            
+            if (refreshMap[type]) {
+                EventBus.emit(refreshMap[type]); 
+            } else {
+                await this.nav(type || 'dash');
+            }
             
             if (type === 'sys' || document.getElementById('view-sys')?.classList.contains('active')) {
                 this.renderFirewallBlacklist();

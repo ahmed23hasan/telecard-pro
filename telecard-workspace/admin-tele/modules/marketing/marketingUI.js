@@ -4,10 +4,10 @@
 // 🚀 التحديثات المعمارية:
 // 1. Crash Protection 🛡️: استخدام دوال الإسناد الآمنة لتهيئة نوافذ الإشعارات وتجنب أخطاء (Null Ref).
 // 2. State Bleed Fix 🛡️: تنظيف كائن البناء المرئي عند كل فتح لمنع تداخل التصاميم بين العروض.
+// 3. Dead Import Cleanup 🧹: إزالة استيراد القوالب الميتة لتنظيف الذاكرة.
 // ============================================================================
 
 import { Utils, EventBus } from '../../adminUtils.js';
-import { AdminTemplates } from '../../adminTemplates.js';
 import { UIService } from '../../core/uiService.js'; 
 
 export const MarketingUI = {
@@ -77,7 +77,6 @@ export const MarketingUI = {
     },
 
     setupAlertModal: function(tiersList) {
-        // 🚀 [التحديث المعماري]: تغليف آمن يمنع انهيار الواجهة
         const safeSetVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
         const safeSetText = (id, txt) => { const el = document.getElementById(id); if (el) el.innerText = txt; };
 

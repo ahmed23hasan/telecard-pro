@@ -44,7 +44,7 @@ export const UsersTemplates = {
     `,
     
     userCard: (u, sortType = 'newest', currentMonthKey = '', lastMonthKey = '', index = 0) => {
-        const name = _esc(RenderHelpers._getExplicitName(u));
+        const name = _esc(RenderHelpers._getTxName(u));
         const exactStatus = u.isBanned ? 'banned' : (u.isRestricted ? 'restricted' : 'active');
         const statusClass = `status-${exactStatus}`;
         
@@ -427,7 +427,7 @@ export const UsersTemplates = {
     `,
     
     tierUserCard: (u, spent, target, pct, isTopTier, nextTierName, tier) => {
-        const safeName = _esc(RenderHelpers._getExplicitName(u));
+        const safeName = _esc(RenderHelpers._getTxName(u));
         const fallbackChar = safeName && safeName !== '---' ? safeName.charAt(0) : '?';
         const exactStatus = u.isBanned ? 'banned' : (u.isRestricted ? 'restricted' : 'active');
         const tierColor = tier.color || 'var(--primary)';
@@ -493,7 +493,7 @@ export const UsersTemplates = {
     `,
 
     kycRequestCard: function(user) {
-        const safeName = _esc(RenderHelpers._getExplicitName(user));
+        const safeName = _esc(RenderHelpers._getTxName(user));
         const fallbackChar = safeName && safeName !== '---' ? safeName.charAt(0) : '?';
         const exactStatus = user.isBanned ? 'banned' : (user.isRestricted ? 'restricted' : 'active');
         
