@@ -269,7 +269,7 @@ export const AdminData = {
             endTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1) - 1; 
         }
 
-        const [ordAgg, depAgg, pOrd, pDep, pKyc, pComp, tUsr, bUsr, liquidity, topUsersRaw] = await Promise.all([
+        const [ordAgg, depAgg, pOrd, pDep, pKyc, pComp, tUsr, bUsr, topUsersRaw, liquidity] = await Promise.all([
             FirebaseAdapter.getAggregatedStats(DB_KEYS.ORDERS, [['status', '==', 'completed']], {
                 revenue: { type: 'sum', field: 'priceBaseUsd' }, profit: { type: 'sum', field: 'pricingSnapshot.netProfitUsd' }, count: { type: 'count' }
             }),
@@ -282,9 +282,9 @@ export const AdminData = {
             FirebaseAdapter.getAggregatedStats('telecard_reviews', [['status', '==', 'pending'], ['rating', '<=', 2]], { total: { type: 'count' }}),
             FirebaseAdapter.getAggregatedStats(DB_KEYS.USERS, [], { total: { type: 'count' }}),
             FirebaseAdapter.getAggregatedStats(DB_KEYS.USERS, [['isBanned', '==', true]], { total: { type: 'count' }}),
-            FirebaseAdapter.getRecent(DB_KEYS.USERS, 50, 'totalSpent') 
+            FirebaseAdapter.getRecent(DB_KEYS.USERS, 50, 'totalSpent'),
+            this.fetchWalletsLiquidityAsync() // 🚀 هذا هو السطر المفقود الذي تسبب في انهيار اللوحة
         ]);
-
         let topHeroes = [];
         if (leaderboardPeriod === 'all') {
             topHeroes = (topUsersRaw || []).map(u => ({
