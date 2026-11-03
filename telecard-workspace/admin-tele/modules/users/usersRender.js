@@ -292,12 +292,13 @@ export const UsersRender = {
             }
 
             const settledResults = await Promise.allSettled(queries);
-const mergedMap = new Map();
-initialRelated.forEach(item => mergedMap.set(String(item.id), item));
+            const mergedMap = new Map();
+            initialRelated.forEach(item => mergedMap.set(String(item.id), item));
 
-settledResults.forEach(res => {
-            if (res.status !== 'fulfilled' || !res.value) return;
-            res.value.forEach(docSnap => {                    if (String(docSnap.id) === strId) return;
+            settledResults.forEach(res => {
+                if (res.status !== 'fulfilled' || !res.value) return;
+                res.value.forEach(docSnap => {                    
+                    if (String(docSnap.id) === strId) return;
                     const otherUser = { id: docSnap.id, ...docSnap.data() };
                     if (otherUser.isDeleted) return;
 
@@ -401,12 +402,29 @@ settledResults.forEach(res => {
     switchUserTab: function(tabId) {
         if (!tabId) return;
         try {
-            document.querySelectorAll('.ud-tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.ud-tab-content').forEach(content => content.classList.remove('active'));
-            const targetBtn = document.querySelector(`.ud-tab-btn[data-tab="${tabId}"]`);
+            const modal = document.getElementById('m-user-detail');
+            const root = modal || document;
+
+            root.querySelectorAll('.ud-tab-btn').forEach(btn => btn.classList.remove('active'));
+            root.querySelectorAll('.ud-tab-content, #ud-body > div').forEach(content => {
+                content.classList.remove('active');
+                content.classList.add('hide-element');
+                content.style.display = 'none';
+            });
+
+            const targetBtn = root.querySelector(`.ud-tab-btn[data-tab="${tabId}"]`);
             if (targetBtn) targetBtn.classList.add('active');
-            const targetContent = document.getElementById(tabId) || document.getElementById(`tab-${tabId}`) || document.getElementById(`ud-${tabId}`) || document.getElementById(`ud-tab-${tabId}`);
-            if (targetContent) targetContent.classList.add('active');
+
+            const targetContent = document.getElementById(tabId) ||
+                document.getElementById(`tab-${tabId}`) ||
+                document.getElementById(`ud-${tabId}`) ||
+                document.getElementById(`ud-tab-${tabId}`);
+
+            if (targetContent) {
+                targetContent.classList.add('active');
+                targetContent.classList.remove('hide-element');
+                targetContent.style.display = 'block';
+            }
         } catch (error) { console.error("🚨 خطأ في تبديل تبويبات العميل:", error); }
     },
 
@@ -418,8 +436,20 @@ settledResults.forEach(res => {
             cont.innerHTML = UsersTemplates.emptyTiers(); 
             return; 
         }
-        
-        // 🚀 جلب العدد الحقيقي لعملاء كل مستوى من السيرفر (يدعم حتى عشرات الآلاف من العملاء بدقة 100%)
+
+        const tiersStats = AdminData.data.tiersStats || {};
+        const localUsers = Array.isArray(AdminData.data.users) ? AdminData.data.users : [];
+
+        // ⚡ 1. رسم فوري في 0ms من الذاكرة لمنع اختفاء المستويات أثناء انتظار الشبكة
+        cont.innerHTML = tiers.map(t => {
+            const cachedCount = AdminData.data.tierUserCounts?.[t.id];
+            const fallbackLocalCount = localUsers.filter(u => u && !u.isDeleted && String(u.tierId) === String(t.id)).length;
+            const userCount = cachedCount !== undefined ? cachedCount : fallbackLocalCount;
+            const tStats = tiersStats[String(t.id)] || { profit: 0, revenue: 0 };
+            return UsersTemplates.tierCard(t, userCount, tStats);
+        }).join('');
+
+        // ☁️ 2. جلب العدد الحقيقي لعملاء كل مستوى من السيرفر في الخلفية وتحديث الرقم فوراً
         if (!AdminData.data.tierUserCounts) {
             AdminData.data.tierUserCounts = {};
             await Promise.all(tiers.map(async (t) => {
@@ -428,17 +458,12 @@ settledResults.forEach(res => {
                     [['tierId', '==', String(t.id)]],
                     { total: { type: 'count' } }
                 );
-                AdminData.data.tierUserCounts[t.id] = agg?.total ?? 0;
+                const exactCount = agg?.total ?? 0;
+                AdminData.data.tierUserCounts[t.id] = exactCount;
+                const countEl = document.querySelector(`#tier-card-${t.id} .count-val`);
+                if (countEl) countEl.textContent = Utils.enNum(exactCount);
             }));
         }
-
-        const tiersStats = AdminData.data.tiersStats || {};
-        
-        cont.innerHTML = tiers.map(t => {
-            const userCount = AdminData.data.tierUserCounts?.[t.id] ?? 0;
-            const tStats = tiersStats[String(t.id)] || { profit: 0, revenue: 0 };
-            return UsersTemplates.tierCard(t, userCount, tStats);
-        }).join('');
     },
 
     showTierUsersPage: function(tierId) {
