@@ -1,16 +1,21 @@
 // ============================================================================
-// 🧠 خادم الخلفية (Service Worker - sw.js) - Enterprise PWA V22.1 💎
-// 🎯 الوظيفة: تفعيل التثبيت كـ App، تشغيل المتجر Offline، وحماية الواجهة.
-// 🚀 التحديثات المعمارية الصارمة (V22.1 - Lie-Fi White Screen Patch):
-// 1. Network Timeout Guard 🛡️: قاطع تيار (4 ثوانٍ) لمنع الشاشة البيضاء في الإنترنت الوهمي/المتقطع (Lie-Fi).
-// 2. Direct CDN Inject 🛡️: استدعاء مكتبة dom-to-image-more مباشرة من خوادم cdnjs وتخزينها.
-// 3. Hard Cache Flush 🛡️: رفع الإصدار إلى V22.1 لكسر الكاش القديم وتحديث الأصول فوراً.
-// 4. Soft-404 Guard 🛡️: منع تخزين صفحات الخطأ (HTML) مكان ملفات (JS/CSS).
+// 🧠 خادم الخلفية الموحد (Service Worker - sw.js) - Enterprise PWA V24.1.0 💎
+// 🎯 الوظيفة: تفعيل التثبيت كـ App، تشغيل المتجر Offline، ومعالجة إشعارات FCM بالخلفية.
+// 🚀 التحديثات المعمارية الصارمة (V24.1.0 - Token Refresh Bypass & QR Parity):
+// 1. Auth Token Bypass 🔐: استثناء securetoken.googleapis.com لمنع اعتراض تجديد التوكن وانقطاع الجلسة.
+// 2. Offline QR Support 📱: الإبقاء على qrcode.min.js في الكاش لضمان توليد رموز 2FA دون إنترنت.
+// 3. Local Asset Query Ignore 🔍: تفعيل ignoreSearch للأصول المحلية لمطابقة (style.css?v=...) مع الكاش.
+// 4. Safe Accept Header Guard 🛡️: تحصين قراءة هيدر accept ضد القيم الفارغة (null).
 // ============================================================================
 
-const CACHE_NAME = 'telecard-static-v22.8'; 
+try {
+  importScripts('./firebase-messaging-sw.js');
+} catch (e) {
+  console.warn('⚠️ [Service Worker] تعذر تحميل وحدة إشعارات الخلفية:', e);
+}
 
-// 🛡️ الملفات الأساسية فقط (تم وضع الرابط المباشر للمكتبة هنا)
+const CACHE_NAME = 'telecard-static-v27.0';
+
 const CORE_ASSETS = [
   './',
   './store.html',
@@ -24,7 +29,7 @@ const CORE_ASSETS = [
   './dataManager.js',
   './renderManager.js',
   './components.js',
-  './qrcode.min.js', 
+  './qrcode.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/dom-to-image-more/3.10.2/dom-to-image-more.min.js',
   './core/firebaseAdapter.js',
   './core/financialEngine.js',
@@ -60,9 +65,8 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          // 🧹 تدمير أي كاش قديم لا يحمل اسم الإصدار الحالي
           if (cacheName !== CACHE_NAME && cacheName.startsWith('telecard-static-')) {
-            console.log(`🧹 [Service Worker] تنظيف كاش قديم ومسموم: ${cacheName}`);
+            console.log(`🧹 [Service Worker] تنظيف كاش قديم: ${cacheName}`);
             return caches.delete(cacheName);
           }
         })
@@ -71,10 +75,9 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// استقبال أمر التحديث الإجباري من الواجهة
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
-      self.skipWaiting();
+    self.skipWaiting();
   }
 });
 
@@ -82,56 +85,56 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
   
-  // 🛡️ تجاهل كافة مسارات فايربيس وقواعد البيانات لتمريرها مباشرة للإنترنت
+  // 🛡️ استثناء خدمات جوجل السحابية والمصادقة الحساسة لمنع اعتراضها
   if (url.hostname.includes('firestore.googleapis.com') ||
-      url.hostname.includes('firebasestorage.googleapis.com') ||
-      url.hostname.includes('identitytoolkit.googleapis.com') ||
-      url.hostname.includes('cloudfunctions.net') ||
-      url.pathname.startsWith('/_/')) {
+    url.hostname.includes('firebasestorage.googleapis.com') ||
+    url.hostname.includes('identitytoolkit.googleapis.com') ||
+    url.hostname.includes('securetoken.googleapis.com') ||
+    url.hostname.includes('cloudfunctions.net') ||
+    url.pathname.startsWith('/_/')) {
     return;
   }
   
   if (request.method !== 'GET') return;
   
-  const isNavigate = request.mode === 'navigate' || request.headers.get('accept').includes('text/html');
-  const cacheMatchOptions = isNavigate ? { ignoreSearch: true } : {};
+  const acceptHeader = request.headers.get('accept') || '';
+  const isNavigate = request.mode === 'navigate' || acceptHeader.includes('text/html');
+  const isLocalAsset = url.origin === self.location.origin;
+  const cacheMatchOptions = (isNavigate || isLocalAsset) ? { ignoreSearch: true } : {};
   
   if (isNavigate) {
     event.respondWith(
-      // 🛡️ [الإصلاح المعماري]: قاطع تيار زمني (Timeout) مدته 4 ثوانٍ لإنقاذ العميل من الشاشة البيضاء في الإنترنت المتقطع
       new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(() => reject(new Error('Network Timeout')), 4000);
+        const timeoutId = setTimeout(() => reject(new Error('Network Timeout')), 8000);
         
         fetch(request).then((response) => {
           clearTimeout(timeoutId);
           if (response.status === 200) {
-              const clone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           }
-          resolve(response); 
+          resolve(response);
         }).catch((err) => {
           clearTimeout(timeoutId);
           reject(err);
         });
       })
       .catch(() => {
-        // السقوط الآمن للكاش عند انقطاع أو تأخر الشبكة (Offline Mode)
         return caches.match(request, cacheMatchOptions).then(cachedResponse => {
-            if (cachedResponse) return cachedResponse;
-            if (url.pathname.includes('login')) return caches.match('./login.html', { ignoreSearch: true });
-            if (url.pathname.includes('signup')) return caches.match('./signup.html', { ignoreSearch: true });
-            return caches.match('./store.html', { ignoreSearch: true });
+          if (cachedResponse) return cachedResponse;
+          if (url.pathname.includes('login')) return caches.match('./login.html', { ignoreSearch: true });
+          if (url.pathname.includes('signup')) return caches.match('./signup.html', { ignoreSearch: true });
+          return caches.match('./store.html', { ignoreSearch: true });
         });
       })
     );
     return;
   }
   
-  // استراتيجية الملفات الثابتة (Stale-While-Revalidate & Cache First)
   event.respondWith(
     caches.match(request, cacheMatchOptions).then((cachedResponse) => {
-      if (cachedResponse) return cachedResponse; 
-
+      if (cachedResponse) return cachedResponse;
+      
       return fetch(request).then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           
@@ -139,12 +142,11 @@ self.addEventListener('fetch', (event) => {
           const isJsRequest = url.pathname.endsWith('.js');
           const isCssRequest = url.pathname.endsWith('.css');
           
-          // 🛡️ Soft-404 Guard: منع تخزين صفحة خطأ كودها 200 مكان ملفات ستايل أو جافاسكريبت
           if ((isJsRequest || isCssRequest) && contentType.includes('text/html')) {
-              console.warn(`🚨 [Cache Guard] تم حظر تسميم الكاش للملف: ${url.pathname}`);
-              return networkResponse; 
+            console.warn(`🚨 [Cache Guard] تم حظر تسميم الكاش للملف: ${url.pathname}`);
+            return networkResponse;
           }
-
+          
           const clone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }

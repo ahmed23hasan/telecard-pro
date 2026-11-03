@@ -4,8 +4,33 @@
       "collectionGroup": "telecard_orders",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "vaultPoolId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "supplierId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "time", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_orders",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "time", "order": "DESCENDING" }
+        { "fieldPath": "time", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -15,6 +40,15 @@
         { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "priceLocalDeducted", "order": "ASCENDING" }
       ]
     },
     {
@@ -31,32 +65,16 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "time", "order": "DESCENDING" }
+        { "fieldPath": "time", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "telecard_orders",
+      "collectionGroup": "telecard_deposits",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "priceBaseUsd", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "telecard_orders",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "pricingSnapshot.netProfitUsd", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "telecard_orders",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "priceBaseUsd", "order": "ASCENDING" },
-        { "fieldPath": "pricingSnapshot.netProfitUsd", "order": "ASCENDING" }
+        { "fieldPath": "time", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -64,7 +82,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "time", "order": "DESCENDING" }
+        { "fieldPath": "time", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -80,8 +99,18 @@
       "collectionGroup": "telecard_deposits",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "time", "order": "DESCENDING" }
+        { "fieldPath": "creditedAmount", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_deposits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "time", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -96,9 +125,24 @@
       "collectionGroup": "telecard_deposits",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "method", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "method", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_audit_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "timestamp", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_audit_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "timestamp", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
@@ -123,6 +167,105 @@
       "fields": [
         { "fieldPath": "isBanned", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "totalSpent", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "totalOrdersCount", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tierId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tierId", "order": "ASCENDING" },
+        { "fieldPath": "totalSpent", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tierId", "order": "ASCENDING" },
+        { "fieldPath": "totalOrdersCount", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isDormant", "order": "ASCENDING" },
+        { "fieldPath": "lastOrderTime", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "lastOrderTime", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "baseCurrency", "order": "ASCENDING" },
+        { "fieldPath": "walletBalance", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_user_stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "monthKey", "order": "ASCENDING" },
+        { "fieldPath": "spentThisMonth", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_user_stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "monthKey", "order": "ASCENDING" },
+        { "fieldPath": "ordersThisMonth", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "telecard_user_stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "monthKey", "order": "ASCENDING" },
+        { "fieldPath": "ordersThisMonth", "order": "ASCENDING" }
       ]
     },
     {
@@ -158,6 +301,15 @@
       ]
     },
     {
+      "collectionGroup": "telecard_failed_webhooks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "orderId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "keys",
       "queryScope": "COLLECTION",
       "fields": [
@@ -174,12 +326,19 @@
       ]
     },
     {
-      "collectionGroup": "telecard_prods",
+      "collectionGroup": "keys",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "supplierId", "order": "ASCENDING" },
-        { "fieldPath": "isAvailable", "order": "ASCENDING" },
-        { "fieldPath": "syncSessionId", "order": "ASCENDING" }
+        { "fieldPath": "isSold", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "keys",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isSold", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -197,12 +356,20 @@
         { "fieldPath": "supplierId", "order": "ASCENDING" },
         { "fieldPath": "reportedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "telecard_pending_uploads",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uploadedAt", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
     {
       "collectionGroup": "telecard_users",
-      "fieldPath": "devicePrints",
+      "fieldPath": "usedCoupons",
       "indexes": []
     },
     {
@@ -221,8 +388,92 @@
       "indexes": []
     },
     {
+      "collectionGroup": "telecard_orders",
+      "fieldPath": "userDataSnapshot",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_orders",
+      "fieldPath": "_auditToken",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_orders",
+      "fieldPath": "deliveredCode",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_deposits",
+      "fieldPath": "userDataSnapshot",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_coupons",
+      "fieldPath": "usageHistory",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "chunks",
+      "fieldPath": "hashes",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "keys",
+      "fieldPath": "codeText",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_prods",
+      "fieldPath": "tierPrices",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_prods_public",
+      "fieldPath": "tierPrices",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_statistics",
+      "fieldPath": "products_data",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_statistics",
+      "fieldPath": "tiers_data",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "telecard_statistics",
+      "fieldPath": "suppliers_data",
+      "indexes": []
+    },
+    {
       "collectionGroup": "telecard_idempotency_keys",
       "fieldPath": "expiresAt",
+      "indexes": [],
+      "ttl": true
+    },
+    {
+      "collectionGroup": "telecard_audit_logs",
+      "fieldPath": "expireAt",
+      "indexes": [],
+      "ttl": true
+    },
+    {
+      "collectionGroup": "telecard_bi_events",
+      "fieldPath": "expireAt",
+      "indexes": [],
+      "ttl": true
+    },
+    {
+      "collectionGroup": "telecard_system_errors",
+      "fieldPath": "expireAt",
+      "indexes": [],
+      "ttl": true
+    },
+    {
+      "collectionGroup": "telecard_failed_webhooks",
+      "fieldPath": "expireAt",
       "indexes": [],
       "ttl": true
     }

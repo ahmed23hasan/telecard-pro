@@ -1,10 +1,10 @@
 // ============================================================================
-// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.2 💎
+// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.3 💎
 // 🎯 الوظيفة: أدوات الواجهة المشتركة (الإشعارات، التحميل، النوافذ) بدون منطق عمل
-// 🌟 التحديثات (V15.2):
-// 1. Storage Saver 💾: إضافة دالة base64ToBlob لتحويل الصور المضغوطة ورفعها.
-// 2. Memory Leak Fix 🧹: تدمير الكانفاس والصور من الذاكرة العشوائية بعد الضغط.
-// 3. Radar Prompt 📡: نافذة تفاعلية منبثقة لطلب صلاحية الإشعارات للمدير.
+// 🌟 التحديثات المعمارية (V15.3 - Memory & CSP Shield):
+// 1. Event Leak Fix 🧹: حل مشكلة تضاعف الأحداث (Event Accumulation) في نافذة الـ Prompt.
+// 2. CSP Compliance 🛡️: إزالة הـ Inline JS من نافذة التقارير وتوجيهها للمنظف المركزي.
+// 3. Scroll Lock Safety 🔓: ضمان فك تجميد الشاشة عند إغلاق التقارير الديناميكية.
 // ============================================================================
 
 import { Utils, EventBus } from '../adminUtils.js';
@@ -15,7 +15,7 @@ export const UIService = {
     tempImg: null,
     tempFile: null, 
 
-    // 🚀 [تحديث أمني وهندسي]: دالة تحويل الصورة المضغوطة إلى ملف حقيقي لرفعه للسيرفر
+    // 🚀 تحويل الصورة المضغوطة إلى ملف حقيقي لرفعه للسيرفر
     base64ToBlob: function(base64Data, contentType = 'image/jpeg') {
         if (!base64Data || !base64Data.includes(',')) return null;
         const byteCharacters = atob(base64Data.split(',')[1]);
@@ -57,7 +57,6 @@ export const UIService = {
         this.showToast(isLight ? 'تم تفعيل الوضع النهاري ☀️' : 'تم تفعيل الوضع الليلي 🌙', 'info', 1500);
     },
 
-    // 🚀 [الرادار المعماري]: نافذة طلب الإشعارات الخاصة بالمدير
     showAdminPushPrompt: function() {
         if (typeof window === 'undefined' || !window.Notification) return;
         if (Notification.permission === 'granted' || Notification.permission === 'denied') return;
@@ -78,10 +77,10 @@ export const UIService = {
                         هل ترغب بربط هذا الجهاز بغرفة العمليات لتلقي إنذارات فورية (Push Notifications) عند وصول طلبات، إيداعات، أو شكاوى جديدة؟
                     </div>
                     <div class="d-flex gap-10">
-                        <button class="btn btn-primary flex-1" data-action="enable-admin-notifs">
+                        <button class="btn btn-primary flex-1 interactive-scale" data-action="enable-admin-notifs">
                             <i class="fa-solid fa-check"></i> تفعيل الرادار
                         </button>
-                        <button class="btn btn-ghost flex-1" data-action="dismiss-admin-notifs">
+                        <button class="btn btn-ghost flex-1 interactive-scale" data-action="dismiss-admin-notifs">
                             ليس الآن
                         </button>
                     </div>
@@ -196,28 +195,44 @@ export const UIService = {
             
             newOkBtn.addEventListener('click', () => closeDialog(true));
             newCancelBtn.addEventListener('click', () => closeDialog(false));
-            inputEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') closeDialog(true); });
+            
+            // 🚀 [الإصلاح المعماري 1]: استخدام onkeypress لمنع تضاعف المستمعات وتكرار الإرسال
+            inputEl.onkeypress = (e) => { 
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    closeDialog(true);
+                }
+            };
             
             overlay.classList.add('active');
             if (window.innerWidth > 768) setTimeout(() => { inputEl.focus(); }, 350);
         });
     },    
-showReportModal: function(title, htmlContent) {
+
+    showReportModal: function(title, htmlContent) {
+    const existingOverlay = document.getElementById('report-modal-overlay');
+    if (existingOverlay) existingOverlay.remove();
+    
     const overlay = document.createElement('div');
-    overlay.className = 'sys-overlay active';
+    overlay.id = 'report-modal-overlay';
+    overlay.className = 'sys-overlay dynamic-auto-destroy active';
     overlay.style.cssText = 'z-index: 99999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6);';
+    
     overlay.innerHTML = `
-            <div class="modal-content modal-md" style="animation: slideIn 0.3s ease; width: 90%; max-width: 500px;">
-                <div class="flex-between align-items-center mb-15">
-                    <h2 class="main-title m-0"><i class="fa-solid fa-file-invoice"></i> ${this._esc(title)}</h2>
-                    <div class="modal-close-btn clickable" onclick="this.closest('.sys-overlay').remove()"><i class="fa-solid fa-xmark"></i></div>
-                </div>
-                <div class="custom-scrollbar" style="max-height: 400px; overflow-y: auto; text-align: right; padding-left: 5px;">
-                    ${htmlContent}
-                </div>
-                <button class="btn btn-ghost btn-full mt-15" onclick="this.closest('.sys-overlay').remove()">إغلاق التقرير</button>
-            </div>`;
+                <div class="modal-content modal-md" style="animation: slideIn 0.3s ease; width: 90%; max-width: 500px;">
+                    <div class="flex-between align-items-center mb-15">
+                        <h2 class="main-title m-0"><i class="fa-solid fa-file-invoice"></i> ${this._esc(title)}</h2>
+                        <div class="modal-close-btn clickable interactive-scale" data-action="close-modal" data-id="report-modal-overlay"><i class="fa-solid fa-xmark"></i></div>
+                    </div>
+                    <div class="custom-scrollbar" style="max-height: 400px; overflow-y: auto; text-align: right; padding-left: 5px;">
+                        ${htmlContent}
+                    </div>
+                    <div class="modal-actions-row border-top-solid mt-15 pt-15">
+                        <button class="btn btn-outline-danger interactive-scale w-100" data-action="close-modal" data-id="report-modal-overlay">إغلاق التقرير</button>
+                    </div>
+                </div>`;
     document.body.appendChild(overlay);
+    document.body.style.overflow = 'hidden';
 },
     copyText: function(text, event, element) {
         if (event) { event.stopPropagation(); event.preventDefault(); }
@@ -278,11 +293,13 @@ showReportModal: function(title, htmlContent) {
         if (window.innerWidth < 992 && typeof this.closeSidebar === 'function') this.closeSidebar();
         
         document.querySelectorAll('.modal-overlay.active, .sys-overlay.active').forEach(overlay => {
-            if (overlay.id !== 'm-' + id && overlay.id !== id) {
-                overlay.classList.remove('active');
-            }
-        });
-
+    if (overlay.id !== 'm-' + id && overlay.id !== id) {
+        overlay.classList.remove('active');
+        if (overlay.classList.contains('dynamic-auto-destroy')) {
+            setTimeout(() => { if (overlay.parentElement) overlay.remove(); }, 300);
+        }
+    }
+});
         const modalEl = document.getElementById('m-' + id) || document.getElementById(id);
         if (modalEl) {
             const scrollContent = modalEl.querySelector('.modal-content,.ud-modal-body,.ud-modal-pro');
@@ -296,28 +313,35 @@ showReportModal: function(title, htmlContent) {
 
         if (id === 'prod') EventBus.emit('req-render-prod-config');
         if (id === 'profile') EventBus.emit('req-update-profile-ui');
-        // إطلاق حدث لتهيئة بيانات نافذة الرادار في حال تم فتحها
         if (id === 'admin-prefs') EventBus.emit('req-update-prefs-ui');
     },
 
+    // 🚀 [المنظف المعماري الذكي (Smart Garbage Collector)]
     closeModal: function(specificId = null) {
-        if (specificId) {
-            const modal = document.getElementById(specificId) || document.getElementById('m-' + specificId);
-            if (modal) modal.classList.remove('active');
-        } else {
-            document.querySelectorAll('.modal-overlay.active, .sys-overlay.active').forEach(overlay => overlay.classList.remove('active'));
+    const modalsToClose = specificId ?
+        [document.getElementById(specificId) || document.getElementById('m-' + specificId)] :
+        document.querySelectorAll('.modal-overlay.active, .sys-overlay.active');
+    
+    modalsToClose.forEach(modal => {
+        if (modal) {
+            modal.classList.remove('active');
+            
+            setTimeout(() => {
+                if (modal.classList.contains('dynamic-auto-destroy') && modal.parentElement) {
+                    modal.remove();
+                }
+            }, 300);
         }
-        
-        const anyModalActive = document.querySelectorAll('.modal-overlay.active, .sys-overlay.active').length > 0;
-        if (!anyModalActive) {
-            document.body.style.overflow = '';
-        }
-        
+    });
+    
+    const anyModalActive = document.querySelectorAll('.modal-overlay.active, .sys-overlay.active, .drawer-overlay.active').length > 0;
+    if (!anyModalActive) {
+        document.body.style.overflow = '';
         this.tempImg = null;
         this.tempFile = null;
         EventBus.emit('modals-closed');
-    },    
-
+    }
+},
     toggleSidebar: function() {
         const sb = document.getElementById('sidebar');
         const ov = document.getElementById('sb-overlay');
@@ -333,12 +357,14 @@ showReportModal: function(title, htmlContent) {
     },
     
     onResize: function() {
-        const sidebar = document.getElementById('sidebar');
-        const overlay = document.getElementById('sb-overlay');
+        // لا نتدخل في הـ DOM ونترك הـ CSS يقوم بعمله السحري (Media Queries)
         if (window.innerWidth >= 992) {
-            if (sidebar) { sidebar.classList.add('active'); sidebar.classList.remove('open'); }
+            const overlay = document.getElementById('sb-overlay');
             if (overlay) overlay.classList.remove('active');
-        } else { if (sidebar) sidebar.classList.remove('active'); }
+            
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) sidebar.classList.remove('open', 'active');
+        }
     },
     
     openImageViewer: function(src) {
@@ -391,7 +417,7 @@ showReportModal: function(title, htmlContent) {
     processImage: async function(file, callback) {
         if(!file) return;
         
-        if (file.type === 'image/gif' || file.type === 'image/svg+xml') {
+        if (file.type === 'image/gif') {
             const reader = new FileReader();
             reader.readAsDataURL(file);
             reader.onload = (e) => { if(callback) callback(e.target.result); };
@@ -414,7 +440,8 @@ showReportModal: function(title, htmlContent) {
                         canvas.width = img.width * scale; 
                         canvas.height = img.height * scale;
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        resolve(canvas.toDataURL(file.type === 'image/png' ? 'image/png' : 'image/jpeg', file.type === 'image/jpeg' ? 0.7 : undefined)); 
+                        const outputMime = (file.type === 'image/png' || file.type === 'image/webp') ? file.type : 'image/jpeg';
+resolve(canvas.toDataURL(outputMime, outputMime === 'image/jpeg' ? 0.7 : 0.85)); 
                         
                         // 🧹 [حماية الذاكرة]: تنظيف الكانفاس والصورة من الذاكرة العشوائية (RAM)
                         ctx.clearRect(0, 0, canvas.width, canvas.height);

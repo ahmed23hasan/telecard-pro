@@ -1,20 +1,27 @@
 // ============================================================================
-// 🗺️ خريطة مسارات المستخدمين (Users Actions Router) - Cloud-Native V18.4 💎
+// 🗺️ خريطة مسارات المستخدمين (Users Actions Router) - Cloud-Native V19.5 💎
 // 🚀 التحديث الأقصى: 
-// 1. Ledger Audit Route ⚖️: ربط مسار "المحقق المالي" لتصحيح تشوهات الأرصدة سحابياً.
-// 2. Version Unification: توحيد رقم الإصدار مع باقي المنظومة لضمان التوافقية التامة.
+// 1. Developer Routes 🔌: إضافة مسارات الـ API (توليد المفاتيح وحفظ الـ Webhooks).
+// 2. Ledger Audit Route ⚖️: توجيه مسار المحقق المالي للمتحكم المالي المخصص (FinanceController).
+// 3. Modal Isolation 🛡️: تمرير preventModalOpen لمنع تداخل النوافذ عند التوجيه التلقائي.
 // ============================================================================
 
 import { UsersController } from './usersController.js';
-import { UsersRender } from './usersRender.js'; 
+import { UsersRender } from './usersRender.js';
 import { AdminUI } from '../../adminUI.js';
 import { EventBus } from '../../adminUtils.js';
 
+// 🚀 [الإصلاح المعماري]: استيراد متحكم المالية لاستخدام المحقق المالي المتقدم
+import { FinanceController } from '../finance/financeController.js';
+
 export const UsersActions = {
     // --- 1. الإدارة العامة للمستخدمين ---
-    'view-user': (data) => UsersRender?.viewUser?.(data.id),
-    'switch-user-tab': (data) => UsersRender?.switchUserTab?.(data.tab),
+    // 🚀 التحديث هنا: تمرير preventModalOpen لعدم تداخل النوافذ
+    'view-user': (data) => UsersRender?.viewUser?.(data.id, data.preventModalOpen),
     
+    'switch-user-tab': (data) => UsersRender?.switchUserTab?.(data.tab),
+    'load-more-users': () => UsersRender?.loadMoreUsers?.(),
+    'load-more-tier-users': () => UsersRender?.renderTierUsersPage?.(true),    
     'fetch-user-history': (data) => UsersController.fetchUserHistory?.(data.id, data.loadMore),
     'load-more-user-history': (data) => UsersController.fetchUserHistory?.(data.id, true),
     
@@ -27,14 +34,18 @@ export const UsersActions = {
     'ban-user-ip': (data) => UsersController.banUserIp?.(data.id, data.ip),
     'adjust-balance': (data) => UsersController.openBalanceAdjust?.(data.type, data.id),
     
-    // 🚀 [ربط مسار المحقق المالي الجنائي]
-    'audit-user-wallet': (data) => UsersController.auditUserWallet?.(data.id),
+    // ⚖️ مسار المحقق المالي الجنائي (توجيه نحو FinanceController الأحدث)
+    'audit-user-wallet': (data) => FinanceController.auditUserWallet?.(data.id),
     
     'send-custom-notif': (data) => UsersController.sendCustomNotification?.(data.id),
     'send-password-reset': (data) => UsersController.sendPasswordReset?.(data.id),
     'toggle-user-sort': () => UsersController.toggleUserSort?.(),
     'change-user-sort': (data) => UsersController.changeUserSort?.(data.val || data.element.value),
     'search-users': (data) => UsersController.searchUsers?.(data.val),
+    
+    // 🔌 مسارات المطورين والربط البرمجي (B2B API Integration)
+    'generate-api-key': (data) => UsersController.generateApiKey?.(data.id),
+    'save-webhook': (data) => UsersController.saveWebhook?.(data.id),
     
     // --- 2. إدارة المستويات (Tiers) ---
     'open-tier-edit': (data) => AdminUI?.UsersUI?.openTierModal?.(data.id),

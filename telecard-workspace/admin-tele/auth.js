@@ -1,8 +1,8 @@
 // ============================================================================
-// 🔐 محرك المصادقة السحابي للإدارة (auth.js) - Bank Grade Security 🏦 V16.3 💎
+// 🔐 محرك المصادقة السحابي للإدارة (auth.js) - Bank Grade Security 🏦 V16.4 💎
 // 🎯 الوظيفة: التحقق من هوية المشرف، حماية الجلسات، ودعم المصادقة الثنائية (2FA)
-// 🚀 التحديثات المعمارية (V16.3 - Bank-Grade Strict Session):
-// 1. Strict Session Security 🔒: العودة إلى الذاكرة المؤقتة (Session) لطرد المدير فور إغلاق المتصفح.
+// 🚀 التحديثات المعمارية (V16.4 - Multi-Tab UX Fix):
+// 1. Local Storage UX 🛡️: استبدال الذاكرة المؤقتة بالدائمة للسماح بفتح نوافذ متعددة.
 // 2. Zero-Trust Claims 🛡️: إزالة المعرف الثابت (Hardcoded UID) والاعتماد حصرياً على توثيق السيرفر.
 // ============================================================================
 
@@ -10,7 +10,7 @@ import { auth } from './core/firebaseAdapter.js';
 import {
     signInWithEmailAndPassword,
     setPersistence,
-    browserSessionPersistence, // 🚀 [التحديث الأمني]: استخدام الذاكرة المؤقتة لأقصى درجات الأمان
+    browserLocalPersistence, // 🚀 [التحديث المعماري]: استخدام الذاكرة الدائمة لراحة المستخدم (Multi-tab)
     getMultiFactorResolver,
     TotpMultiFactorGenerator
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
@@ -106,9 +106,9 @@ const finalizeAdminLogin = async (user) => {
         throw new Error('NotAuthorizedAdmin');
     }
     
-    // 🚀 [التحديث الأمني]: استخدام sessionStorage لضمان تدمير الجلسة بمجرد إغلاق المتصفح (المعيار البنكي)
-    sessionStorage.setItem('telecard_admin_auth', 'true');
-    
+    // 🚀 [التحديث المعماري]: استخدام localStorage وتحديث طابع النشاط لمنع الطرد الكاذب عند الدخول
+localStorage.setItem('telecard_admin_auth', 'true');
+localStorage.setItem('telecard_admin_last_activity', Date.now().toString());
     const btnLogin = document.getElementById('btn-login');
     const modal2fa = document.getElementById('admin-2fa-modal');
     
@@ -151,8 +151,8 @@ document.addEventListener('DOMContentLoaded', () => {
         setBtnLoading(true);
         
         try {
-            // 🚀 [التحديث الأمني]: إجبار فايربيز على نسيان المدير بمجرد إغلاق المتصفح
-            await setPersistence(auth, browserSessionPersistence);
+            // 🚀 [التحديث المعماري]: حفظ الجلسة محلياً لراحة المستخدم (Multi-tab support)
+            await setPersistence(auth, browserLocalPersistence);
             const userCredential = await signInWithEmailAndPassword(auth, inputEmail, inputPass);
             await finalizeAdminLogin(userCredential.user);
             

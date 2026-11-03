@@ -1,63 +1,51 @@
 // ============================================================================
-// 👥 قوالب بوابة المطورين والـ API (modules/developer/developerTemplates.js) - V18.0 💎
-// 🎯 الوظيفة: توليد الـ HTML النقي المدمج بالبيانات (Data Binding) للمطورين
-// 🚀 التحديث الأقصى: 
-// 1. Webhook Secret UI 🛡️: إدراج مفتاح التوقيع السري (whsec) لتأكيد مصدر الطلبات.
-// 2. Visual Security: إخفاء المفاتيح داخل حقول مشفرة لمنع التصوير العرضي للشاشة.
+// 👥 قوالب بوابة المطورين والـ API (modules/developer/developerTemplates.js) - V19.7 💎
+// 🚀 التحديثات المعمارية: 
+// 1. CSP Security Patch 🛡️: إزالة הـ Inline JS (onclick) واستبدالها بـ data-action.
+// 2. Clean CSS 🧹: استبدال הـ inline styles بكلاسات موحدة (border-top-solid).
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
+import { RenderHelpers } from '../../core/renderHelpers.js';
 
 const _esc = Utils.escapeHTML;
 
 export const DeveloperTemplates = {
     
     apiKeysCard: (user) => {
-        const apiKey = user.apiKey || '';
-        const hasKey = apiKey.trim() !== '';
+        const hasKey = user.apiKeyHash && String(user.apiKeyHash).trim() !== '';
         
         return `
         <div class="card mb-15">
-            <div class="card-header">
-                <h3 class="card-title text-primary"><i class="fa-solid fa-key"></i> مفاتيح الـ API</h3>
+            <div class="card-header no-border-bottom mb-10">
+                <h3 class="card-title text-primary"><i class="fa-solid fa-key me-1"></i> مفاتيح الـ API</h3>
             </div>
             <div class="card-body">
-                <div class="ud-info-list">
-                    <p class="text-muted fs-12 mb-15">استخدم هذا المفتاح للسماح لمتاجر وسيرفرات العميل بالاتصال بمتجرك وسحب المنتجات أو تنفيذ الطلبات.</p>
-                    
-                    ${hasKey ? `
-                    <div class="ud-info-row highlight-primary">
-                        <span class="ud-info-lbl text-primary"><i class="fa-solid fa-lock"></i> المفتاح النشط حالياً</span>
-                        <div class="flex-center-gap w-100 mt-5">
-                            <input type="password" id="dev-api-key-${_esc(user.id)}" class="form-input num-en flex-1" dir="ltr" readonly value="${_esc(apiKey)}">
-                            
-                            <button type="button" class="btn btn-ghost" onclick="const inp = document.getElementById('dev-api-key-${_esc(user.id)}'); inp.type = inp.type === 'password' ? 'text' : 'password';" title="إظهار/إخفاء المفتاح">
-                                <i class="fa-solid fa-eye"></i>
-                            </button>
-
-                            <button type="button" class="btn btn-ghost" data-action="copy-text" data-copy-text="${_esc(apiKey)}" title="نسخ المفتاح بالكامل">
-                                <i class="fa-solid fa-copy"></i>
-                            </button>
-                        </div>
+                <p class="text-muted fs-12 mb-15">استخدم هذا المفتاح للسماح لمتاجر وسيرفرات العميل بالاتصال بمتجرك وسحب المنتجات أو تنفيذ الطلبات.</p>
+                
+                ${hasKey ? `
+                <div class="ud-info-row highlight-primary p-15" style="border-radius: 12px; border: 1px dashed var(--primary); background: var(--primary-glow);">
+                    <div class="d-flex justify-content-between align-items-center w-100">
+                        <span class="ud-info-lbl text-primary fw-bold"><i class="fa-solid fa-lock me-1"></i> حالة المفتاح: <span class="badge bg-success ms-1">نشط ومُشفّر سحابياً</span></span>
                     </div>
-                    <div class="mt-15 flex-center-gap">
-                        <button type="button" class="btn btn-red flex-1" data-action="revoke-api-key" data-id="${_esc(user.id)}">
-                            <i class="fa-solid fa-trash"></i> إبطال المفتاح
-                        </button>
-                        <button type="button" class="btn btn-primary flex-1" data-action="generate-api-key" data-id="${_esc(user.id)}">
-                            <i class="fa-solid fa-arrows-rotate"></i> تجديد المفتاح
-                        </button>
-                    </div>
-                    ` : `
-                    <div class="empty-state p-20">
-                        <i class="fa-solid fa-key text-muted fs-3 mb-10"></i>
-                        <span class="fs-12">لا يوجد مفتاح ربط نشط لهذا العميل</span>
-                        <button type="button" class="btn btn-primary mt-10" data-action="generate-api-key" data-id="${_esc(user.id)}">
-                            <i class="fa-solid fa-plus"></i> توليد مفتاح جديد
-                        </button>
-                    </div>
-                    `}
+                    <p class="fs-11 text-primary mt-10 mb-0"><i class="fa-solid fa-circle-info me-1"></i> المفتاح الخام لا يُحفظ في قاعدة البيانات لدواعي أمنية. إذا فُقد المفتاح، يجب توليد مفتاح جديد.</p>
                 </div>
+                
+                <div class="modal-actions-row border-top-solid mt-15 pt-15 d-flex gap-2">
+                    <button type="button" class="btn btn-primary interactive-scale flex-1" data-action="generate-api-key" data-id="${_esc(user.id)}">
+                        <i class="fa-solid fa-arrows-rotate me-1"></i> توليد مفتاح جديد
+                    </button>
+                    <button type="button" class="btn btn-outline-danger interactive-scale flex-1" data-action="revoke-api-key" data-id="${_esc(user.id)}">
+                        <i class="fa-solid fa-ban me-1"></i> إبطال المفتاح نهائياً
+                    </button>
+                </div>                ` : `
+                <div class="text-center w-100">
+                    ${RenderHelpers.emptyState('fa-solid fa-key text-muted', 'لا يوجد مفتاح ربط', 'هذا العميل لا يملك مفتاح API نشط للاتصال بمتجرك.')}
+                    <button type="button" class="btn btn-primary mt-15 interactive-scale" data-action="generate-api-key" data-id="${_esc(user.id)}">
+                        <i class="fa-solid fa-plus me-1"></i> توليد مفتاح ربط جديد
+                    </button>
+                </div>
+                `}
             </div>
         </div>`;
     },
@@ -65,42 +53,42 @@ export const DeveloperTemplates = {
     webhookCard: (user) => {
         const webhookUrl = user.webhookUrl || '';
         const webhookSecret = user.webhookSecret || '';
-        const hasSecret = webhookSecret.trim() !== '';
-        
+        const hasSavedSecret = Boolean(webhookSecret || user.hasWebhookSecret);
+        const secretPlaceholder = hasSavedSecret ?
+            '•••••••••••••••• (محفوظ سحابياً - اتركه فارغاً للاحتفاظ به)' :
+            'أدخل مفتاح التوقيع أو اتركه فارغاً لتوليده تلقائياً...';
+        const inputId = `dev-webhook-secret-${_esc(user.id)}`;        
         return `
         <div class="card">
-            <div class="card-header">
-                <h3 class="card-title text-success"><i class="fa-solid fa-satellite-dish"></i> إشعارات المتجر (Webhooks)</h3>
+            <div class="card-header no-border-bottom mb-10">
+                <h3 class="card-title text-success"><i class="fa-solid fa-satellite-dish me-1"></i> إشعارات المتجر (Webhooks)</h3>
             </div>
             <div class="card-body">
-                <p class="text-muted fs-12 mb-15">أدخل رابط الاستماع (Webhook URL) الخاص بمتجر العميل. سنقوم بإرسال تنبيهات فورية لهذا الرابط عند تغير حالة الطلبات.</p>
+                <p class="text-muted fs-12 mb-15">أدخل رابط الاستماع (Webhook URL) الخاص بمتجر العميل والمفتاح السري. سنقوم بإرسال تنبيهات فورية لهذا الرابط عند تغير حالة الطلبات.</p>
                 
                 <div class="form-group">
                     <label class="form-label">رابط الـ Webhook الخاص بالعميل (URL)</label>
-                    <input type="url" id="dev-webhook-url-${_esc(user.id)}" class="form-input num-en" dir="ltr" lang="en" placeholder="https://client-store.com/api/telecard-webhook" value="${_esc(webhookUrl)}">
+                    <input type="url" id="dev-webhook-url-${_esc(user.id)}" class="form-input num-en font-numeric" dir="ltr" lang="en" placeholder="https://client-store.com/api/webhook" value="${_esc(webhookUrl)}">
                 </div>
                 
-                <button type="button" class="btn btn-green mt-10 w-100" data-action="save-webhook-url" data-id="${_esc(user.id)}">
-                    <i class="fa-solid fa-floppy-disk"></i> حفظ الرابط وتوليد التوقيع
-                </button>
-
-                ${hasSecret ? `
-                <div class="ud-info-row highlight-success mt-20" style="padding: 15px; border-radius: 8px;">
-                    <span class="ud-info-lbl text-success fw-bold"><i class="fa-solid fa-shield-halved"></i> مفتاح التوقيع الرقمي (Webhook Secret)</span>
-                    <div class="flex-center-gap w-100 mt-10">
-                        <input type="password" id="dev-webhook-secret-${_esc(user.id)}" class="form-input num-en flex-1 mb-0" dir="ltr" readonly value="${_esc(webhookSecret)}">
+                <div class="form-group mt-15">
+                    <label class="form-label text-success"><i class="fa-solid fa-shield-halved me-1"></i> مفتاح التوقيع الرقمي (Webhook Secret)</label>
+                    <div class="flex-center-gap w-100">
+                        <input type="password" id="${inputId}" class="form-input num-en flex-1 mb-0 font-numeric" dir="ltr" placeholder="${secretPlaceholder}" value="${_esc(webhookSecret)}">
                         
-                        <button type="button" class="btn btn-ghost" onclick="const inp = document.getElementById('dev-webhook-secret-${_esc(user.id)}'); inp.type = inp.type === 'password' ? 'text' : 'password';" title="إظهار/إخفاء">
+                        <!-- 🚀 [الإصلاح المعماري 2]: إزالة الـ onclick واستخدام data-action النظيف -->
+                        <button type="button" class="btn btn-ghost btn-compact interactive-scale" data-action="toggle-password-visibility" data-target="${inputId}" title="إظهار/إخفاء">
                             <i class="fa-solid fa-eye"></i>
                         </button>
-                        
-                        <button type="button" class="btn btn-ghost" data-action="copy-text" data-copy-text="${_esc(webhookSecret)}" title="نسخ المفتاح">
-                            <i class="fa-solid fa-copy"></i>
-                        </button>
                     </div>
-                    <p class="fs-11 text-success mt-10 mb-0"><i class="fa-solid fa-circle-info"></i> يستخدم هذا المفتاح في سيرفر العميل للتحقق من أن الطلب الوارد (HMAC-SHA256) قادم من متجرك فعلياً ولم يتم التلاعب به.</p>
+                    <small class="text-muted d-block mt-5 fs-10"><i class="fa-solid fa-circle-info me-1"></i> يُستخدم للتحقق (HMAC-SHA256) من أن الطلب قادم منك ولم يتم التلاعب به.</small>
                 </div>
-                ` : ''}
+
+                <div class="modal-actions-row border-top-solid mt-15 pt-15">
+                    <button type="button" class="btn btn-success interactive-scale w-100" data-action="save-webhook" data-id="${_esc(user.id)}">
+                        <i class="fa-solid fa-floppy-disk me-1"></i> حفظ إعدادات الـ Webhook
+                    </button>
+                </div>
             </div>
         </div>`;
     },

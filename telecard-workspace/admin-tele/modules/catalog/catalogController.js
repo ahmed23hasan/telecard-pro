@@ -1,11 +1,12 @@
 // ============================================================================
-// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Cloud-Native V18.12 💎
-// 🎯 الوظيفة: المنطق التجاري للمنتجات، الأقسام، الدول، وصناديق الأكواد (Vault)
-// 🚀 التحديثات المعمارية (V18.12 - Atomic Vault Stats Patch):
-// 1. Atomic Vault Stats 📈: تبسيط جلب أرباح الصندوق للاعتماد على العدادات الذرية (Point-Read) لمنع استنزاف القراءات.
-// 2. API Package Shield 🛡️: قفل الباقات اليدوية (Packages) عند ربط المنتج بمورد خارجي.
-// 3. Orphaned Data Cleanup 🧹: تنظيف الكوبونات والعروض صامتاً عند إبادة المنتجات والأقسام.
-// 4. Category Hijacking Fix 🛡️: الحفاظ على القسم الأصلي للمنتج عند التعديل.
+// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Cloud-Native V20.2 💎
+// 🎯 الوظيفة: المنطق التجاري للمنتجات، الباقات الفرعية، الأقسام، الدول، وصناديق الخزنة (Vault)
+// 🚀 التحديثات المعمارية (V20.2 - Visibility, Pause Control & Sub-Package Integrity):
+// 1. Visibility & Pause Status 👁️: دعم isManuallyPaused و isActive مع منع إعادة التفعيل التلقائي من السيرفر.
+// 2. Sub-Package Vault Unbind Fix 🔓: إصلاح خطأ استمرار stockCount: 0 عند فك ارتباط الخزنة.
+// 3. Raw String Preservation 💾: إزالة escapeHTML المسبق من الأسماء لمنع تشوه النصوص.
+// 4. Unified Schema Parity 🔗: توحيد (categoryId, img/image, order/sortOrder, minQty/maxQty) مع السيرفر.
+// 5. Single-Supplier & Unique-Vault Guard 🛡️: منع تعدد الموردين ومنع مشاركة الخزنة بين باقتين.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -22,25 +23,32 @@ export const CatalogController = {
     _actionLocks: new Set(), 
 
     openProductModal: function(id = null) {
-        let strId = id ? String(id) : null;
+        const strId = id ? String(id) : null;
         
         if (!strId && !AdminData.currFolder) {
-            EventBus.emit('req-show-toast', {message:'يرجى الدخول إلى قسم أولاً لإضافة المنتج.', type:'warning'});
+            EventBus.emit('req-show-toast', { message: 'يرجى الدخول إلى قسم أولاً لإضافة المنتج.', type: 'warning' });
             return;
         }
         
+        AdminData.tempEditId = strId;
+        EventBus.emit('set-temp-edit-id', strId);
         EventBus.emit('req-update-state', { tempEditId: strId, tempImg: null });
         
         const p = strId ? (AdminData.data.prodsMap?.[strId] || (AdminData.data.prods || []).find(x => String(x.id) === strId)) : null;
         
-        this.tempPackages = p && Array.isArray(p.options) ? JSON.parse(JSON.stringify(p.options)) : [];
+        this.tempPackages = (p && Array.isArray(p.options))
+            ? JSON.parse(JSON.stringify(p.options)).map(opt => ({
+                ...opt,
+                costPrice: Number(opt?.costPrice ?? opt?.cost_price ?? opt?.price ?? 0)
+            }))
+            : [];
         EventBus.emit('req-update-state', { tempPackages: this.tempPackages });
         
-        AdminUI?.CatalogUI?.setupProductModal?.(p, AdminData.data.vault || []);
-        EventBus.emit('req-render-prod-config');
+        // 🚀 بناء نافذة المنتج ديناميكياً وتعبئة الحقول أولاً
+        AdminUI?.CatalogUI?.openProductModal?.(strId);
+        AdminRender?.renderProdConfig?.();
         AdminRender?.renderPkgList?.();
         this.updatePricePreview();
-        EventBus.emit('req-open-modal', 'prod');
     },
 
     updatePricePreview: function() {
@@ -50,13 +58,10 @@ export const CatalogController = {
         AdminUI?.CatalogUI?.renderPricePreview?.(type, cost, tiers, this.tempPackages, FinancialEngine);
     },
 
-    // 🚀 [التحديث المعماري الأهم]: الدالة الآن تجلب مستنداً واحداً فقط بدلاً من آلاف الفواتير!
     fetchVaultFinancials: async function(poolId) {
         try {
-            // أولاً، نحاول قراءة القيمة من الذاكرة المحلية (0 Reads)
             const localPool = AdminData.data.vault?.find(v => String(v.id) === String(poolId));
             
-            // إذا كانت العدادات موجودة في الذاكرة وموثوقة، نستخدمها فوراً
             if (localPool && localPool.totalProfit !== undefined && localPool.totalRevenue !== undefined) {
                 return {
                     profit: Number(localPool.totalProfit || 0),
@@ -64,10 +69,8 @@ export const CatalogController = {
                 };
             }
 
-            // في حال عدم وجودها (أو للتحقق)، نطلب المستند الحي من فايربيز (1 Read فقط!)
             const liveVaultSnap = await FirebaseAdapter.getById('telecard_vault', String(poolId));
             if (liveVaultSnap) {
-                // تحديث الذاكرة المحلية
                 if (localPool) {
                     localPool.totalProfit = liveVaultSnap.totalProfit;
                     localPool.totalRevenue = liveVaultSnap.totalRevenue;
@@ -85,24 +88,118 @@ export const CatalogController = {
         }
     },
 
+    _checkVaultConflictAcrossStore: function(vaultPoolId, currentProdId, currentPkgIndex = -1) {
+        if (!vaultPoolId) return null;
+        const vId = String(vaultPoolId).trim();
+
+        const parentVaultId = String(Utils.getVal('pr-vault') || '').trim();
+        if (currentPkgIndex >= 0 && parentVaultId === vId) {
+            return 'صندوق الخزنة هذا مختار بالفعل للمنتج الأب.';
+        }
+
+        const dupInSameProdIdx = this.tempPackages.findIndex((pkg, idx) => idx !== currentPkgIndex && pkg && String(pkg.vaultPoolId || '') === vId);
+        if (dupInSameProdIdx > -1) {
+            return `صندوق الخزنة هذا مربوط بالفعل بالباقة (${this.tempPackages[dupInSameProdIdx].name}) داخل نفس المنتج. يمنع النظام مشاركة نفس الخزنة بين باقتين.`;
+        }
+
+        const otherProd = (AdminData.data.prods || []).find(p => {
+            if (!p || String(p.id) === String(currentProdId || '')) return false;
+            if (String(p.vaultPoolId || '') === vId) return true;
+            if (Array.isArray(p.options) && p.options.some(o => o && String(o.vaultPoolId || '') === vId)) return true;
+            return false;
+        });
+
+        if (otherProd) {
+            return `صندوق الخزنة هذا مرتبط مسبقاً بمنتج آخر (${otherProd.name}). يمنع النظام مشاركة نفس الخزنة بين منتجين.`;
+        }
+        return null;
+    },
+
     saveProd: async function() {
         if (this._actionLocks.has('save-prod')) return;
 
-        const name = Utils.escapeHTML(Utils.getVal('pr-name'));
-        const type = Utils.getVal('pr-type');
+        // 🛡️ التحديث المطلوب: حفظ النص النظيف بدون التشفير المزدوج
+        const name = Utils.getVal('pr-name').trim();
+        const type = Utils.getVal('pr-type') || 'simple';
         const supplierId = (Utils.getVal('pr-supplier') || '').trim();
         const externalId = (Utils.getVal('pr-supplier-prod-id') || '').trim();
+        const vaultPoolId = (Utils.getVal('pr-vault') || '').trim();
+        const tempEditId = AdminData.tempEditId;
         
-        if (!name) return EventBus.emit('req-show-toast', {message:'يرجى إدخال اسم المنتج', type:'error'});
+        if (!name) return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم المنتج', type: 'error' });
 
-        const rawCost = parseFloat(Utils.getVal('pr-cost')) || 0;
-        if (rawCost <= 0 && type !== 'select' && !supplierId) {
-            return EventBus.emit('req-show-toast', {message:'لا يمكن أن تكون التكلفة 0 للمنتجات المحلية', type:'error'});
+        if (supplierId && vaultPoolId) {
+            return EventBus.emit('req-show-toast', { message: 'لا يمكن ربط المنتج بمورد خارجي وخزنة محلية في نفس الوقت.', type: 'error' });
         }
 
+        if (vaultPoolId && type !== 'select') {
+            const vConflict = this._checkVaultConflictAcrossStore(vaultPoolId, tempEditId, -1);
+            if (vConflict) {
+                return EventBus.emit('req-show-toast', { message: `⚠️ تعارض خزنة: ${vConflict}`, type: 'error' });
+            }
+        }
+
+        const rawCost = parseFloat(Utils.getVal('pr-cost')) || 0;
+        const isFixed = document.getElementById('pr-fixed-price')?.checked || false;
+        const rawFixedVal = FinancialEngine.extractNum(Utils.getVal('pr-fixed-val', 0));
         const MAX_PRICE_LIMIT = FinancialEngine.CONFIG.MAX_PRICE_LIMIT;
-        if (rawCost > MAX_PRICE_LIMIT) {
-            return EventBus.emit('req-show-toast', { message: `مرفوض: تجاوز الحد الأقصى للسعر.`, type: 'error' });
+        const minMarginFactor = 1 + (FinancialEngine.CONFIG.MIN_MARGIN_PERCENT / 100);
+
+        if (type === 'select') {
+            if (this.tempPackages.length === 0) {
+                return EventBus.emit('req-show-toast', { message: 'يرجى إضافة باقة فرعية واحدة على الأقل للمنتج المتعدد.', type: 'error' });
+            }
+            const usedPkgVaults = new Set();
+            for (let i = 0; i < this.tempPackages.length; i++) {
+                const pkg = this.tempPackages[i];
+                const pkgCost = Number(pkg.costPrice ?? pkg.cost_price ?? pkg.price ?? 0);
+                if (!supplierId && pkgCost <= 0) {
+                    return EventBus.emit('req-show-toast', { message: `لا يمكن حفظ الباقة (${pkg.name}) بتكلفة صفر (0$).`, type: 'error' });
+                }
+                if (pkgCost > MAX_PRICE_LIMIT) {
+                    return EventBus.emit('req-show-toast', { message: `تكلفة الباقة (${pkg.name}) تتجاوز الحد الأقصى المسموح (${MAX_PRICE_LIMIT}$).`, type: 'error' });
+                }
+                const pkgIsFixed = Boolean(pkg.isFixedPrice === true || String(pkg.isFixedPrice).toLowerCase() === 'true');
+                const pkgFixedUsd = Number(pkg.fixedPriceUsd ?? pkg.price ?? 0);
+                if (pkgIsFixed && pkgCost > 0) {
+                    const minSafePkgPrice = Number((pkgCost * minMarginFactor).toFixed(4));
+                    if (pkgFixedUsd < minSafePkgPrice) {
+                        return EventBus.emit('req-show-toast', { message: `السعر الثابت للباقة (${pkg.name}) يكسر رأس المال! الحد الأدنى الآمن هو ${minSafePkgPrice}$`, type: 'error' });
+                    }
+                }
+                if (pkg.vaultPoolId) {
+                    if (supplierId) {
+                        return EventBus.emit('req-show-toast', { message: `الباقة (${pkg.name}) مربوطة بخزنة بينما المنتج الأب مربوط بمورد! يمنع الخلط بينهما.`, type: 'error' });
+                    }
+                    if (usedPkgVaults.has(String(pkg.vaultPoolId))) {
+                        return EventBus.emit('req-show-toast', { message: `لا يمكن ربط نفس صندوق الخزنة بأكثر من باقة فرعية داخل نفس المنتج.`, type: 'error' });
+                    }
+                    usedPkgVaults.add(String(pkg.vaultPoolId));
+                    const conflictMsg = this._checkVaultConflictAcrossStore(pkg.vaultPoolId, tempEditId, i);
+                    if (conflictMsg) {
+                        return EventBus.emit('req-show-toast', { message: `⚠️ تعارض خزنة في الباقة (${pkg.name}): ${conflictMsg}`, type: 'error' });
+                    }
+                }
+            }
+        } else {
+            if (rawCost <= 0 && !supplierId) {
+                return EventBus.emit('req-show-toast', { message: 'لا يمكن أن تكون التكلفة 0$ للمنتجات المحلية.', type: 'error' });
+            }
+            if (rawCost > MAX_PRICE_LIMIT) {
+                return EventBus.emit('req-show-toast', { message: `مرفوض: التكلفة تتجاوز الحد الأقصى الآمن (${MAX_PRICE_LIMIT}$).`, type: 'error' });
+            }
+            if (isFixed) {
+                if (rawFixedVal <= 0) {
+                    return EventBus.emit('req-show-toast', { message: 'يرجى إدخال قيمة السعر الثابت بالدولار.', type: 'error' });
+                }
+                if (rawCost > 0) {
+                    const sanitizeUnit = type === 'counter' ? FinancialEngine._internalSanitize : FinancialEngine.sanitizeAmount;
+                    const minSafeFixed = sanitizeUnit(rawCost * minMarginFactor);
+                    if (rawFixedVal < minSafeFixed) {
+                        return EventBus.emit('req-show-toast', { message: `السعر الثابت المدخل (${rawFixedVal}$) أقل من التكلفة أو يكسر هامش الأمان! الحد الأدنى المسموح هو ${minSafeFixed}$`, type: 'error' });
+                    }
+                }            
+            }
         }
 
         this._actionLocks.add('save-prod');
@@ -110,11 +207,10 @@ export const CatalogController = {
 
         try {
             const hasImg = AdminUI?.CatalogUI?.hasImage?.('pr-img-wrap');
-            const tempEditId = AdminData.tempEditId;
             const isEdit = !!tempEditId;
             
-            const oldProd = isEdit ? AdminData.data.prodsMap?.[tempEditId] : null;
-            const oldImg = oldProd?.img || null;
+            const oldProd = isEdit ? (AdminData.data.prodsMap?.[tempEditId] || (AdminData.data.prods || []).find(p => String(p.id) === String(tempEditId))) : null;
+            const oldImg = oldProd ? (oldProd.img || oldProd.image || null) : null;
             
             let finalImg = oldImg || '';
             if (hasImg) {
@@ -122,7 +218,7 @@ export const CatalogController = {
                 const fileToUpload = fileInput?.files?.[0];
 
                 if (fileToUpload) {
-                    EventBus.emit('req-show-toast', {message:'جاري ضغط ومعالجة صورة المنتج...', type:'info'});
+                    EventBus.emit('req-show-toast', { message: 'جاري ضغط ومعالجة صورة المنتج...', type: 'info' });
                     
                     const compressedBase64 = await new Promise(resolve => {
                         if (UIService && UIService.processImage) UIService.processImage(fileToUpload, resolve);
@@ -131,7 +227,8 @@ export const CatalogController = {
 
                     let fileForUpload = fileToUpload;
                     if (compressedBase64 && compressedBase64.startsWith('data:image')) {
-                        const mimeType = fileToUpload.type === 'image/png' ? 'image/png' : 'image/jpeg';
+                        const mimeMatch = compressedBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+                        const mimeType = mimeMatch ? mimeMatch[1] : (fileToUpload.type || 'image/jpeg');
                         const byteString = atob(compressedBase64.split(',')[1]);
                         const ab = new ArrayBuffer(byteString.length);
                         const ia = new Uint8Array(ab);
@@ -140,6 +237,8 @@ export const CatalogController = {
                         fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
                     }
 
+                    // 🚀 [الإصلاح المعماري]: إظهار اللودر للصور
+                    if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري رفع صورة المنتج للسحابة...');
                     if (oldImg && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
                         await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
                     }
@@ -150,72 +249,196 @@ export const CatalogController = {
                 finalImg = '';
             }
 
-            const vaultPoolId = Utils.getVal('pr-vault');
             const newProdId = isEdit ? String(tempEditId) : 'prod_' + Date.now();
+            const defaultTier = AdminData.data.tiers?.find(t => t.isDefault && t.type !== 'api') || AdminData.data.tiers?.find(t => t.isDefault) || AdminData.data.tiers?.[0];
 
-            const defaultTier = AdminData.data.tiers?.find(t => t.isDefault) || AdminData.data.tiers?.[0];
+            let normalizedOptions = null;
+            let effectiveParentCost = rawCost;
             let fallbackPrice = rawCost;
-            
-            const isFixed = document.getElementById('pr-fixed-price')?.checked || false;
 
-            if (defaultTier && type !== 'select' && !isFixed) {
-                const pricing = FinancialEngine.calculatePrice({ product: { costPrice: rawCost }, tier: defaultTier });
-                fallbackPrice = pricing.finalPrice;
-            } else if (isFixed) {
-                fallbackPrice = parseFloat(Utils.getVal('pr-fixed-val', rawCost)) || rawCost; 
+            // 🚀 [الإصلاح المعماري]: استخراج حالة الإخفاء والإيقاف اليدوي
+            const isManualAvailChecked = Utils.getCheck('pr-available', true);
+            const isManualActiveChecked = Utils.getCheck('pr-active', true);
+            const isManuallyPaused = !isManualAvailChecked;
+
+            // 🛡️ التحديث المطلوب: إصلاح مشكلة `stockCount` ودعم الإيقاف المؤقت (isManuallyPaused)
+            if (type === 'select') {
+                normalizedOptions = this.tempPackages.map((pkg, idx) => {
+                    const pkgCost = Number(pkg.costPrice ?? pkg.cost_price ?? pkg.price ?? 0);
+                    const pkgIsFixed = Boolean(pkg.isFixedPrice === true || String(pkg.isFixedPrice).toLowerCase() === 'true');
+                    const pkgFixedVal = pkgIsFixed ? Number(pkg.fixedPriceUsd ?? pkg.price ?? pkgCost) : 0;
+
+                    let calcOptPrice = pkgCost;
+                    if (pkgIsFixed && pkgFixedVal > 0) {
+                        calcOptPrice = pkgFixedVal;
+                    } else if (defaultTier && pkgCost > 0) {
+                        try {
+                            const optPricing = FinancialEngine.calculatePrice({ product: { costPrice: pkgCost }, tier: defaultTier });
+                            calcOptPrice = optPricing.finalPrice;
+                        } catch (e) {
+                            calcOptPrice = pkgCost;
+                        }
+                    }
+
+                    const optVaultId = (!supplierId && pkg.vaultPoolId) ? String(pkg.vaultPoolId).trim() : null;
+                    const isOptManuallyPaused = Boolean(pkg.isManuallyPaused === true);
+                    let optStock = null;
+                    let optAvail = !isOptManuallyPaused;
+
+                    if (optVaultId) {
+                        const vPool = AdminData.data.vaultMap?.[optVaultId] || (AdminData.data.vault || []).find(v => String(v.id) === optVaultId);
+                        optStock = vPool ? Number(vPool.stockCount || 0) : 0;
+                        optAvail = !isOptManuallyPaused && (optStock > 0);
+                    } else if (supplierId && !isOptManuallyPaused) {
+                        optAvail = pkg.isAvailable !== undefined ? Boolean(pkg.isAvailable) : true;
+                    }
+
+                    return {
+                        name: String(pkg.name || '').trim(),
+                        costPrice: pkgCost,
+                        price: calcOptPrice,
+                        isFixedPrice: pkgIsFixed,
+                        ...(pkgIsFixed && pkgFixedVal > 0 ? { fixedPriceUsd: pkgFixedVal } : {}),
+                        vaultPoolId: optVaultId,
+                        supplierId: supplierId || null,
+                        externalId: (supplierId && pkg.externalId) ? String(pkg.externalId).trim() : null,
+                        sortOrder: idx,
+                        order: idx,
+                        isActive: pkg.isActive !== false,
+                        isManuallyPaused: isOptManuallyPaused,
+                        isAvailable: optAvail,
+    ...(optStock !== null && { stockCount: optStock }),
+    ...(pkg.tierPrices && { tierPrices: pkg.tierPrices }),
+    ...(pkg.badgeText && { badgeText: pkg.badgeText }),
+    ...(pkg.badgeColor && { badgeColor: pkg.badgeColor })
+};                });
+
+                const firstActiveOpt = normalizedOptions.find(o => o && o.isActive !== false) || normalizedOptions[0];
+                if (firstActiveOpt) {
+                    effectiveParentCost = Number(firstActiveOpt.costPrice || 0);
+                    fallbackPrice = Number(firstActiveOpt.price || 0);
+                }
+            } else {
+                if (isFixed) {
+                    fallbackPrice = rawFixedVal;
+                } else if (defaultTier && rawCost > 0) {
+                    try {
+                        const pricing = FinancialEngine.calculatePrice({ product: { type: type, costPrice: rawCost }, tier: defaultTier });
+                        fallbackPrice = pricing.finalPrice;
+                    } catch (e) {
+                        fallbackPrice = rawCost;
+                    }
+                }
+            }
+            
+            const resolvedCategoryId = isEdit
+                ? String(oldProd?.categoryId || oldProd?.catId || AdminData.currFolder || '')
+                : (AdminData.currFolder != null ? String(AdminData.currFolder) : null);
+
+            const computedVaultIds = [...new Set([
+                type !== 'select' ? (vaultPoolId || null) : null,
+                ...(Array.isArray(normalizedOptions) ? normalizedOptions.map(o => o?.vaultPoolId) : [])
+            ].filter(Boolean).map(String))];
+
+            let parentAvail = !isManuallyPaused;
+            let parentStock = (isEdit && !supplierId && vaultPoolId) ? oldProd?.stockCount : undefined;
+
+            if (type !== 'select' && !supplierId && vaultPoolId) {
+                const vPool = AdminData.data.vaultMap?.[vaultPoolId] || (AdminData.data.vault || []).find(v => String(v.id) === vaultPoolId);
+                parentStock = vPool ? Number(vPool.stockCount || 0) : 0;
+                parentAvail = !isManuallyPaused && (parentStock > 0);
+            } else if (type === 'select' && Array.isArray(normalizedOptions)) {
+                parentAvail = !isManuallyPaused && normalizedOptions.some(o => o && o.isActive !== false && o.isAvailable !== false);
             }
 
+            // 🛡️ التحديث المطلوب: إزالة `deleteField` وحفظ isManuallyPaused و isActive
             let updatedFields = {
                 id: newProdId, 
-                catId: isEdit ? (oldProd.catId || null) : (AdminData.currFolder != null ? String(AdminData.currFolder) : null),
+                categoryId: resolvedCategoryId,
                 name: name, 
-                description: Utils.escapeHTML(Utils.getVal('pr-desc')),
+                description: Utils.getVal('pr-desc').trim(),
                 type: type, 
                 img: finalImg, 
-                costPrice: rawCost, 
+                image: finalImg,
+                costPrice: effectiveParentCost, 
                 price: fallbackPrice, 
-                vaultPoolId: vaultPoolId || null, 
+                vaultPoolId: (type !== 'select' && !supplierId && vaultPoolId) ? vaultPoolId : null, 
+                linkedVaultIds: computedVaultIds,
                 hideGridPrice: Utils.getCheck('pr-hide-price'),
-                isFixedPrice: isFixed,
+                isFixedPrice: type !== 'select' ? isFixed : false,
+                ...(type !== 'select' && isFixed ? { fixedPriceUsd: rawFixedVal } : { fixedPriceUsd: null }),
                 supplierId: supplierId || null, 
-                externalId: externalId || null, 
-                isActive: isEdit ? (oldProd.isActive !== undefined ? oldProd.isActive : true) : true,
-                isAvailable: isEdit ? (oldProd.isAvailable !== undefined ? oldProd.isAvailable : true) : true
+                externalId: (type !== 'select' && supplierId && externalId) ? externalId : null, 
+                isExternal: Boolean(supplierId),
+                
+                isAutoFrozen: false, 
+                requiresAdminAttention: false,
+                isManuallyPaused: isManuallyPaused,
+                
+                isActive: isManualActiveChecked,
+                isAvailable: parentAvail,
+                ...(parentStock !== undefined && { stockCount: parentStock })
             };
 
-            const l1 = Utils.escapeHTML(Utils.getVal('h-lbl1')) || 'حقل إدخال';
-            const l2 = Utils.escapeHTML(Utils.getVal('h-lbl2')) || 'كلمة المرور';
-
+            const l1 = Utils.getVal('h-lbl1').trim() || 'حقل إدخال';
+            const l2 = Utils.getVal('h-lbl2').trim() || 'كلمة المرور';
+            
             if (type === 'simple') {
-                updatedFields.allowQty = Utils.getCheck('pr-allow-qty');
-                updatedFields.simpleMax = parseInt(Utils.getVal('pr-simple-max')) || 10;
-            } else if (type === 'single') updatedFields.input1Label = l1;
-            else if (type === 'double') { updatedFields.input1Label = l1; updatedFields.input2Label = l2; }
-            else if (type === 'counter') {
-                updatedFields.minQty = parseInt(Utils.getVal('pr-min')) || 1;
-                updatedFields.maxQty = parseInt(Utils.getVal('pr-max')) || 100;
+                const allowQty = Utils.getCheck('pr-allow-qty');
+                const simpleMax = Math.min(100, Math.max(1, parseInt(Utils.getVal('pr-simple-max'), 10) || 10));
+                updatedFields.allowQty = allowQty;
+                updatedFields.simpleMax = simpleMax;
+                updatedFields.minQty = 1;
+                updatedFields.maxQty = allowQty ? simpleMax : 1;
+            } else if (type === 'single') {
+                updatedFields.input1Label = l1;
+                updatedFields.minQty = 1;
+                updatedFields.maxQty = 1;
+            } else if (type === 'double') {
+                updatedFields.input1Label = l1;
+                updatedFields.input2Label = l2;
+                updatedFields.minQty = 1;
+                updatedFields.maxQty = 1;
+            } else if (type === 'counter') {
+                const minQ = Math.min(5000000, Math.max(1, parseInt(Utils.getVal('pr-min'), 10) || 1));
+                const maxQ = Math.min(5000000, Math.max(minQ, parseInt(Utils.getVal('pr-max'), 10) || 100));
+                updatedFields.minQty = minQ;
+                updatedFields.maxQty = maxQ;
                 updatedFields.input1Label = l1;
             } else if (type === 'select') {
-                if (this.tempPackages.length === 0 && !supplierId) {
-                    throw new Error('يرجى إضافة باقة (خيار) واحد على الأقل للمنتج المحلي المتعدد.');
-                }
-                
-                updatedFields.options = JSON.parse(JSON.stringify(this.tempPackages)); 
+                updatedFields.options = normalizedOptions; 
                 updatedFields.input1Label = l1;
+                updatedFields.minQty = 1;
+                updatedFields.maxQty = 1;
             }
 
             let finalProductObj;
 
             if (isEdit) {
                 const idx = AdminData.data.prods.findIndex(x => String(x.id) === newProdId);
-                if (idx > -1) { 
+                const existingOrder = oldProd?.order ?? oldProd?.sortOrder ?? 0;
+                updatedFields.order = existingOrder;
+                updatedFields.sortOrder = existingOrder;
+                
+                if (idx > -1) {
                     finalProductObj = { ...AdminData.data.prods[idx], ...updatedFields };
-                    AdminData.data.prods[idx] = finalProductObj; 
-                }
+                    if (type !== 'select') finalProductObj.options = null;
+                    finalProductObj.syncNote = null; 
+                    if (!vaultPoolId || supplierId || type === 'select') finalProductObj.stockCount = null;
+                    AdminData.data.prods[idx] = finalProductObj;
+                } else {
+                    finalProductObj = { ...updatedFields };
+                    if (type !== 'select') delete finalProductObj.options;
+                    AdminData.data.prods.push(finalProductObj);
+                }           
             } else {
-                const sameCatProds = AdminData.data.prods.filter(p => String(p.catId) === String(AdminData.currFolder));
-                updatedFields.order = sameCatProds.length > 0 ? Math.max(...sameCatProds.map(p => Number(p.order) || -1)) + 1 : 0;
-                finalProductObj = updatedFields;
+                const sameCatProds = (AdminData.data.prods || []).filter(p => String(p.categoryId || p.catId) === String(resolvedCategoryId));
+                const nextOrder = sameCatProds.length > 0 ? Math.max(...sameCatProds.map(p => Number(p.order ?? p.sortOrder ?? -1))) + 1 : 0;
+                updatedFields.order = nextOrder;
+                updatedFields.sortOrder = nextOrder;
+                
+                finalProductObj = { ...updatedFields };
+                if (type !== 'select') delete finalProductObj.options;
                 AdminData.data.prods.push(finalProductObj);
             }
 
@@ -230,7 +453,7 @@ export const CatalogController = {
             });
             
         } catch (error) {
-            EventBus.emit('req-show-toast', {message:'فشل الحفظ: ' + (error.message || 'خطأ غير معروف'), type:'error'});
+            EventBus.emit('req-show-toast', { message: 'فشل الحفظ: ' + (error.message || 'خطأ غير معروف'), type: 'error' });
         } finally {
             this._actionLocks.delete('save-prod');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
@@ -239,49 +462,13 @@ export const CatalogController = {
         }
     },    
 
-    _cleanupOrphanedMarketing: async function(deletedProdIds, deletedCatIds) {
-        let marketingChanged = false;
-
-        if (AdminData.data.coupons) {
-            AdminData.data.coupons.forEach(c => {
-                if (c.targetProds && deletedProdIds.length > 0) {
-                    const origLen = c.targetProds.length;
-                    c.targetProds = c.targetProds.filter(id => !deletedProdIds.includes(id));
-                    if (c.targetProds.length !== origLen) marketingChanged = true;
-                }
-                if (c.targetCategories && deletedCatIds.length > 0) {
-                    const origLen = c.targetCategories.length;
-                    c.targetCategories = c.targetCategories.filter(id => !deletedCatIds.includes(id));
-                    if (c.targetCategories.length !== origLen) marketingChanged = true;
-                }
-            });
-        }
-
-        if (AdminData.data.offers) {
-            AdminData.data.offers.forEach(o => {
-                if (o.targetProds && deletedProdIds.length > 0) {
-                    const origLen = o.targetProds.length;
-                    o.targetProds = o.targetProds.filter(id => !deletedProdIds.includes(id));
-                    if (o.targetProds.length !== origLen) marketingChanged = true;
-                }
-            });
-        }
-
-        if (marketingChanged) {
-            await Promise.allSettled([
-                AdminData.saveCoupons ? AdminData.saveCoupons() : Promise.resolve(),
-                AdminData.saveOffers ? AdminData.saveOffers() : Promise.resolve()
-            ]);
-        }
-    },
-
     deleteProduct: async function(id) {
         if (this._actionLocks.has('delete-prod')) return;
 
         const prod = AdminData.data.prodsMap?.[id] || AdminData.data.prods.find(p => String(p.id) === String(id));
         
         if (prod?.supplierId) {
-            const confirmApi = await AdminUI.showConfirm('⚠️ تحذير معماري:\nهذا المنتج مربوط بمورد (API). حذفه من هنا سيجعله يعود للحياة مجدداً في المزامنة القادمة!\n\nلإخفائه نهائياً، يفضل "تعطيله" من زر التفعيل بدلاً من حذفه.\n\nهل تريد إجباره على الحذف على أي حال؟', 'منتج مورد (API)');
+            const confirmApi = await AdminUI.showConfirm('⚠ تحذير معماري:\nهذا المنتج مربوط بمورد (API). لإخفائه مؤقتاً يفضل تعطيله بدلاً من حذفه.\n\nهل تريد حذفه نهائياً على أي حال؟', 'منتج مورد (API)');
             if (!confirmApi) return;
         } else {
             const confirmLocal = await AdminUI.showConfirm('هل أنت متأكد من حذف هذا المنتج نهائياً؟');
@@ -292,13 +479,13 @@ export const CatalogController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح بيانات المنتج...');
         
         try {
-            if (prod?.img) await FirebaseAdapter.deleteImageByUrl(prod.img).catch(() => {});
+            const prodImg = prod?.img || prod?.image;
+            if (prodImg) await FirebaseAdapter.deleteImageByUrl(prodImg).catch(() => {});
             
             AdminData.data.prods = AdminData.data.prods.filter(p => String(p.id) !== String(id));
             if(AdminData.data.prodsMap) delete AdminData.data.prodsMap[id];
 
             await AdminData?.saveProducts?.();
-            await this._cleanupOrphanedMarketing([String(id)], []);
 
             if (AdminData?.addLog) AdminData.addLog('DELETE_PROD', `تم حذف المنتج: ${prod?.name}`);
             
@@ -328,7 +515,7 @@ export const CatalogController = {
         };
         findChildren(catId);
         
-        const affectedProds = AdminData.data.prods.filter(p => String(p.catId) === catId || allChildCatIds.has(String(p.catId)));
+        const affectedProds = AdminData.data.prods.filter(p => String(p.categoryId || p.catId) === catId || allChildCatIds.has(String(p.categoryId || p.catId)));
         const affectedCats = AdminData.data.cats.filter(c => allChildCatIds.has(String(c.id)));
         
         const hasApiProducts = affectedProds.some(p => p.supplierId != null);
@@ -341,7 +528,7 @@ export const CatalogController = {
         }
         
         if (hasApiProducts) {
-            warningMsg += `\n\n⚠️ تنبيه كارثي: هذا القسم يحتوي على منتجات API! إذا قمت بحذفه، سيعيد المورد إنشاء هذه المنتجات في الصفحة الرئيسية للمتجر (فوضى). يرجى تعطيل الربط أولاً.`;
+            warningMsg += `\n\n⚠️ تنبيه: هذا القسم يحتوي على منتجات مرتبطة بمورد API.`;
         }
         
         warningMsg += `\nهل أنت متأكد من المتابعة؟`;
@@ -350,14 +537,11 @@ export const CatalogController = {
             this._actionLocks.add('delete-cat');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حرق بيانات القسم وتوابعه سحابياً...');
             try {
-                const imagesToBurn = [categoryToDelete?.img, ...affectedCats.map(c => c.img), ...affectedProds.map(p => p.img)].filter(Boolean);
+                const imagesToBurn = [categoryToDelete?.img || categoryToDelete?.image, ...affectedCats.map(c => c.img || c.image), ...affectedProds.map(p => p.img || p.image)].filter(Boolean);
                 if (imagesToBurn.length > 0) Promise.allSettled(imagesToBurn.map(imgUrl => FirebaseAdapter.deleteImageByUrl(imgUrl)));
-                
-                const deletedProdIds = affectedProds.map(p => String(p.id));
-                const deletedCatIds = [catId, ...Array.from(allChildCatIds)];
 
                 AdminData.data.cats = AdminData.data.cats.filter(c => String(c.id) !== catId && !allChildCatIds.has(String(c.id)));
-                AdminData.data.prods = AdminData.data.prods.filter(p => String(p.catId) !== catId && !allChildCatIds.has(String(p.catId)));
+                AdminData.data.prods = AdminData.data.prods.filter(p => String(p.categoryId || p.catId) !== catId && !allChildCatIds.has(String(p.categoryId || p.catId)));
                 
                 if (AdminData.data.catsMap) {
                     delete AdminData.data.catsMap[catId];
@@ -367,8 +551,6 @@ export const CatalogController = {
                 
                 await AdminData?.saveCategories?.();
                 await AdminData?.saveProducts?.();
-                
-                await this._cleanupOrphanedMarketing(deletedProdIds, deletedCatIds);
                 
                 if (String(AdminData.currFolder) === catId || allChildCatIds.has(String(AdminData.currFolder))) EventBus.emit('req-update-state', { currFolder: null });
                 if (AdminData?.addLog) AdminData.addLog('DELETE_CAT', `تم تدمير القسم ومحتوياته بالكامل.`);
@@ -390,7 +572,8 @@ export const CatalogController = {
     saveCat: async function() {
         if (this._actionLocks.has('save-cat')) return;
 
-        const name = Utils.escapeHTML(Utils.getVal('c-name'));
+        // 🛡️ التحديث المطلوب: إزالة التشفير المزدوج عن أسماء الأقسام
+        const name = Utils.getVal('c-name').trim();
         if (!name) return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم القسم', type: 'warning' });
         
         this._actionLocks.add('save-cat');
@@ -399,7 +582,8 @@ export const CatalogController = {
         try {
             const hasImg = AdminUI?.CatalogUI?.hasImage?.('c-img-wrap');
             const tempEditId = AdminData.tempEditId;
-            const oldImg = tempEditId ? AdminData.data.catsMap?.[tempEditId]?.img : null;
+            const oldCat = tempEditId ? (AdminData.data.catsMap?.[tempEditId] || (AdminData.data.cats || []).find(x => String(x.id) === String(tempEditId))) : null;
+            const oldImg = oldCat ? (oldCat.img || oldCat.image || null) : null;
             
             let finalImg = oldImg || '';
             if (hasImg) {
@@ -407,7 +591,7 @@ export const CatalogController = {
                 const fileToUpload = fileInput?.files?.[0];
 
                 if (fileToUpload) {
-                    EventBus.emit('req-show-toast', {message:'جاري ضغط ومعالجة صورة القسم...', type:'info'});
+                    EventBus.emit('req-show-toast', { message: 'جاري ضغط ومعالجة صورة القسم...', type: 'info' });
                     
                     const compressedBase64 = await new Promise(resolve => {
                         if (UIService && UIService.processImage) UIService.processImage(fileToUpload, resolve);
@@ -416,7 +600,8 @@ export const CatalogController = {
 
                     let fileForUpload = fileToUpload;
                     if (compressedBase64 && compressedBase64.startsWith('data:image')) {
-                        const mimeType = fileToUpload.type === 'image/png' ? 'image/png' : 'image/jpeg';
+                        const mimeMatch = compressedBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+                        const mimeType = mimeMatch ? mimeMatch[1] : (fileToUpload.type || 'image/jpeg');
                         const byteString = atob(compressedBase64.split(',')[1]);
                         const ab = new ArrayBuffer(byteString.length);
                         const ia = new Uint8Array(ab);
@@ -425,6 +610,8 @@ export const CatalogController = {
                         fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
                     }
 
+                    // 🚀 [الإصلاح المعماري]: إظهار اللودر للصور
+                    if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري رفع صورة القسم للسحابة...');
                     if (oldImg && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
                         await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
                     }
@@ -440,11 +627,11 @@ export const CatalogController = {
             
             if (isEdit) {
                 const c = AdminData.data.cats.find(x => String(x.id) === catId);
-                if (c) { c.name = name; c.img = finalImg; }
+                if (c) { c.name = name; c.img = finalImg; c.image = finalImg; }
             } else {
                 const sameParentCats = AdminData.data.cats.filter(c => String(c.parentId) === String(AdminData.currFolder));
-                const maxOrder = sameParentCats.length > 0 ? Math.max(...sameParentCats.map(c => Number(c.order) || -1)) + 1 : 0;
-                AdminData.data.cats.push({ id: catId, name: name, parentId: AdminData.currFolder != null ? String(AdminData.currFolder) : null, img: finalImg, order: maxOrder, isActive: true });
+                const maxOrder = sameParentCats.length > 0 ? Math.max(...sameParentCats.map(c => Number(c.order ?? c.sortOrder ?? -1))) + 1 : 0;
+                AdminData.data.cats.push({ id: catId, name: name, parentId: AdminData.currFolder != null ? String(AdminData.currFolder) : null, img: finalImg, image: finalImg, order: maxOrder, sortOrder: maxOrder, isActive: true });
             }
             
             if (!AdminData.data.catsMap) AdminData.data.catsMap = {};
@@ -484,30 +671,63 @@ export const CatalogController = {
 
     saveNewOrder: async function(newOrderData) {
         if (!newOrderData || !Array.isArray(newOrderData) || newOrderData.length === 0) return;
-        if (this._actionLocks.has('save-order')) return;
+        if (this._actionLocks.has('save-sort-order')) return;
         
-        this._actionLocks.add('save-order');
-
+        this._actionLocks.add('save-sort-order');
+        
         try {
-            let catsChanged = false, prodsChanged = false;
+            let catsChanged = false;
+            let prodsChanged = false;
+            let bannersChanged = false;
             
             newOrderData.forEach(item => {
+                if (!item || !item.id) return;
+                const targetOrder = Number(item.order);
+                if (isNaN(targetOrder)) return;
+                const itemIdStr = String(item.id);
+                
                 if (item.type === 'cat') {
-                    const cat = AdminData.data.catsMap?.[item.id] || AdminData.data.cats.find(c => String(c.id) === String(item.id));
-                    if (cat && cat.order !== item.order) { cat.order = item.order; catsChanged = true; }
+                    const cat = AdminData.data.catsMap?.[itemIdStr] ||
+                        (AdminData.data.cats || []).find(c => String(c.id) === itemIdStr);
+                    if (cat && (Number(cat.order ?? -1) !== targetOrder || Number(cat.sortOrder ?? -1) !== targetOrder)) {
+                        cat.order = targetOrder;
+                        cat.sortOrder = targetOrder;
+                        catsChanged = true;
+                    }
                 } else if (item.type === 'prod') {
-                    const prod = AdminData.data.prodsMap?.[item.id] || AdminData.data.prods.find(p => String(p.id) === String(item.id));
-                    if (prod && prod.order !== item.order) { prod.order = item.order; prodsChanged = true; }
+                    const prod = AdminData.data.prodsMap?.[itemIdStr] ||
+                        (AdminData.data.prods || []).find(p => String(p.id) === itemIdStr);
+                    if (prod && (Number(prod.order ?? -1) !== targetOrder || Number(prod.sortOrder ?? -1) !== targetOrder)) {
+                        prod.order = targetOrder;
+                        prod.sortOrder = targetOrder;
+                        prodsChanged = true;
+                    }
+                } else if (item.type === 'banner') {
+                    const bnr = (AdminData.data.banners || []).find(b => String(b.id) === itemIdStr);
+                    if (bnr && Number(bnr.order ?? -1) !== targetOrder) {
+                        bnr.order = targetOrder;
+                        bannersChanged = true;
+                    }
                 }
             });
             
             if (catsChanged) await AdminData?.saveCategories?.();
             if (prodsChanged) await AdminData?.saveProducts?.();
+            if (bannersChanged) await AdminData?.saveBanners?.();
+            
+            if (catsChanged || prodsChanged || bannersChanged) {
+                if (AdminData?.addLog) {
+                    AdminData.addLog('REORDER_CATALOG', `تم حفظ ترتيب العناصر الجديد سحابياً بنجاح.`);
+                }
+            }
+        } catch (error) {
+            console.error("Save Sort Order Error:", error);
+            EventBus.emit('req-show-toast', { message: 'تعذر حفظ الترتيب الجديد في السحابة. تأكد من جودة الاتصال.', type: 'error' });
         } finally {
-            this._actionLocks.delete('save-order');
+            this._actionLocks.delete('save-sort-order');
         }
     },
-
+    
     changeGridLayout: async function(cols) {
         if (this._actionLocks.has('change-layout')) return;
         this._actionLocks.add('change-layout');
@@ -523,7 +743,7 @@ export const CatalogController = {
                 const cat = AdminData.data.catsMap?.[folderId] || AdminData.data.cats.find(c => String(c.id) === String(folderId));
                 if (cat) { cat.layout = parsedCols; await AdminData?.saveCategories?.(); }
             }
-            EventBus.emit('req-show-toast', {message:'تم حفظ التخطيط', type:'success'});
+            EventBus.emit('req-show-toast', { message: 'تم حفظ التخطيط', type: 'success' });
             AdminUI?.CatalogUI?.updateGridCssCols?.(parsedCols);
         } finally {
             this._actionLocks.delete('change-layout');
@@ -538,40 +758,132 @@ export const CatalogController = {
             if (!AdminData.data.settings) AdminData.data.settings = {};
             AdminData.data.settings.syncGridLayout = isChecked;
             await AdminData?.saveSystemSettings?.();
-            EventBus.emit('req-show-toast', {message: 'تم الحفظ', type: 'info'});
+            EventBus.emit('req-show-toast', { message: 'تم الحفظ', type: 'info' });
         } finally {
             this._actionLocks.delete('toggle-sync');
         }
     },
 
     addPackage: function() {
-        const name = Utils.escapeHTML(Utils.getVal('pkg-name'));
-        const price = Utils.getVal('pkg-price');
-        if (name && price) {
-            this.tempPackages.push({name, price: parseFloat(price)});
-            EventBus.emit('req-update-state', { tempPackages: this.tempPackages });
-            AdminRender?.renderPkgList?.();
-            AdminUI?.CatalogUI?.clearPackageInputs?.();
-            this.updatePricePreview();
+        const name = Utils.getVal('pkg-name').trim();
+        const rawCost = parseFloat(Utils.getVal('pkg-price')) || 0;
+        const rawFixedPrice = parseFloat(Utils.getVal('pkg-fixed-price')) || 0;
+        const pkgVaultId = (Utils.getVal('pkg-vault') || '').trim() || null;
+        const pkgExtId = (Utils.getVal('pkg-ext-id') || '').trim() || null;
+        const parentSupplierId = (Utils.getVal('pr-supplier') || '').trim() || null;
+        const editIdx = parseInt(Utils.getVal('pkg-edit-index', -1), 10);
+
+        if (!name) {
+            return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم الباقة الفرعية.', type: 'warning' });
         }
+        if (rawCost <= 0 && !parentSupplierId) {
+            return EventBus.emit('req-show-toast', { message: 'يرجى إدخال التكلفة الفعلية للباقة بالدولار (أكبر من 0$).', type: 'error' });
+        }
+        if (pkgExtId && !parentSupplierId) {
+            return EventBus.emit('req-show-toast', { message: '⚠️ لا يمكن ربط الباقة بكود مورد بدون اختيار المورد الأساسي للمنتج الأب بالأعلى أولاً!', type: 'error' });
+        }
+        if (parentSupplierId && pkgVaultId) {
+            return EventBus.emit('req-show-toast', { message: '⚠️ لا يمكن ربط الباقة بخزنة محلية بينما المنتج الأب مربوط بمورد خارجي!', type: 'error' });
+        }
+
+        if (rawFixedPrice > 0 && rawCost > 0) {
+            const minMarginFactor = 1 + (FinancialEngine.CONFIG.MIN_MARGIN_PERCENT / 100);
+            const minSafePkgPrice = Number((rawCost * minMarginFactor).toFixed(4));
+            if (rawFixedPrice < minSafePkgPrice) {
+                return EventBus.emit('req-show-toast', { message: `السعر الثابت للباقة (${rawFixedPrice}$) يكسر رأس المال! الحد الأدنى الآمن هو ${minSafePkgPrice}$`, type: 'error' });
+            }
+        }
+
+        if (pkgVaultId) {
+            const conflictMsg = this._checkVaultConflictAcrossStore(pkgVaultId, AdminData.tempEditId, editIdx);
+            if (conflictMsg) {
+                return EventBus.emit('req-show-toast', { message: `⚠️ ${conflictMsg}`, type: 'error' });
+            }
+        }
+
+        const defaultTier = AdminData.data.tiers?.find(t => t.isDefault && t.type !== 'api') || AdminData.data.tiers?.find(t => t.isDefault) || AdminData.data.tiers?.[0];
+        let calcPkgPrice = rawCost;
+        if (rawFixedPrice > 0) {
+            calcPkgPrice = rawFixedPrice;
+        } else if (defaultTier && rawCost > 0) {
+            try {
+                calcPkgPrice = FinancialEngine.calculatePrice({ product: { costPrice: rawCost }, tier: defaultTier }).finalPrice;
+            } catch (e) {
+                calcPkgPrice = rawCost;
+            }
+        }
+
+        const existingPkg = (editIdx >= 0 && editIdx < this.tempPackages.length) ? this.tempPackages[editIdx] : null;
+        
+        // 🚀 [الإصلاح المعماري]: الحفاظ على حالة الإيقاف المؤقت
+        const isManuallyPaused = Boolean(existingPkg?.isManuallyPaused === true);
+        
+        const pkgObj = {
+            ...(existingPkg || {}),
+            name,
+            costPrice: rawCost,
+            price: calcPkgPrice,
+            isFixedPrice: rawFixedPrice > 0,
+            ...(rawFixedPrice > 0 ? { fixedPriceUsd: rawFixedPrice } : { fixedPriceUsd: null }),
+            vaultPoolId: pkgVaultId,
+            supplierId: parentSupplierId,
+            externalId: parentSupplierId ? pkgExtId : null,
+            isActive: existingPkg?.isActive !== undefined ? existingPkg.isActive : true,
+            isManuallyPaused: isManuallyPaused,
+            isAvailable: isManuallyPaused ? false : (pkgVaultId ? (existingPkg?.isAvailable !== undefined ? existingPkg.isAvailable : true) : true)
+        };
+        
+        if (!pkgVaultId) delete pkgObj.stockCount;
+
+        if (editIdx >= 0 && editIdx < this.tempPackages.length) {
+            this.tempPackages[editIdx] = pkgObj;
+        } else {
+            this.tempPackages.push(pkgObj);
+        }
+
+        EventBus.emit('req-update-state', { tempPackages: this.tempPackages });
+        AdminRender?.renderPkgList?.();
+        AdminUI?.CatalogUI?.clearPackageInputs?.();
+        this.updatePricePreview();
+    },
+
+    editPackage: function(index) {
+        if (index < 0 || index >= this.tempPackages.length) return;
+        const pkg = this.tempPackages[index];
+        AdminUI?.CatalogUI?.populatePackageForEdit?.(pkg, index);
     },
 
     removePkg: function(i) {
         this.tempPackages.splice(i, 1);
         EventBus.emit('req-update-state', { tempPackages: this.tempPackages });
         AdminRender?.renderPkgList?.();
+        AdminUI?.CatalogUI?.clearPackageInputs?.();
         this.updatePricePreview();
+    },
+
+    // 🚀 [الإصلاح المعماري]: دالة تبديل حالة التوفر (تفعيل/إيقاف مؤقت)
+    togglePackageAvailability: function(index) {
+        if (index < 0 || index >= this.tempPackages.length) return;
+        const pkg = this.tempPackages[index];
+        if (!pkg) return;
+        
+        const currentlyPaused = Boolean(pkg.isManuallyPaused === true || pkg.isAvailable === false);
+        pkg.isManuallyPaused = !currentlyPaused;
+        pkg.isAvailable = currentlyPaused;
+        
+        EventBus.emit('req-update-state', { tempPackages: this.tempPackages });
+        AdminRender?.renderPkgList?.();
     },
 
     saveCountry: async function() {
         if (this._actionLocks.has('save-country')) return;
 
         const editId = Utils.getVal('country-edit-id');
-        const nameAr = Utils.escapeHTML(Utils.getVal('country-name'));
         
-        const code = Utils.escapeHTML(Utils.getVal('country-code')).trim().toUpperCase();
-        const flagEmoji = Utils.escapeHTML(Utils.getVal('country-flag'));
-        const dialCode = Utils.escapeHTML(Utils.getVal('country-dial')).trim();
+        const nameAr = Utils.getVal('country-name').trim();
+        const code = Utils.getVal('country-code').trim().toUpperCase();
+        const flagEmoji = Utils.getVal('country-flag').trim();
+        const dialCode = Utils.getVal('country-dial').trim();
 
         if (!nameAr || !code || !dialCode) return EventBus.emit('req-show-toast', { message: 'يرجى تعبئة الحقول الأساسية', type: 'error' });
 
@@ -626,7 +938,6 @@ export const CatalogController = {
             this._actionLocks.add('delete-country');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحذف...');
             try {
-                const countryName = AdminData.data.countriesMap?.[id]?.name || 'الدولة';
                 AdminData.data.countries = AdminData.data.countries.filter(c => String(c.id) !== String(id));
                 if (AdminData.data.countriesMap) delete AdminData.data.countriesMap[id];
                 
@@ -644,36 +955,115 @@ export const CatalogController = {
         if (this._actionLocks.has('save-vault')) return;
 
         const id = Utils.getVal('v-pool-id');
-        const name = Utils.escapeHTML(Utils.getVal('v-name'));
+        
+        // 🛡️ التحديث المطلوب: حفظ اسم الصندوق بالنص الخام (دون escapeHTML)
+        const name = Utils.getVal('v-name').trim();
+        const unitCostUsd = FinancialEngine.extractNum(Utils.getVal('v-unit-cost', 0));
+        const alertLimit = Number(Utils.getVal('v-alert-limit', 5)) || 5;
         const rawText = Utils.getVal('v-codes');
 
         if (!name) return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم الصندوق', type: 'error' });
         
+        const lines = rawText.split('\n').map(c => c.trim()).filter(Boolean);
+        if (lines.length > 20000) {
+            return EventBus.emit('req-show-toast', { message: `مرفوض: حاولت إضافة ${lines.length} كود. الحد الأقصى للدفعة الواحدة هو 20,000 كود لحماية الذاكرة.`, type: 'error' });
+        }
+
+        if (lines.length > 0 && unitCostUsd <= 0) {
+            return EventBus.emit('req-show-toast', { message: 'يرجى إدخال تكلفة الكود الواحد بالدولار ($) لحساب قيمة الأصول المجمدة في الخزنة بدقة.', type: 'warning' });
+        }
+
         this._actionLocks.add('save-vault');
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري فرز وتشفير الأكواد سحابياً...');
 
         try {
-            const lines = rawText.split('\n').map(c => c.trim()).filter(Boolean);
             const finalPoolId = id && id !== '' ? id : 'vpool_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
             
             const result = await FirebaseAdapter.callFunction('adminSaveVaultCodes', {
-                poolId: finalPoolId, poolName: name, alertLimit: Number(Utils.getVal('v-alert-limit', 5)) || 5, codesList: lines
+                poolId: finalPoolId,
+                poolName: name,
+                alertLimit: alertLimit,
+                unitCostUsd: unitCostUsd,
+                codesList: lines
             });
 
-            if (result && result.success) {
+            if (result && (result.success || lines.length === 0)) {
                 if (!AdminData.data.vault) AdminData.data.vault = [];
+                if (!AdminData.data.vaultMap) AdminData.data.vaultMap = {};
+
                 const existingPoolIndex = AdminData.data.vault.findIndex(v => String(v.id) === finalPoolId);
-                const addedCount = result.addedCount || lines.length;
+                const addedCount = Number(result.addedCount || 0); 
 
                 if (existingPoolIndex > -1) {
-                    AdminData.data.vault[existingPoolIndex].name = name;
-                    AdminData.data.vault[existingPoolIndex].alertLimit = Number(Utils.getVal('v-alert-limit', 5)) || 5;
-                    AdminData.data.vault[existingPoolIndex].totalCount = Number(AdminData.data.vault[existingPoolIndex].totalCount || 0) + addedCount;
+                    const poolObj = AdminData.data.vault[existingPoolIndex];
+                    poolObj.name = name;
+                    poolObj.alertLimit = alertLimit;
+                    if (unitCostUsd > 0) poolObj.unitCostUsd = unitCostUsd;
+                    poolObj.stockCount = Number(poolObj.stockCount || 0) + addedCount;
+                    poolObj.totalCount = Number(poolObj.totalCount || poolObj.stockCount || 0) + addedCount;
+                    AdminData.data.vaultMap[finalPoolId] = poolObj;
                 } else {
-                    AdminData.data.vault.push({ id: finalPoolId, name: name, alertLimit: Number(Utils.getVal('v-alert-limit', 5)) || 5, totalCount: addedCount });
+                    const newPoolObj = {
+                        id: finalPoolId,
+                        name: name,
+                        alertLimit: alertLimit,
+                        unitCostUsd: unitCostUsd > 0 ? unitCostUsd : 0,
+                        stockCount: addedCount,
+                        totalCount: addedCount,
+                        burnedCount: 0
+                    };
+                    AdminData.data.vault.push(newPoolObj);
+                    AdminData.data.vaultMap[finalPoolId] = newPoolObj;
                 }
 
-                EventBus.emit('req-finish-action', { renderEvent: 'req-render-vault', modalId: 'vault', logAction: id ? 'EDIT_VAULT' : 'ADD_VAULT', logDetails: `صندوق أكواد: ${name}`, toastMsg: `تم الحفظ بنجاح! ${addedCount} كود جديد.` });
+                // 🔗 مزامنة مخزون وتوفر المنتجات المرتبطة بهذا الصندوق في الذاكرة المحلية لتطابق السيرفر فوراً
+                const updatedVaultStock = Number(AdminData.data.vaultMap[finalPoolId]?.stockCount || 0);
+                if (addedCount > 0 && Array.isArray(AdminData.data.prods)) {
+                    let anyProdSynced = false;
+                    AdminData.data.prods.forEach(p => {
+                        if (!p) return;
+                        const isFrozen = Boolean(p.isAutoFrozen || p.requiresAdminAttention || p.isManuallyPaused);
+                        if (String(p.vaultPoolId || '') === finalPoolId) {
+                            p.stockCount = updatedVaultStock;
+                            if (!isFrozen && updatedVaultStock > 0) p.isAvailable = true;
+                            anyProdSynced = true;
+                        }
+                        if (p.type === 'select' && Array.isArray(p.options)) {
+                            let optModified = false;
+                            p.options.forEach(opt => {
+                                if (opt && String(opt.vaultPoolId || '') === finalPoolId) {
+                                    opt.stockCount = updatedVaultStock;
+                                    const optCost = Number(opt.costPrice ?? opt.cost_price ?? 0);
+                                    if (!isFrozen && !opt.isManuallyPaused && opt.isActive !== false && optCost > 0 && updatedVaultStock > 0) {
+                                        opt.isAvailable = true;
+                                    }
+                                    optModified = true;
+                                }
+                            });
+                            if (optModified) {
+                                if (!p.vaultPoolId && !isFrozen) {
+                                    p.isAvailable = p.options.some(o => o && o.isActive !== false && o.isAvailable !== false);
+                                }
+                                anyProdSynced = true;
+                            }
+                        }
+                    });
+                    if (anyProdSynced) {
+                        AdminData._buildSingleMap?.('prods');
+                        AdminData._updateSnapshot?.('prods');
+                    }
+                }
+
+                const codesInput = document.getElementById('v-codes');
+                if (codesInput) codesInput.value = '';
+
+                EventBus.emit('req-finish-action', {
+                    renderEvent: 'req-render-vault',
+                    modalId: 'vault',
+                    logAction: id ? 'EDIT_VAULT' : 'ADD_VAULT',
+                    logDetails: `صندوق أكواد: ${name} (+${addedCount})`,
+                    toastMsg: result.message || `تم حفظ الصندوق بنجاح!`
+                });
             } else throw new Error(result.message || "فشلت عملية المزامنة مع السيرفر.");
         } catch (error) { 
             EventBus.emit('req-show-toast', { message: `حدث خطأ: ${error.message}`, type: 'error' }); 
@@ -695,8 +1085,32 @@ export const CatalogController = {
                 
                 if (result && result.success) {
                     if (AdminData.data.vault) AdminData.data.vault = AdminData.data.vault.filter(v => String(v.id) !== String(id));
+                    if (AdminData.data.vaultMap) delete AdminData.data.vaultMap[String(id)];
+                    
+                    if (AdminData.data.prods) {
+                        AdminData.data.prods.forEach(p => {
+                            if (String(p.vaultPoolId) === String(id)) {
+                                p.vaultPoolId = null;
+                                p.stockCount = 0;
+                                p.isAvailable = false;
+                            }
+                            if (Array.isArray(p.options)) {
+                                p.options.forEach(opt => {
+                                    if (opt && String(opt.vaultPoolId) === String(id)) {
+                                        opt.vaultPoolId = null;
+                                        opt.stockCount = 0;
+                                        opt.isAvailable = false;
+                                    }
+                                });
+                            }
+                        });
+                        AdminData._buildSingleMap?.('prods');
+                        AdminData._updateSnapshot?.('prods');
+                    }
+
                     EventBus.emit('req-render-vault');
-                    EventBus.emit('req-show-toast', { message: 'تم التدمير بنجاح', type: 'success' });
+                    EventBus.emit('req-render-prods'); 
+                    EventBus.emit('req-show-toast', { message: 'تم التدمير وفك ارتباط المنتجات بنجاح', type: 'success' });
                 }
             } catch (error) { 
                 EventBus.emit('req-show-toast', { message: `فشل الحذف: ${error.message}`, type: 'error' }); 
@@ -712,7 +1126,7 @@ export const CatalogController = {
         if (this._actionLocks.has(lockKey)) return;
 
         const poolId = String(poolIdStr);
-        const pool = AdminData.data.vault?.find(v => String(v.id) === poolId);
+        const pool = AdminData.data.vaultMap?.[poolId] || AdminData.data.vault?.find(v => String(v.id) === poolId);
         
         if (!pool) return EventBus.emit('req-show-toast', { message: 'الصندوق غير موجود', type: 'error' });
         

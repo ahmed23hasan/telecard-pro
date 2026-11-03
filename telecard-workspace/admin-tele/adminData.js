@@ -1,10 +1,14 @@
 // ============================================================================
-// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V18.7 💎 (The Masterpiece)
-// 🎯 الوظيفة: SSOT، إدارة الذاكرة بذكاء (Pagination)، والاستعلامات التجميعية (JIT Aggregation).
-// 🚀 التحديثات المعمارية (V18.7 - The Pure Native Patch):
-// 1. Native Promise Resolution 🛡️: إزالة الترقيعات واستخدام Promise.allSettled لضمان إقلاع محصن 100%.
-// 2. Cloud-Powered Top Users 👑: الاعتماد على الدالة السحابية (adminGetOrdersList) لحساب كبار العملاء بدقة.
-// 3. Ghost Deletion Shield 🛡️: إرسال التحديثات (Delta) فقط لحماية بيانات السيرفر.
+// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V19.2 💎 (The Masterpiece)
+// 🎯 الوظيفة: SSOT، إدارة الذاكرة بذكاء، والاستعلامات التجميعية.
+// 🚀 التحديثات المعمارية (V19.2 - Zero-Leak Firewall, XSS Immunity & Schema Unification):
+// 1. Zero-Leak Firewall 🧱: جلب الجدار الناري (bannedIps/Devices) من active_configs ومنع تسريبه للوثيقة العامة عند حفظ الإعدادات.
+// 2. Write-Time Aggregation ⚡: استبدال جلب 5000 طلب بـ 4 قراءات (Reads) فقط لأبطال الشهر.
+// 3. Zero-Read Categories BI 📊: حساب جدول الأقسام في الذاكرة من prodsMap و catsMap بـ 0 قراءات سحابية.
+// 4. Isolated KYC State 🪪: حفظ kycPendingUsers في مصفوفة معزولة لمنع اختفائها عند بحث أو فرز العملاء.
+// 5. Smart System Dirty-Check 🛡️: منع الكتابة الزائدة على telecard_system و telecard_settings.
+// 6. Safe Nested DeleteField 🔒: حذف المفاتيح الفرعية الملغاة (مثل tierPrices) بأمان عبر set + merge.
+// 7. Schema Unification 🔗: توحيد ثوابت DB_KEYS، ومعرفات الأقسام (categoryId)، وأيقونة ولون المستوى الافتراضي (icon/color).
 // ============================================================================
 
 import { DB_KEYS, normalizeRates } from './adminConfig.js';
@@ -12,7 +16,7 @@ import { Utils, EventBus } from './adminUtils.js';
 import { FirebaseAdapter } from './core/firebaseAdapter.js';
 import { RenderHelpers } from './core/renderHelpers.js';
 import { FinancialEngine } from './core/financialEngine.js';
-import { doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, collection, query, where, orderBy, limit, getDocs, deleteField } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 const parseSafeTime = (ts) => {
     if (ts === null || ts === undefined || ts === '') return Date.now();
@@ -35,13 +39,16 @@ export const AdminData = {
     
     cursors: { orders: null, deposits: null, users: null, logs: null, alerts: null },
     walletsCache: { totalUsd: 0, details: {} },
+    stats: null,
     
     data: { 
-        deposits: [], orders: [], users: [], cats: [], prods: [], 
-        payments: [], banners: [], settings: {}, rates: [], 
-        system: {}, adminProfile: {}, tiers: [], countries: [], 
-        vault: [], coupons: [], offers: [], logs: [], alerts: [],
-        suppliers: [], 
+        deposits: [], orders: [], users: [], kycPendingUsers: [],
+        cats: [], prods: [], payments: [], banners: [], 
+        settings: {}, rates: [], system: {}, adminProfile: {}, 
+        tiers: [], countries: [], vault: [], coupons: [], 
+        offers: [], logs: [], alerts: [], suppliers: [], 
+        reviews: [], tiersStats: {}, dashboardStats: null,
+        activeConfigs: {}, // 🛡️ كاش الجدار الناري
         
         usersMap: {}, prodsMap: {}, catsMap: {}, tiersMap: {}, 
         couponsMap: {}, countriesMap: {}, ratesMap: {},
@@ -63,12 +70,22 @@ export const AdminData = {
     _deepEqual: function(obj1, obj2) {
         if (obj1 === obj2) return true;
         if (typeof obj1 !== 'object' || obj1 === null || typeof obj2 !== 'object' || obj2 === null) return false;
+        if (typeof obj1.toMillis === 'function' && typeof obj2.toMillis === 'function') return obj1.toMillis() === obj2.toMillis();
         
+        if (Array.isArray(obj1) && Array.isArray(obj2)) {
+            if (obj1.length !== obj2.length) return false;
+            for (let i = 0; i < obj1.length; i++) {
+                if (!this._deepEqual(obj1[i], obj2[i])) return false;
+            }
+            return true;
+        }
+
+        if (Array.isArray(obj1) !== Array.isArray(obj2)) return false;
+
         const keys1 = Object.keys(obj1).filter(k => k !== 'updatedAt');
         const keys2 = Object.keys(obj2).filter(k => k !== 'updatedAt');
         
         if (keys1.length !== keys2.length) return false;
-        
         for (const key of keys1) {
             if (!keys2.includes(key) || !this._deepEqual(obj1[key], obj2[key])) return false;
         }
@@ -77,7 +94,15 @@ export const AdminData = {
 
     _buildSingleMap: function(prop) {
         const arr = Array.isArray(this.data[prop]) ? this.data[prop].filter(Boolean) : [];
-        if (prop === 'users') this.data.usersMap = Object.fromEntries(arr.map(u => [String(u.id), u]));
+        if (prop === 'users') {
+            const mapObj = Object.fromEntries(arr.map(u => [String(u.id), u]));
+            if (Array.isArray(this.data.kycPendingUsers)) {
+                this.data.kycPendingUsers.forEach(ku => {
+                    if (ku && ku.id && !mapObj[String(ku.id)]) mapObj[String(ku.id)] = ku;
+                });
+            }
+            this.data.usersMap = mapObj;
+        }
         else if (prop === 'prods') this.data.prodsMap = Object.fromEntries(arr.map(p => [String(p.id), p]));
         else if (prop === 'cats') this.data.catsMap = Object.fromEntries(arr.map(c => [String(c.id), c]));
         else if (prop === 'tiers') this.data.tiersMap = Object.fromEntries(arr.map(t => [String(t.id), t]));
@@ -88,12 +113,8 @@ export const AdminData = {
         else if (prop === 'vault') this.data.vaultMap = Object.fromEntries(arr.map(v => [String(v.id), v])); 
         else if (prop === 'payments') this.data.paymentsMap = Object.fromEntries(arr.map(p => [String(p.id), p])); 
         else if (prop === 'suppliers') this.data.suppliersMap = Object.fromEntries(arr.map(s => [String(s.id), s])); 
-        else if (prop === 'rates') {
-            this.data.ratesMap = Object.fromEntries(arr.map(r => [String(r.code).toUpperCase(), r]));
-        }
-        else if (prop === 'countries') {
-            this.data.countriesMap = Object.fromEntries(arr.map(c => [String(c.id), c]));
-        }
+        else if (prop === 'rates') this.data.ratesMap = Object.fromEntries(arr.map(r => [String(r.code).toUpperCase(), r]));
+        else if (prop === 'countries') this.data.countriesMap = Object.fromEntries(arr.map(c => [String(c.id), c]));
     },    
     
     _buildMaps: function() {
@@ -106,7 +127,7 @@ export const AdminData = {
         catch (e) { this._snapshots[prop] = JSON.parse(JSON.stringify(this.data[prop])); }
     },
 
-    loadData: async function() {
+    loadData: async function(adminUid) {
         console.log("🚀 [TeleCard Admin] إقلاع السحابة... جاري تطبيق استراتيجية التوازي القياسية (Promise.allSettled)...");
         this.isCloudSyncSuccessful = false;
 
@@ -114,22 +135,26 @@ export const AdminData = {
         const obj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
 
         try {
-            // 🚀 [الحل المعماري الاحترافي]: استخدام Promise.allSettled لضمان إقلاع النظام 
-            // حتى لو فشل جلب أحد الجداول (بدون دوال مساعدة أو ترقيعات)
+            // 🚀 [الإصلاح المعماري 1: Zero-Leak Firewall] - إضافة active_configs لقراءة الجدار الناري
             const staticPromises = [
                 FirebaseAdapter.getAll(DB_KEYS.RATES), FirebaseAdapter.getAll(DB_KEYS.TIERS), FirebaseAdapter.getAll(DB_KEYS.CATS), 
-                FirebaseAdapter.getAll('telecard_prods'), FirebaseAdapter.getAll(DB_KEYS.PAYMENTS), FirebaseAdapter.getAll(DB_KEYS.BANNERS), 
+                FirebaseAdapter.getAll(DB_KEYS.PRODS), FirebaseAdapter.getAll(DB_KEYS.PAYMENTS), FirebaseAdapter.getAll(DB_KEYS.BANNERS), 
                 FirebaseAdapter.getById(DB_KEYS.SETTINGS, 'singleton'), FirebaseAdapter.getById(DB_KEYS.POPUP, 'singleton'), FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton'), 
-                FirebaseAdapter.getById(DB_KEYS.ADMIN, 'singleton'), FirebaseAdapter.getAll(DB_KEYS.COUNTRIES), FirebaseAdapter.getAll(DB_KEYS.VAULT), 
-                FirebaseAdapter.getAll(DB_KEYS.COUPONS), FirebaseAdapter.getAll(DB_KEYS.OFFERS), FirebaseAdapter.getAll('telecard_suppliers')
+                FirebaseAdapter.getById(DB_KEYS.ADMIN, adminUid || 'singleton'), 
+                FirebaseAdapter.getAll(DB_KEYS.COUNTRIES), FirebaseAdapter.getAll(DB_KEYS.VAULT), 
+                FirebaseAdapter.getAll(DB_KEYS.COUPONS), FirebaseAdapter.getAll(DB_KEYS.OFFERS), FirebaseAdapter.getAll(DB_KEYS.SUPPLIERS),
+                FirebaseAdapter.getAll(DB_KEYS.REVIEWS, 500),
+                FirebaseAdapter.getAll('telecard_statistics/all_time/tiers', 100),
+                FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'active_configs') 
             ];
 
             const dynamicPromises = [
-                FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.USERS, [], 'createdAt', null, 50),
-                FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 50 }), // 👑 الاعتماد على الدالة السحابية للطلبات
-                FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.DEPOSITS, [], 'time', null, 50), 
-                FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.LOGS, [], 'timestamp', null, 50),
-                FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.ALERTS, [], 'time', null, 50)
+                FirebaseAdapter.callFunction('adminGetUsersList', { limit: 50 }),
+                FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 50 }),
+                FirebaseAdapter.callFunction('adminGetDepositsList', { limit: 50 }), 
+                FirebaseAdapter.callFunction('adminGetLogsList', { limit: 50 }),
+                FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.ALERTS, [], 'time', null, 50),
+                getDocs(query(collection(FirebaseAdapter.db, DB_KEYS.USERS), where('kycStatus', '==', 'pending'), limit(200)))
             ];
 
             const [staticResults, dynamicResults] = await Promise.all([
@@ -138,6 +163,7 @@ export const AdminData = {
             ]);
 
             const extract = (res, fallback) => res.status === 'fulfilled' && res.value ? res.value : fallback;
+            const extractCloud = (res) => (res.status === 'fulfilled' && res.value && res.value.success) ? res.value : { data: [], pagination: null };
 
             const rRates = extract(staticResults[0], []);
             const rTiers = extract(staticResults[1], []);
@@ -154,56 +180,96 @@ export const AdminData = {
             const rCoupons = extract(staticResults[12], []);
             const rOffers = extract(staticResults[13], []);
             const rSuppliers = extract(staticResults[14], []);
+            const rReviews = extract(staticResults[15], []);
+            const rTiersStatsList = extract(staticResults[16], []);
+            const rActiveConfigs = extract(staticResults[17], {}); // 🛡️ استخراج الكاش السري
 
-            const rUsersObj = extract(dynamicResults[0], { data: [], newLastDoc: null });
-            const rOrdersCloudRes = extract(dynamicResults[1], { success: false, data: [], pagination: null });
-            const rDepositsObj = extract(dynamicResults[2], { data: [], newLastDoc: null });
-            const rLogsObj = extract(dynamicResults[3], { data: [], newLastDoc: null });
+            const rUsersCloud = extractCloud(dynamicResults[0]);
+            const rOrdersCloud = extractCloud(dynamicResults[1]);
+            const rDepositsCloud = extractCloud(dynamicResults[2]);
+            const rLogsCloud = extractCloud(dynamicResults[3]);
             const rAlertsObj = extract(dynamicResults[4], { data: [], newLastDoc: null });
+            
+            const rKycUsersSnap = extract(dynamicResults[5], { docs: [] });
+            const rKycUsers = rKycUsersSnap.docs ? rKycUsersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) : [];
 
-            // 🛡️ معالجة استجابة السيرفر الخاصة بالطلبات
-            this.cursors.orders = rOrdersCloudRes.success ? rOrdersCloudRes.pagination : null;
-            this.cursors.users = rUsersObj.newLastDoc;
-            this.cursors.deposits = rDepositsObj.newLastDoc;
-            this.cursors.logs = rLogsObj.newLastDoc;
+            this.cursors.users = rUsersCloud.pagination?.lastDocId || null;
+            this.cursors.orders = rOrdersCloud.pagination || null;
+            this.cursors.deposits = rDepositsCloud.pagination || null;
+            this.cursors.logs = rLogsCloud.pagination || null;
             this.cursors.alerts = rAlertsObj.newLastDoc;
 
             const normalizedRatesMap = typeof normalizeRates === 'function' ? normalizeRates(rRates) : rRates;
             this.data.rates = Array.isArray(normalizedRatesMap) ? normalizedRatesMap : Object.values(normalizedRatesMap || {});
             
             this.data.settings = obj(rSettings);
+            
+            // 🛡️ [الإصلاح المعماري 1] دمج الجدار الناري من الكاش السري إلى الذاكرة المحلية حتى تقرأه لوحة القيادة بنجاح
+            const activeConfObj = obj(rActiveConfigs);
+            this.data.activeConfigs = activeConfObj;
+            this.data.settings.bannedIps = Array.isArray(activeConfObj.bannedIps)
+                ? activeConfObj.bannedIps
+                : (Array.isArray(this.data.settings.bannedIps) ? this.data.settings.bannedIps : []);
+            this.data.settings.bannedDevices = Array.isArray(activeConfObj.bannedDevices)
+                ? activeConfObj.bannedDevices
+                : (Array.isArray(this.data.settings.bannedDevices) ? this.data.settings.bannedDevices : []);
+
             this.data.system = obj(rSystem);
             this.data.adminProfile = obj(rAdmin);
             
+            // 👈 بناء خريطة أرباح وإيرادات المستويات من المجموعة الفرعية
+            this.data.tiersStats = Object.fromEntries(
+                arr(rTiersStatsList).map(ts => [String(ts.id), {
+                    profit: Number(ts.profit || 0),
+                    revenue: Number(ts.revenue || 0),
+                    count: Number(ts.count || 0)
+                }])
+            );
+            
             this.data.tiers = arr(rTiers).map(t => ({
                 ...t, 
-                threshold: Number(t.threshold || t.condition_amount || 0),
-                isDefault: !!(t.isDefault || t.is_default),
-                profitPercent: Number(t.profitPercent ?? t.profit_percent ?? 5),
-                minProfitUsd: Number(t.minProfitUsd ?? t.min_profit_usd ?? 0)
+                threshold: Number(t.threshold || 0),
+                isDefault: !!t.isDefault,
+                profitPercent: Number(t.profitPercent ?? 5),
+                minProfitUsd: Number(t.minProfitUsd ?? 0)
             }));
 
             if(this.data.tiers.length === 0 || !this.data.tiers.some(t => t.isDefault)) await this.seedDefaultTiers();
 
-            this.data.users = arr(rUsersObj.data).map(u => ({
-                ...u, walletBalance: Number(u.walletBalance ?? u.balance ?? 0), baseCurrency: String(u.baseCurrency || u.base_currency || 'USD').toUpperCase()
+            // 🪪 حفظ طلبات التوثيق المعلقة في مصفوفة معزولة لضمان عدم فقدانها عند بحث أو فرز العملاء
+            this.data.kycPendingUsers = arr(rKycUsers).map(u => ({
+                ...u, 
+                walletBalance: Number(u.walletBalance ?? 0), 
+                baseCurrency: String(u.baseCurrency || 'USD').toUpperCase()
+            }));
+
+            const combinedUsersMap = new Map();
+            arr(rUsersCloud.data).forEach(u => combinedUsersMap.set(String(u.id), u));
+            this.data.kycPendingUsers.forEach(u => combinedUsersMap.set(String(u.id), u)); 
+
+            this.data.users = Array.from(combinedUsersMap.values()).map(u => ({
+                ...u, 
+                walletBalance: Number(u.walletBalance ?? 0), 
+                baseCurrency: String(u.baseCurrency || 'USD').toUpperCase()
             }));
 
             this.data.prods = arr(rProds).map(p => ({
                 ...p, 
-                costPrice: Number(p.costPrice || p.cost_price || 0), 
+                costPrice: Number(p.costPrice || 0), 
                 price: Number(p.price || 0), 
-                isFixedPrice: !!(p.isFixedPrice || p.is_fixed_price),
+                isFixedPrice: !!p.isFixedPrice,
                 requiresAdminAttention: !!p.requiresAdminAttention, 
                 syncNote: p.syncNote || '' 
             }));
 
-            this.data.deposits = arr(rDepositsObj.data);
-            this.data.orders = arr(rOrdersCloudRes.data); 
-            this.data.logs = arr(rLogsObj.data);
+            this.data.deposits = arr(rDepositsCloud.data);
+            this.data.orders = arr(rOrdersCloud.data); 
+            this.data.logs = arr(rLogsCloud.data);
+this.data.systemErrors = arr(rLogsCloud.systemErrors);
             this.data.alerts = arr(rAlertsObj.data);
             this.data.cats = arr(rCats);
             this.data.suppliers = arr(rSuppliers); 
+            this.data.reviews = arr(rReviews);
             
             const normalizeCurrencyList = (val) => {
                 const allowed = new Set(this.data.rates.map(c => String(c.code).toUpperCase()));
@@ -225,14 +291,24 @@ export const AdminData = {
             if (this.data.countries.length === 0) await this.seedDefaultCountries();
 
             this.data.vault = arr(rVault);
+            
             this.data.coupons = arr(rCoupons).map(c => ({
-                ...c, isActive: c.isActive === true || c.isActive === 'true' || c.is_active === true, 
-                value: Number(c.value || 0), minOrder: Number(c.minOrder || 0), maxUses: Number(c.maxUses || 0), usedCount: Number(c.usedCount || 0)
+                ...c, 
+                isActive: c.isActive === true || c.isActive === 'true', 
+                value: Number(c.value || 0), 
+                minOrder: Number(c.minOrder || 0), 
+                maxUses: Number(c.maxUses || 0), 
+                usedCount: Number(c.usedCount || 0)
             }));
+            
             this.data.offers = arr(rOffers).map(o => ({ ...o, isActive: o.isActive === true || o.isActive === 'true', value: Number(o.value || 0) }));
 
             this._buildMaps();
-            Object.keys(this.data).forEach(prop => { if(Array.isArray(this.data[prop])) this._updateSnapshot(prop); });
+            Object.keys(this.data).forEach(prop => {
+                if (Array.isArray(this.data[prop]) || prop === 'system' || prop === 'settings') {
+                    this._updateSnapshot(prop);
+                }
+            });
 
             this.isCloudSyncSuccessful = true;
             return true;
@@ -242,102 +318,50 @@ export const AdminData = {
             throw error;
         }
     },
-
+    
     fetchWalletsLiquidityAsync: async function() {
         try {
             const result = await FirebaseAdapter.callFunction('adminGetWalletsLiquidity', {});
-            
             if (result && result.success && result.data) {
                 this.walletsCache = result.data;
             }
         } catch (error) {
             console.error("🚨 فشل جلب سيولة المحافظ من السيرفر:", error);
         }
-        
         return this.walletsCache;
     },
 
     fetchDashboardStatsAsync: async function(leaderboardPeriod = 'all') {
         const nowTime = Date.now();
-        const nowObj = new Date(nowTime);
-        let startTime = 0; let endTime = Infinity;
-        
-        if (leaderboardPeriod === 'this_month') {
-            startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1);
-        } else if (leaderboardPeriod === 'last_month') {
-            startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth() - 1, 1);
-            endTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1) - 1; 
-        }
-
-        // 🛡️ دروع حماية تمنع انهيار اللوحة إذا فشل استعلام واحد
-        const safeAgg = async (col, conditions, aggSpec) => {
-            try { return await FirebaseAdapter.getAggregatedStats(col, conditions, aggSpec); }
-            catch(e) { console.error(`Agg Error [${col}]:`, e); return null; }
-        };
-
-        const safeRecent = async (col, limitCount, orderField) => {
-            try { return await FirebaseAdapter.getRecent(col, limitCount, orderField); }
-            catch(e) { console.error(`Recent Error [${col}]:`, e); return []; }
-        };
-
-        // 🚀 جلب البيانات بشكل متوازي ومحصن تماماً
-        const [ordAgg, depAgg, pOrd, pDep, pKyc, pComp, tUsr, bUsr, topUsersRaw, liquidity] = await Promise.all([
-            safeAgg(DB_KEYS.ORDERS, [['status', '==', 'completed']], { revenue: { type: 'sum', field: 'priceBaseUsd' }, profit: { type: 'sum', field: 'pricingSnapshot.netProfitUsd' }, count: { type: 'count' } }),
-            safeAgg(DB_KEYS.DEPOSITS, [['status', '==', 'approved']], { totalAmount: { type: 'sum', field: 'creditedBaseUsd' }, count: { type: 'count' } }),
-            safeAgg(DB_KEYS.ORDERS, [['status', 'in', ['pending', 'processing']]], { total: { type: 'count' }}),
-            safeAgg(DB_KEYS.DEPOSITS, [['status', '==', 'pending']], { total: { type: 'count' }}),
-            safeAgg(DB_KEYS.USERS, [['kycStatus', '==', 'pending']], { total: { type: 'count' }}),
-            safeAgg('telecard_reviews', [['status', '==', 'pending'], ['rating', '<=', 2]], { total: { type: 'count' }}),
-            safeAgg(DB_KEYS.USERS, [], { total: { type: 'count' }}),
-            safeAgg(DB_KEYS.USERS, [['isBanned', '==', true]], { total: { type: 'count' }}),
-            safeRecent(DB_KEYS.USERS, 50, 'totalSpent'),
-            this.fetchWalletsLiquidityAsync().catch(() => ({ totalUsd: 0, details: {} }))
-        ]);
-
-        let topHeroes = [];
-        if (leaderboardPeriod === 'all') {
-            topHeroes = (topUsersRaw || []).map(u => ({
-                id: u.id, displayId: u.displayId || String(u.id).substring(0, 8), name: u.fullName || u.username || 'عميل مميز', img: u.profileImage || null, spent: u.totalSpent || 0
-            }));
-        } else {
-            try {
-                const recentOrdersRes = await FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 5000, status: 'completed', startDateMs: startTime, endDateMs: endTime });
-                const recentOrdersData = recentOrdersRes?.success ? recentOrdersRes.data : [];
-                const userMapLocal = {};
-                const userNameMap = {}; 
-
-                recentOrdersData.forEach(o => {
-                    const uid = String(o.userId);
-                    userMapLocal[uid] = FinancialEngine.safeAdd(userMapLocal[uid] || 0, Number(o.priceBaseUsd || 0));
-                    if (!userNameMap[uid]) {
-                        userNameMap[uid] = { name: o.userDataSnapshot?.fullName || o.userName || 'عميل', displayId: o.userDataSnapshot?.displayId || uid.substring(0, 8) };
-                    }
-                });
-                
-                topHeroes = Object.entries(userMapLocal)
-                    .sort(([, aSpent], [, bSpent]) => bSpent - aSpent)
-                    .slice(0, 3)
-                    .map(([uid, spent]) => {
-                        const u = this.data.usersMap?.[uid] || {}; 
-                        const fallback = userNameMap[uid] || {};
-                        return { id: uid, displayId: u.displayId || fallback.displayId || uid.substring(0, 8), name: u.fullName || u.username || fallback.name || 'عميل', img: u.profileImage || null, spent: spent };
-                    });
-            } catch (err) {
-                console.error("Top Heroes Error:", err);
+        let stats = null;
+        try {
+            const result = await FirebaseAdapter.callFunction('adminGetDashboardStats', { leaderboardPeriod });
+            if (result && result.success && result.data) {
+                stats = result.data;
             }
+        } catch (cloudErr) {
+            console.warn("⚠️ تعذر الاتصال بدالة adminGetDashboardStats (ربما لم تُرفع الدوال بعد):", cloudErr.message);
+            stats = {
+                _isOfflineFallback: true,
+                financials: { totalRevenue: 0, totalProfit: 0, totalCost: 0, frozenAssetsUsd: 0, apiProfit: 0, retailProfit: 0, vaultProfit: 0, manualProfit: 0, supplierProfit: 0 },
+                orders: { total: 0, completed: 0, pending: 0, rejected: 0, refunded: 0, apiCount: 0, retailCount: 0 },
+                deposits: { totalAmount: 0, approvedCount: 0, pending: 0, rejected: 0, refunded: 0, adminCount: 0 },
+                users: { total: 0, banned: 0, activeMonth: 0, topThree: [], mostActiveUsers: [], bannedIps: 0, bannedDevices: 0 },
+                pendingCounts: { orders: 0, deposits: 0, kyc: 0, complaints: 0 },
+                systemAlerts: []
+            };
         }
 
-        // 🛡️ تجميع الإحصائيات مع قيم افتراضية قوية تمنع الانهيار
-        const stats = {
-            financials: { totalRevenue: ordAgg?.revenue || 0, totalProfit: ordAgg?.profit || 0, totalDeposits: depAgg?.totalAmount || 0, depositsCount: depAgg?.count || 0 },
-            orders: { completed: ordAgg?.count || 0, pending: pOrd?.total || 0, total: (ordAgg?.count || 0) + (pOrd?.total || 0) },
-            deposits: { pending: pDep?.total || 0 },
-            users: { total: tUsr?.total || 0, banned: bUsr?.total || 0, active: (tUsr?.total || 0) - (bUsr?.total || 0), topThree: topHeroes },
-            wallets: liquidity || { totalUsd: 0, details: {} },
-            alerts: [],
-            pendingCounts: { orders: pOrd?.total || 0, deposits: pDep?.total || 0, kyc: pKyc?.total || 0, complaints: pComp?.total || 0 }
-        };
-
+        stats.wallets = await this.fetchWalletsLiquidityAsync().catch(() => ({ totalUsd: 0, details: {} }));
+        
+        const activeConf = this.data.activeConfigs || {};
+        const sysSettings = this.data.settings || {};
+        const liveBannedIps = Array.isArray(activeConf.bannedIps) ? activeConf.bannedIps : (Array.isArray(sysSettings.bannedIps) ? sysSettings.bannedIps : []);
+        const liveBannedDevices = Array.isArray(activeConf.bannedDevices) ? activeConf.bannedDevices : (Array.isArray(sysSettings.bannedDevices) ? sysSettings.bannedDevices : []);
+        stats.users.bannedIps = liveBannedIps.length;
+        stats.users.bannedDevices = liveBannedDevices.length;
+        
+        stats.alerts = [];
         try {
             if (Array.isArray(this.data.vault)) {
                 this.data.vault.forEach(v => {
@@ -348,147 +372,117 @@ export const AdminData = {
             }
         } catch(e) { console.error("Vault Alert Error:", e); }
 
-        if (stats.alerts.length === 0) stats.alerts.push({ id: 'security_stable', time: 0 });
         stats.alerts.sort((a, b) => parseSafeTime(b.time) - parseSafeTime(a.time));
+        this.data.dashboardStats = stats;
+        this.stats = stats;
 
-        return stats;
-    },    fetchSalesBIAsync: async function(range = '30days') {
-        try {
-            if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(true, 'جاري تحليل بيانات المبيعات الحية...');
-
-            const now = Date.now();
-            let startTime = 0; let endTime = Infinity;
-            let prevStartTime = 0; let prevEndTime = 0; 
-
-            const nowObj = new Date(now);
-
-            // 1. حساب النطاق الزمني الحالي (curr) والسابق (prev) بدقة ميكروثانية
-            if (range === 'today') {
-                startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), nowObj.getUTCDate());
-                prevStartTime = startTime - 86400000;
-                prevEndTime = startTime - 1;
-            } else if (range === '7days') {
-                startTime = now - (7 * 86400000);
-                prevStartTime = startTime - (7 * 86400000);
-                prevEndTime = startTime - 1;
-            } else if (range === '30days') {
-                startTime = now - (30 * 86400000);
-                prevStartTime = startTime - (30 * 86400000);
-                prevEndTime = startTime - 1;
-            } else if (range === '90days') {
-                startTime = now - (90 * 86400000);
-                prevStartTime = startTime - (90 * 86400000);
-                prevEndTime = startTime - 1;
-            } else if (range === 'this_month') {
-                startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1);
-                prevStartTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth() - 1, 1);
-                prevEndTime = startTime - 1;
-            } else if (range === 'last_month') {
-                startTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth() - 1, 1);
-                endTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth(), 1) - 1;
-                prevStartTime = Date.UTC(nowObj.getUTCFullYear(), nowObj.getUTCMonth() - 2, 1);
-                prevEndTime = startTime - 1;
+        if (stats.pendingCounts) {
+            window.AdminUI?.UsersUI?.updateSidebarKycBadge?.(Number(stats.pendingCounts.kyc || 0));
+            const bDep = document.getElementById('badge-dep');
+            const bOrd = document.getElementById('badge-ord');
+            const dCount = Number(stats.pendingCounts.deposits || 0);
+            const oCount = Number(stats.pendingCounts.orders || 0);
+            
+            if (bDep) {
+                if (dCount > 0) { bDep.innerText = Utils.enNum(dCount); bDep.classList.add('active'); bDep.classList.remove('hide-element'); }
+                else { bDep.classList.remove('active'); bDep.classList.add('hide-element'); }
             }
+            
+            if (bOrd) {
+                if (oCount > 0) { bOrd.innerText = Utils.enNum(oCount); bOrd.classList.add('active'); bOrd.classList.remove('hide-element'); }
+                else { bOrd.classList.remove('active'); bOrd.classList.add('hide-element'); }
+            }
+        }
 
-            // 2. الجلب السحابي (نجلب الطلبات التي تغطي الفترتين معاً)
-            let queryStartTime = range === 'all' ? 0 : prevStartTime;
+        return stats;        
+    },
+    
+    fetchSalesBIAsync: async function(range = '30days') {
+        try {
+            const result = await FirebaseAdapter.callFunction('adminGetSalesBI', { range });
+            if (result && result.success && (result.data || result.curr)) {
+                const biPayload = result.data || {
+                    range: result.range || range,
+                    curr: result.curr,
+                    prev: result.prev || { revenue: 0, profit: 0, cost: 0, count: 0 }
+                };
 
-            const res = await FirebaseAdapter.callFunction('adminGetOrdersList', {
-                limit: 10000,
-                status: 'completed',
-                startDateMs: queryStartTime,
-                endDateMs: endTime === Infinity ? null : endTime
-            });
+                if (biPayload.curr) {
+                    const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-            const orders = res?.success ? res.data : [];
+                    if (biPayload.curr.products && typeof biPayload.curr.products === 'object') {
+                        const catsAgg = {};
+                        Object.entries(biPayload.curr.products).forEach(([pId, pStats]) => {
+                            const prodObj = this.data.prodsMap?.[pId];
+                            if (prodObj && prodObj.name) {
+                                pStats.name = prodObj.name;
+                            }
+                            // 📌 [توحيد معماري]: المعرف القياسي للقسم هو categoryId (أو مصفوفة categoryIds)
+                            const catId = prodObj?.categoryId || (Array.isArray(prodObj?.categoryIds) && prodObj.categoryIds[0]) || 'uncategorized';                            
+                            const catName = this.data.catsMap?.[catId]?.name || 'أقسام عامة';
+                            
+                            if (!catsAgg[catId]) {
+                                catsAgg[catId] = { id: catId, name: catName, count: 0, revenue: 0, profit: 0 };
+                            }
+                            catsAgg[catId].count += Number(pStats.count || 0);
+                            catsAgg[catId].revenue = round(catsAgg[catId].revenue + Number(pStats.revenue || 0));
+                            catsAgg[catId].profit = round(catsAgg[catId].profit + Number(pStats.profit || 0));
+                        });
+                        if (!biPayload.curr.categories || Object.keys(biPayload.curr.categories).length === 0) {
+                            biPayload.curr.categories = catsAgg;
+                        }
+                    }
 
-            // 3. هيكل البيانات الأساسي المحصن
-            const bi = {
-                curr: { revenue: 0, profit: 0, cost: 0, count: 0, categories: {}, products: {}, tiers: {}, daily: {}, sources: { api: 0, auto: 0, manual: 0 } },
-                prev: { revenue: 0, profit: 0, cost: 0, count: 0 }
-            };
-
-            // 4. معالجة البيانات بأمان رياضي وزمني
-            orders.forEach(o => {
-                // 🛡️ [الإصلاح المعماري]: استخدام parseTime لترجمة تواريخ فايربيز المعقدة بشكل آمن
-                const orderTime = RenderHelpers.parseTime(o.time || o.createdAt);
-                
-                const rev = Number(o.priceBaseUsd || 0);
-                const prof = Number(o.pricingSnapshot?.netProfitUsd || 0);
-                const cost = Number(o.pricingSnapshot?.costUsd || 0);
-
-                const isCurrentPeriod = (orderTime >= startTime && orderTime <= endTime);
-                const isPrevPeriod = (orderTime >= prevStartTime && orderTime <= prevEndTime);
-
-                // حسابات نمو الفترة السابقة
-                if (isPrevPeriod && range !== 'all') {
-                    bi.prev.revenue = FinancialEngine.safeAdd(bi.prev.revenue, rev);
-                    bi.prev.profit = FinancialEngine.safeAdd(bi.prev.profit, prof);
-                    bi.prev.cost = FinancialEngine.safeAdd(bi.prev.cost, cost);
-                    bi.prev.count++;
-                }
-
-                // حسابات الفترة المحددة حالياً
-                if (isCurrentPeriod || range === 'all') {
-                    bi.curr.revenue = FinancialEngine.safeAdd(bi.curr.revenue, rev);
-                    bi.curr.profit = FinancialEngine.safeAdd(bi.curr.profit, prof);
-                    bi.curr.cost = FinancialEngine.safeAdd(bi.curr.cost, cost);
-                    bi.curr.count++;
-
-                    const pId = o.prodId || 'unknown';
-                    const pName = o.product || 'منتج محذوف';
-                    if (!bi.curr.products[pId]) bi.curr.products[pId] = { name: pName, revenue: 0, profit: 0, count: 0 };
-                    bi.curr.products[pId].revenue = FinancialEngine.safeAdd(bi.curr.products[pId].revenue, rev);
-                    bi.curr.products[pId].profit = FinancialEngine.safeAdd(bi.curr.products[pId].profit, prof);
-                    bi.curr.products[pId].count++;
-
-                    const tName = o.tierName || 'عضو';
-                    if (!bi.curr.tiers[tName]) bi.curr.tiers[tName] = { name: tName, revenue: 0, profit: 0, count: 0 };
-                    bi.curr.tiers[tName].revenue = FinancialEngine.safeAdd(bi.curr.tiers[tName].revenue, rev);
-                    bi.curr.tiers[tName].profit = FinancialEngine.safeAdd(bi.curr.tiers[tName].profit, prof);
-                    bi.curr.tiers[tName].count++;
-
-                    const dDate = new Date(orderTime);
-                    const dayKey = `${dDate.getUTCFullYear()}-${String(dDate.getUTCMonth()+1).padStart(2,'0')}-${String(dDate.getUTCDate()).padStart(2,'0')}`;
-                    if (!bi.curr.daily[dayKey]) bi.curr.daily[dayKey] = { revenue: 0, profit: 0 };
-                    bi.curr.daily[dayKey].revenue = FinancialEngine.safeAdd(bi.curr.daily[dayKey].revenue, rev);
-                    bi.curr.daily[dayKey].profit = FinancialEngine.safeAdd(bi.curr.daily[dayKey].profit, prof);
-
-                    const isApi = (o.isApi || o.source === 'api');
-                    const isAuto = (!isApi && o.deliveredCode && o.deliveredCode.length > 0);
-                    if (isApi) bi.curr.sources.api++;
-                    else if (isAuto) bi.curr.sources.auto++;
-                    else bi.curr.sources.manual++;
-                    
-                    const realProd = this.data.prodsMap?.[pId];
-                    if (realProd && realProd.categoryId) {
-                        const cId = realProd.categoryId;
-                        const cName = this.data.catsMap?.[cId]?.name || 'قسم غير معروف';
-                        if (!bi.curr.categories[cId]) bi.curr.categories[cId] = { name: cName, revenue: 0, profit: 0, count: 0 };
-                        bi.curr.categories[cId].revenue = FinancialEngine.safeAdd(bi.curr.categories[cId].revenue, rev);
-                        bi.curr.categories[cId].profit = FinancialEngine.safeAdd(bi.curr.categories[cId].profit, prof);
-                        bi.curr.categories[cId].count++;
+                    if (biPayload.curr.tiers && typeof biPayload.curr.tiers === 'object') {
+                        Object.entries(biPayload.curr.tiers).forEach(([tId, tStats]) => {
+                            const tierObj = this.data.tiersMap?.[tId];
+                            if (tierObj && (tierObj.nameAr || tierObj.name)) {
+                                tStats.name = tierObj.nameAr || tierObj.name;
+                            }
+                        });
                     }
                 }
-            });
 
-            return bi;
+                return biPayload;
+            }
+
+            throw new Error("لم يتم استلام بيانات صحيحة من السيرفر");
 
         } catch (error) {
-            console.error("🚨 التحليل السحابي انهار بسبب خطأ غير متوقع:", error);
-            // 🛡️ [الإصلاح المعماري الجذري]: إرجاع وعاء بيانات فارغ بدلاً من null لمنع اختفاء الكبسولات!
+            console.error("🚨 التحليل السحابي انهار:", error);
             return {
-                curr: { revenue: 0, profit: 0, cost: 0, count: 0, categories: {}, products: {}, tiers: {}, daily: {}, sources: { api: 0, auto: 0, manual: 0 } },
+                curr: { revenue: 0, profit: 0, cost: 0, count: 0, categories: {}, products: {}, tiers: {}, daily: {}, sources: { api: 0, vault: 0, supplier: 0, manual: 0 } },
                 prev: { revenue: 0, profit: 0, cost: 0, count: 0 }
             };
-        } finally {
-            if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(false);
         }
     },
+
+    // 🛡️ دالة مساعدة لحقن deleteField() داخل الكائنات الفرعية (مثل tierPrices و currencySettings) عند استخدام set + merge
+    _buildSafeMergeObject: function(newVal, oldVal) {
+        if (!newVal || typeof newVal !== 'object' || Array.isArray(newVal) || typeof newVal.toMillis === 'function') {
+            return newVal;
+        }
+        if (!oldVal || typeof oldVal !== 'object' || Array.isArray(oldVal)) {
+            return newVal;
+        }
+        const merged = { ...newVal };
+        Object.keys(oldVal).forEach(subKey => {
+            if (newVal[subKey] === undefined || !(subKey in newVal)) {
+                merged[subKey] = deleteField();
+            } else if (
+                typeof newVal[subKey] === 'object' && newVal[subKey] !== null && !Array.isArray(newVal[subKey]) &&
+                typeof oldVal[subKey] === 'object' && oldVal[subKey] !== null && !Array.isArray(oldVal[subKey])
+            ) {
+                merged[subKey] = this._buildSafeMergeObject(newVal[subKey], oldVal[subKey]);
+            }
+        });
+        return merged;
+    },
+
     saveCollection: async function(key, prop) {
         if (!this.isCloudSyncSuccessful) return false;
         
-        const targetCollectionKey = (prop === 'prods') ? 'telecard_prods' : key;
+        const targetCollectionKey = (prop === 'prods') ? DB_KEYS.PRODS : key;
         const currentArr = this.data[prop] || [];
         const snapArr = this._snapshots[prop] || [];
         
@@ -527,9 +521,23 @@ export const AdminData = {
                 let updatePayload = {}; 
 
                 Object.keys(item).forEach(k => { 
-                    if (k !== 'updatedAt' && !this._deepEqual(item[k], old[k])) {
+                    if (k === 'updatedAt' || item[k] === undefined) return;
+                    let isChanged = false;
+                    if (typeof item[k] === 'object' && item[k] !== null) {
+                        isChanged = !this._deepEqual(item[k], old[k]);
+                    } else {
+                        isChanged = item[k] !== old[k];
+                    }
+                    if (isChanged) {
                         hasItemChanges = true; 
-                        updatePayload[k] = item[k]; 
+                        updatePayload[k] = this._buildSafeMergeObject(item[k], old[k]); 
+                    }
+                });
+
+                Object.keys(old).forEach(k => {
+                    if (k !== 'updatedAt' && (item[k] === undefined || !(k in item))) {
+                        hasItemChanges = true;
+                        updatePayload[k] = deleteField(); 
                     }
                 });
 
@@ -543,20 +551,20 @@ export const AdminData = {
             if (operationCount >= 400) await commitAndReset();
         }
         
-        for (const [id, _] of snapMap.entries()) {
-            if (!currentMap.has(id)) {
-                const docRef = doc(FirebaseAdapter.db, targetCollectionKey, id);
-                currentBatch.delete(docRef);
+        for (const [oldId] of snapMap.entries()) {
+            if (!currentMap.has(oldId)) {
+                currentBatch.delete(doc(FirebaseAdapter.db, targetCollectionKey, oldId));
                 operationCount++;
                 hasAnyChanges = true;
                 if (operationCount >= 400) await commitAndReset();
             }
         }
-        
+
         await commitAndReset();
         
+        // ⚡ تحديث الإعدادات فقط للجداول التي لا تملك تريجر كاش مستقل في السيرفر لمنع الكتابة المزدوجة
         if (hasAnyChanges) {
-            if (['prods', 'cats', 'tiers', 'offers', 'rates', 'banners', 'suppliers'].includes(prop)) {
+            if (['cats', 'banners', 'countries'].includes(prop)) {
                 if (!this.data.settings) this.data.settings = {};
                 this.data.settings.catalogVersion = Date.now().toString(36);
                 await this.saveSystemSettings();
@@ -586,18 +594,52 @@ export const AdminData = {
     savePayments: function() { return this.saveCollection(DB_KEYS.PAYMENTS, 'payments'); },
     saveBanners: function() { return this.saveCollection(DB_KEYS.BANNERS, 'banners'); },
     saveOffers: function() { return this.saveCollection(DB_KEYS.OFFERS, 'offers'); },
-    saveSuppliers: function() { return this.saveCollection('telecard_suppliers', 'suppliers'); }, 
+    saveSuppliers: function() { return this.saveCollection(DB_KEYS.SUPPLIERS, 'suppliers'); }, 
     
+    // 🚀 [الإصلاح المعماري 1] منع تسريب قوائم الجدار الناري إلى الوثيقة العامة عند الحفظ
     saveSystemSettings: async function() {
         if (!this.isCloudSyncSuccessful) return false;
-        try { await FirebaseAdapter.set(DB_KEYS.SETTINGS, 'singleton', this.data.settings); return true; } 
-        catch (e) { return false; }
+        try {
+            if (!this.data.settings) this.data.settings = {};
+            this.data.settings.updatedAt = Date.now();
+            
+            // 🛡️ فصل قوائم الجدار الناري عن الوثيقة العامة لمنع تسريبها للزوار
+            const { bannedIps, bannedDevices, ...publicSettingsPayload } = this.data.settings;
+            await FirebaseAdapter.set(DB_KEYS.SETTINGS, 'singleton', publicSettingsPayload);
+            
+            this._updateSnapshot('settings');
+
+            // 🛡️ عدم الكتابة على وثيقة حالة النظام (الصيانة/التجميد) إلا إذا تغيرت فعلياً
+            if (
+                this.data.system &&
+                Object.keys(this.data.system).length > 0 &&
+                !this._deepEqual(this.data.system, this._snapshots.system)
+            ) {
+                await FirebaseAdapter.set(DB_KEYS.SYSTEM, 'singleton', this.data.system);
+                this._updateSnapshot('system');
+            }
+            return true;
+        } catch (e) { return false; }
     },
         
-    saveAdminProfile: async function() {
+    saveAdminProfile: async function(adminUid) {
         if (!this.isCloudSyncSuccessful) return false;
-        try { await FirebaseAdapter.set(DB_KEYS.ADMIN, 'singleton', this.data.adminProfile); return true; } 
+        try { await FirebaseAdapter.set(DB_KEYS.ADMIN, adminUid || 'singleton', this.data.adminProfile); return true; } 
         catch (e) { return false; }
+    },
+
+    addLog: async function(action, details) {
+        try {
+            const newLog = {
+                id: 'LOG_' + Utils.generateID(),
+                adminUid: this.data.adminProfile?.name || 'الإدارة',
+                action: String(action || ''),
+                details: String(details || ''),
+                timestamp: Date.now()
+            };
+            if (!Array.isArray(this.data.logs)) this.data.logs = [];
+            this.data.logs.unshift(newLog);
+        } catch (e) {}
     },
 
     seedDefaultTiers: async function() {
@@ -606,7 +648,7 @@ export const AdminData = {
         try {
             const defaultTierId = 'TIER_DEFAULT'; 
             if (this.data.tiers.some(t => String(t.id) === defaultTierId || t.isDefault)) return;
-            const defaultTier = { id: defaultTierId, name: 'عضو جديد', isDefault: true, threshold: 0, durationDays: 3650, profitPercent: 5, autoAdvance: true, createdAt: Date.now() };
+            const defaultTier = { id: defaultTierId, name: 'عضو جديد', nameAr: 'عضو جديد', type: 'retail', icon: 'fa-user', color: '#FFD700', isDefault: true, threshold: 0, durationDays: 0, profitPercent: 5, minProfitUsd: 0, autoAdvance: true, createdAt: Date.now() };
             if (!Array.isArray(this.data.tiers)) this.data.tiers = [];
             this.data.tiers.push(defaultTier);
             await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);

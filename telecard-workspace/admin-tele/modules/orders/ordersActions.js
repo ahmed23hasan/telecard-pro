@@ -1,13 +1,14 @@
 // ============================================================================
-// 🗺️ خريطة مسارات الطلبات (Orders Actions Router) - النسخة الماسية V15.1 💎
+// 🗺️ خريطة مسارات الطلبات (Orders Actions Router) - النسخة الماسية V15.2 💎
 // ============================================================================
 
 import { OrdersController } from './ordersController.js';
 import { AdminUI } from '../../adminUI.js';
 import { AdminRender } from '../../adminRender.js';
-import { OrdersRender } from './ordersRender.js'; 
+import { OrdersRender } from './ordersRender.js';
 
 export const OrdersActions = {
+    'ignore-click': () => {},
     'open-order-drawer': (data) => AdminUI?.OrdersUI?.openOrderDrawer?.(data.id),
     
     // 🚀 [تصحيح السلك المقطوع]: زر إغلاق تفاصيل الطلب

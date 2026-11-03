@@ -1,9 +1,11 @@
 // ============================================================================
-// 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js) - Cloud-Native V18.6 💎
-// 🎯 الوظيفة: إدارة التفاعلات المرئية فقط (Visual Interactions)
-// 🚀 التحديثات المعمارية (V18.6 - Modal Race Condition Shield): 
-// 1. Clean DOM Routing 🧹: تدمير نافذة الترقية من الـ HTML بالكامل بعد إغلاقها لمنع تكدس الـ DOM.
-// 2. Modal Race Condition Fix 🛡️: إضافة قفل زمني (Timer Lock) يمنع تدمير النوافذ إذا تم فتحها وإغلاقها بسرعة جنونية.
+// 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js) - Cloud-Native V19.7 💎
+// 🎯 الوظيفة: إدارة التفاعلات المرئية والنوافذ الديناميكية
+// 🚀 التحديثات المعمارية (V19.7 - Hybrid Cloud Tier Search & Focus Guard): 
+// 1. Hybrid Tier Search 🔍: فلترة محلية لحظية (0ms) مع بحث سحابي تلقائي (Debounced) إذا لم يوجد العميل ضمن أول 50 بطاقة.
+// 2. Dynamic Creation 📦: خلق النوافذ برمجياً عند الطلب فقط لتقليل استهلاك الذاكرة.
+// 3. Smart Garbage Collector 🧹: إضافة كلاس (dynamic-auto-destroy) لتدمير النوافذ ذاتياً بعد الإغلاق.
+// 4. Zero Jitter Shield 🛡️: إجبار المتصفح على حساب الأبعاد (offsetWidth) قبل الظهور لمنع التمدد.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -14,37 +16,55 @@ import { UsersRender } from './usersRender.js';
 
 export const UsersUI = {
     tempKycConfig: null,
-    _tierModalTimer: null, // 🛡️ قفل التزامن الزمني للنافذة
+    _tierSearchTimer: null,
+    _hadCloudTierSearch: false,
     
     // ---------------------------------------------------------
     // 👑 1. إدارة المستويات (Tiers)
     // ---------------------------------------------------------
     openTierModal: function(id = null) {
         EventBus.emit('set-temp-edit-id', id);
-        const tier = id ? (AdminData.data.tiersMap?.[id] || AdminData.data.tiers.find(t => String(t.id) === String(id))) : null;
+        const tier = id ? (AdminData.data.tiersMap?.[id] || (AdminData.data.tiers || []).find(t => String(t.id) === String(id))) : null;
+        
+        let modal = document.getElementById('m-tier');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'm-tier';
+            modal.className = 'modal-overlay dynamic-auto-destroy';
+            document.body.appendChild(modal);
+        }
+
+        modal.innerHTML = UsersTemplates.tierEditModal(tier || {});
         this.setupTierModal(tier);
+        void modal.offsetWidth;
+
+        requestAnimationFrame(() => {
+            modal.classList.add('active');
+        });
+        
         EventBus.emit('req-open-modal', 'tier');
     },
     
     setupTierModal: function(tier) {
         const safeSetVal = (elId, val) => {
             const el = document.getElementById(elId);
-            if (el) el.value = val;
+            if (el) el.value = val !== undefined && val !== null ? val : '';
         };
         
         safeSetVal('t-id', tier ? tier.id : '');
         safeSetVal('t-name', tier ? tier.name : '');
-        safeSetVal('t-profit', tier ? tier.profit_percent : '');
-        safeSetVal('t-min', tier ? tier.min_profit_usd : '');
+        safeSetVal('t-type', tier ? (tier.type || 'retail') : 'retail');
+        safeSetVal('t-profit', tier ? tier.profitPercent : '');
+        safeSetVal('t-min', tier ? tier.minProfitUsd : '');
         safeSetVal('t-cond', tier ? tier.threshold : '');
-        safeSetVal('t-dur', tier ? tier.duration_days : '');
+        safeSetVal('t-dur', tier ? tier.durationDays : '');
         
         const defaultCheckbox = document.getElementById('t-default');
         if (defaultCheckbox) defaultCheckbox.checked = tier ? !!tier.isDefault : false;
         
         document.querySelectorAll('.badge-opt').forEach(el => el.classList.remove('active'));
         
-        const iconClass = tier ? (tier.icon || 'fa-user') : 'fa-user';
+        const iconClass = tier ? (tier.icon || tier.badge || 'fa-user') : 'fa-user';
         const iconEl = document.querySelector(`.badge-opt[data-val="${iconClass}"]`);
         
         if (iconEl) {
@@ -91,11 +111,17 @@ export const UsersUI = {
     },
     
     openTierUsers: function(tierId) {
+        this._hadCloudTierSearch = false;
         if (UsersRender && typeof UsersRender.showTierUsersPage === 'function') {
             UsersRender.showTierUsersPage(tierId);
         } else {
-            console.error("UsersRender.showTierUsersPage is not defined");
             UIService.showToast('حدث خطأ في توجيه الواجهة', 'error');
+        }
+    },
+    
+    viewUser: function(id, preventModalOpen = false) {
+        if (UsersRender && typeof UsersRender.viewUser === 'function') {
+            UsersRender.viewUser(id, preventModalOpen);
         }
     },
     
@@ -103,11 +129,12 @@ export const UsersUI = {
         document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
         const tiersSection = document.getElementById('view-tiers');
         if (tiersSection) tiersSection.classList.add('active');
-        const btn = document.querySelector('.nav-item[onclick*="tiers"]');
+        const btn = document.querySelector('.nav-item[data-target="tiers"]');
         EventBus.emit('req-navigate', { page: 'tiers', btnEl: btn });
-    },
+    },    
     
     filterTierUsersLive: function(inputEl) {
+        if (!inputEl) return;
         const term = (inputEl.value || '').toLowerCase().trim();
         const container = document.getElementById('tier-users-container');
         if (!container) return;
@@ -118,10 +145,10 @@ export const UsersUI = {
         cards.forEach(card => {
             const text = card.innerText.toLowerCase();
             if (text.includes(term)) {
-                card.style.display = 'flex';
+                card.classList.remove('hide-element');
                 visibleCount++;
             } else {
-                card.style.display = 'none';
+                card.classList.add('hide-element');
             }
         });
         
@@ -131,57 +158,80 @@ export const UsersUI = {
                 emptyState = document.createElement('div');
                 emptyState.id = 'tier-users-empty-search';
                 emptyState.className = 'empty-state mt-20';
-                emptyState.innerHTML = `<i class="fa-solid fa-magnifying-glass"></i><span>لا توجد نتائج تطابق بحثك...</span>`;
+                emptyState.innerHTML = `<i class="fa-solid fa-magnifying-glass"></i><span>جاري البحث في السحابة...</span>`;
                 container.appendChild(emptyState);
             }
         } else if (emptyState) {
             emptyState.remove();
         }
-    },
-    
-    showTierSelection: function(userId) {
-        const u = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(x => String(x.id) === String(userId)) || (UsersRender._cloudSearchResults || []).find(x => String(x.id) === String(userId));
-        if (!u) {
-            UIService.showToast('تعذر العثور على العميل لتغيير مستواه', 'error');
-            return;
-        }
-        
-        // 🚀 [الحل المعماري - Modal Race Condition Shield]: إيقاف مؤقت التدمير إذا تم فتح النافذة بسرعة
-        if (this._tierModalTimer) {
-            clearTimeout(this._tierModalTimer);
-            this._tierModalTimer = null;
-        }
 
-        let modal = document.getElementById('tier-selection-modal');
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'tier-selection-modal';
-            modal.className = 'modal-overlay';
-            document.body.appendChild(modal);
+        // 🚀 بحث سحابي تلقائي إذا لم يكن العميل ضمن الـ 50 بطاقة المعروضة محلياً، أو عند مسح البحث السحابي السابق
+        if (this._tierSearchTimer) clearTimeout(this._tierSearchTimer);
+        if ((visibleCount === 0 && term.length >= 2) || (term === '' && this._hadCloudTierSearch)) {
+            this._tierSearchTimer = setTimeout(() => {
+                this._hadCloudTierSearch = (term !== '');
+                if (UsersRender && typeof UsersRender.renderTierUsersPage === 'function') {
+                    UsersRender.renderTierUsersPage(false, true);
+                }
+            }, 450);
         }
-        
-        const tiers = AdminData.data.tiers || [];
-        modal.innerHTML = UsersTemplates.tierSelectionModal(u, tiers);
-        modal.classList.add('active');
     },
     
-    selectTierOption: function(element) {
+    showTierSelection: async function(userId) {
+    const strId = String(userId);
+    let u = AdminData.data.usersMap?.[strId] ||
+        (AdminData.data.users || []).find(x => String(x.id) === strId) ||
+        (AdminData.data.kycPendingUsers || []).find(x => String(x.id) === strId);
+    if (!u) {
+        UIService.showToast('تعذر العثور على العميل لتغيير مستواه', 'error');
+        return;
+    }
+    
+    let modal = document.getElementById('tier-selection-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'tier-selection-modal';
+        modal.className = 'modal-overlay dynamic-auto-destroy';
+        document.body.appendChild(modal);
+    }
+    
+    const tiers = AdminData.data.tiers || [];
+    modal.innerHTML = UsersTemplates.tierSelectionModal(u, tiers);
+    
+    void modal.offsetWidth;
+    
+    requestAnimationFrame(() => {
+        modal.classList.add('active');
+    });
+},    selectTierOption: function(element) {
         document.querySelectorAll('.tier-option').forEach(opt => opt.classList.remove('selected'));
         element.classList.add('selected');
-        EventBus.emit('tier-option-selected', element.dataset.tierId);
+        
+        const tierId = element.dataset.tierId;
+        const tier = AdminData.data.tiersMap?.[tierId] || (AdminData.data.tiers || []).find(t => String(t.id) === String(tierId));
+        
+        const checkbox = document.getElementById('tier-manual-override');
+        const container = document.getElementById('tier-override-container');
+        
+        if (checkbox && container && tier) {
+            if (tier.type === 'api') {
+                checkbox.checked = true;
+                checkbox.disabled = true;
+                container.style.opacity = '0.6';
+                container.style.cursor = 'not-allowed';
+            } else {
+                checkbox.disabled = false;
+                container.style.opacity = '1';
+                container.style.cursor = 'pointer';
+            }
+        }
+
+        EventBus.emit('tier-option-selected', tierId);
     },
-    
+
     closeTierSelection: function() {
-        const modal = document.getElementById('tier-selection-modal');
-        if (modal) {
-            modal.classList.remove('active');
-            
-            // 🚀 [الحل المعماري]: حفظ معرف المؤقت لإلغائه إذا تراجع المدير وفتح النافذة لعميل آخر فوراً
-            if (this._tierModalTimer) clearTimeout(this._tierModalTimer);
-            
-            this._tierModalTimer = setTimeout(() => {
-                if (modal.parentElement) modal.remove();
-            }, 300);
+        if (window.AdminUI && window.AdminUI.closeModal) {
+            window.AdminUI.closeModal('tier-selection-modal');
         }
     },
     
@@ -189,19 +239,30 @@ export const UsersUI = {
     // 👤 2. إدارة ملفات المستخدمين (Users)
     // ---------------------------------------------------------
     openUserEditModal: function(userId) {
-        const u = AdminData.data.usersMap?.[userId] || (AdminData.data.users || []).find(x => String(x.id) === String(userId)) || (UsersRender._cloudSearchResults || []).find(x => String(x.id) === String(userId));
-        if (!u) return UIService.showToast('لم يتم العثور على العميل', 'error');
-        
-        const container = document.getElementById('user-edit-form-container');
-        if (container) container.innerHTML = UsersTemplates.userEditForm(u);
-        
-        const modal = document.getElementById('m-user-edit');
-        if (modal) modal.classList.add('active');
-    },
+    const strId = String(userId);
+    const u = AdminData.data.usersMap?.[strId] ||
+        (AdminData.data.users || []).find(x => String(x.id) === strId) ||
+        (AdminData.data.kycPendingUsers || []).find(x => String(x.id) === strId);
+    if (!u) return UIService.showToast('لم يتم العثور على العميل', 'error');
     
-    closeUserEditModal: function() {
-        const modal = document.getElementById('m-user-edit');
-        if (modal) modal.classList.remove('active');
+    let modal = document.getElementById('m-user-edit');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'm-user-edit';
+        modal.className = 'modal-overlay dynamic-auto-destroy';
+        document.body.appendChild(modal);
+    }
+    
+    modal.innerHTML = UsersTemplates.userEditModal(u);
+    void modal.offsetWidth;
+    
+    requestAnimationFrame(() => {
+        modal.classList.add('active');
+    });
+},    closeUserEditModal: function() {
+        if (window.AdminUI && window.AdminUI.closeModal) {
+            window.AdminUI.closeModal('m-user-edit');
+        }
     },
     
     clearCustomNotifInput: function() {
@@ -213,7 +274,7 @@ export const UsersUI = {
     // 🛡️ 3. مركز التوثيق والأمان (KYC System)
     // ---------------------------------------------------------
     filterKycRequests: function(searchTerm) {
-        const term = searchTerm.toLowerCase().trim();
+        const term = (searchTerm || '').toLowerCase().trim();
         const container = document.getElementById('kyc-requests-container');
         if (!container) return;
         
@@ -223,10 +284,10 @@ export const UsersUI = {
         cards.forEach(card => {
             const text = card.innerText.toLowerCase();
             if (text.includes(term)) {
-                card.style.display = 'flex';
+                card.classList.remove('hide-element');
                 visibleCount++;
             } else {
-                card.style.display = 'none';
+                card.classList.add('hide-element');
             }
         });
         
@@ -250,14 +311,14 @@ export const UsersUI = {
         
         if (count > 0) {
             badge.textContent = count > 99 ? '+99' : count;
-            badge.style.display = 'flex';
+            badge.classList.remove('hide-element');
             badge.classList.add('animate__animated', 'animate__pulse');
             setTimeout(() => badge.classList.remove('animate__animated', 'animate__pulse'), 1000);
         } else {
-            badge.style.display = 'none';
+            badge.classList.add('hide-element');
         }
-    },
-    
+    },    
+
     updateKycMode: async function(mode) {
         if (!this.tempKycConfig) {
             const settings = AdminData.data.settings || {};
@@ -306,7 +367,6 @@ export const UsersUI = {
         }
         
         if (!this.tempKycConfig.targetedTiers) this.tempKycConfig.targetedTiers = [];
-        
         const safeTierId = String(tierId);
         
         if (isChecked) {

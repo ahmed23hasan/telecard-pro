@@ -1,210 +1,223 @@
 // ============================================================================
-// 🧠 متحكم الطلبات (modules/orders/ordersController.js) - Cloud-Native V18.5 💎
-// 🚀 التحديثات المعمارية (V18.5 - The Atomic Sync & Batching Patch):
-// 1. Read Exhaustion Shield 🛡️: إيقاف جلب آلاف المستخدمين وتحديث العميل المتأثر فقط.
-// 2. Race Condition Fix ⏱️: إلغاء (setTimeout) وتحديث الواجهة تزامنيًا (Atomic Sync).
-// 3. Batched Bulk Reject 📦: تسريع الرفض الجماعي باستخدام Chunks لمنع تجميد المتصفح.
+// 🧠 متحكم الطلبات (modules/orders/ordersController.js) - النسخة الماسية V16.0 💎
+// 🎯 الوظيفة: معالجة قرارات الطلبات (قبول، رفض، استرجاع، رفض جماعي) والربط السحابي.
+// 🚀 التحديث (V16.0 - Live Tab Counter Sync & Cloud User-Orders Navigation):
+// 1. Live Tab Counter Sync 📊: تحديث عدادات التبويبات لحظياً عند تغيير حالة الطلب دون تصفيرها.
+// 2. Cloud User-Orders Search 🔍: ربط navToUserOrders بالبحث السحابي المباشر لجلب كافة طلبات العميل.
+// 3. Supplier & API Bulk-Reject Shield 🛡️: استثناء طلبات الموردين والـ API من الرفض الجماعي العشوائي.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminUI } from '../../adminUI.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
-import { FinancialEngine } from '../../core/financialEngine.js';
 import { AdminRender } from '../../adminRender.js';
+import { OrdersRender } from './ordersRender.js';
 
 export const OrdersController = {
     
     _actionLocks: new Set(),
     
     submitOrderAction: async function(action, orderId) {
-        if (this._actionLocks.has(orderId)) return;
+    if (this._actionLocks.has(orderId)) return;
+    
+    const o = AdminData.data.ordersMap?.[orderId] || (AdminData.data.orders || []).find(x => String(x.id) === String(orderId));
+    if (!o) return;
+    
+    this._actionLocks.add(orderId);
+    const previousStatus = o.status || 'pending';
+    
+    try {
+        const note = Utils.getVal('order-modal-note');
+        const rawManualCode = Utils.getVal('order-modal-delivered-code').trim();
+        const manualCode = rawManualCode !== '' ? rawManualCode : null;
         
-        const o = AdminData.data.ordersMap?.[orderId] || AdminData.data.orders.find(x => String(x.id) === String(orderId));
-        if (!o) return;
+        let mappedAction = 'completed';
+        if (action === 'reject') mappedAction = 'rejected';
+        if (action === 'refund') mappedAction = 'refunded';
         
-        this._actionLocks.add(orderId);
+        const exactPrice = Number(o.priceLocalDeducted ?? o.price ?? 0);
+        const priceVal = exactPrice.toFixed(2);
+        const prodName = o.product || 'المنتج';
+        const cCode = (o.priceCurrency || 'USD').toUpperCase().replace('$', 'USD');
         
-        try {
-            const note = Utils.escapeHTML(Utils.getVal('order-modal-note'));
-            
-            let mappedAction = 'completed';
-            if (action === 'reject') mappedAction = 'rejected';
-            if (action === 'refund') mappedAction = 'refunded';
-            
-            const priceVal = Number(o.price || 0).toFixed(2);
-            const prodName = o.product || 'المنتج';
-            const cCode = (o.priceCurrency || 'USD').toUpperCase().replace('$', 'USD');
-            
-            let customMessage = '';
-            if (mappedAction === 'completed') {
-                customMessage = `تم قبول طلب شراء (${prodName}) بقيمة ${priceVal} ${cCode}`;
-            } else if (mappedAction === 'rejected') {
-                customMessage = `تم رفض طلب (${prodName}) وإعادة ${priceVal} ${cCode} للمحفظة`;
-            } else if (mappedAction === 'refunded') {
-                customMessage = `تم استرجاع طلب (${prodName}) وإعادة ${priceVal} ${cCode} للمحفظة`;
+        let customMessage = '';
+        if (mappedAction === 'completed') {
+            customMessage = `تم قبول طلب شراء (${prodName}) بقيمة ${priceVal} ${cCode}`;
+        } else if (mappedAction === 'rejected') {
+            customMessage = `تم رفض طلب (${prodName}) وإعادة ${priceVal} ${cCode} للمحفظة`;
+        } else if (mappedAction === 'refunded') {
+            customMessage = `تم استرجاع طلب (${prodName}) وإعادة ${priceVal} ${cCode} للمحفظة`;
+        }
+        
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري توثيق الطلب سحابياً...');
+        
+        const result = await FirebaseAdapter.callFunction('adminProcessOrder', {
+            orderId: String(o.id),
+            action: mappedAction,
+            adminNote: note,
+            ...(mappedAction === 'completed' && manualCode ? { deliveredCode: manualCode } : {})
+        });
+        
+        if (result && result.success) {
+            const preservedSnapshot = o.pricingSnapshot ? { ...o.pricingSnapshot } : null;
+            const freshOrder = await FirebaseAdapter.getById('telecard_orders', String(o.id));
+            if (freshOrder) {
+                Object.assign(o, freshOrder);
+                if (preservedSnapshot) {
+                    o.pricingSnapshot = { ...preservedSnapshot, ...(freshOrder.pricingSnapshot || {}) };
+                }
+            } else {
+                o.status = mappedAction;
             }
             
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري توثيق الطلب سحابياً...');
+            if (OrdersRender?.adjustTabCountersOnStatusChange) {
+                OrdersRender.adjustTabCountersOnStatusChange(previousStatus, o.status);
+            }
             
-            const result = await FirebaseAdapter.callFunction('adminProcessOrder', {
-                orderId: String(o.id),
-                action: mappedAction,
-                adminNote: note
-            });
+            if (AdminUI?.closeOrderDrawer) AdminUI.closeOrderDrawer();
             
-            if (result && result.success) {
-                
-                const freshOrder = await FirebaseAdapter.getById('telecard_orders', String(o.id));
-                if (freshOrder) {
-                    Object.assign(o, freshOrder);
-                } else {
-                    o.status = mappedAction;
+            if (AdminRender?.decrementLocalBadge && (previousStatus === 'pending' || previousStatus === 'processing') && (o.status === 'completed' || o.status === 'rejected')) {
+                AdminRender.decrementLocalBadge('order');
+            }
+            
+            // 🔗 تحديث عداد الأكواد التالفة في ذاكرة الخزنة إذا تم استرجاع طلب مكتمل مرتبط بخزنة
+            if (o.vaultPoolId && previousStatus === 'completed' && ['rejected', 'refunded', 'returned'].includes(o.status)) {
+                const targetPool = AdminData.data.vaultMap?.[String(o.vaultPoolId)] || (AdminData.data.vault || []).find(v => String(v.id) === String(o.vaultPoolId));
+                if (targetPool) {
+                    const orderQty = Number(o.qty || 1);
+                    targetPool.burnedCount = Number(targetPool.burnedCount || 0) + orderQty;
                 }
-                
-                // 🚀 1. التوجيه المباشر للإغلاق (Facade Pattern)
-                if (AdminUI?.closeOrderDrawer) AdminUI.closeOrderDrawer();
-                
-                // 🚀 2. إنقاص العداد الأحمر محلياً لراحة الإدارة (Optimistic UI)
-                if (AdminRender?.decrementLocalBadge && (mappedAction === 'completed' || mappedAction === 'rejected')) {
-                    AdminRender.decrementLocalBadge('order');
-                }
-                
-                // 🚀 3. تحديث واجهة الطلبات
-                EventBus.emit('req-render-orders');
-                
-                // 🚀 4. [الدرع المعماري]: جلب المستخدم المتأثر فقط لمنع استنزاف القراءات (Read Exhaustion)
+            }
+            
+            EventBus.emit('req-render-orders');
+            
+            const cachedUser = AdminData.data.usersMap?.[String(o.userId)];
+            if (cachedUser && ['rejected', 'refunded', 'returned'].includes(o.status) && !['rejected', 'refunded', 'returned'].includes(previousStatus)) {
+                cachedUser.walletBalance = Number((Number(cachedUser.walletBalance || 0) + exactPrice).toFixed(4));
+            }
+            
+            const modalDetail = document.getElementById('m-user-detail');
+            const editBtn = modalDetail?.classList.contains('active') ?
+                modalDetail.querySelector(`.ud-header-clean [data-action="open-user-edit"][data-id="${o.userId}"]`) :
+                null;
+            if (editBtn) {
                 const updatedUser = await FirebaseAdapter.getById('telecard_users', String(o.userId));
                 if (updatedUser && AdminData.data.usersMap) {
                     AdminData.data.usersMap[String(o.userId)] = updatedUser;
                 }
-                
-                // 🚀 5. [إصلاح التزامن]: تحديث نافذة العميل فوراً وبدون الاعتماد على الحظ أو (setTimeout)
-                const modalDetail = document.getElementById('m-user-detail');
-                if (modalDetail && modalDetail.classList.contains('active')) {
-                    const currentEditedUserId = AdminRender?.UsersRender?.state?.currentEditUserId;
-                    if (String(currentEditedUserId) === String(o.userId)) {
-                        EventBus.emit('action-triggered', { action: 'view-user', id: o.userId, preventModalOpen: true });
-                    }
-                }
-                
-                if (AdminData?.addLog) {
-                    const logName = o.userDataSnapshot?.fullName || o.userName || o.userId;
-                    AdminData.addLog(`ORDER_${mappedAction.toUpperCase()}`, `${customMessage} للعميل ${logName}`);
-                }
-                
-                EventBus.emit('req-show-toast', { message: customMessage, type: 'success' });
-            } else {
-                throw new Error(result?.message || 'رفض السيرفر العملية');
+                EventBus.emit('action-triggered', { action: 'view-user', id: o.userId, preventModalOpen: true });
             }
             
-        } catch (error) {
-            console.error("Order Processing Error:", error);
-            EventBus.emit('req-show-toast', { message: `فشل السيرفر: ${error.message}`, type: 'error' });
+            const finalToastMsg = (result.message && (result.message.includes('إنقاذ الطلب') || result.message.includes('تم التحقق من المورد'))) ? result.message : customMessage;
+            if (AdminData?.addLog) {
+                const logName = o.userDataSnapshot?.fullName || o.userName || o.userId;
+                AdminData.addLog(`ORDER_${String(o.status || mappedAction).toUpperCase()}`, `${finalToastMsg} للعميل ${logName}`);
+            }
             
-        } finally {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-            this._actionLocks.delete(orderId);
+            AdminUI?.showToast?.(finalToastMsg, 'success', 4500);
+        } else {
+            throw new Error(result?.message || 'رفض السيرفر العملية');
         }
-    },
-    
-    rejectAllPendingOrders: async function() {
+        
+    } catch (error) {
+        console.error("Order Processing Error:", error);
+        const isSupplierWarn = String(error.message || '').includes('تنبيه للإدمن');
+        AdminUI?.showToast?.(isSupplierWarn ? error.message : `فشل السيرفر: ${error.message}`, isSupplierWarn ? 'warning' : 'error', isSupplierWarn ? 8000 : 4000);
+    } finally {
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+        this._actionLocks.delete(orderId);
+    }
+},    rejectAllPendingOrders: async function() {
         if (this._actionLocks.has('bulk-reject')) return;
         
-        const allPending = (AdminData.data.orders || []).filter(o => o.status === 'pending');
+        const allPending = (AdminData.data.orders || []).filter(o => o.status === 'pending' || o.status === 'processing');
         
         if (allPending.length === 0) {
             return EventBus.emit('req-show-toast', { message: 'لا توجد طلبات معلقة لرفضها.', type: 'info' });
         }
         
-        const manualPending = allPending.filter(o => !(o.isApi === true || o.source === 'api'));
-        const apiPendingCount = allPending.length - manualPending.length;
+        // 🛡️ عزل طلبات الـ API والموردين لمنع رفضها جماعياً دون فحص المورد
+        const manualPending = allPending.filter(o => !(o.isApi === true || o.source === 'api' || o.supplierId || o.isPendingSupplierCheck === true));
+        const excludedCount = allPending.length - manualPending.length;
         
         if (manualPending.length === 0) {
-            return EventBus.emit('req-show-toast', { message: 'الطلبات المعلقة الحالية تابعة للـ API. لا يمكن رفضها جماعياً لحمايتك المالية.', type: 'warning' });
+            return EventBus.emit('req-show-toast', { message: 'الطلبات المعلقة الحالية تابعة للموردين أو الـ API. لا يمكن رفضها جماعياً لحمايتك المالية.', type: 'warning' });
         }
         
-        let confirmMsg = `هل أنت متأكد من رفض (${manualPending.length}) طلباً يدوياً معلقاً وإعادة الأموال لعملائك دفعة واحدة؟`;
-        if (apiPendingCount > 0) {
-            confirmMsg += `\n\n⚠️ ملاحظة حماية: تم استبعاد (${apiPendingCount}) طلب API معلق لمنع خسارتك. يجب مراجعتها يدوياً.`;
+        let confirmMsg = `هل أنت متأكد من رفض (${manualPending.length}) طلباً يدوياً معلقاً وإعادة الأموال والمخزون لعملائك دفعة واحدة؟`;
+        if (excludedCount > 0) {
+            confirmMsg += `\n\n⚠️ ملاحظة حماية: تم استبعاد (${excludedCount}) طلب مرتبط بمورد أو API لمنع خسارتك. يجب مراجعتها فردياً.`;
         }
         
         if (AdminUI && await AdminUI.showConfirm(confirmMsg, 'الرفض الجماعي للطلبات')) {
             this._actionLocks.add('bulk-reject');
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري معالجة الرفض الجماعي سحابياً...');
-            
-            let successCount = 0;
-            let failCount = 0;
-            const affectedUserIds = new Set(); // 🎯 تتبع العملاء الذين تغيرت أرصدتهم
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إرسال حزمة الرفض للسيرفر ليعالجها دفعة واحدة...');
             
             try {
-                // 🚀 [التصحيح المعماري]: معالجة عبر حزم (Batches) لمنع تجميد الواجهة (UI Blocking) وتسريع العملية
-                const CHUNK_SIZE = 15; // معالجة 15 طلب في نفس اللحظة
+                const targetOrderIds = manualPending.map(o => String(o.id));
                 
-                for (let i = 0; i < manualPending.length; i += CHUNK_SIZE) {
-                    const chunk = manualPending.slice(i, i + CHUNK_SIZE);
+                const res = await FirebaseAdapter.callFunction('adminBulkRejectOrders', {
+                    orderIds: targetOrderIds
+                });
+                
+                if (res && res.success) {
+                    const processedCount = res.processedCount || 0;
+                    const affectedUserIds = res.affectedUserIds || [];
                     
-                    const promises = chunk.map(async (order) => {
-                        const res = await FirebaseAdapter.callFunction('adminProcessOrder', {
-                            orderId: String(order.id),
-                            action: 'rejected',
-                            adminNote: 'تم الرفض إدارياً من قبل النظام (رفض جماعي)'
-                        });
+                    manualPending.forEach(o => {
+                        const prevSt = o.status || 'pending';
+                        o.status = 'rejected';
+                        if (OrdersRender?.adjustTabCountersOnStatusChange) {
+                            OrdersRender.adjustTabCountersOnStatusChange(prevSt, 'rejected');
+                        }
+                    });
+                    EventBus.emit('req-render-orders');
+                    
+                    if (AdminRender?.updateBadges) {
+                        AdminRender.updateBadges(true);
+                    }
+                    
+                    if (affectedUserIds.length > 0) {
+                        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث أرصدة العملاء المتأثرين محلياً...');
                         
-                        if (res && res.success) {
-                            order.status = 'rejected';
-                            affectedUserIds.add(String(order.userId)); // حفظ الآي دي لتحديث رصيده لاحقاً
-                            if (AdminRender?.decrementLocalBadge) AdminRender.decrementLocalBadge('order');
-                            return true;
-                        } else {
-                            throw new Error('Failed');
+                        const CHUNK_SIZE = 20;
+                        for (let i = 0; i < affectedUserIds.length; i += CHUNK_SIZE) {
+                            const chunk = affectedUserIds.slice(i, i + CHUNK_SIZE);
+                            const userFetchPromises = chunk.map(uid => FirebaseAdapter.getById('telecard_users', uid));
+                            
+                            const updatedUsers = await Promise.allSettled(userFetchPromises);
+                            
+                            updatedUsers.forEach(result => {
+                                if (result.status === 'fulfilled' && result.value && AdminData.data.usersMap) {
+                                    AdminData.data.usersMap[String(result.value.id)] = result.value;
+                                }
+                            });
                         }
-                    });
-                    
-                    // انتظار انتهاء الحزمة الحالية قبل الانتقال للتالية
-                    const results = await Promise.allSettled(promises);
-                    results.forEach(r => {
-                        if (r.status === 'fulfilled') successCount++;
-                        else failCount++;
-                    });
-                }
-                
-                EventBus.emit('req-render-orders');
-                
-                // 🚀 [الحل المعماري للذاكرة]: تحديث بيانات العملاء المتأثرين فقط بالتوازي (بدلاً من جلب قاعدة البيانات كاملة)
-                if (affectedUserIds.size > 0) {
-                    const userFetchPromises = Array.from(affectedUserIds).map(uid => FirebaseAdapter.getById('telecard_users', uid));
-                    const updatedUsers = await Promise.allSettled(userFetchPromises);
-                    
-                    updatedUsers.forEach(res => {
-                        if (res.status === 'fulfilled' && res.value && AdminData.data.usersMap) {
-                            AdminData.data.usersMap[String(res.value.id)] = res.value;
-                        }
-                    });
-                    
-                    // تحديث نافذة العميل المفتوحة إن وجدت
-                    const modalDetail = document.getElementById('m-user-detail');
-                    if (modalDetail && modalDetail.classList.contains('active')) {
-                        const currentEditedUserId = AdminRender?.UsersRender?.state?.currentEditUserId;
-                        if (affectedUserIds.has(String(currentEditedUserId))) {
-                            EventBus.emit('action-triggered', { action: 'view-user', id: currentEditedUserId, preventModalOpen: true });
+                        
+                        const modalDetail = document.getElementById('m-user-detail');
+                        if (modalDetail && modalDetail.classList.contains('active')) {
+                            affectedUserIds.forEach(uid => {
+                                const editBtn = document.querySelector(`.ud-header-clean [data-action="open-user-edit"][data-id="${uid}"]`);
+                                if (editBtn) {
+                                    EventBus.emit('action-triggered', { action: 'view-user', id: uid, preventModalOpen: true });
+                                }
+                            });
                         }
                     }
-                }
-                
-                if (AdminData?.addLog) {
-                    AdminData.addLog('BULK_REJECT', `تم رفض ${successCount} طلب يدوياً بنجاح عبر أداة الرفض الجماعي.`);
-                }
-                
-                if (failCount === 0) {
-                    EventBus.emit('req-show-toast', { message: `تم رفض ${successCount} طلب وإعادة الأموال بنجاح!`, type: 'success' });
+                    
+                    if (AdminData?.addLog) {
+                        AdminData.addLog('BULK_REJECT', `تم رفض ${processedCount} طلب يدوياً بنجاح عبر أداة الرفض الجماعي سحابياً.`);
+                    }
+                    
+                    EventBus.emit('req-show-toast', { message: `تم رفض ${processedCount} طلب وإعادة الأموال والمخزون بنجاح!`, type: 'success' });
                 } else {
-                    EventBus.emit('req-show-toast', { message: `تم رفض ${successCount} طلب، وفشل ${failCount} طلب.`, type: 'warning' });
+                    throw new Error(res?.message || "لم يستجب السيرفر بشكل صحيح.");
                 }
                 
             } catch (error) {
                 console.error("Bulk Reject Error:", error);
-                EventBus.emit('req-show-toast', { message: 'حدث خطأ غير متوقع أثناء الرفض الجماعي.', type: 'error' });
+                EventBus.emit('req-show-toast', { message: `حدث خطأ غير متوقع: ${error.message}`, type: 'error' });
             } finally {
                 if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
                 this._actionLocks.delete('bulk-reject');
@@ -219,19 +232,21 @@ export const OrdersController = {
     },
     
     navToUserOrders: function(userId) {
-        const currentFilters = AdminData.filters || {};
-        if (!currentFilters.orders) currentFilters.orders = {};
-        currentFilters.orders.search = userId;
-        
-        EventBus.emit('req-update-state', { filters: currentFilters });
-        
-        setTimeout(() => {
-            const searchInput = document.getElementById('search-orders');
-            if (searchInput) searchInput.value = userId;
-        }, 150);
-        
+        const targetUid = String(userId || '').trim();
+        if (AdminUI?.closeModal) AdminUI.closeModal();
         EventBus.emit('req-navigate', { page: 'orders', btnEl: null });
         
-        if (AdminUI?.closeModal) AdminUI.closeModal();
+        setTimeout(() => {
+            const currentFilters = AdminData.filters || {};
+            if (!currentFilters.orders) currentFilters.orders = { search: '', start: null, end: null };
+            currentFilters.orders.search = targetUid;
+            EventBus.emit('req-update-state', { filters: currentFilters });
+
+            const searchInput = document.getElementById('search-orders');
+            if (searchInput) searchInput.value = targetUid;
+            if (OrdersRender?.triggerCloudFilterReload) {
+                OrdersRender.triggerCloudFilterReload();
+            }
+        }, 150);
     }
 };

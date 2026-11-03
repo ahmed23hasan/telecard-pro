@@ -1,13 +1,12 @@
 // ============================================================================
-// 🛠️ مساعدات محرك الرسم العالمي (Store Render Helpers) - Enterprise V18.9.1 💎
-// 🎯 الوظيفة: تنسيق احترافي للنصوص والأموال والتواريخ، مخصص لراحة العميل (UX).
-// 🚀 التحديثات المعمارية (V18.9.1 - Performance & Crypto Patch):
-// 1. Loop-Free Boot ⚡: إزالة حلقة البحث في LocalStorage (O(1)) لمنع تجميد المتصفح أثناء الإقلاع.
-// 2. Crypto Precision Guard 💎: دعم ديناميكي للفواصل العشرية للعملات الرقمية (حتى 6 أصفار).
-// 3. Strict Deterministic Cache 🛡️: قراءة الكاش عبر مفاتيح حتمية فقط لتسريع الرندر.
-// 4. Stripe-Like Masking: اقتطاع أنيق للمعرفات لراحة عين المستخدم.
+// 🛠️ مساعدات محرك الرسم العالمي (Store Render Helpers) - Enterprise V19.0.0 💎
+// 🎯 الوظيفة: تنسيق احترافي للنصوص والأموال، مخصص لراحة العميل (UX).
+// 🚀 التحديثات (V19.0.0 - Canonical Keys & Config Alignment):
+// 1. ربط الكاش بـ CACHE_KEYS من config.js بدلاً من المفاتيح النصية اليدوية.
+// 2. توحيد معرف القسم القياسي (categoryId / categoryIds) وحقول اسم العميل.
 // ============================================================================
 
+import { CACHE_KEYS } from '../config.js';
 import { escapeHtml, enNum, parseSafeTime } from '../utils.js';
 
 let _injectedSource = null;
@@ -18,22 +17,26 @@ export const RenderHelpers = Object.freeze({
         _injectedSource = source;
     },
 
-    // 🛡️ التحديث المعماري: O(1) Data Race Guard (إزالة الـ Loop بالكامل)
     _getDataSource: function() {
         if (_injectedSource) return _injectedSource;
         
-        // في حال تم استدعاء الدالة قبل تهيئة الموزع (أثناء الإقلاع الباكر)، 
-        // نبحث عبر مفاتيح حتمية (Deterministic) بدلاً من اللف على كل الذاكرة.
-        try {
-            if (typeof localStorage !== 'undefined') {
-                const cachedSettings = JSON.parse(localStorage.getItem('telecard_store_cache_telecard_settings_singleton') || '{}');
-                // استدعاء مباشر وسريع بدون إجهاد المعالج
-                const cachedRates = JSON.parse(localStorage.getItem('telecard_store_cache_telecard_rates_singleton') || localStorage.getItem('telecard_rates') || '[]');
-                
-                return { settings: cachedSettings, rates: cachedRates, offers: [], isStore: true };
+        let safeSettings = {};
+        let safeRates = [];
+
+        if (typeof localStorage !== 'undefined') {
+            try {
+                safeSettings = JSON.parse(localStorage.getItem(CACHE_KEYS.SETTINGS_SNAPSHOT) || '{}');
+            } catch (e) {
+                console.warn("🛡️ [RenderHelpers] تعذر قراءة كاش الإعدادات، سيتم استخدام القيمة الافتراضية.");
             }
-        } catch(e) {
-            console.warn("[RenderHelpers] تعذر قراءة الكاش الاحتياطي.");
+
+            try {
+                safeRates = JSON.parse(localStorage.getItem(CACHE_KEYS.RATES_SNAPSHOT) || '[]');
+            } catch (e) {
+                console.warn("🛡️ [RenderHelpers] تعذر قراءة كاش أسعار الصرف، سيتم استخدام القيمة الافتراضية.");
+            }
+            
+            return { settings: safeSettings, rates: safeRates, offers: [], isStore: true };
         }
 
         return { settings: {}, rates: [], offers: [], isStore: true };
@@ -42,53 +45,52 @@ export const RenderHelpers = Object.freeze({
     _esc: escapeHtml,
     _enNum: enNum,
 
-    // ============================================================================
-    // 🎫 محرك معالجة وتنسيق المُعرّفات (Stripe-Like Masking for UX)
-    // ============================================================================
-
     formatUserId: function(userObj, withPrefix = false) {
         if (!userObj) return '---';
+        const toShortCode = (rawUid) => {
+            const str = String(rawUid || '').replace(/^USR-/i, '').trim();
+            if (!str) return 'UKNWN';
+            if (str.length <= 8) return str.toUpperCase();
+            let h1 = 2166136261, h2 = 5381;
+            for (let i = 0; i < str.length; i++) {
+                const c = str.charCodeAt(i);
+                h1 = Math.imul(h1 ^ c, 16777619) >>> 0;
+                h2 = (Math.imul(h2, 33) ^ c) >>> 0;
+            }
+            return `${String.fromCharCode(65 + (h1 % 26))}${String.fromCharCode(65 + ((h1 >>> 8) % 26))}${100000 + (h2 % 900000)}`;
+        };
         let finalId = '';
         if (typeof userObj === 'object') {
-            finalId = String(userObj.displayId || userObj.uid || userObj.id || '').substring(0, 6).toUpperCase();
+            finalId = userObj.displayId
+                ? String(userObj.displayId).replace(/^USR-/i, '').substring(0, 8).toUpperCase()
+                : toShortCode(userObj.uid || userObj.id || '');
         } else {
-            const strId = String(userObj);
-            finalId = strId.length > 15 ? strId.substring(0, 6).toUpperCase() : strId.toUpperCase();
+            finalId = toShortCode(userObj);
         }
         if (!finalId.trim()) finalId = 'UKNWN';
         const formatted = withPrefix ? `USR-${finalId}` : finalId;
         return escapeHtml(formatted);
-    },
-
-    formatOrderId: function(orderObj, withPrefix = true) {
+    },    formatOrderId: function(orderObj, withPrefix = true) {
         if (!orderObj) return '---';
-        let fullId = typeof orderObj === 'object' ? (orderObj.displayId || orderObj.id || '') : orderObj;
-        fullId = String(fullId).replace(/^ORD-/i, '').trim();
-        if (!fullId) return '---';
-
-        const parts = fullId.split('-');
-        let shortId = parts.length >= 2 ? parts[parts.length - 1] : (fullId.length > 7 ? fullId.slice(-7) : fullId);
-        
-        const finalFormatted = withPrefix ? `ORD-${shortId.toUpperCase()}` : shortId.toUpperCase();
-        return escapeHtml(finalFormatted);
+        let rawId = typeof orderObj === 'object' ? String(orderObj.displayId || orderObj.id || '') : String(orderObj);
+        const fullId = rawId.trim();
+        const cleanBody = fullId.replace(/^(ORD-|TC-)/i, '').trim();
+        if (!cleanBody) return '---';
+        const shortId = cleanBody.split('-')[0].substring(0, 8).toUpperCase();
+        const displayTxt = withPrefix ? `ORD-${shortId}` : shortId;
+        return escapeHtml(displayTxt);
     },
 
     formatDepositId: function(depObj, withPrefix = true) {
         if (!depObj) return '---';
-        let fullId = typeof depObj === 'object' ? (depObj.displayId || depObj.id || '') : depObj;
-        fullId = String(fullId).replace(/^DEP-/i, '').trim();
-        if (!fullId) return '---';
-
-        const parts = fullId.split('-');
-        let shortId = parts.length >= 2 ? parts[parts.length - 1] : (fullId.length > 7 ? fullId.slice(-7) : fullId);
-        
-        const finalFormatted = withPrefix ? `DEP-${shortId.toUpperCase()}` : shortId.toUpperCase();
-        return escapeHtml(finalFormatted);
+        let rawId = typeof depObj === 'object' ? String(depObj.displayId || depObj.id || '') : String(depObj);
+        const fullId = rawId.trim();
+        const cleanBody = fullId.replace(/^(DEP-|TC-|ADMBAL-)/i, '').trim();
+        if (!cleanBody) return '---';
+        const shortId = cleanBody.split('-')[0].substring(0, 8).toUpperCase();
+        const displayTxt = withPrefix ? `DEP-${shortId}` : shortId;
+        return escapeHtml(displayTxt);
     },    
-
-    // ============================================================================
-    // 💰 المحركات المالية والعملات 
-    // ============================================================================
 
     getCurrencySymbolText: function(currCode = 'USD') {
         const source = RenderHelpers._getDataSource();
@@ -96,7 +98,7 @@ export const RenderHelpers = Object.freeze({
         const code = String(currCode).toUpperCase();
         
         let displayType = 'symbol'; 
-        if (source.isStore && settings.syncCurrencyDisplay === true) {
+        if (source.isStore && Boolean(settings.syncCurrencyDisplay || settings.syncCurrencyToStore || settings.syncCurrencyStore)) {
             displayType = settings.currencyDisplay || 'symbol';
         }
         if (displayType === 'code') return code;
@@ -108,7 +110,7 @@ export const RenderHelpers = Object.freeze({
         return (curObj && curObj.symbol) ? curObj.symbol : code;
     },
 
-        getCurrencyFlagUrl: function(currCode = 'USD') {
+    getCurrencyFlagUrl: function(currCode = 'USD') {
         const code = String(currCode).toUpperCase().trim();
         const cryptoIcons = {
             'USDT': 'https://cdn-icons-png.flaticon.com/512/825/825508.png',
@@ -127,23 +129,20 @@ export const RenderHelpers = Object.freeze({
             'TND': 'tn', 'MRU': 'mr', 'SOS': 'so', 'CAD': 'ca',
             'AUD': 'au', 'RUB': 'ru', 'CNY': 'cn', 'INR': 'in',
             'BRL': 'br', 'JPY': 'jp', 'CHF': 'ch', 
-            'SEK': 'se' // 🛡️ تم تصحيح الرمز من ch إلى se
+            'SEK': 'se' 
         };
         const countryCode = currencyToCountry[code]; 
         if (!countryCode) return `https://cdn-icons-png.flaticon.com/512/1198/1198696.png`;
         return `https://flagcdn.com/w40/${countryCode}.png`;
     },
 
-    // 🛡️ التحديث المعماري: حماية دقة العملات الرقمية وتحديد الفواصل بذكاء
     formatMoney: function(amount, currencyCode = 'USD', decimals = null) {
         const code = String(currencyCode).toUpperCase().trim();
         
-        // الاكتشاف الذكي: إذا لم يحدد المبرمج الفواصل، نحددها بناءً على نوع العملة
         let finalDecimals = decimals !== null ? decimals : 2;
         const cryptoCurrencies = new Set(['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL']);
         
         if (decimals === null && cryptoCurrencies.has(code)) {
-            // العملات المتقلبة مثل البتكوين تحتاج 6 فواصل، العملات المستقرة تحتاج 4
             finalDecimals = (code === 'BTC' || code === 'ETH') ? 6 : 4; 
         }
 
@@ -156,46 +155,60 @@ export const RenderHelpers = Object.freeze({
         return `<span class="money-pro" dir="ltr" style="display: inline-flex; align-items: baseline; gap: 4px; direction: ltr;"><span class="num-en money-val">${formattedNum}</span><span class="cur-symbol ${symbolClass}">${safeCur}</span></span>`;
     },    
 
-    // ============================================================================
-    // 👥 محركات أسماء المستخدمين والشارات
-    // ============================================================================
-
+    // 📌 [توحيد معماري]: اعتماد حقول UserBuilder القياسية (fullName, firstName, lastName, username)
     _getTxName: function(u) {
         if (!u) return 'مستخدم جديد';
-        const f = String(u.firstName || u.first_name || u.name || '').trim();
-        const l = String(u.lastName || u.last_name || '').trim();
-        const combined = (f + ' ' + l).trim();
+        const f = String(u.firstName || '').trim();
+        const l = String(u.lastName || '').trim();
+        const combined = `${f} ${l}`.trim();
         const fullName = u.fullName || combined || u.username || 'مستخدم جديد';
         return escapeHtml(fullName);
     },
 
     _getExplicitName: function(u) {
         if (!u) return 'مستخدم غير معروف';
-        const f = String(u.firstName || u.first_name || u.name || '').trim();
-        const l = String(u.lastName || u.last_name || '').trim();
-        const combined = (f + ' ' + l).trim();
+        const f = String(u.firstName || '').trim();
+        const l = String(u.lastName || '').trim();
+        const combined = `${f} ${l}`.trim();
         const fullName = u.fullName || combined || u.username || 'مستخدم غير معروف';
         return escapeHtml(fullName);
     },
 
-    _getActiveOfferBadge: function(prodId) {
+    _getActiveOfferBadge: function(prodId, prodObj = null) {
         const source = RenderHelpers._getDataSource();
         const now = Date.now();
         if (!source.offers || !Array.isArray(source.offers)) return '';
-
-        const activeOffer = source.offers.find(o => 
-            o.isActive && (!o.expiryDate || o.expiryDate > now) && 
-            o.targetProds && o.targetProds.includes(String(prodId))
-        );
+        
+        const product = prodObj || (Array.isArray(source.prods) ? source.prods.find(p => String(p.id) === String(prodId)) : null);
+        if (product && (product.isFixedPrice === true || String(product.isFixedPrice).toLowerCase() === 'true')) {
+            return '';
+        }
+        
+        // 📌 [توحيد معماري]: المعرف القياسي للقسم هو categoryId (أو مصفوفة categoryIds)
+        const prodCats = product ? [].concat(product.categoryId, product.categoryIds).filter(Boolean).map(String) : [];
+        
+        const activeOffer = source.offers.find(o => {
+            if (!o || o.isActive === false || o.type === 'fake' || o.type === 'badge_only') return false;
+            
+            const startMs = o.startDate ? parseSafeTime(o.startDate) : 0;
+            const expMs = o.expiryDate ? parseSafeTime(o.expiryDate) : 0;
+            if (startMs > 0 && now < startMs) return false;
+            if (expMs > 0 && now >= expMs) return false;
+            
+            const hasProds = Array.isArray(o.targetProds) && o.targetProds.length > 0;
+            const hasCats = Array.isArray(o.targetCategories) && o.targetCategories.length > 0;
+            const isGlobal = (!hasProds && !hasCats);
+            
+            const isProdMatch = hasProds && o.targetProds.map(String).includes(String(prodId));
+            const isCatMatch = hasCats && prodCats.length > 0 && o.targetCategories.map(String).some(cid => prodCats.includes(cid));
+            
+            return isGlobal || isProdMatch || isCatMatch;
+        });
 
         if (!activeOffer) return '';
         const safeName = escapeHtml(activeOffer.name);
         return `<span class="promo-badge b-success icon-ms-2 badge-micro" title="مشمول في عرض: ${safeName}"><i class="fa-solid fa-bolt"></i> عرض نشط</span>`;
     },
-
-    // ============================================================================
-    // ⏱️ المحرك الزمني المركزي (UX-Safe)
-    // ============================================================================
 
     parseUnifiedTime: function(item) {
         if (!item) return Date.now();

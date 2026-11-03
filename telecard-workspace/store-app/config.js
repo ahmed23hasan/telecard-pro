@@ -1,18 +1,15 @@
 // ============================================================================
-// 📁 ملف الإعدادات المركزي (config.js) - الإصدار المؤسسي V21.1 💎
-// 🎯 الوظيفة: ثوابت النظام، حماية مفاتيح قواعد البيانات، ونسف الكاش القديم
-// 🚀 التحديثات المعمارية (V21.1 - Master Patch):
-// 1. Missing Keys Alignment 🛡️: إدراج مفاتيح الإشعارات والتقييم لمنع النصوص السحرية.
-// 2. VAPID Integration 🛡️: نقل مفتاح الإشعارات (FCM) للدستور لمنع التشتت.
-// 3. Environment Safe 🛡️: دعم قراءة المتغيرات داخل Service Workers عبر (self).
-// 4. Immutable Core: الحفاظ على deepFreeze لحماية الثوابت.
+// 📁 ملف الإعدادات المركزي (config.js) - الإصدار المؤسسي V22.0.0 💎
+// 🎯 الوظيفة: ثوابت النظام، توحيد مفاتيح قواعد البيانات والكاش، ومنع التضارب.
+// 🚀 التحديثات المعمارية (V22.0.0 - Zero-Collision Keys & Server Alignment):
+// 1. Version Keys Separation 🛡️: فصل مفاتيح إصدار الكتالوج عن إصدار التطبيق لمنع حلقات إعادة التحميل.
+// 2. Canonical DB Keys 🗄️: إضافة مفتاح KYC القياسي وحذف المفاتيح المكررة غير المستخدمة.
+// 3. Magic Strings Elimination 🧹: تجميع كافة مفاتيح التخزين المحلي في CACHE_KEYS كمصدر حقيقة وحيد.
 // ============================================================================
 
-// 🛡️ دعم آمن لجلب رقم الإصدار سواء من المتصفح (window) أو عامل الخدمة (self)
 const globalEnv = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : {});
-export const APP_VERSION = globalEnv.TELECARD_VERSION ? globalEnv.TELECARD_VERSION : 'v21.1';
+export const APP_VERSION = globalEnv.TELECARD_VERSION ? globalEnv.TELECARD_VERSION : 'v26.0';
 
-// 🛡️ تجميد عميق مخصص فقط لملف الثوابت لمنع العبث بمفاتيح النظام
 const deepFreeze = (obj) => {
     Object.keys(obj).forEach(prop => {
         if (typeof obj[prop] === 'object' && obj[prop] !== null && !Object.isFrozen(obj[prop])) {
@@ -22,7 +19,7 @@ const deepFreeze = (obj) => {
     return Object.freeze(obj);
 };
 
-// ☁️ إعدادات فايربيز (يجب تقييدها بنطاق موقعك عبر Google Cloud Console)
+// ☁️ إعدادات فايربيز
 export const firebaseConfig = deepFreeze({
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
@@ -30,12 +27,10 @@ export const firebaseConfig = deepFreeze({
     storageBucket: "telecard-1.firebasestorage.app",
     messagingSenderId: "698672838633",
     appId: "1:698672838633:web:743c8809615bd8308bfd78",
-    
-    // 🛡️ مفتاح الـ FCM (VAPID) تم جلبه إلى هنا لكي نحذفه لاحقاً من ملف firebaseAdapter
     vapidKey: "BDdFL5sHBs1j5RXsps4TahR2UN4qCRwZR2G769OJEGR_1gTj8D2MHsTRsMeSv_Spad22N6LYFsu0x9GhdARqEFk"
 });
 
-// 🗄️ مفاتيح قاعدة البيانات (Firestore Collections)
+// 🗄️ مفاتيح قاعدة البيانات القياسية (Firestore Collections - مطابقة للسيرفر والأدمن)
 export const DB_KEYS = deepFreeze({
     CATS: 'telecard_cats',
     PRODS: 'telecard_prods_public',
@@ -50,25 +45,26 @@ export const DB_KEYS = deepFreeze({
     SYSTEM: 'telecard_system',
     ADMIN: 'telecard_admin',
     PREFS: 'telecard_user_prefs',
-    TIERS: 'telecard_tiers',
+    TIERS: 'telecard_tiers_public',
     VAULT: 'telecard_vault',
     COUPONS: 'telecard_coupons',
     COUNTRIES: 'telecard_countries',
     OFFERS: 'telecard_offers',
     ALERTS: 'telecard_alerts',
-    NOTIF_READ_LIST: 'telecard_read_notifs',
-    FEEDBACKS: 'telecard_private_feedbacks',
-    REVIEWS: 'reviews'
+    KYC: 'telecard_kyc',
+    REVIEWS: 'telecard_reviews',
+    NOTIF_READ_LIST: 'telecard_read_notifs'
 });
 
-// 🛡️ مفاتيح الكاش والجلسات المحلية (LocalStorage & SessionStorage)
+// 🛡️ مفاتيح الكاش والجلسات المحلية الموحدة (LocalStorage & SessionStorage - بدون أي تضارب)
 export const CACHE_KEYS = deepFreeze({
     ACTIVE_USER: 'telecard_active_user_v21',
     ACTIVE_UID: 'telecard_active_user_uid_v21',
-    STORE_CACHE: 'telecard_store_cache_v21',
-    STORE_CACHE_FALLBACK: 'telecard_store_cache_fallback_v21',
-    SMART_CATALOG: 'telecard_store_catalog_master_v21',
-    CATALOG_VERSION: 'telecard_catalog_version_v21',
+    SETTINGS_SNAPSHOT: 'telecard_settings_snapshot_v21',
+    RATES_SNAPSHOT: 'telecard_rates_snapshot_v21',
+    CATS_COUNT: 'tc_cats_count',
+    ORPHANED_FILES: 'tc_orphaned_files',
+    LAST_CLEANUP: 'tc_last_cleanup',
     TIME_SYNC: 'telecard_time_sync_ts_v21',
     THEME: 'telecard_theme',
     DISPLAY_CURRENCY: 'telecard_display_currency',
@@ -78,18 +74,20 @@ export const CACHE_KEYS = deepFreeze({
     LAYOUT_COLS: 'store_layout_cols',
     SHOWN_TOASTS: 'telecard_shown_toasts',
     
-    // مفاتيح النظام والجلسات
-    SERVER_VERSION: 'tc_server_version',
-    LOCAL_APP_VERSION: 'tc_app_version',
+    // 📌 مفاتيح الإصدارات المفصولة تماماً لمنع التضارب وحلقات التحديث
+    SERVER_VERSION: 'tc_catalog_config_version', // لإصدار الكتالوج والعملات (catalogVersion + configVersion)
+    REMOTE_APP_VERSION: 'tc_remote_app_version', // لإصدار التطبيق المرسل من الإعدادات (settings.appVersion)
+    LOCAL_APP_VERSION: 'tc_local_app_version', // لإصدار ملفات الواجهة المحلية (window.TELECARD_VERSION)
+    
+    // مفاتيح الجلسات والترحيب والخصوصية
     CLIENT_IP: 'tc_client_ip',
-    UPDATE_RELOADS: 'tc_update_reloads',
+    UPDATE_RELOADS: 'tc_update_reloads_v2',
     LOGOUT_TOAST: 'tc_show_logout_toast',
     GREETING_SHOWN: 'tc_has_been_greeted',
     NEW_USER_SIGNUP: 'tc_new_user_signup',
-
-    // 🛡️ مفاتيح الخصوصية وتجربة المستخدم (المضافة حديثاً لتوحيد المصدر)
+    GUEST_PROMO_TIME: 'tc_guest_promo_time',
+    GUEST_GREET_TIME: 'tc_guest_greet_time',
     PUSH_PROMPT_TIME: 'tc_push_prompt_time',
-    PENDING_FCM_DELETE: 'tc_pending_fcm_delete',
     USER_RATED: 'tc_user_rated'
 });
 
@@ -119,6 +117,7 @@ export const StoreConfig = deepFreeze({
         pending: { text: 'قيد المعالجة', icon: 'fa-clock', class: 'text-warning' },
         approved: { text: 'مقبول', icon: 'fa-check', class: 'text-success' },
         completed: { text: 'مكتمل', icon: 'fa-check-double', class: 'text-success' },
+        deducted: { text: 'مخصوم', icon: 'fa-arrow-up-long', class: 'text-danger' },
         rejected: { text: 'مرفوض', icon: 'fa-xmark', class: 'text-danger' },
         refunded: { text: 'مسترجع', icon: 'fa-rotate-left', class: 'text-info' },
         returned: { text: 'مرتجع', icon: 'fa-rotate-left', class: 'text-info' }

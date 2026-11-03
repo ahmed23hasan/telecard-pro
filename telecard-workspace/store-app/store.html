@@ -2,8 +2,8 @@
 <html lang="ar" dir="rtl">
 <head>
     <script>
-        // 🚀 1. تحدديد الإصدار (متوافق مع محرك V19.0.0 الماسي للإنتاج التجاري)
-        window.TELECARD_VERSION = "v22.8"; 
+        // 🚀 1. تحديد الإصدار (متوافق مع محرك V19.0.0 الماسي للإنتاج التجاري)
+        window.TELECARD_VERSION = 'v27.0';
     </script>
     
     <!-- 🚀 نظام المراقبة المبكر للإقلاع -->
@@ -52,7 +52,7 @@
     <!-- ========================================================================= -->
     
     <!-- 1. أولوية قصوى لملف الستايل المركزي لضمان رسم اللودر والخلفيات في الملي ثانية 1 -->
-    <link rel="preload" href="./style.css?v=19.0.0" as="style">
+    <link rel="preload" href="./style.css?v=24.0.0" as="style">
     
     <!-- 2. تهيئة الاتصال المبكر بسيرفرات الخطوط المكتشفة -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -74,7 +74,23 @@
     </noscript>
     
     <!-- 🚀 استدعاء نظام التصميم المركزي -->
-    <link rel="stylesheet" href="./style.css?v=19.0.0">
+    <link rel="stylesheet" href="./style.css?v=24.0.0">
+
+    <!-- ⚡ التحميل المتوازي المسبق لوحدات المتجر (Zero-Waterfall ES6 Preload) -->
+    <link rel="modulepreload" href="./script.js">
+    <link rel="modulepreload" href="./config.js">
+    <link rel="modulepreload" href="./utils.js">
+    <link rel="modulepreload" href="./dataManager.js">
+    <link rel="modulepreload" href="./renderManager.js">
+    <link rel="modulepreload" href="./components.js">
+    <link rel="modulepreload" href="./core/firebaseAdapter.js">
+    <link rel="modulepreload" href="./core/financialEngine.js">
+    <link rel="modulepreload" href="./core/renderHelpers.js">
+    <link rel="modulepreload" href="./ui/uiManager.js">
+    <link rel="modulepreload" href="./ui/uiCore.js">
+    <link rel="modulepreload" href="./ui/uiFinance.js">
+    <link rel="modulepreload" href="./ui/uiAuth.js">
+    <link rel="modulepreload" href="./ui/uiBuilders.js">
     
     <!-- 🛡️ مكتبة الفواتير معزولة ومؤجلة لعدم خنق المعالج وقت الإقلاع -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dom-to-image-more/3.10.2/dom-to-image-more.min.js" defer crossorigin="anonymous"></script>
@@ -96,29 +112,6 @@
             document.body.classList.add('light-mode');
         }
     </script>
-
-    <!-- 🚀 شاشة الإقلاع الرئيسية (Zero-Latency Spinner) -->
-    <div id="global-splash-screen" class="splash-screen-overlay">
-        <div class="splash-logo-container">
-            <svg class="splash-spinner" viewBox="0 0 50 50" style="width: 100%; height: 100%; position: absolute; top: 0; left: 0; animation: fa-spin 2s linear infinite;">
-                <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="90, 150" style="opacity: 0.2;"></circle>
-                <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="40, 150"></circle>
-            </svg>
-            <i class="fa-solid fa-store splash-icon"></i>
-        </div>
-        <h2 id="splash-store-name" class="splash-title">جاري التحميل...</h2>
-    </div>
-
-    <!-- 🛡️ استرجاع اسم المتجر فقط للحفاظ على أناقة شاشة الإقلاع -->
-    <script>
-        (function() {
-            var cachedStoreName = localStorage.getItem('tc_splash_name') || localStorage.getItem('telecard_splash_name');
-            if (cachedStoreName) {
-                document.getElementById('splash-store-name').textContent = cachedStoreName;
-            }
-        })();
-    </script>
-
     <!-- 🚨 نافذة الحماية والطرد المباشر -->
     <div class="global-alert-overlay master-overlay" id="global-security-alert" role="dialog" aria-modal="true">
         <div class="global-alert-card">
@@ -141,12 +134,11 @@
                  <i class="fa-regular fa-bell"></i>
                  <span class="notif-badge hide-element" id="header-notif-badge">0</span>
              </div>
-             
-             <!-- ======================= 🔝 كبسولة العملة ======================= -->
-             <div class="ct-wrapper hide-element" style="display: none;">
+             <!-- ======================= 🔝 كبسولة العملة الموحدة ======================= -->
+             <div class="ct-wrapper" id="ct-wrapper-box">
                  <button type="button" class="ct-toggle" id="ct-toggle" data-action="toggle-currency-menu" aria-label="تغيير العملة">
                      <span class="ct-flag-box" id="ct-flag-box"><img class="ct-flag" alt=""></span>
-                     <span class="ct-label num-en" id="ct-label">USD</span>
+                     <span class="ct-label num-en" id="ct-label">---</span>
                      <i class="fa-solid fa-caret-down"></i>
                  </button>
                  <div class="ct-menu" id="ct-menu"></div>
@@ -155,22 +147,15 @@
 
              <div class="action-btn theme-toggle-btn" data-action="toggle-theme" role="button" tabindex="0" title="تبديل الوضع" aria-label="تغيير المظهر">
                  <i id="theme-toggle-icon">
-                     <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="display:inline-block; vertical-align:middle;">
+                     <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
                          <circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="2" r="1.5"></circle><circle cx="12" cy="22" r="1.5"></circle><circle cx="2" cy="12" r="1.5"></circle><circle cx="22" cy="12" r="1.5"></circle><circle cx="4.93" cy="4.93" r="1.5"></circle><circle cx="19.07" cy="19.07" r="1.5"></circle><circle cx="4.93" cy="19.07" r="1.5"></circle><circle cx="19.07" cy="4.93" r="1.5"></circle>
                      </svg>
                  </i>
-                 <script>
-                     if (localStorage.getItem('telecard_theme') === 'light') {
-                         const ti = document.getElementById('theme-toggle-icon');
-                         if(ti) { ti.innerHTML = ''; ti.className = 'fa-solid fa-moon'; }
-                     }
-                 </script>
              </div>
         </div>
         
-        <div class="logo-area logo-ar" id="store-branding-target" data-action="nav-home" role="button" tabindex="0" style="cursor: pointer;"></div>
-    </header>
-
+        <div class="logo-area logo-ar" id="store-branding-target" data-action="nav-home" role="button" tabindex="0"></div>
+    </header>  
     <!-- ======================= 📋 القائمة الجانبية ======================= -->
     <div class="sidebar-overlay master-overlay" id="sidebarOverlay" data-action="close-sidebar"></div>
     
@@ -231,7 +216,7 @@
             </div>
         </div>
         
-        <div class="sb-profile-alert hide-element d-none" id="sb-profile-alert" data-action="open-identity-sidebar" style="display: none !important;">
+        <div class="sb-profile-alert d-none" id="sb-profile-alert" data-action="open-identity-sidebar">
             <div class="sb-pa-icon"><i class="fa-solid fa-address-card"></i></div>
             <div class="sb-pa-text">
                 <h4>أكمل بياناتك</h4>
@@ -330,10 +315,9 @@
                 </div>
             </div>
         </div>
-        
         <div class="section-header-modern" id="sticky-header-bar">
             <div class="header-right-group">
-                <button id="smart-back-btn" class="modern-back-btn" data-action="nav-home" aria-label="العودة">
+                <button id="smart-back-btn" class="modern-back-btn" data-action="go-back" aria-label="العودة">
                     <i class="fa-solid fa-arrow-right"></i>
                 </button>
                 <div id="grid-title"></div>
@@ -356,15 +340,27 @@
 
         <!-- الحاوية الأساسية المفرغة -->
         <div class="grid-layout grid-cats" id="store-grid"></div>
-
         <!-- 🚀 محقن السكيليتون اللحظي الموحد -->
         <script>
             (function() {
                 try {
-                    let skeletonCount = 3; 
-                    const cachedCount = localStorage.getItem('tc_cats_count');
-                    if (cachedCount && parseInt(cachedCount) > 0) skeletonCount = parseInt(cachedCount);
+                    let skeletonCount = 4; // يفضل 4 ليكون شكل الشبكة متوازناً
+                    let cachedLayout = '2'; // الافتراضي عمودين
                     
+                    // 1. محاولة قراءة تخطيط الأدمن وعدد الأقسام من الكاش اللحظي
+                    try {
+                        const cachedCount = localStorage.getItem('tc_cats_count');
+                        if (cachedCount && parseInt(cachedCount) > 0) skeletonCount = parseInt(cachedCount);
+                        
+                        const cachedSettings = JSON.parse(localStorage.getItem('telecard_settings_snapshot_v21') || '{}');
+                        if (cachedSettings.rootLayout) cachedLayout = cachedSettings.rootLayout;
+                    } catch(e) {}
+                    
+                    // 2. تطبيق عدد الأعمدة على الشبكة فوراً قبل الرسم
+                    const grid = document.getElementById('store-grid');
+                    if (grid) grid.style.setProperty('--layout-cols', cachedLayout);
+                    
+                    // 3. رسم الهيكل النبضي
                     let skeletonsHtml = '';
                     for (let i = 0; i < skeletonCount; i++) {
                         skeletonsHtml += `
@@ -375,11 +371,10 @@
                                     </div>
                                 </div>`;
                     }
-                    document.getElementById('store-grid').innerHTML = skeletonsHtml;
+                    if (grid) grid.innerHTML = skeletonsHtml;
                 } catch (e) {}
             })();
         </script>
-
     </div> <!-- إغلاق حاوية main-scroll -->
 
     <!-- ======================= 📦 النوافذ السفلية ======================= -->
@@ -441,6 +436,7 @@
         </div>
         <div class="pm-scroll-content hide-scrollbar"><div id="orders-list" class="u-list"></div></div>
     </div>
+
     <!-- نافذة المحفظة -->
     <div class="pm-overlay master-overlay" id="wallet-overlay" data-action="close-wallet"></div>
     <div class="modal-sheet bottom-sheet" id="wallet-modal" role="dialog" aria-modal="true">
@@ -456,13 +452,13 @@
             <div class="w-grid">
                 <div class="gold-card">
                     <div class="gold-card-content">
-                      <div class="engraved-label wallet-label-flex">
-    <span><i class="fa-solid fa-wallet"></i> الرصيد الحالي</span>
-    <button class="privacy-eye-btn" data-action="toggle-balance-visibility" aria-label="إخفاء/إظهار الرصيد" title="إخفاء/إظهار الرصيد">
-        <i class="fa-regular fa-eye" id="balance-eye-icon"></i>
-    </button>
-</div>    
-<div class="engraved-val-wrap">
+                        <div class="engraved-label wallet-label-flex">
+                            <span><i class="fa-solid fa-wallet"></i> الرصيد الحالي</span>
+                            <button class="privacy-eye-btn" data-action="toggle-balance-visibility" aria-label="إخفاء/إظهار الرصيد" title="إخفاء/إظهار الرصيد">
+                                <i class="fa-regular fa-eye" id="balance-eye-icon"></i>
+                            </button>
+                        </div>    
+                        <div class="engraved-val-wrap">
                             <div class="engraved-val num-en">
                                 <span id="live-balance-num">0.00</span> 
                                 <span class="val-currency" id="live-balance-curr">USD</span>
@@ -570,7 +566,6 @@
                             <div class="icon-indicator start-icon"><i class="fa-solid fa-arrow-down"></i></div>
                         </div>
                        <span class="field-value" id="disp-pay-date-start">--</span>
-
                         <input type="hidden" id="pay-date-start">
                     </div>
                 </div>
@@ -581,7 +576,8 @@
                             <i class="fa-regular fa-calendar"></i>
                             <div class="icon-indicator end-icon"><i class="fa-solid fa-arrow-up"></i></div>
                         </div>
-                     <span class="field-value" id="disp-pay-date-end">--</span>    <input type="hidden" id="pay-date-end">
+                     <span class="field-value" id="disp-pay-date-end">--</span>    
+                     <input type="hidden" id="pay-date-end">
                     </div>
                 </div>
 
@@ -620,44 +616,43 @@
             </div>
             <div class="pm-header-spacer"></div>
         </div>
-    <div class="settings-body">
-        <div class="settings-group-title">التخصيص البصري والسمعي</div>
-        
-        <div class="modern-setting-row">
-            <div class="setting-info">
-                <div class="setting-title"><i class="fa-solid fa-palette"></i> مظهر المتجر</div>
-                <div class="setting-sub">تبديل بين الوضع الليلي والنهاري.</div>
+        <div class="settings-body">
+            <div class="settings-group-title">التخصيص البصري والسمعي</div>
+            
+            <div class="modern-setting-row">
+                <div class="setting-info">
+                    <div class="setting-title"><i class="fa-solid fa-palette"></i> مظهر المتجر</div>
+                    <div class="setting-sub">تبديل بين الوضع الليلي والنهاري.</div>
+                </div>
+                <button type="button" class="modern-switch-btn global-theme-toggle" data-action="toggle-theme-pref" aria-label="تبديل المظهر">
+                    <div class="switch-knob"><i class="fa-solid fa-moon theme-icn"></i></div>
+                    <span class="switch-bg-text theme-lbl">ليلي</span>
+                </button>
             </div>
-            <button type="button" class="modern-switch-btn global-theme-toggle" data-action="toggle-theme-pref" aria-label="تبديل المظهر">
-                <div class="switch-knob"><i class="fa-solid fa-moon theme-icn"></i></div>
-                <span class="switch-bg-text theme-lbl">ليلي</span>
-            </button>
-        </div>
-        
-        <div class="modern-setting-row">
-            <div class="setting-info">
-                <div class="setting-title"><i class="fa-solid fa-volume-high"></i> أصوات الواجهة</div>
-                <div class="setting-sub">تشغيل/إيقاف نغمات التنقل والتنبيهات.</div>
+            
+            <div class="modern-setting-row">
+                <div class="setting-info">
+                    <div class="setting-title"><i class="fa-solid fa-volume-high"></i> أصوات الواجهة</div>
+                    <div class="setting-sub">تشغيل/إيقاف نغمات التنقل والتنبيهات.</div>
+                </div>
+                <button type="button" class="modern-switch-btn global-sound-toggle" data-action="toggle-sound-pref" aria-label="تبديل الصوت">
+                    <div class="switch-knob"><i class="fa-solid fa-volume-xmark sound-icn"></i></div>
+                    <span class="switch-bg-text sound-lbl">صامت</span>
+                </button>
             </div>
-            <button type="button" class="modern-switch-btn global-sound-toggle" data-action="toggle-sound-pref" aria-label="تبديل الصوت">
-                <div class="switch-knob"><i class="fa-solid fa-volume-xmark sound-icn"></i></div>
-                <span class="switch-bg-text sound-lbl">صامت</span>
-            </button>
-        </div>
 
-        <!-- 🛡️ زر إدارة الإشعارات الفورية (متوافق مع التصميم الحديث) -->
-              <div class="modern-setting-row">
-            <div class="setting-info">
-                <div class="setting-title"><i class="fa-solid fa-bell"></i> الإشعارات الفورية</div>
-                <div class="setting-sub">إدارة التنبيهات وتلقي تحديثات طلباتك.</div>
+            <!-- 🛡️ زر إدارة الإشعارات الفورية (متوافق مع التصميم الحديث) -->
+            <div class="modern-setting-row">
+                <div class="setting-info">
+                    <div class="setting-title"><i class="fa-solid fa-bell"></i> الإشعارات الفورية</div>
+                    <div class="setting-sub">إدارة التنبيهات وتلقي تحديثات طلباتك.</div>
+                </div>
+                <button type="button" data-action="manage-push-notif" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff; border-radius: 20px; padding: 0 16px; height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all 0.2s ease;">
+                    إدارة <i class="fa-solid fa-gear"></i>
+                </button>
             </div>
-            <button type="button" data-action="manage-push-notif" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.1); color: #ffffff; border-radius: 20px; padding: 0 16px; height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all 0.2s ease;">
-                إدارة <i class="fa-solid fa-gear"></i>
-            </button>
         </div>
-
     </div>
-</div>
 
     <!-- نافذة الإيداع المالي -->
     <div class="pm-overlay master-overlay" id="balance-overlay" data-action="close-balance"></div>
@@ -712,16 +707,7 @@
                 <div id="simple-qty-error" class="qty-error"></div>
             </div>
             
-            <div id="pm-dynamic-ops" style="display:none;">
-                <div class="pm-grid-dark">
-                    <div class="pm-dark-box">
-                        <input type="tel" class="pm-qty-input num-en" id="pm-qty" value="1" inputmode="numeric">
-                    </div>
-                    <div class="pm-dark-box">
-                        <input type="text" class="pm-val-lg num-en" id="pm-price-unit" value="0.00 $" disabled>
-                    </div>
-                </div>
-            </div>
+            <div id="pm-dynamic-ops" style="display:none;"></div>
 
             <div id="pm-static-ops" style="display:none;">
                 <div class="custom-dropdown-container" id="pkg-custom-dropdown">
@@ -748,7 +734,7 @@
                 <div class="coupon-content">
                     <div class="coupon-input-wrapper">
                         <div class="relative-input-container">
-                            <input type="text" class="c-input num-en" id="couponCode" aria-label="كود الخصم" placeholder="أدخل الكود" data-action="check-coupon-state" autocomplete="off" spellcheck="false">
+                            <input type="text" class="c-input num-en" id="couponCode" aria-label="كود الخصم" placeholder="أدخل الكود" autocomplete="off" spellcheck="false">
                             <i class="fa-solid fa-circle-xmark icon-action clear-icon" id="clearIcon" data-action="remove-coupon"></i>
                             <i class="fa-regular fa-paste icon-action paste-icon" id="pasteIcon" data-action="paste-coupon"></i>
                         </div>
@@ -824,7 +810,9 @@
             <div class="pm-header-spacer"></div>
         </div>
         <div class="pm-scroll-content hide-scrollbar" id="tx-detail-content"></div>
-    </div>    <!-- نافذة الملف الشخصي -->
+    </div>
+
+    <!-- نافذة الملف الشخصي -->
     <div class="pm-overlay master-overlay" id="profile-info-overlay" data-action="close-profile"></div>
     <div class="modal-sheet bottom-sheet" id="profile-info-modal" role="dialog" aria-modal="true">
         <div class="pm-header-std">
@@ -837,11 +825,9 @@
 
         <div class="profile-container hide-scrollbar" id="profile-card">
             <div class="hero-section">                
-                              <div class="avatar-wrapper">
-                    <!-- 🛡️ الإصلاح: إضافة data-action و cursor: pointer للصورة -->
+                <div class="avatar-wrapper">
                     <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" alt="Profile" class="profile-pic" id="profile-img" data-action="toggle-avatar-menu" style="cursor: pointer;" onerror="this.onerror=null; this.src='https://cdn-icons-png.flaticon.com/512/3135/3135715.png';">
                     
-                    <!-- 🛡️ الإصلاح: إضافة data-action و cursor: pointer لزر الكاميرا -->
                     <div class="camera-btn" id="avatar-menu-trigger" data-action="toggle-avatar-menu" style="cursor: pointer;">
                         <i class="fa-solid fa-camera" style="pointer-events: none;"></i>
                     </div>
@@ -861,10 +847,8 @@
                     <div class="name-wrapper" dir="auto" style="position: relative; z-index: 10;">
                         <h1 class="user-name" id="display-name" data-action="trigger-click" data-target="profile-edit-toggle">--</h1>
                         
-                        <!-- حقل تعديل الاسم بالـ ID الأصلي (edit-name-input) مدمج معه فك التجميد القسري -->
                         <input type="text" id="edit-name-input" class="name-edit-input d-none" value="" placeholder="أدخل اسمك" autocomplete="name" style="pointer-events: auto !important; user-select: text !important; position: relative; z-index: 50;">
                         
-                        <!-- زر حفظ الاسم (صح) -->
                         <button class="edit-icon-btn d-none" id="save-name-btn" title="حفظ" data-action="toggle-name-edit" aria-label="حفظ الاسم" style="color: var(--primary); position: relative; z-index: 60;">
                             <i class="fa-solid fa-check"></i>
                         </button>
@@ -873,12 +857,12 @@
                             <i class="fa-solid fa-pen"></i>
                         </button>
                     </div>
-                         <div class="uid-capsule">
+                    <div class="uid-capsule">
                         <i class="fa-solid fa-id-card"></i>
                         <span class="num-en" id="profile-client-id">--</span>
                     </div>
                 </div>
-            </div> <!-- 🚀 تم إضافة هذا الوسم هنا لإغلاق حاوية hero-section -->
+            </div>
 
             <div class="info-list">
                 <div class="info-card-item">
@@ -886,7 +870,7 @@
                         <i class="fa-solid fa-ranking-star"></i>
                     </div>
                     <div class="text-content">
-                     <span class="label-text">مستوى الحساب</span>
+                        <span class="label-text">مستوى الحساب</span>
                         <div class="value-text" id="profile-info-tier">جاري التحميل...</div>
                     </div>
                 </div>
@@ -941,6 +925,7 @@
             </button>
         </div>
     </div>
+
     <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav">
         <div class="nav-icon active" data-action="nav-home" role="button" tabindex="0"><i class="fa-solid fa-house"></i><span>الرئيسية</span></div>
@@ -1147,14 +1132,14 @@
 
                 <div class="kyc-upload-grid">
                     <div class="kyc-upload-box" id="kyc-box-front">
-                        <input type="file" accept="image/*" capture="environment" data-action="kyc-upload-front">
+                        <input type="file" accept="image/*" data-action="kyc-upload-front">
                         <i class="fa-regular fa-id-card"></i>
                         <span class="kyc-guide-txt">الوجه الأمامي للوثيقة<br>(يجب أن تكون البيانات واضحة)</span>
                         <img id="kyc-prev-front" class="kyc-preview" alt="أمام">
                     </div>
                     
                     <div class="kyc-upload-box" id="kyc-box-back">
-                        <input type="file" accept="image/*" capture="environment" data-action="kyc-upload-back">
+                        <input type="file" accept="image/*" data-action="kyc-upload-back">
                         <i class="fa-solid fa-barcode"></i>
                         <span class="kyc-guide-txt">الوجه الخلفي للوثيقة<br>(تأكد من وضوح الرموز)</span>
                         <img id="kyc-prev-back" class="kyc-preview" alt="خلف">
@@ -1297,7 +1282,7 @@
                 
                 <p class="rating-intro-text rating-intro-bold">ندعوك لتوثيق تجربتك ومشاركتها مع مجتمعنا عبر المنصة الرسمية لتقييم المتاجر:</p>
                 
-                <a href="https://www.trustpilot.com" target="_blank" class="submit-btn rating-share-btn" data-action="close-rating">
+                <a href="https://www.trustpilot.com" target="_blank" rel="noopener noreferrer" class="submit-btn rating-share-btn" data-action="close-rating">
                     <i class="fa-solid fa-external-link"></i> تقييم الخدمة عبر منصة Trustpilot
                 </a>
             </div>
@@ -1342,7 +1327,7 @@
                     <span class="setting-title"><i class="fa-solid fa-shield-halved"></i> المصادقة الثنائية (2FA)</span>
                     <span class="setting-sub">حماية إضافية عبر تطبيق Google Authenticator</span>
                 </div>
-                <div class="modern-switch-btn" id="setting-2fa-toggle" role="button" tabindex="0">
+                <div class="modern-switch-btn" id="setting-2fa-toggle" data-action="toggle-2fa" role="button" tabindex="0">
                     <div class="switch-bg-text">مغلق</div>
                     <div class="switch-knob"></div>
                 </div>
@@ -1353,7 +1338,7 @@
                     <span class="setting-title"><i class="fa-solid fa-fingerprint"></i> البصمة الحيوية</span>
                     <span class="setting-sub">استخدام بصمة الإصبع أو الوجه لفك قفل المتجر</span>
                 </div>
-                <div class="modern-switch-btn" id="setting-biometric-toggle" role="button" tabindex="0">
+                <div class="modern-switch-btn" id="setting-biometric-toggle" data-action="toggle-biometric" role="button" tabindex="0">
                     <div class="switch-bg-text">مغلق</div>
                     <div class="switch-knob"></div>
                 </div>
@@ -1381,7 +1366,7 @@
                 </div>
                 
                 <div style="margin-top: 10px;">
-                    <button type="submit" id="btn-pass-submit" class="alert-btn" data-action="submit-password-change">تحديث كلمة المرور</button>
+                    <button type="button" id="btn-pass-submit" class="alert-btn" data-action="submit-password-change">تحديث كلمة المرور</button>
                 </div>
             </form>            
             
@@ -1439,176 +1424,177 @@
             </div>
             <h2 class="bio-title">المتجر مقفل</h2>
             <p class="bio-desc">يرجى استخدام بصمة الإصبع أو الوجه لفك قفل متجر تيليكارد والمتابعة.</p>
-            <button id="btn-biometric-retry" class="alert-btn" data-action="enforce-biometric">فتح القفل <i class="fa-solid fa-unlock-keyhole mr-5"></i></button>
+            <button id="btn-biometric-retry" class="alert-btn">فتح القفل <i class="fa-solid fa-unlock-keyhole mr-5"></i></button>
             <button class="alert-btn btn-logout-ghost" data-action="logout" style="margin-top: 15px;">تسجيل الخروج</button>
         </div>
     </div>
     
     <!-- 🚀 استخدام المسار المطلق لضمان عمل المحرك في السيرفر المحلي والحي -->
-<script type="module" src="./script.js"></script>
+    <script type="module" src="./script.js"></script>
 
+    <!-- ========================================================================= -->
+    <!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.5 💎 -->
+    <!-- ========================================================================= -->
+    <script>
+        (function initMobileDevTools() {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('github.dev') || window.location.hostname.includes('192.168.');
+            const isSecretDev = sessionStorage.getItem('telecard_admin_dev_mode') === 'true'; 
 
-<!-- ========================================================================= -->
-<!-- 🛠️ كونسول المطور السري وفاحص النظام (TeleCard Mobile DevTools) - V3.5 💎 -->
-<!-- ========================================================================= -->
-<script>
-    (function initMobileDevTools() {
-        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.includes('github.dev') || window.location.hostname.includes('192.168.');
-        const isSecretDev = sessionStorage.getItem('telecard_admin_dev_mode') === 'true'; 
-
-        // 🛡️ Security Patch: Removed ?debug=1 URL parameter check to prevent Self-XSS.
-        if (!isLocal && !isSecretDev) {
-            console.log = function() {}; 
-            console.warn = function() {};
-            return;
-        }
-
-        // 🛡️ استخدام sessionStorage لمنع احتجاز الزوار في وضع المطور للأبد
-        sessionStorage.setItem('dev_mode', '1');
-        
-        document.body.insertAdjacentHTML('beforeend', `
-            <div id="tc-dev-console" style="position:fixed; bottom:0; left:0; width:100%; height:50%; background:rgba(15, 23, 42, 0.98); color:#10b981; font-family:'Courier New', monospace; font-size:12px; z-index:9999999999; overflow-y:auto; border-top:4px solid #3b82f6; direction:ltr; text-align:left; display:none; padding-top:60px; box-shadow: 0 -10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);">
-                
-                <div style="position:absolute; top:0; left:0; width:100%; min-height:45px; height:auto; background:#1e293b; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; padding:8px 10px; box-sizing:border-box; border-bottom:1px solid #334155; z-index:10000000000; gap:8px;">
-                    <span style="color:#eab308; font-weight:900; font-size:13px; display:flex; gap:6px; align-items:center; white-space:nowrap;">
-                        <span style="width:10px;height:10px;background:#22c55e;border-radius:50%;display:inline-block;animation:pulse 2s infinite;"></span> DevTools
-                    </span>
-                    <div style="display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end;">
-                        <button onclick="window.runDependencyScan()" style="background:#8b5cf6; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Scan</button>
-                        <button id="tc-copy-btn" style="background:#0ea5e9; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Copy</button>
-                        <button onclick="document.getElementById('tc-dev-logs').innerHTML=''" style="background:#ef4444; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Clear</button>
-                        <button onclick="document.getElementById('tc-dev-console').style.display='none';" style="background:#64748b; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Close</button>
-                    </div>
-                </div>
-
-                <div id="tc-dev-logs" style="padding:10px; padding-bottom:50px; word-wrap:break-word; line-height: 1.6;"></div>
-            </div>
-            <button id="tc-dev-btn" onclick="document.getElementById('tc-dev-console').style.display='block'" style="position:fixed; bottom:90px; right:15px; width:50px; height:50px; border-radius:50%; background:linear-gradient(135deg, #3b82f6, #8b5cf6); color:#fff; border:none; z-index:9999999998; font-weight:900; box-shadow:0 4px 15px rgba(0,0,0,0.5); font-size: 12px; border: 2px solid rgba(255,255,255,0.2);">DEV</button>
-        `);
-        
-        const logsContainer = document.getElementById('tc-dev-logs');
-        const devConsole = document.getElementById('tc-dev-console');
-        
-        const origLog = console.log;
-        const origWarn = console.warn;
-        const origError = console.error;
-        
-        const formatMsg = (args) => Array.from(args).map(a => {
-            if (a instanceof Error) return `${a.name}: ${a.message}`;
-            if (typeof a === 'object' && a !== null) {
-                try { return JSON.stringify(a); } catch (e) { return '[كائن معقد لا يمكن طباعته - Object]'; }
+            // 🛡️ Security Patch: Removed ?debug=1 URL parameter check to prevent Self-XSS.
+            if (!isLocal && !isSecretDev) {
+                console.log = function() {}; 
+                console.warn = function() {};
+                return;
             }
-            return String(a);
-        }).join(' ');
 
-        console.log = function(...args) {
-            origLog.apply(console, args);
-            const logDiv = document.createElement('div');
-            logDiv.style.cssText = "color:#34d399; border-bottom:1px dashed #334155; padding:8px 0;";
-            logDiv.textContent = `[LOG] ${formatMsg(args)}`;
-            logsContainer.appendChild(logDiv);
-            devConsole.scrollTop = devConsole.scrollHeight;
-        };
-        
-        console.warn = function(...args) {
-            origWarn.apply(console, args);
-            const warnDiv = document.createElement('div');
-            warnDiv.style.cssText = "color:#fbbf24; border-bottom:1px dashed #334155; padding:8px 0;";
-            warnDiv.textContent = `[WARN] ${formatMsg(args)}`;
-            logsContainer.appendChild(warnDiv);
-            devConsole.scrollTop = devConsole.scrollHeight;
-        };
-        
-        console.error = function(...args) {
-    origError.apply(console, args);
-    const errDiv = document.createElement('div');
-    errDiv.style.cssText = "color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);";
-    errDiv.textContent = `[ERROR] ${formatMsg(args)}`;
-    logsContainer.appendChild(errDiv);
-    devConsole.scrollTop = devConsole.scrollHeight;
-    if (!document.hidden) devConsole.style.display = 'block';
-};        window.addEventListener('error', function(e) {
-            const target = e.target || e.srcElement;
-            const isElement = target instanceof HTMLElement;
-
-            // 🛡️ فلترة دقيقة للأخطاء للتمييز بين الملفات المفقودة وأخطاء التشغيل
-            if (isElement) {
-                const tag = target.tagName.toUpperCase();
-
-                if (tag === 'IMG') {
-                    console.warn(`⚠️ رابط صورة مكسور: ${target.src || 'غير معروف'}`);
-                    return;
-                } 
-                
-                if (tag === 'SCRIPT' || tag === 'LINK') {
-                    const missingFile = target.src || target.href;
-                    if (missingFile) {
-                        if (isLocal && target.type === 'module') {
-                            console.warn(`⚠️ السيرفر المحلي للمحرر حظر ملف (Module) بسبب قيود (MIME/CORS). المتجر سيعمل بشكل مثالي عند الرفع على Firebase.\nالملف المحظور: ${missingFile}`);
-                        } else {
-                            console.error(`❌ فشل في تحميل ملف أساسي: ${missingFile}`);
-                        }
-                    }
-                    return;
-                }
-            }
+            // 🛡️ استخدام sessionStorage لمنع احتجاز الزوار في وضع المطور للأبد
+            sessionStorage.setItem('dev_mode', '1');
             
-            if (e.message) {
-                console.error(`💥 Runtime Crash: ${e.message} \n📍 السطر: ${e.lineno || 'N/A'} \n📁 الملف: ${e.filename || 'N/A'}`);
-            }
-        }, true);
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="tc-dev-console" style="position:fixed; bottom:0; left:0; width:100%; height:50%; background:rgba(15, 23, 42, 0.98); color:#10b981; font-family:'Courier New', monospace; font-size:12px; z-index:9999999999; overflow-y:auto; border-top:4px solid #3b82f6; direction:ltr; text-align:left; display:none; padding-top:60px; box-shadow: 0 -10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);">
+                    
+                    <div style="position:absolute; top:0; left:0; width:100%; min-height:45px; height:auto; background:#1e293b; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; padding:8px 10px; box-sizing:border-box; border-bottom:1px solid #334155; z-index:10000000000; gap:8px;">
+                        <span style="color:#eab308; font-weight:900; font-size:13px; display:flex; gap:6px; align-items:center; white-space:nowrap;">
+                            <span style="width:10px;height:10px;background:#22c55e;border-radius:50%;display:inline-block;animation:pulse 2s infinite;"></span> DevTools
+                        </span>
+                        <div style="display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end;">
+                            <button onclick="window.runDependencyScan()" style="background:#8b5cf6; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Scan</button>
+                            <button id="tc-copy-btn" style="background:#0ea5e9; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Copy</button>
+                            <button onclick="document.getElementById('tc-dev-logs').innerHTML=''" style="background:#ef4444; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Clear</button>
+                            <button onclick="document.getElementById('tc-dev-console').style.display='none';" style="background:#64748b; color:#fff; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">Close</button>
+                        </div>
+                    </div>
 
-        window.addEventListener('unhandledrejection', function(e) { console.error(`🔌 Async Promise Failed: ${e.reason}`); });
+                    <div id="tc-dev-logs" style="padding:10px; padding-bottom:50px; word-wrap:break-word; line-height: 1.6;"></div>
+                </div>
+                <button id="tc-dev-btn" onclick="document.getElementById('tc-dev-console').style.display='block'" style="position:fixed; bottom:90px; right:15px; width:50px; height:50px; border-radius:50%; background:linear-gradient(135deg, #3b82f6, #8b5cf6); color:#fff; border:none; z-index:9999999998; font-weight:900; box-shadow:0 4px 15px rgba(0,0,0,0.5); font-size: 12px; border: 2px solid rgba(255,255,255,0.2);">DEV</button>
+            `);
+            
+            const logsContainer = document.getElementById('tc-dev-logs');
+            const devConsole = document.getElementById('tc-dev-console');
+            
+            const origLog = console.log;
+            const origWarn = console.warn;
+            const origError = console.error;
+            
+            const formatMsg = (args) => Array.from(args).map(a => {
+                if (a instanceof Error) return `${a.name}: ${a.message}`;
+                if (typeof a === 'object' && a !== null) {
+                    try { return JSON.stringify(a); } catch (e) { return '[كائن معقد لا يمكن طباعته - Object]'; }
+                }
+                return String(a);
+            }).join(' ');
 
-        window.runDependencyScan = async function() {
-            console.log("🔍 جاري فحص ملفات النظام الأساسية...");
-            const filesToTest = ['./script.js', './config.js', './utils.js', './dataManager.js', './renderManager.js', './ui/uiManager.js', './core/firebaseAdapter.js'];
-            let passed = 0;
-            for (const file of filesToTest) {
-                try {
-                    const res = await fetch(file, { method: 'HEAD' });
-                    if (res.ok) { console.log(`✅ ملف سليم: ${file}`); passed++; } 
-                    else { console.error(`❌ ملف مفقود (404): ${file}`); }
-                } catch (err) { console.warn(`⚠️ حظر أمني للسيرفر المحلي: ${file}`); }
-            }
-            console.log(`🏁 نتيجة الفحص: ${passed}/${filesToTest.length} ملفات تم الوصول إليها.`);
-        };
+            console.log = function(...args) {
+                origLog.apply(console, args);
+                const logDiv = document.createElement('div');
+                logDiv.style.cssText = "color:#34d399; border-bottom:1px dashed #334155; padding:8px 0;";
+                logDiv.textContent = `[LOG] ${formatMsg(args)}`;
+                logsContainer.appendChild(logDiv);
+                devConsole.scrollTop = devConsole.scrollHeight;
+            };
+            
+            console.warn = function(...args) {
+                origWarn.apply(console, args);
+                const warnDiv = document.createElement('div');
+                warnDiv.style.cssText = "color:#fbbf24; border-bottom:1px dashed #334155; padding:8px 0;";
+                warnDiv.textContent = `[WARN] ${formatMsg(args)}`;
+                logsContainer.appendChild(warnDiv);
+                devConsole.scrollTop = devConsole.scrollHeight;
+            };
+            
+            console.error = function(...args) {
+                origError.apply(console, args);
+                const errDiv = document.createElement('div');
+                errDiv.style.cssText = "color:#f87171; font-weight:bold; border-bottom:1px dashed #334155; padding:8px 0; background:rgba(239,68,68,0.1);";
+                errDiv.textContent = `[ERROR] ${formatMsg(args)}`;
+                logsContainer.appendChild(errDiv);
+                devConsole.scrollTop = devConsole.scrollHeight;
+                if (!document.hidden) devConsole.style.display = 'block';
+            };
 
-        document.getElementById('tc-copy-btn').addEventListener('click', function() {
-            const text = logsContainer.innerText;
-            const textarea = document.createElement('textarea');
-            textarea.value = text; 
-            textarea.readOnly = true; 
-            textarea.style.position = 'fixed'; 
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea); 
-            textarea.select();
-            try { document.execCommand('copy'); this.textContent = 'Copied!'; setTimeout(()=>this.textContent='Copy', 2000); } catch(e){}
-            document.body.removeChild(textarea);
-        });
+            window.addEventListener('error', function(e) {
+                const target = e.target || e.srcElement;
+                const isElement = target instanceof HTMLElement;
 
-        console.log("🚀 TeleCard DevTools V3.5 Initialized!");
-    })();
-</script>
+                // 🛡️ فلترة دقيقة للأخطاء للتمييز بين الملفات المفقودة وأخطاء التشغيل
+                if (isElement) {
+                    const tag = target.tagName.toUpperCase();
 
-<!-- ========================================================================= -->
-<!-- ⚡ محرك تطبيق الجوال (PWA Service Worker Registration) -->
-<!-- ========================================================================= -->
-<script>
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./sw.js')
-                .then((registration) => {
-                    console.log('✅ [PWA Engine] تم تشغيل محرك تطبيق الجوال بنجاح! النطاق:', registration.scope);
-                })
-                .catch((error) => {
-                    console.error('❌ [PWA Engine] فشل في تشغيل المحرك:', error);
-                });
-        });
-    } else {
-        console.warn('⚠️ [PWA Engine] متصفح العميل قديم ولا يدعم تطبيقات الويب التقدمية.');
-    }
-</script>
+                    if (tag === 'IMG') {
+                        console.warn(`⚠️ رابط صورة مكسور: ${target.src || 'غير معروف'}`);
+                        return;
+                    } 
+                    
+                    if (tag === 'SCRIPT' || tag === 'LINK') {
+                        const missingFile = target.src || target.href;
+                        if (missingFile) {
+                            if (isLocal && target.type === 'module') {
+                                console.warn(`⚠️ السيرفر المحلي للمحرر حظر ملف (Module) بسبب قيود (MIME/CORS). المتجر سيعمل بشكل مثالي عند الرفع على Firebase.\nالملف المحظور: ${missingFile}`);
+                            } else {
+                                console.error(`❌ فشل في تحميل ملف أساسي: ${missingFile}`);
+                            }
+                        }
+                        return;
+                    }
+                }
+                
+                if (e.message) {
+                    console.error(`💥 Runtime Crash: ${e.message} \n📍 السطر: ${e.lineno || 'N/A'} \n📁 الملف: ${e.filename || 'N/A'}`);
+                }
+            }, true);
+
+            window.addEventListener('unhandledrejection', function(e) { console.error(`🔌 Async Promise Failed: ${e.reason}`); });
+
+            window.runDependencyScan = async function() {
+                console.log("🔍 جاري فحص ملفات النظام الأساسية...");
+                const filesToTest = ['./script.js', './config.js', './utils.js', './dataManager.js', './renderManager.js', './ui/uiManager.js', './core/firebaseAdapter.js'];
+                let passed = 0;
+                for (const file of filesToTest) {
+                    try {
+                        const res = await fetch(file, { method: 'HEAD' });
+                        if (res.ok) { console.log(`✅ ملف سليم: ${file}`); passed++; } 
+                        else { console.error(`❌ ملف مفقود (404): ${file}`); }
+                    } catch (err) { console.warn(`⚠️ حظر أمني للسيرفر المحلي: ${file}`); }
+                }
+                console.log(`🏁 نتيجة الفحص: ${passed}/${filesToTest.length} ملفات تم الوصول إليها.`);
+            };
+
+            document.getElementById('tc-copy-btn').addEventListener('click', function() {
+                const text = logsContainer.innerText;
+                const textarea = document.createElement('textarea');
+                textarea.value = text; 
+                textarea.readOnly = true; 
+                textarea.style.position = 'fixed'; 
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea); 
+                textarea.select();
+                try { document.execCommand('copy'); this.textContent = 'Copied!'; setTimeout(()=>this.textContent='Copy', 2000); } catch(e){}
+                document.body.removeChild(textarea);
+            });
+
+            console.log("🚀 TeleCard DevTools V3.5 Initialized!");
+        })();
+    </script>
+
+    <!-- ========================================================================= -->
+    <!-- ⚡ محرك تطبيق الجوال (PWA Service Worker Registration) -->
+    <!-- ========================================================================= -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then((registration) => {
+                        console.log('✅ [PWA Engine] تم تشغيل محرك تطبيق الجوال بنجاح! النطاق:', registration.scope);
+                    })
+                    .catch((error) => {
+                        console.error('❌ [PWA Engine] فشل في تشغيل المحرك:', error);
+                    });
+            });
+        } else {
+            console.warn('⚠️ [PWA Engine] متصفح العميل قديم ولا يدعم تطبيقات الويب التقدمية.');
+        }
+    </script>
 
 </body>
 </html>

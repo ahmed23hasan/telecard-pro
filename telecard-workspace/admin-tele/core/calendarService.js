@@ -4,6 +4,7 @@
 // 🚀 التحديثات (V15.1 - Missing Links Fix):
 // 1. إضافة دوال (selectDay) و (toggleYears) المفقودة لربطها بـ systemActions.
 // 2. Timezone Shield: تحويل كافة التواريخ المدخلة إلى (Absolute UTC).
+// 3. دعم 'alert' في نافذة إرسال الإشعارات.
 // ============================================================================
 
 import { AdminTemplates } from '../adminTemplates.js';
@@ -29,12 +30,13 @@ export const CalendarService = {
         }
 
         let savedVal = null;
-        if(section === 'coupon' || section === 'offer' || section === 'sys') {
+        // ✅ التعديل هنا: إضافة 'alert'
+        if (['coupon', 'offer', 'sys', 'alert'].includes(section)) {
             savedVal = document.getElementById(`${section}-${type}`)?.value;
         } else {
-            savedVal = currentFilterValue;
+            savedVal = currentFilterValue || window.AppController?.filters?.[section]?.[type] || null;
         }
-
+        
         if (savedVal) {
             const parsedTs = Number(savedVal) || savedVal;
             const dObj = new Date(parsedTs);
@@ -146,7 +148,8 @@ export const CalendarService = {
             const m = String(mIdx + 1).padStart(2, '0');
             const d = String(dNum).padStart(2, '0');
             
-            if (['coupon', 'offer', 'sys'].includes(this.targetSection)) {
+            // ✅ التعديل هنا: إضافة 'alert'
+            if (['coupon', 'offer', 'sys', 'alert'].includes(this.targetSection)) {
                 // 🛡️ [Timezone Shield]: تحويل الاختيار إلى طابع زمني (UTC) نقي
                 const utcTimestamp = Date.UTC(y, mIdx, dNum, hNum, minNum, 0);
                 
@@ -174,7 +177,8 @@ export const CalendarService = {
     },
 
     clear: function() {
-        if (['coupon', 'offer', 'sys'].includes(this.targetSection)) {
+        // ✅ التعديل هنا: إضافة 'alert'
+        if (['coupon', 'offer', 'sys', 'alert'].includes(this.targetSection)) {
             const hiddenInp = document.getElementById(`${this.targetSection}-${this.targetType}`);
             if(hiddenInp) hiddenInp.value = "";
             const txtEl = document.getElementById(`date-${this.targetType}-${this.targetSection}`);

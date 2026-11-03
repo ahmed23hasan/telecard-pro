@@ -1,15 +1,16 @@
 // ============================================================================
-// 🎨 محرك رسم التسويق (modules/marketing/marketingRender.js) - Enterprise V18.11 💎
-// الوظيفة: رسم العروض المركزية، الكوبونات، الإشعارات المنبثقة، والبنرات الإعلانية.
-// 🚀 التحديثات المعمارية:
-// 1. Template Mismatch Fix 💥: استيراد MarketingTemplates الصحيحة لمنع الشاشة البيضاء.
-// 2. Memory Leak Shield 🛡️: إضافة قفل _listenersBound لمنع تكرار الأحداث وانهيار المتصفح.
+// 🎨 محرك رسم التسويق (modules/marketing/marketingRender.js) - Enterprise V20.1 💎
+// 🎯 الوظيفة: رسم العروض المركزية، الكوبونات، الإشعارات المنبثقة، والبنرات الإعلانية.
+// 🚀 التحديثات المعمارية (V20.1 - Zero-Jank Tree & Clean Memory Patch):
+// 1. Zero Double-Escaping 🛡️: إزالة التشفير المزدوج لأسماء المنتجات والأقسام في شجرة الاستهداف.
+// 2. Zero-Order Fix 📊: إصلاح فرز البنرات لضمان بقاء الترتيب (0) في البداية بدلاً من تحويله لـ 9999.
+// 3. Category Parity 🔄: استخدام (categoryId || catId) لمنع ظهور المنتجات كأيتام.
+// 4. API Tiers Exclusion 🛡️: استبعاد مستويات الجملة من شجرة الاستهداف.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { MarketingTemplates } from './marketingTemplates.js';
-import { EventBus, Utils } from '../../adminUtils.js';
-import { RenderHelpers } from '../../core/renderHelpers.js';
+import { EventBus } from '../../adminUtils.js';
 
 export const MarketingRender = {
   
@@ -31,8 +32,16 @@ export const MarketingRender = {
     const list = document.getElementById('banner-grid');
     if (!list) return;
     
-    list.innerHTML = [...(AdminData.data.banners || [])]
-      .sort((a, b) => (Number(a.order) || 9999) - (Number(b.order) || 9999))
+    const banners = AdminData.data.banners || [];
+    if (banners.length === 0) {
+      list.innerHTML = MarketingTemplates.emptyBanners();
+      return;
+    }
+    
+    const getOrder = (item) => (Number.isFinite(Number(item?.order)) ? Number(item.order) : 9999);
+    
+    list.innerHTML = [...banners]
+      .sort((a, b) => getOrder(a) - getOrder(b))
       .map((b, index) => MarketingTemplates.bannerItem(b, index)).join('');
     
     EventBus.emit('req-init-sortable', { container: list, type: 'banner' });
@@ -50,7 +59,7 @@ export const MarketingRender = {
     
     if (!grid) return;
     if (offers.length === 0) {
-      grid.innerHTML = `لا توجد حملات حالياً.`;
+      grid.innerHTML = MarketingTemplates.emptyOffers();
       return;
     }
     
@@ -73,13 +82,10 @@ export const MarketingRender = {
       return;
     }
     
-    const promoStats = AdminData.data.system?.globalStats?.promoStats || { couponUsageMap: {} };
-    
     grid.innerHTML = coupons.map(coupon => {
       const uiData = {
         prodName: coupon.targetProds?.length > 0 ? `${coupon.targetProds.length} منتجات` : 'الكل',
-        tierName: coupon.targetTiers?.length > 0 ? `${coupon.targetTiers.length} مستويات` : 'الكل',
-        liveUsedCount: promoStats.couponUsageMap[coupon.code] || 0
+        tierName: coupon.targetTiers?.length > 0 ? `${coupon.targetTiers.length} مستويات` : 'الكل'
       };
       return MarketingTemplates.couponCard(coupon, uiData);
     }).join('');
@@ -112,21 +118,25 @@ export const MarketingRender = {
     
     if (!tiersContainer || !prodsContainer) return;
     
-    // 🛡️ [التصحيح المعماري 1]: تحويل المصفوفات البطيئة لكائنات Set (O(1)) لحماية الذاكرة 
     const savedTiersSet = new Set(savedTiers.map(String));
     const savedProdsSet = new Set(savedProds.map(String));
     
-    let tiersHtml = (d.tiers || []).map(t =>
-      MarketingTemplates.smartTreeTier(t.id, Utils.escapeHTML(t.name), t.icon || 'fa-user', savedTiersSet.has(String(t.id)))
+    // 🛡️ عرض مستويات التجزئة فقط (لأن مستويات الـ API مستثناة من العروض والكوبونات في السيرفر)
+    const retailTiersOnly = (d.tiers || []).filter(t => t && t.type !== 'api');
+    let tiersHtml = retailTiersOnly.map(t =>
+      MarketingTemplates.smartTreeTier(t.id, t.name, t.icon || 'fa-user', savedTiersSet.has(String(t.id)))
     ).join('');
-    tiersContainer.innerHTML = `${tiersHtml || 'لا توجد مستويات'}`;
+    
+    tiersContainer.innerHTML = `${tiersHtml || MarketingTemplates.emptyTreeTiers()}`;
     
     const catMap = {};
     (d.cats || []).forEach(c => catMap[c.id] = { name: c.name, prods: [] });
     
     const orphanProds = [];
     (d.prods || []).forEach(p => {
-      if (p.catId && catMap[p.catId]) catMap[p.catId].prods.push(p);
+      // 🚀 استخدام categoryId ليتطابق مع السيرفر بدقة
+      const safeCatId = String(p.categoryId || (Array.isArray(p.categoryIds) && p.categoryIds[0]) || p.catId || '');
+      if (safeCatId && catMap[safeCatId]) catMap[safeCatId].prods.push(p);
       else orphanProds.push(p);
     });
     
@@ -134,21 +144,49 @@ export const MarketingRender = {
       const category = catMap[catId];
       if (category.prods.length === 0) return '';
       
+      // 🛡️ [إصلاح التشفير المزدوج]: تمرير p.name كما هو
       let childrenHtml = category.prods.map(p =>
-        MarketingTemplates.smartTreeChild(p.id, Utils.escapeHTML(p.name), p.img, savedProdsSet.has(String(p.id)), String(p.id).slice(-4))
+        MarketingTemplates.smartTreeChild(p.id, p.name, p.img || p.image, savedProdsSet.has(String(p.id)), String(p.id).slice(-4))
       ).join('');
       
-      return MarketingTemplates.smartTreeParent(catId, Utils.escapeHTML(category.name), childrenHtml, category.prods.some(p => savedProdsSet.has(String(p.id))));
+      const checkedCount = category.prods.filter(p => savedProdsSet.has(String(p.id))).length;
+      const isAllChecked = checkedCount === category.prods.length && checkedCount > 0;
+      const isIndeterminate = checkedCount > 0 && checkedCount < category.prods.length;
+      
+      // 🛡️ [إصلاح التشفير المزدوج]: تمرير category.name كما هو
+      let parentHtml = MarketingTemplates.smartTreeParent(catId, category.name, childrenHtml, isAllChecked);
+      
+      if (isIndeterminate) {
+        parentHtml = parentHtml.replace('class="tree-checkbox tree-parent-cb"', 'class="tree-checkbox tree-parent-cb set-indeterminate"');
+      }
+      
+      return parentHtml;
     }).join('');
     
     if (orphanProds.length > 0) {
+      // 🛡️ [إصلاح التشفير المزدوج]: تمرير p.name كما هو
       let orphanHtml = orphanProds.map(p =>
-        MarketingTemplates.smartTreeChild(p.id, Utils.escapeHTML(p.name), p.img, savedProdsSet.has(String(p.id)), String(p.id).slice(-4))
+        MarketingTemplates.smartTreeChild(p.id, p.name, p.img || p.image, savedProdsSet.has(String(p.id)), String(p.id).slice(-4))
       ).join('');
       
-      treeHtml += MarketingTemplates.smartTreeParent('orphans', 'منتجات بدون قسم', orphanHtml, orphanProds.some(p => savedProdsSet.has(String(p.id))));
+      const checkedCount = orphanProds.filter(p => savedProdsSet.has(String(p.id))).length;
+      const isAllOrphansChecked = checkedCount === orphanProds.length && checkedCount > 0;
+      const isOrphanIndeterminate = checkedCount > 0 && checkedCount < orphanProds.length;
+      
+      let parentOrphanHtml = MarketingTemplates.smartTreeParent('orphans', 'منتجات بدون قسم', orphanHtml, isAllOrphansChecked);
+      
+      if (isOrphanIndeterminate) {
+        parentOrphanHtml = parentOrphanHtml.replace('class="tree-checkbox tree-parent-cb"', 'class="tree-checkbox tree-parent-cb set-indeterminate"');
+      }
+      
+      treeHtml += parentOrphanHtml;
     }
     
-    prodsContainer.innerHTML = `${treeHtml || 'لا توجد منتجات'}`;
+    prodsContainer.innerHTML = `${treeHtml || MarketingTemplates.emptyTreeProds()}`;
+    
+    // 🚀 التفعيل البرمجي لحالة (Indeterminate) بضربة واحدة
+    document.querySelectorAll(`#${prefix}-prods .set-indeterminate`).forEach(cb => {
+      cb.indeterminate = true;
+    });
   }
 };

@@ -1,34 +1,113 @@
 // ============================================================================
-// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Cloud-Native V18.11 🛡️
-// 🚀 التحديثات المعمارية (V18.11 - UID Coercion & Sync Patch): 
-// 1. UID Coercion Fix 🐛: تحويل المعرفات القصيرة والإيميلات إلى UIDs حقيقية في الكوبونات لمنع فشل المحرك المالي.
-// 2. Delete Alert Race Condition 🛡️: انتظار استجابة السيرفر قبل مسح الإشعار من الواجهة لمنع "الأشباح".
-// 3. Target Routing Fix 🔀: تصحيح مسار حذف الإشعارات ليشمل إشعارات العملاء المخصصة (Targeted Alerts).
-// 4. DOM Shield 🛡️: حماية الاستهداف القديم من المسح العشوائي إذا لم يكتمل رسم واجهة الشجرة.
+// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Cloud-Native V20.1 🛡️
+// 🚀 التحديثات المعمارية (V20.1 - Zero Double-Sync & Safe DOM Readers): 
+// 1. Double Delete Fix 🗑️: إزالة أوامر الحذف المزدوجة (delete) والاعتماد على saveCollection للقيام بالحذف الذري.
+// 2. Safe Logo Upload 🖼️: تفريغ الـ input بعد رفع الشعار لمنع إعادة رفعه عند أي تعديل لاحق.
+// 3. Zero Double-Sync ⚡: إزالة الاستدعاءات اليدوية لـ adminForceSyncPricing لمنع تضارب قاعدة البيانات.
+// 4. Safe DOM Readers 🌳: قراءة المنتجات والمستويات وقصص الستوري عبر دوال الـ UI الآمنة.
+// 5. MVC Purification 🧹: تنظيف المتحكم من دوال فتح النوافذ (DOM) لجعله مسؤولاً عن البيانات والمنطق فقط.
+// 6. Data Integrity 🛡️: إزالة Utils.escapeHTML للحفاظ على سلامة الروابط وأسماء الأكواد والنصوص.
+// 7. Advanced Pricing Shield 🛡️: دالة _validatePromoSafetyLocal مطورة تدعم حماية الأقسام والمنتجات وتتخطى المستويات ذات التسعير المخصص.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { AdminUI } from '../../adminUI.js';
-import { AdminRender } from '../../adminRender.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
+import { serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { UIService } from '../../core/uiService.js';
+import { FinancialEngine } from '../../core/financialEngine.js';
 
 export const MarketingController = {
 
     _actionLocks: new Set(), 
 
-    openOfferModal: function(id = null) {
-        let strId = id ? String(id) : null;
-        EventBus.emit('req-update-state', { tempEditId: strId });
-        
-        const offer = strId ? (AdminData.data.offersMap?.[strId] || (AdminData.data.offers || []).find(o => String(o.id) === strId)) : null;
-        AdminUI?.MarketingUI?.setupOfferModal?.(offer);
-        
-        if (AdminRender?.populateSmartTreeTargets) {
-            AdminRender.populateSmartTreeTargets('offer-target', offer ? (offer.targetTiers || []) : [], offer ? (offer.targetProds || []) : []);
+    _validatePromoSafetyLocal: function(promoData, isCoupon = false) {
+        if (!promoData || promoData.isActive === false) return { isSafe: true };
+        if (!isCoupon && (promoData.type === 'fake' || promoData.type === 'badge_only')) return { isSafe: true };
+
+        const targetTiers = Array.isArray(promoData.targetTiers) ? promoData.targetTiers.filter(Boolean).map(String) : [];
+        const targetProds = Array.isArray(promoData.targetProds) ? promoData.targetProds.filter(Boolean).map(String) : [];
+        const targetCats = Array.isArray(promoData.targetCategories) ? promoData.targetCategories.filter(Boolean).map(String) : [];
+        const hasProds = targetProds.length > 0;
+        const hasCats = targetCats.length > 0;
+
+        // 🛡️ الحماية من العروض/الكوبونات اليتيمة مع دعم الأقسام والمنتجات معاً
+        if (targetTiers.length === 0 || (!hasProds && !hasCats)) {
+            return {
+                isSafe: false,
+                reason: 'لا يمكن تفعيل هذا العرض/الكوبون لأنه غير مرتبط بمنتجات أو أقسام أو مستويات محددة (ربما تم حذف المنتج المرتبط به سابقاً). يرجى تعديله وتحديد الأهداف أولاً.'
+            };
         }
-        EventBus.emit('req-open-modal', 'offer');
+
+        const allTiers = (AdminData.data.tiers || []).filter(t => t && t.type !== 'api' && targetTiers.includes(String(t.id)));
+        const allProds = (AdminData.data.prods || []).filter(p => {
+            if (!p || p.isActive === false) return false;
+            const pCats = [].concat(p.categoryId, p.categoryIds, p.catId).filter(Boolean).map(String);
+            const isProdMatch = hasProds && targetProds.includes(String(p.id));
+            const isCatMatch = hasCats && pCats.some(cid => targetCats.includes(String(cid)));
+            return isProdMatch || isCatMatch;
+        });
+
+        const nowMs = Date.now();
+
+        for (const prod of allProds) {
+            if (isCoupon && (prod.disableCoupons === true || String(prod.disableCoupons).toLowerCase() === 'true')) continue;
+            const optIndices = (prod.type === 'select' && Array.isArray(prod.options) && prod.options.length > 0)
+                ? prod.options.map((o, idx) => (o && o.isActive !== false ? idx : -1)).filter(idx => idx >= 0)
+                : [null];
+
+            for (const optIdx of optIndices) {
+                const activeOpt = optIdx !== null ? prod.options[optIdx] : null;
+                const isFixed = activeOpt && activeOpt.isFixedPrice !== undefined
+                    ? (String(activeOpt.isFixedPrice).toLowerCase() === 'true')
+                    : (String(prod.isFixedPrice).toLowerCase() === 'true' || prod.is_fixed_price === true);
+                if (isFixed) continue;
+
+                for (const tier of allTiers) {
+                    const targetPricingObj = activeOpt || prod;
+                    const rawOverride = targetPricingObj.tierPrices?.[tier.id];
+                    if (rawOverride !== undefined && rawOverride !== null && rawOverride !== '') {
+                        const ovPrice = typeof rawOverride === 'object' ? FinancialEngine.extractNum(rawOverride.price) : FinancialEngine.extractNum(rawOverride);
+                        const ovExp = (typeof rawOverride === 'object' && rawOverride.expiresAt) ? FinancialEngine.parseSafeTime(rawOverride.expiresAt) : 0;
+                        if (ovPrice > 0 && (ovExp === 0 || ovExp > nowMs)) continue;
+                    }
+
+                    const baseCalc = FinancialEngine.calculatePrice({ product: prod, tier: tier, optIdx: optIdx, allowDefaultOption: optIdx === null });
+                    if (baseCalc.isFirewallViolated || baseCalc.finalPrice <= 0) continue;
+
+                    let testQty = prod.type === 'select' ? 1 : Math.max(1, Number(prod.minQty) || 1);
+const defaultMaxQty = prod.type === 'select' ? 1 : (prod.type === 'counter' ? 5000000 : 100);
+const rawProdMax = Number(prod.type === 'simple' ? (prod.simpleMax || prod.maxQty) : prod.maxQty) || 0;
+const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdMax > 0 ? rawProdMax : defaultMaxQty);           if (prod.type === 'counter' && baseCalc.finalPrice < 0.02) {
+                        testQty = Math.min(prodMaxQty, Math.max(testQty, Math.ceil(1 / baseCalc.finalPrice)));
+                    }
+                    if (isCoupon && Number(promoData.minOrder) > 0) {
+                        const neededQty = Math.ceil(Number(promoData.minOrder) / baseCalc.finalPrice);
+                        if (neededQty > prodMaxQty) continue;
+                        testQty = Math.max(testQty, neededQty);
+                    }
+
+                    const promoCalc = FinancialEngine.calculateOrderTotal({
+                        product: prod,
+                        tier: tier,
+                        offer: isCoupon ? null : promoData,
+                        coupon: isCoupon ? promoData : null,
+                        optIdx: optIdx,
+                        allowDefaultOption: optIdx === null
+                    }, testQty);
+
+                    if (promoCalc.isFirewallViolated) {
+                        const optLabel = activeOpt ? ` (${activeOpt.name})` : '';
+                        return {
+                            isSafe: false,
+                            reason: `يكسر رأس المال للمنتج [${prod.name}${optLabel}] عند مستوى [${tier.nameAr || tier.name}] (السعر بعد الخصم ${promoCalc.totalFinalPrice}$ أقل من التكلفة الآمنة).`
+                        };
+                    }
+                }
+            }
+        }
+        return { isSafe: true };
     },
 
     _showBatchCollisionResolver: function(collisions) {
@@ -92,21 +171,26 @@ export const MarketingController = {
         
         newOffer.visualConfig.storyProducts.forEach(pId => {
             const p = AdminData.data.prodsMap?.[pId] || (AdminData.data.prods || []).find(x => String(x.id) === String(pId));
-            if (p && p.catId) targetCatIds.add(String(p.catId));
+            if (p) {
+                const pCats = [].concat(p.categoryId, p.categoryIds, p.catId).filter(Boolean).map(String);
+                pCats.forEach(c => targetCatIds.add(c));
+            }
         });
-        
+
         const otherActiveStoryOffers = (AdminData.data.offers || []).filter(o => String(o.id) !== String(newOffer.id) && o.isActive !== false && (!o.expiryDate || o.expiryDate > Date.now()) && o.visualConfig && o.visualConfig.storyEnabled);
-        
+
         let needsSync = false;
         let conflictingOffers = [];
-        
+
         for (const oldOffer of otherActiveStoryOffers) {
             const oldShape = oldOffer.visualConfig.storyShape;
             if (oldShape !== newShape) {
                 const oldStoryProds = oldOffer.visualConfig.storyProducts || [];
                 const hasSharedCat = oldStoryProds.some(pId => {
                     const p = AdminData.data.prodsMap?.[pId] || (AdminData.data.prods || []).find(x => String(x.id) === String(pId));
-                    return p && p.catId && targetCatIds.has(String(p.catId));
+                    if (!p) return false;
+                    const pCats = [].concat(p.categoryId, p.categoryIds, p.catId).filter(Boolean).map(String);
+                    return pCats.some(c => targetCatIds.has(c));
                 });
                 if (hasSharedCat) {
                     needsSync = true;
@@ -127,88 +211,101 @@ export const MarketingController = {
 
     saveOffer: async function() {
         if (this._actionLocks.has('save-offer')) return;
+        
+        const editId = AdminData.tempEditId ? String(AdminData.tempEditId) : null;
+        const isEdit = !!editId;
 
-        const name = Utils.escapeHTML(Utils.getVal('offer-name'));
+        const name = Utils.getVal('offer-name').trim();
         const type = Utils.getVal('offer-type') || 'real';
         const value = Number(Utils.getVal('offer-value')) || 0;
         const isActive = Utils.getCheck('offer-active');
         const expiryVal = Utils.getVal('offer-expiry');
         const expiryDate = expiryVal ? Number(expiryVal) : null;
-
+        
         if (!name) return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم الحملة', type: 'error' });
         if (value <= 0 && type !== 'badge_only') return EventBus.emit('req-show-toast', { message: 'قيمة الخصم يجب أن تكون أكبر من صفر', type: 'error' });
-
-        // 🚀 [درع الـ DOM]: جلب البيانات من الذاكرة إذا كان التحديد فارغاً (لتجنب مسح الاستهداف القديم)
-        const isEdit = !!AdminData.tempEditId;
-        const oldOffer = isEdit ? AdminData.data.offersMap?.[AdminData.tempEditId] : null;
-
+        
+        if ((type === 'real' || type === 'fake') && value > 95) {
+            return EventBus.emit('req-show-toast', { message: 'إجراء أمني: أقصى نسبة خصم مسموحة هي 95%', type: 'error' });
+        }
+        
+        const oldOffer = isEdit ? AdminData.data.offersMap?.[editId] : null;
+        
         let selectedTiers = AdminUI?.MarketingUI?.getSelectedTiers?.() || [];
         let selectedProds = AdminUI?.MarketingUI?.getSelectedProds?.() || [];
-
+        
         if (isEdit && selectedTiers.length === 0 && selectedProds.length === 0 && oldOffer) {
             selectedTiers = oldOffer.targetTiers || [];
             selectedProds = oldOffer.targetProds || [];
         }
-
+        
         if (selectedTiers.length === 0) return EventBus.emit('req-show-toast', { message: 'يجب تحديد مستوى واحد على الأقل', type: 'error' });
         if (selectedProds.length === 0) return EventBus.emit('req-show-toast', { message: 'يجب تحديد منتج واحد على الأقل', type: 'error' });
+        
+        const currentVisualConfig = AdminUI?.MarketingUI?.visualConfig ? JSON.parse(JSON.stringify(AdminUI.MarketingUI.visualConfig)) : { storyEnabled: false };
+        if (currentVisualConfig.storyEnabled) {
+            let selectedStoryProds = AdminUI?.MarketingUI?.getSelectedStoryProds?.() || [];
+            if (isEdit && selectedStoryProds.length === 0 && oldOffer?.visualConfig?.storyProducts) {
+                selectedStoryProds = oldOffer.visualConfig.storyProducts;
+            }
+            if (selectedStoryProds.length === 0) return EventBus.emit('req-show-toast', { message: 'يرجى اختيار منتج واحد على الأقل من شجرة القصص', type: 'error' });
+            currentVisualConfig.storyProducts = selectedStoryProds;
+        } else { currentVisualConfig.storyProducts = []; }
+        
+        const offerData = {
+            id: isEdit ? editId : 'off_' + Date.now(),
+            name, type, value, isActive, expiryDate,
+            targetTiers: selectedTiers, targetProds: selectedProds,
+            visualConfig: currentVisualConfig,
+            requiresAdminAttention: false,
+            syncNote: null
+        };
 
+        if (isActive) {
+            const safetyCheck = this._validatePromoSafetyLocal(offerData, false);
+            if (!safetyCheck.isSafe) {
+                return EventBus.emit('req-show-toast', { message: `⛔ مرفوض لحماية رأس المال: ${safetyCheck.reason}`, type: 'error' });
+            }
+        }
+
+        const passedCollision = await this._checkOfferCollisions(offerData);
+        if (!passedCollision) return;
+        
+        const passedShapeSync = await this._checkStoryShapeSync(offerData);
+        if (!passedShapeSync) return;
+        
         this._actionLocks.add('save-offer');
-
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحفظ سحابياً...');
+        
         try {
-            const currentVisualConfig = AdminUI?.MarketingUI?.visualConfig ? JSON.parse(JSON.stringify(AdminUI.MarketingUI.visualConfig)) : { storyEnabled: false };
-            if (currentVisualConfig.storyEnabled) {
-                let selectedStoryProds = AdminUI?.MarketingUI?.getSelectedStoryProds?.() || [];
-                if (isEdit && selectedStoryProds.length === 0 && oldOffer?.visualConfig?.storyProducts) {
-                    selectedStoryProds = oldOffer.visualConfig.storyProducts;
-                }
-                if (selectedStoryProds.length === 0) throw new Error('يرجى اختيار منتج واحد على الأقل من شجرة القصص');
-                currentVisualConfig.storyProducts = selectedStoryProds;
-            } else { currentVisualConfig.storyProducts = []; }
-
             if (!AdminData.data.offers) AdminData.data.offers = [];
-            const oIdx = isEdit ? AdminData.data.offers.findIndex(o => String(o.id) === String(AdminData.tempEditId)) : -1;
+            const oIdx = isEdit ? AdminData.data.offers.findIndex(o => String(o.id) === editId) : -1;
             
-            const offerData = { id: isEdit ? AdminData.tempEditId : 'off_' + Date.now(), name, type, value, isActive, expiryDate, targetTiers: selectedTiers, targetProds: selectedProds, visualConfig: currentVisualConfig };
-
-            const passedCollision = await this._checkOfferCollisions(offerData);
-            if (!passedCollision) return;
-
-            const passedShapeSync = await this._checkStoryShapeSync(offerData);
-            if (!passedShapeSync) return;
-
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الحفظ سحابياً...');
-
             if (isEdit && oIdx !== -1) AdminData.data.offers[oIdx] = offerData;
             else AdminData.data.offers.push(offerData);
-
+            
             if (!AdminData.data.offersMap) AdminData.data.offersMap = {};
             AdminData.data.offersMap[offerData.id] = offerData;
-
+            
             await AdminData?.saveOffers?.();
             
-            if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
-                FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
-            }
-
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-offers',
                 modalId: 'offer',
                 logAction: isEdit ? 'EDIT_OFFER' : 'ADD_OFFER',
                 logDetails: `حملة تخفيض: ${name}`,
-                toastMsg: isEdit ? 'تم التعديل ومزامنة الأسعار بنجاح' : 'تمت الإضافة ومزامنة الأسعار بنجاح'
+                toastMsg: isEdit ? 'تم التعديل بنجاح' : 'تمت الإضافة بنجاح'
             });
         } catch (error) {
             EventBus.emit('req-show-toast', { message: error.message || 'خطأ أثناء الحفظ', type: 'warning' });
-        } finally { 
+        } finally {
             this._actionLocks.delete('save-offer');
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
     deleteOffer: async function(id) {
         if (!AdminData.data.offers || this._actionLocks.has('del-offer')) return;
-        
         if (AdminUI?.showConfirm && !await AdminUI.showConfirm('هل أنت متأكد من حذف العرض نهائياً؟')) return;
         
         this._actionLocks.add('del-offer');
@@ -223,13 +320,9 @@ export const MarketingController = {
 
             await AdminData?.saveOffers?.();
             
-            if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
-                FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
-            }
-
             EventBus.emit('req-render-offers'); 
             if (offer) AdminData?.addLog?.('DELETE_OFFER', `حذف حملة: ${offer.name}`);
-            EventBus.emit('req-show-toast', {message:'تم الحذف وتحديث المتجر بنجاح', type:'success'});
+            EventBus.emit('req-show-toast', {message:'تم الحذف بنجاح', type:'success'});
         } catch(e) { 
             AdminData.data.offers = offersBackup; 
             if(offer && AdminData.data.offersMap) AdminData.data.offersMap[id] = offer;
@@ -247,13 +340,21 @@ export const MarketingController = {
 
         const offer = AdminData.data.offersMap?.[id] || AdminData.data.offers.find(o => String(o.id) === String(id));
         if (offer) {
+            if (isActive) {
+                const safetyCheck = this._validatePromoSafetyLocal({ ...offer, isActive: true }, false);
+                if (!safetyCheck.isSafe) {
+                    EventBus.emit('req-render-offers');
+                    EventBus.emit('req-show-toast', { message: `⛔ ${safetyCheck.reason}`, type: 'error' });
+                    this._actionLocks.delete(`tog-off-${id}`);
+                    return;
+                }
+                offer.requiresAdminAttention = false;
+                offer.syncNote = null;
+            }
             offer.isActive = isActive; 
             EventBus.emit('req-render-offers');
             try {
                 await AdminData?.saveOffers?.();
-                if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
-                    FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
-                }
                 EventBus.emit('req-show-toast', { message: isActive ? 'تم تفعيل العرض' : 'تم الإيقاف', type: 'success' });
             } catch(e) { 
                 offer.isActive = !isActive; 
@@ -266,16 +367,6 @@ export const MarketingController = {
         }
     },
 
-    openCouponModal: function(id = null) {
-        EventBus.emit('req-update-state', { tempEditId: id });
-        const isEdit = !!id;
-        
-        const coupon = isEdit ? (AdminData.data.couponsMap?.[id] || AdminData.data.coupons.find(c => String(c.id) === String(id))) : null;
-        AdminUI?.MarketingUI?.setupCouponModal?.(coupon, isEdit);
-        AdminRender?.populateSmartTreeTargets?.('coupon-target', coupon ? (coupon.targetTiers||[]) : [], coupon ? (coupon.targetProds||[]) : []);
-        EventBus.emit('req-open-modal', 'coupon');
-    },
-
     generateRandomCoupon: function() {
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let code = '';
         for (let i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -285,20 +376,25 @@ export const MarketingController = {
     saveCoupon: async function() {
         if (this._actionLocks.has('save-coupon')) return;
 
-        const code = Utils.escapeHTML(Utils.getVal('coupon-code')).toUpperCase();
+        const editId = AdminData.tempEditId ? String(AdminData.tempEditId) : null;
+        const isEdit = !!editId;
+
+        const code = Utils.getVal('coupon-code').trim().toUpperCase();
         if (!code) return EventBus.emit('req-show-toast', { message: 'أدخل كود الكوبون', type: 'error' });
         
         const type = Utils.getVal('coupon-type') || 'percentage';
         const value = Number(Utils.getVal('coupon-value')) || 0;
         if (value <= 0) return EventBus.emit('req-show-toast', { message: 'قيمة الخصم يجب أن تكون أعلى من صفر', type: 'error' });
 
-        const isEdit = !!AdminData.tempEditId;
-        const oldCoupon = isEdit ? AdminData.data.couponsMap?.[AdminData.tempEditId] : null;
+        if (type === 'percentage' && value > 95) {
+            return EventBus.emit('req-show-toast', { message: 'إجراء أمني: نسبة خصم الكوبون لا يمكن أن تتجاوز 95%', type: 'error' });
+        }
+
+        const oldCoupon = isEdit ? AdminData.data.couponsMap?.[editId] : null;
 
         let selectedTiers = AdminUI?.MarketingUI?.getCouponSelectedTiers?.() || [];
         let selectedProds = AdminUI?.MarketingUI?.getCouponSelectedProds?.() || [];
 
-        // 🚀 [درع الـ DOM]: حماية الاستهداف للكوبونات أيضاً
         if (isEdit && selectedTiers.length === 0 && selectedProds.length === 0 && oldCoupon) {
             selectedTiers = oldCoupon.targetTiers || [];
             selectedProds = oldCoupon.targetProds || [];
@@ -308,51 +404,58 @@ export const MarketingController = {
             return EventBus.emit('req-show-toast', { message: 'يجب تحديد مستوى ومنتج واحد على الأقل', type: 'error' });
         }
 
-        const cIdx = isEdit ? AdminData.data.coupons.findIndex(c => String(c.id) === String(AdminData.tempEditId)) : -1;
+        const cIdx = isEdit ? AdminData.data.coupons.findIndex(c => String(c.id) === editId) : -1;
         
         const isCodeDuplicate = (AdminData.data.coupons || []).some(c => 
-            String(c.code).toUpperCase() === code && (!isEdit || String(c.id) !== String(AdminData.tempEditId))
+            String(c.code).toUpperCase() === code && (!isEdit || String(c.id) !== editId)
         );
 
         if (isCodeDuplicate) {
             return EventBus.emit('req-show-toast', { message: 'هذا الكود مستخدم مسبقاً في متجرنا', type: 'error' });
         }
 
+        const expiryVal = Utils.getVal('coupon-expiry');
+        const allowedUsersStr = Utils.getVal('coupon-allowed-users');
+        const rawUsers = allowedUsersStr ? allowedUsersStr.split(',').map(s => String(s).trim()).filter(s => s.length > 0) : [];
+        
+        const allowedUsers = rawUsers.map(identifier => {
+            const upperId = identifier.toUpperCase();
+            const u = (AdminData.data.users || []).find(user => 
+                user.id === identifier || 
+                (user.displayId && user.displayId.toUpperCase() === upperId) ||
+                (user.displayId && `USR-${user.displayId.toUpperCase()}` === upperId) ||
+                (user.email && user.email.toUpperCase() === upperId)
+            );
+            return u ? u.id : identifier;
+        });
+            
+        const maxDiscount = Number(Utils.getVal('coupon-max-discount')) || 0;
+
+        const couponData = {
+            id: isEdit ? editId : 'coup_' + Date.now(), 
+            code, type, value, maxDiscount, 
+            minOrder: Number(Utils.getVal('coupon-min-order')) || 0,
+            maxUses: Number(Utils.getVal('coupon-max-uses')) || 0,
+            maxPerUser: Number(Utils.getVal('coupon-max-per-user')) || 0,
+            isActive: Utils.getCheck('coupon-active'),
+            expiryDate: expiryVal ? Number(expiryVal) : null,
+            allowedUsers, targetTiers: selectedTiers, targetProds: selectedProds,
+            usageHistory: (isEdit && cIdx > -1 && AdminData.data.coupons[cIdx].usageHistory) ? AdminData.data.coupons[cIdx].usageHistory : {},
+            usedCount: (isEdit && cIdx > -1) ? (AdminData.data.coupons[cIdx].usedCount || 0) : 0,
+            requiresAdminAttention: false,
+            syncNote: null
+        };
+
+        if (couponData.isActive) {
+            const safetyCheck = this._validatePromoSafetyLocal(couponData, true);
+            if (!safetyCheck.isSafe) {
+                return EventBus.emit('req-show-toast', { message: `⛔ مرفوض لحماية رأس المال: ${safetyCheck.reason}`, type: 'error' });
+            }
+        }
+
         this._actionLocks.add('save-coupon');
 
         try {
-            const expiryVal = Utils.getVal('coupon-expiry');
-            const allowedUsersStr = Utils.getVal('coupon-allowed-users');
-            
-            const rawUsers = allowedUsersStr ? allowedUsersStr.split(',').map(s => String(s).trim()).filter(s => s.length > 0) : [];
-            
-            // 🚀 [الحل المعماري - UID Coercion]: تحويل المعرفات القصيرة أو الإيميلات إلى UIDs حقيقية
-            const allowedUsers = rawUsers.map(identifier => {
-                const upperId = identifier.toUpperCase();
-                const u = (AdminData.data.users || []).find(user => 
-                    user.id === identifier || 
-                    (user.displayId && user.displayId.toUpperCase() === upperId) ||
-                    (user.displayId && `USR-${user.displayId.toUpperCase()}` === upperId) ||
-                    (user.email && user.email.toUpperCase() === upperId)
-                );
-                return u ? u.id : identifier;
-            });
-                
-            const maxDiscount = Number(Utils.getVal('coupon-max-discount')) || 0;
-
-            const couponData = {
-                id: isEdit ? AdminData.tempEditId : 'coup_' + Date.now(), 
-                code, type, value, maxDiscount, 
-                minOrder: Number(Utils.getVal('coupon-min-order')) || 0,
-                maxUses: Number(Utils.getVal('coupon-max-uses')) || 0,
-                maxPerUser: Number(Utils.getVal('coupon-max-per-user')) || 0,
-                isActive: Utils.getCheck('coupon-active'),
-                expiryDate: expiryVal ? Number(expiryVal) : null,
-                allowedUsers, targetTiers: selectedTiers, targetProds: selectedProds,
-                usageHistory: (isEdit && cIdx > -1 && AdminData.data.coupons[cIdx].usageHistory) ? AdminData.data.coupons[cIdx].usageHistory : {},
-                usedCount: (isEdit && cIdx > -1) ? (AdminData.data.coupons[cIdx].usedCount || 0) : 0
-            };
-
             if (isEdit && cIdx !== -1) AdminData.data.coupons[cIdx] = couponData;
             else AdminData.data.coupons.push(couponData);
 
@@ -363,16 +466,12 @@ export const MarketingController = {
             
             await AdminData?.saveCoupons?.();
             
-            if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
-                FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
-            }
-
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-coupons',
                 modalId: 'coupon',
                 logAction: isEdit ? 'EDIT_COUPON' : 'ADD_COUPON',
                 logDetails: `كوبون: ${code}`,
-                toastMsg: 'تم حفظ الكوبون وتحديث المتجر بنجاح'
+                toastMsg: 'تم حفظ الكوبون بنجاح'
             });
         } finally { 
             this._actionLocks.delete('save-coupon');
@@ -396,10 +495,6 @@ export const MarketingController = {
 
             await AdminData?.saveCoupons?.();
             
-            if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
-                FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
-            }
-
             EventBus.emit('req-render-coupons'); 
             if (coupon) AdminData?.addLog?.('DELETE_COUPON', `حذف الكوبون: ${coupon.code}`);
             EventBus.emit('req-show-toast', { message: 'تم الحذف', type: 'success' });
@@ -419,13 +514,22 @@ export const MarketingController = {
 
         const coupon = AdminData.data.couponsMap?.[id] || AdminData.data.coupons.find(c => String(c.id) === String(id));
         if (coupon) {
+            if (isActive) {
+                const safetyCheck = this._validatePromoSafetyLocal({ ...coupon, isActive: true }, true);
+                if (!safetyCheck.isSafe) {
+                    EventBus.emit('req-render-coupons');
+                    EventBus.emit('req-show-toast', { message: `⛔ ${safetyCheck.reason}`, type: 'error' });
+                    this._actionLocks.delete(`tog-coup-${id}`);
+                    return;
+                }
+                coupon.requiresAdminAttention = false;
+                coupon.syncNote = null;
+            }
             coupon.isActive = isActive; 
             EventBus.emit('req-render-coupons');
             try { 
                 await AdminData?.saveCoupons?.(); 
-                if (typeof FirebaseAdapter !== 'undefined' && typeof FirebaseAdapter.callFunction === 'function') {
-                    FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch(() => {});
-                }
+                EventBus.emit('req-show-toast', { message: isActive ? 'تم تفعيل الكوبون' : 'تم الإيقاف', type: 'success' });
             } 
             catch(e) { coupon.isActive = !isActive; EventBus.emit('req-render-coupons'); }
             finally { this._actionLocks.delete(`tog-coup-${id}`); }
@@ -434,16 +538,11 @@ export const MarketingController = {
         }
     },
 
-    openAlertModal: function() {
-        AdminUI?.MarketingUI?.setupAlertModal?.(AdminData.data.tiers || []);
-        EventBus.emit('req-open-modal', 'alert');
-    },
-
     sendUnifiedAlert: async function() {
         if (this._actionLocks.has('send-alert')) return;
 
-        const title = Utils.escapeHTML(Utils.getVal('alert-title'));
-        const body = Utils.escapeHTML(Utils.getVal('alert-body'));
+        const title = Utils.getVal('alert-title').trim();
+        const body = Utils.getVal('alert-body').trim();
         if (!body) return EventBus.emit('req-show-toast', { message: 'يرجى كتابة الرسالة', type: 'error' });
 
         const targetType = Utils.getVal('alert-target-type', 'all');
@@ -454,17 +553,16 @@ export const MarketingController = {
 
         try {
             if (targetType === 'user') {
-                const inputVal = Utils.escapeHTML(Utils.getVal('alert-target-user'));
+                const inputVal = Utils.getVal('alert-target-user').trim();
                 
                 targetUser = AdminData.data.usersMap?.[inputVal] || (AdminData.data.users || []).find(u => String(u.id) === String(inputVal) || String(u.displayId) === String(inputVal));
                 
                 if (!targetUser) {
                     if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري البحث عن العميل سحابياً...');
                     try {
-                        targetUser = await FirebaseAdapter.getById('telecard_users', inputVal); 
-                        if (!targetUser) {
-                            const result = await FirebaseAdapter.fetchMoreWithCursor('telecard_users', [['displayId', '==', inputVal]], 'createdAt', null, 1);
-                            if (result && result.data && result.data.length > 0) targetUser = result.data[0];
+                        const res = await FirebaseAdapter.callFunction('adminGetUsersList', { searchQuery: inputVal, limit: 1 });
+                        if (res && res.success && res.data && res.data.length > 0) {
+                            targetUser = res.data[0];
                         }
                     } catch(e) { console.warn(e); }
                 }
@@ -474,27 +572,44 @@ export const MarketingController = {
                     return; 
                 }
                 targetId = targetUser.id; 
+                
+            } else if (targetType === 'tier') {
+                targetId = Utils.getVal('alert-target-tier');
+                if (!targetId) {
+                    EventBus.emit('req-show-toast', { message: 'يرجى اختيار المستوى المستهدف', type: 'error' });
+                    return;
+                }
             }
             
             const type = Utils.getVal('alert-type', 'notification');
             const isPopup = (type === 'popup');
             const expiryInput = Utils.getVal('alert-expiry');
 
+            const rawActionLink = isPopup ? Utils.getVal('alert-action-link').trim() : '';
+            const safeActionLink = (rawActionLink && /^https?:\/\//i.test(rawActionLink)) ? rawActionLink : '';
+
             const newAlert = {
                 id: 'ALT_' + Date.now(), type: type, isPopup: isPopup, targetType: targetType, targetId: targetId,
-                title: title, message: body, createdAt: Date.now(),
+                title: title, message: body, 
+                time: Date.now(),
+                createdAt: Date.now(), 
                 expiresAt: expiryInput ? parseInt(expiryInput) : null,
                 maxViews: isPopup ? parseInt(Utils.getVal('alert-max-views', '3')) : null,
-                actionLink: isPopup ? Utils.escapeHTML(Utils.getVal('alert-action-link')) : '',
-                couponCode: isPopup ? Utils.escapeHTML(Utils.getVal('alert-coupon-code')) : ''
+                actionLink: safeActionLink,
+                couponCode: isPopup ? Utils.getVal('alert-coupon-code').trim().toUpperCase() : ''
             };
 
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الإرسال...');
-            
-            if (targetType === 'user') {
-                await FirebaseAdapter.set(`telecard_users/${targetId}/notifications`, newAlert.id, newAlert);
-                
-                // 🚀 محاكاة للإضافة للذاكرة المحلية لكي تظهر فوراً في واجهة العميل عند المدير
+        if (targetType === 'user') {
+    await Promise.all([
+        FirebaseAdapter.set(`telecard_users/${targetId}/notifications`, newAlert.id, {
+            ...newAlert,
+            targetType: 'notification',
+            targetId: newAlert.id,
+            createdAt: serverTimestamp()
+        }),
+        FirebaseAdapter.set('telecard_alerts', newAlert.id, newAlert)
+    ]);          
                 if (!AdminData.data.alerts) AdminData.data.alerts = [];
                 AdminData.data.alerts.push(newAlert);
                 
@@ -529,16 +644,17 @@ export const MarketingController = {
         const alertObj = AdminData.data.alerts.find(a => a.id === id);
         
         try {
-            // 🚀 [الحل المعماري]: ننتظر السيرفر أولاً لمنع ظاهرة الإشعارات الشبحية (Ghost Alerts)
             if (alertObj && alertObj.targetType === 'user' && alertObj.targetId) {
-                await FirebaseAdapter.delete(`telecard_users/${alertObj.targetId}/notifications`, id);
+                await Promise.all([
+                    FirebaseAdapter.delete(`telecard_users/${alertObj.targetId}/notifications`, id),
+                    FirebaseAdapter.delete('telecard_alerts', id)
+                ]);
                 if (AdminData?.addLog) AdminData.addLog('DELETE_ALERT', `تم مسح إشعار مخصص للعميل`);
             } else {
                 await FirebaseAdapter.delete('telecard_alerts', id);
                 if (AdminData?.addLog) AdminData.addLog('DELETE_ALERT', `تم مسح إشعار عام من السيرفر`);
             }
             
-            // تحديث الواجهة بعد نجاح السيرفر
             AdminData.data.alerts = AdminData.data.alerts.filter(a => a.id !== id);
             EventBus.emit('req-render-alerts');
             EventBus.emit('req-show-toast', { message: 'تم الحذف بنجاح', type: 'success' });
@@ -580,8 +696,11 @@ export const MarketingController = {
 
             const finalImgUrl = await FirebaseAdapter.uploadImage(fileForUpload, 'banners');
             
+            const rawBanLink = Utils.getVal('ban-link').trim();
+            const cleanBanLink = (rawBanLink && /^https?:\/\//i.test(rawBanLink)) ? rawBanLink : '';
+            
             if(!AdminData.data.banners) AdminData.data.banners = [];
-            AdminData.data.banners.push({ id: String(Date.now()), img: finalImgUrl, link: Utils.escapeHTML(Utils.getVal('ban-link')) });
+            AdminData.data.banners.push({ id: String(Date.now()), img: finalImgUrl, link: cleanBanLink });
             await AdminData?.saveBanners?.();
             
             EventBus.emit('req-finish-action', {
@@ -614,6 +733,7 @@ export const MarketingController = {
             }
             AdminData.data.banners = AdminData.data.banners.filter(x => String(x.id) !== String(id));
             await AdminData.saveBanners();
+            
             EventBus.emit('req-render-banners');
             EventBus.emit('req-show-toast', {message: 'تم الحذف', type: 'success'});
         } finally {
@@ -630,14 +750,14 @@ export const MarketingController = {
         const settingsBackup = JSON.parse(JSON.stringify(AdminData.data.settings)); 
         const sys = AdminData.data.settings; 
         
-        sys.storeName = Utils.escapeHTML(Utils.getVal('store-name-input'));
-        sys.logoSize = Utils.getVal('store-logo-size', 36);
-        sys.nameWeight = Utils.getVal('store-name-weight', '900');
-        sys.nameColorType = Utils.getVal('store-color-type', 'solid');
-        sys.nameColor1 = Utils.getVal('store-color-1', '#ffffff');
-        sys.nameColor2 = Utils.getVal('store-color-2', '#FFD700');
-        sys.nameShadow = Utils.getCheck('store-name-shadow');
-
+        sys.storeName = Utils.getVal('store-name-input').trim();
+        sys.storeLogoSize = Number(Utils.getVal('store-logo-size', 36)) || 36;
+        sys.storeNameWeight = Utils.getVal('store-name-weight', '900');
+        sys.storeColorType = Utils.getVal('store-color-type', 'solid');
+        sys.storeColor1 = Utils.getVal('store-color-1', '#ffffff');
+        sys.storeColor2 = Utils.getVal('store-color-2', '#FFD700');
+        sys.storeNameShadow = Utils.getCheck('store-name-shadow');
+        
         const processBrandImage = async (baseId, currentUrl) => {
             const inputEl = document.getElementById(`${baseId}-input`) || document.getElementById(baseId);
             const wrapEl = document.getElementById(`${baseId}-wrap`);
@@ -665,7 +785,11 @@ export const MarketingController = {
                     const blob = new Blob([ab], { type: mimeType });
                     fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
                 }
-                return await FirebaseAdapter.uploadImage(fileForUpload, 'brand');
+                
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري رفع شعارات الهوية للسحابة...');
+                const uploadedUrl = await FirebaseAdapter.uploadImage(fileForUpload, 'brand');
+                inputEl.value = '';
+                return uploadedUrl;
             }
             
             return currentUrl || '';
@@ -692,7 +816,7 @@ export const MarketingController = {
             EventBus.emit('req-update-preview'); 
             EventBus.emit('req-show-toast', {message: 'خطأ أثناء الرفع، تم التراجع عن التغييرات', type: 'error'}); 
         } finally { 
-            this._actionLocks.add('save-brand');
+            this._actionLocks.delete('save-brand');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
         }
     },
@@ -700,25 +824,43 @@ export const MarketingController = {
     autoSaveSettings: async function() {
         if (this._actionLocks.has('auto-save-settings')) return;
         this._actionLocks.add('auto-save-settings');
-
+        
         try {
             if (!AdminData?.data?.settings) AdminData.data.settings = {};
             const s = AdminData.data.settings;
             
-            s.promoText = Utils.escapeHTML(Utils.getVal('promo-text', ''));
-            s.sliderDuration = Utils.getVal('slider-time', 3);
-            s.sliderTransition = Utils.getVal('slider-transition', 'fade');
-            s.promoAnim = Utils.getVal('promo-speed', 'vertical-normal');
-            s.currencyDisplay = Utils.getVal('setting-curr-display', 'symbol');
+            const isAdsViewActive = document.getElementById('view-ads')?.classList.contains('active');
+            if (isAdsViewActive) {
+                const cleanTicker = Utils.getVal('promo-text', '').trim();
+                const cleanSliderTime = Number(Utils.getVal('slider-time', 3)) || 3;
+                const cleanTransition = Utils.getVal('slider-transition', 'fade');
+                const cleanSpeed = Utils.getVal('promo-speed', 'horizontal-normal');
+                
+                s.tickerText = cleanTicker;
+                s.promoText = cleanTicker;
+                s.sliderTime = cleanSliderTime;
+                s.sliderDuration = cleanSliderTime;
+                s.sliderTransition = cleanTransition;
+                s.tickerSpeed = cleanSpeed;
+                s.promoAnim = cleanSpeed;
+            }
             
-            const syncToggle = document.getElementById('setting-sync-currency-store');
-            if (syncToggle) s.syncCurrencyDisplay = syncToggle.checked;
+            if (document.getElementById('view-rates')?.classList.contains('active')) {
+                s.currencyDisplay = Utils.getVal('setting-curr-display', s.currencyDisplay || 'symbol');
+                const syncToggle = document.getElementById('setting-sync-currency-store');
+                if (syncToggle) {
+                    s.syncCurrencyToStore = syncToggle.checked;
+                    s.syncCurrencyStore = syncToggle.checked;
+                    s.syncCurrencyDisplay = syncToggle.checked;
+                }
+                const currToggle = document.getElementById('setting-show-currency');
+                if (currToggle) s.showCurrencyToggle = currToggle.checked;
+            }
             
-            const currToggle = document.getElementById('setting-show-currency');
-            if (currToggle) s.showCurrencyToggle = currToggle.checked;
-            
-            const tierMsg = document.getElementById('setting-tier-paused-msg');
-            if (tierMsg) s.tierPausedMsg = Utils.escapeHTML(tierMsg.value);
+            if (document.getElementById('view-tiers')?.classList.contains('active')) {
+                const tierMsg = document.getElementById('setting-tier-paused-msg');
+                if (tierMsg) s.tierPausedMsg = tierMsg.value.trim();
+            }
             
             if (AdminData?.saveSystemSettings) await AdminData.saveSystemSettings();
             

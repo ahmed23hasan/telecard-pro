@@ -7,11 +7,18 @@
     
     <!-- 🛡️ حارس البوابة السريع: تم التحديث لـ localStorage لمنع طرد المدير ودعم التابات المتعددة -->
     <script>
-    if (sessionStorage.getItem('telecard_admin_auth') === 'true') {
-        window.location.replace('admin.html');
-    }
-</script>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    (function() {
+        const isAuth = localStorage.getItem('telecard_admin_auth') === 'true';
+        const lastAct = parseInt(localStorage.getItem('telecard_admin_last_activity') || '0', 10);
+        const IDLE_LIMIT = 10 * 60 * 1000;
+        if (isAuth && lastAct > 0 && (Date.now() - lastAct <= IDLE_LIMIT)) {
+            window.location.replace('admin.html');
+        } else if (isAuth) {
+            localStorage.removeItem('telecard_admin_auth');
+            localStorage.removeItem('telecard_admin_last_activity');
+        }
+    })();
+</script>    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="admin.css">
 </head>
@@ -47,7 +54,7 @@
                 
                 <div id="auth-error" class="auth-error-msg hide-element">بيانات الدخول غير صحيحة!</div>
                 
-                <button type="submit" class="btn btn-primary auth-submit-btn" id="btn-login">
+                <button type="submit" class="btn btn-primary auth-submit-btn interactive-scale" id="btn-login">
                     <i id="btn-icon" class="fa-solid fa-arrow-right-to-bracket"></i>
                     <span id="btn-text">دخول آمن</span>
                     <i class="fa-solid fa-circle-notch spinner"></i>
@@ -68,12 +75,12 @@
             </div>
             <div class="auth-input-group mfa-input-group">
                 <i class="fa-solid fa-key text-success"></i>
-                <input type="text" id="admin-2fa-code" class="input-en mfa-code-input" placeholder="000 000" maxlength="6" inputmode="numeric">
+                <input type="text" id="admin-2fa-code" class="input-en mfa-code-input font-numeric" placeholder="000 000" maxlength="6" inputmode="numeric">
             </div>
             <div id="admin-2fa-error" class="auth-error-msg hide-element">الرمز غير صحيح!</div>
             <div class="mfa-actions">
-                <button type="button" class="btn btn-primary auth-submit-btn mfa-submit-btn" id="btn-verify-2fa">تحقق ودخول</button>
-                <button type="button" class="btn btn-ghost mfa-cancel-btn" id="btn-cancel-2fa">إلغاء</button>
+                <button type="button" class="btn btn-primary auth-submit-btn mfa-submit-btn interactive-scale" id="btn-verify-2fa">تحقق ودخول</button>
+                <button type="button" class="btn btn-ghost mfa-cancel-btn interactive-scale" id="btn-cancel-2fa">إلغاء</button>
             </div>
         </div>
     </div>

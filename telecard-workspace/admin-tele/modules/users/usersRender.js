@@ -1,8 +1,11 @@
 // ============================================================================
-// 👥 محرك رسم المستخدمين (modules/users/usersRender.js) - Cloud-Native V18.6 💎
-// 🚀 التحديثات المعمارية (V18.6 - Infinite Loop Shield): 
-// 1. Data Normalization Shield 🛡️: الاعتماد المطلق على الذاكرة المركزية AdminData.
-// 2. Infinite Loop Fix 🛡️: إيقاف زر جلب المزيد بشكل قطعي إذا أرجع السيرفر (null).
+// 👥 محرك رسم المستخدمين (modules/users/usersRender.js) - Cloud-Native V20.0 💎
+// 🚀 التحديثات المعمارية (V20.0 - Cloud Multi-Account Radar & 10K-Scale Sync): 
+// 1. Cloud Multi-Account Radar 📡: فحص سحابي شامل في Firestore لكشف الحسابات المشتركة في (الأجهزة + IP).
+// 2. Server-Side Tier Pagination ☁️: جلب عملاء المستوى سحابياً وحفظهم في usersMap مع حماية مربع البحث.
+// 3. DOM Leak Shield 🛡️: تفعيل التدمير الذاتي (dynamic-auto-destroy) لنافذة ملف العميل.
+// 4. Unified Progress Engine ⚙️: الاعتماد المطلق على المحرك المالي لرسم شريط تقدم المستوى.
+// 5. Isolated KYC & Cloud Profile Fetching ⚡: دمج kycPendingUsers وجلب العملاء غير الموجودين بالكاش سحابياً.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -10,6 +13,7 @@ import { EventBus, Utils } from '../../adminUtils.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
 import { UsersTemplates } from './usersTemplates.js'; 
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
+import { collection, query, where, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 export const UsersRender = {
     state: { userSearch: '', sortUsers: 'desc', userSortCategory: 'newest', currentTierId: null, currentEditUserId: null, userHistoryTab: 'orders' },
@@ -34,110 +38,79 @@ export const UsersRender = {
     },
     
     loadMoreUsers: async function() {
-    const btn = document.querySelector('.btn-load-more');
-    if (btn) {
-        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
-        btn.disabled = true;
-    }
-    
-    try {
-        // 🚀 [الحل المعماري 1]: تحديد حقل الترتيب بناءً على اختيار المدير لجلب كبار العملاء الحقيقيين
-        let orderField = 'createdAt';
-        if (this.state.userSortCategory === 'spend_all') orderField = 'totalSpent';
-        else if (this.state.userSortCategory === 'orders_all') orderField = 'totalOrdersCount';
-        
-        // 🚀 [الحل المعماري 2]: إرسال شروط البحث للسيرفر مباشرة (Server-Side Filtering)
-        let conditions = [];
-        const searchTerm = (this.state.userSearch || '').trim();
-        
-        if (searchTerm) {
-            if (searchTerm.includes('@')) {
-                conditions.push(['email', '==', searchTerm.toLowerCase()]);
-            } else if (searchTerm.length > 15) {
-                // إذا كان طول النص كبيراً، فهو غالباً Document ID أو UID
-                conditions.push(['id', '==', searchTerm]);
-            } else {
-                // البحث بالمعرف القصير (يُخزن كأحرف كبيرة عادة)
-                conditions.push(['displayId', '==', searchTerm.toUpperCase()]);
-            }
-            
-            // 🛡️ [حماية الفهارس]: في حالة البحث الدقيق، نُجبر الترتيب على تاريخ الإنشاء 
-            // لتجنب انهيار قاعدة البيانات بطلب فهارس مركبة (Composite Indexes) معقدة.
-            orderField = 'createdAt';
+        const btn = document.querySelector('.btn-load-more');
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
+            btn.disabled = true;
         }
         
-        const res = await FirebaseAdapter.fetchMoreWithCursor(
-            'telecard_users', conditions, orderField, AdminData.cursors.users, 50
-        );
-        
-        if (res && res.data && res.data.length > 0) {
-            let currentSnapshotData = res.data;
-            let accumulatedData = Array.isArray(AdminData.data.users) ? AdminData.data.users : [];
+        try {
+            const searchTerm = (this.state.userSearch || '').trim();
             
-            const combinedMap = new Map();
+            const payload = {
+                limit: 50,
+                lastDocId: AdminData.cursors.users,
+                sortCategory: this.state.userSortCategory || 'newest',
+                sortDir: this.state.sortUsers || 'desc',
+                searchQuery: searchTerm
+            };
             
-            if (searchTerm) {
-                // إذا كان هناك بحث، نعرض النتائج الجديدة فقط ونمسح الكاش القديم
-                currentSnapshotData.forEach(u => combinedMap.set(u.id, u));
-            } else {
-                // 🚀 [درع الدمج]: دمج طبيعي يحافظ على العملاء المحملين مسبقاً
-                accumulatedData.forEach(u => combinedMap.set(u.id, u));
-                currentSnapshotData.forEach(u => combinedMap.set(u.id, u));
-            }
+            const res = await FirebaseAdapter.callFunction('adminGetUsersList', payload);
             
-            AdminData.data.users = Array.from(combinedMap.values());
-            AdminData.data.users.forEach(u => { AdminData.data.usersMap[String(u.id)] = u; });
-            
-            // 🛡️ [إصلاح التكرار اللانهائي]: تحديث المؤشر فقط إذا كان هناك المزيد
-            if (res.newLastDoc && currentSnapshotData.length >= 50) {
-                AdminData.cursors.users = res.newLastDoc;
+            if (res && res.success && res.data && res.data.length > 0) {
+                let currentSnapshotData = res.data;
+                let accumulatedData = Array.isArray(AdminData.data.users) ? AdminData.data.users : [];
+                
+                const combinedMap = new Map();
+                
+                if (searchTerm) {
+                    currentSnapshotData.forEach(u => combinedMap.set(u.id, u));
+                } else {
+                    accumulatedData.forEach(u => combinedMap.set(u.id, u));
+                    currentSnapshotData.forEach(u => combinedMap.set(u.id, u));
+                }
+                
+                AdminData.data.users = Array.from(combinedMap.values());
+                AdminData.data.users.forEach(u => { AdminData.data.usersMap[String(u.id)] = u; });
+                
+                if (res.pagination && res.pagination.hasMore) {
+                    AdminData.cursors.users = res.pagination.lastDocId;
+                } else {
+                    AdminData.cursors.users = null;
+                    if (btn) {
+                        btn.innerHTML = '<i class="fa-solid fa-check"></i> لا يوجد عملاء أقدم';
+                        btn.classList.add('disabled', 'text-muted');
+                        btn.disabled = true;
+                    }
+                }
+                
+                this.renderUsers();
             } else {
                 AdminData.cursors.users = null;
                 if (btn) {
-                    btn.innerHTML = '<i class="fa-solid fa-check"></i> لا يوجد عملاء أقدم';
+                    btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد نتائج مطابقة';
                     btn.classList.add('disabled', 'text-muted');
                     btn.disabled = true;
                 }
+                if (searchTerm) {
+                    AdminData.data.users = [];
+                    this.renderUsers();
+                }
             }
-            
-            this.renderUsers();
-        } else {
-            // 🛡️ إغلاق الزر نهائياً إذا لم يرجع السيرفر أي بيانات
-            AdminData.cursors.users = null;
+        } catch (error) {
+            console.error("🚨 فشل جلب المزيد من العملاء سحابياً:", error);
             if (btn) {
-                btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد نتائج مطابقة';
-                btn.classList.add('disabled', 'text-muted');
-                btn.disabled = true;
-            }
-            // تفريغ القائمة إذا كان بحثاً ولم يجد شيئاً
-            if (searchTerm) {
-                AdminData.data.users = [];
-                this.renderUsers();
+                btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
+                btn.disabled = false;
             }
         }
-    } catch (error) {
-        console.error("🚨 فشل جلب المزيد من العملاء سحابياً:", error);
-        if (btn) {
-            btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
-            btn.disabled = false;
-        }
-    }
-},        renderUsers: function() {
+    },
+    
+    renderUsers: function() {
         const wrap = document.getElementById('users-container');
         if(!wrap) return;
 
-        // 🚀 [التحديث المعماري]: الاعتماد المطلق على الذاكرة المركزية المدمجة
         let users = Array.isArray(AdminData.data.users) ? [...AdminData.data.users] : [];
-
-        if (this.state.userSearch) {
-            const query = this.state.userSearch.toLowerCase();
-            users = users.filter(u => 
-                String(u.id||'').toLowerCase().includes(query) || 
-                String(u.displayId||'').toLowerCase().includes(query) || 
-                String(u.fullName || u.name || '').toLowerCase().includes(query) || 
-                String(u.email||'').includes(query)
-            );
-        }
 
         if(!users.length) { 
             wrap.innerHTML = this.state.userSearch ? `<div class="empty-state"><i class="fa-solid fa-search"></i><span>لم يتم العثور على العميل "${Utils.escapeHTML(this.state.userSearch)}" في قاعدة البيانات.</span></div>` : UsersTemplates.emptyUsers(); 
@@ -145,31 +118,6 @@ export const UsersRender = {
         }
 
         const sortCat = this.state.userSortCategory || 'newest';
-        const isAsc = this.state.sortUsers === 'asc';
-        const sortDir = isAsc ? 1 : -1;
-
-        // 🚀 التحديث المعماري: إزالة الفلاتر الشهرية التالفة والاعتماد على الإجماليات الشاملة فقط
-        users.sort((a, b) => {
-            let valA = 0,
-                valB = 0;
-            if (sortCat === 'newest') {
-                valA = RenderHelpers.parseTime(a.time || a.joinDate || a.createdAt);
-                valB = RenderHelpers.parseTime(b.time || b.joinDate || b.createdAt);
-            }
-            else if (sortCat === 'spend_all') {
-                valA = Number(a.totalSpent || 0);
-                valB = Number(b.totalSpent || 0);
-            }
-            else if (sortCat === 'orders_all') {
-                valA = Number(a.totalOrdersCount || 0);
-                valB = Number(b.totalOrdersCount || 0);
-            }
-            
-            if (valA === valB) {
-                return (RenderHelpers.parseTime(b.time || b.createdAt) - RenderHelpers.parseTime(a.time || a.createdAt));
-            }
-            return (valA - valB) * sortDir;
-        });
         
         this._renderToken = Date.now();
         const currentToken = this._renderToken;
@@ -197,7 +145,6 @@ export const UsersRender = {
                 return;
             }
             
-            // تم حذف المتغيرات الشهرية الحالية والماضية من الاستدعاء
             const htmlChunk = chunk.map((u, i) => UsersTemplates.userCard(u, sortCat, '', '', currentIndex + i));
             grid.insertAdjacentHTML('beforeend', htmlChunk.join(''));
             
@@ -213,18 +160,34 @@ export const UsersRender = {
         requestAnimationFrame(renderChunk);
     },
 
-    viewUser: function(id, preventModalOpen = false) {
-        const modal = document.getElementById('m-user-detail'), body = document.getElementById('ud-body');
-        if(!modal || !body) return;
-        
-        const u = AdminData.data.usersMap?.[id] || (AdminData.data.users || []).find(x => String(x.id) === String(id));
+    viewUser: async function(id, preventModalOpen = false) {
+        const strId = String(id);
+        let u = AdminData.data.usersMap?.[strId] ||
+                (AdminData.data.users || []).find(x => String(x.id) === strId) ||
+                (AdminData.data.kycPendingUsers || []).find(x => String(x.id) === strId);
+
+        if (!u) {
+            if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(true, 'جاري استدعاء ملف العميل سحابياً...');
+            try {
+                u = await FirebaseAdapter.getById('telecard_users', strId);
+                if (u) {
+                    if (!AdminData.data.usersMap) AdminData.data.usersMap = {};
+                    AdminData.data.usersMap[strId] = u;
+                }
+            } catch (e) {
+                console.error("ViewUser Cloud Fetch Error:", e);
+            } finally {
+                if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(false);
+            }
+        }
+
         if(!u) {
             if (window.AdminUI?.showToast) window.AdminUI.showToast("لا يمكن العثور على بيانات هذا العميل حالياً.", "error");
             return;
         }
         
-        this.state.currentEditUserId = id;
-        EventBus.emit('state-update', { currentEditUserId: id });
+        this.state.currentEditUserId = strId;
+        EventBus.emit('state-update', { currentEditUserId: strId });
         
         const bal = Number(u.walletBalance ?? u.balance ?? 0) || 0;
         const safeCurrency = Utils.escapeHTML(u.baseCurrency || 'USD');
@@ -234,8 +197,8 @@ export const UsersRender = {
         const userTier = AdminData.data.tiersMap?.[u.tierId] || AdminData.data.tiers.find(t => String(t.id) === String(u.tierId));
         const tierName = userTier ? Utils.escapeHTML(userTier.name) : 'عادي (افتراضي)';
 
-        const userAllOrders = (AdminData.data.orders || []).filter(o => String(o.userId) === String(id)).map(o => ({ ...o, txType: 'order' }));
-        const userAllDeposits = (AdminData.data.deposits || []).filter(d => String(d.userId) === String(id)).map(d => ({ ...d, txType: 'deposit' }));
+        const userAllOrders = (AdminData.data.orders || []).filter(o => String(o.userId) === strId).map(o => ({ ...o, txType: 'order' }));
+        const userAllDeposits = (AdminData.data.deposits || []).filter(d => String(d.userId) === strId).map(d => ({ ...d, txType: 'deposit' }));
 
         const combinedActivity = [...userAllOrders, ...userAllDeposits].sort((a, b) => {
             return RenderHelpers.parseTime(b.time || b.date || b.createdAt) - RenderHelpers.parseTime(a.time || a.date || a.createdAt);
@@ -246,34 +209,126 @@ export const UsersRender = {
 
         const relatedAccounts = [];
         const userDevices = Array.isArray(u.devicePrints) ? u.devicePrints : [];
-        if (userDevices.length > 0) {
-            (AdminData.data.users || []).forEach(otherUser => {
-                if (String(otherUser.id) !== String(u.id) && Array.isArray(otherUser.devicePrints)) {
-                    const hasCommonDevice = otherUser.devicePrints.some(device => userDevices.includes(device));
-                    if (hasCommonDevice) {
-                        relatedAccounts.push({ id: otherUser.id, name: RenderHelpers._getTxName(otherUser), isBanned: otherUser.isBanned || otherUser.isIpBanned });
-                    }
+        const userLastIp = String(u.lastIp || u.ipAddress || u.ip || '').trim();
+        const allCachedUsers = Object.values(AdminData.data.usersMap || {});
+
+        if (userDevices.length > 0 || (userLastIp && userLastIp !== 'غير متوفر')) {
+            allCachedUsers.forEach(otherUser => {
+                if (!otherUser || String(otherUser.id) === strId || otherUser.isDeleted) return;
+                const otherDevices = Array.isArray(otherUser.devicePrints) ? otherUser.devicePrints : [];
+                const otherIp = String(otherUser.lastIp || otherUser.ipAddress || otherUser.ip || '').trim();
+                
+                const hasCommonDevice = userDevices.length > 0 && otherDevices.some(dev => userDevices.includes(dev));
+                const hasCommonIp = Boolean(userLastIp && userLastIp !== 'غير متوفر' && otherIp === userLastIp);
+                
+                if (hasCommonDevice || hasCommonIp) {
+                    const reason = (hasCommonDevice && hasCommonIp) ? 'جهاز + IP' : (hasCommonDevice ? 'نفس الجهاز' : 'نفس الـ IP');
+                    relatedAccounts.push({
+                        id: otherUser.id,
+                        name: RenderHelpers._getTxName(otherUser),
+                        isBanned: Boolean(otherUser.isBanned || otherUser.isIpBanned),
+                        reason
+                    });
                 }
             });
         }
 
-        const userReview = (AdminData.data.reviews || []).find(r => String(r.userId) === String(id));
+        const userReview = (AdminData.data.reviews || []).find(r => String(r.userId) === strId);
 
         const uiData = { 
             bal, safeCurrency, rawName, joinDate, tierName, 
-            totalOrdersCount: userAllOrders.length, 
+            totalOrdersCount: Math.max(Number(u.totalOrdersCount || 0), userAllOrders.length), 
             totalSpent: Number(u.totalSpent || 0), 
             relatedAccounts: relatedAccounts,
             userReview: userReview
-        };
-        
-        body.innerHTML = UsersTemplates.userDetailBody(u, uiData);
-        this.renderUserHistoryList();
-        
-        this.switchUserTab('overview');
-        if(!preventModalOpen) EventBus.emit('req-open-modal', 'user-detail');
+        };        
 
-        EventBus.emit('action-triggered', { action: 'fetch-user-history', id: id, loadMore: false });
+        let modal = document.getElementById('m-user-detail');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'm-user-detail';
+            modal.className = 'modal-overlay dynamic-auto-destroy'; 
+            document.body.appendChild(modal);
+        }
+
+        const activeTabBtn = modal.querySelector('.ud-tab-btn.active');
+        const currentTab = activeTabBtn ? activeTabBtn.dataset.tab : 'overview';
+
+        modal.innerHTML = UsersTemplates.userDetailModal(u, uiData);
+        
+        this.renderUserHistoryList();
+        this.switchUserTab(currentTab);
+        
+        if(!preventModalOpen) {
+            void modal.offsetWidth;
+            
+            requestAnimationFrame(() => {
+                modal.classList.add('active');
+            });
+            EventBus.emit('req-open-modal', 'user-detail');
+        }
+
+        EventBus.emit('action-triggered', { action: 'fetch-user-history', id: strId, loadMore: false });
+        this.scanCloudMultiAccountsRadar(u, relatedAccounts);
+    },
+
+    scanCloudMultiAccountsRadar: async function(u, initialRelated = []) {
+        if (!u || !u.id) return;
+        const strId = String(u.id);
+        const userDevices = Array.isArray(u.devicePrints) ? u.devicePrints.filter(Boolean).slice(0, 10) : [];
+        const userLastIp = String(u.lastIp || u.ipAddress || u.ip || '').trim();
+        const hasValidIp = Boolean(userLastIp && userLastIp !== 'غير متوفر' && userLastIp !== 'غير معروف');
+
+        if (userDevices.length === 0 && !hasValidIp) return;
+
+        try {
+            const usersCol = collection(FirebaseAdapter.db, 'telecard_users');
+            const queries = [];
+            if (userDevices.length > 0) {
+                queries.push(getDocs(query(usersCol, where('devicePrints', 'array-contains-any', userDevices), limit(15))));
+            }
+            if (hasValidIp) {
+                queries.push(getDocs(query(usersCol, where('lastIp', '==', userLastIp), limit(15))));
+            }
+
+            const settledResults = await Promise.allSettled(queries);
+const mergedMap = new Map();
+initialRelated.forEach(item => mergedMap.set(String(item.id), item));
+
+settledResults.forEach(res => {
+            if (res.status !== 'fulfilled' || !res.value) return;
+            res.value.forEach(docSnap => {                    if (String(docSnap.id) === strId) return;
+                    const otherUser = { id: docSnap.id, ...docSnap.data() };
+                    if (otherUser.isDeleted) return;
+
+                    if (!AdminData.data.usersMap) AdminData.data.usersMap = {};
+                    if (!AdminData.data.usersMap[docSnap.id]) AdminData.data.usersMap[docSnap.id] = otherUser;
+
+                    const otherDevices = Array.isArray(otherUser.devicePrints) ? otherUser.devicePrints : [];
+                    const otherIp = String(otherUser.lastIp || otherUser.ipAddress || otherUser.ip || '').trim();
+
+                    const hasCommonDevice = userDevices.length > 0 && otherDevices.some(dev => userDevices.includes(dev));
+                    const hasCommonIp = hasValidIp && otherIp === userLastIp;
+
+                    if (hasCommonDevice || hasCommonIp) {
+                        const reason = (hasCommonDevice && hasCommonIp) ? 'جهاز + IP' : (hasCommonDevice ? 'نفس الجهاز' : 'نفس الـ IP');
+                        mergedMap.set(String(otherUser.id), {
+                            id: otherUser.id,
+                            name: RenderHelpers._getTxName(otherUser),
+                            isBanned: Boolean(otherUser.isBanned || otherUser.isIpBanned),
+                            reason
+                        });
+                    }
+                });
+            });
+
+            const radarBoxEl = document.getElementById('ud-radar-box-target');
+            if (radarBoxEl && this.state.currentEditUserId === strId) {
+                radarBoxEl.innerHTML = UsersTemplates.radarBoxContent(Array.from(mergedMap.values()));
+            }
+        } catch (radarErr) {
+            console.warn("⚠️ تعذر فحص رادار الحسابات المتعددة سحابياً:", radarErr.message);
+        }
     },
 
     switchUserHistoryTab: function(tab, btnEl) {
@@ -300,14 +355,6 @@ export const UsersRender = {
         const tab = this.state.userHistoryTab || 'orders';
         const allHistory = (AdminData.tempUserHistory && AdminData.tempUserHistory.all) ? AdminData.tempUserHistory.all : [];
         
-        allHistory.forEach(tx => {
-            if (!tx.txType) {
-                if (tx.product || tx.prodId || tx.qty) tx.txType = 'order';
-                else if (tx.method || tx.methodName || tx.network) tx.txType = 'deposit';
-                else tx.txType = 'order'; 
-            }
-        });
-        
         let filteredData = allHistory;
         if (tab === 'orders') filteredData = allHistory.filter(tx => tx.txType === 'order');
         else if (tab === 'deposits') filteredData = allHistory.filter(tx => tx.txType === 'deposit');
@@ -332,7 +379,7 @@ export const UsersRender = {
         }
 
         const currentLimit = AdminData.tempUserHistoryLimit || 25;
-        if (allHistory.length < currentLimit) {
+        if (filteredData.length < currentLimit && allHistory.length < (currentLimit * 2)) {
             if (loadMoreBtn) loadMoreBtn.style.display = 'none';
         } else {
             if (loadMoreBtn) loadMoreBtn.style.display = 'inline-block';
@@ -363,23 +410,34 @@ export const UsersRender = {
         } catch (error) { console.error("🚨 خطأ في تبديل تبويبات العميل:", error); }
     },
 
-    renderTiers: function() {
+    renderTiers: async function() {
         const cont = document.getElementById('tiers-container');
         if(!cont) return;
         const tiers = Array.isArray(AdminData.data.tiers) ? AdminData.data.tiers : [];
-        if(tiers.length === 0) { cont.innerHTML = ''; return; }
+        if(tiers.length === 0) { 
+            cont.innerHTML = UsersTemplates.emptyTiers(); 
+            return; 
+        }
         
-        const cloudStats = AdminData.data.cloudStats?.users?.tierCounts || {};
+        // 🚀 جلب العدد الحقيقي لعملاء كل مستوى من السيرفر (يدعم حتى عشرات الآلاف من العملاء بدقة 100%)
+        if (!AdminData.data.tierUserCounts) {
+            AdminData.data.tierUserCounts = {};
+            await Promise.all(tiers.map(async (t) => {
+                const agg = await FirebaseAdapter.getAggregatedStats(
+                    'telecard_users',
+                    [['tierId', '==', String(t.id)]],
+                    { total: { type: 'count' } }
+                );
+                AdminData.data.tierUserCounts[t.id] = agg?.total ?? 0;
+            }));
+        }
+
+        const tiersStats = AdminData.data.tiersStats || {};
         
         cont.innerHTML = tiers.map(t => {
-            const cloudUserCount = cloudStats[t.id];
-            let userCount = 0;
-            if (cloudUserCount !== undefined) {
-                userCount = cloudUserCount;
-            } else {
-                userCount = (AdminData.data.users || []).filter(u => String(u.tierId) === String(t.id)).length;
-            }
-            return UsersTemplates.tierCard(t, userCount);
+            const userCount = AdminData.data.tierUserCounts?.[t.id] ?? 0;
+            const tStats = tiersStats[String(t.id)] || { profit: 0, revenue: 0 };
+            return UsersTemplates.tierCard(t, userCount, tStats);
         }).join('');
     },
 
@@ -402,82 +460,109 @@ export const UsersRender = {
             document.getElementById('tier-name').textContent = tier.name;
             const iconBox = document.querySelector('.tier-info-card .tic-icon-box i');
             if(iconBox) iconBox.className = `fa-solid ${Utils.escapeHTML(tier.icon||'fa-user')}`;
+            
+            const tStats = AdminData.data.tiersStats?.[String(tier.id)] || { profit: 0, revenue: 0 };
             const tierInfo = document.querySelector('.tier-info-card .tier-stats');
-            if(tierInfo) tierInfo.innerHTML = UsersTemplates.tierInfoStats(tier);
+            if(tierInfo) tierInfo.innerHTML = UsersTemplates.tierInfoStats(tier, tStats);
         }
         tierUsersSection.classList.add('active');
         this.renderTierUsersPage();
     },
 
-    renderTierUsersPage: function(){
+    renderTierUsersPage: async function(isLoadMore = false, isCloudSearch = false) {
         const tierId = this.state.currentTierId;
-        const list = (AdminData.data.users || []).filter(u => String(u.tierId||'') === String(tierId));
-        const tier = AdminData.data.tiersMap?.[tierId] || (AdminData.data.tiers || []).find(x => String(x.id) === String(tierId));
-        const durationDays = Number(tier?.duration_days || tier?.duration || 30);
-        
-        const serverNowMs = Date.now();
-        const getStartOfUTCDay = (timestampMs) => {
-            const d = new Date(timestampMs); d.setUTCHours(0, 0, 0, 0); return d.getTime();
-        };
-        const todayDay = getStartOfUTCDay(serverNowMs);
-
         const container = document.getElementById('tier-users-container');
         if(!container) return;
 
-        const searchInputObj = document.querySelector('.tier-search-box-wrapper input');
+        // 🛡️ ضمان وجود مربع البحث وحاوية البطاقات دون هدم مربع البحث أثناء الكتابة
+        if (!container.querySelector('.tier-search-box-wrapper') || (!isLoadMore && !isCloudSearch)) {
+            const searchBoxHtml = (UsersTemplates && typeof UsersTemplates.tierUsersSearchBox === 'function') ? UsersTemplates.tierUsersSearchBox() : '';
+            container.innerHTML = `${searchBoxHtml}<div class="tier-users-table" id="tier-users-list-target"></div>`;
+        }
+
+        const searchInputObj = container.querySelector('.tier-search-box-wrapper input');
         const term = searchInputObj ? searchInputObj.value.toLowerCase().trim() : '';
+        const listTarget = document.getElementById('tier-users-list-target') || container;
 
-        let filteredList = list;
-        if (term) {
-            filteredList = list.filter(u => {
-                const text = (u.fullName || u.name || u.id || u.displayId || '').toLowerCase();
-                return text.includes(term);
-            });
+        const emptySearchLoader = document.getElementById('tier-users-empty-search');
+        if (emptySearchLoader) emptySearchLoader.remove();
+
+        if (!isLoadMore) {
+            listTarget.innerHTML = '<div class="text-center mt-20 text-muted w-100" style="grid-column: 1 / -1;"><i class="fa-solid fa-circle-notch fa-spin"></i> جاري جلب عملاء المستوى سحابياً...</div>';
         }
 
-        if(!filteredList.length){ 
-            let html = (UsersTemplates && typeof UsersTemplates.tierUsersSearchBox === 'function') ? UsersTemplates.tierUsersSearchBox() : '';
-            container.innerHTML = html + UsersTemplates.emptyTierUsers(); 
-            const newSearchInput = document.querySelector('.tier-search-box-wrapper input');
-            if (newSearchInput && term) {
-                newSearchInput.value = term;
-                newSearchInput.focus();
-            }
-            return; 
-        }
+        try {
+            const payload = {
+                limit: 50,
+                lastDocId: isLoadMore ? AdminData.cursors[`tier_${tierId}`] : null,
+                sortCategory: 'newest',
+                sortDir: 'desc',
+                searchQuery: term,
+                filterByTier: tierId 
+            };
 
-        const allTiers = AdminData.data.tiers || [];
-        const sortedTiers = [...allTiers].sort((a, b) => Number(a.threshold || 0) - Number(b.threshold || 0));
-
-        const htmlArray = filteredList.map(u => {
-            let spent = Number(u.tierCycleSpent || 0);
-            let cycleStartMs = RenderHelpers.parseTime(u.tierCycleStartDate || serverNowMs);
-            let cycleStartDay = getStartOfUTCDay(cycleStartMs);
-            const daysPassed = (todayDay - cycleStartDay) / (24 * 60 * 60 * 1000);
-
-            if (daysPassed > durationDays) spent = 0;
-
-            const nextTier = sortedTiers.find(t => Number(t.threshold || 0) > Number(tier.threshold || 0));
-            let targetThreshold = 0; let isTopTier = false; let nextTierName = "المستوى التالي";
-
-            if (nextTier) { targetThreshold = Number(nextTier.threshold); nextTierName = nextTier.name; } 
-            else { targetThreshold = Number(tier.threshold || 0); if (targetThreshold <= 0) targetThreshold = 500; if (spent >= targetThreshold) isTopTier = true; }
-
-            let pct = 0;
-            if (targetThreshold > 0) pct = Math.min(100, Math.max(0, (spent / targetThreshold) * 100));
-            else pct = 100;
+            const res = await FirebaseAdapter.callFunction('adminGetUsersList', payload);
             
-            return UsersTemplates.tierUserCard(u, spent, targetThreshold, pct, isTopTier, nextTierName, tier);
-        });
-        
-        let html = (UsersTemplates && typeof UsersTemplates.tierUsersSearchBox === 'function') ? UsersTemplates.tierUsersSearchBox() : '';
-        container.innerHTML = html + `<div class="tier-users-table">${htmlArray.join('')}</div>`;
+            let fetchedUsers = [];
+            if (res && res.success && res.data) {
+                fetchedUsers = res.data;
+                if (!AdminData.data.usersMap) AdminData.data.usersMap = {};
+                fetchedUsers.forEach(u => {
+                    if (u && u.id) AdminData.data.usersMap[String(u.id)] = u;
+                });
 
-        const newSearchInput = document.querySelector('.tier-search-box-wrapper input');
-        if (newSearchInput && term) {
-            newSearchInput.value = term;
-            newSearchInput.focus();
-            newSearchInput.setSelectionRange(term.length, term.length);
+                if (res.pagination && res.pagination.hasMore) {
+                    AdminData.cursors[`tier_${tierId}`] = res.pagination.lastDocId;
+                } else {
+                    AdminData.cursors[`tier_${tierId}`] = null;
+                }
+            }
+
+            const existingBtn = document.getElementById('btn-load-more-tier');
+            if (existingBtn) existingBtn.remove();
+
+            if(!fetchedUsers.length && !isLoadMore){ 
+                listTarget.innerHTML = UsersTemplates.emptyTierUsers(); 
+                return; 
+            }
+
+            const tier = AdminData.data.tiersMap?.[tierId] || (AdminData.data.tiers || []).find(x => String(x.id) === String(tierId));
+            const serverNowMs = Date.now();
+            const allTiers = AdminData.data.tiers || [];
+
+            const htmlArray = fetchedUsers.map(u => {
+                const prog = window.FinancialEngine?.getTierProgress
+                    ? window.FinancialEngine.getTierProgress({ ...u, tierId: tier?.id || tierId }, allTiers, serverNowMs)
+                    : null;
+
+                const spent = prog ? prog.spent : Number(u.tierCycleSpent || 0);
+                const targetThreshold = prog ? prog.targetThreshold : Number(tier?.threshold || 0);
+                const isTopTier = prog ? prog.isMaxTier : false;
+                const nextTierName = prog?.nextTier ? (prog.nextTier.nameAr || prog.nextTier.name) : "أعلى مستوى";
+                const pct = prog ? Math.round(prog.percent) : 100;
+                
+                return UsersTemplates.tierUserCard(u, spent, targetThreshold, pct, isTopTier, nextTierName, tier || {});
+            });
+            
+            if (!isLoadMore) {
+                listTarget.innerHTML = htmlArray.join('');
+            } else {
+                listTarget.insertAdjacentHTML('beforeend', htmlArray.join(''));
+            }
+
+            if (AdminData.cursors[`tier_${tierId}`]) {
+                const loadMoreBtnHtml = `
+                    <div class="text-center mt-15 w-100" id="btn-load-more-tier">
+                        <button type="button" class="btn btn-ghost interactive-scale" data-action="load-more-tier-users">
+                            <i class="fa-solid fa-angle-down me-1"></i> تحميل المزيد
+                        </button>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', loadMoreBtnHtml);
+            }        
+        } catch (e) {
+            console.error(e);
+            listTarget.innerHTML = '<div class="text-danger p-15"><i class="fa-solid fa-triangle-exclamation"></i> فشل جلب العملاء السحابي.</div>';
         }
     },
 
@@ -487,9 +572,14 @@ export const UsersRender = {
         const settings = AdminData.data.settings || {};
         const kycConfig = settings.kycConfig || { mode: 'off', targetedTiers: [] };
         const tiers = AdminData.data.tiers || [];
-        const users = AdminData.data.users || [];
-        const pendingRequests = users.filter(u => u.kycStatus === 'pending');
-        const hasAnyKycHistory = users.some(u => u.kycStatus && u.kycStatus !== 'none');
+
+        const kycUsersMap = new Map();
+        (AdminData.data.users || []).forEach(u => { if (u && u.id) kycUsersMap.set(String(u.id), u); });
+        (AdminData.data.kycPendingUsers || []).forEach(u => { if (u && u.id) kycUsersMap.set(String(u.id), u); });
+        const allKnownUsers = Array.from(kycUsersMap.values());
+
+        const pendingRequests = allKnownUsers.filter(u => u.kycStatus === 'pending');
+        const hasAnyKycHistory = allKnownUsers.some(u => u.kycStatus && u.kycStatus !== 'none');
 
         let requestsHtml = '';
         if (pendingRequests.length > 0) {

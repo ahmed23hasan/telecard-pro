@@ -1,11 +1,11 @@
 // ============================================================================
-// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V18.9.0 💎 (Enterprise Edition)
+// 🛠️ ملف الأدوات المساعدة (utils.js) - ES6 Module V19.1.0 💎 (Enterprise Edition)
 // 🎯 الوظيفة: أدوات نقية للتعامل مع النصوص، الروابط، التواريخ، وبصمة الجهاز.
-// 🚀 التحديثات المعمارية الصارمة (V18.9.0 - Security & Precision Patch):
-// 1. Open Redirect Shield 🛡️: تعقيم دالة التوجيه لمنع هجمات التصيد عبر المسارات النسبية (//).
-// 2. Time Drift Tolerance 🛡️: التسامح مع تأخر ساعة العميل لمنع ظهور أخطاء في حساب مدة الطلب.
-// 3. Smart Trailing Zeros 🛡️: إزالة الأصفار غير الضرورية في العملات الرقمية عالية الدقة لتحسين الـ UX.
-// 4. Crypto-Safe Fallback: ترقيع ثغرة Idempotency Key لضمان عدم تكرار الطلبات المالية.
+// 🚀 التحديثات المعمارية الصارمة (V19.1.0 - Anti-Double Escape & Security Patch):
+// 1. Anti-Double Escaping 🛡️: فك الكيانات المشفرة مسبقاً وتطهير Null-Bytes لمنع تشوه النصوص.
+// 2. Numeric String Time Support ⏱️: دعم النصوص الرقمية في parseSafeTime لمنع إرجاع Date.now() بالخطأ.
+// 3. Open Redirect Shield 🛡️: تعقيم دالة التوجيه لمنع هجمات التصيد عبر المسارات النسبية (//).
+// 4. Time Drift Tolerance 🛡️: التسامح مع تأخر ساعة العميل لمنع ظهور أخطاء في حساب مدة الطلب.
 // ============================================================================
 
 // === 1. أدوات حماية النصوص وتنسيقها (OWASP Standard) ===
@@ -14,7 +14,19 @@ const htmlEntityMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "
 
 export function escapeHtml(val) {
     if (val == null) return '';
-    return String(val).replace(/[&<>"'`=\/]/g, s => htmlEntityMap[s]);
+    // 🛡️ فك التشفير السابق أولاً لمنع التشفير المزدوج وإزالة المحارف الصفرية الخبيثة
+    const unescaped = String(val)
+        .replace(/&#x2F;/gi, '/')
+        .replace(/&#x3D;/gi, '=')
+        .replace(/&#x60;/gi, '`')
+        .replace(/&#39;|&#x27;/gi, "'")
+        .replace(/&quot;/gi, '"')
+        .replace(/&gt;/gi, '>')
+        .replace(/&lt;/gi, '<')
+        .replace(/&amp;/gi, '&')
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    
+    return unescaped.replace(/[&<>"'`=\/]/g, s => htmlEntityMap[s]);
 }
 
 export function safeText(val, fallback = '---') {
@@ -49,8 +61,6 @@ export function enNum(val, decimals = 2) {
     let num = Number(val);
     if (isNaN(num)) num = 0;
     
-    // 🛡️ Smart Trailing Zeros: للعملات العادية (2) نجبر ظهور الفواصل (مثل 20.00)
-    // للعملات الرقمية (6 أو 8) نزيل الأصفار الزائدة لتبدو نظيفة (مثل 0.005)
     const minFrac = safeDecimals > 2 ? 0 : safeDecimals;
     
     return new Intl.NumberFormat('en-US', {
@@ -74,14 +84,19 @@ export function parseSafeNumber(val) {
 // 🛡️ المرجع الشامل لتحليل الأوقات من كافة الصيغ (Single Source of Truth)
 export function parseSafeTime(val) {
     if (val === null || val === undefined || val === '') return Date.now();
-    if (typeof val === 'number') return val;
+    if (typeof val === 'number') return Number.isFinite(val) ? val : Date.now();
     if (typeof val.toMillis === 'function') return val.toMillis();
-    if (val.seconds !== undefined) return val.seconds * 1000;
-    if (val._seconds !== undefined) return val._seconds * 1000;
+    if (val.seconds !== undefined) return Number(val.seconds) * 1000;
+    if (val._seconds !== undefined) return Number(val._seconds) * 1000;
     if (val instanceof Date) return val.getTime();
     
     if (typeof val === 'string') {
-        const parsed = new Date(val.includes('T') ? val : val.replace(/-/g, '/')).getTime();
+        const trimmed = val.trim();
+        if (/^\d+$/.test(trimmed)) {
+            const num = Number(trimmed);
+            if (Number.isFinite(num) && num > 0) return num;
+        }
+        const parsed = new Date(trimmed.includes('T') ? trimmed : trimmed.replace(/-/g, '/')).getTime();
         return isNaN(parsed) ? Date.now() : parsed;
     }
     return Date.now();
@@ -98,9 +113,7 @@ export function calculateOrderDuration(startTime, endTime) {
     
     const diffMs = endMs - startMs;
     
-    // 🛡️ Time Drift Tolerance: التسامح مع تأخر ساعة العميل حتى 10 ثوانٍ
     if (diffMs < -10000) return "---";
-    // أي مدة تحت الثانيتين (أو سالبة بسبب فرق طفيف) تعتبر فورية
     if (diffMs <= 2000) return "فوري ⚡";
     
     const diffSecs = Math.floor(Math.abs(diffMs) / 1000);
@@ -212,7 +225,6 @@ export function safeRedirect(pageName) {
         window.location.hostname === '127.0.0.1' ||
         window.location.hostname.includes('192.168.');
     
-    // 🛡️ Open Redirect Shield: منع حقن بروتوكولات خارجية أو مسارات نسبية خبيثة
     const safePageName = String(pageName).replace(/^[/\\]+/, '').replace(/^https?:\/\//i, '');
     
     let finalPath = '/' + safePageName;

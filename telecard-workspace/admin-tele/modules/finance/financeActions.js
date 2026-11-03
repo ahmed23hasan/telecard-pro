@@ -1,9 +1,10 @@
 // ============================================================================
-// 🗺️ خريطة مسارات المالية (Finance Actions Router) - النسخة الماسية V18.5 💎
+// 🗺️ خريطة مسارات المالية (Finance Actions Router) - النسخة الماسية V18.6 💎
 // 💡 الوظيفة: استلام أحداث الإيداعات، بوابات الدفع، والعملات وتوجيهها للمتحكم
 // 🚀 التحديث المعماري: 
-// 1. Decoupled Architecture: توجيه أحداث الحذف والتعديل مباشرة للمتحكم المالي.
-// 2. Silent Bug Fix: إصلاح مسار إعدادات العملة المخفية (toggle-currency-settings).
+// 1. Complete Modal & Drawer Wiring 🔗: ربط فتح نافذة إضافة بوابة دفع وإغلاق درج الإيداع.
+// 2. Decoupled Architecture: توجيه أحداث الحذف والتعديل مباشرة للمتحكم المالي.
+// 3. Silent Bug Fix: إصلاح مسار إعدادات العملة المخفية (toggle-currency-settings).
 // ============================================================================
 
 import { FinanceController } from './financeController.js';
@@ -13,13 +14,14 @@ import { AdminRender } from '../../adminRender.js';
 export const FinanceActions = {
     // --- 1. قسم الإيداعات (Deposits) ---
     'open-deposit-drawer': (data) => AdminUI?.FinanceUI?.openDepositDrawer?.(data.id),
+    'close-deposit-drawer': () => AdminUI?.FinanceUI?.closeDepositDrawer?.(),
     'submit-deposit': (data) => FinanceController.submitDepositReview?.(data.type),
     'reevaluate-deposit': (data) => FinanceController.reEvaluateDeposit?.(data.id),
     'load-more-deposits': () => AdminRender?.loadMoreDeposits?.(),
     'filter-deposits': (data) => AdminRender?.filterByTab?.('deposits', data.val, data.element),
     
     // --- 2. قسم بوابات الدفع (Payment Gateways) ---
-    // 🚀 [تصحيح الأسلاك]: توجيه التعديل والحذف مباشرة للمالية
+    'open-payment-modal': () => AdminUI?.FinanceUI?.openPaymentModal?.(null),
     'edit-payment': (data) => AdminUI?.FinanceUI?.openPaymentModal?.(data.id),
     'delete-payment': (data) => FinanceController.deletePayment?.(data.id),
     
@@ -28,7 +30,6 @@ export const FinanceActions = {
     'add-pay-detail': () => FinanceController.addPayDetail?.(),
     'remove-pay-detail': (data) => FinanceController.removePayDetail?.(Number(data.index)),
     
-    // 🎯 [إصلاح الثغرة الصامتة]: تطابق الاسم مع الـ Checkbox في القوالب
     'toggle-currency-settings': () => AdminUI?.FinanceUI?.toggleCurrencySettings?.(),
     
     // --- 3. قسم العملات وأسعار الصرف (Currencies & Rates) ---

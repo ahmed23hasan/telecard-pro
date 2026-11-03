@@ -1,10 +1,12 @@
 // ============================================================================
-// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V16.5 💎
+// ☁️ محول فايربيز المركزي (admin-tele/core/firebaseAdapter.js) - Admin Enterprise V16.8 💎
 // 🎯 الوظيفة: بوابة البيانات الآمنة للوحة الإدارة، إدارة الذاكرة، وحماية الفواتير.
-// 🚀 التحديثات المعمارية (V16.5 - The Pure Adapter Patch): 
-// 1. Adapter Purity 🧹: إزالة التدخل اليدوي بأسماء الجداول لضمان استقلالية المحول (SOLID Principles).
-// 2. Infinite Loading Shield 🛡️: تفعيل الـ Timeout للدوال السحابية ورفع الصور لمنع تجميد المتصفح عند انقطاع الاتصال.
+// 🚀 التحديثات المعمارية (V16.8 - Backend Alignment Patch): 
+// 1. Timeout Synchronization ⏱️: رفع سقف الـ Timeout لـ 540 ثانية ليطابق دوال السيرفر الثقيلة (Sync & Sweep) لمنع الانهيار المزدوج.
+// 2. Silent Truncation Shield 🛡️: إطلاق تحذيرات للمدير عند بلوغ سقف استعلامات الجداول.
 // 3. Memory Leak Fix 🧠: تنظيف مستمعات onSnapshot بشكل آمن لحماية الذاكرة العشوائية.
+// 4. Safe Time Sorting 🕒: توحيد آلية فرز سجلات العملاء لتطابق المحرك المالي.
+// 5. Radar Live Engine 📡: اعتراض الإشعارات اللحظية أثناء فتح اللوحة (Foreground Push) لكسر قفل الشارات.
 // ============================================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -17,11 +19,13 @@ import {
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
-import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js";
+import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js"; // 👈 استيراد onMessage
 
 import { firebaseConfig } from '../adminConfig.js';
+import { EventBus } from '../adminUtils.js';
 
 const app = initializeApp(firebaseConfig);
+
 const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app); 
@@ -34,6 +38,8 @@ export const FirebaseAdapter = {
     storage: storage,
     functions: functions,
     deleteField: deleteField,
+    _messagingInstance: null,
+    _foregroundMessageListener: null,
 
     getBatch: function() {
         return writeBatch(db);
@@ -58,15 +64,50 @@ export const FirebaseAdapter = {
             try { unsubscribeFn(); } catch(e){}
         });
         this._activeListeners.clear();
+        
+        if (this._foregroundMessageListener) {
+            try { this._foregroundMessageListener(); } catch(e){}
+            this._foregroundMessageListener = null;
+        }
         console.debug("🧹 [Admin Memory] تم تنظيف كافة المستمعات الشبحية بنجاح. ذاكرة المتصفح بأمان.");
     },
 
     async requestFCMToken(vapidKey) {
         try {
-            const messaging = getMessaging(app);
+            if (!this._messagingInstance) {
+                this._messagingInstance = getMessaging(app);
+            }
+            
             const permission = await Notification.requestPermission();
+            
             if (permission === 'granted') {
-                return await getToken(messaging, { vapidKey: vapidKey });
+                let swReg = null;
+if ('serviceWorker' in navigator) {
+    swReg = await navigator.serviceWorker.register('./firebase-messaging-sw.js').catch(() => null);
+}
+const token = await getToken(this._messagingInstance, {
+    vapidKey: vapidKey,
+    ...(swReg ? { serviceWorkerRegistration: swReg } : {})
+});
+                
+                // 🚀 [إصلاح متوسط 8]: تفعيل مستمع الإشعارات أثناء فتح اللوحة (Foreground) لكسر قفل الشارات
+                if (token && !this._foregroundMessageListener) {
+                    this._foregroundMessageListener = onMessage(this._messagingInstance, (payload) => {
+                        console.log('📡 [Live Radar] إشعار حي واللوحة مفتوحة:', payload);
+                        
+                        // تلميح: يتم إرسال نبضة للمتصفح لتحديث الشارات بالقوة متجاوزاً مهلة הـ 3 دقائق
+                        if (window.AdminRender && typeof window.AdminRender.updateBadges === 'function') {
+                            window.AdminRender.updateBadges(true);
+                        }
+                        
+                        // عرض الإشعار كـ Toast داخل اللوحة أيضاً
+                        const title = payload.notification?.title || 'إشعار جديد';
+                        const body = payload.notification?.body || '';
+                        EventBus.emit('req-show-toast', { message: `${title}: ${body}`, type: 'info' });
+                    });
+                }
+                
+                return token;
             }
             return null;
         } catch (error) {
@@ -81,13 +122,12 @@ export const FirebaseAdapter = {
     },
 
     _withTimeout: function(promise, ms = 10000, context = '', isWriteOperation = false) {
-        // 🛡️ نتجاهل الـ Timeout فقط لعمليات الكتابة في Firestore لأنها تدعم الـ Offline
         if (isWriteOperation) return promise; 
         
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
-                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context} خلال ${ms/1000} ثوانٍ`);
+                const err = new Error(`[Timeout] السيرفر لم يستجب لطلب: ${context} خلال ${ms/1000} ثوانٍ. يرجى الانتظار فقد تكون العملية قيد التنفيذ في الخلفية.`);
                 err.code = 'deadline-exceeded'; 
                 reject(err);
             }, ms);
@@ -131,6 +171,18 @@ export const FirebaseAdapter = {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
             const q = query(collection(db, collectionName), limit(maxLimit));
             const snapshot = await this._withTimeout(getDocs(q), 15000, `getAll -> ${collectionName}`);
+            
+            if (snapshot.docs.length >= maxLimit) {
+                console.warn(`🚨 تحذير أمان البيانات: جدول [${collectionName}] وصل للحد الأقصى المسموح للجلب (${maxLimit}). بعض البيانات في نهاية الجدول لن تظهر في لوحة الإدارة!`);
+                
+                setTimeout(() => {
+                    EventBus.emit('req-show-toast', { 
+                        message: `تحذير: جدول (${collectionName}) امتلأ ووصل لسقف ${maxLimit} سجل. يرجى أرشفة البيانات القديمة لضمان ظهور البيانات الجديدة!`, 
+                        type: 'warning' 
+                    });
+                }, 2000);
+            }
+            
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         } catch (error) {
             const isNetworkTimeout = error.code === 'deadline-exceeded' || error.message.includes('Timeout');
@@ -147,8 +199,6 @@ export const FirebaseAdapter = {
     async getRecent(collectionName, limitCount = 50, orderByField = 'time') {
         try {
             if (!collectionName) throw new Error("اسم المجموعة غير معرّف!");
-            
-            // 🚀 [الحل المعماري]: إزالة التدخل اليدوي بأسماء الجداول، والاعتماد على ما يرسله الكنترولر
             const q = query(collection(db, collectionName), orderBy(orderByField, 'desc'), limit(limitCount));
             const snapshot = await this._withTimeout(getDocs(q), 10000, `getRecent -> ${collectionName}`);
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -217,22 +267,30 @@ export const FirebaseAdapter = {
 
     listenCollection(collectionName, callback) {
         const key = `admin_col_${collectionName}`;
+        let cleanupFn = () => {};
         const unsub = onSnapshot(collection(db, collectionName), (snapshot) => {
             callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (error) => {
+            console.warn(`⚠️ [Admin Listener] توقف مستمع المجموعة [${collectionName}]:`, error.message);
+            cleanupFn();
         });
-        return this._registerListener(key, unsub); 
+        cleanupFn = this._registerListener(key, unsub);
+        return cleanupFn;
     },
-
+    
     listenDoc(collectionName, docId, callback) {
         const safeId = this._sanitizeDocId(docId);
         const key = `admin_doc_${collectionName}_${safeId}`;
+        let cleanupFn = () => {};
         const unsub = onSnapshot(doc(db, collectionName, safeId), (snapshot) => {
             callback(snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null);
+        }, (error) => {
+            console.warn(`⚠️ [Admin Listener] توقف مستمع الوثيقة [${collectionName}/${safeId}]:`, error.message);
+            cleanupFn();
         });
-        return this._registerListener(key, unsub);
-    },
-
-    listenQuery(collectionName, conditions, orderByField = 'time', limitCount = 50, callback) {
+        cleanupFn = this._registerListener(key, unsub);
+        return cleanupFn;
+    },    listenQuery(collectionName, conditions, orderByField = 'time', limitCount = 50, callback) {
         try {
             const queryConstraints = [collection(db, collectionName)];
             if (conditions && Array.isArray(conditions) && conditions.length > 0) {
@@ -268,7 +326,6 @@ export const FirebaseAdapter = {
         try {
             const queryConstraints = [collection(db, collectionName)];
 
-            // 🚀 [الحل المعماري]: إزالة التدخل اليدوي (Hack) والاعتماد على الكنترولر النظيف
             if (conditions && Array.isArray(conditions) && conditions.length > 0) {
                 if (Array.isArray(conditions[0])) {
                     conditions.forEach(cond => { if (cond.length === 3) queryConstraints.push(where(cond[0], cond[1], cond[2])); });
@@ -298,7 +355,7 @@ export const FirebaseAdapter = {
     async uploadImage(file, folderName = 'general', customFileName = null, isAdmin = true) {
         if (!file) return '';
         
-        const allowedTypes = isAdmin ? ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'] : ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
         if (!allowedTypes.includes(file.type)) {
             throw new Error(`نوع الملف غير مدعوم. مسموح بالصور فقط.`);
         }
@@ -318,7 +375,6 @@ export const FirebaseAdapter = {
             
             const finalFileName = safeCustomName || `${Date.now()}_${uniqueId}_${safeFileName}.${originalExt}`;
             
-            // 🚀 [الحل المعماري]: تمرير false كمعامل أخير لكي يعمل الـ Timeout ولا يتجمد المتصفح
             const snapshot = await this._withTimeout(
                 uploadBytes(ref(storage, `${safeFolder}/${finalFileName}`), file, { contentType: file.type }), 
                 60000, "رفع الصورة", false 
@@ -332,24 +388,26 @@ export const FirebaseAdapter = {
     async deleteImageByUrl(url) {
         if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return;
         try { 
-            // 🚀 تمرير false لمنع التجمد إذا كان الاتصال مقطوعاً
             await this._withTimeout(deleteObject(ref(storage, url)), 10000, 'deleteImage', false);
         } catch (error) { }
     },
 
-    async callFunction(functionName, payload = {}, timeoutMs = 120000) {
+    async callFunction(functionName, payload = {}, timeoutMs = 540000) {
         try {
-            const targetFunction = httpsCallable(functions, functionName);
-            // 🚀 [الحل المعماري]: تمرير false لمنع تجاوز الـ Timeout، فالدوال السحابية لا تعمل Offline!
+            const targetFunction = httpsCallable(functions, functionName, { timeout: timeoutMs });
+            
             const result = await this._withTimeout(
-                targetFunction(payload), 
+                targetFunction(payload),
                 timeoutMs, 
-                `Function -> ${functionName}`, 
-                false 
+                `Function -> ${functionName}`,
+                false
             );
             return result.data;
         } catch (error) {
-            throw new Error(error.message || 'فشل الاتصال بالسيرفر. قد تستغرق العملية وقتاً أطول من المتوقع.');
+            if (error.code === 'deadline-exceeded' || error.message.includes('Timeout')) {
+                throw new Error('العملية تستغرق وقتاً أطول من المعتاد. قد يكون السيرفر لا يزال ينفذها في الخلفية، يرجى تحديث الصفحة بعد قليل للتحقق.');
+            }
+            throw new Error(error.message || 'فشل الاتصال بالسيرفر.');
         }
     },
 
@@ -368,19 +426,18 @@ export const FirebaseAdapter = {
             ordersSnap.forEach(doc => { activities.push({ id: doc.id, txType: 'order', ...doc.data() }); });
             depositsSnap.forEach(doc => { activities.push({ id: doc.id, txType: 'deposit', ...doc.data() }); });
             
-            const parseTimeSafe = (t) => {
-                if (!t) return 0;
-                if (typeof t.toMillis === 'function') return t.toMillis();
-                if (typeof t === 'number') return t;
-                if (typeof t === 'string') {
-                    let safeString = t;
-                    if (!t.includes('T')) {
-                        safeString = t.replace(/-/g, '/');
-                    }
-                    const parsed = new Date(safeString).getTime();
+            const parseTimeSafe = (val) => {
+                if (val === null || val === undefined || val === '') return 0;
+                if (typeof val === 'number') return val;
+                if (typeof val.toMillis === 'function') return val.toMillis();
+                if (val.seconds !== undefined) return val.seconds * 1000;
+                if (val._seconds !== undefined) return val._seconds * 1000;
+                if (val instanceof Date) return val.getTime();
+                if (typeof val === 'string') {
+                    const parsed = new Date(val.includes('T') ? val : val.replace(/-/g, '/')).getTime();
                     return isNaN(parsed) ? 0 : parsed;
                 }
-                return isNaN(new Date(t).getTime()) ? 0 : new Date(t).getTime();
+                return 0;
             };
             
             activities.sort((a, b) => parseTimeSafe(b.time || b.date || b.createdAt) - parseTimeSafe(a.time || a.date || a.createdAt));

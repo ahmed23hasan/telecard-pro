@@ -12,7 +12,18 @@
 export const Utils = {
     escapeHTML: function(val) {
         if (val === undefined || val === null) return '';
-        return String(val)
+        // 🛡️ فك أي كيانات مشفرة مسبقاً أولاً لمنع التشفير المزدوج (&amp;#x2F; / &amp;quot;)
+        const unescaped = String(val)
+            .replace(/&#x2F;/gi, '/')
+            .replace(/&#x3D;/gi, '=')
+            .replace(/&#x60;/gi, '`')
+            .replace(/&#39;|&#x27;/gi, "'")
+            .replace(/&quot;/gi, '"')
+            .replace(/&gt;/gi, '>')
+            .replace(/&lt;/gi, '<')
+            .replace(/&amp;/gi, '&');
+        
+        return unescaped
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
@@ -25,7 +36,12 @@ export const Utils = {
     
     safeUrl: function(url, fallback = '#') {
         if (!url) return fallback;
-        let cleaned = String(url).replace(/[\x00-\x1F\x7F\s]/g, '').trim();
+        let cleaned = String(url)
+            .replace(/&#x2F;/gi, '/')
+            .replace(/&#x3D;/gi, '=')
+            .replace(/&amp;/gi, '&')
+            .replace(/[\x00-\x1F\x7F\s]/g, '')
+            .trim();
         if (/^(javascript|vbscript|data):/i.test(cleaned)) return fallback;
         
         try {
@@ -38,9 +54,7 @@ export const Utils = {
             if (cleaned.startsWith('/') || cleaned.startsWith('./') || cleaned.startsWith('../') || cleaned.startsWith('#') || cleaned.startsWith('?')) return this.escapeHTML(cleaned);
             return fallback;
         }
-    },
-    
-    enNum: function(num, decimals = null) {
+    },    enNum: function(num, decimals = null) {
         if (num === null || num === undefined || num === '') return '';
         const n = Number(num);
         if (isNaN(n)) return '';
@@ -76,11 +90,11 @@ export const Utils = {
         return el ? el.value.trim() : defaultValue;
     },
     
-    getCheck: function(id) {
-        if (typeof document === 'undefined') return false;
-        const el = document.getElementById(id);
-        return el ? el.checked : false;
-    }
+    getCheck: function(id, defaultValue = false) {
+    if (typeof document === 'undefined') return defaultValue;
+    const el = document.getElementById(id);
+    return el ? el.checked : defaultValue;
+}
 };
 
 // ============================================================================
@@ -125,13 +139,17 @@ export const EventBus = {
             delete this.events[event];
         }
     },
-
-    // ☢️ زر الدمار الشامل (يُستدعى عند الـ Logout) لتفريغ المتصفح بالكامل
-    clearAll() {
-        for (const event in this.events) {
-            this.events[event].clear();
-        }
-        this.events = {};
-        console.debug("🧹 [EventBus] تم تفريغ كافة نواقل الأحداث بنجاح.");
+// ☢️ زر الدمار الشامل (يُستدعى عند الـ Logout) لتفريغ المتصفح بالكامل
+clearAll() {
+    for (const event in this.events) {
+        this.events[event].clear();
     }
+    this.events = {};
+    console.debug("🧹 [EventBus] تم تفريغ كافة نواقل الأحداث بنجاح.");
+}
 };
+
+if (typeof window !== 'undefined') {
+    window.EventBus = EventBus;
+    window.Utils = Utils;
+}

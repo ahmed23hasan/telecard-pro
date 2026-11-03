@@ -1,10 +1,10 @@
 {
-  "id": "/?id=telecard-pwa",
+  "id": "./store.html?id=telecard-pwa",
   "name": "TeleCard | تيليكارد",
   "short_name": "تيليكارد",
   "description": "بوابتك الآمنة والسريعة لشراء البطاقات الرقمية وشحن الألعاب بأفضل الأسعار.",
-  "start_url": "./?source=pwa",
-  "scope": "/",
+  "start_url": "./store.html?source=pwa",
+  "scope": "./",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "window-controls-overlay"],
   "orientation": "portrait-primary",
@@ -42,7 +42,7 @@
       "name": "متابعة الطلبات",
       "short_name": "الطلبات",
       "description": "عرض سجل المشتريات والطلبات السابقة",
-      "url": "/?action=view&type=orders",
+      "url": "./store.html?action=view&type=orders",
       "icons": [
         {
           "src": "./icons/shortcut-orders-192x192.png",
@@ -55,7 +55,7 @@
       "name": "رصيد المحفظة",
       "short_name": "المحفظة",
       "description": "شحن الرصيد ومتابعة العمليات المالية",
-      "url": "/?action=view&type=wallet",
+      "url": "./store.html?action=view&type=wallet",
       "icons": [
         {
           "src": "./icons/shortcut-wallet-192x192.png",

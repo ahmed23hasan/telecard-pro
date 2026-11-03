@@ -8,7 +8,7 @@
     <script>
         // 🛡️ التوجيه الصحيح بناءً على شجرة الملفات والتنظيف المسبق للجلسات
         const legacyKeys = ['tc_active_uid', 'telecard_active_user_uid_v20'];
-        legacyKeys.forEach(k => { if(localStorage.getItem(k)) localStorage.removeItem(k); });
+        legacyKeys.forEach(k => { if (localStorage.getItem(k)) localStorage.removeItem(k); });
         
         const activeUid = localStorage.getItem('telecard_active_user_uid_v21');
         if (activeUid) window.location.replace('./store.html');
@@ -17,7 +17,8 @@
     <!-- 🚀 استعادة المسارات النسبية -->
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-    <link rel="stylesheet" href="./style.css?v=22.0.0">
+    <link rel="stylesheet" href="./style.css?v=24.0.0">
+    <link rel="manifest" href="./manifest.json">
 </head>
 
 <body class="auth-page-wrapper">
@@ -40,7 +41,6 @@
             <p class="sub-text">بوابتك الأولى لعالم الخدمات الرقمية</p>
         </div>
 
-        <!-- 🛡️ الإصلاح المعماري: تمت إزالة onclick ليتم الربط برمجياً بأمان -->
         <button type="button" class="btn-google-auth btn-pro" id="googleSignupBtn">
             <span class="btn-content">
                 <svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
@@ -53,7 +53,6 @@
 
         <div class="auth-divider"><span>أو إدخال البيانات يدوياً</span></div>
 
-        <!-- 🛡️ الإصلاح المعماري: تمت إزالة onsubmit ليتم الربط برمجياً بأمان -->
         <form autocomplete="off" id="regForm">
             <div class="form-grid">
                 
@@ -110,14 +109,17 @@
             </button>
 
             <div class="auth-footer-link">
-                <!-- 🚀 توجيه نظيف -->
                 لديك حساب بالفعل؟ <a href="./login.html">تسجيل الدخول</a>
             </div>
         </form>
     </div>
 
-<!-- 🛠️ فصل منطق الواجهة النقي لضمان الاستجابة السريعة -->
+<!-- 🛠️ منطق الواجهة للتحقق البصري -->
 <script>
+    if (localStorage.getItem('telecard_theme') === 'light') {
+        document.body.classList.add('light-mode');
+    }
+
     function togglePass(inputId, el) {
         const inp = document.getElementById(inputId);
         const toText = inp.type === "password";
@@ -139,27 +141,45 @@
         titleEl.textContent = title;
         msgEl.textContent = message;
         
-        card.className = "sys-dialog-card"; iconBox.className = "sys-dialog-icon"; titleEl.className = "sys-dialog-title"; btn.style.display = 'block';
+        card.className = "sys-dialog-card"; 
+        iconBox.className = "sys-dialog-icon"; 
+        titleEl.className = "sys-dialog-title"; 
+        btn.style.display = 'block';
 
         if (type === 'info') {
-            iconBox.style.cssText = "color:#0ea5e9; border-color:#0ea5e9; background:rgba(14, 165, 233, 0.15)"; titleEl.style.color = "#0ea5e9"; iconBox.innerHTML = `<i class="fa-solid fa-user-check" style="font-size: 24px;"></i>`; card.style.borderColor = "#0ea5e9"; btn.style.display = 'none'; 
+            iconBox.style.cssText = "color:#0ea5e9; border-color:#0ea5e9; background:rgba(14, 165, 233, 0.15)"; 
+            titleEl.style.color = "#0ea5e9"; 
+            iconBox.innerHTML = `<i class="fa-solid fa-user-check" style="font-size: 24px;"></i>`; 
+            card.style.borderColor = "#0ea5e9"; 
+            btn.style.display = 'none'; 
         } else if (type === 'success') {
-            iconBox.style.cssText = "color:var(--success); border-color:var(--success); background:var(--success-bg)"; titleEl.style.color = "var(--success)"; card.style.borderColor = "var(--success)"; iconBox.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+            iconBox.style.cssText = "color:var(--success); border-color:var(--success); background:var(--success-bg)"; 
+            titleEl.style.color = "var(--success)"; 
+            card.style.borderColor = "var(--success)"; 
+            iconBox.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
         } else {
-            iconBox.className = "sys-dialog-icon danger"; titleEl.className = "sys-dialog-title danger"; card.classList.add('danger-border'); iconBox.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+            iconBox.className = "sys-dialog-icon danger"; 
+            titleEl.className = "sys-dialog-title danger"; 
+            card.classList.add('danger-border'); 
+            iconBox.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
         }
         
-        overlay.classList.add('active'); document.body.style.overflow = 'hidden'; 
+        overlay.classList.add('active'); 
+        document.body.style.overflow = 'hidden'; 
     }
 
     function closeCustomAlert() {
         const overlay = document.getElementById('customAlert');
-        if (overlay) { overlay.classList.remove('active'); document.body.style.overflow = ''; }
+        if (overlay) { 
+            overlay.classList.remove('active'); 
+            document.body.style.overflow = ''; 
+        }
     }
 
     function showError(inputId, errorId, msg) {
         const inp = document.getElementById(inputId);
-        inp.classList.remove('shake-error-input'); void inp.offsetWidth; 
+        inp.classList.remove('shake-error-input'); 
+        void inp.offsetWidth; 
         inp.classList.add('input-error', 'shake-error-input');
         const err = document.getElementById(errorId);
         if(msg) { err.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${msg}`; }
@@ -167,8 +187,10 @@
     }
     
     function hideError(inputId, errorId) {
-        const input = document.getElementById(inputId); if (input) input.classList.remove('input-error', 'shake-error-input');
-        const err = document.getElementById(errorId); if (err) err.style.display = 'none';
+        const input = document.getElementById(inputId); 
+        if (input) input.classList.remove('input-error', 'shake-error-input');
+        const err = document.getElementById(errorId); 
+        if (err) err.style.display = 'none';
     }
 
     const passInput = document.getElementById('password');
@@ -179,13 +201,20 @@
 
     function checkPasswordStrength() {
         const val = passInput.value;
-        if (val.length === 0) { passWarning.style.display = 'none'; passInput.classList.remove('input-error', 'shake-error-input'); window.isPassStrong = false; return; }
+        if (val.length === 0) { 
+            passWarning.style.display = 'none'; 
+            passInput.classList.remove('input-error', 'shake-error-input'); 
+            window.isPassStrong = false; 
+            return; 
+        }
 
         let missing = [];
         const remaining = 8 - val.length;
         if (remaining > 0) {
-            if (remaining === 1) missing.push("حرف واحد إضافي"); else if (remaining === 2) missing.push("حرفين إضافيين");
-            else if (remaining > 2 && remaining < 11) missing.push(`${remaining} أحرف إضافية`); else missing.push(`${remaining} حرفاً إضافياً`);
+            if (remaining === 1) missing.push("حرف واحد إضافي"); 
+            else if (remaining === 2) missing.push("حرفين إضافيين");
+            else if (remaining > 2 && remaining < 11) missing.push(`${remaining} أحرف إضافية`); 
+            else missing.push(`${remaining} حرفاً إضافياً`);
         }
         if (!/[A-Z]/.test(val)) missing.push("حرف كبير (A-Z)");
         if (!/[a-z]/.test(val)) missing.push("حرف صغير (a-z)");
@@ -195,23 +224,31 @@
         window.isPassStrong = missing.length === 0;
 
         if (!window.isPassStrong) {
-            passWarning.style.display = 'flex'; passInput.classList.add('input-error');
+            passWarning.style.display = 'flex'; 
+            passInput.classList.add('input-error');
             passWarningText.innerHTML = `<strong>ينقص كلمة المرور:</strong> ${missing.join('، ')}`;
         } else {
-            passWarning.style.display = 'none'; passInput.classList.remove('input-error', 'shake-error-input');
+            passWarning.style.display = 'none'; 
+            passInput.classList.remove('input-error', 'shake-error-input');
         }
     }
 
-    if(passInput) {
+    if (passInput) {
         passInput.addEventListener('input', checkPasswordStrength);
         passInput.addEventListener('blur', () => {
-            if (passInput.value.trim() === '') { passWarning.style.display = 'none'; passInput.classList.remove('input-error', 'shake-error-input'); } 
-            else { checkPasswordStrength(); }
+            if (passInput.value.trim() === '') { 
+                passWarning.style.display = 'none'; 
+                passInput.classList.remove('input-error', 'shake-error-input'); 
+            } else { 
+                checkPasswordStrength(); 
+            }
         });
     }
 
-    if(confirmInput) {
-        confirmInput.addEventListener('input', function() { if(this.value === passInput.value) hideError('confirm', 'confirmError'); });
+    if (confirmInput) {
+        confirmInput.addEventListener('input', function() { 
+            if (this.value === passInput.value) hideError('confirm', 'confirmError'); 
+        });
     }
 
     // 🛡️ السماح فقط بالأحرف اللاتينية لدعم مسارات الإدارة الآمنة
@@ -229,25 +266,26 @@
                 else hideError(elId, errId); 
             }
         });
-        el.addEventListener('blur', function() { if (this.value.trim() === '') showError(elId, errId, 'هذا الحقل مطلوب'); });
+        el.addEventListener('blur', function() { 
+            if (this.value.trim() === '') showError(elId, errId, 'هذا الحقل مطلوب'); 
+        });
     }
 
     enforceValidation('fname', 'fnameError', 'name');
     enforceValidation('lname', 'lnameError', 'name');
     enforceValidation('email', 'emailError', 'email');
-
 </script>
 
-<!-- 🔐 منطق المصادقة الخاص بفايربيز -->
+<!-- 🔐 منطق المصادقة المحصن والمتطابق 100% مع السيرفر -->
 <script type="module">
     import { DB_KEYS, CACHE_KEYS, DYNAMIC_PREFIXES, ACTIVE_USER_KEY } from './config.js'; 
     import { auth, FirebaseAdapter as StoreDB } from './core/firebaseAdapter.js';
-    import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
     const googleProvider = new GoogleAuthProvider();
     let preFetchedCurrency = 'USD'; 
 
-    // 🛡️ درع المقاطعة الزمنية لحماية الواجهة من التجمد
     const withAuthTimeout = (promise, ms = 30000) => {
         let timeoutId;
         const timeoutPromise = new Promise((_, reject) => {
@@ -259,7 +297,7 @@
     };
 
     const safeWipeSession = async () => {
-        await withAuthTimeout(signOut(auth), 5000).catch(()=>{});
+        await withAuthTimeout(StoreDB.signOutUser(), 5000).catch(()=>{});
         localStorage.removeItem(CACHE_KEYS.ACTIVE_UID);
         localStorage.removeItem(ACTIVE_USER_KEY);
         localStorage.removeItem(CACHE_KEYS.DISPLAY_CURRENCY);
@@ -283,21 +321,33 @@
 
     async function preloadDefaultCurrency() {
         try {
+            const cachedSettings = JSON.parse(localStorage.getItem(CACHE_KEYS.SETTINGS_SNAPSHOT) || '{}');
+            if (cachedSettings && (cachedSettings.defaultCurrency || cachedSettings.currency)) {
+                preFetchedCurrency = String(cachedSettings.defaultCurrency || cachedSettings.currency).toUpperCase();
+                return;
+            }
+        } catch (e) {}
+
+        try {
             if (StoreDB && typeof StoreDB.getCacheFirst === 'function') {
                 const settingsDoc = await StoreDB.getCacheFirst(DB_KEYS.SETTINGS, 'singleton');
                 if (settingsDoc) preFetchedCurrency = String(settingsDoc.defaultCurrency || settingsDoc.currency || 'USD').toUpperCase();
             }
         } catch (error) {}
     }
-    document.addEventListener('DOMContentLoaded', preloadDefaultCurrency);
 
-    async function generateUniqueDisplayId() {
-        const timePart = String(Date.now()).slice(-5);
-        const randPart = Math.floor(1000 + Math.random() * 9000);
-        return Number(timePart + randPart);
+    // 🛡️ [توليد المعرف المختصر القياسي]: حرفان كبيران + 6 أرقام (طول 8 خانات ثابت مثل MK482915)
+    function generateUserDisplayId(uid) {
+        const str = String(uid || '');
+        let h1 = 2166136261, h2 = 5381;
+        for (let i = 0; i < str.length; i++) {
+            const c = str.charCodeAt(i);
+            h1 = Math.imul(h1 ^ c, 16777619) >>> 0;
+            h2 = (Math.imul(h2, 33) ^ c) >>> 0;
+        }
+        return `${String.fromCharCode(65 + (h1 % 26))}${String.fromCharCode(65 + ((h1 >>> 8) % 26))}${100000 + (h2 % 900000)}`;
     }
 
-    // 🛡️ تحويل دالة جوجل لدالة محلية (Local Function)
     async function handleGoogleLogin() {
         const btn = document.getElementById('googleSignupBtn');
         btn.disabled = true;
@@ -310,21 +360,19 @@
             let activeUserObj = null;
             let isBrandNewUser = false; 
 
-            if(StoreDB && typeof StoreDB.getById === 'function') {
+            if (StoreDB && typeof StoreDB.getById === 'function') {
                 activeUserObj = await StoreDB.getById(DB_KEYS.USERS, firebaseUser.uid);
             }
 
             if (!activeUserObj) {
                 isBrandNewUser = true; 
-                const shortDisplayId = await generateUniqueDisplayId();
                 const rawDisplayName = firebaseUser.displayName || '';
-                
-                // 🛡️ تصفية الأحداث: إبقاء الأحرف اللاتينية والأرقام فقط لضمان سلامة الإدارة
                 const cleanNameForUser = rawDisplayName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9\s]/g, "");
                 
-                let firstName = ''; let lastName = ''; let finalFullName = '';
+                let firstName = ''; 
+                let lastName = ''; 
+                let finalFullName = '';
                 
-                // 🛡️ الحل الاحترافي: إذا كان الاسم عربياً وتم تفريغه، نأخذ بادئة البريد الإلكتروني الافتراضية
                 if (cleanNameForUser.trim()) {
                     finalFullName = cleanNameForUser.replace(/\s+/g, ' ').trim();
                     const nameParts = finalFullName.split(' ');
@@ -336,44 +384,104 @@
                 }
 
                 const baseUsername = finalFullName.toLowerCase().replace(/\s+/g, '') + firebaseUser.uid.substring(0, 4);
-                let googleAvatar = null;
-                if (firebaseUser.photoURL) googleAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
+                const rawPhoto = firebaseUser.photoURL ? firebaseUser.photoURL.replace('=s96-c', '=s400-c') : null;
+                const googleAvatar = (rawPhoto && rawPhoto.startsWith('https://lh3.googleusercontent.com/')) ? rawPhoto : null;
+                const shortDisplayId = generateUserDisplayId(firebaseUser.uid);
 
-                activeUserObj = {
-                    id: firebaseUser.uid, uid: firebaseUser.uid, displayId: shortDisplayId,
-                    firstName: firstName, lastName: lastName, fullName: finalFullName, username: baseUsername, email: firebaseUser.email,
-                    img: googleAvatar, baseCurrency: preFetchedCurrency, 
-                    phone: null, country: null, walletBalance: 0, balance: 0, totalSpent: 0, totalDeposit: 0,
-                    tierId: "1", tierCycleSpent: 0, tierCycleStartDate: Date.now(),
-                    role: 'user', isVerified: false, kycStatus: 'none', isBanned: false, isIpBanned: false, createdAt: Date.now()
+                // 🛡️ التوافق التام 100% مع isSafeUserCreation في firestore.rules و UserBuilder.js
+                const firestorePayload = {
+                    id: firebaseUser.uid, 
+                    uid: firebaseUser.uid, 
+                    displayId: shortDisplayId,
+                    firstName: firstName, 
+                    lastName: lastName, 
+                    fullName: finalFullName, 
+                    username: baseUsername, 
+                    email: firebaseUser.email,
+                    ...(googleAvatar ? { profileImage: googleAvatar } : {}),
+                    baseCurrency: 'USD', 
+                    phone: '', 
+                    country: '', 
+                    walletBalance: 0.0, 
+                    totalSpent: 0.0, 
+                    totalDeposit: 0.0,
+                    tierId: "TIER_DEFAULT", 
+                    cycleStartTierId: "TIER_DEFAULT", 
+                    tierClimbs: [], 
+                    tierCycleSpent: 0.0,
+                    manualTierOverride: false,
+                    tierCycleStartDate: serverTimestamp(), 
+                    tierStreakStartDate: serverTimestamp(),
+                    role: 'user', 
+                    isVerified: false, 
+                    kycStatus: 'none', 
+                    isBanned: false, 
+                    isIpBanned: false, 
+                    isRestricted: false,
+                    banReason: '', 
+                    isApiMerchant: false, 
+                    fcmTokens: [],
+                    isDormant: false, 
+                    isDeleted: false, 
+                    totalOrdersCount: 0, 
+                    lastOrderTime: 0, 
+                    usedCoupons: {},
+                    devicePrints: [], 
+                    lastIp: '',
+                    createdAt: serverTimestamp()
                 };
 
-                if (StoreDB && typeof StoreDB.set === 'function') await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, activeUserObj);
+                if (StoreDB && typeof StoreDB.set === 'function') {
+                    try {
+                        await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, firestorePayload);
+                    } catch (writeErr) {
+                        await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, {
+                            firstName: firstName, 
+                            lastName: lastName, 
+                            fullName: finalFullName, 
+                            username: baseUsername,
+                            ...(googleAvatar ? { profileImage: googleAvatar } : {})
+                        }, { merge: true }).catch(() => {});
+                    }
+                }
+                activeUserObj = { 
+                    ...firestorePayload, 
+                    tierCycleStartDate: Date.now(), 
+                    tierStreakStartDate: Date.now(), 
+                    createdAt: Date.now(), 
+                    baseCurrency: 'USD' 
+                };
             } else {
-                if (activeUserObj.isBanned || activeUserObj.isIpBanned) {
+                if (activeUserObj.isBanned || activeUserObj.isIpBanned || activeUserObj.isRestricted) {
                     await safeWipeSession();
                     btn.classList.remove('is-loading');
                     btn.disabled = false; 
                     const customAlert = document.getElementById('customAlert') ? window.showCustomAlert : alert;
-                    customAlert("حساب محظور", "عذراً، هذا الحساب تم حظره مسبقاً ولا يمكن استخدامه.");
+                    customAlert("حساب محظور", "عذراً، هذا الحساب تم حظره أو تقييده مسبقاً ولا يمكن استخدامه.");
                     return; 
                 }
-                if (!activeUserObj.img && firebaseUser.photoURL) {
+                if (!activeUserObj.profileImage && firebaseUser.photoURL) {
                     const freshAvatar = firebaseUser.photoURL.replace('=s96-c', '=s400-c');
-                    activeUserObj.img = freshAvatar;
-                    if (StoreDB && typeof StoreDB.set === 'function') await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { img: freshAvatar }, { merge: true });
+                    if (freshAvatar.startsWith('https://lh3.googleusercontent.com/')) {
+                        activeUserObj.profileImage = freshAvatar;
+                        if (StoreDB && typeof StoreDB.set === 'function') {
+                            await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, { profileImage: freshAvatar }, { merge: true }).catch(()=>{});
+                        }
+                    }
                 }
             }
 
             localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
             localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(activeUserObj));
-            localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, activeUserObj.baseCurrency || 'USD');
-            if (activeUserObj.img) localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, activeUserObj.img);
+            localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, isBrandNewUser ? (preFetchedCurrency || 'USD') : (activeUserObj.baseCurrency || 'USD'));
+            if (activeUserObj.profileImage) {
+                localStorage.setItem(DYNAMIC_PREFIXES.USER_IMAGE + firebaseUser.uid, activeUserObj.profileImage);
+            }
 
             showButtonSuccess(btn, "تم إنشاء الحساب");
             
             if (isBrandNewUser) {
-                sessionStorage.setItem('tc_new_user_signup', 'true');
+                sessionStorage.setItem(CACHE_KEYS.NEW_USER_SIGNUP, 'true');
             }
 
             setTimeout(() => { window.location.replace("./store.html"); }, 1500); 
@@ -381,12 +489,13 @@
         } catch (error) {
             btn.classList.remove('is-loading');
             btn.disabled = false; 
-            const customAlert = document.getElementById('customAlert') ? window.showCustomAlert : alert;
-            customAlert("فشل الدخول عبر جوجل", error.message);
+            if (error.code !== 'auth/popup-closed-by-user') {
+                const customAlert = document.getElementById('customAlert') ? window.showCustomAlert : alert;
+                customAlert("فشل الدخول عبر جوجل", error.message);
+            }
         }
     }
 
-    // 🛡️ تحويل دالة التسجيل لدالة محلية (Local Function)
     async function validateAndRegister() {
         const fname = document.getElementById('fname');
         const lname = document.getElementById('lname');
@@ -396,33 +505,48 @@
         let isValid = true;
         const customShowError = document.getElementById('customAlert') ? window.showError : null;
 
-        if(!fname.value.trim()) { if(customShowError) customShowError('fname', 'fnameError', 'هذا الحقل مطلوب'); isValid = false; }
-        else if(!window.latinRegex.test(fname.value)) { if(customShowError) customShowError('fname', 'fnameError', 'يُرجى كتابة الاسم بالإنجليزي'); isValid = false; }
+        if (!fname.value.trim()) { 
+            if (customShowError) customShowError('fname', 'fnameError', 'هذا الحقل مطلوب'); 
+            isValid = false; 
+        } else if (!window.latinRegex.test(fname.value)) { 
+            if (customShowError) customShowError('fname', 'fnameError', 'يُرجى كتابة الاسم بالإنجليزي'); 
+            isValid = false; 
+        }
 
-        if(!lname.value.trim()) { if(customShowError) customShowError('lname', 'lnameError', 'هذا الحقل مطلوب'); isValid = false; }
-        else if(!window.latinRegex.test(lname.value)) { if(customShowError) customShowError('lname', 'lnameError', 'يُرجى كتابة الاسم بالإنجليزي'); isValid = false; }
+        if (!lname.value.trim()) { 
+            if (customShowError) customShowError('lname', 'lnameError', 'هذا الحقل مطلوب'); 
+            isValid = false; 
+        } else if (!window.latinRegex.test(lname.value)) { 
+            if (customShowError) customShowError('lname', 'lnameError', 'يُرجى كتابة الاسم بالإنجليزي'); 
+            isValid = false; 
+        }
 
-        if(!email.value.trim()) { if(customShowError) customShowError('email', 'emailError', 'هذا الحقل مطلوب'); isValid = false; }
-        else if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) { if(customShowError) customShowError('email', 'emailError', 'البريد الإلكتروني غير صالح'); isValid = false; }
+        if (!email.value.trim()) { 
+            if (customShowError) customShowError('email', 'emailError', 'هذا الحقل مطلوب'); 
+            isValid = false; 
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) { 
+            if (customShowError) customShowError('email', 'emailError', 'البريد الإلكتروني غير صالح'); 
+            isValid = false; 
+        }
 
-        if(pass.value.trim() === '') {
-            if(customShowError) customShowError('password', 'passwordError', 'هذا الحقل مطلوب'); 
+        if (pass.value.trim() === '') {
+            if (customShowError) customShowError('password', 'passwordError', 'هذا الحقل مطلوب'); 
             document.getElementById('passWarning').style.display = 'none';
             isValid = false;
-        } else if(!window.isPassStrong) { 
-            if(window.checkPasswordStrength) window.checkPasswordStrength(); 
+        } else if (!window.isPassStrong) { 
+            if (window.checkPasswordStrength) window.checkPasswordStrength(); 
             isValid = false; 
         }
 
-        if(confirm.value.trim() === '') { 
-            if(customShowError) customShowError('confirm', 'confirmError', 'هذا الحقل مطلوب'); 
+        if (confirm.value.trim() === '') { 
+            if (customShowError) customShowError('confirm', 'confirmError', 'هذا الحقل مطلوب'); 
             isValid = false; 
-        } else if(pass.value !== confirm.value) { 
-            if(customShowError) customShowError('confirm', 'confirmError', 'كلمات المرور غير متطابقة'); 
+        } else if (pass.value !== confirm.value) { 
+            if (customShowError) customShowError('confirm', 'confirmError', 'كلمات المرور غير متطابقة'); 
             isValid = false; 
         }
 
-        if(!isValid) return;
+        if (!isValid) return;
 
         const btn = document.getElementById('submitBtn');
         btn.disabled = true;
@@ -437,26 +561,77 @@
             const safeLastName = lname.value.replace(/\s+/g, ' ').trim();
             const finalFullName = `${safeFirstName} ${safeLastName}`;
             const finalUsername = finalFullName.toLowerCase().replace(/\s+/g, '') + firebaseUser.uid.substring(0, 4);
-            const shortDisplayId = await generateUniqueDisplayId();
+            const shortDisplayId = generateUserDisplayId(firebaseUser.uid);
 
-            const newUser = {
-                id: firebaseUser.uid, uid: firebaseUser.uid, displayId: shortDisplayId,
-                firstName: safeFirstName, lastName: safeLastName, fullName: finalFullName, username: finalUsername, email: firebaseUser.email,
-                baseCurrency: preFetchedCurrency, 
-                phone: null, country: null, walletBalance: 0, balance: 0, totalSpent: 0, totalDeposit: 0,
-                tierId: "1", tierCycleSpent: 0, tierCycleStartDate: Date.now(),
-                role: 'user', isVerified: false, kycStatus: 'none', isBanned: false, isIpBanned: false, createdAt: Date.now()
+            // 🛡️ التوافق التام 100% مع isSafeUserCreation في firestore.rules و UserBuilder.js
+            const firestorePayload = {
+                id: firebaseUser.uid, 
+                uid: firebaseUser.uid, 
+                displayId: shortDisplayId,
+                firstName: safeFirstName, 
+                lastName: safeLastName, 
+                fullName: finalFullName, 
+                username: finalUsername, 
+                email: firebaseUser.email,
+                baseCurrency: 'USD', 
+                phone: '', 
+                country: '', 
+                walletBalance: 0.0, 
+                totalSpent: 0.0, 
+                totalDeposit: 0.0,
+                tierId: "TIER_DEFAULT", 
+                cycleStartTierId: "TIER_DEFAULT", 
+                tierClimbs: [], 
+                tierCycleSpent: 0.0,
+                manualTierOverride: false,
+                tierCycleStartDate: serverTimestamp(), 
+                tierStreakStartDate: serverTimestamp(),
+                role: 'user', 
+                isVerified: false, 
+                kycStatus: 'none', 
+                isBanned: false, 
+                isIpBanned: false, 
+                isRestricted: false,
+                banReason: '', 
+                isApiMerchant: false, 
+                fcmTokens: [],
+                isDormant: false, 
+                isDeleted: false, 
+                totalOrdersCount: 0, 
+                lastOrderTime: 0, 
+                usedCoupons: {},
+                devicePrints: [], 
+                lastIp: '',
+                createdAt: serverTimestamp()
             };
 
-            if(StoreDB && typeof StoreDB.set === 'function') await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, newUser);
+            if (StoreDB && typeof StoreDB.set === 'function') {
+                try {
+                    await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, firestorePayload);
+                } catch (writeErr) {
+                    await StoreDB.set(DB_KEYS.USERS, firebaseUser.uid, {
+                        firstName: safeFirstName, 
+                        lastName: safeLastName, 
+                        fullName: finalFullName, 
+                        username: finalUsername
+                    }, { merge: true }).catch(() => {});
+                }
+            }
 
+            const localUserObj = { 
+                ...firestorePayload, 
+                tierCycleStartDate: Date.now(), 
+                tierStreakStartDate: Date.now(), 
+                createdAt: Date.now() 
+            };
+            
             localStorage.setItem(CACHE_KEYS.ACTIVE_UID, firebaseUser.uid);
-            localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(newUser));
-            localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, preFetchedCurrency);
+            localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(localUserObj));
+            localStorage.setItem(CACHE_KEYS.DISPLAY_CURRENCY, preFetchedCurrency || 'USD');
 
             showButtonSuccess(btn, "تم إنشاء الحساب");
             
-            sessionStorage.setItem('tc_new_user_signup', 'true');
+            sessionStorage.setItem(CACHE_KEYS.NEW_USER_SIGNUP, 'true');
 
             setTimeout(() => { window.location.replace("./store.html"); }, 1500); 
 
@@ -474,17 +649,16 @@
                 setTimeout(() => { window.location.replace("./login.html"); }, 2800);  
             }
             else if (error.code === 'auth/network-request-failed') { 
-                if(customHideError) customHideError('email', 'emailError');
+                if (customHideError) customHideError('email', 'emailError');
                 customAlert("خطأ في الاتصال", "يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.", "error"); 
             }
             else { 
-                if(customHideError) customHideError('email', 'emailError');
+                if (customHideError) customHideError('email', 'emailError');
                 customAlert("حدث خطأ", error.message, "error"); 
             }
         }
     }
 
-    // 🛡️ المعمارية النظيفة: ربط الأحداث برمجياً بعد اكتمال جاهزية الـ Module
     const googleBtn = document.getElementById('googleSignupBtn');
     if (googleBtn) {
         googleBtn.addEventListener('click', handleGoogleLogin);
@@ -498,6 +672,7 @@
         });
     }
 
+    preloadDefaultCurrency();
 </script>
 </body>
 </html>

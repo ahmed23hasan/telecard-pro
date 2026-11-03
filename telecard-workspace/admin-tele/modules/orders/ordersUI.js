@@ -1,147 +1,173 @@
 // ============================================================================
-// 📦 وحدة الطلبات (modules/orders/ordersUI.js) - Cloud-Native V17.6 💎
-// 🚀 التحديث الأقصى: 
-// 1. Denormalization Activation: الاعتماد على (userDataSnapshot) المحفوظ في الفاتورة كأولوية 
-//    لتجنب ظهور "مستخدم جديد" للطلبات التي لم يتم جلب ملفات عملائها للذاكرة.
-// 2. Smart ID Shield 🛡️: إزالة التعقيم (escapeHTML) عن مخرجات المعرفات الذكية لمنع كسر أيقونات النسخ المزدوج.
+// 📦 واجهة وتفاعلات الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V16.0 💎
+// 🎯 الوظيفة: إدارة الدرج الجانبي الجنائي للطلبات وعرض التحليل المالي والتتبع.
+// 🚀 التحديث (V16.0 - Cloud Drawer Resolver & Encrypted Audit Hydration):
+// 1. Audit Token Hydration 🔓: فك تشفير التكلفة والربح سحابياً للطلبات القديمة المفتوحة من سجل العميل.
+// 2. Cloud Order Fallback ☁️: جلب الطلب من السيرفر تلقائياً إذا تم النقر عليه من إشعار خارج الـ 50 طلباً المحملة.
+// 3. Profile Image Fix 🖼️: دعم قراءة user.profileImage بجانب user.img في ترويسة العميل داخل الدرج.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
-import { AdminTemplates } from '../../adminTemplates.js';
+import { OrdersTemplates } from './ordersTemplates.js'; 
 import { Utils, EventBus } from '../../adminUtils.js';
 import { UIService } from '../../core/uiService.js'; 
 import { RenderHelpers } from '../../core/renderHelpers.js'; 
-import { FinancialEngine } from '../../core/financialEngine.js'; 
+import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 
 export const OrdersUI = {
     currentOrderId: null,
 
-    openOrderDrawer: function(orderId) {
-        if (window.innerWidth < 992 && typeof UIService.closeSidebar === 'function') {
+    openOrderDrawer: async function(orderId, isSilentRefresh = false) {
+        if (!isSilentRefresh && window.innerWidth < 992 && typeof UIService.closeSidebar === 'function') {
             UIService.closeSidebar();
         }
 
-        const order = AdminData.data.ordersMap?.[orderId] || (AdminData.data.orders || []).find(o => String(o.id) === String(orderId));
-        if(!order) return;
+        const strId = String(orderId);
+        let order = AdminData.data.ordersMap?.[strId] || (AdminData.data.orders || []).find(o => String(o.id) === strId);
 
-        this.currentOrderId = order.id;
-        EventBus.emit('order-drawer-opened', order.id);
-
-        const drawer = document.getElementById('order-drawer-overlay');
-        const headerContent = drawer ? drawer.querySelector('.drawer-header') : null;
-        const bodyContent = document.getElementById('drawer-body-content');
-        const footerActions = document.getElementById('drawer-footer-actions');
-        const noteInput = document.getElementById('order-modal-note');
-
-        if(!drawer || !bodyContent || !headerContent) return;
-        
-        const scrollArea = drawer.querySelector('.drawer-scroll-area');
-        if(scrollArea) scrollArea.scrollTop = 0;
-
-        if(noteInput) {
-            noteInput.value = ''; 
-            
-            if (!noteInput.hasAttribute('data-events-bound')) {
-                noteInput.setAttribute('data-events-bound', 'true');
-                
-                noteInput.addEventListener('focus', function() {
-                    const drawerContainer = document.getElementById('order-drawer');
-                    if(drawerContainer) drawerContainer.classList.add('typing-mode');
-                });
-                
-                noteInput.addEventListener('blur', function() {
-                    const drawerContainer = document.getElementById('order-drawer');
-                    if(drawerContainer) drawerContainer.classList.remove('typing-mode');
-                });
-            }
-
-            const noteWrapper = noteInput.parentElement; 
-            if (order.status === 'pending' || order.status === 'processing') {
-                noteWrapper.classList.remove('hide-element');
-            } else {
-                noteWrapper.classList.add('hide-element');
+        if (!order) {
+            if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(true, 'جاري جلب تفاصيل الطلب سحابياً...');
+            try {
+                const res = await FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 1, searchQuery: strId });
+                if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
+                    order = res.data[0];
+                } else {
+                    order = await FirebaseAdapter.getById('telecard_orders', strId);
+                }
+                if (order) {
+                    if (!AdminData.data.ordersMap) AdminData.data.ordersMap = {};
+                    AdminData.data.ordersMap[String(order.id)] = order;
+                }
+            } catch (e) {
+                console.error("OpenOrderDrawer Cloud Fetch Error:", e);
+            } finally {
+                if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(false);
             }
         }
 
-        headerContent.innerHTML = AdminTemplates.orderDrawerHeader(order.id);
-        
-        // 🚀 [درع الحماية والتفعيل المعماري للـ Denormalization]
-        const user = AdminData.data.usersMap?.[order.userId] || { id: order.userId };
-        
-        // قراءة الاسم من لقطة الطلب السحابية
-        const displayUser = Utils.escapeHTML(order.userDataSnapshot?.fullName || order.userName || user.fullName || user.name || user.username || 'مستخدم جديد');
-        const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
-        const avatarHtml = AdminTemplates.drawerAvatar(user.img ? Utils.escapeHTML(user.img) : null, firstLetter);
+        if(!order) {
+            UIService?.showToast?.('تعذر العثور على تفاصيل هذا الطلب.', 'error');
+            return;
+        }
 
-        const prod = AdminData.data.prodsMap?.[order.prodId] || {};
-        const prodName = Utils.escapeHTML(order.product || prod.name || 'منتج غير معرف');
-        const qty = order.qty || 1;
-        
-        const cCode = (order.priceCurrency || 'USD').toUpperCase().replace('$', 'USD');
+        this.currentOrderId = order.id;
+        if (!isSilentRefresh) {
+            EventBus.emit('order-drawer-opened', order.id);
+        }
 
-        let financialSnapshotHtml = '';
-        let priceTxt = '';
-        let exactPriceTxt = null;
-        let unitCostTxt = '';
-        let couponRowHtml = '';
-        let originalPriceRowHtml = '';
+        let drawer = document.getElementById('order-drawer-overlay');
+        if (!drawer) {
+            drawer = document.createElement('div');
+            drawer.id = 'order-drawer-overlay';
+            drawer.className = 'drawer-overlay dynamic-auto-destroy'; 
+            document.body.appendChild(drawer);
+        }
 
-        if (order.pricingSnapshot && AdminTemplates.financialSnapshotBlock) {
-            financialSnapshotHtml = AdminTemplates.financialSnapshotBlock(order.pricingSnapshot, order.status);
-        } else {
-            const exactPriceUsd = FinancialEngine.extractNum(order.baseUsd || order.price);
-            priceTxt = RenderHelpers.formatMoney(exactPriceUsd, 'USD', 2);
+        const previousNoteVal = isSilentRefresh ? (document.getElementById('order-modal-note')?.value || '') : '';
+        const previousCodeVal = isSilentRefresh ? (document.getElementById('order-modal-delivered-code')?.value || '') : '';
+
+        drawer.innerHTML = OrdersTemplates.orderDrawerModal();
+
+        const headerContent = document.getElementById('drawer-header-content');
+        const bodyContent = document.getElementById('drawer-body-content');
+        const footerActions = document.getElementById('drawer-footer-actions');
+        const noteInput = document.getElementById('order-modal-note');
+        const codeInput = document.getElementById('order-modal-delivered-code');
+        const codeGroup = document.getElementById('order-delivered-code-group');
+
+        if (!drawer || !bodyContent || !headerContent) return;
+
+        const scrollArea = drawer.querySelector('.drawer-scroll-area');
+        if (scrollArea && !isSilentRefresh) {
+            scrollArea.classList.add('overflow-y-hidden');
+            scrollArea.scrollTop = 0;
+            scrollArea.classList.remove('overflow-y-hidden');
+        }
+
+        if (noteInput) {
+            noteInput.value = previousNoteVal;
+            if (codeInput) codeInput.value = previousCodeVal;
             
-            const totalCostUsd = FinancialEngine.safeMul(FinancialEngine.extractNum(order.costPrice || order.unitCost), qty);
-            unitCostTxt = RenderHelpers.formatMoney(totalCostUsd, 'USD', 2); 
-
-            if (order.couponCode) {
-                let originalUsd = exactPriceUsd;
-                const coupon = (AdminData.data.coupons || []).find(c => String(c.code).toUpperCase() === String(order.couponCode).toUpperCase());
+            const bindTypingMode = (el) => {
+                if (!el || el.hasAttribute('data-events-bound')) return;
+                el.setAttribute('data-events-bound', 'true');
+                el.addEventListener('focus', function() {
+                    document.getElementById('order-drawer')?.classList.add('typing-mode');
+                });
+                el.addEventListener('blur', function() {
+                    document.getElementById('order-drawer')?.classList.remove('typing-mode');
+                });
+            };
+            bindTypingMode(noteInput);
+            bindTypingMode(codeInput);
+            
+            const noteWrapper = document.getElementById('order-note-wrapper');
+            if (noteWrapper) {
+                const isActionable = (order.status === 'pending' || order.status === 'processing');
+                noteWrapper.classList.toggle('hide-element', !isActionable);
                 
-                if (coupon) {
-                    if (coupon.type === 'percentage') {
-                        const ratio = FinancialEngine.safeSub(1, FinancialEngine.safeDiv(coupon.value, 100));
-                        originalUsd = FinancialEngine.safeDiv(exactPriceUsd, ratio);
-                    } else {
-                        originalUsd = FinancialEngine.safeAdd(exactPriceUsd, coupon.value);
-                    }
-
-                    const origPriceTxt = RenderHelpers.formatMoney(originalUsd, 'USD', 2);
-                    if (AdminTemplates && AdminTemplates.orderReceiptRow) {
-                        couponRowHtml = AdminTemplates.orderReceiptRow('fa-solid fa-tags text-primary', 'كوبون خصم مفعّل', `<b class="num-en text-primary">${Utils.escapeHTML(order.couponCode)}</b>`);
-                        originalPriceRowHtml = AdminTemplates.orderReceiptRow('fa-solid fa-money-bill-trend-up text-muted', 'السعر قبل الكوبون', `<del class="num-en text-muted">${origPriceTxt}</del>`);
-                    }
+                if (codeGroup) {
+                    const isAutomatedVault = Boolean(order.vaultPoolId && !order.supplierId);
+                    codeGroup.classList.toggle('hide-element', isAutomatedVault);
                 }
             }
         }
 
+        headerContent.innerHTML = OrdersTemplates.orderDrawerHeader(order);
+        
+        let user = AdminData.data.usersMap?.[order.userId];
+        if (!user) {
+            user = { 
+                id: order.userId, 
+                displayId: order.userDataSnapshot?.displayId || String(order.userId).substring(0, 8),
+                fullName: order.userDataSnapshot?.fullName || order.userName || 'مستخدم'
+            };
+        }
+        
+        const displayUser = String(order.userDataSnapshot?.fullName || order.userName || user.fullName || user.name || user.username || 'مستخدم جديد');
+        const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
+        const userAvatarSrc = user.profileImage || user.img;
+        const avatarHtml = OrdersTemplates.drawerAvatar(userAvatarSrc || null, firstLetter);
+
+        const prod = AdminData.data.prodsMap?.[order.prodId] || {};
+        const prodName = String(order.product || prod.name || 'منتج غير معرف');
+        const qty = order.qty || 1;
+        const cCode = (order.priceCurrency || 'USD').toUpperCase().replace('$', 'USD');
+
+        let financialSnapshotHtml = '';
+        if (OrdersTemplates.financialSnapshotBlock) {
+            financialSnapshotHtml = OrdersTemplates.financialSnapshotBlock(order.pricingSnapshot || {}, order.status, order);
+        }
+
         const dateTxt = RenderHelpers.formatSafeDate(order.time || order.createdAt);
-        const statusDict = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع' };
+        const statusDict = { pending:'قيد المراجعة', processing:'جاري التنفيذ', completed:'مكتمل', rejected:'مرفوض', refunded:'مسترجع', returned:'مرتجع' };
         const sText = statusDict[order.status] || order.status;
 
         const isApi = (order.isApi === true || order.source === 'api');
-        const isAuto = (!isApi && order.deliveredCode && order.deliveredCode.length > 0);
-        
+        const isSupplier = Boolean(order.supplierId);
+        const isAuto = (!isApi && !isSupplier && Boolean(order.vaultPoolId || order.isAutoDelivered));
         let sourceBadgeHtml = '';
         if (isApi) {
-            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2" style="background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 6px; border-radius: 4px;"><i class="fa-solid fa-robot"></i> طلب API</span>`;
+            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2 badge-source-api"><i class="fa-solid fa-robot"></i> طلب API</span>`;
+        } else if (isSupplier) {
+            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2 badge-source-auto"><i class="fa-solid fa-plug"></i> مورد خارجي</span>`;
         } else if (isAuto) {
-            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 6px; border-radius: 4px;"><i class="fa-solid fa-bolt"></i> تسليم آلي</span>`;
+            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2 badge-source-auto"><i class="fa-solid fa-bolt"></i> تسليم آلي</span>`;
         } else {
-            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 6px; border-radius: 4px;"><i class="fa-solid fa-hand-paper"></i> تنفيذ يدوي</span>`;
+            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2 badge-source-manual"><i class="fa-solid fa-hand-paper"></i> تنفيذ يدوي</span>`;
         }
 
         let apiTrackingRowHtml = '';
         const externalId = order.externalOrderId || order.referenceId || order.apiOrderId || (order.apiData && order.apiData.orderId);
-        if (isApi && externalId) {
-            apiTrackingRowHtml = `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-link text-info"></i> رقم الطلب بمتجر العميل</span><span class="dr-receipt-val num-en text-info copyable-admin" dir="ltr" data-action="copy-text" data-copy-text="${Utils.escapeHTML(externalId)}">${Utils.escapeHTML(externalId)}</span></div>`;
+        if (externalId) {
+            const extLabel = isSupplier ? 'رقم الطلب لدى المورد' : 'رقم الطلب المرجعي';
+            apiTrackingRowHtml = `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-link text-info"></i> ${extLabel}</span><span class="dr-receipt-val num-en text-info copyable-admin" dir="ltr" data-action="copy-text" data-copy-text="${Utils.escapeHTML(externalId)}">#${Utils.escapeHTML(externalId)}</span></div>`;
         }
 
         let executionTimeRowHtml = '';
         let durationHtml = '';
         const startTime = RenderHelpers.parseTime(order.time || order.createdAt);
-        const endTime = RenderHelpers.parseTime(order.actionTime || order.updatedAt); 
+        const endTime = RenderHelpers.parseTime(order.completedAt || order.actionTime || order.updatedAt); 
 
         if (endTime && order.status !== 'pending' && order.status !== 'processing') {
             const execDateTxt = RenderHelpers.formatSafeDate(endTime);
@@ -154,8 +180,8 @@ export const OrdersUI = {
             let dTxt = diffMins > 60 ? `${Math.floor(diffMins/60)} Hr & ${diffMins%60} Min` : `${diffMins} Min`;
             if (diffMins === 0) dTxt = "لحظي ⚡";
             
-            if (AdminTemplates && typeof AdminTemplates.orderDurationRow === 'function') {
-                durationHtml = AdminTemplates.orderDurationRow(dTxt);
+            if (OrdersTemplates && typeof OrdersTemplates.orderDurationRow === 'function') {
+                durationHtml = OrdersTemplates.orderDurationRow(dTxt);
             }
         }
 
@@ -164,35 +190,45 @@ export const OrdersUI = {
             extraMetaHtml += `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-network-wired text-muted"></i> عنوان IP للمشتري</span><span class="dr-receipt-val num-en text-muted copyable-admin" dir="ltr" data-action="copy-text" data-copy-text="${Utils.escapeHTML(order.ip || order.clientIp)}">${Utils.escapeHTML(order.ip || order.clientIp)}</span></div>`;
         }
         if (order.supplierName || order.supplierId) {
-            extraMetaHtml += `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-truck-fast text-primary"></i> المورد (التنفيذ الخارجي)</span><span class="dr-receipt-val fw-bold text-primary">${Utils.escapeHTML(order.supplierName || order.supplierId)}</span></div>`;
+            const suppObj = AdminData.data.suppliersMap?.[order.supplierId];
+            const suppDisplayName = order.supplierName || suppObj?.name || order.supplierId;
+            extraMetaHtml += `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-truck-fast text-primary"></i> المورد (التنفيذ الخارجي)</span><span class="dr-receipt-val fw-bold text-primary">${Utils.escapeHTML(suppDisplayName)}</span></div>`;
         }
 
-        const rawInputs = (order.input || '').trim().split('|').map(p=>p.trim()).filter(Boolean);
+        const rawInputs = (order.input || '').trim().split('|').map(p => p.trim()).filter(Boolean);
         let inputsCardHtml = ''; 
-        if (rawInputs.length > 0) {
+        if (rawInputs.length <= 1 && order.playerInputs && typeof order.playerInputs === 'object') {
+            const parsedFromObj = Array.isArray(order.playerInputs)
+                ? order.playerInputs.map((val, idx) => ({ label: idx === 0 ? (prod.input1Label || 'حقل 1') : (prod.input2Label || `حقل ${idx + 1}`), value: String(val) }))
+                : Object.entries(order.playerInputs).map(([k, v]) => ({ label: k, value: String(v) }));
+            if (parsedFromObj.length > 0) {
+                inputsCardHtml = OrdersTemplates.orderInputsCard(parsedFromObj);
+            }
+        } else if (rawInputs.length > 0 && order.input !== '---') {
             const parsedInputs = rawInputs.map(p => {
                 const segs = p.split(':');
-                if(segs.length > 1) return { label: Utils.escapeHTML(segs.shift().trim()), value: Utils.escapeHTML(segs.join(':').trim()) };
-                return { label: 'بيانات', value: Utils.escapeHTML(p) };
+                if(segs.length > 1) return { label: segs.shift().trim(), value: segs.join(':').trim() };
+                return { label: prod.input1Label || 'بيانات', value: p };
             });
-            inputsCardHtml = AdminTemplates.orderInputsCard(parsedInputs);
+            inputsCardHtml = OrdersTemplates.orderInputsCard(parsedInputs);
         }
 
         const codeText = Array.isArray(order.deliveredCode) ? order.deliveredCode.join(' | ') : (order.deliveredCode || '');
-        const codeHtml = codeText ? AdminTemplates.orderCodeCard(Utils.escapeHTML(codeText)) : '';
+        let codeHtml = codeText ? OrdersTemplates.orderCodeCard(codeText) : '';
+        if (order.lateSupplierCode) {
+            codeHtml += OrdersTemplates.adminReplyCard(order.lateSupplierCode, '🚨 كود متأخر وصل من المورد بعد رفض الطلب (خاص بالإدمن فقط)');
+        }
 
-        const replyHtml = (order.adminNote) ? AdminTemplates.adminReplyCard(Utils.escapeHTML(order.adminNote)) : '';
-        const imgHtml = AdminTemplates.drawerProdImg(prod.img ? Utils.escapeHTML(prod.img) : null);
+        const replyHtml = (order.adminNote) ? OrdersTemplates.adminReplyCard(order.adminNote) : '';
+        const imgHtml = OrdersTemplates.drawerProdImg((prod.image || prod.img) || null);
         
         const shortId = RenderHelpers.formatUserId(user) || '--';
 
-        bodyContent.innerHTML = AdminTemplates.orderDrawerBody({
-            userId: Utils.escapeHTML(order.userId || '--'),
-            // 🚀 [التحديث المعماري الأهم]: تمرير shortId المولد من RenderHelpers كما هو بدون تعقيم
-            // لأن بداخله أكواد HTML للنسخ الذكي للأيقونة.
+        bodyContent.innerHTML = OrdersTemplates.orderDrawerBody({
+            userId: String(order.userId || '--'),
             userDisplayId: shortId, 
             displayUser, avatarHtml, imgHtml, prodName, 
-            qty: Utils.enNum(qty), priceTxt, exactPriceTxt, unitCostTxt, 
+            qty: Utils.enNum(qty), 
             statusClass: order.status, sText, dateTxt,
             sourceBadgeHtml,
             apiTrackingRowHtml,
@@ -201,17 +237,39 @@ export const OrdersUI = {
             extraMetaHtml,
             fxRateStr: order.fxRate ? `1 USD = ${order.fxRate} ${cCode}` : null, 
             inputsCardHtml, codeHtml, replyHtml,
-            couponRowHtml, originalPriceRowHtml,
             financialSnapshotHtml 
         });
 
-        footerActions.innerHTML = AdminTemplates.orderDrawerFooter(order.status, order.id, isApi);
-        drawer.classList.add('active');
+        footerActions.innerHTML = OrdersTemplates.orderDrawerFooter(order.status, order.id, isApi || isSupplier);
+        
+        if (!isSilentRefresh) {
+            void drawer.offsetWidth;
+            requestAnimationFrame(() => drawer.classList.add('active'));
+        }
+
+        if (!isSilentRefresh && order._auditToken && order.pricingSnapshot?.costUsd === undefined) {
+            this._hydrateEncryptedAuditIfNeeded(order.id);
+        }
+    },
+    _hydrateEncryptedAuditIfNeeded: async function(orderId) {
+        try {
+            const res = await FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 1, searchQuery: String(orderId) });
+            if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
+                const decryptedOrd = res.data[0];
+                if (!AdminData.data.ordersMap) AdminData.data.ordersMap = {};
+                AdminData.data.ordersMap[String(orderId)] = decryptedOrd;
+                if (String(this.currentOrderId) === String(orderId)) {
+                    this.openOrderDrawer(orderId, true);
+                }
+            }
+        } catch (e) {}
     },
 
     closeOrderDrawer: function() {
-        const drawer = document.getElementById('order-drawer-overlay');
-        if(drawer) drawer.classList.remove('active');
+        if (window.AdminUI && window.AdminUI.closeModal) {
+            window.AdminUI.closeModal('order-drawer-overlay');
+        }
+        
         this.currentOrderId = null;
         EventBus.emit('order-drawer-closed');
     }

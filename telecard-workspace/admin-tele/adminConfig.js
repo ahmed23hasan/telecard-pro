@@ -51,15 +51,16 @@ export const DB_KEYS = deepFreeze({
     LOGS: 'telecard_audit_logs',
     ALERTS: 'telecard_alerts',
     KYC: 'telecard_kyc',
-    SUPPLIERS: 'telecard_suppliers', 
-    SYSTEM_ERRORS: 'telecard_system_errors' 
+    SUPPLIERS: 'telecard_suppliers',
+    SYSTEM_ERRORS: 'telecard_system_errors',
+    REVIEWS: 'telecard_reviews'
 });
 
 export const normalizeRates = (rawArray) => {
     let map = {
         'USD': { code: 'USD', name: 'دولار أمريكي', symbol: '$', priceRate: 1, depRate: 1, isBase: true }
     };
-
+    
     if (Array.isArray(rawArray)) {
         rawArray.forEach(r => {
             if (r && r.code && String(r.code).toUpperCase() !== 'USD') {
@@ -73,6 +74,6 @@ export const normalizeRates = (rawArray) => {
             }
         });
     }
-
+    
     return Object.values(map);
 };

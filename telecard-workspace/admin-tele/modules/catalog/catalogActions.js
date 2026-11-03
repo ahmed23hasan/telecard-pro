@@ -1,8 +1,10 @@
 // ============================================================================
-// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - Enterprise V18.10 💎
-// 🌟 التحديث الأقصى (Strict MVC Edition): 
-// 1. MVC Enforcement: منع الـ Actions من التحدث المباشر مع قاعدة البيانات.
-// 2. Missing Action Fix 🔌: ربط مسار (toggle-supplier-link) المفقود لتفعيل قفل التكلفة.
+// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - Enterprise V20.2 💎
+// 🚀 التحديثات المعمارية (V20.2 - Pause Control & Safe Config State):
+// 1. Pause Sub-Package Route ⏸️: إضافة مسار (toggle-pkg-avail) لإيقاف/تفعيل الباقات الفرعية.
+// 2. Edit Sub-Package Route ✏️: إضافة مسار (edit-pkg) لتعديل الباقات الفرعية مباشرة دون حذفها.
+// 3. Safe Config State 🛡️: إزالة مسح الباقات العشوائي عند تبديل شكل الحقول في (render-prod-config).
+// 4. Tree Fallback Mappings 🌳: توحيد مسارات الشجرة المزدوجة لمعالجة تحديد الأقسام والمنتجات.
 // ============================================================================
 
 import { CatalogController } from './catalogController.js';
@@ -38,18 +40,17 @@ export const CatalogActions = {
   'save-vault': () => CatalogController.saveVaultPool?.(),
   
   // ==========================================
-  // ⚙️ 4. تفاعلات بناء المنتجات
+  // ⚙️ 4. تفاعلات بناء المنتجات والباقات الفرعية
   // ==========================================
   'render-prod-config': () => {
-    EventBus.emit('req-update-state', { tempPackages: [] });
     AdminRender?.renderProdConfig?.();
   },
   'add-package': () => CatalogController.addPackage?.(),
+  'edit-pkg': (data) => CatalogController.editPackage?.(Number(data.index)),
   'remove-pkg': (data) => CatalogController.removePkg?.(Number(data.index)),
+  'toggle-pkg-avail': (data) => CatalogController.togglePackageAvailability?.(Number(data.index)),
   'toggle-mock-edit': (data) => AdminUI?.CatalogUI?.toggleMockEdit?.(data.val),
   'toggle-simple-qty': (data) => AdminUI?.CatalogUI?.toggleSimpleQty?.(data.element.checked),
-  
-  // 🚀 [الإصلاح المعماري]: السلك المفقود لربط الموردين
   'toggle-supplier-link': (data) => AdminUI?.CatalogUI?.toggleSupplierLink?.(data.element),
   
   // ==========================================
@@ -60,16 +61,25 @@ export const CatalogActions = {
   'toggle-grid-sync': (data) => CatalogController.toggleGridSync?.(data.element.checked),
   'select-icon': (data) => AdminUI?.CatalogUI?.selectIcon?.(data.element),
   'select-animation': (data) => AdminUI?.CatalogUI?.selectAnimation?.(data.element),
+  
+  // 🚀 [الإصلاح المعماري]: توحيد أحداث شجرة الأقسام (تحديد الأبناء/الآباء)
   'toggle-tree-node': (data) => AdminUI?.CatalogUI?.toggleTreeNode?.(data.element),
+  'toggleTreeNode': (data) => AdminUI?.CatalogUI?.toggleTreeNode?.(data.element),
+  
   'tree-parent-check': (data) => AdminUI?.CatalogUI?.handleTreeParentCheck?.(data.element),
+  'handleTreeParentCheck': (data) => AdminUI?.CatalogUI?.handleTreeParentCheck?.(data.element),
+  
   'tree-child-check': (data) => AdminUI?.CatalogUI?.handleTreeChildCheck?.(data.element),
+  'handleTreeChildCheck': (data) => AdminUI?.CatalogUI?.handleTreeChildCheck?.(data.element),
+  
   'toggle-all-tree': (data) => AdminUI?.CatalogUI?.toggleAllTree?.(data.target),
   'detect-country': (data) => AdminUI?.detectCountryAutoFill?.(data.val, AdminData.data.countries),
-  'save-order': (data) => CatalogController.saveNewOrder?.(data.orderArray),
+  'save-sort-order': (data) => CatalogController.saveNewOrder?.(data.orderArray),
   
   // ==========================================
   // 🏦 6. إدارة الأكواد التالفة (Defective Vault)
   // ==========================================
   'view-defective-codes': (data) => CatalogController.viewDefectiveCodes?.(data.id),
+  'load-more-defective': () => { if (window._loadMoreDefective) window._loadMoreDefective(); },
   'close-defective-modal': () => AdminUI?.CatalogUI?.closeDefectiveModalUI?.()
 };

@@ -1,25 +1,18 @@
 // ============================================================================
-// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V18.9.1 💎
-// 🎯 الوظيفة: إدارة التقويم، الكوبونات، اللمعان، ومزامنة الواجهة السفلية
-// 🚀 التحديثات المعمارية الصارمة (V18.9.1 - Stability & Memory Patch):
-// 1. Event Delegation Fix 🛡️: نقل أحداث التقويم للمستمع المركزي لمنع "الأزرار الميتة" عند إعادة رسم الـ DOM.
-// 2. Circular Dependency Shield 🛡️: إزالة استيراد UIManager المباشر واستخدام getSys() لمنع انهيار ES6.
-// 3. Animation Ghost Killer 🛡️: القتل التلقائي لرسوم عداد السعر إذا تم إغلاق أو تغيير المنتج لتوفير الـ CPU.
-// 4. Silent Success Fix 🛡️: دمج مستشعرات الجدار الناري المالي مع الكوبونات.
+// 🧩 ملف المكونات الإضافية والواجهات المستقلة (components.js) - V21.0.0 💎
+// 🎯 الوظيفة: إدارة التقويم الذكي، أداة الكوبونات، لمعان البطاقات، وعداد السعر المتحرك.
+// 🚀 التحديثات المعمارية الصارمة (V21.0.0 - Citadel Architecture & Zero-Conflict Events):
+// 1. Deterministic Bottom-Nav Delegation 🏛️: إزالة مستمع النقر العشوائي من الشريط السفلي وتفويضه لـ UIManager.syncBottomNavUI.
+// 2. Coupon Message Lifecycle Fix 🎟️: تفريغ وإعادة ضبط كلاسات صندوق رسائل الكوبون (_clearCouponMessage) لضمان اختفائها الفعلي.
+// 3. Unified Calendar Sync 📅: توحيد صيغة التاريخ (YYYY-MM-DD) مع توقيت السيرفر وإلغاء الازدواجية في فتح التقويم.
+// 4. Direct ES6 Module Binding ⚡: استبدال getSys() البطيئة باستيراد مباشر لـ UIManager و RenderManager.
 // ============================================================================
 
-import { DataManager, LiveStoreData } from './dataManager.js';
+import { DataManager } from './dataManager.js';
 import * as Utils from './utils.js'; 
 import { RenderHelpers } from './core/renderHelpers.js'; 
-
-// 🛡️ التحديث 2: التوجيه الآمن للموزع المركزي لمنع الاعتماد الدائري (Circular Dependency)
-const getSys = () => {
-    if (typeof window !== 'undefined') {
-        if (window.UIManager) return window.UIManager;
-        if (window.ClientSystem) return window.ClientSystem;
-    }
-    return null;
-};
+import { UIManager } from './ui/uiManager.js';
+import { RenderManager } from './renderManager.js';
 
 // =========================================================
 // 1️⃣ نظام التقويم الذكي (Calendar App)
@@ -34,18 +27,21 @@ export const CalendarApp = {
     _isInitialized: false,
     _boundDocClick: false, 
 
+    _getServerToday: function() {
+        const nowMs = (typeof DataManager !== 'undefined' && typeof DataManager.getNow === 'function')
+            ? DataManager.getNow()
+            : Date.now();
+        return new Date(nowMs);
+    },
+
     init: function() {
         const modal = document.getElementById('cal-modal');
         if (modal && modal.parentNode !== document.body) document.body.appendChild(modal);
 
-        const today = new Date();
-        const formatted = this.formatDate(today);
-        
-        ['order-date-start', 'order-date-end', 'wallet-date-start', 'wallet-date-end', 'pay-date-start', 'pay-date-end'].forEach(id => {
-            const hiddenInput = document.getElementById(id);
-            const dispSpan = document.getElementById('disp-' + id);
-            if(hiddenInput && dispSpan) { hiddenInput.value = formatted; dispSpan.innerText = formatted; }
-        });
+        // ضبط العرض المبدئي للتواريخ بصيغة موحدة دون تقييد الحقول المخفية قبل اختيار المستخدم
+        this.resetDefaultDates('order');
+        this.resetDefaultDates('wallet');
+        this.resetDefaultDates('pay');
         
         this.buildDropdowns();
         
@@ -64,33 +60,55 @@ export const CalendarApp = {
             });
         }
 
-        // 🛡️ التحديث 1: الاعتماد على المستمع المركزي للـ Document بدلاً من ربطه بالـ Modal المتغير
         if (!this._boundDocClick) {
             document.addEventListener('click', (e) => {
-                // معالجة أزرار التقويم
                 if (e.target.closest('#calBtnConfirm')) {
-                    e.stopPropagation(); this.confirmSelection(); return;
-                } else if (e.target.closest('#calBtnCancel')) {
-                    e.stopPropagation(); this.close(); return;
+                    e.stopPropagation();
+                    this.confirmSelection();
+                    return;
+                }
+                if (e.target.closest('#calBtnCancel')) {
+                    e.stopPropagation();
+                    this.close();
+                    return;
                 }
 
-                // فتح التقويم عند النقر على الحقل
-                const dateField = e.target.closest('.custom-field');
-                if (dateField) {
-                    const hiddenInput = dateField.querySelector('input[type="hidden"]');
-                    if (hiddenInput) { e.preventDefault(); e.stopPropagation(); this.open(hiddenInput.id, dateField); return; }
-                }
-
-                // إغلاق التقويم عند النقر خارجه
                 const activeModal = document.getElementById('cal-modal');
                 if (!activeModal || !activeModal.classList.contains('show')) return;
                 
-                if (!activeModal.contains(e.target) && !e.target.closest('.btn-action')) {
+                // إغلاق القوائم الفرعية للشهر والسنة عند النقر داخل التقويم خارج المحددات
+                if (activeModal.contains(e.target) && !e.target.closest('.selector-box')) {
+                    activeModal.querySelectorAll('.dropdown-list.active').forEach(l => l.classList.remove('active'));
+                }
+
+                // إغلاق التقويم عند النقر خارجه
+                if (!activeModal.contains(e.target) && !e.target.closest('.custom-field') && !e.target.closest('.btn-action')) {
                     this.close();
                 }
             });
             this._boundDocClick = true;
         }
+    },
+
+    resetDefaultDates: function(prefix) {
+        const datePrefix = prefix === 'payments' ? 'pay' : prefix;
+        const today = this._getServerToday();
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+
+        const startFormatted = this.formatDate(yesterday);
+        const endFormatted = this.formatDate(today);
+
+        const startInp = document.getElementById(`${datePrefix}-date-start`);
+        const endInp = document.getElementById(`${datePrefix}-date-end`);
+        const dispStart = document.getElementById(`disp-${datePrefix}-date-start`);
+        const dispEnd = document.getElementById(`disp-${datePrefix}-date-end`);
+
+        // تبقى الحقول المخفية فارغة لعرض السجل كاملاً حتى يختار العميل التصفية بالتاريخ
+        if (startInp) startInp.value = '';
+        if (endInp) endInp.value = '';
+        if (dispStart) { dispStart.innerText = startFormatted; dispStart.classList.remove('placeholder'); }
+        if (dispEnd) { dispEnd.innerText = endFormatted; dispEnd.classList.remove('placeholder'); }
     },
 
     open: function(inputId, eventOrElement) {
@@ -115,10 +133,11 @@ export const CalendarApp = {
         });
         
         const hiddenInput = document.getElementById(inputId);
-        const currentVal = hiddenInput ? hiddenInput.value : '';
+        const dispSpan = document.getElementById('disp-' + inputId);
+        const rawDateStr = (hiddenInput && hiddenInput.value) ? hiddenInput.value : (dispSpan ? dispSpan.innerText.trim().replace(/\//g, '-') : '');
         
-        if (currentVal && currentVal.includes('-')) {
-            const parts = currentVal.split('-');
+        if (rawDateStr && rawDateStr.includes('-')) {
+            const parts = rawDateStr.split('-');
             const y = parseInt(parts[0], 10);
             const m = parseInt(parts[1], 10) - 1;
             const d = parseInt(parts[2], 10);
@@ -144,7 +163,7 @@ export const CalendarApp = {
     },
 
     _setFallbackDate: function() {
-        const now = new Date();
+        const now = this._getServerToday();
         this.currYear = now.getFullYear();
         this.currMonth = now.getMonth();
         this.tempSelectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -153,7 +172,10 @@ export const CalendarApp = {
     close: function() {
         requestAnimationFrame(() => {
             const modal = document.getElementById('cal-modal');
-            if(modal) modal.classList.remove('show');
+            if (modal) {
+                modal.classList.remove('show');
+                modal.querySelectorAll('.dropdown-list.active').forEach(l => l.classList.remove('active'));
+            }
             document.querySelectorAll('.custom-field').forEach(f => f.classList.remove('active'));
         });
     },
@@ -186,7 +208,8 @@ export const CalendarApp = {
                 fragment.appendChild(e); 
             }
             
-            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const today = this._getServerToday();
+            today.setHours(0, 0, 0, 0);
             
             for(let d = 1; d <= daysInMonth; d++) {
                 const cell = document.createElement('div'); 
@@ -208,19 +231,35 @@ export const CalendarApp = {
     },
 
     confirmSelection: function() {
-        if (this.tempSelectedDate && this.activeInputId) {
-            const formatted = this.formatDate(this.tempSelectedDate);
-            const hiddenInput = document.getElementById(this.activeInputId);
-            if(hiddenInput) { 
-                hiddenInput.value = formatted; 
-                const disp = document.getElementById('disp-' + this.activeInputId); 
-                if(disp) disp.innerText = formatted; 
-                if(typeof hiddenInput.onchange === 'function') hiddenInput.onchange(); 
+    if (this.tempSelectedDate && this.activeInputId) {
+        const formatted = this.formatDate(this.tempSelectedDate);
+        const hiddenInput = document.getElementById(this.activeInputId);
+        if (hiddenInput) {
+            hiddenInput.value = formatted;
+            const disp = document.getElementById('disp-' + this.activeInputId);
+            if (disp) disp.innerText = formatted;
+            
+            // 🔗 مزامنة الحقل المقابل (البداية أو النهاية) إذا كان لا يزال فارغاً لضمان تطابق ما يراه العميل مع الفلتر
+            const isStart = this.activeInputId.endsWith('-start');
+            const companionId = isStart ?
+                this.activeInputId.replace('-start', '-end') :
+                this.activeInputId.replace('-end', '-start');
+            const companionInp = document.getElementById(companionId);
+            const companionDisp = document.getElementById('disp-' + companionId);
+            if (companionInp && !companionInp.value && companionDisp && companionDisp.innerText.includes('-')) {
+                companionInp.value = companionDisp.innerText.trim();
             }
+            
+            if (typeof hiddenInput.onchange === 'function') hiddenInput.onchange();
+            
+            // ⚡ تصفية السجل المفتوح فوراً بمجرد اختيار التاريخ
+            if (this.activeInputId.startsWith('order-')) RenderManager.renderOrders?.(true);
+            else if (this.activeInputId.startsWith('wallet-')) RenderManager.renderWallet?.(true);
+            else if (this.activeInputId.startsWith('pay-')) RenderManager.renderPayments?.(true);
         }
-        this.close();
-    },
-
+    }
+    this.close();
+},
     formatDate: function(d) { 
         return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`; 
     },
@@ -269,7 +308,7 @@ export const CalendarApp = {
         
         const yL = document.getElementById('list-year'); 
         if(yL) { 
-            const ty = new Date().getFullYear(); 
+            const ty = this._getServerToday().getFullYear(); 
             let yearsHtml = '';
             for(let y = ty - 10; y <= ty + 10; y++){ 
                 yearsHtml += `<div class="list-item" data-year="${y}">${y}</div>`; 
@@ -297,7 +336,7 @@ export const CalendarApp = {
 };
 
 // =========================================================
-// 2️⃣ تجميع المكونات (مصدّرة كـ Module)
+// 2️⃣ المكونات التفاعلية (Components Module)
 // =========================================================
 export const Components = {
     priceTicker: null,
@@ -308,18 +347,44 @@ export const Components = {
         let qty = 1; let optIdx = null;
         if (!DataManager.currentProd) return { qty, optIdx };
 
+        const prodType = DataManager.currentProd.type;
+
         try {
-            if (DataManager.currentProd.type === 'counter') {
+            if (prodType === 'counter') {
                 qty = parseInt(document.getElementById('pm-qty')?.value, 10) || 1;
-            } else if (DataManager.currentProd.type === 'select') {
+            } else if (prodType === 'select') {
                 const sel = document.getElementById('pm-pack');
                 optIdx = sel ? parseInt(sel.value, 10) : 0;
-            } else if (DataManager.currentProd.type === 'simple' && DataManager.currentProd.allowQty) {
+            } else if (prodType === 'simple' && DataManager.currentProd.allowQty) {
                 qty = parseInt(document.getElementById('simple-qty-val')?.value, 10) || 1;
             }
         } catch(e) { console.warn('DOM Parse Warning', e); }
 
-        return { qty: Math.max(1, qty), optIdx };
+        const activeOpt = (prodType === 'select' && Array.isArray(DataManager.currentProd.options) && optIdx !== null) ?
+            DataManager.currentProd.options[optIdx] : null;
+            
+        const rawMaxVal = activeOpt?.maxQty ?? DataManager.currentProd.maxQty ?? DataManager.currentProd.simpleMax;
+        const rawMinVal = activeOpt?.minQty ?? DataManager.currentProd.minQty;
+        const adminMax = parseInt(rawMaxVal, 10);
+        const adminMin = parseInt(rawMinVal, 10);
+
+        const systemMax = prodType === 'select' ? 1 : (prodType === 'counter' ? 5000000 : 100);
+        
+        const finalMaxLimit = (!isNaN(adminMax) && adminMax > 0) ? Math.min(adminMax, systemMax) : systemMax;
+        const finalMinLimit = prodType === 'select' ? 1 : ((!isNaN(adminMin) && adminMin > 0) ? Math.max(1, adminMin) : 1);
+
+        const finalQty = Math.min(Math.max(finalMinLimit, qty), finalMaxLimit);
+
+        if (finalQty !== qty) {
+            requestAnimationFrame(() => {
+                const pmQty = document.getElementById('pm-qty');
+                const simpleQty = document.getElementById('simple-qty-val');
+                if (pmQty && prodType === 'counter') pmQty.value = finalQty;
+                if (simpleQty && prodType === 'simple') simpleQty.value = finalQty;
+            });
+        }
+
+        return { qty: finalQty, optIdx };
     },
 
     initProductShine: function() {
@@ -369,7 +434,6 @@ export const Components = {
         let startTimestamp = null;
         
         const step = (timestamp) => {
-            // 🛡️ التحديث 3: التأكد من أن العنصر لا يزال موجوداً في الشاشة لتوفير الموارد
             const currentEl = document.getElementById('pm-price');
             if (!currentEl || currentEl !== el) {
                 this.priceTicker = null;
@@ -422,7 +486,6 @@ export const Components = {
     },
 
     pasteText: async function() {
-        const SysUI = getSys();
         const codeInput = document.getElementById('couponCode');
         if (!codeInput) return;
         try {
@@ -432,20 +495,33 @@ export const Components = {
             if (text) {
                 codeInput.value = String(text).replace(/[<>'"/;`%]/g, '').trim().toUpperCase();
                 this.checkInputState(); 
-                
-                // 🛡️ Mobile Keyboard Glitch Fix
                 codeInput.blur(); 
-                
-                if (SysUI) SysUI.showToast?.('تم إدراج الكوبون', 'success');
+                UIManager.showToast?.('تم إدراج الكوبون', 'success');
             }
         } catch (err) { 
-            if (SysUI) SysUI.showToast?.('تعذر اللصق تلقائياً، يرجى كتابة الكود', 'error'); 
+            UIManager.showToast?.('تعذر اللصق تلقائياً، يرجى كتابة الكود', 'error'); 
         }
+    },
+
+    _clearCouponMessage: function(msgBox = document.getElementById('couponMsg')) {
+        if (this._couponMsgTimer) {
+            clearTimeout(this._couponMsgTimer);
+            this._couponMsgTimer = null;
+        }
+        if (!msgBox) return;
+        requestAnimationFrame(() => {
+            if (!msgBox.isConnected) return;
+            msgBox.className = 'coupon-msg-box';
+            msgBox.innerHTML = '';
+        });
     },
 
     _showCouponMessage: function(msgBox, htmlContent, className, duration = 4000) {
         if (!msgBox) return;
-        if (this._couponMsgTimer) clearTimeout(this._couponMsgTimer);
+        if (this._couponMsgTimer) {
+            clearTimeout(this._couponMsgTimer);
+            this._couponMsgTimer = null;
+        }
         
         requestAnimationFrame(() => {
             if (!msgBox.isConnected) return;
@@ -455,24 +531,22 @@ export const Components = {
         
         if (duration > 0) {
             this._couponMsgTimer = setTimeout(() => {
-                if (msgBox.isConnected) {
-                    requestAnimationFrame(() => msgBox.classList.remove('coupon-msg-visible'));
-                }
+                this._clearCouponMessage(msgBox);
             }, duration);
         }
     },
 
-    applyCoupon: function() {
+    applyCoupon: async function() {
         if (!DataManager.currentProd) return; 
-        const SysUI = getSys();
 
         if (!DataManager.user) {
-            if (SysUI) { SysUI.showToast?.('يرجى تسجيل الدخول أولاً', 'error'); SysUI.sfx?.('error'); }
+            UIManager.showToast?.('يرجى تسجيل الدخول أولاً', 'error');
+            UIManager.sfx?.('error');
             return;
         }
         
         if (DataManager.appliedCoupon) { 
-            if (SysUI) SysUI.showToast?.('يوجد كوبون مستخدم بالفعل', 'info'); 
+            UIManager.showToast?.('يوجد كوبون مستخدم بالفعل', 'info'); 
             return; 
         }
 
@@ -490,43 +564,62 @@ export const Components = {
             return;
         }
 
+        const originalBtnText = btnApply ? btnApply.innerHTML : 'تطبيق';
+        if (btnApply) {
+            btnApply.disabled = true;
+            btnApply.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        }
+
+        try {
+            if (typeof DataManager.fetchCouponByCode === 'function') {
+                await DataManager.fetchCouponByCode(code);
+            }
+        } finally {
+            if (btnApply && !DataManager.appliedCoupon) {
+                btnApply.disabled = false;
+                btnApply.innerHTML = originalBtnText;
+            }
+        }
+
         const selection = this._getCurrentSelection();
         const result = DataManager.validateCoupon(code, DataManager.currentProd, selection.qty, selection.optIdx);
 
         if (!result.valid) {
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-xmark"></i> ${Utils.escapeHtml(result.msg)}`, 'error');
-            if(SysUI) { SysUI.showToast?.(result.msg, 'error'); SysUI.sfx?.('error'); }
+            UIManager.showToast?.(result.msg, 'error');
+            UIManager.sfx?.('error');
             return;
         }
 
         const pricingCheck = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, result.coupon);
         if (!pricingCheck || !pricingCheck.pricingSnapshot) return;
 
-        // 🛡️ التحديث الماسي (Firewall Guard)
         if (pricingCheck.pricingSnapshot.isFirewallViolated) {
             const reason = pricingCheck.pricingSnapshot.rejectionReason || 'عذراً، هذا الكوبون يكسر حماية التسعير.';
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-shield-halved"></i> ${Utils.escapeHtml(reason)}`, 'error', 6000);
-            if(SysUI) { SysUI.showToast?.('مرفوض لحماية المتجر', 'error'); SysUI.sfx?.('error'); }
+            UIManager.showToast?.('مرفوض لحماية المتجر', 'error');
+            UIManager.sfx?.('error');
             return; 
         }
 
         const couponVal = parseFloat(result.coupon.value) || 0;
-        const originalTotal = pricingCheck.pricingSnapshot.totalOriginalPrice || 0;
+        const originalTotal = pricingCheck.pricingSnapshot.originalPrice || 0;
         const couponDiscount = pricingCheck.pricingSnapshot.couponDiscount || 0;
         
         if (couponDiscount === 0 && originalTotal > 0 && couponVal > 0) {
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-circle-info"></i> عذراً، لا يمكن تطبيق الخصم على هذا المنتج.`, 'error', 5000);
-            if(SysUI) { SysUI.showToast?.('هذا المنتج غير مشمول بالخصم الإضافي', 'warning'); SysUI.sfx?.('error'); }
+            UIManager.showToast?.('هذا المنتج غير مشمول بالخصم الإضافي', 'warning');
+            UIManager.sfx?.('error');
             return; 
         }
 
         DataManager.appliedCoupon = result.coupon; 
         
         codeInput.disabled = true; 
-        if(btnApply) { btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
+        if(btnApply) { btnApply.innerHTML = originalBtnText; btnApply.disabled = true; btnApply.classList.add('btn-disabled'); }
         
-        if (SysUI && typeof SysUI.updatePriceDisplay === 'function') SysUI.updatePriceDisplay(); 
-        if (SysUI) SysUI.sfx?.('success');
+        UIManager.updatePriceDisplay?.(); 
+        UIManager.sfx?.('success');
 
         const safeCouponValue = Utils.escapeHtml(String(result.coupon.value));
         const discountText = result.coupon.type === 'percentage' ? `بنسبة ${safeCouponValue}%` : `ثابت`;
@@ -538,18 +631,23 @@ export const Components = {
             if(clearIcon) clearIcon.style.display = 'block'; 
         });
 
-        if(SysUI) SysUI.showToast?.('تم تطبيق الخصم بنجاح', 'success');
+        UIManager.showToast?.('تم تطبيق الخصم بنجاح', 'success');
     },
     
     removeCoupon: function(silent = false) {
-        const SysUI = getSys();
         const codeInput = document.getElementById('couponCode');
         const msgBox = document.getElementById('couponMsg');
         const btnApply = document.getElementById('btnApply');
         
+        if (this.priceTicker) {
+            cancelAnimationFrame(this.priceTicker);
+            this.priceTicker = null;
+        }
+
         DataManager.appliedCoupon = null; 
         
-        if (SysUI && typeof SysUI.updatePriceDisplay === 'function') SysUI.updatePriceDisplay(); 
+        UIManager.updatePriceDisplay?.(); 
+        this._clearCouponMessage(msgBox);
         
         requestAnimationFrame(() => {
             if (codeInput) {
@@ -564,15 +662,14 @@ export const Components = {
                 btnApply.disabled = false;
                 btnApply.classList.remove('btn-disabled');
             }
-            
-            if (msgBox) msgBox.classList.remove('coupon-msg-visible');
         });
-        
-        if (this._couponMsgTimer) clearTimeout(this._couponMsgTimer);
         
         this.checkInputState(); 
 
-        if(!silent && SysUI) { SysUI.showToast?.('تم إزالة الكوبون', 'info'); SysUI.sfx?.('nav'); }
+        if (!silent) {
+            UIManager.showToast?.('تم إزالة الكوبون', 'info');
+            UIManager.sfx?.('nav');
+        }
     },
 
     revalidateAppliedCoupon: function() {
@@ -584,7 +681,6 @@ export const Components = {
         let isValid = result.valid;
         let rejectMsg = result.msg;
 
-        // 🛡️ Dynamic Revalidation Guard
         if (isValid) {
             const pricingCheck = DataManager.getPricingLocal(DataManager.currentProd, selection.qty, selection.optIdx, DataManager.appliedCoupon);
             if (pricingCheck && pricingCheck.pricingSnapshot?.isFirewallViolated) {
@@ -597,49 +693,20 @@ export const Components = {
             this.removeCoupon(true); 
             const msgBox = document.getElementById('couponMsg');
             this._showCouponMessage(msgBox, `<i class="fa-solid fa-triangle-exclamation"></i> تم إزالة الكوبون: ${Utils.escapeHtml(rejectMsg)}`, 'error', 5000);
-            
-            const SysUI = getSys();
-            if (SysUI) SysUI.showToast?.('تم إلغاء الكوبون بسبب تغير الشروط', 'warning');
+            UIManager.showToast?.('تم إلغاء الكوبون بسبب تغير الشروط', 'warning');
         }
     },
 
+    // 🏛️ تفويض كامل لمعمارية القلعة (UIState) دون أي مستمعات نقر متضاربة
     initBottomNavSync: function() {
-        const navContainer = document.querySelector('.bottom-nav');
-        if (!navContainer) return;
-        
-        const navIcons = navContainer.querySelectorAll('.nav-icon');
-        
-        window.updateBottomNavState = function(targetState) {
-            requestAnimationFrame(() => {
-                navIcons.forEach(icon => icon.classList.remove('active'));
-                navIcons.forEach(icon => {
-                    const action = icon.getAttribute('data-action') || '';
-                    if (action.includes(targetState) || (targetState === 'home' && (action === 'go-home' || action === ''))) {
-                        icon.classList.add('active');
-                    }
-                });
-            });
-        };
-        
-        if (!navContainer.dataset.navBound) {
-            navContainer.dataset.navBound = '1';
-            navContainer.addEventListener('click', (e) => {
-                const clickedIcon = e.target.closest('.nav-icon');
-                if (!clickedIcon) return;
-                
-                requestAnimationFrame(() => {
-                    navIcons.forEach(i => i.classList.remove('active'));
-                    clickedIcon.classList.add('active');
-                });
-            });
-        }
-        
-        let initialState = 'home';
-        if (document.body.classList.contains('is-favorites')) initialState = 'favorites';
-        else if (document.body.classList.contains('is-wallet')) initialState = 'wallet';
-        else if (document.body.classList.contains('is-orders')) initialState = 'orders';
-        else if (document.body.classList.contains('is-settings')) initialState = 'settings';
-        
-        window.updateBottomNavState(initialState);
+        UIManager.syncBottomNavUI?.();
     }
 };
+
+if (typeof globalThis !== 'undefined' && !globalThis.CalendarApp) {
+    Object.defineProperty(globalThis, 'CalendarApp', {
+        value: CalendarApp,
+        writable: false,
+        configurable: false
+    });
+}

@@ -2,81 +2,163 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ==========================================
-    // 🛠️ دوال التحقق الأساسية (Core Authentication)
-    // ==========================================
     function isAuthenticated() { return request.auth != null; }
-    
-    function isMasterAdmin() {
-      return isAuthenticated() && ('admin' in request.auth.token && request.auth.token.admin == true);
-    }    
-    
-    function isNotBanned() { 
-      return isAuthenticated() && (!('banned' in request.auth.token) || request.auth.token.banned != true); 
-    }
-    
+    function isMasterAdmin() { return isAuthenticated() && ('admin' in request.auth.token && request.auth.token.admin == true); }    
+    function isNotBanned() { return isAuthenticated() && (!('banned' in request.auth.token) || request.auth.token.banned != true); }
     function isOwner(userId) { return isAuthenticated() && request.auth.uid == userId; }
 
-    // ==========================================
-    // 🛡️ دروع حماية ملف المستخدم (Profile Firewalls)
-    // ==========================================
+    // 🛡️ [حماية الصورة الشخصية ضد الروابط الخارجية و IP Loggers]:
+    function isValidProfileImage(imgVal) {
+      return imgVal == null 
+          || imgVal == '' 
+          || (imgVal is string && imgVal.size() <= 500 && (
+               imgVal.matches('^https://firebasestorage\\.googleapis\\.com/v0/b/[^/]+/o/avatars%2Favatar_' + request.auth.uid + '_.*') ||
+               imgVal.matches('^https://lh3\\.googleusercontent\\.com/.*')
+             ));
+    }
+
+    // 🛡️ [حماية وثائق KYC ضد الروابط الخارجية وانتحال الملكية]:
+    function isValidKycUrl(urlVal) {
+      return urlVal is string 
+          && urlVal.size() <= 1000 
+          && urlVal.matches('^https://firebasestorage\\.googleapis\\.com/v0/b/[^/]+/o/kyc_docs%2F' + request.auth.uid + '_.*');
+    }
+
+    function isOptionalValidKycUrl(dataObj, keyName) {
+      return !(keyName in dataObj) || dataObj[keyName] == null || dataObj[keyName] == '' || isValidKycUrl(dataObj[keyName]);
+    }
+
+    // 🛡️ [حماية الكائنات المتداخلة لبيانات KYC ضد تهريب الروابط الخبيثة]:
+    function isSafeNestedKycData(dataObj) {
+      return !('kycData' in dataObj)
+          || dataObj.kycData == null
+          || (dataObj.kycData is map
+              && dataObj.kycData.keys().hasOnly(['fullName', 'idNumber', 'documentUrl', 'selfieUrl', 'frontImg', 'backImg', 'selfieImg', 'notes'])
+              && isOptionalValidKycUrl(dataObj.kycData, 'documentUrl')
+              && isOptionalValidKycUrl(dataObj.kycData, 'selfieUrl')
+              && isOptionalValidKycUrl(dataObj.kycData, 'frontImg')
+              && isOptionalValidKycUrl(dataObj.kycData, 'backImg')
+              && isOptionalValidKycUrl(dataObj.kycData, 'selfieImg'));
+    }
+
+    // 🛡️ [تحصين الملف الشخصي، حماية بصمة الجهاز من المسح، ودعم إعدادات تاجر الـ API المعتمد]:
     function isStandardProfileUpdate() {
-      // 🚀 الإصلاح: إضافة 'adminMessage' ليتمكن العميل من إخفاء الرسالة بعد قراءتها
-      let allowedKeys = ['name', 'firstName', 'lastName', 'fullName', 'username', 'img', 'phone', 'country', 'theme', 'devicePrints', 'passwordChangeHistory', 'biometricEnabled', 'readAlerts', 'baseCurrency', 'base_currency', 'adminMessage'];
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
+      let isKycLocked = resource.data.get('kycStatus', 'none') == 'approved' || resource.data.get('kycStatus', 'none') == 'verified';
+      let isPhoneCountryAllowed = resource.data.get('isVerified', false) == false ? ['phone', 'country'] : [];
+      let isNameAllowed = isKycLocked ? [] : ['name', 'firstName', 'lastName', 'fullName'];
+      let isApiMerchantAllowed = (resource.data.get('isApiMerchant', false) == true && resource.data.get('isRestricted', false) != true) ? ['webhookUrl', 'webhookSecret', 'apiKeyHash'] : [];
+      
+      let baseKeys = ['username', 'profileImage', 'img', 'theme', 'biometricEnabled', 'biometricRawId', 'twoFactorEnabled', 'readAlerts', 'lastReadAlertTime', 'passwordChangeHistory', 'adminMessage', 'fcmTokens', 'devicePrints'];
+      let allowedKeys = baseKeys.concat(isNameAllowed).concat(isPhoneCountryAllowed).concat(isApiMerchantAllowed);
+      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      
+      let isValidValues = (!changedKeys.hasAny(['username']) || (request.resource.data.username is string && request.resource.data.username.size() <= 50))
+                       && (!changedKeys.hasAny(['profileImage']) || isValidProfileImage(request.resource.data.profileImage))
+                       && (!changedKeys.hasAny(['img']) || isValidProfileImage(request.resource.data.img))
+                       && (!changedKeys.hasAny(['fcmTokens']) || (request.resource.data.fcmTokens is list && request.resource.data.fcmTokens.size() <= 20))
+                       && (!changedKeys.hasAny(['devicePrints']) || (
+                            request.resource.data.devicePrints is list
+                            && request.resource.data.devicePrints.size() <= 15
+                            && (!('devicePrints' in resource.data) || !(resource.data.devicePrints is list) || request.resource.data.devicePrints.hasAll(resource.data.devicePrints))
+                          ))
+                       && (!changedKeys.hasAny(['readAlerts']) || (request.resource.data.readAlerts is list && request.resource.data.readAlerts.size() <= 50))
+                       && (!changedKeys.hasAny(['passwordChangeHistory']) || (request.resource.data.passwordChangeHistory is list && request.resource.data.passwordChangeHistory.size() <= 20))
+                       && (!changedKeys.hasAny(['biometricRawId']) || request.resource.data.biometricRawId == null || (request.resource.data.biometricRawId is string && request.resource.data.biometricRawId.size() <= 500))
+                       && (!changedKeys.hasAny(['adminMessage']) || request.resource.data.adminMessage == null || (request.resource.data.adminMessage is string && request.resource.data.adminMessage.size() <= 500))
+                       && (!changedKeys.hasAny(['lastReadAlertTime']) || request.resource.data.lastReadAlertTime is int || request.resource.data.lastReadAlertTime is timestamp)
+                       && (!changedKeys.hasAny(['theme']) || (request.resource.data.theme is string && request.resource.data.theme.size() <= 20))
+                       && (!changedKeys.hasAny(['biometricEnabled']) || request.resource.data.biometricEnabled is bool)
+                       && (!changedKeys.hasAny(['twoFactorEnabled']) || request.resource.data.twoFactorEnabled is bool)
+                       && (!changedKeys.hasAny(['phone']) || (request.resource.data.phone is string && request.resource.data.phone.size() <= 50))
+                       && (!changedKeys.hasAny(['country']) || (request.resource.data.country is string && request.resource.data.country.size() <= 100))
+                       && (!changedKeys.hasAny(['name']) || (request.resource.data.name is string && request.resource.data.name.size() <= 100))
+                       && (!changedKeys.hasAny(['firstName']) || (request.resource.data.firstName is string && request.resource.data.firstName.size() <= 50))
+                       && (!changedKeys.hasAny(['lastName']) || (request.resource.data.lastName is string && request.resource.data.lastName.size() <= 50))
+                       && (!changedKeys.hasAny(['fullName']) || (request.resource.data.fullName is string && request.resource.data.fullName.size() <= 100))
+                       && (!changedKeys.hasAny(['webhookUrl']) || request.resource.data.webhookUrl == null || request.resource.data.webhookUrl == '' || (request.resource.data.webhookUrl is string && request.resource.data.webhookUrl.size() <= 500 && request.resource.data.webhookUrl.matches('^https://.*')))
+                       && (!changedKeys.hasAny(['webhookSecret']) || request.resource.data.webhookSecret == null || request.resource.data.webhookSecret == '' || (request.resource.data.webhookSecret is string && request.resource.data.webhookSecret.size() <= 200))
+                       && (!changedKeys.hasAny(['apiKeyHash']) || request.resource.data.apiKeyHash == null || request.resource.data.apiKeyHash == '' || (request.resource.data.apiKeyHash is string && request.resource.data.apiKeyHash.matches('^[a-fA-F0-9]{64}$')));
+      
+      return changedKeys.hasOnly(allowedKeys) && isValidValues;
     }
 
-    function isSecureKycSubmission() {
-      let diff = request.resource.data.diff(resource.data);
-      let isOnlyKycFields = diff.affectedKeys().hasOnly(['kycStatus', 'kycData', 'fullName', 'country', 'phone']);
-      let isSettingToPending = request.resource.data.kycStatus == 'pending';
-      let isCurrentlyNotApproved = resource.data.get('kycStatus', 'none') != 'approved' && resource.data.get('kycStatus', 'none') != 'verified';
-      return isOnlyKycFields && isSettingToPending && isCurrentlyNotApproved;
-    }
-
+    // 🛡️ [إغلاق ثغرة ترقية الحساب وتزوير الهوية]: إجبار الحسابات الجديدة على القيم الافتراضية الصارمة
     function isSafeUserCreation() {
       let data = request.resource.data;
-      
-      let safeValues = data.get('walletBalance', 0) == 0 &&
-                       data.get('balance', 0) == 0 &&
-                       data.get('totalSpent', 0) == 0 &&
-                       data.get('totalDeposit', 0) == 0 &&
-                       data.get('role', 'user') != 'admin' &&
-                       data.get('isBanned', false) == false &&
-                       data.get('isIpBanned', false) == false;
-      
+      let safeValues = data.get('walletBalance', 0) == 0
+        && data.get('balance', 0) == 0
+        && data.get('totalSpent', 0) == 0
+        && data.get('totalDeposit', 0) == 0
+        && data.get('role', 'user') == 'user'
+        && data.get('isBanned', false) == false
+        && data.get('isIpBanned', false) == false
+        && data.get('isRestricted', false) == false
+        && data.get('isVerified', false) == false
+        && data.get('manualTierOverride', false) == false
+        && data.get('isApiMerchant', false) == false
+        && data.get('tierId', 'TIER_DEFAULT') == 'TIER_DEFAULT'
+        && data.get('cycleStartTierId', 'TIER_DEFAULT') == 'TIER_DEFAULT'
+        && data.get('tierCycleSpent', 0) == 0
+        && data.get('lastCycleSpent', 0) == 0
+        && data.get('kycStatus', 'none') == 'none'
+        && data.get('totalOrdersCount', 0) == 0
+        && data.get('isDormant', false) == false
+        && data.get('isDeleted', false) == false
+        && data.get('uid', request.auth.uid) == request.auth.uid
+        && data.get('id', request.auth.uid) == request.auth.uid
+        && data.get('lastOrderTime', 0) == 0
+        && (!('tierClimbs' in data) || (data.tierClimbs is list && data.tierClimbs.size() == 0))
+        && (!('tierExpiresAt' in data) || data.tierExpiresAt == null || data.tierExpiresAt == 0)
+        && (!('tierCycleStartDate' in data) || data.tierCycleStartDate == null || data.tierCycleStartDate == request.time)
+        && (!('tierStreakStartDate' in data) || data.tierStreakStartDate == null || data.tierStreakStartDate == request.time)
+        && (!('usedCoupons' in data) || (data.usedCoupons is map && data.usedCoupons.size() == 0))
+        && (!('devicePrints' in data) || (data.devicePrints is list && data.devicePrints.size() <= 5))
+        && (!('displayId' in data) || (data.displayId is string && (data.displayId.matches('^[A-Z]{2}[0-9]{6}$') || data.displayId == request.auth.uid[0:8].upper())))
+        && data.get('baseCurrency', 'USD') == 'USD'
+        && data.get('base_currency', 'USD') == 'USD'
+        && (!('profileImage' in data) || isValidProfileImage(data.profileImage));
+
       let allowedCreationKeys = [
-        'id', 'uid', 'displayId', 
-        'firstName', 'lastName', 'fullName', 'name', 'username', 'email', 'img',
-        'baseCurrency', 'base_currency', 'phone', 'country', 
-        'walletBalance', 'balance', 'totalSpent', 'totalDeposit', 
-        'tierId', 'tierCycleSpent', 'tierCycleStartDate', 
-        'role', 'isVerified', 'kycStatus', 'isBanned', 'isIpBanned', 'createdAt', 'provider'
+        'id', 'uid', 'displayId', 'firstName', 'lastName', 'fullName', 'name',
+        'username', 'email', 'profileImage', 'baseCurrency', 'base_currency', 'phone',
+        'country', 'walletBalance', 'balance', 'totalSpent', 'totalDeposit',
+        'tierId', 'cycleStartTierId', 'tierClimbs', 'tierCycleSpent', 'lastCycleSpent', 'tierCycleStartDate', 'tierStreakStartDate', 'tierExpiresAt', 'role',
+        'isVerified', 'kycStatus', 'isBanned', 'isIpBanned', 'isRestricted', 'createdAt', 'provider',
+        'totalOrdersCount', 'usedCoupons', 'lastOrderTime', 'isDormant', 'isDeleted', 'banReason',
+        'fcmTokens', 'devicePrints', 'lastIp', 'isApiMerchant', 'manualTierOverride'
       ];
-      
       return safeValues && data.keys().hasOnly(allowedCreationKeys);
     }
 
-    // ==========================================
-    // 👥 إدارة المستخدمين (User Profiles)
-    // ==========================================
     match /telecard_users/{userId} {
       allow read: if (isOwner(userId) && isNotBanned()) || isMasterAdmin();
-      allow update: if (isOwner(userId) && isNotBanned() && (isStandardProfileUpdate() || isSecureKycSubmission())) || isMasterAdmin();
+      allow update: if (isOwner(userId) && isNotBanned() && resource.data.get('isBanned', false) != true && resource.data.get('isIpBanned', false) != true && resource.data.get('isDeleted', false) != true && isStandardProfileUpdate()) || isMasterAdmin();
       allow create: if isOwner(userId) && isSafeUserCreation();
       allow delete: if isMasterAdmin();
 
       match /notifications/{notifId} {
         allow read: if isOwner(userId);
-        allow update: if isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'readAt', 'views']);
+        allow update: if isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'read', 'readAt', 'views']);
         allow create, delete: if isMasterAdmin();
       }
     }
 
-    // ==========================================
-    // 🌐 المجموعات العامة (Public Catalog)
-    // ==========================================
-    match /telecard_tiers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
+    match /telecard_user_stats/{statId} {
+      allow read: if (resource != null && isOwner(resource.data.userId)) || isMasterAdmin();
+      allow write: if isMasterAdmin();
+    }
+
+    // 🛡️ [حجب أسرار التكلفة والأرباح]: المستويات الأصلية المحتوية على هوامش الربح محصورة بالإدارة والسيرفر فقط
+    match /telecard_tiers/{docId} { 
+      allow read, write: if isMasterAdmin(); 
+    }
+
+    // 🛡️ [المستويات العامة]: مفتوحة للجميع (تطبيق العميل والزوار) وخالية تماماً من نسب الأرباح
+    match /telecard_tiers_public/{docId} { 
+      allow read: if true; 
+      allow write: if isMasterAdmin(); 
+    }
+
     match /telecard_cats/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     match /telecard_settings/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     match /telecard_alerts/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
@@ -86,69 +168,133 @@ service cloud.firestore {
     match /telecard_countries/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     match /telecard_offers/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
     match /telecard_prods_public/{docId} { allow read: if true; allow write: if isMasterAdmin(); }
-    
-    // 🛡️ [الإصلاح الأمني]: إغلاق صلاحية قراءة الكوبونات من جهة العميل لمنع سحب الأكواد (Data Dump).
-    // التحقق يتم بأمان داخل الـ Cloud Functions أثناء الطلب عبر السيرفر.
-    match /telecard_coupons/{docId} { 
-      allow read, write: if isMasterAdmin(); 
-    }
-
-    // ==========================================
-    // 🔒 البيانات المحمية - كتابة السيرفر فقط (Server-Only Writes)
-    // ==========================================
+    match /telecard_coupons/{docId} { allow read, write: if isMasterAdmin(); }
     match /telecard_prods/{docId} { allow read, write: if isMasterAdmin(); } 
     
     match /telecard_orders/{docId} {
-      allow read: if (isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
+      allow read: if (resource != null && isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
       allow write: if isMasterAdmin();
     }
 
     match /telecard_deposits/{docId} {
-      allow read: if (isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
+      allow read: if (resource != null && isOwner(resource.data.userId) && isNotBanned()) || isMasterAdmin();
       allow write: if isMasterAdmin();
     }
 
-    // ==========================================
-    // 💬 التقييمات والـ KYC
-    // ==========================================
-    
-    // 🛡️ [الإصلاح المعماري]: توحيد اسم المجموعة مع الـ Cloud Functions (telecard_reviews بدلاً من reviews)
+    // 🛡️ [التقييمات المحصنة]: دعم التقييم العام للمتجر وتقييم المنتجات مع منع الإغراق (DoS Protection)
     match /telecard_reviews/{reviewId} {
-      allow read, delete: if isMasterAdmin();
-      allow create, update: if isNotBanned() 
-                            && request.auth.uid == reviewId 
-                            && request.resource.data.userId == request.auth.uid
-                            && request.resource.data.rating is int 
-                            && request.resource.data.rating >= 0 
-                            && request.resource.data.rating <= 5;
+      allow read: if resource == null
+                  || resource.data.status in ['approved', 'resolved']
+                  || (isAuthenticated() && resource.data.userId == request.auth.uid)
+                  || isMasterAdmin();      
+      allow delete: if isMasterAdmin();
+
+      allow create: if isAuthenticated() && isNotBanned()
+                    && request.resource.data.userId == request.auth.uid
+                    && (
+                         (reviewId == request.auth.uid && !('prodId' in request.resource.data))
+                         || (
+                              'prodId' in request.resource.data
+                              && request.resource.data.prodId is string 
+                              && request.resource.data.prodId.matches('^[a-zA-Z0-9_-]{1,50}$')
+                              && reviewId == request.auth.uid + '_' + request.resource.data.prodId
+                              && exists(/databases/$(database)/documents/telecard_prods_public/$(request.resource.data.prodId))
+                            )
+                       )
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isBanned', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isIpBanned', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isRestricted', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isDeleted', false) != true
+                    && request.resource.data.keys().hasOnly(['id', 'userId', 'username', 'userName', 'userFullName', 'prodId', 'rating', 'text', 'comment', 'status', 'time', 'createdAt'])
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.rating is int
+                    && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+                    && (!('username' in request.resource.data) || (request.resource.data.username is string && request.resource.data.username.size() <= 50))
+                    && (!('userName' in request.resource.data) || (request.resource.data.userName is string && request.resource.data.userName.size() <= 100))
+                    && (!('userFullName' in request.resource.data) || (request.resource.data.userFullName is string && request.resource.data.userFullName.size() <= 100))
+                    && (!('comment' in request.resource.data) || (request.resource.data.comment is string && request.resource.data.comment.size() <= 500))
+                    && (!('text' in request.resource.data) || (request.resource.data.text is string && request.resource.data.text.size() <= 500));
+
+      allow update: if isAuthenticated() && isNotBanned()
+                    && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.get('prodId', null) == resource.data.get('prodId', null)
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isBanned', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isIpBanned', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isRestricted', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isDeleted', false) != true
+                    && request.resource.data.keys().hasOnly(['id', 'userId', 'username', 'userName', 'userFullName', 'prodId', 'rating', 'text', 'comment', 'status', 'time', 'createdAt', 'updatedAt', 'adminReply'])
+                    && request.resource.data.get('adminReply', null) == resource.data.get('adminReply', null)
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.rating is int
+                    && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+                    && (!('username' in request.resource.data) || (request.resource.data.username is string && request.resource.data.username.size() <= 50))
+                    && (!('userName' in request.resource.data) || (request.resource.data.userName is string && request.resource.data.userName.size() <= 100))
+                    && (!('userFullName' in request.resource.data) || (request.resource.data.userFullName is string && request.resource.data.userFullName.size() <= 100))
+                    && (!('comment' in request.resource.data) || (request.resource.data.comment is string && request.resource.data.comment.size() <= 500))
+                    && (!('text' in request.resource.data) || (request.resource.data.text is string && request.resource.data.text.size() <= 500));
     }
 
-    match /telecard_kyc/{docId} {
-      allow read: if isOwner(resource.data.userId) || isMasterAdmin();
-      allow create: if isOwner(request.resource.data.userId) && isNotBanned()
-                    && request.resource.data.keys().hasOnly(['userId', 'fullName', 'documentUrl', 'selfieUrl', 'status', 'createdAt', 'updatedAt'])
-                    && request.resource.data.status == 'pending';
-      allow update, delete: if isMasterAdmin();
+    // 🛡️ [حماية التوثيق وإغلاق ثغرة الكائنات المتداخلة ومنع تصفير الحسابات الموثقة]:
+    match /telecard_kyc/{userId} {
+      allow read: if (isOwner(userId) && isNotBanned()) || isMasterAdmin();
+      allow create: if isOwner(userId) && isOwner(request.resource.data.userId) && isNotBanned()
+                    && !(get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('kycStatus', 'none') in ['approved', 'verified'])
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isBanned', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isIpBanned', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isRestricted', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isDeleted', false) != true
+                    && request.resource.data.keys().hasOnly(['userId', 'fullName', 'idNumber', 'documentUrl', 'selfieUrl', 'frontImg', 'backImg', 'selfieImg', 'notes', 'kycData', 'status', 'createdAt', 'updatedAt'])
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.fullName is string && request.resource.data.fullName.size() <= 100
+                    && (!('idNumber' in request.resource.data) || request.resource.data.idNumber == null || (request.resource.data.idNumber is string && request.resource.data.idNumber.size() <= 100))
+                    && (!('notes' in request.resource.data) || request.resource.data.notes == null || (request.resource.data.notes is string && request.resource.data.notes.size() <= 500))
+                    && (isValidKycUrl(request.resource.data.get('documentUrl', '')) || isValidKycUrl(request.resource.data.get('frontImg', '')))
+                    && isOptionalValidKycUrl(request.resource.data, 'documentUrl')
+                    && isOptionalValidKycUrl(request.resource.data, 'frontImg')
+                    && isOptionalValidKycUrl(request.resource.data, 'selfieUrl')
+                    && isOptionalValidKycUrl(request.resource.data, 'backImg')
+                    && isOptionalValidKycUrl(request.resource.data, 'selfieImg')
+                    && isSafeNestedKycData(request.resource.data);
+
+      allow update: if isOwner(userId) && isNotBanned()
+                    && resource.data.status == 'rejected'
+                    && request.resource.data.status == 'pending'
+                    && !(get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('kycStatus', 'none') in ['approved', 'verified'])
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isBanned', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isIpBanned', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isRestricted', false) != true
+                    && get(/databases/$(database)/documents/telecard_users/$(request.auth.uid)).data.get('isDeleted', false) != true
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'idNumber', 'documentUrl', 'selfieUrl', 'frontImg', 'backImg', 'selfieImg', 'notes', 'kycData', 'status', 'createdAt', 'updatedAt'])
+                    && request.resource.data.fullName is string && request.resource.data.fullName.size() <= 100
+                    && (!('idNumber' in request.resource.data) || request.resource.data.idNumber == null || (request.resource.data.idNumber is string && request.resource.data.idNumber.size() <= 100))
+                    && (!('notes' in request.resource.data) || request.resource.data.notes == null || (request.resource.data.notes is string && request.resource.data.notes.size() <= 500))
+                    && (isValidKycUrl(request.resource.data.get('documentUrl', '')) || isValidKycUrl(request.resource.data.get('frontImg', '')))
+                    && isOptionalValidKycUrl(request.resource.data, 'documentUrl')
+                    && isOptionalValidKycUrl(request.resource.data, 'frontImg')
+                    && isOptionalValidKycUrl(request.resource.data, 'selfieUrl')
+                    && isOptionalValidKycUrl(request.resource.data, 'backImg')
+                    && isOptionalValidKycUrl(request.resource.data, 'selfieImg')
+                    && isSafeNestedKycData(request.resource.data);
+
+      allow delete: if isMasterAdmin();
     }
 
-    // ==========================================
-    // 🔒 الخزنات والأنظمة الحساسة (Admin Only)
-    // ==========================================
     match /telecard_vault/{document=**} { allow read, write: if isMasterAdmin(); }
     match /telecard_admin/{document=**} { allow read, write: if isMasterAdmin(); }
-    match /telecard_system/{docId} {
-      allow read: if docId == 'cache_version' || isMasterAdmin();
-      allow write: if isMasterAdmin();
-    }
-    match /telecard_system/{docId}/{document=**} {
-      allow read, write: if isMasterAdmin();
-    }
+    match /telecard_system/{docId} { allow read: if docId in ['cache_version', 'singleton'] || isMasterAdmin(); allow write: if isMasterAdmin(); }
+    match /telecard_system/{docId}/{document=**} { allow read, write: if isMasterAdmin(); }
     match /telecard_logs/{document=**} { allow read, write: if isMasterAdmin(); }
-    match /telecard_idempotency_keys/{document=**} { allow read, write: if isMasterAdmin(); }
+    match /telecard_idempotency_keys/{document=**} { allow read: if isMasterAdmin(); allow write: if false; }
+    match /telecard_bi_events/{document=**} { allow read: if isMasterAdmin(); allow write: if false; }
     match /telecard_failed_webhooks/{document=**} { allow read, write: if isMasterAdmin(); }
     match /telecard_suppliers/{document=**} { allow read, write: if isMasterAdmin(); }
-    match /telecard_audit_logs/{document=**} { allow read, write: if isMasterAdmin(); }
-
-    match /{document=**} { allow read, write: if isMasterAdmin(); }
+    match /telecard_audit_logs/{document=**} { allow read: if isMasterAdmin(); allow write: if false; }
+    match /telecard_statistics/{document=**} { allow read, write: if isMasterAdmin(); }
+    match /telecard_system_errors/{document=**} { allow read, write: if isMasterAdmin(); }
+    match /telecard_supplier_defects/{document=**} { allow read, write: if isMasterAdmin(); }
+    match /telecard_vault_manifest/{document=**} { allow read, write: if isMasterAdmin(); }
+    match /telecard_vault_archived/{document=**} { allow read, write: if isMasterAdmin(); }
+    match /telecard_pending_uploads/{document=**} { allow read, write: if isMasterAdmin(); }
   }
 }

@@ -1,19 +1,24 @@
 // ============================================================================
-// 🎨 واجهة التوجيه المركزية للـ UI (adminUI.js) - Facade Pattern V15.1 💎
+// 🎨 واجهة التوجيه المركزية للـ UI (adminUI.js) - Facade Pattern V19.8 💎
 // 🎯 الوظيفة: نقطة عبور (Router) لربط دوال الواجهة بوحدات النظام المعزولة
-// 🌟 التحديثات (V15.1): إغلاق ثغرة XSS وتكسر التصميم في منشئ الشروط والأحكام.
+// 🌟 التحديثات المعمارية (V19.8 - Ultimate Facade Patch): 
+// 1. Escaping Fix 🛡️: تصحيح دالة التعقيم (Sanitization) في الشروط والأحكام لمنع XSS.
+// 2. Developer Bridges 🌉: إضافة مسارات إظهار الباسوورد للـ Developer API.
+// 3. Strict Module Exposure 📦: التأكد من توفر جميع الوحدات الفرعية للموجه المركزي.
 // ============================================================================
 
 import { UIService } from './core/uiService.js';
 import { CalendarService } from './core/calendarService.js';
-import { EventBus } from './adminUtils.js';
+import { EventBus, Utils } from './adminUtils.js'; // 🚀 استيراد Utils للتعقيم الآمن
 
-// استيراد الوحدات الفرعية المعزولة
+// 📦 استيراد الوحدات الفرعية المعزولة
 import { OrdersUI } from './modules/orders/ordersUI.js';
 import { UsersUI } from './modules/users/usersUI.js';
 import { FinanceUI } from './modules/finance/financeUI.js';
 import { MarketingUI } from './modules/marketing/marketingUI.js';
 import { CatalogUI } from './modules/catalog/catalogUI.js';
+import { DeveloperUI } from './modules/developer/developerUI.js';
+import { IntegrationsUI } from './modules/integrations/integrationsUI.js';
 
 export const AdminUI = {
     // 🌟 1. كشف الوحدات الفرعية للمايسترو (Sub-modules Exposure)
@@ -22,10 +27,14 @@ export const AdminUI = {
     FinanceUI,
     MarketingUI,
     CatalogUI,
+    DeveloperUI,
+    IntegrationsUI,
     
     // 🌟 2. الجسور المفقودة للحالات (State Bridges)
     get tempImg() { return UIService.tempImg; },
     set tempImg(v) { UIService.tempImg = v; },
+    get tempFile() { return UIService.tempFile; },
+    set tempFile(v) { UIService.tempFile = v; },
     
     get dragEditMode() { return CatalogUI.dragEditMode; },
     set dragEditMode(v) { CatalogUI.dragEditMode = v; },
@@ -38,9 +47,12 @@ export const AdminUI = {
     // =========================================================
     initTheme: () => UIService.initTheme(),
     toggleTheme: () => UIService.toggleTheme(),
+    showAdminPushPrompt: () => UIService.showAdminPushPrompt(),
     showToast: (...args) => UIService.showToast(...args),
     showConfirm: (...args) => UIService.showConfirm(...args),
     showPrompt: (...args) => UIService.showPrompt(...args),
+    showReportModal: (...args) => UIService.showReportModal(...args),
+    showAlert: (htmlContent, title = 'تنبيه') => UIService.showReportModal(title, htmlContent),
     copyText: (...args) => UIService.copyText(...args),
     copyToClipboard: (...args) => UIService.copyToClipboard(...args),
     toggleLoader: (...args) => UIService.toggleLoader(...args),
@@ -59,22 +71,32 @@ export const AdminUI = {
     // 🔄 4. تحديثات النظام العامة (System Views & States)
     // =========================================================
     clearAllSearchAndFiltersUI: function() {
-        document.querySelectorAll('input[id^="search-"], input[id="user-search"]').forEach(input => { if (input) input.value = ''; });
-        document.querySelectorAll('[id^="date-start-"], [id^="date-end-"]').forEach(el => { if (el) el.innerText = 'DD/MM/YYYY'; });
-        
-        EventBus.emit('req-clear-render-filters');
-        
-        document.querySelectorAll('.main-tabs-header').forEach(container => {
-            container.scrollLeft = 0;
-            if (container.scrollWidth > 0) container.scrollLeft = container.scrollWidth;
-            const btns = container.querySelectorAll('.main-tab-btn');
-            if (btns.length > 0) { 
-                btns.forEach(b => b.classList.remove('active')); 
-                btns[0].classList.add('active'); 
-            }
-        });
-    },
-
+    document.querySelectorAll('input[id^="search-"], input[id="user-search"]').forEach(input => { if (input) input.value = ''; });
+    document.querySelectorAll('[id^="date-start-"], [id^="date-end-"]').forEach(el => {
+        if (el) {
+            el.innerText = 'DD/MM/YYYY';
+            el.classList.add('placeholder-text');
+            el.closest('.custom-field')?.classList.remove('active');
+        }
+    });
+    document.querySelectorAll('.qf-btn').forEach(btn => {
+        const isAll = btn.dataset.range === 'all';
+        btn.classList.toggle('active', isAll);
+        btn.classList.remove('border-gold', 'text-gold');
+    });
+    
+    EventBus.emit('req-clear-render-filters');
+    
+    document.querySelectorAll('.main-tabs-header').forEach(container => {
+        container.scrollLeft = 0;
+        if (container.scrollWidth > 0) container.scrollLeft = container.scrollWidth;
+        const btns = container.querySelectorAll('.main-tab-btn');
+        if (btns.length > 0) {
+            btns.forEach(b => b.classList.remove('active'));
+            btns[0].classList.add('active');
+        }
+    });
+},
     updateQuickDateUI: function(start, end, section) {
         const formatDisp = (d) => d ? `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` : 'DD/MM/YYYY';
         const startEl = document.getElementById(`date-start-${section}`); 
@@ -122,6 +144,8 @@ export const AdminUI = {
         
         if (id === 'rates') { 
             safeSetVal('setting-curr-display', data?.settings?.currencyDisplay || 'symbol'); 
+            const syncCurrToggle = document.getElementById('setting-sync-currency-store');
+            if (syncCurrToggle) syncCurrToggle.checked = Boolean(data?.settings?.syncCurrencyToStore ?? data?.settings?.syncCurrencyStore);
             const currToggle = document.getElementById('setting-show-currency');
             if (currToggle) currToggle.checked = data?.settings?.showCurrencyToggle !== false; 
         }
@@ -132,37 +156,38 @@ export const AdminUI = {
             const s = data?.settings || {};
             const sys = data?.system || {}; 
             
-            safeSetVal('promo-text', s.promoText || ''); 
-            safeSetVal('slider-time', s.sliderDuration || 3); 
-            safeSetVal('promo-speed', s.promoAnim || 'vertical-normal');
-            safeSetVal('store-name-input', sys.storeName || ''); 
-            safeSetVal('store-logo-size', sys.logoSize || 36);
+            safeSetVal('promo-text', s.tickerText || s.promoText || ''); 
+            safeSetVal('slider-time', s.sliderTime || s.sliderDuration || 3); 
+            safeSetVal('promo-speed', s.tickerSpeed || s.promoAnim || 'horizontal-normal');
+            safeSetVal('store-name-input', s.storeName || sys.storeName || ''); 
+            safeSetVal('store-logo-size', s.storeLogoSize || sys.logoSize || 36);
             
             const lsv = document.getElementById('logo-size-val'); 
-            if (lsv) lsv.innerText = (sys.logoSize || 36) + 'px';
+            if (lsv) lsv.innerText = (s.storeLogoSize || sys.logoSize || 36) + 'px';
             
-            safeSetVal('store-name-weight', sys.nameWeight || '900'); 
-            safeSetVal('store-color-type', sys.nameColorType || 'solid');
-            safeSetVal('store-color-1', sys.nameColor1 || '#ffffff'); 
-            safeSetVal('store-color-2', sys.nameColor2 || '#FFD700');
+            safeSetVal('store-name-weight', s.storeNameWeight || sys.nameWeight || '900'); 
+            safeSetVal('store-color-type', s.storeColorType || sys.nameColorType || 'solid');
+            safeSetVal('store-color-1', s.storeColor1 || sys.nameColor1 || '#ffffff'); 
+            safeSetVal('store-color-2', s.storeColor2 || sys.nameColor2 || '#FFD700');
             
             const shadowEl = document.getElementById('store-name-shadow'); 
-            if (shadowEl) shadowEl.checked = sys.nameShadow || false;
+            if (shadowEl) shadowEl.checked = Boolean(s.storeNameShadow ?? sys.nameShadow);
             
             const setImgPreview = (imgId, src) => {
                 const preview = document.getElementById(`${imgId}-preview`), wrap = document.getElementById(`${imgId}-wrap`);
                 if (src && preview && wrap) { 
                     preview.src = src; 
                     preview.classList.remove('hide-element'); 
+                    preview.style.display = 'block';
                     wrap.classList.add('has-img'); 
                 } else { 
                     this.clearImg(`${imgId}-preview`, `${imgId}-wrap`, `${imgId}-input`); 
                 }
             };
             
-            setImgPreview('store-logo', sys.storeLogo); 
-            setImgPreview('store-logo-light', sys.storeLogoLight); 
-            setImgPreview('store-favicon', sys.storeFavicon);
+            setImgPreview('store-logo', s.storeLogo || sys.storeLogo); 
+            setImgPreview('store-logo-light', s.storeLogoLight || sys.storeLogoLight); 
+            setImgPreview('store-favicon', s.storeFavicon || sys.storeFavicon);
             
             this.toggleColorType();
             this.updateBrandPreview();
@@ -180,7 +205,13 @@ export const AdminUI = {
             
             if (sysDateTxt) { 
                 if (s.date) { 
-                    sysDateTxt.innerText = new Date(Number(s.date)).toLocaleDateString('en-GB'); 
+                    const dObj = new Date(Number(s.date));
+                    const dd = String(dObj.getUTCDate()).padStart(2, '0');
+                    const mm = String(dObj.getUTCMonth() + 1).padStart(2, '0');
+                    const yyyy = dObj.getUTCFullYear();
+                    const hh = String(dObj.getUTCHours()).padStart(2, '0');
+                    const min = String(dObj.getUTCMinutes()).padStart(2, '0');
+                    sysDateTxt.innerText = `${dd}/${mm}/${yyyy} ${hh}:${min}`; 
                     sysDateTxt.classList.remove('placeholder-text'); 
                     sysDateTxt.closest('.custom-field')?.classList.add('active'); 
                 } else { 
@@ -216,7 +247,10 @@ export const AdminUI = {
             }
 
             if (typeof Sortable !== 'undefined') {
-                new Sortable(container, {
+                if (container._sortableInstance) {
+                    try { container._sortableInstance.destroy(); } catch (e) {}
+                }
+                container._sortableInstance = new Sortable(container, {
                     animation: 150,
                     handle: '.term-drag-handle',
                     ghostClass: 'sortable-ghost'
@@ -238,8 +272,8 @@ export const AdminUI = {
     openDepositDrawer: (id) => FinanceUI.openDepositDrawer(id),
     closeDepositDrawer: () => FinanceUI.closeDepositDrawer(),
     
-    // 👥 وحدة المستخدمين والتوثيق
-    openTierEdit: (id) => UsersUI.openTierEdit(id),
+    // 👥 وحدة المستخدمين والتوثيق (Users & KYC)
+    openTierEdit: (id) => UsersUI.openTierModal(id),
     selectTierBadge: (el, icon) => UsersUI.selectTierBadge(el, icon),
     toggleDefaultTierSecure: (cb) => UsersUI.toggleDefaultTierSecure(cb),
     openTierUsers: (id) => UsersUI.openTierUsers(id),
@@ -279,6 +313,9 @@ export const AdminUI = {
     setupCountryModal: (country) => CatalogUI.setupCountryModal(country),
     setupVaultModal: (pool) => CatalogUI.setupVaultModal(pool),
     
+    // 🔌 وحدة المطورين والربط (Developer API)
+    togglePasswordVisibility: (target) => DeveloperUI.togglePasswordVisibility(target),
+
     // =========================================================
     // 🛠️ 6. أدوات النظام والمعاينات (System Utils & Previews)
     // =========================================================
@@ -321,28 +358,6 @@ export const AdminUI = {
             if (flagEl && !flagEl.value) flagEl.value = safeFlag;
             if (dialEl && !dialEl.value) dialEl.value = safeDial;
         }
-    },
-    
-    toggleAlertTypeFields: function() {
-        const type = document.getElementById('alert-type')?.value;
-        const advFields = document.getElementById('popup-advanced-fields');
-        if (advFields) {
-            if (type === 'popup') advFields.classList.remove('hide-element');
-            else advFields.classList.add('hide-element');
-        }
-    },
-
-    toggleAlertAdvancedFields: function() {
-        const el = document.getElementById('popup-advanced-fields');
-        if (el) el.classList.toggle('hide-element');
-    },
-    
-    toggleAlertTargetFields: function() {
-        const type = document.getElementById('alert-target-type')?.value;
-        const tBox = document.getElementById('alert-target-tier-box');
-        const uBox = document.getElementById('alert-target-user-box');
-        if (tBox) tBox.classList.toggle('hide-element', type !== 'tier');
-        if (uBox) uBox.classList.toggle('hide-element', type !== 'user');
     },
 
     scrollToAlerts: function() {
@@ -393,7 +408,6 @@ export const AdminUI = {
         }
         
         if (nameText) {
-            // استخدام innerText آمن جداً ضد الـ XSS
             nameText.innerText = name; 
             nameText.style.fontWeight = weight; 
             nameText.style.fontSize = Math.max(16, (logoSize * 0.6)) + 'px'; 
@@ -423,13 +437,13 @@ export const AdminUI = {
         const currentIcon = termData.icon || 'fa-check';
         const iconsList = ['fa-user', 'fa-wallet', 'fa-box', 'fa-shield-halved', 'fa-lock', 'fa-headset', 'fa-gem', 'fa-check', 'fa-handshake', 'fa-scale-balanced'];
         
-        // 🚀 [التحديث الأمني]: تعقيم البيانات لمنع ثغرات XSS وكسر القوالب
-        const safeTitle = UIService._esc(termData.title || '');
-        const safeText = UIService._esc(termData.text || '');
-        const safeIcon = UIService._esc(currentIcon);
+        // 🚀 [التحديث الأمني]: تعقيم البيانات لمنع ثغرات XSS باستخدام Utils
+        const safeTitle = Utils.escapeHTML(termData.title || '');
+        const safeText = Utils.escapeHTML(termData.text || '');
+        const safeIcon = Utils.escapeHTML(currentIcon);
         
         let iconsHTML = iconsList.map(icon => `
-                <div class="is-opt ${safeIcon === icon ? 'active' : ''}" data-action="select-term-icon" data-val="${icon}">
+                <div class="is-opt interactive-scale ${safeIcon === icon ? 'active' : ''}" data-action="select-term-icon" data-val="${icon}">
                     <i class="fa-solid ${icon}"></i>
                 </div>
             `).join('');
@@ -442,7 +456,7 @@ export const AdminUI = {
                             <i class="fa-solid fa-grip-vertical"></i>
                             <span>سحب للترتيب</span>
                         </div>
-                        <button type="button" class="btn-micro btn-red" onclick="document.getElementById('${cardId}').remove()">
+                        <button type="button" class="btn-micro btn-red interactive-scale term-del-btn" title="إزالة">
                             <i class="fa-solid fa-trash"></i>
                             <span>إزالة</span>
                         </button>
@@ -450,7 +464,6 @@ export const AdminUI = {
                     
                     <div class="form-group mb-10">
                         <label class="form-label fs-12 text-primary">عنوان البند</label>
-                        <!-- تم تأمين الـ value -->
                         <input type="text" class="form-input term-title-input" value="${safeTitle}" placeholder="مثال: الشروط العامة لحساب المستخدم">
                     </div>
 
@@ -459,19 +472,26 @@ export const AdminUI = {
                         <div class="icon-selector term-icon-grid">
                             ${iconsHTML}
                         </div>
-                        <!-- تم تأمين الـ value -->
                         <input type="hidden" class="term-icon-input" value="${safeIcon}">
                     </div>
                     
                     <div class="form-group mb-0">
                         <label class="form-label fs-12 text-warning">تفاصيل البند</label>
-                        <!-- تم تأمين النص -->
                         <textarea class="form-input term-text-input" rows="2" placeholder="اكتب الشرح التفصيلي هنا...">${safeText}</textarea>
                     </div>
                 </div>
             `;
         
         container.insertAdjacentHTML('beforeend', html);
+        
+        // 🚀 إضافة المستمع البرمجي الآمن لزر الحذف بدلاً من Inline JS
+        const newCard = document.getElementById(cardId);
+        const delBtn = newCard?.querySelector('.term-del-btn');
+        if (delBtn) {
+            delBtn.addEventListener('click', (e) => {
+                e.currentTarget.closest('.term-builder-card')?.remove();
+            });
+        }
     },    
 
     getTermsDataFromUI: function() {
@@ -503,7 +523,6 @@ export const AdminUI = {
             }
         }
     }
-
 };
 
 export const AdminCalendar = CalendarService;

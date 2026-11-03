@@ -1,12 +1,12 @@
 // ============================================================================
-// 📡 خدمة الإشعارات الخلفية (firebase-messaging-sw.js) - Admin Enterprise V1.0 🚀
+// 📡 خدمة الإشعارات الخلفية (firebase-messaging-sw.js) - Admin Enterprise V1.1 🚀
 // 🎯 الوظيفة: استقبال الإشعارات وعرضها للمدير حتى لو كانت لوحة التحكم مغلقة أو في الخلفية.
 // ============================================================================
 
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js');
 
-// ⚙️ إعدادات فايربيز (مطابقة لإعداداتك في adminConfig.js[span_0](start_span)[span_0](end_span))
+// ⚙️ إعدادات فايربيز (مطابقة لإعداداتك في adminConfig.js)
 const firebaseConfig = {
     apiKey: "AIzaSyAKcMFLGday4sqp4wrbAIN3OEzH-kmhGK0",
     authDomain: "telecard-1.firebaseapp.com",
@@ -25,26 +25,34 @@ const messaging = firebase.messaging();
 // 3. معالج الإشعارات في الخلفية (Background Message Handler)
 messaging.onBackgroundMessage((payload) => {
     console.log('[Admin Radar] 📡 نبضة جديدة وصلت في الخلفية:', payload);
-
+    
     const notificationTitle = payload.notification?.title || 'غرفة العمليات (TeleCard)';
     const notificationOptions = {
         body: payload.notification?.body || 'يوجد تحديث جديد يحتاج لمراجعتك.',
-        // يمكنك تغيير هذا المسار لاحقاً ليطابق مسار أيقونة متجرك
-        icon: 'https://cdn-icons-png.flaticon.com/512/6823/6823086.png', 
+        icon: 'https://cdn-icons-png.flaticon.com/512/6823/6823086.png',
         data: payload.data || {},
-        vibrate: [200, 100, 200, 100, 200, 100, 200], // نمط اهتزاز قوي لتنبيه المدير
-        requireInteraction: true // إجبار الإشعار على البقاء في الشاشة حتى يتفاعل معه المدير
+        vibrate: [200, 100, 200, 100, 200, 100, 200],
+        requireInteraction: true
     };
-
+    
+    // 🔔 إرسال نبضة إلى نافذة الإدارة المفتوحة لكسر قفل الشارات وتحديثها فوراً
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+        windowClients.forEach((client) => {
+            client.postMessage({ type: 'RADAR_PUSH_RECEIVED', payload });
+        });
+    }).catch(() => {});
+    
+    if (!payload.notification) {
     return self.registration.showNotification(notificationTitle, notificationOptions);
+}
 });
 
 // 4. توجيه المدير عند النقر على الإشعار
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
     
-    // توجيه المدير إلى مسار لوحة الإدارة عند النقر على الإشعار
-    const targetUrl = '/admin.html'; 
+    // 🚀 [إصلاح متوسط 8]: استخدام المسار النسبي (./) لضمان التوجيه الصحيح في جميع بيئات الاستضافة
+    const targetUrl = './admin.html'; 
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {

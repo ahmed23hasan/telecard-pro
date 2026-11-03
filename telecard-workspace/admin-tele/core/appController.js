@@ -1,10 +1,12 @@
 // ============================================================================
-// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V16.6 💎
+// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V19.3 💎
 // 🎯 الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🚀 التحديثات المعمارية (V16.6 - Ultimate Search & Date Patch):
-// 1. Server-Side Delegation 🛡️: تفويض البحث بالكامل للـ Render Engine لمنع تضارب البيانات.
-// 2. Timezone Precision ⏱️: حساب التواريخ السريعة بالملي ثانية لمنع أخطاء تداخل الأشهر.
-// 3. Strict Refresh Sync 🔄: إجبار التحديث (Refresh) على جلب البيانات الحية من السيرفر.
+// 🚀 التحديثات المعمارية (V19.3 - Raw Data Save & Anti-Double Escape):
+// 1. Raw Data Persistence 💾: حفظ النصوص الخام (غير المشفرة) في Firestore لمنع التشفير المزدوج والتشوهات البصرية.
+// 2. Auth Timeout Enforcement ⏱️: إنهاء الجلسة فعلياً (logoutAdmin) عند تجاوز مهلة التحقق من التوثيق.
+// 3. Zero-Leak Firewall UI 🧱: توجيه دوال حظر/فك حظر الـ IP والأجهزة لتحديث وقراءة الوثيقة السرية (active_configs) مباشرة لمنع التسريب.
+// 4. Zero-Read Badges 🚀: إزالة الاستدعاءات المكررة لتحديث الشارات والاعتماد كلياً على adminData.
+// 5. Search Timer Clash Fix ⏱️: توحيد استدعاء السيرفر عند البحث وإلغاء المؤقتات المعلقة لمنع التعارض.
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -12,7 +14,7 @@ import { AdminUI } from '../adminUI.js';
 import { AdminRender } from '../adminRender.js';
 import { Utils, EventBus } from '../adminUtils.js';
 
-import { VAPID_KEY } from '../adminConfig.js';
+import { VAPID_KEY, normalizeRates } from '../adminConfig.js';
 
 import { RenderHelpers } from './renderHelpers.js'; 
 
@@ -25,8 +27,9 @@ import { SystemActions } from './systemActions.js';
 
 import { CatalogController } from '../modules/catalog/catalogController.js';
 import { MarketingController } from '../modules/marketing/marketingController.js';
-import { FirebaseAdapter, auth } from './firebaseAdapter.js'; 
-
+import { FirebaseAdapter, auth } from './firebaseAdapter.js';
+import { arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { DeveloperActions } from '../modules/developer/developerActions.js';
 import { IntegrationsActions } from '../modules/integrations/integrationsActions.js';
 
@@ -39,6 +42,9 @@ const getSystemRouters = () => ({
 
 export const AppController = {
     isInitialized: false,
+    _isInitializing: false,
+    _isLoggingOut: false,
+    _authGateUnsub: null,
     
     get data() { return AdminData?.data || {}; },
     get filters() { return AdminData?.filters || {}; },
@@ -58,12 +64,15 @@ export const AppController = {
     },
     
     init: async function() {
-        if (this.isInitialized) return; 
-        
-        const isAuthSafe = await this.setupAuthGate();
-        if (!isAuthSafe) return; 
+        if (this.isInitialized || this._isInitializing) return;
+        this._isInitializing = true;
 
         try {
+            // 1. التحقق من التوثيق (Gate)
+            const isAuthSafe = await this.setupAuthGate();
+            if (!isAuthSafe) return; 
+
+            // 2. إعداد الواجهة والمستمعين
             AdminUI?.initTheme?.();
             this.setupEventBusListeners();
             AdminRender?.initListeners?.(); 
@@ -73,34 +82,45 @@ export const AppController = {
                 AdminUI.onResize();
             }
             
+            // 3. جلب البيانات المركزية
             if (AdminData?.loadData) {
-                await AdminData.loadData();
+                try {
+                    await AdminData.loadData(auth?.currentUser?.uid); 
+                } catch (loadError) {
+                    console.error("🚨 فشل حرج أثناء استيراد البيانات من السحابة:", loadError);
+                    AdminUI?.showToast?.("خطأ في الاتصال بقاعدة البيانات. تأكد من جودة الإنترنت وحاول مجدداً.", 'error', 7000);
+                    return; 
+                }
+
+                // 4. تهيئة الرسومات بعد ضمان نجاح البيانات
                 RenderHelpers?.init?.(AdminData.data);
                 
-                AdminRender?.updateBadges?.();
+                // 🚀 تمت إزالة updateBadges المكرر للاعتماد على جلب لوحة القيادة الذكي
                 AdminRender?.updateProfileUI?.();
                 
-                try {
-                    const kycStats = await FirebaseAdapter.getAggregatedStats('telecard_users', [['kycStatus', '==', 'pending']], { total: { type: 'count' } });
-                    const pendingKycCount = kycStats?.total || 0;
-                    if (AdminUI?.UsersUI?.updateSidebarKycBadge) {
-                        AdminUI.UsersUI.updateSidebarKycBadge(pendingKycCount);
-                    }
-                } catch (e) {
-                    console.warn("⚠️ لم نتمكن من جلب شارة الـ KYC من السيرفر.");
+                // 5. حساب عدد الـ KYC مع الاستفادة القصوى من kycPendingUsers كمصدر أساسي
+                const pendingKycCount = Math.max(
+                    (AdminData.data.kycPendingUsers || []).length,
+                    (AdminData.data.users || []).filter(u => u.kycStatus === 'pending').length
+                );
+                if (AdminUI?.UsersUI?.updateSidebarKycBadge) {
+                    AdminUI.UsersUI.updateSidebarKycBadge(pendingKycCount);
                 }
             }
             
+            // 6. الملاحة للصفحة الرئيسية (Dashboard)
             this.nav?.('dash', null);
             
-            window.addEventListener('storage', async () => {
-                await AdminData?.loadData?.();
-                RenderHelpers?.init?.(AdminData.data); 
-                AdminRender?.updateBadges?.();
+            // 7. مستمع التزامن الأمني بين التبويبات (يرصد تسجيل الخروج فقط دون استنزاف القراءات)
+            window.addEventListener('storage', (e) => {
+                if (e.key === 'telecard_admin_auth' && !e.newValue) {
+                    window.location.replace('login.html');
+                }
             });
 
             this.isInitialized = true;
 
+            // 8. إعداد إشعارات الدفع (FCM) بعد استقرار الواجهة
             setTimeout(() => {
                 this.setupAdminPushNotifications();
                 if (AdminUI?.showAdminPushPrompt) AdminUI.showAdminPushPrompt();
@@ -112,59 +132,120 @@ export const AppController = {
             AdminUI?.showToast?.("خطأ يعيق رسم البيانات: " + actualErrorMsg, 'error', 7000);
         } 
         finally { 
+            this._isInitializing = false;
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
         }
     },
 
     setupAuthGate: function() {
         return new Promise((resolve) => {
-            const unsubscribe = auth.onAuthStateChanged((user) => {
-                unsubscribe(); 
-                
+            let isResolved = false; 
+
+            if (this._authGateUnsub) {
+                try { this._authGateUnsub(); } catch (e) {}
+                this._authGateUnsub = null;
+            }
+
+            this._authGateUnsub = auth.onIdTokenChanged(async (user) => {
+                if (this._isLoggingOut) return;
                 if (user) {
-                    user.getIdTokenResult().then((idTokenResult) => {
+                    try {
+                        const idTokenResult = await user.getIdTokenResult();
                         const isRealAdmin = idTokenResult.claims.admin === true;
                         
                         if (isRealAdmin) {
-                            resolve(true); 
+                            if (!isResolved) {
+                                isResolved = true;
+                                resolve(true); 
+                            }
                         } else {
-                            console.warn("🚨 تم إحباط محاولة دخول بصلاحيات غير إدارية!");
-                            this.logoutAdmin();
-                            resolve(false);
+                            console.warn("🚨 تم سحب الصلاحيات أو الحساب غير مصرح له!");
+                            if (!isResolved) { isResolved = true; resolve(false); }
+                            this.logoutAdmin(); 
                         }
-                    }).catch(() => {
+                    } catch (error) {
+                        if (!isResolved) { isResolved = true; resolve(false); }
                         this.logoutAdmin();
-                        resolve(false);
-                    });
+                    }
                 } else {
                     console.warn("🚨 جلسة غير صالحة أو مفقودة!");
+                    if (!isResolved) { isResolved = true; resolve(false); }
                     this.logoutAdmin();
-                    resolve(false);
                 }
             });
             
-            setTimeout(() => { resolve(false); }, 15000);
+            setTimeout(() => { 
+                if (!isResolved) {
+                    isResolved = true;
+                    console.error("⏳ انتهى وقت انتظار المصادقة السحابية.");
+                    this.logoutAdmin();
+                    resolve(false); 
+                }
+            }, 15000);
         });
-    },
+    },    
 
-    logoutAdmin: function() {
-        sessionStorage.removeItem('telecard_admin_auth'); 
-        localStorage.removeItem('telecard_admin_auth'); 
+    logoutAdmin: async function() { 
+        if (this._isLoggingOut) return;
+        this._isLoggingOut = true;
+
+        if (this._authGateUnsub) {
+            try { this._authGateUnsub(); } catch (e) {}
+            this._authGateUnsub = null;
+        }
+
+        sessionStorage.removeItem('telecard_admin_auth');
+        localStorage.removeItem('telecard_admin_auth');
+        localStorage.removeItem('telecard_admin_last_activity');
         
+        if (AdminData && AdminData.data) {
+            AdminData.data = {};
+            AdminData.cursors = {};
+            AdminData._snapshots = {};
+            AdminData.walletsCache = { totalUsd: 0, details: {} };
+        }
+
         if (typeof FirebaseAdapter !== 'undefined') FirebaseAdapter.killAllListeners();
         if (typeof EventBus !== 'undefined') EventBus.clearAll();
-        if (auth) auth.signOut().catch(() => {});
+        
+        if (auth) {
+            try { await auth.signOut(); } 
+            catch (e) { console.error("خطأ في تسجيل الخروج السحابي:", e); }
+        }
+        
+        try {
+            if (window.indexedDB && window.indexedDB.databases) {
+                window.indexedDB.databases().then(dbs => {
+                    dbs.forEach(db => {
+                        if (db.name.includes('firebase')) window.indexedDB.deleteDatabase(db.name);
+                    });
+                }).catch(()=>{});
+            }
+        } catch(e) {}
+        
         window.location.replace('login.html');
     },
-
     setupEventBusListeners: function() {
         EventBus.on('req-logout', () => this.logoutAdmin());
         EventBus.on('req-navigate', (data) => this.nav?.(data.page, data.btnEl));
-        EventBus.on('req-navigate-filter', (data) => this.navWithFilter?.(data.section, data.status));
+        EventBus.on('req-navigate-filter', (data) => this.navWithFilter?.(data.section, data.status, data.source));
         EventBus.on('req-refresh', (data) => this.refresh?.(data.type));
         EventBus.on('req-go-back', () => this.back());
         EventBus.on('req-close-modal', (data) => AdminUI?.closeModal?.(data?.id || null));
         
+        EventBus.on('critical-fx-alert', async (data) => {
+            const fxCode = String(data.code).toUpperCase();
+            const lockKey = `fx_alert_cooldown_${fxCode}`;
+            const lastAlertTime = parseInt(localStorage.getItem(lockKey) || '0');
+            const now = Date.now();
+            
+            if (now - lastAlertTime > 1800000) {
+                localStorage.setItem(lockKey, now.toString());
+                AdminUI?.showToast?.(`⚠️ تنبيه حرج: سعر صرف العملة (${fxCode}) متعطل أو صفري! يرجى إصلاحه فوراً من الإعدادات لمنع توقف الطلبات.`, 'error', 10000);
+                if (AdminData?.addLog) AdminData.addLog('CRITICAL_FX_ERROR', `توقف التسعير: سعر الصرف للعملة (${fxCode}) يساوي صفر!`);
+            }
+        });
+
         EventBus.on('req-enable-notifs', () => {
             document.getElementById('admin-push-prompt')?.remove();
             this.setupAdminPushNotifications(true);
@@ -176,9 +257,9 @@ export const AppController = {
         EventBus.on('req-save-admin-prefs', () => this.saveAdminPreferences());
 
         EventBus.on('req-save-system', () => this.saveSystem());
-        EventBus.on('req-force-sync-pricing', () => this.forceSyncPricingCache());
-        EventBus.on('req-save-admin-profile', (payloadData) => this.saveAdminProfile(payloadData));
-        EventBus.on('req-toggle-system', (data) => this.confirmSystemToggle?.(data.type, data.element));
+EventBus.on('req-force-sync-pricing', () => this.forceSyncPricingCache());
+EventBus.on('req-save-admin-profile', (payloadData) => this.saveAdminProfile(payloadData));
+EventBus.on('req-reset-admin-password', () => this.resetAdminPassword());    EventBus.on('req-toggle-system', (data) => this.confirmSystemToggle?.(data.type, data.element));
         EventBus.on('req-save-support', () => this.saveSupportSettings?.());
         EventBus.on('req-save-terms', () => this.saveTerms?.());
         EventBus.on('req-auto-save-settings', () => { MarketingController.autoSaveSettings?.(); });
@@ -195,6 +276,27 @@ export const AppController = {
         EventBus.on('req-apply-filters', (data) => this.applyFilters?.(data.section));
         EventBus.on('req-quick-date', (data) => this.setQuickDateFilter?.(data.range, data.section));
         
+        EventBus.on('filter-date-changed', (data) => {
+            if (!data || !data.section) return;
+            if (!this.filters) this.filters = {};
+            if (!this.filters[data.section]) this.filters[data.section] = { search: '', start: null, end: null };
+            const d = data.dateObj;
+            if (d instanceof Date && !isNaN(d.getTime())) {
+                const utcStartOfDay = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+                if (data.type === 'start') this.filters[data.section].start = utcStartOfDay;
+                else if (data.type === 'end') this.filters[data.section].end = utcStartOfDay + 86399999;
+                document.querySelectorAll(`.qf-btn[data-section="${data.section}"]`).forEach(btn => btn.classList.remove('active', 'border-gold', 'text-gold'));
+                this.applyFilters(data.section);
+            }
+        });
+
+        EventBus.on('filter-date-cleared', (data) => {
+            if (!data || !data.section || !this.filters?.[data.section]) return;
+            if (data.type === 'start') this.filters[data.section].start = null;
+            else if (data.type === 'end') this.filters[data.section].end = null;
+            this.applyFilters(data.section);
+        });
+        
         EventBus.on('req-add-ban-ip', () => this.addGlobalBanIp());
         EventBus.on('req-remove-ban-ip', (data) => this.removeGlobalBanIp(data.ip));
         EventBus.on('req-remove-ban-device', (data) => this.removeGlobalBanDevice(data.device));
@@ -204,8 +306,8 @@ export const AppController = {
             else if (data.type === 'prod') CatalogController.openProductModal?.(data.id);
             else if (data.type === 'pay') AdminUI?.FinanceUI?.openPaymentModal?.(data.id);
             else if (data.type === 'country') AdminUI?.CatalogUI?.openCountryModal?.(data.id);
-            else if (data.type === 'coupon') MarketingController.openCouponModal?.(data.id);
-            else if (data.type === 'offer') MarketingController.openOfferModal?.(data.id);
+            else if (data.type === 'coupon') AdminUI?.MarketingUI?.openCouponModal?.(data.id);
+            else if (data.type === 'offer') AdminUI?.MarketingUI?.openOfferModal?.(data.id);         
             else if (data.type === 'vault') AdminUI?.CatalogUI?.openVaultModal?.(data.id);
             else if (data.type === 'tier') AdminUI?.UsersUI?.openTierModal?.(data.id);
         });
@@ -221,6 +323,7 @@ export const AppController = {
             if (data.action === 'save-social-links') { this.saveSocialLinks(); return; } 
             if (data.action === 'add-social-link') { this.addSocialLinkRow(); return; } 
             if (data.action === 'filter-reviews') { this.renderComplaints(); return; }
+            if (data.action === 'reply-complaint') { this.replyToComplaint(data.id); return; }
 
             const routers = getSystemRouters();
             if (routers[data.action]) await routers[data.action](data);
@@ -268,7 +371,7 @@ export const AppController = {
         AdminUI?.clearAllSearchAndFiltersUI?.(); 
     },
 
-    // 🚀 [الإصلاح المعماري 1]: تفويض البحث بالكامل للـ Render Engine لمنع تضارب البيانات
+    // 🚀 [الإصلاح المعماري 3] - توحيد الفلاتر لحل مشكلة السباق بين الـ Timers والاستدعاءات المباشرة
     applyFilters: async function(section) {
         if (!this.filters) this.filters = {};
         if (!this.filters[section]) this.filters[section] = { search: '', start: null, end: null };
@@ -277,34 +380,25 @@ export const AppController = {
         const searchVal = searchInput ? searchInput.value.trim() : '';
 
         this.filters[section].search = searchVal;
-        this.updateState({ filters: this.filters });
         
-        // 🛡️ تصفير الكاش المحلي لإجبار النظام على جلب نتائج البحث الدقيقة من السيرفر
         if (section === 'orders') {
-            AdminData.cursors.orders = null;
-            AdminData.data.orders = [];
-            AdminData.data.ordersMap = {};
-            EventBus.emit('req-render-orders');
-            
-            // استدعاء جلب المزيد لملء الشاشة بنتائج البحث من السيرفر
-            import('../modules/orders/ordersRender.js').then(m => {
-                if (m.OrdersRender?.loadMoreOrders) m.OrdersRender.loadMoreOrders();
-            });
+            const { OrdersRender } = await import('../modules/orders/ordersRender.js');
+            if (OrdersRender) {
+                if (OrdersRender._cloudSearchTimer) clearTimeout(OrdersRender._cloudSearchTimer);
+                OrdersRender.filters = { ...this.filters.orders };
+                OrdersRender.triggerCloudFilterReload();
+            }
         }
         else if (section === 'deposits') {
-            AdminData.cursors.deposits = null;
-            AdminData.data.deposits = [];
-            AdminData.data.depositsMap = {};
-            EventBus.emit('req-render-deposits');
-            
-            // استدعاء جلب المزيد لملء الشاشة بنتائج البحث من السيرفر
-            import('../modules/finance/financeRender.js').then(m => {
-                if (m.FinanceRender?.loadMoreDeposits) m.FinanceRender.loadMoreDeposits();
-            });
+            const { FinanceRender } = await import('../modules/finance/financeRender.js');
+            if (FinanceRender) {
+                if (FinanceRender._cloudSearchTimer) clearTimeout(FinanceRender._cloudSearchTimer);
+                FinanceRender.filters = { ...this.filters.deposits };
+                FinanceRender.triggerCloudFilterReload();
+            }
         }
     },
 
-    // 🚀 [الإصلاح المعماري 3]: حساب التواريخ بدقة باستخدام الـ Milliseconds لمنع أخطاء تداخل الأشهر
     setQuickDateFilter: function(range, section) {
         if (!this.filters) this.filters = {};
         if (!this.filters[section]) this.filters[section] = { search: '', start: null, end: null };
@@ -312,16 +406,17 @@ export const AppController = {
         let start = null, end = null;
         const now = new Date();
         const startOfTodayUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+        const endOfTodayUTC = startOfTodayUTC + 86399999; 
         
         if (range === 'today') {
             start = startOfTodayUTC;
-            end = start + 86399999;
+            end = endOfTodayUTC;
         } else if (range === 'week') {
-            start = startOfTodayUTC - (6 * 86400000); // 7 أيام بما فيها اليوم
-            end = now.getTime();
+            start = startOfTodayUTC - (6 * 86400000); 
+            end = endOfTodayUTC;
         } else if (range === 'month') {
-            start = startOfTodayUTC - (29 * 86400000); // 30 يوماً بما فيها اليوم
-            end = now.getTime();
+            start = startOfTodayUTC - (29 * 86400000); 
+            end = endOfTodayUTC;
         }
                
         this.filters[section].start = start;
@@ -334,18 +429,19 @@ export const AppController = {
         const activeBtn = document.querySelector(`.qf-btn[data-section="${section}"][data-range="${range}"]`);
         if (activeBtn) activeBtn.classList.add('active', 'border-gold', 'text-gold');
         
-        const calText = document.getElementById(`date-filter-${section}`);
-        if(calText) { calText.innerText = 'DD/MM/YYYY'; calText.classList.add('placeholder-text'); calText.closest('.custom-field')?.classList.remove('active'); }
+        AdminUI?.updateQuickDateUI?.(null, null, section);
 
-        // تصفير الكاش لإجبار جلب البيانات الجديدة حسب التاريخ
-        this.applyFilters(section);
-    },
+this.applyFilters(section);    },
 
-    navWithFilter: function(section, status) {
+    navWithFilter: function(section, status, source = null) {
         this.nav(section);
         setTimeout(() => {
-            EventBus.emit('action-triggered', { action: `filter-${section}`, val: status });
-        }, 100);
+            if (source && section === 'orders') {
+                EventBus.emit('action-triggered', { action: 'filter-orders-source', val: source });
+            } else if (status && section !== 'users') {
+                EventBus.emit('action-triggered', { action: `filter-${section}`, val: status });
+            }
+        }, 120);
     },
 
     nav: async function(id, el) {
@@ -357,7 +453,8 @@ export const AppController = {
             if (['rates', 'tiers', 'ads', 'sys', 'terms'].includes(id)) { AdminUI?.setupSettingsViews?.(id, this.data); }
             if (id === 'sys') { this.renderFirewallBlacklist(); }
             if (id === 'ads') { this.hydrateAdsSection(); }
-
+if (id === 'coupons') { AdminUI?.MarketingUI?.switchPromoTab?.('coupons', document.querySelector('#tabs-promotions [data-tab="coupons"]')); }
+if (id === 'notifs') { this.switchNotifsTab('alerts'); }
             const renderMap = {
                 'dash': 'req-render-dash', 'sales': 'req-render-sales', 'deposits': 'req-render-deposits',
                 'orders': 'req-render-orders', 'products': 'req-render-prods', 'payments': 'req-render-payments',
@@ -396,9 +493,9 @@ export const AppController = {
             }
         };
 
-        safeImgSet('store-logo-wrap', 'store-logo-preview', settings.storeLogo);
-        safeImgSet('store-favicon-wrap', 'store-favicon-preview', settings.storeFavicon);
-
+        safeImgSet('store-logo-wrap', 'store-logo-preview', settings.storeLogo || this.data.system?.storeLogo);
+        safeImgSet('store-logo-light-wrap', 'store-logo-light-preview', settings.storeLogoLight || this.data.system?.storeLogoLight);
+        safeImgSet('store-favicon-wrap', 'store-favicon-preview', settings.storeFavicon || this.data.system?.storeFavicon);
         safeSet('store-about-us', settings.aboutUs || '');
         safeSet('store-name-input', settings.storeName || '');
         safeSet('store-name-weight', settings.storeNameWeight || '900');
@@ -465,32 +562,38 @@ export const AppController = {
             </select>
             <input type="text" class="form-input mb-0 flex-1 dyn-social-name" placeholder="الاسم (مثال: مجتمع واتساب)" value="${Utils.escapeHTML(linkData.name)}">
             <input type="url" class="form-input mb-0 flex-2 num-en dyn-social-url" dir="ltr" placeholder="https://..." value="${Utils.escapeHTML(linkData.url)}">
-            <button type="button" class="btn btn-red btn-sm px-10" onclick="this.parentElement.remove()" title="حذف"><i class="fa-solid fa-trash"></i></button>
+            <button type="button" class="btn btn-red btn-sm px-10 dyn-social-del-btn" title="حذف"><i class="fa-solid fa-trash"></i></button>
         `;
+        row.querySelector('.dyn-social-del-btn')?.addEventListener('click', () => row.remove());
         container.appendChild(row);
     },
 
+    // 🛡️ التحديث المطلوب: استبدال دوال escapeHTML لحفظ النصوص خام في قاعدة البيانات
     saveSocialLinks: async function() {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ الروابط...');
         try {
             if (!this.data.settings) this.data.settings = {};
             
-            const desc = Utils.escapeHTML(document.getElementById('social-desc')?.value.trim() || '');
+            const desc = document.getElementById('social-desc')?.value.trim() || '';
             const links = [];
             
-            document.querySelectorAll('.social-dynamic-row').forEach(row => {
-                const icon = row.querySelector('.dyn-social-icon')?.value;
+            for (const row of document.querySelectorAll('.social-dynamic-row')) {
+                const icon = (row.querySelector('.dyn-social-icon')?.value || 'fa-link').trim();
                 const name = row.querySelector('.dyn-social-name')?.value.trim();
                 const url = row.querySelector('.dyn-social-url')?.value.trim();
                 
-                if (name && url) { 
+                if (name && url) {
+                    if (!/^https?:\/\//i.test(url)) {
+                        AdminUI?.showToast(`الرابط (${name}) يجب أن يبدأ بـ https:// أو http://`, 'error');
+                        return;
+                    }
                     links.push({
-                        icon: Utils.escapeHTML(icon),
-                        name: Utils.escapeHTML(name),
+                        icon: icon,
+                        name: name,
                         url: url.trim() 
                     });
                 }
-            });
+            }
 
             this.data.settings.socialDesc = desc;
             this.data.settings.socialLinksList = links;
@@ -504,30 +607,86 @@ export const AppController = {
         }
     },
 
-    // 🚀 [الإصلاح المعماري 2]: إجبار عملية التحديث على استدعاء السيرفر
     refresh: async function(type) {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري جلب أحدث البيانات من السيرفر...');
         try {
-            // استدعاء loadData بدلاً من الاعتماد على البيانات المخبأة
-            await AdminData?.loadData?.(); 
-            
-            const refreshMap = { 
-                'deposits': 'req-render-deposits', 
-                'orders': 'req-render-orders', 
-                'users': 'req-render-users', 
-                'products': 'req-render-prods', 
-                'logs': 'req-render-logs', 
-                'wallets': 'req-render-wallets', 
-                'complaints': 'filter-reviews', 
-                'integrations': 'req-render-integrations' 
+            const syncStaticCol = (prop, list) => {
+                AdminData.data[prop] = Array.isArray(list) ? list.filter(Boolean) : [];
+                AdminData._buildSingleMap?.(prop);
+                AdminData._updateSnapshot?.(prop);
             };
-            
-            if (refreshMap[type]) {
-                EventBus.emit(refreshMap[type]); 
+
+            if (type === 'dash' || !type) {
+                // 🚀 تمت إزالة updateBadges(true) لمنع القراءة المزدوجة
+                EventBus.emit('req-render-dash', { force: true });
+            } else if (type === 'sales') {
+                EventBus.emit('req-render-sales');
+            } else if (type === 'orders') {
+                AdminData.cursors.orders = null;
+                AdminData.data.orders = [];
+                AdminData.data.ordersMap = {};
+                await AdminRender?.loadMoreOrders?.();
+                AdminRender?.updateBadges?.(true);
+            } else if (type === 'deposits') {
+                AdminData.cursors.deposits = null;
+                AdminData.data.deposits = [];
+                AdminData.data.depositsMap = {};
+                await AdminRender?.loadMoreDeposits?.();
+                AdminRender?.updateBadges?.(true);
+            } else if (type === 'users') {
+                AdminData.cursors.users = null;
+                AdminData.data.users = [];
+                AdminData.data.usersMap = {};
+                await AdminRender?.loadMoreUsers?.();
+            } else if (type === 'logs') {
+    const rLogs = await FirebaseAdapter.callFunction('adminGetLogsList', { limit: 50 });
+    if (rLogs && rLogs.success) {
+        AdminData.data.logs = Array.isArray(rLogs.data) ? rLogs.data : [];
+        AdminData.data.systemErrors = Array.isArray(rLogs.systemErrors) ? rLogs.systemErrors : [];
+        AdminData.cursors.logs = rLogs.pagination || null;
+    }
+    EventBus.emit('req-render-logs');            } else if (type === 'wallets') {
+                await AdminData.fetchWalletsLiquidityAsync();
+                EventBus.emit('req-render-wallets');
+            } else if (type === 'rates') {
+                const rRates = await FirebaseAdapter.getAll('telecard_rates');
+                const normalized = typeof normalizeRates === 'function' ? normalizeRates(rRates) : rRates;
+                syncStaticCol('rates', Array.isArray(normalized) ? normalized : Object.values(normalized || {}));
+                EventBus.emit('req-render-rates');
+            } else if (type === 'products') {
+                const [rCats, rProds, rVault] = await Promise.all([
+                    FirebaseAdapter.getAll('telecard_cats'),
+                    FirebaseAdapter.getAll('telecard_prods'),
+                    FirebaseAdapter.getAll('telecard_vault')
+                ]);
+                syncStaticCol('cats', rCats);
+                syncStaticCol('prods', (rProds || []).map(p => ({
+                    ...p,
+                    costPrice: Number(p.costPrice || 0),
+                    price: Number(p.price || 0),
+                    isFixedPrice: !!p.isFixedPrice,
+                    requiresAdminAttention: !!p.requiresAdminAttention,
+                    syncNote: p.syncNote || ''
+                })));
+                syncStaticCol('vault', rVault);
+                EventBus.emit('req-render-prods');
+            } else if (type === 'vault') {
+                const rVault = await FirebaseAdapter.getAll('telecard_vault');
+                syncStaticCol('vault', rVault);
+                EventBus.emit('req-render-vault');
+            } else if (type === 'complaints') {
+                const rReviews = await FirebaseAdapter.getAll('telecard_reviews', 500);
+                syncStaticCol('reviews', rReviews);
+                this.renderComplaints();
+            } else if (type === 'integrations') {
+                const rSuppliers = await FirebaseAdapter.getAll('telecard_suppliers');
+                syncStaticCol('suppliers', rSuppliers);
+                EventBus.emit('req-render-integrations');
             } else {
-                await this.nav(type || 'dash');
+                await AdminData?.loadData?.(auth?.currentUser?.uid);
+                await this.nav(type);
             }
-            
+
             if (type === 'sys' || document.getElementById('view-sys')?.classList.contains('active')) {
                 this.renderFirewallBlacklist();
             }
@@ -555,30 +714,36 @@ export const AppController = {
         const deviceContainer = document.getElementById('global-banned-devices-container');
         if (!ipContainer || !deviceContainer) return;
 
-        const settings = AdminData.data.settings || {};
-        const bannedIps = Array.isArray(settings.bannedIps) ? settings.bannedIps : [];
-        const bannedDevices = Array.isArray(settings.bannedDevices) ? settings.bannedDevices : [];
+        // 🛡️ [الجدار الناري المحكم]: قراءة قوائم الحظر من active_configs
+        const activeConfigs = AdminData.data.activeConfigs || {};
+        const bannedIps = Array.isArray(activeConfigs.bannedIps) ? activeConfigs.bannedIps : (Array.isArray(AdminData.data.settings?.bannedIps) ? AdminData.data.settings.bannedIps : []);
+        const bannedDevices = Array.isArray(activeConfigs.bannedDevices) ? activeConfigs.bannedDevices : (Array.isArray(AdminData.data.settings?.bannedDevices) ? AdminData.data.settings.bannedDevices : []);
 
         if (bannedIps.length === 0) {
             ipContainer.innerHTML = '<span class="text-muted fs-11"><i class="fa-solid fa-check text-success"></i> لا توجد عناوين IP محظورة.</span>';
         } else {
-            ipContainer.innerHTML = bannedIps.map(ip => `
+            ipContainer.innerHTML = bannedIps.map(ip => {
+                const safeIp = Utils.escapeHTML(ip);
+                return `
                 <div class="badge-tag bg-danger text-white num-en d-flex align-items-center gap-2" dir="ltr">
-                    ${ip} 
-                    <i class="fa-solid fa-xmark clickable ms-2" data-action="remove-global-ban-ip" data-ip="${ip}" title="فك الحظر"></i>
+                    ${safeIp} 
+                    <i class="fa-solid fa-xmark clickable ms-2" data-action="remove-global-ban-ip" data-ip="${safeIp}" title="فك الحظر"></i>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
         if (bannedDevices.length === 0) {
             deviceContainer.innerHTML = '<span class="text-muted fs-11"><i class="fa-solid fa-check text-success"></i> لا توجد أجهزة مفخخة.</span>';
         } else {
-            deviceContainer.innerHTML = bannedDevices.map(dev => `
+            deviceContainer.innerHTML = bannedDevices.map(dev => {
+                const safeDev = Utils.escapeHTML(dev);
+                const shortDev = Utils.escapeHTML(String(dev).substring(0, 10));
+                return `
                 <div class="badge-tag bg-info text-white num-en d-flex align-items-center gap-2" dir="ltr">
-                    ${dev.substring(0, 10)}... 
-                    <i class="fa-solid fa-xmark clickable ms-2" data-action="remove-global-ban-device" data-device="${dev}" title="فك الحظر"></i>
+                    ${shortDev}... 
+                    <i class="fa-solid fa-xmark clickable ms-2" data-action="remove-global-ban-device" data-device="${safeDev}" title="فك الحظر"></i>
                 </div>
-            `).join('');
+            `}).join('');
         }
     },
 
@@ -595,20 +760,27 @@ export const AppController = {
         if (!isValidIPv4 && !isValidIPv6) {
             return AdminUI.showToast('صيغة الـ IP غير صحيحة، يرجى إدخال IP حقيقي', 'error');
         }
-
-        if (AdminUI && !await AdminUI.showConfirm(`تنبيه أمني خطير!\nهل أنت متأكد من حظر هذا الـ IP (${newIp})؟\nإذا كان هذا الـ IP يخصك أو يخص سيرفر النظام، فلن تتمكن من دخول اللوحة بعد الآن!`, 'تأكيد الحظر')) return;
         
-        if (!AdminData.data.settings) AdminData.data.settings = {};
-        if (!AdminData.data.settings.bannedIps) AdminData.data.settings.bannedIps = [];
-        
-        if (AdminData.data.settings.bannedIps.includes(newIp)) {
-            return AdminUI.showToast('هذا الـ IP محظور مسبقاً', 'warning');
-        }
+        if (AdminUI && !await AdminUI.showConfirm(`تنبيه أمني خطير!
+هل أنت متأكد من حظر هذا الـ IP (${newIp})؟
+إذا كان هذا الـ IP يخصك أو يخص سيرفر النظام، فلن تتمكن من دخول اللوحة بعد الآن!`, 'تأكيد الحظر')) return;
         
         if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري حظر الـ IP سحابياً...');
         try {
-            AdminData.data.settings.bannedIps.push(newIp);
-            await AdminData.saveSystemSettings();
+            // 🛡️ استخدام set (مع merge: true) لضمان عملها حتى لو لم تكن وثيقة active_configs منشأة بعد
+            await FirebaseAdapter.set('telecard_system', 'active_configs', {
+                bannedIps: arrayUnion(newIp)
+            });
+            
+            if (!AdminData.data.activeConfigs) AdminData.data.activeConfigs = {};
+            if (!Array.isArray(AdminData.data.activeConfigs.bannedIps)) AdminData.data.activeConfigs.bannedIps = [];
+            if (!AdminData.data.activeConfigs.bannedIps.includes(newIp)) {
+                AdminData.data.activeConfigs.bannedIps.push(newIp);
+            }
+            if (AdminData.data.settings) {
+                AdminData.data.settings.bannedIps = [...AdminData.data.activeConfigs.bannedIps];
+            }
+            
             input.value = '';
             this.renderFirewallBlacklist();
             AdminUI.showToast(`تم حظر الشبكة: ${newIp}`, 'success');
@@ -619,46 +791,64 @@ export const AppController = {
             if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
-
+    
     removeGlobalBanIp: async function(ip) {
-        if (!AdminUI) return;
-        if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن الشبكة (${ip})؟`, 'إزالة من القائمة السوداء')) return;
-
-        if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري فك الحظر...');
-        try {
-            AdminData.data.settings.bannedIps = AdminData.data.settings.bannedIps.filter(item => item !== ip);
-            await AdminData.saveSystemSettings();
-            this.renderFirewallBlacklist();
-            AdminUI.showToast(`تم فك الحظر عن الـ IP بنجاح`, 'success');
-            if (AdminData.addLog) AdminData.addLog('FIREWALL_REMOVE_IP', `إزالة IP من القائمة السوداء: ${ip}`);
-        } catch (e) {
-            AdminUI.showToast('حدث خطأ أثناء فك الحظر', 'error');
-        } finally {
-            if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
-        }
-    },
-
-    removeGlobalBanDevice: async function(device) {
-        if (!AdminUI) return;
-        if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن هذا الجهاز؟\n(${device})`, 'إزالة من القائمة السوداء')) return;
-
-        if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري فك الحظر...');
-        try {
-            AdminData.data.settings.bannedDevices = AdminData.data.settings.bannedDevices.filter(item => item !== device);
-            await AdminData.saveSystemSettings();
-            this.renderFirewallBlacklist();
-            AdminUI.showToast(`تم فك الحظر عن الجهاز بنجاح`, 'success');
-            if (AdminData.addLog) AdminData.addLog('FIREWALL_REMOVE_DEVICE', `إزالة جهاز من القائمة السوداء`);
-        } catch (e) {
-            AdminUI.showToast('حدث خطأ أثناء فك الحظر', 'error');
-        } finally {
-            if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
-        }
-    },
-
-    forceSyncPricingCache: async function() {
-        if (AdminUI && await AdminUI.showConfirm('هل أنت متأكد من إعادة بناء كاش التسعير والبوابات السحابي؟\nاستخدم هذا الخيار (كزر طوارئ) فقط إذا لاحظت عدم تحديث الأسعار في واجهة المتجر.', 'ترميم الكاش السحابي')) {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري ترميم الكاش السحابي للأسعار والبوابات...');
+            if (!AdminUI) return;
+            if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن الشبكة (${ip})؟`, 'إزالة من القائمة السوداء')) return;
+            
+            if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري فك الحظر...');
+            try {
+                await FirebaseAdapter.set('telecard_system', 'active_configs', {
+                    bannedIps: arrayRemove(ip)
+                });
+                
+                if (AdminData.data.activeConfigs && Array.isArray(AdminData.data.activeConfigs.bannedIps)) {
+                    AdminData.data.activeConfigs.bannedIps = AdminData.data.activeConfigs.bannedIps.filter(item => item !== ip);
+                }
+                if (AdminData.data.settings && Array.isArray(AdminData.data.settings.bannedIps)) {
+                    AdminData.data.settings.bannedIps = AdminData.data.settings.bannedIps.filter(item => item !== ip);
+                }
+                this.renderFirewallBlacklist();
+                
+                AdminUI.showToast(`تم فك الحظر عن الـ IP بنجاح`, 'success');
+                if (AdminData.addLog) AdminData.addLog('FIREWALL_REMOVE_IP', `إزالة IP من القائمة السوداء: ${ip}`);
+            } catch (e) {
+                AdminUI.showToast('حدث خطأ أثناء فك الحظر', 'error');
+            } finally {
+                if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+            }
+        },
+        
+        removeGlobalBanDevice: async function(device) {
+            if (!AdminUI) return;
+            if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن هذا الجهاز؟
+(${device})`, 'إزالة من القائمة السوداء')) return;
+            
+            if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري فك الحظر...');
+            try {
+                await FirebaseAdapter.set('telecard_system', 'active_configs', {
+                    bannedDevices: arrayRemove(device)
+                });
+                
+                if (AdminData.data.activeConfigs && Array.isArray(AdminData.data.activeConfigs.bannedDevices)) {
+                    AdminData.data.activeConfigs.bannedDevices = AdminData.data.activeConfigs.bannedDevices.filter(item => item !== device);
+                }
+                if (AdminData.data.settings && Array.isArray(AdminData.data.settings.bannedDevices)) {
+                    AdminData.data.settings.bannedDevices = AdminData.data.settings.bannedDevices.filter(item => item !== device);
+                }
+                this.renderFirewallBlacklist();
+                
+                AdminUI.showToast(`تم فك الحظر عن الجهاز بنجاح`, 'success');
+                if (AdminData.addLog) AdminData.addLog('FIREWALL_REMOVE_DEVICE', `إزالة جهاز من القائمة السوداء`);
+            } catch (e) {
+                AdminUI.showToast('حدث خطأ أثناء فك الحظر', 'error');
+            } finally {
+                if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+            }
+        },    forceSyncPricingCache: async function() {
+        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من إعادة بناء كاش التسعير والبوابات السحابي؟
+استخدم هذا الخيار (كزر طوارئ) فقط إذا لاحظت عدم تحديث الأسعار في واجهة المتجر.`, 'ترميم الكاش السحابي')) {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري ترميم الكاش السحابي للأسعار والبوابات... (قد تستغرق هذه العملية عدة دقائق، يرجى عدم إغلاق الصفحة)');
             try {
                 const result = await FirebaseAdapter.callFunction('adminForceSyncPricing', {});
                 if (result && result.success) {
@@ -673,6 +863,7 @@ export const AppController = {
         }
     },
 
+    // 🛡️ التحديث المطلوب: استبدال دوال escapeHTML لحفظ النصوص خام في قاعدة البيانات
     saveSystem: async function() { 
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات النظام...');
         try {
@@ -680,10 +871,10 @@ export const AppController = {
             this.data.system = { 
                 ...this.data.system,
                 maint: Utils.getCheck('sys-maint-toggle'), 
-                msg: Utils.escapeHTML(Utils.getVal('sys-maint-msg')), 
+                msg: Utils.getVal('sys-maint-msg'), 
                 date: Utils.getVal('sys-maint'), 
                 freeze: Utils.getCheck('sys-freeze-toggle'), 
-                freezeMsg: Utils.escapeHTML(Utils.getVal('sys-freeze-msg')) 
+                freezeMsg: Utils.getVal('sys-freeze-msg') 
             }; 
             await AdminData?.saveSystemSettings?.(); 
             AdminUI?.showToast('تم حفظ إعدادات النظام بنجاح', 'success');
@@ -709,7 +900,15 @@ export const AppController = {
         try {
             const activeIcon = document.querySelector('.is-opt.active'); 
             const activeAnim = document.querySelector('.anim-opt.active'); 
-            this.data.settings.supportLink = Utils.escapeHTML(Utils.getVal('supp-link')); 
+            
+            const rawSuppLink = String(Utils.getVal('supp-link') || '').trim();
+            const isSafeSuppVal = !rawSuppLink || /^https?:\/\//i.test(rawSuppLink) || /^\+?[0-9\s-]{7,18}$/.test(rawSuppLink);
+            if (!isSafeSuppVal) {
+                AdminUI?.showToast('يرجى إدخال رابط يبدأ بـ https:// أو رقم هاتف صحيح', 'error');
+                return;
+            }
+            this.data.settings.supportLink = rawSuppLink;
+            
             this.data.settings.supportIcon = activeIcon ? activeIcon.dataset.val : 'fa-whatsapp'; 
             this.data.settings.supportAnimation = activeAnim ? activeAnim.dataset.val : 'none'; 
             await AdminData?.saveSystemSettings?.(); 
@@ -721,10 +920,11 @@ export const AppController = {
         }
     },
 
+    // 🛡️ التحديث المطلوب: إزالة escapeHTML لمنع التشفير المزدوج
     saveAboutUs: async function() {
         const aboutTextEl = document.getElementById('store-about-us');
         if (!aboutTextEl) return;
-        const aboutText = Utils.escapeHTML(aboutTextEl.value.trim());
+        const aboutText = aboutTextEl.value.trim();
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ النص التعريفي...');
         try {
             if (!this.data.settings) this.data.settings = {};
@@ -781,10 +981,10 @@ export const AppController = {
             return;
         }
 
-        grid.innerHTML = reviews.sort((a,b) => b.time - a.time).map(r => {
+        grid.innerHTML = reviews.sort((a,b) => RenderHelpers.parseUnifiedTime(b) - RenderHelpers.parseUnifiedTime(a)).map(r => {
             const isResolved = r.status === 'resolved';
             const isGood = r.rating >= 4;
-            const user = AdminData.data.usersMap?.[r.userId] || { name: 'عميل غير معروف' };
+            const user = AdminData.data.usersMap?.[r.userId] || { name: r.userName || r.userFullName || 'عميل غير معروف' };
             const borderColor = isGood ? 'border-success' : (isResolved ? 'resolved-complaint' : 'border-danger');
             
             return `
@@ -798,16 +998,16 @@ export const AppController = {
                 <div class="mb-10 fs-14">
                     <span class="text-warning">${'<i class="fa-solid fa-star"></i>'.repeat(r.rating)}${'<i class="fa-regular fa-star"></i>'.repeat(5 - r.rating)}</span>
                 </div>
-                ${r.text ? `<p class="fs-13 text-muted mb-15 p-10" style="background: var(--bg-body); border-radius: 6px;">"${Utils.escapeHTML(r.text)}"</p>` : ''}
+                ${(r.comment || r.text) ? `<p class="fs-13 text-muted mb-15 p-10" style="background: var(--bg-body); border-radius: 6px;">"${Utils.escapeHTML(r.comment || r.text)}"</p>` : ''}
                 
                 ${isResolved ? 
                 `<div class="p-10 bg-success-10 text-success border-success-15" style="border-radius: 6px; font-size: 12px;">
                     <i class="fa-solid fa-reply"></i> <b>رد الإدارة:</b> ${Utils.escapeHTML(r.adminReply)}
                 </div>` 
                 : (!isGood ? `
-                <div id="reply-box-${r.id}" class="mt-10">
-                    <textarea id="reply-text-${r.id}" class="form-input mb-10" rows="2" placeholder="اكتب رسالة اعتذار للعميل أو كود خصم للتعويض..."></textarea>
-                    <button class="btn btn-primary w-100" onclick="EventBus.emit('reply-complaint', { id: '${r.id}' })">
+                <div id="reply-box-${Utils.escapeHTML(r.id)}" class="mt-10">
+                    <textarea id="reply-text-${Utils.escapeHTML(r.id)}" class="form-input mb-10" rows="2" placeholder="اكتب رسالة اعتذار للعميل أو كود خصم للتعويض..."></textarea>
+                    <button type="button" class="btn btn-primary w-100" data-action="reply-complaint" data-id="${Utils.escapeHTML(r.id)}">
                         <i class="fa-solid fa-paper-plane"></i> إرسال الرد للعميل
                     </button>
                 </div>
@@ -874,10 +1074,11 @@ export const AppController = {
         }
     },
     
+    // 🛡️ التحديث المطلوب: إزالة escapeHTML من حفظ اسم المدير
     saveAdminProfile: async function(profileData) {
-        const name = profileData?.name || Utils.escapeHTML(Utils.getVal('adm-name'));
+        const name = (profileData?.name || Utils.getVal('adm-name')).trim();
         const hasImg = profileData?.hasImg !== undefined ? profileData.hasImg : document.getElementById('adm-img-wrap')?.classList.contains('has-img');
-
+        
         if (!name) return AdminUI?.showToast('الاسم مطلوب', 'error');
         
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث الملف الشخصي...');
@@ -890,8 +1091,13 @@ export const AppController = {
                 if (AdminUI?.tempImg && AdminUI.tempImg.startsWith('data:image')) {
                     AdminUI?.showToast('جاري رفع الصورة المضغوطة...', 'info');
                     
-                    const processedBlob = await (await fetch(AdminUI.tempImg)).blob();
-                    const finalFileToUpload = new File([processedBlob], `admin_profile_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    const mimeMatch = AdminUI.tempImg.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+                    const detectedMime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+                    const detectedExt = detectedMime.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+                    const processedBlob = typeof AdminUI.base64ToBlob === 'function' ?
+                        AdminUI.base64ToBlob(AdminUI.tempImg, detectedMime) :
+                        await (await fetch(AdminUI.tempImg)).blob();
+                    const finalFileToUpload = new File([processedBlob], `admin_profile_${auth?.currentUser?.uid || Date.now()}.${detectedExt}`, { type: detectedMime });
                     
                     if (oldImgUrl && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
                         await FirebaseAdapter.deleteImageByUrl(oldImgUrl).catch(() => {});
@@ -901,7 +1107,7 @@ export const AppController = {
                 } else if (profileData?.file || document.getElementById('adm-img-file')?.files?.[0]) {
                     const fallbackFile = profileData?.file || document.getElementById('adm-img-file')?.files?.[0];
                     const ext = fallbackFile.name.includes('.') ? fallbackFile.name.split('.').pop().toLowerCase() : 'jpg';
-                    const customName = `admin_profile_${Date.now()}.${ext}`;
+                    const customName = `admin_profile_${auth?.currentUser?.uid || Date.now()}.${ext}`;
                     
                     if (oldImgUrl && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
                         await FirebaseAdapter.deleteImageByUrl(oldImgUrl).catch(() => {});
@@ -917,22 +1123,16 @@ export const AppController = {
                 finalImg = '';
             }
             
-            this.data.adminProfile = { 
-                ...this.data.adminProfile, 
-                name, 
-                img: finalImg 
+            this.data.adminProfile = {
+                ...this.data.adminProfile,
+                name,
+                img: finalImg
             };
             
-            await AdminData?.saveAdminProfile?.();
+            await AdminData?.saveAdminProfile?.(auth?.currentUser?.uid);
             EventBus.emit('req-update-profile-ui');
-            
-            const passInput = document.getElementById('adm-pass');
-            if (passInput && passInput.value.trim() !== '') {
-                AdminUI?.showToast('تم تحديث البيانات. لتغيير كلمة المرور أو البريد، يرجى استخدام نظام إعادة تعيين فايربيز.', 'info');
-                passInput.value = '';
-            } else {
-                AdminUI?.showToast('تم حفظ الملف الشخصي بنجاح', 'success');
-            }
+            AdminUI?.closeModal?.('profile');
+            AdminUI?.showToast('تم حفظ الملف الشخصي بنجاح', 'success');
             
         } catch (error) {
             AdminUI?.showToast(error.message || 'تعذر تحديث الملف الشخصي', 'error');
@@ -940,7 +1140,32 @@ export const AppController = {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
-
+    
+    resetAdminPassword: async function() {
+        const adminEmail = (auth?.currentUser?.email || this.data.adminProfile?.email || '').trim();
+        if (!adminEmail) {
+            return AdminUI?.showToast('تعذر العثور على البريد الإلكتروني لحساب الإدارة الحالي.', 'error');
+        }
+        
+        if (AdminUI && !await AdminUI.showConfirm(`سيتم إرسال رابط رسمي ومشفر من Firebase لتغيير كلمة المرور إلى بريدك الإلكتروني:\n\n${adminEmail}\n\nهل تريد المتابعة؟`, 'تغيير كلمة مرور المدير')) {
+            return;
+        }
+        
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري إرسال رابط تغيير كلمة المرور إلى بريدك...');
+        try {
+            await sendPasswordResetEmail(auth, adminEmail);
+            AdminUI?.showToast(`تم إرسال رابط تغيير كلمة المرور إلى (${adminEmail}) بنجاح! تفقد بريدك الوارد.`, 'success', 6000);
+            if (AdminData?.addLog) AdminData.addLog('ADMIN_PASSWORD_RESET_REQ', `طلب رابط تغيير كلمة المرور للبريد: ${adminEmail}`);
+        } catch (error) {
+            let errMsg = 'تعذر إرسال الرابط. تأكد من اتصالك بالإنترنت.';
+            if (error.code === 'auth/too-many-requests') {
+                errMsg = 'تم إرسال عدة طلبات مؤخراً، يرجى الانتظار قليلاً قبل المحاولة مجدداً.';
+            }
+            AdminUI?.showToast(errMsg, 'error');
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+        }
+    },
     setupAdminPushNotifications: async function(forcePrompt = false) {
         if (typeof window === 'undefined' || !window.Notification) return;
 
@@ -963,7 +1188,7 @@ export const AppController = {
                         if (!this.data.adminProfile) this.data.adminProfile = {};
                         this.data.adminProfile.fcmTokens = currentTokens;
                         
-                        await AdminData.saveAdminProfile();
+                        await AdminData.saveAdminProfile(auth?.currentUser?.uid);
                         AdminUI?.showToast('تم تفعيل الإنذار الفوري على هذا الجهاز بنجاح! 🚀', 'success');
                     }
                 }
@@ -981,9 +1206,10 @@ export const AppController = {
             const pushPrefs = {
                 orders: Utils.getCheck('pref-orders', true),
                 deposits: Utils.getCheck('pref-deposits', true),
-                kyc: Utils.getCheck('pref-kyc', false),
+                kyc: Utils.getCheck('pref-kyc', true),
                 vault: Utils.getCheck('pref-vault', true),
-                complaints: Utils.getCheck('pref-complaints', true)
+                complaints: Utils.getCheck('pref-complaints', true),
+                system_alerts: Utils.getCheck('pref-system-alerts', this.data.adminProfile?.pushPrefs?.system_alerts ?? true)
             };
 
             let currentTokens = Array.isArray(this.data.adminProfile?.fcmTokens) ? [...this.data.adminProfile.fcmTokens] : [];
@@ -1000,7 +1226,7 @@ export const AppController = {
             this.data.adminProfile.pushPrefs = pushPrefs;
             this.data.adminProfile.fcmTokens = currentTokens;
             
-            await AdminData?.saveAdminProfile?.();
+            await AdminData?.saveAdminProfile?.(auth?.currentUser?.uid);
             
             AdminUI?.showToast('تم تحديث إعدادات الرادار السحابي بنجاح 🚀', 'success');
             AdminUI?.closeModal?.('admin-prefs'); 
@@ -1011,6 +1237,7 @@ export const AppController = {
         }
     },
 
+    // 🚀 [الإصلاح المعماري 3: Double Delete Confirm Fix] - نافذة التأكيد مخصصة للبنر فقط هنا لمنع التضارب
     delItem: async function(type, id) {
         const strId = String(id);
         
@@ -1024,6 +1251,7 @@ export const AppController = {
         if (type === 'offer') return MarketingController.deleteOffer(strId);
         
         if (type === 'banner') {
+            if (AdminUI && !await AdminUI.showConfirm('هل أنت متأكد من حذف هذه اللافتة الإعلانية نهائياً؟')) return;
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح البنر الإعلاني...');
             try {
                 const bnr = this.data.banners.find(x => String(x.id) === strId);

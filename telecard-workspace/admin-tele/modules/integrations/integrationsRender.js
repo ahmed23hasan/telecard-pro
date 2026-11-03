@@ -1,7 +1,7 @@
 // ============================================================================
-// 🖥️ محرك رسم الربط والموردين (modules/integrations/integrationsRender.js) 💎
+// 🖥️ محرك رسم الربط والموردين (modules/integrations/integrationsRender.js) - V19.0
 // 🌟 التحديثات المعمارية:
-// 1. Repaint Bottleneck Fix 🛡️: تغليف عملية رسم كل مورد داخل try/catch لحماية الواجهة.
+// 1. Pure Renderer 🛡️: إزالة دالة النوافذ بالكامل ليصبح الملف محرك رسم نقي للقوائم فقط.
 // 2. Memory Leak Shield 🛡️: إضافة قفل _listenersBound لمنع تكرار الأحداث.
 // ============================================================================
 
@@ -14,7 +14,6 @@ export const IntegrationsRender = {
     _listenersBound: false,
     
     initListeners: function() {
-        // 🚀 [الحل المعماري - Memory Leak Shield]
         if (this._listenersBound) return;
         this._listenersBound = true;
         
@@ -49,19 +48,6 @@ export const IntegrationsRender = {
             
         } catch (error) {
             console.error("🚨 خطأ حرج في محرك رسم الموردين:", error);
-        }
-    },
-    
-    renderDefectsModal: function(supplierName, defects) {
-        const oldOverlay = document.getElementById('supplier-defects-overlay');
-        if (oldOverlay) oldOverlay.remove();
-        
-        const html = IntegrationsTemplates.supplierDefectsModal(supplierName, defects);
-        document.body.insertAdjacentHTML('beforeend', html);
-        
-        const overlay = document.getElementById('supplier-defects-overlay');
-        if (overlay) {
-            setTimeout(() => { overlay.classList.add('active'); }, 10);
         }
     }
 };

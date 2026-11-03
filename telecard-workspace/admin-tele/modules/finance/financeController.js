@@ -1,11 +1,11 @@
 // ============================================================================
-// 🧠 متحكم المالية (modules/finance/financeController.js) - Cloud-Native V18.11 💎
-// 🚀 التحديثات المعمارية (V18.11 - The Silent Bug & Atomic Sync Patch): 
-// 1. Read Exhaustion Shield 🛡️: إيقاف جلب كل المستخدمين واستبدالها بتحديث العميل المتأثر فقط.
-// 2. Atomic UI Sync ⏱️: إلغاء (setTimeout) وتحديث الواجهة تزامنيًا لمنع الـ Race Condition.
-// 3. Stablecoin Support 💵: السماح بإضافة عملات مطابقة للدولار (مثل USDT) عبر رسالة تأكيد.
-// 4. Silent Failure Patch 🚨: إظهار تنبيه خطير إذا فشل السيرفر في مزامنة التسعير بدلاً من إخفائه.
-// 5. Rates Cache Sync 🔄: إضافة العملات الجديدة للـ Map لتحديث الواجهة فوراً.
+// 🧠 متحكم المالية (modules/finance/financeController.js) - Cloud-Native V19.0 💎
+// 🚀 التحديثات المعمارية (V19.0 - Zero-Bleed Sync, Strict Non-Negative Refund & Instant Counters): 
+// 1. Strict Non-Negative Refund Shield 🛡️: منع استرجاع الإيداع إذا استهلك العميل الرصيد (تطابق 100% مع السيرفر).
+// 2. Zero-Read User Balance Sync ⚡: تحديث رصيد العميل في الذاكرة بعد قبول/استرجاع الإيداع بـ 0 قراءات إضافية.
+// 3. No Duplicate Pricing Sync 🧹: الاعتماد على تريجرات السيرفر التلقائية (onRateUpdate / onPaymentUpdate).
+// 4. Orphan Logo Guard 🧹: إصلاح استبدال ومسح شعار بوابة الدفع وعرض شاشة التحميل بشكل سليم.
+// 5. Data Integrity Shield 🛡️: حماية نصوص النسخ من التشفير وإغلاق ثغرة تغيير كود العملة.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -21,132 +21,160 @@ export const FinanceController = {
     _actionLocks: new Set(),
 
     savePay: async function() {
-        if (this._actionLocks.has('save-pay')) return; 
-        this._actionLocks.add('save-pay');
-
-        try {
-            const checks = AdminUI?.FinanceUI?.getCheckedCurrencies?.() || [];
-            let currSettings = {};
-            let summaryMsg = 'يرجى مراجعة إعدادات الرسوم والبونص قبل الحفظ:\n\n';
-
-            checks.forEach(code => {
-                const fType = Utils.getVal(`pay-feetype-${code}`) || 'fee';
-                const fVal = parseFloat(Utils.getVal(`pay-fee-${code}`)) || 0;
-                const fUnit = Utils.getVal(`pay-feeunit-${code}`) || 'percent';
-                
-                currSettings[code] = {
-                    feeType: fType,
-                    fee: fVal,
-                    feeUnit: fUnit,
-                    min: parseFloat(Utils.getVal(`pay-min-${code}`)) || 0,
-                    max: parseFloat(Utils.getVal(`pay-max-${code}`)) || 0,
-                    minFee: parseFloat(Utils.getVal(`pay-minfee-${code}`)) || 0, 
-                    maxFee: parseFloat(Utils.getVal(`pay-maxfee-${code}`)) || 0
-                };
-
-                const displayCode = AdminRender?.getCurrencySymbolText?.(code) || code;
-                const typeText = fType === 'bonus' ? 'يمنح بونص إضافي (+)' : 'يخصم عمولة (-)';
-                const unitText = fUnit === 'fixed' ? '(مبلغ ثابت)' : '(نسبة مئوية %)';
-                summaryMsg += `• عملة ${displayCode}: ${typeText} بقيمة ${fVal} ${unitText}\n`;
-            });
-
-            if (checks.length > 0 && AdminUI && !await AdminUI.showConfirm(summaryMsg, 'تأكيد الحسبة المالية للبوابة')) {
-                return; 
-            }
-
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات بوابة الدفع...');
-
-            const hasImg = AdminUI?.FinanceUI?.hasImage?.('pay-img-wrap');
-            const tempEditId = AdminData.tempEditId;
-            const oldImg = tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(tempEditId))?.img : null;
-            
-            let finalImg = oldImg || '';
-            if (hasImg) {
-                const fileInput = document.getElementById('pay-img-input');
-                const fileToUpload = fileInput?.files?.[0];
-
-                if (fileToUpload) {
-                    EventBus.emit('req-show-toast', { message: 'جاري ضغط ومعالجة شعار البوابة...', type: 'info' });
-                    
-                    const compressedBase64 = await new Promise(resolve => {
-                        if (UIService && UIService.processImage) {
-                            UIService.processImage(fileToUpload, resolve);
-                        } else { resolve(null); }
-                    });
-
-                    let fileForUpload = fileToUpload;
-                    if (compressedBase64 && compressedBase64.startsWith('data:image')) {
-                        const mimeType = fileToUpload.type === 'image/png' ? 'image/png' : 'image/jpeg';
-                        const byteString = atob(compressedBase64.split(',')[1]);
-                        const ab = new ArrayBuffer(byteString.length);
-                        const ia = new Uint8Array(ab);
-                        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-                        const blob = new Blob([ab], { type: mimeType });
-                        fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
-                    }
-
-                    if (oldImg && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
-                        await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
-                    }
-
-                    finalImg = await FirebaseAdapter.uploadImage(fileForUpload, 'payments', null, true);
-                }
-            }
-
-            const existingPay = tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(tempEditId)) : null;
-const currentActiveState = existingPay ? (existingPay.isActive !== false) : true;
-
-// 🚀 [الإصلاح المعماري]: الاحتفاظ بالتفاصيل القديمة إذا لم يتم فتح محرر التفاصيل
-let finalDetails = AdminData.tempPayDetails;
-if ((!finalDetails || finalDetails.length === 0) && existingPay && existingPay.detailFields) {
-    finalDetails = existingPay.detailFields;
-}
-
-const newPay = {
-    id: tempEditId || String(Date.now()),
-    name: Utils.escapeHTML(Utils.getVal('pay-name')),
-    detailFields: finalDetails || [],
-    currencies: checks.join(',') || 'USD',
-    currencySettings: currSettings,
-    inputPlaceholder: Utils.escapeHTML(Utils.getVal('pay-input-placeholder')),
-    reqProof: Utils.getCheck('pay-req-proof'),
-    img: finalImg,
-    isActive: currentActiveState
-};            const isEdit = !!tempEditId;
-            if (isEdit) {
-                const idx = AdminData.data.payments.findIndex(p => String(p.id) === String(tempEditId));
-                if (idx > -1) AdminData.data.payments[idx] = newPay;
-            } else {
-                AdminData.data.payments.push(newPay);
-            }
-
-            await AdminData?.savePayments?.();
-            
-            // 🚀 [إصلاح الكارثة الصامتة]: فضح فشل مزامنة التسعير
-            FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch((err) => {
-                EventBus.emit('req-show-toast', { message: '🚨 تنبيه خطير: فشل السيرفر في تحديث أسعار المنتجات! يرجى ترميم الكاش يدوياً من الإعدادات.', type: 'error' });
-            });
-            
-            EventBus.emit('req-finish-action', {
-                renderEvent: 'req-render-payments',
-                modalId: 'payment', 
-                logAction: isEdit ? 'EDIT_PAYMENT' : 'ADD_PAYMENT',
-                logDetails: `تم ${isEdit ? 'تعديل' : 'إضافة'} وسيلة الدفع: ${newPay.name}`,
-                toastMsg: 'تم حفظ طريقة الدفع بنجاح'
-            });
-
-            AdminData.tempEditId = null;
-            AdminData.tempPayDetails = [];
-            
-        } catch (error) {
-            console.error("Save Payment Error:", error);
-            EventBus.emit('req-show-toast', {message:'فشل الحفظ: ' + (error.message || 'خطأ غير معروف'), type:'error'});
-        } finally {
-            this._actionLocks.delete('save-pay');
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+    if (this._actionLocks.has('save-pay')) return;
+    this._actionLocks.add('save-pay');
+    
+    try {
+        const payName = Utils.getVal('pay-name').trim();
+        if (!payName) {
+            EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم طريقة الدفع.', type: 'warning' });
+            return;
         }
-    },
-
+        
+        const checks = AdminUI?.FinanceUI?.getCheckedCurrencies?.() || [];
+        if (checks.length === 0) {
+            EventBus.emit('req-show-toast', { message: 'يرجى اختيار عملة واحدة على الأقل لبوابة الدفع.', type: 'warning' });
+            return;
+        }
+        
+        let currSettings = {};
+        let summaryMsg = 'يرجى مراجعة إعدادات الرسوم والبونص قبل الحفظ:\n\n';
+        
+        for (const code of checks) {
+            const fType = Utils.getVal(`pay-feetype-${code}`) || 'fee';
+            const fVal = Math.max(0, parseFloat(Utils.getVal(`pay-fee-${code}`)) || 0);
+            const fUnit = Utils.getVal(`pay-feeunit-${code}`) || 'percent';
+            const minVal = Math.max(0, parseFloat(Utils.getVal(`pay-min-${code}`)) || 0);
+            const maxVal = Math.max(0, parseFloat(Utils.getVal(`pay-max-${code}`)) || 0);
+            const minFeeVal = Math.max(0, parseFloat(Utils.getVal(`pay-minfee-${code}`)) || 0);
+            const maxFeeVal = Math.max(0, parseFloat(Utils.getVal(`pay-maxfee-${code}`)) || 0);
+            
+            if (maxVal > 0 && minVal > maxVal) {
+                EventBus.emit('req-show-toast', { message: `خطأ في عملة (${code}): أدنى حد للإيداع (${minVal}) أكبر من أعلى حد (${maxVal})!`, type: 'error' });
+                return;
+            }
+            if (maxFeeVal > 0 && minFeeVal > maxFeeVal) {
+                EventBus.emit('req-show-toast', { message: `خطأ في عملة (${code}): أدنى عمولة/بونص (${minFeeVal}) أكبر من أعلى عمولة/بونص (${maxFeeVal})!`, type: 'error' });
+                return;
+            }
+            if (fUnit === 'percent' && fType === 'fee' && fVal > 75) {
+                EventBus.emit('req-show-toast', { message: `خطأ في عملة (${code}): نسبة العمولة المئوية لا يمكن أن تتجاوز 75%.`, type: 'error' });
+                return;
+            }
+            
+            currSettings[code] = {
+                feeType: fType,
+                fee: fVal,
+                feeUnit: fUnit,
+                min: minVal,
+                max: maxVal,
+                minFee: minFeeVal,
+                maxFee: maxFeeVal
+            };
+            
+            const displayCode = AdminRender?.getCurrencySymbolText?.(code) || code;
+            const typeText = fType === 'bonus' ? 'يمنح بونص إضافي (+)' : 'يخصم عمولة (-)';
+            const unitText = fUnit === 'fixed' ? '(مبلغ ثابت)' : '(نسبة مئوية %)';
+            summaryMsg += `• عملة ${displayCode}: ${typeText} بقيمة ${fVal} ${unitText}\n`;
+        }
+        
+        if (checks.length > 0 && AdminUI && !await AdminUI.showConfirm(summaryMsg, 'تأكيد الحسبة المالية للبوابة')) {
+            return;
+        }
+        
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات بوابة الدفع...');
+        
+        const hasImg = AdminUI?.FinanceUI?.hasImage?.('pay-img-wrap');
+        const tempEditId = AdminData.tempEditId;
+        const oldImg = tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(tempEditId))?.img : null;
+        
+        let finalImg = oldImg || '';
+        if (hasImg) {
+            const fileInput = document.getElementById('pay-img-input');
+            const fileToUpload = fileInput?.files?.[0];
+            
+            if (fileToUpload) {
+                EventBus.emit('req-show-toast', { message: 'جاري ضغط ومعالجة شعار البوابة...', type: 'info' });
+                
+                const compressedBase64 = await new Promise(resolve => {
+                    if (UIService && UIService.processImage) {
+                        UIService.processImage(fileToUpload, resolve);
+                    } else { resolve(null); }
+                });
+                
+                let fileForUpload = fileToUpload;
+                if (compressedBase64 && compressedBase64.startsWith('data:image')) {
+                    const mimeMatch = compressedBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+                    const mimeType = mimeMatch ? mimeMatch[1] : (fileToUpload.type || 'image/jpeg');
+                    const byteString = atob(compressedBase64.split(',')[1]);
+                    const ab = new ArrayBuffer(byteString.length);
+                    const ia = new Uint8Array(ab);
+                    for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+                    const blob = new Blob([ab], { type: mimeType });
+                    fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
+                }
+                
+                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري رفع شعار البوابة للسحابة...');
+                if (oldImg && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                    await FirebaseAdapter.deleteImageByUrl(oldImg).catch(() => {});
+                }
+                
+                finalImg = await FirebaseAdapter.uploadImage(fileForUpload, 'payments', null, true);
+            }
+        } else if (oldImg) {
+            if (typeof FirebaseAdapter.deleteImageByUrl === 'function') {
+                await FirebaseAdapter.deleteImageByUrl(oldImg).catch(() => {});
+            }
+            finalImg = '';
+        }
+        
+        const existingPay = tempEditId ? AdminData.data.payments.find(p => String(p.id) === String(tempEditId)) : null;
+        const currentActiveState = existingPay ? (existingPay.isActive !== false) : true;
+        const cleanPlaceholder = Utils.getVal('pay-input-placeholder').trim();
+        
+        const finalDetails = Array.isArray(AdminData.tempPayDetails) ? AdminData.tempPayDetails : [];
+        const newPay = {
+            id: tempEditId || String(Date.now()),
+            name: payName,
+            detailFields: finalDetails || [],
+            currencies: checks.join(',') || 'USD',
+            currencySettings: currSettings,
+            inputPlaceholder: cleanPlaceholder,
+            depositLabel: cleanPlaceholder,
+            reqProof: Utils.getCheck('pay-req-proof'),
+            img: finalImg,
+            isActive: currentActiveState
+        };
+        
+        const isEdit = !!tempEditId;
+        if (isEdit) {
+            const idx = AdminData.data.payments.findIndex(p => String(p.id) === String(tempEditId));
+            if (idx > -1) AdminData.data.payments[idx] = newPay;
+        } else {
+            AdminData.data.payments.push(newPay);
+        }
+        
+        await AdminData?.savePayments?.();
+        
+        EventBus.emit('req-finish-action', {
+            renderEvent: 'req-render-payments',
+            modalId: 'payment',
+            logAction: isEdit ? 'EDIT_PAYMENT' : 'ADD_PAYMENT',
+            logDetails: `تم ${isEdit ? 'تعديل' : 'إضافة'} وسيلة الدفع: ${newPay.name}`,
+            toastMsg: 'تم حفظ طريقة الدفع بنجاح'
+        });
+        
+        AdminData.tempEditId = null;
+        AdminData.tempPayDetails = [];
+        
+    } catch (error) {
+        console.error("Save Payment Error:", error);
+        EventBus.emit('req-show-toast', { message: 'فشل الحفظ: ' + (error.message || 'خطأ غير معروف'), type: 'error' });
+    } finally {
+        this._actionLocks.delete('save-pay');
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+    }
+},
     togglePaymentStatus: async function(id, isActive) {
         if (this._actionLocks.has(`tog-pay-${id}`)) return; 
         this._actionLocks.add(`tog-pay-${id}`);
@@ -157,11 +185,6 @@ const newPay = {
 
             p.isActive = !!isActive;
             await AdminData?.savePayments?.();
-            
-            // 🚀 [إصلاح الكارثة الصامتة]
-            FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch((err) => {
-                EventBus.emit('req-show-toast', { message: '🚨 تنبيه خطير: فشل السيرفر في تحديث أسعار المنتجات! يرجى ترميم الكاش يدوياً من الإعدادات.', type: 'error' });
-            });
             
             AdminData?.addLog?.('TOGGLE_PAYMENT', `تم ${isActive ? 'تفعيل' : 'إيقاف'} وسيلة الدفع: ${p.name}`);
             EventBus.emit('req-render-payments');
@@ -175,7 +198,7 @@ const newPay = {
     },
 
     addPayDetail: function() {
-        const val = Utils.escapeHTML(Utils.getVal('pay-det-input'));
+        const val = Utils.getVal('pay-det-input').trim(); // 🚀 إصلاح: الحفظ الخام لتجنب تلف الروابط والحسابات
         const copyCheck = Utils.getCheck('pay-det-copyable');
         if (val) {
             if (!Array.isArray(AdminData.tempPayDetails)) AdminData.tempPayDetails = [];
@@ -217,10 +240,10 @@ const newPay = {
         this._actionLocks.add('save-currency');
 
         try {
-            const oldCode = Utils.getVal('cur-old-code');
-            const code = Utils.getVal('cur-code').toUpperCase();
-            const name = Utils.escapeHTML(Utils.getVal('cur-name'));
-            const symbol = Utils.escapeHTML(Utils.getVal('cur-symbol'));
+            const oldCode = Utils.getVal('cur-old-code').trim().toUpperCase();
+            const code = (oldCode || Utils.getVal('cur-code')).trim().toUpperCase(); // 🚀 إجبار استخدام oldCode إن وجد
+            const name = Utils.getVal('cur-name').trim();
+            const symbol = Utils.getVal('cur-symbol').trim();
             const rawPriceRate = Utils.getVal('cur-price-rate');
             const rawDepRate = Utils.getVal('cur-dep-rate');
 
@@ -233,7 +256,6 @@ const newPay = {
 
             if (isNaN(priceRate) || isNaN(depRate) || priceRate <= 0 || depRate <= 0) { EventBus.emit('req-show-toast', { message: 'خطأ في الإدخال: يجب أن تكون قيمة سعر الصرف رقماً صحيحاً وأكبر من الصفر.', type: 'error' }); return; }
             
-            // 🚀 [إصلاح العملات المستقرة]: السماح باضافة USDT وغيرها بعد رسالة تأكيد
             if (priceRate === 1 || depRate === 1) { 
                 const confirmStable = await AdminUI.showConfirm('أنت تقوم بإضافة عملة سعر صرفها (1) مطابق تماماً للدولار (مثل USDT).\nهل تود الاستمرار واعتمادها كعملة مستقرة؟', 'تأكيد عملة مستقرة');
                 if (!confirmStable) return;
@@ -247,23 +269,21 @@ const newPay = {
 
             if (AdminUI && !await AdminUI.showConfirm(warningMsg, warningTitle)) return;
             
+            // 🚀 تثبيت id === code دائماً لحل مشاكل الفقدان
+            const rateObj = { id: code, code, name, symbol, priceRate, depRate, isBase: false };
             if (oldCode) {
-                const idx = rates.findIndex(c => String(c.code).toUpperCase() === String(oldCode).toUpperCase());
-                if (idx > -1) rates[idx] = { code, name, symbol, priceRate, depRate, isBase: false };
-            } else { rates.push({ code, name, symbol, priceRate, depRate, isBase: false }); }
+                const idx = rates.findIndex(c => String(c.code).toUpperCase() === oldCode);
+                if (idx > -1) rates[idx] = { ...rates[idx], ...rateObj, id: rates[idx].id || code };
+            } else {
+                rates.push(rateObj);
+            }
             
             AdminData.data.rates = rates; 
             
-            // 🚀 [إصلاح الكاش]: إضافة العملة للـ Map لتنعكس فوراً في الواجهات الأخرى
             if (!AdminData.data.ratesMap) AdminData.data.ratesMap = {};
-            AdminData.data.ratesMap[code] = { code, name, symbol, priceRate, depRate, isBase: false };
+            AdminData.data.ratesMap[code] = rateObj;
             
             await AdminData?.saveRates?.();
-            
-            // 🚀 [إصلاح الكارثة الصامتة]
-            FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch((err) => {
-                EventBus.emit('req-show-toast', { message: '🚨 تنبيه خطير: فشل السيرفر في تحديث أسعار المنتجات! يرجى ترميم الكاش يدوياً من الإعدادات.', type: 'error' });
-            });
             
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-rates', modalId: 'currency',
@@ -349,17 +369,11 @@ const newPay = {
             let rates = Array.isArray(AdminData.data.rates) ? [...AdminData.data.rates] : [];
             AdminData.data.rates = rates.filter(c => String(c.code).toUpperCase() !== String(code).toUpperCase());
             
-            // 🚀 إزالتها من الكاش
             if (AdminData.data.ratesMap) delete AdminData.data.ratesMap[code];
             
             await AdminData?.saveRates?.();
             
             if (isDefaultDisplay) { AdminData.data.settings.defaultCurrency = 'USD'; await AdminData?.saveSystemSettings?.(); }
-
-            // 🚀 [إصلاح الكارثة الصامتة]
-            FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch((err) => {
-                EventBus.emit('req-show-toast', { message: '🚨 تنبيه خطير: فشل السيرفر في تحديث أسعار المنتجات! يرجى ترميم الكاش يدوياً من الإعدادات.', type: 'error' });
-            });
             
             AdminData?.addLog?.('DELETE_CURRENCY', `تم حذف عملة: ${code}`);
             EventBus.emit('req-render-rates');
@@ -382,7 +396,8 @@ const newPay = {
             const dep = AdminData.data.depositsMap?.[reviewId] || AdminData.data.deposits.find(d => String(d.id) === String(reviewId));
             if (!dep) return;
 
-            const note = Utils.escapeHTML(Utils.getVal('dep-drawer-note'));
+            const oldStatus = dep.status;
+            const note = Utils.getVal('dep-drawer-note');
             const mappedAction = action === 'approve' ? 'approved' : 'rejected';
             
             const amtVal = Number(dep.amount || 0).toFixed(2);
@@ -402,8 +417,11 @@ const newPay = {
             
             if (result && result.success) {
                 dep.status = mappedAction;
+                if (note) dep.adminNote = note;
                 
-                // 🚀 [التحديث المعماري]: إنقاص العداد الأحمر محلياً لراحة الإدارة (Optimistic UI)
+                if (AdminRender?.FinanceRender?.adjustTabCountersOnStatusChange) {
+                    AdminRender.FinanceRender.adjustTabCountersOnStatusChange(oldStatus, mappedAction);
+                }
                 if (AdminRender?.decrementLocalBadge) {
                     AdminRender.decrementLocalBadge('deposit');
                 }
@@ -411,21 +429,28 @@ const newPay = {
                 if (AdminUI?.FinanceUI?.closeDepositDrawer) AdminUI.FinanceUI.closeDepositDrawer();
                 else if (AdminUI?.closeDepositDrawer) AdminUI.closeDepositDrawer();
                 
+                if (mappedAction === 'approved') {
+    if (AdminRender?.FinanceRender) AdminRender.FinanceRender._liquidityFetchedOnce = false;
+    if (AdminData.data?.dashboardStats) AdminData.data.dashboardStats.wallets = null;
+}
+const cachedUser = AdminData.data.usersMap?.[String(dep.userId)];
+if (cachedUser && mappedAction === 'approved') {
+    const amtLocal = Number(dep.creditedAmount ?? dep.amount ?? 0);
+    cachedUser.walletBalance = FinancialEngine.sanitizeAmount(FinancialEngine.safeAdd(cachedUser.walletBalance || 0, amtLocal));
+}
                 EventBus.emit('req-render-deposits');
                 
-                // 🚀 [الحل المعماري للذاكرة والتزامن]: جلب المستخدم المتأثر فقط لتحديث رصيده
-                const updatedUser = await FirebaseAdapter.getById('telecard_users', String(dep.userId));
-                if (updatedUser && AdminData.data.usersMap) {
-                    AdminData.data.usersMap[String(dep.userId)] = updatedUser;
-                }
-                
-                // 🚀 تحديث نافذة العميل فوراً بدون الاعتماد على setTimeout
                 const modalDetail = document.getElementById('m-user-detail');
-                if (modalDetail && modalDetail.classList.contains('active')) {
-                    const currentEditedUserId = AdminRender?.UsersRender?.state?.currentEditUserId;
-                    if (String(currentEditedUserId) === String(dep.userId)) {
-                        EventBus.emit('action-triggered', { action: 'view-user', id: dep.userId, preventModalOpen: true });
+                const openUserEditBtn = modalDetail?.classList.contains('active')
+                    ? modalDetail.querySelector(`.ud-header-clean [data-action="open-user-edit"][data-id="${dep.userId}"]`)
+                    : null;
+
+                if (openUserEditBtn) {
+                    const updatedUser = await FirebaseAdapter.getById('telecard_users', String(dep.userId));
+                    if (updatedUser && AdminData.data.usersMap) {
+                        AdminData.data.usersMap[String(dep.userId)] = updatedUser;
                     }
+                    EventBus.emit('action-triggered', { action: 'view-user', id: dep.userId, preventModalOpen: true });
                 }
                 
                 const logName = dep.userDataSnapshot?.fullName || dep.userName || dep.userId;
@@ -448,60 +473,52 @@ const newPay = {
         try {
             const dep = AdminData.data.depositsMap?.[depId] || AdminData.data.deposits.find(d => String(d.id) === String(depId));
             if (!dep || dep.status !== 'approved') return;
+
+            if (dep.method === 'إيداع إداري' || dep.method === 'خصم إداري') {
+                EventBus.emit('req-show-toast', { message: 'العمليات الإدارية المباشرة يتم تعديلها من خلال أزرار (إيداع / خصم) داخل ملف العميل.', type: 'warning' });
+                return;
+            }
             
-            let user = AdminData.data.usersMap?.[dep.userId] || AdminData.data.users.find(u => String(u.id) === String(dep.userId));
-            
-            if (!user) {
+            let user = AdminData.data.usersMap?.[dep.userId] || (AdminData.data.users || []).find(u => String(u.id) === String(dep.userId));
+            const netBase = Number(dep.creditedAmount !== undefined ? dep.creditedAmount : (dep.amount || 0));
+            const absNetBase = Math.abs(netBase);
+
+            // 🛡️ إذا كان العميل غير موجود في الذاكرة أو ظهر أن رصيده في الذاكرة أقل من قيمة الإيداع، نتحقق من رصيده الحي من السحابة أولاً لمنع المنع الكاذب
+            if (!user || Number(user.walletBalance ?? user.balance ?? 0) < absNetBase) {
                 if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري فحص محفظة العميل في السحابة...');
-                user = await FirebaseAdapter.getById('telecard_users', dep.userId);
+                const freshUser = await FirebaseAdapter.getById('telecard_users', dep.userId);
                 if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
                 
-                if (!user) {
+                if (freshUser) {
+                    user = freshUser;
+                    if (!AdminData.data.usersMap) AdminData.data.usersMap = {};
+                    AdminData.data.usersMap[String(user.id)] = user;
+                } else if (!user) {
                     EventBus.emit('req-show-toast', { message: 'لم يتم العثور على العميل المرتبط بهذا الإيداع', type: 'error' });
                     return;
                 }
             }
             
-            const amount = FinancialEngine.extractNum(dep.amount);
-            const feeVal = FinancialEngine.extractNum(dep.feePct ?? dep.fee);
-            const feeType = dep.feeType || 'fee';
-            const feeUnit = dep.feeUnit || dep.unit || dep.calcMethod || 'percent';
-
-            let feeAmount = (feeUnit === 'fixed' || feeUnit === 'amount') ?
-                feeVal : FinancialEngine.safeMul(amount, FinancialEngine.safeDiv(feeVal, 100));
-
-            let netPayCurr = (feeType === 'bonus') ?
-                FinancialEngine.safeAdd(amount, feeAmount) : FinancialEngine.safeSub(amount, feeAmount);
-
-            const fxRate = FinancialEngine.extractNum(dep.fxRate, false);
-            const netBase = (dep.creditedAmount != null) ?
-                FinancialEngine.extractNum(dep.creditedAmount) : FinancialEngine.safeMul(netPayCurr, fxRate);
-
-            const currentBalance = Number(user.walletBalance || user.balance || 0);
-            const safeCurrency = (user.baseCurrency || 'USD').toUpperCase();
+            const currentBalance = Number(user.walletBalance ?? user.balance ?? 0);
+            const safeCurrency = (user.baseCurrency || dep.targetCurrency || 'USD').toUpperCase();
             
-            let confirmMsg = "";
-            let confirmTitle = "";
-            
-            const isDeduction = netBase < 0;
-            if (isDeduction) {
-                confirmTitle = "تأكيد إلغاء الخصم";
-                confirmMsg = `هل أنت متأكد من إلغاء عملية الخصم هذه؟\nسوف يتم إعادة مبلغ (${Math.abs(netBase).toFixed(2)} ${safeCurrency}) إلى محفظة العميل.`;
-            } else {
-                confirmTitle = "تأكيد استرجاع الإيداع";
-                confirmMsg = "هل أنت متأكد من استرجاع هذا الإيداع وخصم المال من رصيد العميل؟";
-                if (currentBalance < netBase) {
-                    const debtAmount = FinancialEngine.safeSub(netBase, currentBalance);
-                    const plainDebtText = `${debtAmount.toFixed(2)} ${safeCurrency}`;
-                    confirmMsg += `\n\n⚠️ تنبيه هام: لا يوجد رصيد كافٍ عند العميل حالياً.\nسوف يصبح رصيد العميل بالسالب كـ (دين عليه) بمقدار: ${plainDebtText}`;
+            if (currentBalance < absNetBase) {
+                const msg = `⚠️ لا يمكن استرجاع هذا الإيداع حالياً!\n\nرصيد العميل الحالي (${currentBalance.toFixed(2)} ${safeCurrency}) أقل من قيمة الإيداع المراد سحبه (${absNetBase.toFixed(2)} ${safeCurrency}) لأن العميل استهلك الرصيد.\n\nإذا كان للعميل طلبات معلقة أو مكتملة، قم برفضها أو استرجاعها أولاً لتعود السيولة لمحفظته ثم استرجع الإيداع.`;
+                if (AdminUI?.showAlert) {
+                    await AdminUI.showAlert(msg, 'رصيد العميل لا يغطي السحب');
+                } else {
+                    EventBus.emit('req-show-toast', { message: 'لا يمكن التراجع عن الإيداع: رصيد العميل الحالي لا يغطي قيمة السحب.', type: 'error' });
                 }
+                return;
             }
+            
+            const confirmTitle = "تأكيد استرجاع الإيداع";
+            const confirmMsg = `هل أنت متأكد من استرجاع هذا الإيداع وخصم مبلغ (${absNetBase.toFixed(2)} ${safeCurrency}) من رصيد محفظة العميل؟`;
             
             if (AdminUI && !await AdminUI.showConfirm(confirmMsg, confirmTitle)) return;
 
-            const customMessage = isDeduction 
-                ? `تم إلغاء الخصم وإعادة ${Math.abs(dep.amount)} ${dep.currency}`
-                : `تم استرجاع إيداع بقيمة ${dep.amount} ${dep.currency}`;
+            const oldStatus = dep.status;
+            const customMessage = `تم استرجاع إيداع بقيمة ${dep.amount} ${dep.currency}`;
 
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تصحيح الرصيد سحابياً...');
             
@@ -509,25 +526,25 @@ const newPay = {
                 depositId: String(dep.id), action: 'refunded', adminNote: 'تم استرجاع الإيداع يدوياً من الإدارة'
             });
             
-            if (result && result.success) {
-                dep.status = 'refunded';
+       if (result && result.success) {
+    dep.status = 'refunded';
+    user.walletBalance = FinancialEngine.sanitizeAmount(Math.max(0, FinancialEngine.safeSub(currentBalance, absNetBase)));
+    if (AdminRender?.FinanceRender) AdminRender.FinanceRender._liquidityFetchedOnce = false;
+    if (AdminData.data?.dashboardStats) AdminData.data.dashboardStats.wallets = null;
+                if (AdminRender?.FinanceRender?.adjustTabCountersOnStatusChange) {
+                    AdminRender.FinanceRender.adjustTabCountersOnStatusChange(oldStatus, 'refunded');
+                }
                 
                 AdminUI?.FinanceUI?.closeDepositDrawer?.();
                 EventBus.emit('req-render-deposits');
                 
-                // 🚀 [الحل المعماري للذاكرة والتزامن]: جلب المستخدم المتأثر فقط لتحديث رصيده
-                const updatedUser = await FirebaseAdapter.getById('telecard_users', String(dep.userId));
-                if (updatedUser && AdminData.data.usersMap) {
-                    AdminData.data.usersMap[String(dep.userId)] = updatedUser;
-                }
-                
-                // 🚀 تحديث نافذة العميل فوراً بدون الاعتماد على setTimeout
                 const modalDetail = document.getElementById('m-user-detail');
-                if (modalDetail && modalDetail.classList.contains('active')) {
-                    const currentEditedUserId = AdminRender?.UsersRender?.state?.currentEditUserId;
-                    if (String(currentEditedUserId) === String(dep.userId)) {
-                        EventBus.emit('action-triggered', { action: 'view-user', id: dep.userId, preventModalOpen: true });
-                    }
+                const openUserEditBtn = modalDetail?.classList.contains('active')
+                    ? modalDetail.querySelector(`.ud-header-clean [data-action="open-user-edit"][data-id="${dep.userId}"]`)
+                    : null;
+
+                if (openUserEditBtn) {
+                    EventBus.emit('action-triggered', { action: 'view-user', id: dep.userId, preventModalOpen: true });
                 }
                 
                 const logName = dep.userDataSnapshot?.fullName || dep.userName || dep.userId;
@@ -540,6 +557,48 @@ const newPay = {
         } finally {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
             this._actionLocks.delete(depId);
+        }
+    },    auditUserWallet: async function(userId) {
+        if (this._actionLocks.has(`audit-${userId}`)) return;
+        this._actionLocks.add(`audit-${userId}`);
+        
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري التدقيق المحاسبي وفحص السجلات سحابياً...');
+        
+        try {
+            const result = await FirebaseAdapter.callFunction('adminAuditUserWallet', { userId: String(userId) });
+            
+            if (result && result.success) {
+                EventBus.emit('req-show-toast', { message: result.message, type: 'success' });
+            } else if (result && result.requiresCorrection) {
+                const data = result.data;
+                const confirmMsg = `🚨 تم اكتشاف خلل مالي للمستخدم!\n\n` +
+                    `• الرصيد المسجل حالياً: ${data.currentWalletBal}\n` +
+                    `• الرصيد الحقيقي المفترض: ${data.expectedBalance}\n` +
+                    `• الفارق المالي: ${data.difference}\n\n` +
+                    `هل تريد إجبار النظام على تصحيح الرصيد واعتماد الرصيد الحقيقي (${data.expectedBalance})؟`;
+                
+                if (AdminUI && await AdminUI.showConfirm(confirmMsg, '⚠️ تصحيح محاسبي إجباري')) {
+                    if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تطبيق التصحيح...');
+                    
+                    const correctionResult = await FirebaseAdapter.callFunction('adminAuditUserWallet', {
+                        userId: String(userId),
+                        forceCorrect: true
+                    });
+                    
+                    if (correctionResult && correctionResult.success) {
+                        if (AdminData.data.usersMap?.[String(userId)]) {
+                            AdminData.data.usersMap[String(userId)].walletBalance = data.expectedBalance;
+                        }
+                        EventBus.emit('req-show-toast', { message: 'تم تصحيح الرصيد سحابياً بنجاح!', type: 'success' });
+                        EventBus.emit('action-triggered', { action: 'view-user', id: userId, preventModalOpen: true });
+                    }
+                }
+            }
+        } catch (error) {
+            EventBus.emit('req-show-toast', { message: `فشل التدقيق: ${error.message}`, type: 'error' });
+        } finally {
+            this._actionLocks.delete(`audit-${userId}`);
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
 
@@ -561,13 +620,6 @@ const newPay = {
 
             AdminData.data.payments = AdminData.data.payments.filter(x => String(x.id) !== String(id));
             await AdminData?.savePayments?.();
-            
-            // 🚀 [إصلاح الكارثة الصامتة]
-            if (typeof FirebaseAdapter !== 'undefined' && FirebaseAdapter.callFunction) {
-                FirebaseAdapter.callFunction('adminForceSyncPricing', {}).catch((err) => {
-                    EventBus.emit('req-show-toast', { message: '🚨 تنبيه خطير: فشل السيرفر في تحديث أسعار المنتجات! يرجى ترميم الكاش يدوياً من الإعدادات.', type: 'error' });
-                });
-            }
 
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-payments',

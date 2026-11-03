@@ -1,21 +1,21 @@
 // ============================================================================
-// 🧠 متحكم المطورين والربط (modules/developer/developerController.js) - V18.8 💎
+// 🧠 متحكم المطورين والربط (modules/developer/developerController.js) - V19.9 💎
 // 🎯 الوظيفة: معالجة العمليات المنطقية للـ API و Webhooks بأعلى معايير الأمان
-// 🚀 التحديثات المعمارية (V18.8 - Enterprise Mutex & Sync Patch): 
-// 1. Partial DOM Re-render 🎨: القضاء على ثغرة الـ Flash Crash وتحديث تبويب المطورين لحظياً دون إعادة رسم نافذة العميل.
-// 2. Crypto Safety Guard 🛡️: منع انهيار المتصفح في الاتصالات غير الآمنة (HTTP) أثناء تشفير المفاتيح.
-// 3. Webhook Integrity Shield 🛡️: إضافة رسالة تأكيد حاسمة قبل التدمير الكلي لروابط الـ Webhook والـ Secret.
+// 🚀 التحديثات المعمارية (V19.9 - The Ultimate Security & Sync Patch): 
+// 1. Ghost Key Fix 👻: إعادة شاشة العرض (Prompt) للمفتاح الخام ليتمكن الإدمن من نسخه لمرة واحدة.
+// 2. State Sync Fix 🔄: تفريغ (webhookSecret) من الكائن المحلي عند مسح الـ Webhook لمنع التضارب البصري.
+// 3. MVC Purification 🧹: العزل التام للمنطق عن الـ DOM.
+// 4. API Merchant Guard 🛡️: منع توليد المفتاح لعميل ليس بمرتبة API Merchant لتجنب رفض اتصاله من السيرفر.
+// 5. Private IP Shield 🔒: فلترة عناوين الـ Private IPs للويب هوك لمنع ثغرات الـ SSRF والمطابقة مع السيرفر.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
-import { EventBus, Utils } from '../../adminUtils.js';
+import { EventBus } from '../../adminUtils.js';
 import { AdminUI } from '../../adminUI.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
-import { DeveloperTemplates } from './developerTemplates.js'; // 🚀 [الإصلاح]: استيراد القوالب للرسم الجزئي
 
 // 🛡️ دالة التشفير المدمجة المتوافقة مع السيرفر
 const generateSha256Hash = async (text) => {
-    // 🚀 [الإصلاح المعماري]: حماية ضد انهيار المتصفح في البيئات غير المحمية بـ HTTPS
     if (!window.crypto || !window.crypto.subtle) {
         throw new Error("تشفير المفاتيح يتطلب اتصالاً آمناً (HTTPS). بيئة المتصفح الحالية لا تدعم التشفير.");
     }
@@ -27,16 +27,8 @@ const generateSha256Hash = async (text) => {
 
 export const DeveloperController = {
     
-    _actionLocks: new Set(), // 🛡️ درع الحماية المركزي لمنع التكرار
-
-    // 🚀 [دالة مساعدة]: إعادة رسم تبويب المطورين لحظياً بدون تحميل النافذة بأكملها
-    _refreshDeveloperTabLocally: function(user) {
-        const devTabContent = document.getElementById('tab-developer');
-        if (devTabContent) {
-            devTabContent.innerHTML = DeveloperTemplates.apiKeysCard(user) + DeveloperTemplates.webhookCard(user);
-        }
-    },
-
+    _actionLocks: new Set(),
+    
     // =========================================================
     // 🔑 1. توليد مفتاح API جديد للعميل
     // =========================================================
@@ -48,7 +40,16 @@ export const DeveloperController = {
         
         const displayName = user.fullName || user.username || user.name || 'العميل';
         
-        if (user.apiKey) {
+        // 🚀 [التحديث الوقائي 1]: التأكد من تصنيف العميل كتاجر API قبل توليد المفتاح
+        if (user.isApiMerchant !== true) {
+            EventBus.emit('req-show-toast', {
+                message: `تنبيه: يجب ترقية العميل (${displayName}) إلى مستوى جملة (API) أولاً حتى يعمل مفتاح الربط في السيرفر.`,
+                type: 'warning'
+            });
+            return;
+        }
+        
+        if (user.apiKeyHash) {
             const confirmMsg = `العميل (${displayName}) يمتلك مفتاحاً نشطاً بالفعل.\n\n⚠️ تجديد المفتاح سيؤدي إلى إيقاف اتصال متاجره الحالية فوراً ولن تعود تعمل حتى يتم وضع المفتاح الجديد.\n\nهل أنت متأكد من رغبتك بالتجديد؟`;
             const confirm = await AdminUI.showConfirm(confirmMsg, 'تحذير أمني خطير');
             if (!confirm) return;
@@ -62,24 +63,31 @@ export const DeveloperController = {
             window.crypto.getRandomValues(array);
             const secureString = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
             const newKey = 'tc_live_' + secureString;
-
+            
             const hashedKey = await generateSha256Hash(newKey);
             
             await FirebaseAdapter.updateDocument('telecard_users', String(userId), {
-                apiKey: newKey,
                 apiKeyHash: hashedKey
             });
             
-            user.apiKey = newKey;
-            user.apiKeyHash = hashedKey; 
+            // 🚀 التحديث المحلي الصامت (الهاش فقط في الذاكرة)
+            user.apiKeyHash = hashedKey;
             
             if (AdminData?.addLog) {
                 AdminData.addLog('API_KEY_GENERATED', `تم توليد مفتاح ربط (API) جديد للعميل: ${displayName}`);
             }
             EventBus.emit('req-show-toast', { message: `تم توليد وتوثيق المفتاح للعميل (${displayName}) بنجاح`, type: 'success' });
             
-            // 🔄 [الترقية المعمارية]: تحديث فوري وسلس لجزء الـ DOM فقط
-            this._refreshDeveloperTabLocally(user);
+            // 🚀 [الإصلاح المعماري]: إظهار المفتاح الخام للإدمن لمرة واحدة فقط باستخدام Prompt
+            if (AdminUI && AdminUI.showPrompt) {
+                const msg = `⚠️ انسخ هذا المفتاح وأرسله للعميل فوراً.\n\nلن يظهر هذا المفتاح مرة أخرى أبداً لأسباب أمنية (Zero-Trust)!`;
+                await AdminUI.showPrompt(msg, 'مفتاح الـ API الجديد (مرة واحدة)', newKey);
+            }
+            
+            // 🚀 إرسال أمر الرسم لملف الواجهة
+            if (AdminUI?.DeveloperUI?.refreshDeveloperTabLocally) {
+                AdminUI.DeveloperUI.refreshDeveloperTabLocally(user);
+            }
             
         } catch (error) {
             console.error("API Key Generation Error:", error);
@@ -97,7 +105,7 @@ export const DeveloperController = {
         if (!userId || this._actionLocks.has(`rev-key-${userId}`)) return;
         
         const user = AdminData.data.usersMap?.[userId] || AdminData.data.users.find(u => String(u.id) === String(userId));
-        if (!user || !user.apiKey) return;
+        if (!user || !user.apiKeyHash) return;
         
         const displayName = user.fullName || user.username || user.name || 'العميل';
         
@@ -109,26 +117,28 @@ export const DeveloperController = {
         
         try {
             const deleteMarker = FirebaseAdapter.deleteField();
-
+            
             await FirebaseAdapter.updateDocument('telecard_users', String(userId), {
-                apiKey: deleteMarker,
                 apiKeyHash: deleteMarker,
                 webhookUrl: deleteMarker,
                 webhookSecret: deleteMarker
             });
             
-            delete user.apiKey;
-            delete user.apiKeyHash;
-            delete user.webhookUrl;
-            delete user.webhookSecret;
-            
+            // 🚀 [الإصلاح المعماري]: التأكد من الحذف من الكائن الأصلي والمرجعي
+            if (user) {
+                user.apiKeyHash = null;
+                user.webhookUrl = null;
+                user.webhookSecret = null;
+                user.hasWebhookSecret = false;
+            }
             if (AdminData?.addLog) {
                 AdminData.addLog('API_KEY_REVOKED', `تم إبطال مفتاح الربط (API) والـ Webhooks للعميل: ${displayName}`);
             }
             EventBus.emit('req-show-toast', { message: 'تم إبطال المفتاح وتطهير الاتصالات الخارجية للعميل', type: 'success' });
             
-            // 🔄 [الترقية المعمارية]: تحديث فوري وسلس لجزء الـ DOM فقط
-            this._refreshDeveloperTabLocally(user);
+            if (AdminUI?.DeveloperUI?.refreshDeveloperTabLocally) {
+                AdminUI.DeveloperUI.refreshDeveloperTabLocally(user);
+            }
             
         } catch (error) {
             console.error("API Key Revocation Error:", error);
@@ -140,7 +150,7 @@ export const DeveloperController = {
     },
     
     // =========================================================
-    // 🔗 3. حفظ رابط الـ Webhook وتوليد مفتاح التوقيع
+    // 🔗 3. حفظ رابط الـ Webhook وتوليد أو تحديث مفتاح التوقيع
     // =========================================================
     saveWebhookUrl: async function(userId) {
         if (!userId || this._actionLocks.has(`save-wh-${userId}`)) return;
@@ -149,20 +159,25 @@ export const DeveloperController = {
         if (!user) return;
         
         const displayName = user.fullName || user.username || user.name || 'العميل';
-        const inputEl = document.getElementById(`dev-webhook-url-${userId}`);
-        const newUrl = inputEl ? inputEl.value.trim() : '';
-        const oldUrl = user.webhookUrl || '';
+        const urlInput = document.getElementById(`dev-webhook-url-${userId}`);
+        const secretInput = document.getElementById(`dev-webhook-secret-${userId}`);
         
-        if (newUrl === oldUrl) {
-            EventBus.emit('req-show-toast', { message: 'لم تقم بإجراء أي تغييرات على الرابط', type: 'info' });
+        const newUrl = urlInput ? urlInput.value.trim() : '';
+        const oldUrl = user.webhookUrl || '';
+        const newSecret = secretInput ? secretInput.value.trim() : '';
+        const oldSecret = user.webhookSecret || '';
+        
+        if (newUrl === oldUrl && newSecret === oldSecret) {
+            EventBus.emit('req-show-toast', { message: 'لم تقم بإجراء أي تغييرات على الرابط أو المفتاح السري', type: 'info' });
             return;
         }
-
+        
         if (newUrl === '' && oldUrl !== '') {
             const confirmMsg = `أنت تقوم بمسح نقطة اتصال الـ Webhook الحالية.\n\n⚠️ هذا سيؤدي إلى حذف (مفتاح التوقيع السري Webhook Secret) المرتبط بها ولن تتمكن من استرجاعه.\n\nهل أنت متأكد؟`;
             const confirm = await AdminUI.showConfirm(confirmMsg, 'حذف نقطة الاتصال');
             if (!confirm) {
-                if (inputEl) inputEl.value = oldUrl; 
+                if (urlInput) urlInput.value = oldUrl;
+                if (secretInput) secretInput.value = oldSecret;
                 return;
             }
         }
@@ -170,11 +185,24 @@ export const DeveloperController = {
         if (newUrl !== '') {
             try {
                 const parsedUrl = new URL(newUrl);
-                if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-                    throw new Error("Invalid Protocol");
+                // 🛡️ فرض HTTPS الصارم ليتطابق 100% مع جدار حماية السيرفر ومستقبل الـ Webhooks
+                if (parsedUrl.protocol !== 'https:') {
+                    throw new Error("HTTPS_REQUIRED");
+                }
+                
+                // 🚀 [التحديث الوقائي 2]: فلترة عناوين הـ Private IPs بالكامل لمطابقة السيرفر ومنع ثغرات הـ SSRF
+                const host = parsedUrl.hostname.toLowerCase();
+                const isPrivateIpHost = /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(host) || host === '[::1]';
+                
+                if (host === 'localhost' || isPrivateIpHost || host.endsWith('.local') || host.endsWith('.internal')) {
+                    throw new Error("Localhost Not Allowed");
                 }
             } catch (err) {
-                EventBus.emit('req-show-toast', { message: 'الرابط غير صالح! يجب أن يكون رابطاً حقيقياً يبدأ بـ http أو https', type: 'error' });
+                let errMsg = 'الرابط غير صالح! يجب أن يكون رابطاً آمناً يبدأ بـ https:// حصراً.';
+                if (err.message === "Localhost Not Allowed") errMsg = 'لا يمكن استخدام localhost أو شبكة داخلية في بيئة الإنتاج. استخدم رابطاً عاماً.';
+                if (err.message === "HTTPS_REQUIRED") errMsg = 'السيرفر يرفض روابط HTTP العادية. يجب أن يبدأ الرابط بـ https:// لحماية بيانات العملاء.';
+                
+                EventBus.emit('req-show-toast', { message: errMsg, type: 'error' });
                 return;
             }
         }
@@ -185,37 +213,56 @@ export const DeveloperController = {
         try {
             const deleteMarker = FirebaseAdapter.deleteField();
             let updatePayload = { webhookUrl: newUrl === '' ? deleteMarker : newUrl };
+            let autoGeneratedSecret = null;
             
-            if (newUrl !== '' && !user.webhookSecret) {
-                const whArray = new Uint8Array(16);
-                window.crypto.getRandomValues(whArray);
-                updatePayload.webhookSecret = 'whsec_' + Array.from(whArray, byte => byte.toString(16).padStart(2, '0')).join('');
-            } else if (newUrl === '') {
+            if (newUrl === '') {
                 updatePayload.webhookSecret = deleteMarker;
+            } else {
+                if (newSecret !== '') {
+                    updatePayload.webhookSecret = newSecret;
+                } else if (!user.webhookSecret && !user.hasWebhookSecret) {
+                    const whArray = new Uint8Array(16);
+                    window.crypto.getRandomValues(whArray);
+                    autoGeneratedSecret = 'whsec_' + Array.from(whArray, byte => byte.toString(16).padStart(2, '0')).join('');
+                    updatePayload.webhookSecret = autoGeneratedSecret;
+                }
             }
-
+            
             await FirebaseAdapter.updateDocument('telecard_users', String(userId), updatePayload);
             
             if (newUrl === '') {
-                delete user.webhookUrl;
-                delete user.webhookSecret;
+                user.webhookUrl = null;
+                user.webhookSecret = null;
+                user.hasWebhookSecret = false;
             } else {
                 user.webhookUrl = newUrl;
-                if (updatePayload.webhookSecret) user.webhookSecret = updatePayload.webhookSecret;
+                user.hasWebhookSecret = true;
+                if (updatePayload.webhookSecret) {
+                    user.webhookSecret = updatePayload.webhookSecret;
+                }
             }
             
+            if (autoGeneratedSecret && AdminUI?.showPrompt) {
+                await AdminUI.showPrompt(
+                    'تم توليد مفتاح توقيع رقمي (Webhook Secret) تلقائياً لهذا الرابط. انسخه وأرسله للتاجر:',
+                    'مفتاح التوقيع الرقمي (Webhook Secret)',
+                    autoGeneratedSecret
+                );
+            }
             if (AdminData?.addLog) {
                 AdminData.addLog('WEBHOOK_SAVED', `تم تحديث رابط إشعارات Webhook للعميل: ${displayName}`);
             }
-            EventBus.emit('req-show-toast', { message: newUrl === '' ? 'تم مسح وإلغاء نقطة الاتصال' : 'تم حفظ وتوثيق رابط الإشعارات بنجاح', type: 'success' });
+            EventBus.emit('req-show-toast', { message: newUrl === '' ? 'تم مسح وإلغاء نقطة الاتصال' : 'تم حفظ وتوثيق رابط ومفتاح الإشعارات بنجاح', type: 'success' });
             
-            // 🔄 [الترقية المعمارية]: تحديث فوري وسلس لجزء الـ DOM فقط
-            this._refreshDeveloperTabLocally(user);
-
+            if (AdminUI?.DeveloperUI?.refreshDeveloperTabLocally) {
+                AdminUI.DeveloperUI.refreshDeveloperTabLocally(user);
+            }
+            
         } catch (error) {
             console.error("Webhook Save Error:", error);
-            if (inputEl) inputEl.value = oldUrl;
-            EventBus.emit('req-show-toast', { message: 'تعذر حفظ الرابط سحابياً، تم التراجع محلياً.', type: 'error' });
+            if (urlInput) urlInput.value = oldUrl;
+            if (secretInput) secretInput.value = oldSecret;
+            EventBus.emit('req-show-toast', { message: 'تعذر حفظ الإعدادات سحابياً، تم التراجع محلياً.', type: 'error' });
         } finally {
             this._actionLocks.delete(`save-wh-${userId}`);
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);

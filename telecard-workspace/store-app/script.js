@@ -1,12 +1,11 @@
 // ============================================================================
-// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار التجاري V19.0.0 🚀
-// 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع الآمن، عزل الحالة، وإدارة الجلسات
-// 🚀 التحديثات المعمارية الصارمة (V19.0.0 - Ultimate Production Release):
-// 1. Biometric Abort Controller 🛡️: إغلاق نافذة البصمة بالنظام (OS) فعلياً عند التايم آوت.
-// 2. Anti-Silent Failures 🛡️: إطلاق محرك (SysLog) لتتبع الأعطال بدلاً من التجاهل الصامت.
-// 3. Incognito Shield 🛡️: تغليف (localStorage) لمنع الانهيار التام في وضع التصفح المتخفي.
-// 4. Deadlock Fix & Background Unblocking 🛡️: وراثة أفضل الإصلاحات لضمان استقرار 100%.
-// 5. Ultimate Boot Merge 🛡️: رسم السكيليتون كبديل أمان، أو الواجهة الحقيقية من الكاش فوراً، مع إزاحة الحمل عن المعالج.
+// 🧠 المحرك الرئيسي للمتجر (script.js) - الإصدار المؤسسي V21.1.0 🚀
+// 🎯 الوظيفة: الأوركسترا المركزية، الإقلاع السريع، المستمعات السحابية الحية، وإدارة الجلسات.
+// 🚀 التحديثات المعمارية الصارمة (V21.1.0 - Fast Boot & Background Listener Pipeline):
+// 1. Race-Free Boot Pipeline ⚡: إزالة سباق الإقلاع وضمان اكتمال مصادقة المستخدم قبل فتح المستمعات أو فحص البصمة.
+// 2. Auth-Scoped Alerts 🔕: حصر مستمع الإشعارات العامة على المسجلين فقط وخفض الحد إلى 20 لحظر نزيف القراءات للزوار.
+// 3. Single-Source Catalog & Payments 💳: إلغاء الجلب المتأخر المكرر لطرق الدفع والدول للاعتماد حصراً على dataManager.
+// 4. Reactive Modal Sync 🔄: تحديث نافذة الإيداع تلقائياً عند رصد أي تغير حي في configVersion أثناء فتحها.
 // ============================================================================
 
 const isNativeIdle = typeof window.requestIdleCallback === 'function';
@@ -19,16 +18,11 @@ window.requestIdleCallback = window.requestIdleCallback || function(cb) {
 };
 window.cancelIdleCallback = window.cancelIdleCallback || (isNativeIdle ? window.cancelIdleCallback : window.clearTimeout);
 
-// 🛡️ محرك تسجيل الأخطاء الهندسية (SysLog) لتتبع الأعطال بدون كسر واجهة المستخدم
 const _sysLog = (context, error) => {
     console.warn(`🚨 [Engine SysLog] ${context}:`, error?.message || error);
 };
 
-import { auth } from './core/firebaseAdapter.js';
-import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-
-import { DB_KEYS, CACHE_KEYS, APP_VERSION } from './config.js'; 
-import * as Utils from './utils.js'; 
+import { DB_KEYS, CACHE_KEYS, APP_VERSION, ACTIVE_USER_KEY } from './config.js'; 
 import { DataManager, LiveStoreData, StoreDB } from './dataManager.js';
 import { UIManager } from './ui/uiManager.js'; 
 import { RenderManager } from './renderManager.js';
@@ -39,12 +33,17 @@ const _updateLiveArray = (arr, newData) => {
     if (arr) { 
         arr.length = 0; 
         if (Array.isArray(newData)) {
-            for(let i = 0; i < newData.length; i++) arr.push(newData[i]);
+            for (let i = 0; i < newData.length; i++) arr.push(newData[i]);
         }
     } 
 };
 
-const _updateLiveObject = (obj, newData) => { if (obj) { Object.keys(obj).forEach(k => delete obj[k]); if (newData) Object.assign(obj, newData); } };
+const _updateLiveObject = (obj, newData) => {
+    if (obj) {
+        Object.keys(obj).forEach(k => delete obj[k]);
+        if (newData) Object.assign(obj, newData);
+    }
+};
 
 const _normalizeDataTime = (dataArray) => {
     if (!Array.isArray(dataArray)) return [];
@@ -77,6 +76,7 @@ const AppController = {
         if (typeof DataManager !== 'undefined') {
             if (typeof DataManager._notifUnsubscribe === 'function') { DataManager._notifUnsubscribe(); DataManager._notifUnsubscribe = null; }
             if (typeof DataManager._userUnsubscribe === 'function') { DataManager._userUnsubscribe(); DataManager._userUnsubscribe = null; }
+            DataManager._userListenerActive = false;
         }
         
         if (StoreDB && typeof StoreDB.killAllListeners === 'function') {
@@ -107,9 +107,8 @@ const AppController = {
             return false;
         }
         
-        // 🛡️ التحديث الماسي (AbortController): لإغلاق نافذة النظام للبصمة فعلياً عند تجاوز الوقت
         const abortController = new AbortController();
-        const timeoutId = setTimeout(() => abortController.abort(), 45000); // 45 ثانية حد أقصى
+        const timeoutId = setTimeout(() => abortController.abort(), 45000);
         
         try {
             const retryBtn = document.getElementById('btn-biometric-retry');
@@ -176,11 +175,13 @@ const AppController = {
         
         window.addEventListener('offline', () => {
             if (networkCooldownTimer) clearTimeout(networkCooldownTimer);
+            LiveStoreData.isOfflineMode = true;
             UIManager.showToast?.('انقطع الاتصال بالإنترنت. أنت تتصفح البيانات المحفوظة.', 'warning');
             document.body.classList.add('is-offline');
         });
         
         window.addEventListener('online', () => {
+            LiveStoreData.isOfflineMode = false;
             document.body.classList.remove('is-offline');
             UIManager.showToast?.('عاد الاتصال بالإنترنت! جاري المزامنة...', 'success');
             
@@ -215,21 +216,25 @@ const AppController = {
                 }
             };
             
+            // 1. مستمع الإعدادات العامة (telecard_settings/singleton)
             if (DB_KEYS.SETTINGS) {
+                let isInitialSettingsSnap = true;
                 this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.SETTINGS, 'singleton', (incoming) => {
                     if (!incoming) return;            
                     
                     const serverVersion = String(incoming.appVersion || '0').trim();
-                    let localServerVersion = '0';
-                    try { localServerVersion = String(localStorage.getItem('tc_server_version') || '0').trim(); }
-                    catch(e) { _sysLog("Read tc_server_version", e); }
+                    let localRemoteVersion = '0';
+                    try { localRemoteVersion = String(localStorage.getItem(CACHE_KEYS.REMOTE_APP_VERSION) || '0').trim(); }
+                    catch(e) { _sysLog("Read remote_app_version", e); }
                     
-                    if (serverVersion !== '0' && serverVersion !== localServerVersion) {
+                    if (serverVersion !== '0' && localRemoteVersion === '0') {
+                        try { localStorage.setItem(CACHE_KEYS.REMOTE_APP_VERSION, serverVersion); } catch(e) {}
+                    } else if (serverVersion !== '0' && serverVersion !== localRemoteVersion) {
                         if (this._isUpdatingServer) return; 
                         this._isUpdatingServer = true;
                         
                         let reloadData = { count: 0, time: 0 };
-                        try { reloadData = JSON.parse(sessionStorage.getItem('tc_update_reloads_v2') || '{"count":0, "time":0}'); }
+                        try { reloadData = JSON.parse(sessionStorage.getItem(CACHE_KEYS.UPDATE_RELOADS) || '{"count":0, "time":0}'); }
                         catch(e) {}
                         const now = Date.now();
                         
@@ -239,28 +244,20 @@ const AppController = {
                         }
                         
                         try {
-                            sessionStorage.setItem('tc_update_reloads_v2', JSON.stringify({
+                            sessionStorage.setItem(CACHE_KEYS.UPDATE_RELOADS, JSON.stringify({
                                 count: (now - reloadData.time) > 60000 ? 1 : reloadData.count + 1,
                                 time: now
                             }));
                         } catch(e){}
                         
                         console.warn(`🔄 الإدارة أصدرت تحديثاً إجبارياً! (إلى الإصدار ${serverVersion})`);
-                        if(UIManager.showToast) UIManager.showToast('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل...', 'success');
+                        UIManager.showToast?.('يتوفر تحديث جديد للمتجر. جاري إعادة التحميل...', 'success');
                         
                         setTimeout(async () => {
                             try {
-                                localStorage.setItem('tc_server_version', serverVersion);
+                                localStorage.setItem(CACHE_KEYS.REMOTE_APP_VERSION, serverVersion);
+                                localStorage.removeItem(CACHE_KEYS.SERVER_VERSION);
                                 const clearPromises = [];
-                                
-                                const keysToRemove = [];
-                                for (let i = 0; i < localStorage.length; i++) {
-                                    const k = localStorage.key(i);
-                                    if (k && (k.startsWith('telecard_store_cache') || k === CACHE_KEYS.SMART_CATALOG || k === CACHE_KEYS.CATALOG_VERSION)) {
-                                        keysToRemove.push(k);
-                                    }
-                                }
-                                keysToRemove.forEach(k => localStorage.removeItem(k));
                                 
                                 if ('caches' in window) {
                                     clearPromises.push(caches.keys().then(names => Promise.all(names.map(name => caches.delete(name)))).catch(()=>[]));
@@ -276,37 +273,57 @@ const AppController = {
                         return;
                     }
 
+                    const prevCatVer = LiveStoreData.settings?.catalogVersion;
                     _updateLiveObject(LiveStoreData.settings, incoming);
+                    try { localStorage.setItem(CACHE_KEYS.SETTINGS_SNAPSHOT, JSON.stringify(LiveStoreData.settings)); } catch (e) {}
+
                     if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
                         RenderHelpers.init({ settings: LiveStoreData.settings, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
                     }
+                    if (RenderManager?._priceCache) {
+                        RenderManager._priceCache.clear();
+                    }
+
+                    if (prevCatVer !== undefined && incoming.catalogVersion && prevCatVer !== incoming.catalogVersion) {
+                        DataManager.checkAndSyncCatalogVersion();
+                    }
                     
-                    if(DataManager.syncUser) DataManager.syncUser().then(() => {
-                        if(UIManager.updateDisplayCurrencyUI) UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr); 
-                    }).catch(e => _sysLog("Sync User on Settings Change", e)); 
+                    if (!isInitialSettingsSnap && DataManager.syncUser) {
+                        DataManager.syncUser().then(() => {
+                            UIManager.updateDisplayCurrencyUI?.(DataManager.selectedCurr); 
+                        }).catch(e => _sysLog("Sync User on Settings Change", e)); 
+                    }
+                    isInitialSettingsSnap = false;
                     
-                    if(UIManager.applyStoreIdentity) UIManager.applyStoreIdentity();
+                    UIManager.applyStoreIdentity?.();
+                    UIManager.applyFontSettings?.();
+                    UIManager.renderTicker?.();
+                    UIManager.initSupportButton?.();
                 }));
             }
-            
-            if (DB_KEYS.ALERTS) {
-                this.activeListeners.push(StoreDB.listenQuery(DB_KEYS.ALERTS, [], 'createdAt', 50, (data) => {
-                    _updateLiveArray(LiveStoreData.alerts, _normalizeDataTime(Array.isArray(data) ? data : []));
-                    requestAnimationFrame(() => {
-                        if (UIManager.processAndDisplayAlerts) UIManager.processAndDisplayAlerts();
-                        if (UIManager.updateNotifBadges) UIManager.updateNotifBadges();
+
+            // 2. مستمع إصدار الكتالوج والإعدادات الحي (telecard_system/cache_version)
+            if (DB_KEYS.SYSTEM) {
+                this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.SYSTEM, 'cache_version', (verIncoming) => {
+                    if (!verIncoming) return;
+                    DataManager.checkAndSyncCatalogVersion(verIncoming).then((didSync) => {
+                        if (didSync && document.getElementById('balance-modal')?.classList.contains('active')) {
+                            RenderManager.renderPayMethods?.();
+                        }
                     });
                 }));
-            }    
-            
-            if (!auth) {
-                safeResolve();
-                return; 
+
+                // 3. مستمع حالة النظام الحية (telecard_system/singleton)
+                this.activeListeners.push(StoreDB.listenDoc(DB_KEYS.SYSTEM, 'singleton', (sysIncoming) => {
+                    if (!sysIncoming) return;
+                    _updateLiveObject(LiveStoreData.system, sysIncoming);
+                    UIManager.checkSystemStatus?.();
+                }));
             }
             
             if (this._authUnsubscribe) this._authUnsubscribe();
             
-            this._authUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+            this._authUnsubscribe = StoreDB.onAuthChange(async (firebaseUser) => {
                 this.userAuthListeners.forEach(unsub => { if (typeof unsub === 'function') unsub(); });
                 this.userAuthListeners = [];
 
@@ -314,138 +331,91 @@ const AppController = {
                     const uidStr = firebaseUser.uid;
                     try { localStorage.setItem(CACHE_KEYS.ACTIVE_UID, uidStr); } catch(e) {}
                     
-                    safeResolve();
-                    
                     try {
-                        const userDoc = await StoreDB.getById(DB_KEYS.USERS, uidStr);
-                        if (userDoc) {
-                            DataManager.user = { ...userDoc, uid: uidStr, id: uidStr };
-                            DataManager.saveUserLocal(); 
-                            if (UIManager.closeModal) UIManager.closeModal('login');
-                        } else {
-                            if (DataManager.logout) DataManager.logout();
-                            return;
-                        }
+                        let cachedLocalUser = null;
+                        const activeUserKey = CACHE_KEYS.ACTIVE_USER || ACTIVE_USER_KEY || 'telecard_active_user';
+                        try { cachedLocalUser = JSON.parse(localStorage.getItem(activeUserKey) || 'null'); } catch (e) {}
+                        
+                        if (cachedLocalUser && String(cachedLocalUser.uid || cachedLocalUser.id) === String(uidStr)) {
+    DataManager.user = { ...cachedLocalUser, uid: uidStr, id: uidStr };
+} else {
+    let userDoc = await StoreDB.getCacheFirst(DB_KEYS.USERS, uidStr);
+    if (!userDoc) {
+        await new Promise(r => setTimeout(r, 1800));
+        userDoc = await StoreDB.getCacheFirst(DB_KEYS.USERS, uidStr, true);
+    }
+    if (userDoc) {
+        DataManager.user = { ...userDoc, uid: uidStr, id: uidStr };
+        DataManager.saveUserLocal();
+    } else {
+        safeResolve();
+        UIManager.showToast?.('عذراً، بيانات حسابك غير متوفرة في قاعدة البيانات. يرجى التواصل مع الإدارة.', 'error');
+        setTimeout(() => {
+            if (DataManager.logout) DataManager.logout(true);
+        }, 2500);
+        return;
+    }
+}
                     } catch (e) { _sysLog("Fetch User Doc", e); }
 
-                    if (DataManager && typeof DataManager.listenToUserNotifications === 'function') {
-                        const notifUnsub = DataManager.listenToUserNotifications(() => requestAnimationFrame(() => {
-                            if (UIManager.processAndDisplayAlerts) UIManager.processAndDisplayAlerts();
-                            if (UIManager.updateNotifBadges) UIManager.updateNotifBadges();
-                            if (RenderManager && RenderManager.renderNotifCenterList) RenderManager.renderNotifCenterList();
+                    if (DataManager.syncUser) {
+                        await DataManager.syncUser().catch(() => {});
+                    }
+                    
+                    safeResolve();
+
+                    // مستمع الإشعارات العامة محصور على المستخدم المسجل فقط
+                    if (DB_KEYS.ALERTS) {
+                        this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.ALERTS, [], 'time', 20, (data) => {
+                            _updateLiveArray(LiveStoreData.alerts, _normalizeDataTime(Array.isArray(data) ? data : []));
+                            requestAnimationFrame(() => {
+                                UIManager.processAndDisplayAlerts?.();
+                                UIManager.updateNotifBadges?.();
+                            });
                         }));
+                    }
+
+                    if (DataManager && typeof DataManager.listenToUserNotifications === 'function') {
+                        const notifUnsub = DataManager.listenToUserNotifications();
                         if (notifUnsub) this.userAuthListeners.push(notifUnsub);
                     }
                     
-                    if (StoreDB.listenDoc) {
-                        this.userAuthListeners.push(StoreDB.listenDoc(DB_KEYS.USERS, uidStr, (userData) => {
-                            if (userData) {
-                                if (userData.isBanned || userData.isIpBanned) {
-                                    this.clearFirebaseListeners();
-                                    if (UIManager.triggerLiveBanAlert) {
-                                        UIManager.triggerLiveBanAlert(userData.banReason || 'نعتذر، تم حظر حسابك.');
-                                    } else if (DataManager.logout) {
-                                        DataManager.logout(); 
-                                    } else {
-                                        signOut(auth).catch(()=>{}); 
-                                    }
-                                    return; 
-                                }
-                                
-                                _updateLiveArray(LiveStoreData.users, [userData]);
-                                
-                                requestAnimationFrame(() => { 
-                                    if(DataManager.syncUser) DataManager.syncUser(); 
-                                    
-                                    const activeCurr = DataManager.user?.baseCurrency || 'USD';
-                                    let uiCurr = 'USD';
-                                    try { uiCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY) || 'USD'; } catch(e) {}
-                                    
-                                    if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance(); 
-                                    if (UIManager.updateNotifBadges) UIManager.updateNotifBadges(); 
-                                    
-                                    if (activeCurr !== uiCurr && typeof RenderManager !== 'undefined') {
-                                        if (UIManager.updateDisplayCurrencyUI) UIManager.updateDisplayCurrencyUI(activeCurr);
-                                        if (document.body.classList.contains('is-home')) {
-                                            if (RenderManager.renderHome) RenderManager.renderHome(true);
-                                        } else if (UIManager.currentCategoryId) {
-                                            if (RenderManager._renderContent) RenderManager._renderContent(UIManager.currentCategoryId);
-                                        }
-                                    }
-                                });
-                            }
-                        }));
-                    }
-                    
-                    if (StoreDB.listenQuery) {
-                        this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.ORDERS, [['userId', '==', uidStr]], 'time', 30, (data) => {
-                            const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
-                            _updateLiveArray(LiveStoreData.orders, normData); 
-                            
-                            try { 
-                                const minifiedOrders = normData.map(o => ({ 
-                                    id: o.id, displayId: o.displayId, product: o.product, price: o.price, 
-                                    priceCurrency: o.priceCurrency, status: o.status, time: o.time, 
-                                    createdAt: o.createdAt, pricingSnapshot: o.pricingSnapshot 
-                                }));
-                                localStorage.setItem(`tc_orders_cache_${uidStr}`, JSON.stringify(minifiedOrders)); 
-                            } catch(e) {}
-                            
-                            if (DataManager.cursors && DataManager.cursors.orders === undefined) DataManager.cursors.orders = null;
-                            
-                            requestAnimationFrame(() => { 
-                                if (RenderManager.renderOrders && document.getElementById('orders-modal')?.classList.contains('active')) {
-                                    RenderManager.renderOrders(true); 
-                                }
-                            });
-                        }));               
-                        this.userAuthListeners.push(StoreDB.listenQuery(DB_KEYS.DEPOSITS, [['userId', '==', uidStr]], 'time', 30, (data) => {
-                            const normData = _normalizeDataTime(Array.isArray(data) ? data : []);
-                            _updateLiveArray(LiveStoreData.deposits, normData); 
-                            
-                            try { 
-                                const minifiedDeposits = normData.map(d => ({ 
-                                    id: d.id, displayId: d.displayId, amount: d.amount, creditedAmount: d.creditedAmount, 
-                                    targetCurrency: d.targetCurrency, method: d.method, status: d.status, 
-                                    time: d.time, createdAt: d.createdAt 
-                                }));
-                                localStorage.setItem(`tc_deposits_cache_${uidStr}`, JSON.stringify(minifiedDeposits)); 
-                            } catch(e){}
-                            
-                            if (DataManager.cursors && DataManager.cursors.deposits === undefined) DataManager.cursors.deposits = null;
-                            
-                            requestAnimationFrame(() => { 
-                                const isWalletOpen = document.getElementById('wallet-modal')?.classList.contains('active');
-                                const isMyPayOpen = document.getElementById('mypay-modal')?.classList.contains('active');
-                                if (isWalletOpen && RenderManager.renderWallet) RenderManager.renderWallet(true); 
-                                if (isMyPayOpen && RenderManager.renderPayments) RenderManager.renderPayments(true); 
-                            });
-                        }));
+                    if (DataManager && typeof DataManager.fetchUserHistory === 'function') {
+                        DataManager.fetchUserHistory();
                     }
                 } else {
                     let staleLocalUid = null;
                     try { staleLocalUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID); } catch(e){}
                     
                     if (staleLocalUid || DataManager.user) {
+                        safeResolve();
                         if (DataManager.logout) DataManager.logout();
                     } else {
                         try { localStorage.removeItem(CACHE_KEYS.ACTIVE_UID); } catch(e){}
-                        LiveStoreData.users.length = 0; LiveStoreData.orders.length = 0; LiveStoreData.deposits.length = 0;
-                        DataManager.cursors = {}; 
-                        if(DataManager.syncUser) DataManager.syncUser(); 
-                        if(UIManager.updateDisplayBalance) UIManager.updateDisplayBalance();
+                        LiveStoreData.users.length = 0;
+                        LiveStoreData.orders.length = 0;
+                        LiveStoreData.deposits.length = 0;
+                        DataManager.cursors = { orders: null, deposits: null, wallet: null }; 
+                        if (DataManager.syncUser) await DataManager.syncUser().catch(() => {}); 
+                        UIManager.updateDisplayBalance?.();
+                        safeResolve();
                     }
-                    safeResolve();
                 }
             }); 
             
-            setTimeout(safeResolve, 1000);
+            setTimeout(() => {
+                if (!isResolved && DataManager.activeUid && !DataManager.user && DataManager.syncUser) {
+                    DataManager.syncUser().finally(safeResolve);
+                } else {
+                    safeResolve();
+                }
+            }, 1000);
         });
     }
 }; 
 
 AppController.init = async function() {
-    console.log(`🚀 جاري إقلاع المتجر (النسخة التجارية ${APP_VERSION})...`);
+    console.log(`🚀 جاري إقلاع المتجر (النسخة المؤسسية ${APP_VERSION})...`);
     
     try {
         if (localStorage.getItem('TELECARD_REQUIRE_DB_CLEAR') === 'true') {
@@ -494,7 +464,7 @@ AppController.init = async function() {
     
     try {
         const currentVersion = APP_VERSION || "1.0.0";
-        const savedVersion = localStorage.getItem('telecard_app_version'); 
+        const savedVersion = localStorage.getItem(CACHE_KEYS.LOCAL_APP_VERSION); 
         
         if (savedVersion && savedVersion !== currentVersion) {
             const clearPromises = [];
@@ -505,44 +475,42 @@ AppController.init = async function() {
                 clearPromises.push(caches.keys().then(names => Promise.all(names.map(name => caches.delete(name)))).catch(() => []));
             }
             
-            const keysToRemove = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const k = localStorage.key(i);
-                if (k && (k.startsWith('telecard_store_cache') || k === CACHE_KEYS.SMART_CATALOG || k === CACHE_KEYS.CATALOG_VERSION)) {
-                    keysToRemove.push(k);
-                }
-            }
-            keysToRemove.forEach(k => localStorage.removeItem(k));
-            
-            localStorage.setItem('telecard_app_version', currentVersion); 
+            localStorage.removeItem(CACHE_KEYS.SERVER_VERSION);
+            localStorage.setItem(CACHE_KEYS.LOCAL_APP_VERSION, currentVersion); 
             
             await Promise.race([Promise.all(clearPromises), new Promise(r => setTimeout(r, 2000))]);
             window.location.reload();
             return;
         } else if (!savedVersion) {
-            localStorage.setItem('telecard_app_version', currentVersion);
+            localStorage.setItem(CACHE_KEYS.LOCAL_APP_VERSION, currentVersion);
         }
     } catch (e) { _sysLog("Version Check Cache Clear", e); }
     
     try {
-        const activeUid = localStorage.getItem(CACHE_KEYS.ACTIVE_UID);
-        if (activeUid) {
-            const cachedOrders = JSON.parse(localStorage.getItem(`tc_orders_cache_${activeUid}`) || '[]');
-            const cachedDeposits = JSON.parse(localStorage.getItem(`tc_deposits_cache_${activeUid}`) || '[]');
-            
-            if (cachedOrders.length > 0) _updateLiveArray(LiveStoreData.orders, cachedOrders);
-            if (cachedDeposits.length > 0) _updateLiveArray(LiveStoreData.deposits, cachedDeposits);
-        }
-    } catch (e) { _sysLog("Load User Cache", e); }
-    
-    try {
+        // 1. تحميل التفضيلات والثيم وتفعيل مستمعات الواجهة والشبكة
         if (DataManager.loadPrefs) DataManager.loadPrefs();
-        if (DataManager.syncUser) await DataManager.syncUser().catch(() => {});
-        
+        UIManager.applySavedTheme?.();
+        UIManager.toggleHeroSection?.(true);
+        UIManager.initGlobalListeners?.();
+        this.initNetworkSensors();
+
+        // 2. تطبيق الهوية المبدئية وإخفاء شاشة اللودر فوراً ليظهر الهيكل النبضي السريع (Instant Skeleton UX)
+        UIManager.applyStoreIdentity?.();
+        if (!(DataManager.user && DataManager.user.biometricEnabled)) {
+            requestAnimationFrame(() => {
+                const splash = document.getElementById('global-splash-screen');
+                if (splash) {
+                    splash.style.opacity = '0';
+                    splash.style.visibility = 'hidden';
+                    setTimeout(() => { if (splash) splash.remove(); }, 350);
+                }
+            });
+        }
+
+        // 3. جلب الكتالوج وتشغيل المستمعات ومزامنة المستخدم بتسلسل موحد خالٍ من التعارض
+        await DataManager.initStoreCatalog();
         await this.initFirebaseListeners();
 
-        if (UIManager.initGlobalListeners) UIManager.initGlobalListeners();
-        
         if (DataManager.user && DataManager.user.biometricEnabled) {
             this.enforceBiometricLock().then(isUnlocked => {
                 if (!isUnlocked) {
@@ -555,133 +523,136 @@ AppController.init = async function() {
                 }
             });
         }
-        
-        if (UIManager.applySavedTheme) UIManager.applySavedTheme();
-        if (UIManager.toggleHeroSection) UIManager.toggleHeroSection(true);
     } catch (e) { _sysLog("Core Boot Sequence", e); }
-    
+
     try {
         if (UIManager.checkSystemStatus && UIManager.checkSystemStatus()) return;
-        
-        await DataManager.initStoreCatalog();
-        
+
         if (typeof RenderHelpers !== 'undefined' && RenderHelpers.init) {
             RenderHelpers.init({ settings: LiveStoreData.settings || {}, rates: LiveStoreData.rates || [], offers: LiveStoreData.offers || [], isStore: true });
         }
         
         let storedCurr = 'USD';
         try { storedCurr = localStorage.getItem(CACHE_KEYS.DISPLAY_CURRENCY); } catch(e){}
-        DataManager.selectedCurr = storedCurr || LiveStoreData.settings?.defaultCurrency || 'USD';
-        if (UIManager.updateDisplayCurrencyUI) UIManager.updateDisplayCurrencyUI(DataManager.selectedCurr);
+        DataManager.selectedCurr = storedCurr || DataManager.user?.baseCurrency || LiveStoreData.settings?.defaultCurrency || 'USD';
+        UIManager.updateDisplayCurrencyUI?.(DataManager.selectedCurr);
         
         const removeSplashScreen = () => {
             const splash = document.getElementById('global-splash-screen');
             if (splash) {
                 splash.style.opacity = '0';
                 splash.style.visibility = 'hidden';
-                setTimeout(() => { if (splash) splash.remove(); }, 400); // إخفاء ناعم لا يصدم العين
+                setTimeout(() => { if (splash) splash.remove(); }, 400); 
             }
         };
 
         const handleWelcomeMessages = () => {
             try {
-                if (localStorage.getItem('tc_show_logout_toast')) {
-                    localStorage.removeItem('tc_show_logout_toast');
+                if (localStorage.getItem(CACHE_KEYS.LOGOUT_TOAST)) {
+                    localStorage.removeItem(CACHE_KEYS.LOGOUT_TOAST);
                     setTimeout(() => {
-                        if (UIManager.showToast) UIManager.showToast('تم تسجيل الخروج بنجاح. نراك قريباً!', 'success');
-                        if (UIManager.sfx) UIManager.sfx('success');
+                        UIManager.showToast?.('تم تسجيل الخروج بنجاح. نراك قريباً!', 'success');
+                        UIManager.sfx?.('success');
                     }, 1200);
+                } else {
+                    const isGuest = !DataManager || !DataManager.user;
+                    const now = Date.now();
 
-                } else if (!sessionStorage.getItem('tc_has_been_greeted')) {
-                    sessionStorage.setItem('tc_has_been_greeted', 'true');
-                    setTimeout(() => {
-                        const isNewUser = sessionStorage.getItem('tc_new_user_signup');
-                        const storeName = localStorage.getItem('tc_splash_name') || LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'متجرنا';
-                        const firstName = DataManager.user?.firstName || DataManager.user?.name || '';
-                        const namePart = firstName ? ` يا ${firstName}` : '';
-                        let finalGreeting = '';
+                    if (isGuest) {
+                        const lastPromoTime = parseInt(localStorage.getItem(CACHE_KEYS.GUEST_PROMO_TIME), 10) || 0;
+                        const lastGreetTime = parseInt(localStorage.getItem(CACHE_KEYS.GUEST_GREET_TIME), 10) || 0;
                         
-                        if (isNewUser) {
-                            sessionStorage.removeItem('tc_new_user_signup');
-                            const newWelcomePhrases = [
-                                `أهلاً بك في عائلة ${storeName}${namePart} 🎉`,
-                                `بداية موفقة معنا في ${storeName}${namePart} 🚀`,
-                                `سعيدون بانضمامك لـ ${storeName}${namePart} ✨`
-                            ];
-                            finalGreeting = newWelcomePhrases[Math.floor(Math.random() * newWelcomePhrases.length)];
-                        } else {
-                            const hour = new Date().getHours();
-                            let timePhrases = [];
-                            
-                            if (hour >= 5 && hour < 12) timePhrases = ["صباح الخير", "عمت صباحاً", "صباح النشاط", "إشراقة جديدة"];
-                            else if (hour >= 12 && hour < 18) timePhrases = ["طاب مساؤك", "كيف الحال", "ما الأخبار", "مرحباً بك"];
-                            else timePhrases = ["مساء الخير", "سهرة ممتعة", "عمت مساءً", "أهلاً بك الليلة"];
-                            
-                            finalGreeting = `${timePhrases[Math.floor(Math.random() * timePhrases.length)]}${namePart} ✨`;
+                        const COOLDOWN_PROMO = 43200000;
+                        const COOLDOWN_GREET = 10800000;
+                        
+                        if (now - lastPromoTime > COOLDOWN_PROMO) {
+                            setTimeout(() => {
+                                const hour = new Date().getHours();
+                                let greetings = [];
+                                
+                                if (hour >= 5 && hour < 12) greetings = ["صباح الخير! ☀️", "عمت صباحاً! ☕"];
+                                else if (hour >= 12 && hour < 18) greetings = ["مساء الخير! 🌤️", "طاب يومك! ✨"];
+                                else greetings = ["مساء الخير! 🌙", "سهرة ممتعة! 🌟"];
+                                
+                                const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
+                                const marketingAction = "<span class='highlight-gold'>أنشئ حسابك الآن</span> واستمتع بأسعار حصرية.";
+                                const toastMsg = `${randomGreeting} <br> ${marketingAction}`;
+                                
+                                UIManager.showToast?.(toastMsg, 'welcome', 6000); 
+                                localStorage.setItem(CACHE_KEYS.GUEST_PROMO_TIME, now.toString());
+                                localStorage.setItem(CACHE_KEYS.GUEST_GREET_TIME, now.toString());
+                            }, 3500);
+                        } else if (now - lastGreetTime > COOLDOWN_GREET) {
+                            setTimeout(() => {
+                                const simpleGreetings = [
+                                    "أهلاً بك مجدداً! نتمنى لك جولة تسوق ممتعة. 🛍️",
+                                    "سعيدون بعودتك لاستكشاف متجرنا! ✨",
+                                    "مرحباً بك! هل تبحث عن شيء محدد اليوم؟ 🎯"
+                                ];
+                                const toastMsg = simpleGreetings[Math.floor(Math.random() * simpleGreetings.length)];
+                                
+                                UIManager.showToast?.(toastMsg, 'info', 4000); 
+                                localStorage.setItem(CACHE_KEYS.GUEST_GREET_TIME, now.toString());
+                            }, 3500);
                         }
-                        
-                        if (UIManager.showToast) UIManager.showToast(finalGreeting, 'info');
-                        
-                        setTimeout(() => {
-                            if (UIManager.showPushNotificationPrompt) {
-                                UIManager.showPushNotificationPrompt();
-                            }
-                        }, 3500);
+                    } else {
+                        if (!sessionStorage.getItem(CACHE_KEYS.GREETING_SHOWN)) {
+                            sessionStorage.setItem(CACHE_KEYS.GREETING_SHOWN, 'true');
+                            setTimeout(() => {
+                                const isNewUser = sessionStorage.getItem(CACHE_KEYS.NEW_USER_SIGNUP);
+                                const storeName = localStorage.getItem(CACHE_KEYS.SPLASH_NAME) || LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'متجرنا';
+                                const firstName = DataManager.user?.firstName || DataManager.user?.fullName || '';
+                                const namePart = firstName ? ` يا ${firstName}` : '';
+                                let finalGreeting = '';
+                                
+                                if (isNewUser) {
+                                    sessionStorage.removeItem(CACHE_KEYS.NEW_USER_SIGNUP);
+                                    const newWelcomePhrases = [
+                                        `أهلاً بك في عائلة ${storeName}${namePart} 🎉`,
+                                        `بداية موفقة معنا في ${storeName}${namePart} 🚀`,
+                                        `سعيدون بانضمامك لـ ${storeName}${namePart} ✨`
+                                    ];
+                                    finalGreeting = newWelcomePhrases[Math.floor(Math.random() * newWelcomePhrases.length)];
+                                } else {
+                                    const hour = new Date().getHours();
+                                    let timePhrases = [];
+                                    
+                                    if (hour >= 5 && hour < 12) timePhrases = ["صباح الخير", "عمت صباحاً", "صباح النشاط", "إشراقة جديدة"];
+                                    else if (hour >= 12 && hour < 18) timePhrases = ["طاب مساؤك", "كيف الحال", "ما الأخبار", "مرحباً بك"];
+                                    else timePhrases = ["مساء الخير", "سهرة ممتعة", "عمت مساءً", "أهلاً بك الليلة"];
+                                    
+                                    finalGreeting = `${timePhrases[Math.floor(Math.random() * timePhrases.length)]}${namePart} ✨`;
+                                }
+                                
+                                UIManager.showToast?.(finalGreeting, 'welcome', 5000);
+                                
+                                setTimeout(() => {
+                                    UIManager.showPushNotificationPrompt?.();
+                                }, 3500);
 
-                    }, 1500);
+                            }, 1500);
+                        }
+                    }
                 }
             } catch(e) { _sysLog("Welcome Messages", e); }
         };
 
-        if (UIManager.applyStoreIdentity) UIManager.applyStoreIdentity();
-        if (UIManager.updateProfileDisplay) UIManager.updateProfileDisplay();
+        UIManager.applyStoreIdentity?.();
+        UIManager.updateProfileDisplay?.();
+        UIManager.updateFavBadgeCount?.();
 
         const sName = LiveStoreData.settings?.storeName || LiveStoreData.settings?.name || 'TeleCard';
         const splashName = document.getElementById('splash-store-name');
         if (splashName) splashName.innerText = sName;
         try { localStorage.setItem(CACHE_KEYS.SPLASH_NAME, sName); } catch(e){}
 
-        // 🔥 الدمج الماسي: جلب الكاش السريع وعرضه فوراً مع إخفاء اللودر السلس
         if (UIManager.isReady && RenderManager) {
-            
-            // 1. إذا كان الكاش فارغاً، ارسم السكيليتون ليختفي اللودر فوراً
-            if (!LiveStoreData.cats || LiveStoreData.cats.length === 0) {
-                if (RenderManager.renderHomeSkeletons) RenderManager.renderHomeSkeletons();
-            } else {
-                // 2. إذا كان الكاش موجوداً، ارسم الواجهة الحقيقية فوراً
-                if (RenderManager.renderHome) RenderManager.renderHome();
-            }
-            
-            if (UIManager.initSlider) UIManager.initSlider();
-            if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance();
-            
-            // 3. إعطاء أمر إخفاء اللودر (يعمل فوراً دون انتظار)
+            RenderManager.renderHome?.();
+            UIManager.initSlider?.();
+            UIManager.updateDisplayBalance?.();
+          
             requestAnimationFrame(removeSplashScreen);
             handleWelcomeMessages();
-
-            // 4. تأخير البيانات الثقيلة لعدم خنق المعالج أثناء الأنيميشن
-            setTimeout(() => {
-                const publicKeys = ['COUNTRIES', 'PAYMENTS'];
-                const promises = publicKeys.map(k => StoreDB.queryCacheFirst(DB_KEYS[k], [], null, 500).catch(() => []));
-                
-                if (DataManager.activeUid) {
-                    promises.push(StoreDB.queryCacheFirst(DB_KEYS.COUPONS, [], null, 200).catch(() => []));
-                    publicKeys.push('COUPONS');
-                }
-                
-                Promise.all(promises).then(results => {
-                    publicKeys.forEach((key, i) => {
-                        if (results[i] && results[i].length > 0) {
-                            _updateLiveArray(LiveStoreData[key.toLowerCase()], results[i]);
-                        }
-                    });
-                    
-                    if (document.getElementById('balance-modal')?.classList.contains('active')) {
-                        if (RenderManager.renderPayMethods) RenderManager.renderPayMethods();
-                    }
-                }).catch(e => _sysLog("Background Data Fetch", e));
-            }, 400); 
-
         } else {
             requestAnimationFrame(removeSplashScreen);
             handleWelcomeMessages();
@@ -694,26 +665,53 @@ AppController.init = async function() {
 
     try {
         setTimeout(() => { if (DataManager.injectSilentSensor) DataManager.injectSilentSensor(); }, 3000);
-        if (UIManager.updateDisplayBalance) UIManager.updateDisplayBalance();
+        UIManager.updateDisplayBalance?.();
         
-        // 🛡️ استخدام طلبات متأخرة للحفاظ على استقرار المتصفح أثناء التمرير
         requestIdleCallback(() => {
             if (!UIManager.isReady) return;
             try { if (CalendarApp?.init) CalendarApp.init(); } catch (e) { _sysLog("Calendar Init", e); }
             
-            ['updateSidebarText', 'initSupportButton', 'applyFontSettings', 'refreshCurrencyMenuFlags', 'renderSettingsUI', 'loadUserImageAutomatically', 'restoreDisplayState', 'setupMainContentClickDetector', 'initSwipeGestures']
-            .forEach(m => { try { if (UIManager[m]) UIManager[m](); } catch (e) { _sysLog(`UI Action: ${m}`, e); } });
-            
-            if (Components.initBottomNavSync) Components.initBottomNavSync();
-            if (UIManager.checkKycCelebration) UIManager.checkKycCelebration();
+            [
+                'updateSidebarText',
+                'initSupportButton',
+                'applyFontSettings',
+                'refreshCurrencyMenuFlags',
+                'renderSettingsUI',
+                'loadUserImageAutomatically',
+                'restoreDisplayState',
+                'setupMainContentClickDetector',
+                'setupWalletDrawerClickOutside',
+                'initSwipeGestures',
+                'updateFavBadgeCount'
+            ].forEach(m => {
+                try { if (UIManager[m]) UIManager[m](); } catch (e) { _sysLog(`UI Action: ${m}`, e); }
+            });
+
+            RenderManager.renderTerms?.();
+            Components.initBottomNavSync?.();
+            UIManager.checkKycCelebration?.();
         }, { timeout: 2000 });
         
-        console.log("✅ اكتمل الإقلاع. الكائنات محررة والواجهة جاهزة للتفاعل.");
+        console.log("✅ اكتمل الإقلاع. معمارية القلعة نشطة والواجهة جاهزة للتفاعل.");
         
     } catch (e) { _sysLog("Post Boot Actions", e); }
 };
 
 if (typeof globalThis !== 'undefined') {
+    if (!globalThis.DataManager) {
+        Object.defineProperty(globalThis, 'DataManager', {
+            value: DataManager,
+            writable: false,
+            configurable: false
+        });
+    }
+    if (!globalThis.RenderManager) {
+        Object.defineProperty(globalThis, 'RenderManager', {
+            value: RenderManager,
+            writable: false,
+            configurable: false
+        });
+    }
     if (!globalThis.ClientSystem) {
         Object.defineProperty(globalThis, 'ClientSystem', {
             value: UIManager,

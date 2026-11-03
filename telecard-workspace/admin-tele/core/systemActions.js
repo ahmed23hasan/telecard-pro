@@ -1,26 +1,32 @@
 // ============================================================================
-// ⚙️ خريطة مسارات النظام (System Actions Router) - Enterprise V15.6 💎
+// ⚙️ خريطة مسارات النظام (System Actions Router) - Enterprise V16.2 💎
 // 🎯 الوظيفة: الأحداث المشتركة، النوافذ، الملاحة، التقويم، وإعدادات النظام العامة
-// 🚀 التحديثات:
-// 1. Radar Routing: إضافة مسارات تفعيل الإشعارات وتفضيلات غرفة العمليات.
+// 🚀 التحديثات المعمارية (V16.2 - Zero-Conflict Routing & System Errors Tab Patch):
+// 1. Double Confirm Fix 🛡️: إزالة نافذة التأكيد العامة المزدوجة من مسار (delete-item) وتركها للمتحكمات المختصة.
+// 2. Radar & Errors Routing 📡: إضافة مسارات تفعيل الإشعارات، تفضيلات غرفة العمليات، وتبويب أخطاء النظام (nav-to-sys-errors / switch-logs-tab).
+// 3. EventBus Alignment 🔄: توحيد مسار فلتر لوحة القيادة ليعمل عبر الأحداث المركزية وإضافة load-top-customers.
+// 4. Backup Eradication 🗑️: إزالة مسارات النسخ الاحتياطي بالكامل لحماية السجل المحاسبي.
 // ============================================================================
 
 import { AdminUI, AdminCalendar } from '../adminUI.js';
 import { AdminRender } from '../adminRender.js';
 import { EventBus } from '../adminUtils.js';
-import { BackupSystem } from './backupService.js';
 
 export const SystemActions = {
     // --- 1. النظام الأساسي والملاحة ---
     'logout': () => EventBus.emit('req-logout'),
     'nav': (data) => EventBus.emit('req-navigate', { page: data.target, btnEl: data.element }),
-    'nav-with-filter': (data) => EventBus.emit('req-navigate-filter', { section: data.section, status: data.status }),
+    'nav-with-filter': (data) => EventBus.emit('req-navigate-filter', { section: data.section, status: data.status, source: data.source }),
     
     'nav-to-complaints': () => {
         EventBus.emit('req-navigate', { page: 'notifs' });
         setTimeout(() => EventBus.emit('switch-notifs-tab', { tab: 'complaints' }), 100);
     },
-
+    'nav-to-sys-errors': () => {
+        EventBus.emit('req-navigate', { page: 'logs' });
+        setTimeout(() => EventBus.emit('switch-logs-tab', { tab: 'errors' }), 100);
+    },
+    
     'go-back': () => EventBus.emit('req-go-back'),
     'toggle-sidebar': () => AdminUI?.toggleSidebar?.(),
     'toggle-theme': () => AdminUI?.toggleTheme?.(),
@@ -36,21 +42,22 @@ export const SystemActions = {
     'add-term-card': () => AdminUI?.addTermCardUI?.(),
     'select-term-icon': (data) => AdminUI?.selectTermIconUI?.(data.element, data.val),
     'save-admin-profile': () => EventBus.emit('req-save-admin-profile'),
+    'reset-admin-password': () => EventBus.emit('req-reset-admin-password'),
     'auto-save-settings': () => EventBus.emit('req-auto-save-settings'),
-
     // 🚀 [مسارات الرادار وغرفة العمليات]:
     'enable-admin-notifs': () => EventBus.emit('req-enable-notifs'),
     'dismiss-admin-notifs': () => EventBus.emit('req-dismiss-notifs'),
     'save-admin-prefs': () => EventBus.emit('req-save-admin-prefs'),
-
+    
     'save-about-us': () => EventBus.emit('save-about-us'),
     'save-social-links': () => EventBus.emit('save-social-links'),
     'switch-notifs-tab': (data) => EventBus.emit('switch-notifs-tab', { tab: data.tab }),
     'filter-reviews': () => EventBus.emit('filter-reviews'),
+    'switch-logs-tab': (data) => EventBus.emit('switch-logs-tab', { tab: data.tab, element: data.element }),
     
     'force-sync': () => EventBus.emit('req-force-sync'),
-    'force-sync-pricing': () => EventBus.emit('req-force-sync-pricing'), 
-
+    'force-sync-pricing': () => EventBus.emit('req-force-sync-pricing'),
+    
     // --- 3. النوافذ المشتركة ---
     'open-modal': (data) => AdminUI?.openModal?.(data.target),
     'close-modal': (data) => AdminUI?.closeModal?.(data.target || data.id || null),
@@ -70,8 +77,9 @@ export const SystemActions = {
     // --- 4. الموجه الديناميكي (Dynamic Editors) ---
     'edit-item': (data) => EventBus.emit('req-edit-item', { type: data.type, id: data.id }),
     
-    'delete-item': async (data) => {
-        if (data.id && AdminUI && await AdminUI.showConfirm('هل أنت متأكد من الحذف نهائياً؟ لا يمكن التراجع.')) {
+    // 🚀 [الإصلاح المعماري 3] - إزالة التضارب في تأكيد الحذف
+    'delete-item': (data) => {
+        if (data.id) {
             EventBus.emit('req-delete-item', { type: data.type, id: data.id });
         }
     },
@@ -90,20 +98,25 @@ export const SystemActions = {
     'cal-clear': () => AdminCalendar?.clear?.(),
     'cal-confirm': () => AdminCalendar?.confirm?.(),
     
-// --- 6. الأدوات العامة ---
-'scroll-to-alerts': () => AdminUI?.scrollToAlerts?.(),
-    'change-leaderboard-filter': (data) => AdminRender?.changeLeaderboardFilter?.(data.val || data.element.value),
+    // --- 6. الأدوات العامة ---
+    'scroll-to-alerts': () => AdminUI?.scrollToAlerts?.(),
     
-    // 🚀 [السلك المضاف]: توجيه أحداث تغيير فلتر المبيعات لمحرك الرسم
+    // 🚀 [التصحيح المعماري]: توجيه الحدث ليعمل عبر EventBus ليستقبله dashboardRender بانسجام
+    'change-leaderboard-filter': (data) => EventBus.emit('change-leaderboard-filter', { val: data.val || data.element.value }),
+    
     'change-sales-range': (data) => EventBus.emit('change-sales-range', data.val || data.element.value),
     
+    'load-top-customers': () => EventBus.emit('req-load-top-customers'),
+    
     'export-excel': (data) => AdminRender?.exportDataToExcel?.(data.type || data.target),
-    'export-data': () => BackupSystem?.exportData?.(),
+    
     'copy-text': (data) => AdminUI?.copyText?.(data.copyText, data.originalEvent, data.element),
     'copy-to-clipboard': (data) => AdminUI?.copyToClipboard?.(data.element),
     'trigger-click': (data) => document.getElementById(data.target)?.click(),
     'clear-img': (data) => AdminUI?.clearImg?.(data.preview, data.wrap, data.input, data.originalEvent),
-    'upload-img': (data) => AdminUI?.handleImageUpload?.(data.element, data.preview, data.wrap),    // --- 7. الجدار الناري والقائمة السوداء (Firewall & Blacklist) ---
+    'upload-img': (data) => AdminUI?.handleImageUpload?.(data.element, data.preview, data.wrap),
+    
+    // --- 7. الجدار الناري والقائمة السوداء (Firewall & Blacklist) ---
     'add-global-ban-ip': () => EventBus.emit('req-add-ban-ip'),
     'remove-global-ban-ip': (data) => EventBus.emit('req-remove-ban-ip', { ip: data.ip }),
     'remove-global-ban-device': (data) => EventBus.emit('req-remove-ban-device', { device: data.device })

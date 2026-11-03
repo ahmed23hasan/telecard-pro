@@ -1,14 +1,20 @@
 // ============================================================================
-// 📢 وحدة التسويق والعروض (modules/marketing/marketingUI.js) - Cloud-Native V18.2
-// 🎯 الوظيفة: إدارة الكوبونات، العروض المركزية، ومحرك البناء المرئي (Visual Engine)
-// 🚀 التحديثات المعمارية:
-// 1. Crash Protection 🛡️: استخدام دوال الإسناد الآمنة لتهيئة نوافذ الإشعارات وتجنب أخطاء (Null Ref).
-// 2. State Bleed Fix 🛡️: تنظيف كائن البناء المرئي عند كل فتح لمنع تداخل التصاميم بين العروض.
-// 3. Dead Import Cleanup 🧹: إزالة استيراد القوالب الميتة لتنظيف الذاكرة.
+// 📢 وحدة التسويق والعروض (modules/marketing/marketingUI.js) - Cloud-Native V20.0 💎
+// 🚀 التحديثات المعمارية (V20.0 - Alerts Isolation & Pure MVC Patch):
+// 1. Smart Tree Fix 🌳: توجيه نداء تعبئة الشجرة لمحرك (MarketingRender) بدلاً من (AdminRender).
+// 2. Alerts Isolation 🔔: استعادة تفاعلات نافذة الإشعارات من النواة المركزية لضمان العزل التام للوحدة.
+// 3. MVC Correction 🛡️: نقل دوال الفتح (openOffer, openCoupon, openAlert) من المتحكم إلى هنا.
+// 4. Lazy DOM Injection 📦: خلق نوافذ التسويق من العدم لتخفيف العبء عن المتصفح.
+// 5. Smart Garbage Collector 🧹: وضع كلاس (dynamic-auto-destroy) ليتم التدمير تلقائياً بعد الإغلاق.
+// 6. Data-Driven Story Tree 📊: قراءة أسماء منتجات القصة من الذاكرة (Map) بدلاً من الـ HTML لضمان الاستقرار.
 // ============================================================================
 
+import { AdminData } from '../../adminData.js';
+import { MarketingTemplates } from './marketingTemplates.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { UIService } from '../../core/uiService.js'; 
+import { RenderHelpers } from '../../core/renderHelpers.js'; 
+import { MarketingRender } from './marketingRender.js'; 
 
 export const MarketingUI = {
 
@@ -17,6 +23,127 @@ export const MarketingUI = {
         grid: { badgeText: '', badgeStyle: 'none', badgeColor: 'theme-ruby', badgePos: 'pos-tr', timerStyle: 'none', timerPos: 'pos-bc' }
     },
 
+    // =========================================================
+    // 🎁 1. النوافذ الديناميكية (Dynamic Modals)
+    // =========================================================
+    openOfferModal: function(id = null) {
+        let strId = id ? String(id) : null;
+        EventBus.emit('req-update-state', { tempEditId: strId });
+        
+        const offer = strId ? (AdminData.data.offersMap?.[strId] || (AdminData.data.offers || []).find(o => String(o.id) === strId)) : null;
+
+        let modal = document.getElementById('m-offer');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'm-offer';
+            modal.className = 'modal-overlay dynamic-auto-destroy'; 
+            document.body.appendChild(modal);
+        }
+
+        modal.innerHTML = MarketingTemplates.offerEditModal();
+        this.setupOfferModal(offer);
+
+        if (MarketingRender?.populateSmartTreeTargets) {
+            MarketingRender.populateSmartTreeTargets('offer-target', offer ? (offer.targetTiers || []) : [], offer ? (offer.targetProds || []) : []);
+        }
+
+        void modal.offsetWidth; 
+        requestAnimationFrame(() => modal.classList.add('active'));
+    },
+
+    openCouponModal: function(id = null) {
+        let strId = id ? String(id) : null;
+        EventBus.emit('req-update-state', { tempEditId: strId });
+        const isEdit = !!strId;
+        
+        const coupon = isEdit ? (AdminData.data.couponsMap?.[strId] || (AdminData.data.coupons || []).find(c => String(c.id) === strId)) : null;
+
+        let modal = document.getElementById('m-coupon');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'm-coupon';
+            modal.className = 'modal-overlay dynamic-auto-destroy'; 
+            document.body.appendChild(modal);
+        }
+
+        modal.innerHTML = MarketingTemplates.couponEditModal();
+        this.setupCouponModal(coupon, isEdit);
+
+        if (MarketingRender?.populateSmartTreeTargets) {
+            MarketingRender.populateSmartTreeTargets('coupon-target', coupon ? (coupon.targetTiers || []) : [], coupon ? (coupon.targetProds || []) : []);
+        }
+
+        void modal.offsetWidth; 
+        requestAnimationFrame(() => modal.classList.add('active'));
+    },
+
+    openAlertModal: function() {
+        let modal = document.getElementById('m-alert');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'm-alert';
+            modal.className = 'modal-overlay dynamic-auto-destroy'; 
+            document.body.appendChild(modal);
+        }
+
+        modal.innerHTML = MarketingTemplates.alertEditModal();
+        this.setupAlertModal(AdminData.data.tiers || []);
+
+        void modal.offsetWidth; 
+        requestAnimationFrame(() => modal.classList.add('active'));
+    },
+
+    openBannerModal: function() {
+        let modal = document.getElementById('m-banner');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'm-banner';
+            modal.className = 'modal-overlay dynamic-auto-destroy'; 
+            document.body.appendChild(modal);
+        }
+
+        modal.innerHTML = MarketingTemplates.bannerEditModal();
+
+        void modal.offsetWidth; 
+        requestAnimationFrame(() => modal.classList.add('active'));
+    },
+
+    showBatchCollisionResolverUI: function(collisions, resolveCallback) {
+        let overlay = document.getElementById('batch-collision-modal');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'batch-collision-modal';
+            overlay.className = 'modal-overlay dynamic-auto-destroy'; 
+            document.body.appendChild(overlay);
+        }
+
+        overlay.innerHTML = MarketingTemplates.batchCollisionModal(collisions);
+
+        const closeIt = (result) => {
+            if (window.AdminUI && window.AdminUI.closeModal) {
+                window.AdminUI.closeModal('batch-collision-modal');
+            }
+            resolveCallback(result);
+        };
+
+        const closeBtn = overlay.querySelector('#col-btn-close-icon');
+        const cancelBtn = overlay.querySelector('#col-btn-cancel');
+        const confirmBtn = overlay.querySelector('#col-btn-confirm');
+
+        if(closeBtn) closeBtn.onclick = () => closeIt(null);
+        if(cancelBtn) cancelBtn.onclick = () => closeIt(null);
+        if(confirmBtn) confirmBtn.onclick = () => {
+            const ids = Array.from(overlay.querySelectorAll('.col-chk-item:checked')).map(cb => cb.value);
+            closeIt(ids);
+        };
+
+        void overlay.offsetWidth; 
+        requestAnimationFrame(() => overlay.classList.add('active'));
+    },
+
+    // =========================================================
+    // ⚙️ 2. تجهيز البيانات (Setup Data Methods)
+    // =========================================================
     setupOfferModal: function(offer) {
         const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
         const safeSetCheck = (elId, val) => { const el = document.getElementById(elId); if (el) el.checked = val; };
@@ -30,7 +157,7 @@ export const MarketingUI = {
         const dHidden = document.getElementById('offer-expiry'); 
         if (offer && offer.expiryDate) { 
             if (dHidden) dHidden.value = offer.expiryDate; 
-            if (dText) { dText.innerText = Utils.formatDate(offer.expiryDate); dText.classList.remove('placeholder-text'); } 
+            if (dText) { dText.innerText = RenderHelpers.formatSafeDate(offer.expiryDate); dText.classList.remove('placeholder-text'); } 
         } else { 
             if (dHidden) dHidden.value = ''; 
             if (dText) { dText.innerText = 'DD/MM/YYYY HH:MM'; dText.classList.add('placeholder-text'); } 
@@ -59,7 +186,7 @@ export const MarketingUI = {
             
             const tempDate = coupon.expiryDate || null; const dText = document.getElementById('date-expiry-coupon'); const dHidden = document.getElementById('coupon-expiry');
             if (dHidden) dHidden.value = tempDate || '';
-            if (dText) { if (tempDate) { dText.innerText = Utils.formatDate(tempDate); dText.classList.remove('placeholder-text'); } else { dText.innerText = 'DD/MM/YYYY HH:MM'; dText.classList.add('placeholder-text'); } }
+            if (dText) { if (tempDate) { dText.innerText = RenderHelpers.formatSafeDate(tempDate); dText.classList.remove('placeholder-text'); } else { dText.innerText = 'DD/MM/YYYY HH:MM'; dText.classList.add('placeholder-text'); } }
         } else {
             safeSetVal('coupon-code', ''); 
             safeSetVal('coupon-type', 'percentage'); 
@@ -94,11 +221,41 @@ export const MarketingUI = {
         
         const tierSelect = document.getElementById('alert-target-tier');
         if (tierSelect) { tierSelect.innerHTML = tiersList.map(t => `<option value="${t.id}">${Utils.escapeHTML(t.name)}</option>`).join(''); }
-        if(window.AdminUI) { window.AdminUI.toggleAlertTargetFields?.(); window.AdminUI.toggleAlertTypeFields?.(); }
+        
+        this.toggleAlertTargetFields(); 
+        this.toggleAlertTypeFields();
     },
 
+    // =========================================================
+    // 🔔 3. تفاعلات نافذة الإشعارات (Alerts UI Toggles)
+    // =========================================================
+    toggleAlertTypeFields: function() {
+        const type = document.getElementById('alert-type')?.value;
+        const advFields = document.getElementById('popup-advanced-fields');
+        if (advFields) {
+            if (type === 'popup') advFields.classList.remove('hide-element');
+            else advFields.classList.add('hide-element');
+        }
+    },
+
+    toggleAlertAdvancedFields: function() {
+        const el = document.getElementById('popup-advanced-fields');
+        if (el) el.classList.toggle('hide-element');
+    },
+    
+    toggleAlertTargetFields: function() {
+        const type = document.getElementById('alert-target-type')?.value;
+        const tBox = document.getElementById('alert-target-tier-box');
+        const uBox = document.getElementById('alert-target-user-box');
+        if (tBox) tBox.classList.toggle('hide-element', type !== 'tier');
+        if (uBox) uBox.classList.toggle('hide-element', type !== 'user');
+    },
+
+    // =========================================================
+    // 🎨 4. التفاعلات المرئية والمحرك البصري (Visual Builder Interactions)
+    // =========================================================
     switchPromoTab: function(tab, btnEl) {
-        document.querySelectorAll('#tabs-promotions.main-tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#tabs-promotions .main-tab-btn').forEach(b => b.classList.remove('active'));
         if(btnEl) btnEl.classList.add('active');
 
         const couponsGrid = document.getElementById('coupons-grid');
@@ -135,8 +292,7 @@ export const MarketingUI = {
         else {
             valueGroup.classList.remove('hide-element');
             if (type === 'real' || type === 'fake') valueLabel.innerText = "نسبة الخصم المئوية (%)";
-            else if (type === 'fixed') valueLabel.innerText = "السعر الثابت الموحد ($)";
-        }
+else if (type === 'fixed') valueLabel.innerText = "قيمة مبلغ الخصم الثابت ($)";        }
     },
 
     switchBuilderTab: function(tabId) {
@@ -167,23 +323,29 @@ export const MarketingUI = {
         const mainProdsContainer = document.getElementById('offer-target-prods');
         const storyProdsContainer = document.getElementById('story-selection-prods');
         if (!mainProdsContainer || !storyProdsContainer) return;
+        
         const checkedLabels = mainProdsContainer.querySelectorAll('.tree-child-cb:checked');
         if (checkedLabels.length === 0) {
             storyProdsContainer.innerHTML = '<div class="text-muted fs-12 text-center" style="padding: 20px;"><i class="fa-solid fa-circle-exclamation text-warning mb-5 fa-2x"></i><br>يرجى تحديد المنتجات المشمولة بالعرض في التبويب الأول أولاً.</div>';
             return;
         }
+        
         const savedStoryProds = this.visualConfig.storyProducts || [];
         let html = '<div class="smart-tree-container">';
+        
         checkedLabels.forEach(cb => {
-            const parentLabel = cb.closest('.tree-item-row');
             const prodId = cb.value;
             const isChecked = savedStoryProds.includes(String(prodId));
-            const prodName = parentLabel.querySelector('.text-main').innerText;
-            const imgEl = parentLabel.querySelector('img');
+            
+            // 🚀 جلب البيانات الموثوقة من الذاكرة بدلاً من الاعتماد على الـ HTML المعرض للتغيير
+            const prodObj = AdminData.data.prodsMap?.[prodId] || (AdminData.data.prods || []).find(p => String(p.id) === String(prodId));
+            const prodName = prodObj ? Utils.escapeHTML(prodObj.name) : 'منتج غير معروف';
+            const prodImg = prodObj ? (prodObj.img || prodObj.image) : null;
+            
             html += `
             <label class="tree-item-row" style="background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 5px;">
                 <input type="checkbox" class="tree-checkbox tree-child-cb" value="${prodId}" ${isChecked ? 'checked' : ''}>
-                ${imgEl ? `<img src="${imgEl.src}" class="tree-thumb">` : `<div class="tree-thumb-fallback"><i class="fa-solid fa-box"></i></div>`}
+                ${prodImg ? `<img src="${Utils.escapeHTML(prodImg)}" class="tree-thumb">` : `<div class="tree-thumb-fallback"><i class="fa-solid fa-box"></i></div>`}
                 <div class="flex-col">
                     <span class="fs-12 fw-bold text-main">${prodName}</span>
                     <span class="fs-10 text-muted"><span class="num-en text-warning" dir="ltr">#${prodId.slice(-4)}</span></span>
@@ -302,36 +464,12 @@ export const MarketingUI = {
         this.switchBuilderTab('data', null); this.renderGridPreview();
     },
 
-    showBatchCollisionResolverUI: function(collisions, resolveCallback) {
-        const overlay = document.createElement('div'); overlay.className = 'modal-overlay active'; overlay.id = 'batch-collision-modal';
-        const listHtml = collisions.map(c => `
-            <label class="copy-row cursor-pointer" style="justify-content: flex-start; gap: 12px; padding: 12px; margin-bottom: 8px;">
-                <input type="checkbox" class="col-chk-item" value="${c.prodId}" checked style="width: 18px; height: 18px; accent-color: var(--primary);">
-                <div class="cr-content w-100" style="align-items: flex-start;">
-                    <span class="fw-bold text-main fs-13 text-truncate" style="max-width: 100%; display: block;">${Utils.escapeHTML(c.prodName)}</span>
-                    <div class="fs-11 text-danger mt-5"><i class="fa-solid fa-link"></i> مرتبط بـ: ${Utils.escapeHTML(c.oldOfferName)}</div>
-                </div>
-            </label>`).join('');
-        overlay.innerHTML = `
-            <div class="modal-content tier-modal-content">
-                <div class="modal-close-btn" id="col-btn-close-icon"><i class="fa-solid fa-xmark"></i></div>
-                <h2 class="main-title mb-15 text-danger"><i class="fa-solid fa-triangle-exclamation"></i> تضارب في التخفيضات!</h2>
-                <div class="tsm-list-container custom-scrollbar mb-20" style="max-height: 250px; overflow-y: auto;">${listHtml}</div>
-                <div class="tsm-actions flex-center-gap">
-                    <button class="btn btn-primary flex-1" id="col-btn-confirm">تأكيد السحب</button>
-                    <button class="btn btn-ghost flex-1" id="col-btn-cancel">إلغاء</button>
-                </div>
-            </div>`;
-        document.body.appendChild(overlay);
-        overlay.querySelector('#col-btn-close-icon').onclick = () => { overlay.remove(); resolveCallback(null); };
-        overlay.querySelector('#col-btn-confirm').onclick = () => { const ids = Array.from(overlay.querySelectorAll('.col-chk-item:checked')).map(cb => cb.value); overlay.remove(); resolveCallback(ids); };
-    },
-
     applyGeneratedCoupon: function(code) {
         const input = document.getElementById('coupon-code');
         if (input) { input.value = code; input.focus(); input.classList.add('flash-success'); setTimeout(() => input.classList.remove('flash-success'), 400); }
     },
 
+    // 🚀 دوال جلب التحديد من الـ DOM بأمان
     getSelectedTiers: () => Array.from(document.querySelectorAll('#offer-target-tiers .tree-tier-cb:checked')).map(cb => cb.value),
     getSelectedProds: () => Array.from(document.querySelectorAll('#offer-target-prods .tree-child-cb:checked')).map(cb => cb.value),
     getSelectedStoryProds: () => Array.from(document.querySelectorAll('#story-selection-prods .tree-child-cb:checked')).map(cb => cb.value),
