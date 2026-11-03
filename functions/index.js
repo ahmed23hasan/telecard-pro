@@ -112,7 +112,7 @@ exports.onUserAuthCreated = functions
     });
 
 // ==========================================
-// 🛒 1. إننشاء الطلبات للعملاء (Storefront Order Creation)
+// 🛒 1. ننشاء الطلبات للعملاء (Storefront Order Creation)
 // ==========================================
 exports.createOrder = onCall({ memory: '512MiB', timeoutSeconds: 120, enforceAppCheck: false }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول.');
