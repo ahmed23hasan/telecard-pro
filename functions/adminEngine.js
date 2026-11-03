@@ -128,7 +128,6 @@ exports.adminUpdateUserTier = onCall({ enforceAppCheck: false }, async (request)
         throw new HttpsError('internal', `فشل التحديث: ${error.message}`);
     }
 });
-
 // ==========================================
 // 👑 2. معالجة الطلبات الإدارية (All-Reads-First Architecture)
 // ==========================================
@@ -158,7 +157,7 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                     if (['rejected', 'refunded', 'returned', 'completed'].includes(action) && ord.supplierId && ['pending', 'processing'].includes(ord.status)) {
                         const nowMs = Date.now();
                         const orderCreatedMs = FinancialEngine.parseSafeTime(ord.time || ord.createdAt) || 0;
-
+                        
                         // 1. حماية أول دقيقتين فقط أثناء الاتصال المباشر الحي (processing)
                         if (ord.status === 'processing' && orderCreatedMs > 0 && (nowMs - orderCreatedMs) < 120000) {
                             throw new HttpsError(
@@ -166,11 +165,11 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                                 '⏳ هذا الطلب قيد الاتصال المباشر مع سيرفر المورد في هذه اللحظة. يرجى الانتظار دقيقتين قبل التدخل اليدوي.'
                             );
                         }
-
+                        
                         // 2. فحص استباقي حي من سيرفر المورد قبل تنفيذ قرار الإدمن
                         if (ord.externalOrderId) {
                             const SupplierEngine = require('./supplierEngine.js');
-                            const liveCheck = await SupplierEngine.checkSingleSupplierOrderLive(ord.supplierId, ord.externalOrderId);                           
+                            const liveCheck = await SupplierEngine.checkSingleSupplierOrderLive(ord.supplierId, ord.externalOrderId);
                             
                             // أ. إذا كان المورد قد نفّذ الطلب بالفعل -> نعتمد كود المورد فوراً سواء كان الإدمن يريد قبوله أو إنقاذه من الرفض
                             if (liveCheck && liveCheck.status === 'completed') {
@@ -181,53 +180,54 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                                     externalOrderId: ord.externalOrderId,
                                     actualCostRaw: liveCheck.actualCostRaw
                                 }, db);
-
-                                if (['rejected', 'refunded', 'returned'].includes(action)) {
-                                    finalMsg = '🎉 تنبيه هام: عند فحص المورد الآن تبيّن أن المورد قد أكمل هذا الطلب بالفعل! تم إنقاذ الطلب واعتماده للعميل تلقائياً بدلاً من رفضه.';
-                                    action = 'rescued_completed';
-                                } else {
-                                    finalMsg = `🎉 تم التحقق من المورد بنجاح: تم تنفيذ الطلب وتسليم الكود (${resolvedSupplierCode}) للعميل.`;
-                                }
+                                
+                                action = 'completed';
+                                finalMsg = (['rejected', 'refunded', 'returned'].includes(data.action)) ?
+                                    '🎉 تنبيه هام: عند فحص المورد الآن تبيّن أن المورد قد أكمل هذا الطلب بالفعل! تم إنقاذ الطلب واعتماده للعميل تلقائياً بدلاً من رفضه.' :
+                                    `🎉 تم التحقق من المورد بنجاح: تم تنفيذ الطلب وتسليم الكود (${resolvedSupplierCode}) للعميل.`;
                                 return;
                             }
-
+                            
                             // ب. إذا كان الإدمن يريد رفضه والمورد رافضه فعلاً -> نسمح بالرفض الفوري من أول نقرة دون تحذير!
                             const isSupplierAlreadyRejected = Boolean(liveCheck && liveCheck.status === 'rejected' && ['rejected', 'refunded', 'returned'].includes(action));
-// ج. إذا كان ما زال معلقاً عند المورد (أو مرفوضاً عند المورد والإدمن يحاول قبوله) -> نطبق نظام النقرتين
-if (!isSupplierAlreadyRejected) {
-    const lastWarnedMs = Number(ord.adminRejectWarnedAt || 0);
-    const isConfirmedSecondClick = (lastWarnedMs > 0 && (nowMs - lastWarnedMs) < 5 * 60 * 1000) || safeAdminNote.includes('تأكيد');
-    
-    if (!isConfirmedSecondClick) {
-        await orderRef.update({ adminRejectWarnedAt: nowMs });
-        const actionLabel = action === 'completed' ? 'قبول' : 'رفض';
-        const supplierStateDesc = (liveCheck && liveCheck.status === 'rejected') ?
-            'وهو (مرفوض ❌) هناك حالياً!' :
-            'وما زال (معلقاً ⏳) هناك!';
-        throw new HttpsError(
-            'failed-precondition',
-            `⚠️ تنبيه للإدمن: هذا الطلب مرتبط بمورد (رقم الطلب عند المورد: #${ord.externalOrderId}) ${supplierStateDesc} ${actionLabel} الطلب هنا لا يغير حالته عند المورد. يرجى تفقد حالة الطلب عند المورد أولاً، وإذا أردت فرض الـ (${actionLabel}) اضغط على الزر مرة ثانية الآن.`
-        );
-    }
-}
-} else {
-    // د. طلب مورد معلق بدون رقم مرجعي خارجي (انقطع الاتصال لحظة الشراء): نطبق نظام النقرتين الإلزامي
-    const lastWarnedMs = Number(ord.adminRejectWarnedAt || 0);
-    const isConfirmedSecondClick = (lastWarnedMs > 0 && (nowMs - lastWarnedMs) < 5 * 60 * 1000) || safeAdminNote.includes('تأكيد');
-    
-    if (!isConfirmedSecondClick) {
-        await orderRef.update({ adminRejectWarnedAt: nowMs });
-        const actionLabel = action === 'completed' ? 'قبول' : 'رفض';
-        throw new HttpsError(
-            'failed-precondition',
-            `⚠️ تحذير مالي للإدمن: هذا الطلب مرتبط بمورد ولكن انقطع الاتصال لحظة الشراء (لا يوجد رقم مرجعي للمورد). يرجى مراجعة سجل الطلبات في موقع المورد يدوياً أولاً، وإذا أردت فرض الـ (${actionLabel}) اضغط على الزر مرة ثانية الآن.`
-        );
-    }
-}
-}                }
+                            
+                            // ج. إذا كان ما زال معلقاً عند المورد (أو مرفوضاً عند المورد والإدمن يحاول قبوله) -> نطبق نظام النقرتين
+                            if (!isSupplierAlreadyRejected) {
+                                const lastWarnedMs = Number(ord.adminRejectWarnedAt || 0);
+                                const isConfirmedSecondClick = (lastWarnedMs > 0 && (nowMs - lastWarnedMs) < 5 * 60 * 1000) || safeAdminNote.includes('تأكيد') || safeAdminNote.includes('تاكيد');
+                                
+                                if (!isConfirmedSecondClick) {
+                                    await orderRef.update({ adminRejectWarnedAt: nowMs });
+                                    const actionLabel = action === 'completed' ? 'قبول' : 'رفض';
+                                    const supplierStateDesc = (liveCheck && liveCheck.status === 'rejected') ?
+                                        'وهو (مرفوض ❌) هناك حالياً!' :
+                                        'وما زال (معلقاً ⏳) هناك!';
+                                    throw new HttpsError(
+                                        'failed-precondition',
+                                        `⚠️ تنبيه للإدمن: هذا الطلب مرتبط بمورد (رقم الطلب عند المورد: #${ord.externalOrderId}) ${supplierStateDesc} ${actionLabel} الطلب هنا لا يغير حالته عند المورد. يرجى تفقد حالة الطلب عند المورد أولاً، وإذا أردت فرض الـ (${actionLabel}) اضغط على الزر مرة ثانية الآن.`
+                                    );
+                                }
+                            }
+                        } else {
+                            // د. طلب مورد معلق بدون رقم مرجعي خارجي (انقطع الاتصال لحظة الشراء): نطبق نظام النقرتين الإلزامي
+                            const lastWarnedMs = Number(ord.adminRejectWarnedAt || 0);
+                            const isConfirmedSecondClick = (lastWarnedMs > 0 && (nowMs - lastWarnedMs) < 5 * 60 * 1000) || safeAdminNote.includes('تأكيد') || safeAdminNote.includes('تاكيد');
+                            
+                            if (!isConfirmedSecondClick) {
+                                await orderRef.update({ adminRejectWarnedAt: nowMs });
+                                const actionLabel = action === 'completed' ? 'قبول' : 'رفض';
+                                throw new HttpsError(
+                                    'failed-precondition',
+                                    `⚠️ تحذير مالي للإدمن: هذا الطلب مرتبط بمورد ولكن انقطع الاتصال لحظة الشراء (لا يوجد رقم مرجعي للمورد). يرجى مراجعة سجل الطلبات في موقع المورد يدوياً أولاً، وإذا أردت فرض الـ (${actionLabel}) اضغط على الزر مرة ثانية الآن.`
+                                );
+                            }
+                        }
+                    }
+                }
 
                 await db.runTransaction(async (transaction) => {
-                    keysBurnedCount = 0; keysRestoredCount = 0;
+                    keysBurnedCount = 0; 
+                    keysRestoredCount = 0;
                     
                     const liveOrderSnap = await transaction.get(orderRef);
                     if (!liveOrderSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود.');
@@ -327,15 +327,19 @@ if (!isSupplierAlreadyRejected) {
                             }, { merge: true });
                         }
 
-             let orderUpdateObj = {
-    status: action,
-    isPendingSupplierCheck: admin.firestore.FieldValue.delete(),
-    requiresAdminAttention: admin.firestore.FieldValue.delete(),
-    adminRejectWarnedAt: admin.firestore.FieldValue.delete(),
-    adminNote: safeAdminNote,
-    completedAt: admin.firestore.FieldValue.serverTimestamp(),
-    actionTime: admin.firestore.FieldValue.serverTimestamp()
-};                        if (manualDeliveredCode) orderUpdateObj.deliveredCode = deliveredCodeText;
+                        let orderUpdateObj = {
+                            status: action,
+                            isPendingSupplierCheck: admin.firestore.FieldValue.delete(),
+                            requiresAdminAttention: admin.firestore.FieldValue.delete(),
+                            adminRejectWarnedAt: admin.firestore.FieldValue.delete(),
+                            adminNote: safeAdminNote,
+                            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            actionTime: admin.firestore.FieldValue.serverTimestamp()
+                        };
+                        
+                        if (manualDeliveredCode) {
+                            orderUpdateObj.deliveredCode = deliveredCodeText;
+                        }
                         transaction.update(orderRef, orderUpdateObj);
 
                     } else if (['rejected', 'refunded', 'returned'].includes(action)) {
@@ -511,15 +515,15 @@ if (!isSupplierAlreadyRejected) {
                             });
                         }
 
-     transaction.update(orderRef, {
-    status: action,
-    isPendingSupplierCheck: admin.firestore.FieldValue.delete(),
-    requiresAdminAttention: admin.firestore.FieldValue.delete(),
-    adminRejectWarnedAt: admin.firestore.FieldValue.delete(),
-    adminNote: safeAdminNote,
-    actionTime: admin.firestore.FieldValue.serverTimestamp(),
-    balanceAfter: newWalletBal
-});
+                        transaction.update(orderRef, {
+                            status: action,
+                            isPendingSupplierCheck: admin.firestore.FieldValue.delete(),
+                            requiresAdminAttention: admin.firestore.FieldValue.delete(),
+                            adminRejectWarnedAt: admin.firestore.FieldValue.delete(),
+                            adminNote: safeAdminNote,
+                            actionTime: admin.firestore.FieldValue.serverTimestamp(),
+                            balanceAfter: newWalletBal
+                        });
                     } else if (action === 'processing') {
                         if (['completed', 'rejected', 'refunded', 'returned'].includes(previousStatus)) {
                             throw new HttpsError('failed-precondition', 'لا يمكن إعادة معالجة طلب منتهي.');
@@ -550,7 +554,8 @@ if (!isSupplierAlreadyRejected) {
         if (error instanceof HttpsError) throw error;
         throw new HttpsError('internal', `خطأ برمجي في السيرفر: ${error.message}`);
     }
-});// ==========================================
+});
+// ==========================================
 // 📦 3. دالة الرفض الجماعي للطلبات (المحصنة مع تحرير الخزنة واسترجاع المخزون وحماية طلبات الموردين)
 // ==========================================
 exports.adminBulkRejectOrders = onCall({ timeoutSeconds: 540, memory: "512MiB" }, async (request) => {
