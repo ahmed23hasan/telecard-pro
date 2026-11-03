@@ -1100,7 +1100,7 @@ const coreSyncLogic = async (supplierId) => {
 };
 
 // ==========================================
-// ⚡ دررع التسعير اللحظي الخاطف الصارم (Fail-Closed) + التنفيذ الفوري
+// ⚡ ررع التسعير اللحظي الخاطف الصارم (Fail-Closed) + التنفيذ الفوري
 // ==========================================
 const fulfillOrderWithSupplier = async (orderId, dbInstance = db) => {
     const orderRef = dbInstance.collection('telecard_orders').doc(String(orderId));
