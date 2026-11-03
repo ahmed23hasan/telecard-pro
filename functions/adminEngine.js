@@ -193,7 +193,7 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
 
                             // ب. إذا كان الإدمن يريد رفضه والمورد رافضه فعلاً -> نسمح بالرفض الفوري من أول نقرة دون تحذير!
                             const isSupplierAlreadyRejected = Boolean(liveCheck && liveCheck.status === 'rejected' && ['rejected', 'refunded', 'returned'].includes(action));
-// ج. إذا كانن ما زال معلقاً عند المورد (أو مرفوضاً عند المورد والإدمن يحاول قبوله) -> نطبق نظام النقرتين
+// ج. إذا كان ما زال معلقاً عند المورد (أو مرفوضاً عند المورد والإدمن يحاول قبوله) -> نطبق نظام النقرتين
 if (!isSupplierAlreadyRejected) {
     const lastWarnedMs = Number(ord.adminRejectWarnedAt || 0);
     const isConfirmedSecondClick = (lastWarnedMs > 0 && (nowMs - lastWarnedMs) < 5 * 60 * 1000) || safeAdminNote.includes('تأكيد');
