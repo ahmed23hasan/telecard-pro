@@ -21,7 +21,7 @@ if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
 // ==========================================
-// 🛡️ الدرع المركزي للتقييد (In-Memory Global Rate Limiter) - Zero Cost
+// 🛡️ الدرعر المركزي للتقييد (In-Memory Global Rate Limiter) - Zero Cost
 // ==========================================
 const RATE_LIMIT_WINDOW_MS = 1000; 
 const MAX_REQUESTS_PER_SEC = 5;    
