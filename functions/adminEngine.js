@@ -37,7 +37,7 @@ const isMasterAdmin = (request) => SecurityEngine.isMasterAdmin(request);
 const logAdminAction = (adminUid, action, details) => SecurityEngine.logAdminAction(db, admin, adminUid, action, details);
 
 // ==========================================
-// 🛡️ دالة التدقيق المالي المركزية (Helper Function)
+// 🛡️ دالةة التدقيق المالي المركزية (Helper Function)
 // ==========================================
 const performWalletAudit = async (userId, dbInstance, preloadedUserData = null) => {
     let userData = preloadedUserData;
