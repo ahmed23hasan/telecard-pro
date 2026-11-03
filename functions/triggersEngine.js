@@ -40,7 +40,7 @@ const isPricingOnlyAttention = (prodData) => {
 };
 
 // ==========================================
-// 🛡️ دوال بناء الكتالوج العام والكاش المركزي
+// 🛡️ دواول بناء الكتالوج العام والكاش المركزي
 // ==========================================
 const generatePublicProductData = (prodData, tiersData) => {
     const publicData = {};
