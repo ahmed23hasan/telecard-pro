@@ -1,10 +1,11 @@
 // ============================================================================
-// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.3 💎
+// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.4 💎
 // 🎯 الوظيفة: أدوات الواجهة المشتركة (الإشعارات، التحميل، النوافذ) بدون منطق عمل
-// 🌟 التحديثات المعمارية (V15.3 - Memory & CSP Shield):
-// 1. Event Leak Fix 🧹: حل مشكلة تضاعف الأحداث (Event Accumulation) في نافذة الـ Prompt.
-// 2. CSP Compliance 🛡️: إزالة הـ Inline JS من نافذة التقارير وتوجيهها للمنظف المركزي.
-// 3. Scroll Lock Safety 🔓: ضمان فك تجميد الشاشة عند إغلاق التقارير الديناميكية.
+// 🌟 التحديثات المعمارية (V15.4 - Autofill & Heuristics Shield):
+// 1. Event Leak Fix 🧹: حل مشكلة تضاعف الأحداث في نافذة الـ Prompt.
+// 2. CSP Compliance 🛡️: إزالة الـ Inline JS من نافذة التقارير.
+// 3. Scroll Lock Safety 🔓: فك تجميد الشاشة عند إغلاق النوافذ.
+// 4. Autofill Heuristics Shield 🛡️: منع اقتراح البطاقات البنكية وكلمات المرور عبر عزل خصائص name وضبط autocomplete القياسي.
 // ============================================================================
 
 import { Utils, EventBus } from '../adminUtils.js';
@@ -31,6 +32,23 @@ export const UIService = {
         return new Blob(byteArrays, { type: contentType });
     },
 
+    // 🛡️ درع الحماية الهندسي ضد التخمين التلقائي لمتصفح كروم (Chromium Autofill Heuristics)
+    shieldInputsFromBrowserAutofill: function(rootEl = document) {
+        if (!rootEl || typeof rootEl.querySelectorAll !== 'function') return;
+        const fields = rootEl.querySelectorAll('input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), textarea');
+        fields.forEach((el, idx) => {
+            if (el.type !== 'password') {
+                el.setAttribute('autocomplete', 'off');
+            }
+            el.setAttribute('autocorrect', 'off');
+            el.setAttribute('autocapitalize', 'off');
+            el.setAttribute('spellcheck', 'false');
+            if (!el.getAttribute('name')) {
+                el.setAttribute('name', `tc_adm_fld_${idx}`);
+            }
+        });
+    },
+
     initTheme: function() {
         const savedTheme = localStorage.getItem('telecard_theme');
         const icon = document.getElementById('theme-toggle-icon');
@@ -40,6 +58,19 @@ export const UIService = {
         } else {
             document.body.classList.remove('light-mode');
             if (icon) icon.className = 'fa-solid fa-moon'; 
+        }
+
+        // تفعيل درع الحقول تلقائياً عند بدء التشغيل وعند التركيز على أي حقل
+        if (!this._autofillShieldBound) {
+            this._autofillShieldBound = true;
+            this.shieldInputsFromBrowserAutofill(document);
+            document.addEventListener('focusin', (e) => {
+                const el = e.target;
+                if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+                    const container = el.closest('.modal-content, .section') || el.parentElement;
+                    this.shieldInputsFromBrowserAutofill(container);
+                }
+            }, true);
         }
     },
     
@@ -168,7 +199,8 @@ export const UIService = {
             if (msgEl) msgEl.innerHTML = this._esc(message).replace(/\n/g, '<br>');
             
             inputEl.value = defaultValue;
-            inputEl.setAttribute('autocomplete', 'new-password');
+            inputEl.setAttribute('autocomplete', 'off');
+            inputEl.setAttribute('name', 'tc_adm_prompt_val');
             inputEl.setAttribute('spellcheck', 'false');
             inputEl.setAttribute('autocorrect', 'off');
             inputEl.type = isPassword ? 'password' : 'text';
@@ -196,7 +228,6 @@ export const UIService = {
             newOkBtn.addEventListener('click', () => closeDialog(true));
             newCancelBtn.addEventListener('click', () => closeDialog(false));
             
-            // 🚀 [الإصلاح المعماري 1]: استخدام onkeypress لمنع تضاعف المستمعات وتكرار الإرسال
             inputEl.onkeypress = (e) => { 
                 if (e.key === 'Enter') {
                     e.preventDefault();
@@ -210,30 +241,31 @@ export const UIService = {
     },    
 
     showReportModal: function(title, htmlContent) {
-    const existingOverlay = document.getElementById('report-modal-overlay');
-    if (existingOverlay) existingOverlay.remove();
-    
-    const overlay = document.createElement('div');
-    overlay.id = 'report-modal-overlay';
-    overlay.className = 'sys-overlay dynamic-auto-destroy active';
-    overlay.style.cssText = 'z-index: 99999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6);';
-    
-    overlay.innerHTML = `
-                <div class="modal-content modal-md" style="animation: slideIn 0.3s ease; width: 90%; max-width: 500px;">
-                    <div class="flex-between align-items-center mb-15">
-                        <h2 class="main-title m-0"><i class="fa-solid fa-file-invoice"></i> ${this._esc(title)}</h2>
-                        <div class="modal-close-btn clickable interactive-scale" data-action="close-modal" data-id="report-modal-overlay"><i class="fa-solid fa-xmark"></i></div>
-                    </div>
-                    <div class="custom-scrollbar" style="max-height: 400px; overflow-y: auto; text-align: right; padding-left: 5px;">
-                        ${htmlContent}
-                    </div>
-                    <div class="modal-actions-row border-top-solid mt-15 pt-15">
-                        <button class="btn btn-outline-danger interactive-scale w-100" data-action="close-modal" data-id="report-modal-overlay">إغلاق التقرير</button>
-                    </div>
-                </div>`;
-    document.body.appendChild(overlay);
-    document.body.style.overflow = 'hidden';
-},
+        const existingOverlay = document.getElementById('report-modal-overlay');
+        if (existingOverlay) existingOverlay.remove();
+        
+        const overlay = document.createElement('div');
+        overlay.id = 'report-modal-overlay';
+        overlay.className = 'sys-overlay dynamic-auto-destroy active';
+        overlay.style.cssText = 'z-index: 99999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6);';
+        
+        overlay.innerHTML = `
+                    <div class="modal-content modal-md" style="animation: slideIn 0.3s ease; width: 90%; max-width: 500px;">
+                        <div class="flex-between align-items-center mb-15">
+                            <h2 class="main-title m-0"><i class="fa-solid fa-file-invoice"></i> ${this._esc(title)}</h2>
+                            <div class="modal-close-btn clickable interactive-scale" data-action="close-modal" data-id="report-modal-overlay"><i class="fa-solid fa-xmark"></i></div>
+                        </div>
+                        <div class="custom-scrollbar" style="max-height: 400px; overflow-y: auto; text-align: right; padding-left: 5px;">
+                            ${htmlContent}
+                        </div>
+                        <div class="modal-actions-row border-top-solid mt-15 pt-15">
+                            <button class="btn btn-outline-danger interactive-scale w-100" data-action="close-modal" data-id="report-modal-overlay">إغلاق التقرير</button>
+                        </div>
+                    </div>`;
+        document.body.appendChild(overlay);
+        document.body.style.overflow = 'hidden';
+    },
+
     copyText: function(text, event, element) {
         if (event) { event.stopPropagation(); event.preventDefault(); }
         if (!text) return;
@@ -293,15 +325,17 @@ export const UIService = {
         if (window.innerWidth < 992 && typeof this.closeSidebar === 'function') this.closeSidebar();
         
         document.querySelectorAll('.modal-overlay.active, .sys-overlay.active').forEach(overlay => {
-    if (overlay.id !== 'm-' + id && overlay.id !== id) {
-        overlay.classList.remove('active');
-        if (overlay.classList.contains('dynamic-auto-destroy')) {
-            setTimeout(() => { if (overlay.parentElement) overlay.remove(); }, 300);
-        }
-    }
-});
+            if (overlay.id !== 'm-' + id && overlay.id !== id) {
+                overlay.classList.remove('active');
+                if (overlay.classList.contains('dynamic-auto-destroy')) {
+                    setTimeout(() => { if (overlay.parentElement) overlay.remove(); }, 300);
+                }
+            }
+        });
+
         const modalEl = document.getElementById('m-' + id) || document.getElementById(id);
         if (modalEl) {
+            this.shieldInputsFromBrowserAutofill(modalEl);
             const scrollContent = modalEl.querySelector('.modal-content,.ud-modal-body,.ud-modal-pro');
             if (scrollContent) scrollContent.scrollTop = 0; 
             modalEl.scrollTop = 0; 
@@ -318,30 +352,31 @@ export const UIService = {
 
     // 🚀 [المنظف المعماري الذكي (Smart Garbage Collector)]
     closeModal: function(specificId = null) {
-    const modalsToClose = specificId ?
-        [document.getElementById(specificId) || document.getElementById('m-' + specificId)] :
-        document.querySelectorAll('.modal-overlay.active, .sys-overlay.active');
-    
-    modalsToClose.forEach(modal => {
-        if (modal) {
-            modal.classList.remove('active');
-            
-            setTimeout(() => {
-                if (modal.classList.contains('dynamic-auto-destroy') && modal.parentElement) {
-                    modal.remove();
-                }
-            }, 300);
+        const modalsToClose = specificId ?
+            [document.getElementById(specificId) || document.getElementById('m-' + specificId)] :
+            document.querySelectorAll('.modal-overlay.active, .sys-overlay.active');
+        
+        modalsToClose.forEach(modal => {
+            if (modal) {
+                modal.classList.remove('active');
+                
+                setTimeout(() => {
+                    if (modal.classList.contains('dynamic-auto-destroy') && modal.parentElement) {
+                        modal.remove();
+                    }
+                }, 300);
+            }
+        });
+        
+        const anyModalActive = document.querySelectorAll('.modal-overlay.active, .sys-overlay.active, .drawer-overlay.active').length > 0;
+        if (!anyModalActive) {
+            document.body.style.overflow = '';
+            this.tempImg = null;
+            this.tempFile = null;
+            EventBus.emit('modals-closed');
         }
-    });
-    
-    const anyModalActive = document.querySelectorAll('.modal-overlay.active, .sys-overlay.active, .drawer-overlay.active').length > 0;
-    if (!anyModalActive) {
-        document.body.style.overflow = '';
-        this.tempImg = null;
-        this.tempFile = null;
-        EventBus.emit('modals-closed');
-    }
-},
+    },
+
     toggleSidebar: function() {
         const sb = document.getElementById('sidebar');
         const ov = document.getElementById('sb-overlay');
@@ -353,11 +388,10 @@ export const UIService = {
         const sb = document.getElementById('sidebar');
         const ov = document.getElementById('sb-overlay');
         if (sb) { sb.classList.remove('open'); if (window.innerWidth < 992) sb.classList.remove('active'); }
-        if (ov) ov.classList.remove('active');
+        if (ov) ov.classList.remove('active'); 
     },
     
     onResize: function() {
-        // لا نتدخل في הـ DOM ونترك הـ CSS يقوم بعمله السحري (Media Queries)
         if (window.innerWidth >= 992) {
             const overlay = document.getElementById('sb-overlay');
             if (overlay) overlay.classList.remove('active');
@@ -441,7 +475,7 @@ export const UIService = {
                         canvas.height = img.height * scale;
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                         const outputMime = (file.type === 'image/png' || file.type === 'image/webp') ? file.type : 'image/jpeg';
-resolve(canvas.toDataURL(outputMime, outputMime === 'image/jpeg' ? 0.7 : 0.85)); 
+                        resolve(canvas.toDataURL(outputMime, outputMime === 'image/jpeg' ? 0.7 : 0.85)); 
                         
                         // 🧹 [حماية الذاكرة]: تنظيف الكانفاس والصورة من الذاكرة العشوائية (RAM)
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
