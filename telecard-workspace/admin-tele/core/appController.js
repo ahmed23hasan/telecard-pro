@@ -212,16 +212,15 @@ export const AppController = {
             try { await auth.signOut(); } 
             catch (e) { console.error("خطأ في تسجيل الخروج السحابي:", e); }
         }
-        
         try {
-            if (window.indexedDB && window.indexedDB.databases) {
-                window.indexedDB.databases().then(dbs => {
-                    dbs.forEach(db => {
-                        if (db.name.includes('firebase')) window.indexedDB.deleteDatabase(db.name);
-                    });
-                }).catch(()=>{});
-            }
-        } catch(e) {}
+    if (window.indexedDB && window.indexedDB.databases) {
+        window.indexedDB.databases().then(dbs => {
+            dbs.forEach(db => {
+                if (db.name && db.name.includes('firestore')) window.indexedDB.deleteDatabase(db.name);
+            });
+        }).catch(() => {});
+    }
+} catch (e) {}
         
         window.location.replace('login.html');
     },
@@ -1167,38 +1166,46 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         }
     },
     setupAdminPushNotifications: async function(forcePrompt = false) {
-        if (typeof window === 'undefined' || !window.Notification) return;
-
-        if (forcePrompt && Notification.permission === 'default') {
-            const permission = await Notification.requestPermission();
-            if (permission !== 'granted') return;
+    if (typeof window === 'undefined' || !window.Notification) return;
+    
+    if (forcePrompt && Notification.permission === 'default') {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return;
+    }
+    
+    if (Notification.permission === 'granted') {
+        if (forcePrompt && AdminUI?.toggleLoader) {
+            AdminUI.toggleLoader(true, 'جاري ربط جهازك بغرفة العمليات...');
         }
-
-        if (Notification.permission === 'granted') {
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري ربط جهازك بغرفة العمليات...');
-            try {
-                const token = await FirebaseAdapter.requestFCMToken(VAPID_KEY);
-
-                if (token) {
-                    let currentTokens = Array.isArray(this.data.adminProfile?.fcmTokens) ? [...this.data.adminProfile.fcmTokens] : [];
-                    if (!currentTokens.includes(token)) {
-                        currentTokens.push(token);
-                        if (currentTokens.length > 5) currentTokens = currentTokens.slice(-5); 
-                        
-                        if (!this.data.adminProfile) this.data.adminProfile = {};
-                        this.data.adminProfile.fcmTokens = currentTokens;
-                        
-                        await AdminData.saveAdminProfile(auth?.currentUser?.uid);
+        try {
+            const token = await FirebaseAdapter.requestFCMToken(VAPID_KEY);
+            
+            if (token) {
+                let currentTokens = Array.isArray(this.data.adminProfile?.fcmTokens) ? [...this.data.adminProfile.fcmTokens] : [];
+                if (!currentTokens.includes(token)) {
+                    currentTokens.push(token);
+                    if (currentTokens.length > 5) currentTokens = currentTokens.slice(-5);
+                    
+                    if (!this.data.adminProfile) this.data.adminProfile = {};
+                    this.data.adminProfile.fcmTokens = currentTokens;
+                    
+                    await AdminData.saveAdminProfile(auth?.currentUser?.uid);
+                    if (forcePrompt) {
                         AdminUI?.showToast('تم تفعيل الإنذار الفوري على هذا الجهاز بنجاح! 🚀', 'success');
                     }
+                } else if (forcePrompt) {
+                    AdminUI?.showToast('الرادار الفوري مفعّل ومربوط على هذا الجهاز بالفعل ✅', 'info');
                 }
-            } catch (e) {
-                console.warn('⚠️ فشل تفعيل إشعارات الإدارة:', e);
-            } finally {
-                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            }
+        } catch (e) {
+            console.warn('⚠️ فشل تفعيل إشعارات الإدارة:', e);
+        } finally {
+            if (forcePrompt && AdminUI?.toggleLoader) {
+                AdminUI.toggleLoader(false);
             }
         }
-    },
+    }
+},
 
     saveAdminPreferences: async function() {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث إعدادات غرفة العمليات...');

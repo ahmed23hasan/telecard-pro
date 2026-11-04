@@ -446,10 +446,18 @@ export const CatalogUI = {
   toggleDragEditMode: function(e) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     this.dragEditMode = !this.dragEditMode;
+    EventBus.emit('req-update-state', { dragEditMode: this.dragEditMode });
+
     if (this.dragEditMode) document.body.classList.add('drag-edit-active');
     else document.body.classList.remove('drag-edit-active');
     
-    const allContainers = document.querySelectorAll('.sortable-container,.cats-grid,.prods-grid, #banner-grid');
+    Object.entries(this._activeSortables || {}).forEach(([key, inst]) => {
+      if (inst && typeof inst.option === 'function' && key !== 'banner-grid' && key !== 'sortable_banner') {
+        inst.option('disabled', !this.dragEditMode);
+      }
+    });
+
+    const allContainers = document.querySelectorAll('.sortable-container,.cats-grid,.prods-grid');
     allContainers.forEach(c => {
       if (c.sortableInstance) c.sortableInstance.option('disabled', !this.dragEditMode);
     });
@@ -481,7 +489,6 @@ export const CatalogUI = {
     }
     return false;
   },
-
   toggleMockEdit: function(num) {
     const txtEl = document.getElementById(`mock-txt-${num}`);
     const iconEl = document.getElementById(`mock-icon-${num}`);
@@ -789,6 +796,7 @@ export const CatalogUI = {
     }
   });
   
-  this._activeSortables[containerId] = instance;
+  container.sortableInstance = instance;
+this._activeSortables[containerId] = instance;
 }
 };

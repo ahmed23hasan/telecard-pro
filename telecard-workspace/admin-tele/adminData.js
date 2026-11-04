@@ -148,16 +148,16 @@ export const AdminData = {
                 FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'active_configs') 
             ];
 
-            const dynamicPromises = [
-                FirebaseAdapter.callFunction('adminGetUsersList', { limit: 50 }),
-                FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 50 }),
-                FirebaseAdapter.callFunction('adminGetDepositsList', { limit: 50 }), 
-                FirebaseAdapter.callFunction('adminGetLogsList', { limit: 50 }),
-                FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.ALERTS, [], 'time', null, 50),
-                getDocs(query(collection(FirebaseAdapter.db, DB_KEYS.USERS), where('kycStatus', '==', 'pending'), limit(200)))
-            ];
-
-            const [staticResults, dynamicResults] = await Promise.all([
+        const dynamicPromises = [
+    FirebaseAdapter.callFunction('adminGetUsersList', { limit: 50 }),
+    FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 50 }),
+    FirebaseAdapter.callFunction('adminGetDepositsList', { limit: 50 }),
+    FirebaseAdapter.callFunction('adminGetLogsList', { limit: 50 }),
+    FirebaseAdapter.fetchMoreWithCursor(DB_KEYS.ALERTS, [], 'time', null, 50),
+    getDocs(query(collection(FirebaseAdapter.db, DB_KEYS.USERS), where('kycStatus', '==', 'pending'), limit(200))),
+    FirebaseAdapter.callFunction('adminGetDashboardStats', { leaderboardPeriod: 'all' }),
+    this.fetchWalletsLiquidityAsync()
+];            const [staticResults, dynamicResults] = await Promise.all([
                 Promise.allSettled(staticPromises),
                 Promise.allSettled(dynamicPromises)
             ]);
@@ -310,6 +310,10 @@ this.data.systemErrors = arr(rLogsCloud.systemErrors);
                 }
             });
 
+            this._preloadedDashRaw = {
+                dashSettled: dynamicResults[6],
+                walletsSettled: dynamicResults[7]
+            };
             this.isCloudSyncSuccessful = true;
             return true;
 
@@ -334,13 +338,23 @@ this.data.systemErrors = arr(rLogsCloud.systemErrors);
     fetchDashboardStatsAsync: async function(leaderboardPeriod = 'all') {
         const nowTime = Date.now();
         let stats = null;
-        try {
-            const result = await FirebaseAdapter.callFunction('adminGetDashboardStats', { leaderboardPeriod });
-            if (result && result.success && result.data) {
-                stats = result.data;
-            }
-        } catch (cloudErr) {
-            console.warn("⚠️ تعذر الاتصال بدالة adminGetDashboardStats (ربما لم تُرفع الدوال بعد):", cloudErr.message);
+
+        let dashResSettled, walletsResSettled;
+        if (this._preloadedDashRaw && leaderboardPeriod === 'all') {
+            dashResSettled = this._preloadedDashRaw.dashSettled;
+            walletsResSettled = this._preloadedDashRaw.walletsSettled;
+            this._preloadedDashRaw = null;
+        } else {
+            [dashResSettled, walletsResSettled] = await Promise.allSettled([
+                FirebaseAdapter.callFunction('adminGetDashboardStats', { leaderboardPeriod }),
+                this.fetchWalletsLiquidityAsync()
+            ]);
+        }
+
+        if (dashResSettled && dashResSettled.status === 'fulfilled' && dashResSettled.value && dashResSettled.value.success && dashResSettled.value.data) {
+            stats = dashResSettled.value.data;
+        } else {
+            console.warn("⚠️ تعذر الاتصال بدالة adminGetDashboardStats (ربما لم تُرفع الدوال بعد):", dashResSettled?.reason?.message);
             stats = {
                 _isOfflineFallback: true,
                 financials: { totalRevenue: 0, totalProfit: 0, totalCost: 0, frozenAssetsUsd: 0, apiProfit: 0, retailProfit: 0, vaultProfit: 0, manualProfit: 0, supplierProfit: 0 },
@@ -352,8 +366,9 @@ this.data.systemErrors = arr(rLogsCloud.systemErrors);
             };
         }
 
-        stats.wallets = await this.fetchWalletsLiquidityAsync().catch(() => ({ totalUsd: 0, details: {} }));
-        
+        stats.wallets = (walletsResSettled && walletsResSettled.status === 'fulfilled' && walletsResSettled.value)
+            ? walletsResSettled.value
+            : { totalUsd: 0, details: {} };        
         const activeConf = this.data.activeConfigs || {};
         const sysSettings = this.data.settings || {};
         const liveBannedIps = Array.isArray(activeConf.bannedIps) ? activeConf.bannedIps : (Array.isArray(sysSettings.bannedIps) ? sysSettings.bannedIps : []);
